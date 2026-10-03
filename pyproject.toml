@@ -16,6 +16,8 @@ dependencies = [
     "structlog>=24.0.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0.0",
+    "higgsfield-client>=0.2.0",
+    "elevenlabs>=2.70.0",
 ]
 
 [tool.hatch.build.targets.wheel]

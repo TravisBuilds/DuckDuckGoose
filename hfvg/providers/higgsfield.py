@@ -1,30 +1,33 @@
-"""Higgsfield provider adapter with dry-run mode."""
+"""Higgsfield Cloud API provider adapter with dry-run mode.
+
+Uses the official higgsfield-client SDK.
+Repo: https://github.com/higgsfield-ai/higgsfield-client
+"""
 
 import asyncio
 import os
 import uuid
 from typing import Any
 
-import httpx
-
 from hfvg.config import config
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
 # Model cost estimates from PIPELINE-LESSONS.md §5.1
+# NOTE: These are client-side estimates. No cost estimation endpoint in Higgsfield Cloud API.
 MODEL_COSTS = {
-    # Images (gpt_image_2)
+    # Images (gpt_image_2) - cost per image
     ("gpt_image_2", "1k", "low"): 0.5,
     ("gpt_image_2", "1k", "medium"): 1.0,
     ("gpt_image_2", "1k", "high"): 3.5,
     ("gpt_image_2", "2k", "low"): 0.5,
     ("gpt_image_2", "2k", "medium"): 2.0,
     ("gpt_image_2", "2k", "high"): 6.5,
-    # Video (Seedance 2.5) - per second
+    # Video (Seedance 2.5) - cost per second
     ("seedance_2.5", "480p", "draft"): 3.0,
     ("seedance_2.5", "720p", "standard"): 7.0,
     ("seedance_2.5", "1080p", "finalize"): 12.0,
-    # Video (Kling 3.0) - per second
+    # Video (Kling 3.0) - cost per second
     ("kling_3.0", "std", "standard"): 1.25,
     ("kling_3.0", "pro", "standard"): 1.5,
     # Upscale
@@ -37,16 +40,39 @@ MODEL_COSTS = {
 
 class HiggsfieldProvider(GenerationProvider):
     """
-    Higgsfield provider adapter.
+    Higgsfield Cloud API provider adapter.
 
     Supports dry-run mode (default) and real API calls when DRY_RUN=false.
+    
+    NOTE: Requires separate Higgsfield Cloud account at cloud.higgsfield.ai
+    (separate from MCP app credits).
     """
 
     def __init__(self, api_key: str | None = None, dry_run: bool | None = None):
-        self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
+        """
+        Initialize Higgsfield provider.
+        
+        Args:
+            api_key: API key in format "key-id:key-secret", or None to use env
+            dry_run: Override DRY_RUN config, or None to use config default
+        """
         self.dry_run = dry_run if dry_run is not None else config.DRY_RUN
-        self.base_url = os.getenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
         self.mock_balance = 1500.0  # Mock balance for dry-run
+        
+        if not self.dry_run:
+            # Only import real SDK if not in dry-run mode
+            try:
+                import higgsfield_client
+                self.hf = higgsfield_client
+                
+                # SDK auto-detects HF_KEY or HF_API_KEY + HF_API_SECRET from env
+                # Can also pass api_key explicitly
+                from higgsfield_client import AsyncClient
+                self.client = AsyncClient(api_key=api_key) if api_key else AsyncClient()
+            except ImportError:
+                raise ImportError(
+                    "higgsfield-client not installed. Run: pip install higgsfield-client"
+                )
 
     async def submit_image(
         self,
@@ -60,22 +86,37 @@ class HiggsfieldProvider(GenerationProvider):
         if self.dry_run:
             return self._mock_job_id("img")
 
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/v1/images/generate",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "resolution": resolution,
-                    "quality": quality,
-                    "references": references or [],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["job_id"]
+        # Real API call
+        # NOTE: Model path format is unverified. Likely something like:
+        # 'bytedance/gpt-image-2' or similar, based on README example
+        # Travis must verify correct path in Cloud API dashboard
+        
+        model_path = f"model-path-unverified/{model}"
+        
+        arguments = {
+            "prompt": prompt,
+            "resolution": resolution,
+            "quality": quality,
+        }
+        
+        if references:
+            # Upload references first
+            reference_urls = []
+            for ref in references:
+                if ref.startswith("http"):
+                    reference_urls.append(ref)
+                else:
+                    # Local file - upload it
+                    url = await self.client.upload_file(ref)
+                    reference_urls.append(url)
+            arguments["references"] = reference_urls
+        
+        controller = await self.hf.submit_async(
+            model_path,
+            arguments=arguments
+        )
+        
+        return controller.request_id
 
     async def submit_video(
         self,
@@ -91,24 +132,40 @@ class HiggsfieldProvider(GenerationProvider):
         if self.dry_run:
             return self._mock_job_id("vid")
 
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/v1/video/generate",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": model,
-                    "start_image": start_image,
-                    "prompt": prompt,
-                    "duration": duration,
-                    "resolution": resolution,
-                    "draft": draft,
-                    "references": references or [],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["job_id"]
+        # Real API call
+        # NOTE: Model path format is unverified
+        # Likely 'bytedance/kling-3.0' or 'bytedance/seedance-2.5'
+        
+        model_path = f"model-path-unverified/{model}"
+        
+        # Upload start image if local
+        if not start_image.startswith("http"):
+            start_image = await self.client.upload_file(start_image)
+        
+        arguments = {
+            "start_image": start_image,
+            "prompt": prompt,
+            "duration": duration,
+            "resolution": resolution,
+            "draft": draft,
+        }
+        
+        if references:
+            reference_urls = []
+            for ref in references:
+                if ref.startswith("http"):
+                    reference_urls.append(ref)
+                else:
+                    url = await self.client.upload_file(ref)
+                    reference_urls.append(url)
+            arguments["references"] = reference_urls
+        
+        controller = await self.hf.submit_async(
+            model_path,
+            arguments=arguments
+        )
+        
+        return controller.request_id
 
     async def submit_audio(
         self,
@@ -132,44 +189,87 @@ class HiggsfieldProvider(GenerationProvider):
                 cost=6.5,
             )
 
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/v1/jobs/{job_id}",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-            response.raise_for_status()
-            data = response.json()
-
+        # Real API call
+        status = await self.hf.status_async(request_id=job_id)
+        
+        # Map Higgsfield status to our enum
+        if isinstance(status, self.hf.Queued):
             return ProviderJob(
                 job_id=job_id,
-                status=ProviderJobStatus(data["status"]),
-                progress=data.get("progress", 0.0),
-                output_url=data.get("output", {}).get("url"),
-                cost=data.get("cost", 0.0),
-                error=data.get("error"),
+                status=ProviderJobStatus.PENDING,
+                progress=0.0,
             )
+        elif isinstance(status, self.hf.InProgress):
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.PROCESSING,
+                progress=0.5,  # SDK doesn't provide progress percentage
+            )
+        elif isinstance(status, self.hf.Completed):
+            # Get result
+            result = await self.hf.result_async(request_id=job_id)
+            
+            # Extract output URL (structure depends on model, unverified)
+            output_url = result.get("url") or result.get("output_url")
+            if isinstance(output_url, list) and output_url:
+                output_url = output_url[0]
+            
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.COMPLETED,
+                progress=1.0,
+                output_url=output_url,
+                cost=0.0,  # No cost in response, would need dashboard check
+            )
+        elif isinstance(status, self.hf.NSFW):
+            # Moderation block - map to BLOCKED status
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.BLOCKED,
+                progress=0.0,
+                error="Content moderation (NSFW)",
+            )
+        elif isinstance(status, self.hf.Failed):
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.FAILED,
+                progress=0.0,
+                error="Generation failed",
+            )
+        elif isinstance(status, self.hf.Cancelled):
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.FAILED,
+                progress=0.0,
+                error="Job cancelled",
+            )
+        
+        # Unknown status
+        return ProviderJob(
+            job_id=job_id,
+            status=ProviderJobStatus.PROCESSING,
+            progress=0.0,
+        )
 
     async def get_balance(self) -> float:
-        """Get current credit balance."""
+        """
+        Get current credit balance.
+        
+        NOTE: No balance endpoint in SDK. Returns mock in both modes.
+        Travis must check balance via cloud.higgsfield.ai dashboard.
+        """
         if self.dry_run:
             return self.mock_balance
-
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/v1/account/balance",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["balance"]
+        
+        # No balance endpoint - return mock with warning
+        return self.mock_balance
 
     async def estimate_cost(self, job_type: str, params: dict[str, Any]) -> float:
         """
         Estimate cost before submitting (0 credits).
 
-        Based on model cost card from PIPELINE-LESSONS.md
+        Based on client-side model cost card from PIPELINE-LESSONS.md.
+        No cost estimation endpoint in Higgsfield Cloud API.
         """
         model = params.get("model", "gpt_image_2")
         resolution = params.get("resolution", "2k")

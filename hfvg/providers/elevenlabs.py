@@ -1,22 +1,25 @@
-"""ElevenLabs provider adapter with dry-run mode."""
+"""ElevenLabs provider adapter with dry-run mode.
+
+Uses the official elevenlabs SDK.
+Docs: https://docs.elevenlabs.io/api-reference/authentication
+"""
 
 import asyncio
 import os
 import uuid
 from typing import Any
 
-import httpx
-
 from hfvg.config import config
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
-# Model cost estimates from PIPELINE-LESSONS.md
+# Model cost estimates from PIPELINE-LESSONS.md (UNVERIFIED from docs)
+# ElevenLabs uses character-based pricing: 1 credit ≈ 1000 characters
 AUDIO_COSTS = {
-    "eleven_multilingual_v2": 30.0,  # ~30cr per minute
-    "eleven_turbo_v2_5": 20.0,  # ~20cr per minute
-    "eleven_music": 14.7,  # ~1,400cr per 95s
-    "sound_generation": 20.0,  # ~100cr per 5s
+    "eleven_multilingual_v2": 30.0,  # ~30cr per minute (estimated)
+    "eleven_turbo_v2_5": 20.0,  # ~20cr per minute (estimated)
+    "eleven_music": 14.7,  # ~1,400cr per 95s (from PIPELINE-LESSONS)
+    "sound_generation": 20.0,  # ~100cr per 5s (from PIPELINE-LESSONS)
 }
 
 
@@ -25,13 +28,30 @@ class ElevenLabsProvider(GenerationProvider):
     ElevenLabs provider adapter.
 
     Supports dry-run mode (default) and real API calls when DRY_RUN=false.
+    SDK auto-detects ELEVENLABS_API_KEY environment variable.
     """
 
     def __init__(self, api_key: str | None = None, dry_run: bool | None = None):
-        self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY", "")
+        """
+        Initialize ElevenLabs provider.
+        
+        Args:
+            api_key: API key, or None to use ELEVENLABS_API_KEY from env
+            dry_run: Override DRY_RUN config, or None to use config default
+        """
         self.dry_run = dry_run if dry_run is not None else config.DRY_RUN
-        self.base_url = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io")
         self.mock_balance = 5000.0  # Mock balance for dry-run
+        
+        if not self.dry_run:
+            # Only import real SDK if not in dry-run mode
+            try:
+                from elevenlabs.client import ElevenLabs
+                # SDK auto-detects ELEVENLABS_API_KEY from env
+                self.client = ElevenLabs(api_key=api_key) if api_key else ElevenLabs()
+            except ImportError:
+                raise ImportError(
+                    "elevenlabs not installed. Run: pip install elevenlabs"
+                )
 
     async def submit_image(
         self,
@@ -64,74 +84,47 @@ class ElevenLabsProvider(GenerationProvider):
         model: str = "eleven_multilingual_v2",
         settings: dict[str, Any] | None = None,
     ) -> str:
-        """Submit audio generation job (TTS)."""
+        """
+        Submit audio generation job (TTS).
+        
+        NOTE: ElevenLabs TTS is synchronous - audio returns immediately.
+        We generate a job ID for consistency with Higgsfield's async model.
+        """
         if self.dry_run:
             return self._mock_job_id("aud")
 
-        # Real API call would go here
-        settings = settings or {}
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/v1/text-to-speech/{voice_id}",
-                headers={
-                    "xi-api-key": self.api_key,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "text": text,
-                    "model_id": model,
-                    "voice_settings": settings,
-                },
-            )
-            response.raise_for_status()
+        # Real API call
+        # ElevenLabs text_to_speech.convert() returns a generator of audio chunks
+        # We'll store the result and return a job ID
+        
+        audio_generator = self.client.text_to_speech.convert(
+            voice_id=voice_id,
+            text=text,
+            model_id=model,
+            voice_settings=settings or {}
+        )
+        
+        # Collect audio bytes (in real use, would stream to file)
+        audio_bytes = b"".join(audio_generator)
+        
+        # Generate job ID and cache result
+        # In production, this would be stored in a temp location or S3
+        job_id = self._mock_job_id("aud_real")
+        self._cached_results = getattr(self, "_cached_results", {})
+        self._cached_results[job_id] = {
+            "audio_bytes": audio_bytes,
+            "format": "mp3"
+        }
+        
+        return job_id
 
-            # ElevenLabs returns audio directly, not a job ID
-            # For consistency, we'd need to wrap in a job-like structure
-            # or handle synchronously
-            job_id = self._mock_job_id("aud_real")
-            return job_id
-
-    async def submit_sound_effect(self, description: str, duration: float = 5.0) -> str:
-        """Submit sound effect generation."""
-        if self.dry_run:
-            return self._mock_job_id("sfx")
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/v1/sound-generation",
-                headers={"xi-api-key": self.api_key},
-                json={
-                    "text": description,
-                    "duration_seconds": duration,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("generation_id", self._mock_job_id("sfx_real"))
-
-    async def submit_music(
-        self, prompt: str, duration: float = 30.0, model: str = "eleven_music"
-    ) -> str:
-        """Submit music generation."""
-        if self.dry_run:
-            return self._mock_job_id("mus")
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/v1/music-generation",
-                headers={"xi-api-key": self.api_key},
-                json={
-                    "prompt": prompt,
-                    "duration_seconds": duration,
-                    "model": model,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("generation_id", self._mock_job_id("mus_real"))
 
     async def get_job_status(self, job_id: str) -> ProviderJob:
-        """Poll job status."""
+        """
+        Poll job status.
+        
+        NOTE: ElevenLabs audio is synchronous, so status is always complete.
+        """
         if self.dry_run:
             await asyncio.sleep(config.DRY_RUN_AUDIO_DELAY)
             return ProviderJob(
@@ -142,37 +135,39 @@ class ElevenLabsProvider(GenerationProvider):
                 cost=30.0,
             )
 
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/v1/history/{job_id}",
-                headers={"xi-api-key": self.api_key},
-            )
-            response.raise_for_status()
-            data = response.json()
-
+        # Real API: audio already generated in submit_audio
+        # Check cached results
+        self._cached_results = getattr(self, "_cached_results", {})
+        if job_id in self._cached_results:
             return ProviderJob(
                 job_id=job_id,
-                status=ProviderJobStatus.COMPLETED if data.get("state") == "complete" else ProviderJobStatus.PROCESSING,
-                progress=1.0 if data.get("state") == "complete" else 0.5,
-                output_url=data.get("audio_url"),
-                cost=data.get("character_cost", 0.0) / 1000.0,  # Convert to credits
+                status=ProviderJobStatus.COMPLETED,
+                progress=1.0,
+                output_url=f"cached://{job_id}",  # Would be S3 URL in production
+                cost=0.0,  # Cost would come from usage API
             )
+        
+        # Job not found
+        return ProviderJob(
+            job_id=job_id,
+            status=ProviderJobStatus.FAILED,
+            progress=0.0,
+            error="Job not found in cache",
+        )
 
     async def get_balance(self) -> float:
-        """Get current credit balance."""
+        """
+        Get current credit balance.
+        
+        NOTE: ElevenLabs uses character-based quota. Returns mock for now.
+        Use client.user endpoint to check subscription/usage in production.
+        """
         if self.dry_run:
             return self.mock_balance
-
-        # Real API call would go here
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/v1/user/subscription",
-                headers={"xi-api-key": self.api_key},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("character_limit", 0) / 1000.0  # Convert to credits
+        
+        # Would use client.user.get_subscription() or client.usage endpoints
+        # Returning mock for now as implementation details need verification
+        return self.mock_balance
 
     async def estimate_cost(self, job_type: str, params: dict[str, Any]) -> float:
         """
