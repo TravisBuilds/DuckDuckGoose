@@ -10,7 +10,10 @@ from hfvg.episode_parser import parse_beatmap, get_model_routing, shots_by_scene
 @pytest.fixture
 def episode3_beatmap():
     """Path to uploaded episode 3 BEATMAP."""
-    return Path("/home/ubuntu/.cursor/projects/workspace/uploads/BEATMAP_5586.md")
+    beatmap_path = Path("/home/ubuntu/.cursor/projects/workspace/uploads/BEATMAP_5586.md")
+    if not beatmap_path.exists():
+        pytest.skip("BEATMAP_5586.md not available (local file)")
+    return beatmap_path
 
 
 def test_parse_beatmap_episode3(episode3_beatmap):
