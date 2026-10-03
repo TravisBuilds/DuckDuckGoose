@@ -87,9 +87,15 @@ class HiggsfieldProvider(GenerationProvider):
             return self._mock_job_id("img")
 
         # Real API call
-        # Model path from config (must be verified in console.higgsfield.ai)
+        # Model path from config (must be verified in cloud.higgsfield.ai)
         if model == "gpt_image_2":
             model_path = config.MODEL_PATH_GPT_IMAGE_2
+            if not model_path:
+                raise ValueError(
+                    "MODEL_PATH_GPT_IMAGE_2 not configured. "
+                    "Set environment variable to verified model path from cloud.higgsfield.ai. "
+                    "See docs/PROVIDERS.md for known paths."
+                )
         else:
             model_path = model  # Use as-is if not a known alias
         
@@ -133,11 +139,23 @@ class HiggsfieldProvider(GenerationProvider):
             return self._mock_job_id("vid")
 
         # Real API call
-        # Model path from config (must be verified in console.higgsfield.ai)
+        # Model path from config (must be verified in cloud.higgsfield.ai)
         if model == "seedance_2.5":
             model_path = config.MODEL_PATH_SEEDANCE
+            if not model_path:
+                raise ValueError(
+                    "MODEL_PATH_SEEDANCE not configured. "
+                    "Set environment variable to verified model path from cloud.higgsfield.ai. "
+                    "See docs/PROVIDERS.md for known paths."
+                )
         elif model == "kling_3.0":
             model_path = config.MODEL_PATH_KLING
+            if not model_path:
+                raise ValueError(
+                    "MODEL_PATH_KLING not configured. "
+                    "Set environment variable to verified model path from cloud.higgsfield.ai. "
+                    "See docs/PROVIDERS.md for known paths."
+                )
         else:
             model_path = model  # Use as-is if not a known alias
         

@@ -429,14 +429,30 @@ All claims in this document are verified against these sources:
 
 ### (a) Model Availability on Higgsfield Cloud API
 
-**UNVERIFIED**: Exact model paths for GPT Image 2, Seedance 2.5, and Kling 3.0 could not be confirmed.
+**Model Discovery**: Per [docs.higgsfield.ai](https://docs.higgsfield.ai/docs/llms.txt), model paths must be discovered at cloud.higgsfield.ai.
 
-**Known:**
-- Cloud API uses model path format like `bytedance/seedream/v4/text-to-image` (from SDK README example)
-- API base: `https://api.higgsfield.ai`
-- **Travis must verify available models in Cloud API dashboard** after account creation
+**Known Paths** (from [Quickstart](https://docs.higgsfield.ai/docs/quickstart.md) and [OpenAPI spec](https://docs.higgsfield.ai/docs/openapi.json)):
+- **Soul (image generation)**: `/higgsfield-ai/soul/v2/standard` or `/higgsfield-ai/soul/standard`
+- **Kling video**: `/kling-video/v2.5-turbo/pro/image-to-video` (pro tier)
+- **Kling video**: `/kling-video/v2.5-turbo/standard/image-to-video` (standard tier)
+- **Minimax Hailuo**: `/minimax/hailuo-2.3/standard/image-to-video`
 
-**Recommendation**: Log into cloud.higgsfield.ai dashboard and browse available model catalog. Model paths are likely visible in the generation UI or API documentation there.
+**Not Found in Public Docs**:
+- GPT Image 2 (if available)
+- Seedance 2.5 (if available)
+- Kling 3.0 (may be at `/kling-video/v2.5-turbo/pro/image-to-video`)
+
+**Configuration Required**:
+```bash
+# NO DEFAULTS - must configure before real generation
+export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Required for stills
+export MODEL_PATH_SEEDANCE="/path/from/console"      # Required for dry video
+export MODEL_PATH_KLING="/kling-video/v2.5-turbo/pro/image-to-video"  # Try this for Kling
+```
+
+**Submission will fail fast** with clear error if paths not set.
+
+**Travis must**: Log into cloud.higgsfield.ai, browse model catalog, verify exact paths.
 
 ### (b) Billing Separation: Cloud API vs MCP App
 
@@ -449,7 +465,7 @@ All claims in this document are verified against these sources:
 
 **Billing models:**
 - **MCP Server** (higgsfield.ai): Plan credits (monthly/annual subscription)
-- **Cloud API** (console.higgsfield.ai): Pay-per-generation USD balance, top-up model
+- **Cloud API** (cloud.higgsfield.ai): Pay-per-generation USD balance, top-up model
 
 **Implication**: Travis can either:
 1. Use Cloud API with a separate paid account (pay-per-generation)
