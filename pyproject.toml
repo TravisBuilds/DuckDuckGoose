@@ -8,9 +8,6 @@ version = "0.1.0"
 description = "Temporal-based workflow harness for turning ideas into finished short videos"
 readme = "README.md"
 requires-python = ">=3.11"
-
-[tool.hatch.build.targets.wheel]
-packages = ["hfvg"]
 dependencies = [
     "temporalio>=1.8.0",
     "aiosqlite>=0.20.0",
@@ -18,6 +15,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "structlog>=24.0.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hfvg"]
 
 [project.optional-dependencies]
 dev = [
