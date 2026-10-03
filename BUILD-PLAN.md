@@ -325,3 +325,415 @@ These are queryable from the credit and job ledgers.
 **The architecture is sound.** Temporal handles the reliability layer. The agent SDK handles judgment. MCP connectors go in Activities. The ledger tracks everything.
 
 **Ready to build.**
+
+---
+
+## Milestone 2: Production Readiness for Episode 4
+
+**Goal**: Prepare the harness for its first real production run of episode 4.  
+**Target Date**: October 5, 2026  
+**Status**: In Progress
+
+### ✅ Completed
+
+1. **Provider Authentication Research** (`docs/PROVIDERS.md`)
+   - Higgsfield: Direct REST API with `HIGGSFIELD_API_KEY`
+   - ElevenLabs: Standard API key via `ELEVENLABS_API_KEY`
+   - Both support headless server workflows
+   - No interactive OAuth required
+   - Decision: API key authentication approved
+
+2. **Provider Adapters** (`hfvg/providers/`)
+   - `HiggsfieldProvider`: Image/video generation with cost estimates
+   - `ElevenLabsProvider`: Audio generation (TTS, SFX, music)
+   - Both default to `DRY_RUN=true` (zero credits spent)
+   - Mock responses in dry-run mode with realistic job IDs
+   - Cost estimation from PIPELINE-LESSONS.md model card
+   - 8 provider tests passing
+
+3. **Canary CLI Command** (`hfvg canary`)
+   - Generate ONE draft still with real API (manual only)
+   - Requires `DRY_RUN=false` explicitly set
+   - Shows cost estimate and balance before generation
+   - Confirmation prompt before spending credits
+   - NOT run in CI, manual testing only
+
+4. **Asset Registry** (`hfvg/registry.py`)
+   - Load CHARACTER-LOCK.md for series identity
+   - Load refs/apparel/<lock-id>/ for locked assets
+   - Load per-episode refs/ and envs/ plates
+   - Validate shots only reference locked assets
+   - Track media IDs for idempotency
+   - Support for superseded version detection
+
+5. **Playbook Rule Validators** (`hfvg/playbook.py`)
+   - Credit cap enforcement (§3.5)
+   - Draft-first tier validation (§5.6)
+   - Same-resort environment check (§6)
+   - Duck role validation (§5)
+   - No upright/carrying poses (§7)
+   - Moderation-safe routing recommendations (§3.2)
+
+### 🚧 In Progress
+
+6. **Episode Input Parsing**
+   - Load BRIEF/BEATMAP format docs
+   - Parse beat maps with transitions
+   - Extract character counts, duck roles, tags
+   - Generate shot plans from beats
+
+7. **Integration with Existing Activities**
+   - Wire provider adapters to submit_job/await_job
+   - Add registry validation to shot planning
+   - Add playbook validation to pre-submit checks
+
+8. **CI/Testing**
+   - Full test suite with mocked providers
+   - No real API calls in CI
+   - Documentation tests
+
+---
+
+## Episode 4 Readiness Checklist
+
+This is the **order of first real production run** for episode 4 of "Mid-Mountain Rest / Quacked Concierge Peak Glow Up".
+
+### Phase 0: Setup (Travis)
+
+**What Travis Must Provide:**
+
+1. **API Credentials**
+   ```bash
+   export HIGGSFIELD_API_KEY=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   export ELEVENLABS_API_KEY=sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+   - Higgsfield API key from: Dashboard → Account → API Keys
+   - ElevenLabs API key from: Profile Settings → API Key
+   - Store in `.env` file (not committed) or environment
+
+2. **Credit Balance**
+   - Higgsfield: ≥1,500 credits (hard cap for Ep04)
+   - ElevenLabs: ≥4,000 credits (audio after picture lock)
+   - Check balances: `hfvg canary` (aborts before spending)
+
+3. **Series Folder Structure**
+   ```
+   series/
+   ├── CHARACTER-LOCK.md              # Series identity lock
+   ├── refs/
+   │   ├── apparel/
+   │   │   ├── concierge-mallard-tuque-v3/
+   │   │   │   ├── AB02.png ... AB05.png
+   │   │   │   └── media-ids.json
+   │   │   └── [other locked apparel]/
+   │   └── world/
+   │       └── media-ids.json         # Resort frames (Ep01/Ep02)
+   └── logo/
+       └── locked/
+           └── logo.png
+   ```
+   - Set `SERIES_PATH=/path/to/series` in environment
+
+4. **Episode 4 Folder Structure**
+   ```
+   ep04-<guests>/
+   ├── BRIEF.md                       # Episode brief (like Ep03)
+   ├── BEATMAP.md                     # Beat-by-beat shot plan
+   ├── CONTINUITY.md                  # Per-room continuity bible
+   ├── CREDIT-PLAN.md                 # Budget breakdown
+   ├── STATUS.md                      # Production tracking
+   ├── refs/
+   │   ├── guests/                    # Guest character refs
+   │   └── props/                     # Episode-specific props
+   └── envs/
+       └── [room plates]              # Episode environment plates
+   ```
+   - Set `EPISODE_PATH=/path/to/ep04-<guests>` in environment
+
+### Phase 1: Canary Test (Manual)
+
+**Before any production work, verify setup:**
+
+```bash
+# Test 1: Dry-run mode (no credits)
+DRY_RUN=true hfvg canary
+
+# Test 2: Check balance
+DRY_RUN=false hfvg canary
+# (abort at confirmation prompt)
+
+# Test 3: Generate ONE draft still (1 credit)
+DRY_RUN=false hfvg canary \
+  --model gpt_image_2 \
+  --resolution 1k \
+  --quality medium \
+  --prompt "A cozy mountain resort lobby with timber beams"
+# Confirm when prompted
+
+# Expected: Job completes successfully, URL returned, 1cr deducted
+```
+
+**Success Criteria:**
+- Balance check works
+- Cost estimate matches (1.0cr for 1k medium)
+- Job submits and completes
+- Output URL accessible
+- Balance decremented correctly
+
+**On Failure:**
+- Check `HIGGSFIELD_API_KEY` is set and valid
+- Check API key has not expired
+- Check account has credits
+- Check network can reach api.higgsfield.ai
+
+### Phase 2: Episode 4 Document Prep (Travis)
+
+**Before starting the harness:**
+
+1. **Write Episode 4 Docs**
+   - `BRIEF.md`: Story, characters, climax, VO outline
+   - `BEATMAP.md`: Shot-by-shot plan with transitions, tags, duck roles
+   - `CONTINUITY.md`: Room masters, prop counts, costume per character
+   - `CREDIT-PLAN.md`: Budget breakdown using Ep03 template
+
+2. **Lock Episode 4 Guest Characters**
+   - Generate guest identity refs (2k high)
+   - Create head sheets and turnarounds
+   - Lock in `ep04-<guests>/refs/guests/GUEST-LOCK.md`
+   - Generate height board with duck + guests
+
+3. **Generate Room Plates**
+   - Use series world refs (ONE-RESORT RULE §6)
+   - QC each plate side-by-side vs resort frames
+   - Save as `ep04-<guests>/envs/ROOM01.png` etc.
+
+### Phase 3: Pre-Production (G1 in Credit Plan)
+
+**Harness runs in draft mode:**
+
+```bash
+# Start episode from docs
+hfvg start-episode \
+  --episode-id ep04-<guests> \
+  --episode-path ./ep04-<guests> \
+  --series-path ./series \
+  --platforms instagram
+
+# Wait for pre-production refs gate
+hfvg query-state ep04-<guests>
+```
+
+**What Runs:**
+1. Parse BRIEF + BEATMAP
+2. Load asset registry
+3. Validate shot references
+4. Generate character ABs (2k high)
+5. Generate height board
+6. QC character drift
+7. Report pre-production cost
+
+**Manual Approval:**
+- Travis reviews character ABs
+- Travis approves or requests regeneration
+- Once approved: `hfvg approve ep04-<guests> pre-production`
+
+### Phase 4: Still Drafts (G2 in Credit Plan)
+
+**Harness generates draft stills (1k medium, 1cr each):**
+
+```bash
+# Still drafts run automatically after pre-production approval
+
+# Monitor progress
+hfvg query-state ep04-<guests>
+
+# Wait for draft strip
+hfvg query-strip ep04-<guests>
+```
+
+**What Runs:**
+1. Generate draft stills (1k medium)
+2. QC each draft (character drift, headcount, height, duck role, props)
+3. Auto-retry failures (max 2 retries per shot)
+4. Assemble contact strip in edit order
+5. Annotate cuts (last frame A vs first frame B)
+
+**Manual Approval:**
+- Travis reviews draft strip
+- Travis marks shots for revision or approval
+- `hfvg approve ep04-<guests> stills`
+
+### Phase 5: Final Stills (G3 in Credit Plan)
+
+**Harness generates finals (2k high, 6.5cr each):**
+
+```bash
+# Finals run automatically after still approval
+# Only approved shots rendered at final resolution
+```
+
+**What Runs:**
+1. Render finals for approved shots only
+2. QC finals (texture, small props, text legibility)
+3. Report cost
+
+### Phase 6: Video Drafts (G4 in Credit Plan)
+
+**Harness generates draft videos:**
+
+```bash
+# Video drafts run automatically after final stills
+```
+
+**What Runs:**
+1. Route shots by content:
+   - Wet/mud/pool → Kling 3.0 pro (6cr)
+   - Dry/complex → Seedance 480p draft (3cr/s)
+2. QC drafts (motion, props, continuity)
+3. Auto-retry failures
+4. Assemble draft mute
+
+**Manual Approval:**
+- Travis reviews draft mute shot-by-shot
+- `hfvg approve ep04-<guests> video-drafts`
+
+### Phase 7: Finals & Finalize (G5 in Credit Plan)
+
+**First: Finalize pilot to verify motion match:**
+
+```bash
+# Pilot: one shot finalized to test matching
+# 60cr total (12cr draft + 48cr finalize)
+```
+
+**If pilot matches 1:1:**
+- Finalize approved hero shots (~2 shots)
+- Upscale remaining Seedance drafts
+- Assemble picture lock mute
+
+**Manual Approval:**
+- Travis reviews final mute
+- `hfvg approve ep04-<guests> picture-lock`
+
+### Phase 8: Audio (G6 in Credit Plan)
+
+**After picture lock, generate audio:**
+
+```bash
+# Audio runs automatically after picture lock
+```
+
+**What Runs:**
+1. Generate VO (Japanese, Sora voice)
+2. Generate BGM (reuse series beds)
+3. Generate SFX
+4. Mix audio to picture
+5. Burn hard subs
+
+**Manual Approval:**
+- Travis reviews mixed episode
+- `hfvg approve ep04-<guests> mix`
+
+### Phase 9: Hand-Off Package
+
+**Harness does NOT post. Instead:**
+
+```bash
+# Generate hand-off package
+hfvg export ep04-<guests>
+```
+
+**Package Contents:**
+1. Final mixed video (MP4)
+2. Locked still frames
+3. Credit log (actual spend)
+4. Asset manifest
+5. Distribution metadata
+
+**Travis distributes manually** (never automated posting per hard rule).
+
+---
+
+## Development Workflow
+
+### Local Development
+```bash
+# Clone repo
+git clone <repo-url>
+cd hands-free-video-generator
+
+# Install dependencies
+pip install -e .
+
+# Run in dry-run mode (no credits)
+export DRY_RUN=true
+hfvg start-episode --episode-id test --idea "Test" --platforms instagram
+
+# Run tests
+pytest tests/ -v
+```
+
+### Environment Variables Summary
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DRY_RUN` | No | `true` | Dry-run mode (no real API calls) |
+| `HIGGSFIELD_API_KEY` | For real gen | - | Higgsfield API key |
+| `ELEVENLABS_API_KEY` | For real gen | - | ElevenLabs API key |
+| `SERIES_PATH` | No | `./series` | Path to series folder |
+| `EPISODE_PATH` | No | `./episode` | Path to episode folder |
+| `TEMPORAL_HOST` | No | `localhost:7233` | Temporal server |
+| `TEMPORAL_NAMESPACE` | No | `default` | Temporal namespace |
+
+### Public Repository Safety
+
+**NO secrets committed:**
+- All API keys from environment only
+- `.env` in `.gitignore`
+- No reference images with private metadata
+- Config files point at local paths only
+
+**CI Safety:**
+- `DRY_RUN=true` hardcoded in CI
+- No API keys in GitHub Secrets
+- Mocked providers for all tests
+- Zero credits spent in CI
+
+---
+
+## Production Budget (Episode 4)
+
+Based on PIPELINE-LESSONS.md §5.7 and Ep03 CREDIT-PLAN:
+
+| Phase | Higgsfield | ElevenLabs |
+|-------|------------|------------|
+| Pre-production refs | ≤350cr | - |
+| Still drafts | ≤120cr | - |
+| Final stills | ≤260cr | - |
+| Video drafts | ≤440cr | - |
+| Finals/finalize | ≤120cr | - |
+| Reserve | ≤100cr | - |
+| **Total Higgsfield** | **≤1,500cr** | - |
+| Audio (after picture lock) | - | ≤4,000cr |
+
+**Hard caps:**
+- Higgsfield: 1,500cr (stop at 80% per line)
+- ElevenLabs: 4,000cr
+- Revision budget: ≤25% of spend
+
+---
+
+## Next Steps (Completing Milestone 2)
+
+1. ✅ Provider auth research → `docs/PROVIDERS.md`
+2. ✅ Provider adapters → `hfvg/providers/`
+3. ✅ Canary CLI → `hfvg canary`
+4. ✅ Asset registry → `hfvg/registry.py`
+5. ✅ Playbook validators → `hfvg/playbook.py`
+6. 🚧 Episode input parser → `hfvg/episode.py`
+7. 🚧 Integration tests with mocks
+8. 🚧 Full test suite passing
+9. 🚧 CI green
+10. 🚧 Open PR #2
+
+**Target**: Ready by October 5, 2026 for Episode 4 production.

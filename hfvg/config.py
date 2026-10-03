@@ -23,6 +23,10 @@ class Config:
     )
     DRY_RUN_STALL_RATE: float = float(os.getenv("DRY_RUN_STALL_RATE", "0.0"))
 
+    # Asset registry paths
+    SERIES_PATH: str = os.getenv("SERIES_PATH", "./series")
+    EPISODE_PATH: str = os.getenv("EPISODE_PATH", "./episode")
+
     INITIAL_CREDIT_BALANCE: float = float(os.getenv("INITIAL_CREDIT_BALANCE", "10000.0"))
     LOW_BALANCE_THRESHOLD: float = float(os.getenv("LOW_BALANCE_THRESHOLD", "1000.0"))
 
