@@ -101,15 +101,32 @@ export DRY_RUN_FAILURE_RATE=0.1
 
 ## Running Tests
 
+### Smoke Tests (Fast, No Server Required)
+
 ```bash
-pytest
+pytest tests/test_smoke.py -v
 ```
 
-Tests cover:
+Smoke tests verify:
+- All modules import successfully
+- Configuration loads correctly
+- Error classes work as expected
+- Ledger operations (init, idempotency keys, credit operations)
+- Credit guard raises InsufficientCreditsError
+
+### Integration Tests (Require Temporal Dev Server)
+
+```bash
+pytest -v
+```
+
+Integration tests cover:
 - Time-skipping test: dry-run episode through all gates
 - Heartbeat failure: stalled activity is failed and retried
 - Idempotency: duplicate submits don't create duplicate jobs
 - Credit guard: InsufficientCredits pauses rather than retries
+
+**Note:** Integration tests use Temporal's time-skipping WorkflowEnvironment and may take longer to run.
 
 ## Project Structure
 
