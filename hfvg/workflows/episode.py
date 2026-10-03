@@ -133,18 +133,21 @@ class EpisodeWorkflow:
 
         shot_workflows = []
         for shot in all_shots:
+            # Handle both dict and Pydantic model formats
+            shot_dict = shot if isinstance(shot, dict) else shot.model_dump()
+            
             wf = await workflow.execute_child_workflow(
                 ShotWorkflow.run,
-                args=[episode_id, shot],
-                id=f"{episode_id}-shot-{shot['shot_id']}",
+                args=[episode_id, shot_dict],
+                id=f"{episode_id}-shot-{shot_dict['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
             shot_workflows.append(wf)
-            self.shot_results[shot["shot_id"]] = wf
+            self.shot_results[shot_dict["shot_id"]] = wf
 
         workflow.logger.info(f"Launched {len(shot_workflows)} shot workflows")
 
-        scene_ids = {shot["scene_id"] for shot in all_shots}
+        scene_ids = {(shot if isinstance(shot, dict) else shot.model_dump())["scene_id"] for shot in all_shots}
         for scene_id in sorted(scene_ids):
             workflow.logger.info(f"Awaiting approval for scene {scene_id}")
             await workflow.wait_condition(lambda sid=scene_id: sid in self.scenes_approved)
