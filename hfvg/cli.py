@@ -59,6 +59,27 @@ def query_state(episode_id: str):
         state = await handle.query(EpisodeWorkflow.get_state)
 
         click.echo(json.dumps(state, indent=2))
+        
+        # Show what gate is waiting
+        stage = state.get("stage", "")
+        if not state.get("readback_approved"):
+            click.echo("\n⏸  Waiting: approve readback")
+        elif not state.get("character_locks_approved", True):  # May not be in old states
+            click.echo("\n⏸  Waiting: approve character-locks")
+        elif not state.get("storyboard_approved"):
+            click.echo("\n⏸  Waiting: approve storyboard")
+        elif stage in ["still_generation", "still_review"]:
+            approved = set(state.get("scenes_approved", []))
+            # Would need storyboard to know all scene IDs, so just show what's approved
+            if approved:
+                click.echo(f"\n⏸  Approved scenes: {sorted(approved)}")
+                click.echo("   Waiting: approve remaining scene stills")
+            else:
+                click.echo("\n⏸  Waiting: approve scene stills (use --scene-id)")
+        elif not state.get("final_approved"):
+            click.echo("\n⏸  Waiting: approve final")
+        elif stage == "post_approval":
+            click.echo("\n⏸  Waiting: approve-posts")
 
     asyncio.run(_query())
 

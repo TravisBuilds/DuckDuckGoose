@@ -9,12 +9,14 @@ class Config:
 
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
 
-    DRY_RUN_STILL_DELAY: float = float(os.getenv("DRY_RUN_STILL_DELAY", "2.0"))
-    DRY_RUN_CLIP_DELAY: float = float(os.getenv("DRY_RUN_CLIP_DELAY", "5.0"))
-    DRY_RUN_QC_DELAY: float = float(os.getenv("DRY_RUN_QC_DELAY", "1.0"))
-    DRY_RUN_MEDIA_DELAY: float = float(os.getenv("DRY_RUN_MEDIA_DELAY", "3.0"))
-    DRY_RUN_AUDIO_DELAY: float = float(os.getenv("DRY_RUN_AUDIO_DELAY", "2.0"))
+    # Near-zero delays for fast testing (configurable via env vars)
+    DRY_RUN_STILL_DELAY: float = float(os.getenv("DRY_RUN_STILL_DELAY", "0.05"))
+    DRY_RUN_CLIP_DELAY: float = float(os.getenv("DRY_RUN_CLIP_DELAY", "0.1"))
+    DRY_RUN_QC_DELAY: float = float(os.getenv("DRY_RUN_QC_DELAY", "0.02"))
+    DRY_RUN_MEDIA_DELAY: float = float(os.getenv("DRY_RUN_MEDIA_DELAY", "0.05"))
+    DRY_RUN_AUDIO_DELAY: float = float(os.getenv("DRY_RUN_AUDIO_DELAY", "0.05"))
 
+    # Failure injection off by default (tests can enable)
     DRY_RUN_FAILURE_RATE: float = float(os.getenv("DRY_RUN_FAILURE_RATE", "0.0"))
     DRY_RUN_CONTENT_BLOCK_RATE: float = float(
         os.getenv("DRY_RUN_CONTENT_BLOCK_RATE", "0.0")
