@@ -60,19 +60,20 @@ class HiggsfieldProvider(GenerationProvider):
         self.mock_balance = 1500.0  # Mock balance for dry-run
         
         if not self.dry_run:
-            # Only import real SDK if not in dry-run mode
-            try:
-                import higgsfield_client
-                self.hf = higgsfield_client
-                
-                # SDK auto-detects HF_KEY or HF_API_KEY + HF_API_SECRET from env
-                # Can also pass api_key explicitly
-                from higgsfield_client import AsyncClient
-                self.client = AsyncClient(api_key=api_key) if api_key else AsyncClient()
-            except ImportError:
-                raise ImportError(
-                    "higgsfield-client not installed. Run: pip install higgsfield-client"
+            # Get credentials from config (handles multiple formats)
+            self.api_key = api_key or config.get_higgsfield_credentials()
+            if not self.api_key:
+                raise ValueError(
+                    "Higgsfield credentials not found. Set HF_KEY, HF_API_KEY (with colon), "
+                    "or HF_API_KEY_ID + HF_API_KEY_SECRET environment variables."
                 )
+            
+            # Import HTTP client for REST API calls with custom headers
+            try:
+                import httpx
+                self.http_client = httpx.AsyncClient(timeout=60.0)
+            except ImportError:
+                raise ImportError("httpx not installed. Run: pip install httpx")
 
     async def submit_image(
         self,
@@ -81,8 +82,18 @@ class HiggsfieldProvider(GenerationProvider):
         resolution: str = "2k",
         quality: str = "high",
         references: list[str] | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
-        """Submit image generation job."""
+        """
+        Submit image generation job.
+        
+        Args:
+            idempotency_key: Optional idempotency key for safe retries.
+                            If not provided, a random UUID is generated.
+        
+        Returns:
+            Provider request_id
+        """
         if self.dry_run:
             return self._mock_job_id("img")
 
@@ -99,30 +110,33 @@ class HiggsfieldProvider(GenerationProvider):
         else:
             model_path = model  # Use as-is if not a known alias
         
-        arguments = {
+        # Build request body
+        body = {
             "prompt": prompt,
             "resolution": resolution,
             "quality": quality,
         }
         
         if references:
-            # Upload references first
-            reference_urls = []
-            for ref in references:
-                if ref.startswith("http"):
-                    reference_urls.append(ref)
-                else:
-                    # Local file - upload it
-                    url = await self.client.upload_file(ref)
-                    reference_urls.append(url)
-            arguments["references"] = reference_urls
+            body["references"] = references
         
-        controller = await self.hf.submit_async(
-            model_path,
-            arguments=arguments
-        )
+        # Generate idempotency key if not provided
+        if not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
         
-        return controller.request_id
+        # Make REST API call with Authorization and Idempotency-Key headers
+        headers = {
+            "Authorization": f"Key {self.api_key}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotency_key,
+        }
+        
+        url = f"https://api.higgsfield.ai/{model_path}"
+        response = await self.http_client.post(url, json=body, headers=headers)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result["request_id"]
 
     async def submit_video(
         self,
@@ -133,8 +147,18 @@ class HiggsfieldProvider(GenerationProvider):
         resolution: str = "1080p",
         draft: bool = False,
         references: list[str] | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
-        """Submit video generation job."""
+        """
+        Submit video generation job.
+        
+        Args:
+            idempotency_key: Optional idempotency key for safe retries.
+                            If not provided, a random UUID is generated.
+        
+        Returns:
+            Provider request_id
+        """
         if self.dry_run:
             return self._mock_job_id("vid")
 
@@ -147,41 +171,41 @@ class HiggsfieldProvider(GenerationProvider):
         else:
             model_path = model  # Use as-is if not a known alias
         
-        # Upload start image if local
-        if not start_image.startswith("http"):
-            start_image = await self.client.upload_file(start_image)
-        
-        # Build arguments per model schema
-        arguments = {
-            "image_url": start_image,  # Both models use image_url
+        # Build request body per model schema
+        body = {
+            "image_url": start_image,  # Both models use image_url (must be public URL)
             "prompt": prompt,
             "duration": int(duration),  # Both models: integer duration
         }
         
         # Seedance-specific: resolution field (480p/720p/1080p)
         if model == "seedance_2.5":
-            arguments["resolution"] = resolution
+            body["resolution"] = resolution
             # draft parameter is not in the API - remove it
         
         # Kling-specific: no resolution field (always native 1080p)
         # draft parameter is not in the API - ignore it
         
         if references:
-            reference_urls = []
-            for ref in references:
-                if ref.startswith("http"):
-                    reference_urls.append(ref)
-                else:
-                    url = await self.client.upload_file(ref)
-                    reference_urls.append(url)
-            arguments["references"] = reference_urls
+            body["references"] = references
         
-        controller = await self.hf.submit_async(
-            model_path,
-            arguments=arguments
-        )
+        # Generate idempotency key if not provided
+        if not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
         
-        return controller.request_id
+        # Make REST API call with Authorization and Idempotency-Key headers
+        headers = {
+            "Authorization": f"Key {self.api_key}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotency_key,
+        }
+        
+        url = f"https://api.higgsfield.ai/{model_path}"
+        response = await self.http_client.post(url, json=body, headers=headers)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result["request_id"]
 
     async def submit_audio(
         self,
@@ -206,38 +230,46 @@ class HiggsfieldProvider(GenerationProvider):
             )
 
         # Real API call
-        status = await self.hf.status_async(request_id=job_id)
+        headers = {
+            "Authorization": f"Key {self.api_key}",
+        }
+        
+        url = f"https://api.higgsfield.ai/requests/{job_id}/status"
+        response = await self.http_client.get(url, headers=headers)
+        response.raise_for_status()
+        
+        result = response.json()
+        status_str = result.get("status", "").lower()
         
         # Map Higgsfield status to our enum
-        if isinstance(status, self.hf.Queued):
+        if status_str == "queued":
             return ProviderJob(
                 job_id=job_id,
                 status=ProviderJobStatus.PENDING,
                 progress=0.0,
             )
-        elif isinstance(status, self.hf.InProgress):
+        elif status_str in ("processing", "in_progress"):
             return ProviderJob(
                 job_id=job_id,
                 status=ProviderJobStatus.PROCESSING,
-                progress=0.5,  # SDK doesn't provide progress percentage
+                progress=0.5,
             )
-        elif isinstance(status, self.hf.Completed):
-            # Get result
-            result = await self.hf.result_async(request_id=job_id)
-            
-            # Extract output URL (structure depends on model, unverified)
-            output_url = result.get("url") or result.get("output_url")
-            if isinstance(output_url, list) and output_url:
-                output_url = output_url[0]
+        elif status_str == "completed":
+            # Extract output URL from result (varies by model)
+            output_url = None
+            if "images" in result and result["images"]:
+                output_url = result["images"][0].get("url")
+            elif "video" in result and result["video"]:
+                output_url = result["video"].get("url")
             
             return ProviderJob(
                 job_id=job_id,
                 status=ProviderJobStatus.COMPLETED,
                 progress=1.0,
                 output_url=output_url,
-                cost=0.0,  # No cost in response, would need dashboard check
+                cost=0.0,  # No cost in response
             )
-        elif isinstance(status, self.hf.NSFW):
+        elif status_str == "nsfw":
             # Moderation block - map to BLOCKED status
             return ProviderJob(
                 job_id=job_id,
@@ -245,19 +277,19 @@ class HiggsfieldProvider(GenerationProvider):
                 progress=0.0,
                 error="Content moderation (NSFW)",
             )
-        elif isinstance(status, self.hf.Failed):
+        elif status_str == "failed":
             return ProviderJob(
                 job_id=job_id,
                 status=ProviderJobStatus.FAILED,
                 progress=0.0,
-                error="Generation failed",
+                error=result.get("error", "Generation failed"),
             )
-        elif isinstance(status, self.hf.Cancelled):
+        elif status_str == "canceled":
             return ProviderJob(
                 job_id=job_id,
                 status=ProviderJobStatus.FAILED,
                 progress=0.0,
-                error="Job cancelled",
+                error="Job canceled",
             )
         
         # Unknown status

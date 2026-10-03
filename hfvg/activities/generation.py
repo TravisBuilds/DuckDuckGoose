@@ -51,6 +51,7 @@ async def submit_still_job(episode_id: str, req: GenerationRequest) -> str:
             resolution=resolution,
             quality=quality,
             references=req.references or [],
+            idempotency_key=key,
         )
         activity.logger.info(f"[API] Submitted still job {job_id} for {req.shot_id}")
 
@@ -113,6 +114,7 @@ async def submit_clip_job(episode_id: str, req: GenerationRequest) -> str:
             resolution=resolution,
             draft=draft,
             references=req.references or [],
+            idempotency_key=key,
         )
         activity.logger.info(
             f"[API] Submitted {model} clip job {job_id} for {req.shot_id} "
