@@ -28,6 +28,12 @@ class ShotWorkflow:
         self.clip_asset: Asset | None = None
         self.version = 1
         self.max_retries = 3
+        self.scene_approved = False  # Wait for parent to approve this scene's stills
+
+    @workflow.signal
+    def scene_approved(self):
+        """Signal from parent that this scene's stills have been approved."""
+        self.scene_approved = True
 
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
@@ -116,6 +122,11 @@ class ShotWorkflow:
                 "status": "failed",
                 "error": "Max retries exceeded",
             }
+
+        # CRITICAL: Wait for parent to approve this scene's stills before generating clip
+        workflow.logger.info(f"Still ready, waiting for scene approval before clip generation")
+        await workflow.wait_condition(lambda: self.scene_approved)
+        workflow.logger.info(f"Scene approved, proceeding to clip generation")
 
         for attempt in range(self.max_retries):
             try:

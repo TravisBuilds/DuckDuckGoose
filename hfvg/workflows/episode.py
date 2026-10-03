@@ -159,10 +159,20 @@ class EpisodeWorkflow:
         self.state.stage = PipelineStage.CLIP_GENERATION
         workflow.logger.info("Stage: Clip generation (handled in ShotWorkflows)")
 
-        # Await all child workflow results
+        # Signal all child ShotWorkflows for their respective scenes to proceed
+        for scene_id in sorted(scene_ids):
+            # Find all shot workflows for this scene and signal them
+            for shot in all_shots:
+                shot_dict = shot if isinstance(shot, dict) else shot.model_dump()
+                if shot_dict["scene_id"] == scene_id:
+                    shot_handle = self.shot_results.get(shot_dict["shot_id"])
+                    if shot_handle:
+                        await shot_handle.signal("scene_approved")
+
+        # Await all child workflow results (handle is directly awaitable)
         results = []
         for handle in shot_workflow_handles:
-            result = await handle.result()
+            result = await handle
             results.append(result)
         
         workflow.logger.info(f"All shots completed: {len(results)} results")
