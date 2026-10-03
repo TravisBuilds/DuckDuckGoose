@@ -33,6 +33,7 @@ class EpisodeWorkflow:
             idea="",
         )
         self.readback_approved = False
+        self.character_locks_approved = False
         self.storyboard_approved = False
         self.scenes_approved: set[int] = set()
         self.final_approved = False
@@ -69,7 +70,11 @@ class EpisodeWorkflow:
         workflow.logger.info("Stage: Script writing (stubbed)")
 
         self.state.stage = PipelineStage.CHARACTER_LOCKS
-        workflow.logger.info("Stage: Character locks (stubbed)")
+        workflow.logger.info("Stage: Character locks - generating turnarounds (stubbed)")
+        
+        workflow.logger.info("Awaiting character lock approvals")
+        await workflow.wait_condition(lambda: self.character_locks_approved)
+        workflow.logger.info("Character locks approved, writing to registry")
 
         self.state.stage = PipelineStage.STORYBOARD
         workflow.logger.info("Stage: Storyboard drafting (stubbed)")
@@ -254,6 +259,13 @@ class EpisodeWorkflow:
         """Approve read-back summary."""
         self.readback_approved = True
         workflow.logger.info("Read-back approved via update")
+        return "approved"
+
+    @workflow.update
+    async def approve_character_locks(self) -> str:
+        """Approve character locks and write to registry."""
+        self.character_locks_approved = True
+        workflow.logger.info("Character locks approved via update")
         return "approved"
 
     @workflow.update

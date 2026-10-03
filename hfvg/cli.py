@@ -84,7 +84,7 @@ def query_storyboard(episode_id: str):
 
 @cli.command()
 @click.argument("episode_id")
-@click.argument("gate", type=click.Choice(["readback", "storyboard", "stills", "final"]))
+@click.argument("gate", type=click.Choice(["readback", "character-locks", "storyboard", "stills", "final"]))
 @click.option("--scene-id", type=int, help="Scene ID (required for 'stills' gate)")
 def approve(episode_id: str, gate: str, scene_id: int = None):
     """Send approval for a gate."""
@@ -100,6 +100,10 @@ def approve(episode_id: str, gate: str, scene_id: int = None):
         if gate == "readback":
             result = await handle.execute_update(EpisodeWorkflow.approve_readback)
             click.echo(f"Read-back approved: {result}")
+
+        elif gate == "character-locks":
+            result = await handle.execute_update(EpisodeWorkflow.approve_character_locks)
+            click.echo(f"Character locks approved: {result}")
 
         elif gate == "storyboard":
             result = await handle.execute_update(EpisodeWorkflow.approve_storyboard)

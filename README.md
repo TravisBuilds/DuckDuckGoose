@@ -72,6 +72,9 @@ Approve gates:
 # Approve read-back
 hfvg approve ep-test-001 readback
 
+# Approve character locks
+hfvg approve ep-test-001 character-locks
+
 # Approve storyboard
 hfvg approve ep-test-001 storyboard
 
