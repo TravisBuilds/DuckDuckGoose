@@ -429,30 +429,43 @@ All claims in this document are verified against these sources:
 
 ### (a) Model Availability on Higgsfield Cloud API
 
-**Model Discovery**: Per [docs.higgsfield.ai](https://docs.higgsfield.ai/docs/llms.txt), model paths must be discovered at cloud.higgsfield.ai.
+**Documented Model Paths** (from [docs.higgsfield.ai](https://docs.higgsfield.ai/docs/llms.txt)):
 
-**Known Paths** (from [Quickstart](https://docs.higgsfield.ai/docs/quickstart.md) and [OpenAPI spec](https://docs.higgsfield.ai/docs/openapi.json)):
-- **Soul (image generation)**: `/higgsfield-ai/soul/v2/standard` or `/higgsfield-ai/soul/standard`
-- **Kling video**: `/kling-video/v2.5-turbo/pro/image-to-video` (pro tier)
-- **Kling video**: `/kling-video/v2.5-turbo/standard/image-to-video` (standard tier)
-- **Minimax Hailuo**: `/minimax/hailuo-2.3/standard/image-to-video`
+#### Video Generation (Defaults Configured)
+- **Kling 3.0 Pro image-to-video**: `kling-video/v3.0/pro/image-to-video`
+  - [Documentation](https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video)
+  - Native 1080p, 3-15 second duration
+  - Required fields: `image_url`, `prompt`
+  - Optional: `duration`, `sound`, `cfg_scale`, `last_image_url`
 
-**Not Found in Public Docs**:
-- GPT Image 2 (if available)
-- Seedance 2.5 (if available)
-- Kling 3.0 (may be at `/kling-video/v2.5-turbo/pro/image-to-video`)
+- **Seedance 2.5 image-to-video**: `bytedance/seedance-2.5/image-to-video`
+  - [Documentation](https://docs.higgsfield.ai/docs/models/seedance-2-5/image-to-video)
+  - Resolutions: 480p (draft), 720p (standard), 1080p (hero)
+  - Duration: 4-30 seconds
+  - Required fields: `image_url`
+  - Optional: `prompt`, `duration`, `resolution`, `bitrate_mode`, `end_image_url`, `generate_audio`
 
-**Configuration Required**:
+#### Image Generation (Must Configure from Console)
+- **GPT Image 2**: **Not found in public API model list**
+  - Travis must select a still image model from the [cloud.higgsfield.ai](https://cloud.higgsfield.ai) console
+  - Set `MODEL_PATH_GPT_IMAGE_2` environment variable to the verified model path
+  - **Submission will fail fast** with clear error if not configured
+
+#### Alternative Image Models (for reference)
+- **Soul**: `/higgsfield-ai/soul/standard` ([OpenAPI spec](https://docs.higgsfield.ai/docs/openapi.json))
+  - Note: Quickstart shows `/higgsfield-ai/soul/v2/standard` - OpenAPI version is canonical
+
+**Configuration**:
 ```bash
-# NO DEFAULTS - must configure before real generation
-export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Required for stills
-export MODEL_PATH_SEEDANCE="/path/from/console"      # Required for dry video
-export MODEL_PATH_KLING="/kling-video/v2.5-turbo/pro/image-to-video"  # Try this for Kling
+# Video models (defaults configured, can override)
+export MODEL_PATH_KLING="kling-video/v3.0/pro/image-to-video"      # Default
+export MODEL_PATH_SEEDANCE="bytedance/seedance-2.5/image-to-video" # Default
+
+# Image model (REQUIRED - no default)
+export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Must configure from cloud.higgsfield.ai
 ```
 
-**Submission will fail fast** with clear error if paths not set.
-
-**Travis must**: Log into cloud.higgsfield.ai, browse model catalog, verify exact paths.
+**Travis must**: Log into cloud.higgsfield.ai, select a still image model, and set `MODEL_PATH_GPT_IMAGE_2`.
 
 ### (b) Billing Separation: Cloud API vs MCP App
 

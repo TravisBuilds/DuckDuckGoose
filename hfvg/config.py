@@ -27,11 +27,17 @@ class Config:
     SERIES_PATH: str = os.getenv("SERIES_PATH", "./series")
     EPISODE_PATH: str = os.getenv("EPISODE_PATH", "./episode")
 
-    # Model paths (REQUIRED - verify from cloud.higgsfield.ai)
-    # No defaults: fail fast if not configured (see docs/PROVIDERS.md)
+    # Model paths (from docs.higgsfield.ai)
+    # GPT Image 2 not in public API: must be configured from cloud.higgsfield.ai console
     MODEL_PATH_GPT_IMAGE_2: str = os.getenv("MODEL_PATH_GPT_IMAGE_2", "")
-    MODEL_PATH_SEEDANCE: str = os.getenv("MODEL_PATH_SEEDANCE", "")
-    MODEL_PATH_KLING: str = os.getenv("MODEL_PATH_KLING", "")
+    # Seedance 2.5 image-to-video (documented)
+    MODEL_PATH_SEEDANCE: str = os.getenv(
+        "MODEL_PATH_SEEDANCE", "bytedance/seedance-2.5/image-to-video"
+    )
+    # Kling 3.0 Pro image-to-video (documented)
+    MODEL_PATH_KLING: str = os.getenv(
+        "MODEL_PATH_KLING", "kling-video/v3.0/pro/image-to-video"
+    )
 
     INITIAL_CREDIT_BALANCE: float = float(os.getenv("INITIAL_CREDIT_BALANCE", "10000.0"))
     LOW_BALANCE_THRESHOLD: float = float(os.getenv("LOW_BALANCE_THRESHOLD", "1000.0"))
