@@ -442,10 +442,18 @@ All claims in this document are verified against these sources:
 
 **VERIFIED**: Higgsfield Cloud API and MCP app use **separate billing systems**.
 
-- **MCP Server** (higgsfield.ai): Browser OAuth, app credits
-- **Cloud API** (cloud.higgsfield.ai): API key auth, separate account, separate credits
+**Sources:**
+- [Higgsfield Enterprise FAQ](https://higgsfield-enterprise-help.higgsfield.app/docs/faq): "web credits/packs don't apply to API usage, register at cloud.higgsfield.ai separately"
+- [Higgsfield API Launch Blog](https://higgsfield.ai/blog/higgsfield-api): "separate product, USD pay-per-generation balance, MCP spends plan credits"
+- [API FAQ](https://docs.higgsfield.ai/docs/help/faq): Failed and NSFW-flagged requests are NOT charged (auto-refunded)
 
-**Implication**: Travis would need **a separate paid Cloud API account** at cloud.higgsfield.ai, even if he already has MCP app credits. The MCP credits cannot be used for Cloud API.
+**Billing models:**
+- **MCP Server** (higgsfield.ai): Plan credits (monthly/annual subscription)
+- **Cloud API** (console.higgsfield.ai): Pay-per-generation USD balance, top-up model
+
+**Implication**: Travis can either:
+1. Use Cloud API with a separate paid account (pay-per-generation)
+2. Continue using MCP plan credits via an operator bridge (see §8 below)
 
 ### (c) Balance / Cost Endpoint
 

@@ -87,11 +87,11 @@ class HiggsfieldProvider(GenerationProvider):
             return self._mock_job_id("img")
 
         # Real API call
-        # NOTE: Model path format is unverified. Likely something like:
-        # 'bytedance/gpt-image-2' or similar, based on README example
-        # Travis must verify correct path in Cloud API dashboard
-        
-        model_path = f"model-path-unverified/{model}"
+        # Model path from config (must be verified in console.higgsfield.ai)
+        if model == "gpt_image_2":
+            model_path = config.MODEL_PATH_GPT_IMAGE_2
+        else:
+            model_path = model  # Use as-is if not a known alias
         
         arguments = {
             "prompt": prompt,
@@ -133,10 +133,13 @@ class HiggsfieldProvider(GenerationProvider):
             return self._mock_job_id("vid")
 
         # Real API call
-        # NOTE: Model path format is unverified
-        # Likely 'bytedance/kling-3.0' or 'bytedance/seedance-2.5'
-        
-        model_path = f"model-path-unverified/{model}"
+        # Model path from config (must be verified in console.higgsfield.ai)
+        if model == "seedance_2.5":
+            model_path = config.MODEL_PATH_SEEDANCE
+        elif model == "kling_3.0":
+            model_path = config.MODEL_PATH_KLING
+        else:
+            model_path = model  # Use as-is if not a known alias
         
         # Upload start image if local
         if not start_image.startswith("http"):

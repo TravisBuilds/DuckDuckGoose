@@ -27,6 +27,16 @@ class Config:
     SERIES_PATH: str = os.getenv("SERIES_PATH", "./series")
     EPISODE_PATH: str = os.getenv("EPISODE_PATH", "./episode")
 
+    # Model paths (configurable - verify from console.higgsfield.ai)
+    # These are UNVERIFIED and must be updated after Travis checks dashboard
+    MODEL_PATH_GPT_IMAGE_2: str = os.getenv(
+        "MODEL_PATH_GPT_IMAGE_2", "bytedance/gpt-image-2"
+    )
+    MODEL_PATH_SEEDANCE: str = os.getenv(
+        "MODEL_PATH_SEEDANCE", "bytedance/seedance-2.5"
+    )
+    MODEL_PATH_KLING: str = os.getenv("MODEL_PATH_KLING", "bytedance/kling-3.0")
+
     INITIAL_CREDIT_BALANCE: float = float(os.getenv("INITIAL_CREDIT_BALANCE", "10000.0"))
     LOW_BALANCE_THRESHOLD: float = float(os.getenv("LOW_BALANCE_THRESHOLD", "1000.0"))
 
