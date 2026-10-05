@@ -28,15 +28,15 @@ def validate_prompt(prompt: str, shot_params: dict[str, Any] | None = None) -> s
         PromptValidationError: If prompt violates rules and cannot be auto-corrected
     """
     # Rule: reject "nothing else moves" endings
-    # Check for variations at end of prompt (trim punctuation)
-    prompt_stripped = prompt.strip().rstrip('.')
+    # Check for variations at end of prompt (trim whitespace and common punctuation)
+    prompt_stripped = prompt.strip().rstrip('.,;:!')
     
     forbidden_endings = [
-        r"nothing else moves$",
-        r"everything else (?:is )?still$",
-        r"all else (?:is )?static$",
-        r"only .+ moves$",
-        r"rest (?:of the scene )?(?:is )?frozen$",
+        r"nothing\s+else\s+moves\s*$",
+        r"everything\s+else\s+(?:is\s+)?still\s*$",
+        r"all\s+else\s+(?:is\s+)?static\s*$",
+        r"only\s+.+\s+moves\s*$",
+        r"rest\s+(?:of\s+the\s+scene\s+)?(?:is\s+)?frozen\s*$",
     ]
     
     for pattern in forbidden_endings:
