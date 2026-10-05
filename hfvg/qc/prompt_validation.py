@@ -28,17 +28,19 @@ def validate_prompt(prompt: str, shot_params: dict[str, Any] | None = None) -> s
         PromptValidationError: If prompt violates rules and cannot be auto-corrected
     """
     # Rule: reject "nothing else moves" endings
-    # Check for variations at end of prompt
+    # Check for variations at end of prompt (trim punctuation)
+    prompt_stripped = prompt.strip().rstrip('.')
+    
     forbidden_endings = [
-        r"nothing else moves\.?$",
-        r"everything else (?:is )?still\.?$",
-        r"all else (?:is )?static\.?$",
-        r"only .+ moves\.?$",
-        r"rest (?:of the scene )?(?:is )?frozen\.?$",
+        r"nothing else moves$",
+        r"everything else (?:is )?still$",
+        r"all else (?:is )?static$",
+        r"only .+ moves$",
+        r"rest (?:of the scene )?(?:is )?frozen$",
     ]
     
     for pattern in forbidden_endings:
-        if re.search(pattern, prompt.strip(), re.IGNORECASE):
+        if re.search(pattern, prompt_stripped, re.IGNORECASE):
             raise PromptValidationError(
                 f"Prompt ends with forbidden static clause: '{prompt[-50:]}'. "
                 "Name the ambient motion instead (snowfall, steam, breath, aurora glow, "

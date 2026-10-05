@@ -8,14 +8,13 @@ from hfvg.budget import BudgetLedger
 
 
 @pytest.fixture
-async def budget_ledger():
+def budget_ledger():
     """Create a temporary budget ledger for testing."""
     # Create temp DB
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     
-    ledger = BudgetLedger(db_path=f"file:{path}?mode=memory&cache=shared")
-    await ledger.init_episode_budget("ep04")
+    ledger = BudgetLedger(db_path=path)
     
     yield ledger
     
@@ -62,6 +61,8 @@ async def test_init_episode_budget():
 @pytest.mark.asyncio
 async def test_reserve_commit_flow(budget_ledger):
     """Test reserve → commit flow."""
+    await budget_ledger.init_episode_budget("ep04")
+    
     # Reserve 50 credits from L1
     reserved = await budget_ledger.reserve("ep04", "L1_refs", 50.0, "Test refs")
     assert reserved is True
@@ -87,6 +88,8 @@ async def test_reserve_commit_flow(budget_ledger):
 @pytest.mark.asyncio
 async def test_80_percent_stop(budget_ledger):
     """Test 80% stop threshold."""
+    await budget_ledger.init_episode_budget("ep04")
+    
     # L1_refs: cap 120, stop 96
     
     # Reserve 90 - should succeed
@@ -105,6 +108,8 @@ async def test_80_percent_stop(budget_ledger):
 @pytest.mark.asyncio
 async def test_release_refund(budget_ledger):
     """Test release (refund) flow."""
+    await budget_ledger.init_episode_budget("ep04")
+    
     # Reserve 50
     await budget_ledger.reserve("ep04", "L1_refs", 50.0)
     
@@ -123,6 +128,8 @@ async def test_release_refund(budget_ledger):
 @pytest.mark.asyncio
 async def test_episode_summary(budget_ledger):
     """Test episode budget summary."""
+    await budget_ledger.init_episode_budget("ep04")
+    
     # Add some spend to multiple lines
     await budget_ledger.reserve("ep04", "L1_refs", 50.0)
     await budget_ledger.commit("ep04", "L1_refs", 50.0)
@@ -145,6 +152,8 @@ async def test_episode_summary(budget_ledger):
 @pytest.mark.asyncio
 async def test_hard_cap_enforcement(budget_ledger):
     """Test hard cap cannot be exceeded."""
+    await budget_ledger.init_episode_budget("ep04")
+    
     # L1_refs: cap 120
     
     # Try to reserve 130 (exceeds hard cap) - should raise
