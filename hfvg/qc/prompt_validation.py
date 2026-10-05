@@ -36,7 +36,7 @@ def validate_prompt(prompt: str, shot_params: dict[str, Any] | None = None) -> s
         r"everything\s+else\s+(?:is\s+)?still\s*$",
         r"all\s+else\s+(?:is\s+)?static\s*$",
         r"only\s+.+\s+moves\s*$",
-        r"rest\s+(?:of\s+the\s+scene\s+)?(?:is\s+)?frozen\s*$",
+        r"rest\s+(?:of\s+the\s+scene\s+)?(?:is\s+)?(?:frozen|still)\s*$",
     ]
     
     for pattern in forbidden_endings:

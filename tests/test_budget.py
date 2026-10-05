@@ -94,15 +94,24 @@ async def test_80_percent_stop():
     try:
         await ledger.init_episode_budget("ep04")
         
-        # L1_refs: cap 120, stop 96
+        # Verify line was created correctly
+        status = await ledger.get_line_status("ep04", "L1_refs")
+        assert status["budget_cap"] == 120
+        assert status["stop_threshold"] == 96
+        assert status["spent"] == 0
+        assert status["reserved"] == 0
         
         # Reserve 90 - should succeed
         reserved = await ledger.reserve("ep04", "L1_refs", 90.0)
         assert reserved is True
         
+        # Verify reserve took effect
+        status = await ledger.get_line_status("ep04", "L1_refs")
+        assert status["reserved"] == 90
+        
         # Try to reserve 10 more (total 100, exceeds stop 96) - should fail
         reserved = await ledger.reserve("ep04", "L1_refs", 10.0)
-        assert reserved is False
+        assert reserved is False, f"Second reserve should fail: {status}"
         
         # Check at_stop flag
         status = await ledger.get_line_status("ep04", "L1_refs")
@@ -185,7 +194,9 @@ async def test_hard_cap_enforcement():
     try:
         await ledger.init_episode_budget("ep04")
         
-        # L1_refs: cap 120
+        # Verify line was created correctly
+        status = await ledger.get_line_status("ep04", "L1_refs")
+        assert status["budget_cap"] == 120
         
         # Try to reserve 130 (exceeds hard cap) - should raise
         with pytest.raises(ValueError, match="Budget cap exceeded"):
