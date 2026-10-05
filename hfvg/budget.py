@@ -1,0 +1,318 @@
+"""Per-line budget ledger with 80% stop and Ep04 caps (HARNESS-GATES v1.1)."""
+
+import aiosqlite
+from pathlib import Path
+from typing import Any
+
+from hfvg.config import config
+from hfvg.gates import load_policy
+
+
+class BudgetLedger:
+    """
+    Per-line budget tracking with 80% stop.
+    
+    Tracks spend per budget line (L1-L6 Higgsfield, ElevenLabs lines) with:
+    - Reserve before round
+    - Commit actuals after generation
+    - Release on block or refund
+    - 80% stop threshold per line
+    - Native provider credits + USD costs
+    """
+    
+    def __init__(self, db_path: str | None = None):
+        """Initialize budget ledger."""
+        self.db_path = db_path or config.DB_PATH
+        self.policy = load_policy("mid-mountain-rest")
+    
+    async def init_db(self):
+        """Initialize budget tables."""
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Per-line budget tracking
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS budget_lines (
+                    line_id TEXT PRIMARY KEY,
+                    episode_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    line_name TEXT NOT NULL,
+                    budget_cap REAL NOT NULL,
+                    stop_threshold REAL NOT NULL,
+                    unit TEXT NOT NULL,
+                    spent REAL DEFAULT 0,
+                    reserved REAL DEFAULT 0,
+                    created_at TEXT
+                )
+            """)
+            
+            # Budget transactions (reserve/commit/release)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS budget_transactions (
+                    txn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    line_id TEXT NOT NULL,
+                    episode_id TEXT NOT NULL,
+                    job_id TEXT,
+                    txn_type TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    usd_micros INTEGER,
+                    timestamp TEXT NOT NULL,
+                    reason TEXT,
+                    FOREIGN KEY (line_id) REFERENCES budget_lines(line_id)
+                )
+            """)
+            
+            await db.commit()
+    
+    async def init_episode_budget(self, episode_id: str):
+        """
+        Initialize per-line budgets for an episode.
+        
+        Args:
+            episode_id: Episode identifier (e.g., 'ep04')
+        """
+        await self.init_db()
+        
+        # Get Higgsfield budget
+        hf_budget = self.policy.get_higgsfield_budget(episode_id)
+        lines = hf_budget.get("lines", {})
+        stop_fraction = hf_budget.get("stop_fraction", 0.8)
+        unit = hf_budget.get("unit", "Higgsfield app credits")
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Initialize Higgsfield lines
+            for line_name, cap in lines.items():
+                line_id = f"{episode_id}:{line_name}"
+                stop_threshold = cap * stop_fraction
+                
+                await db.execute("""
+                    INSERT OR IGNORE INTO budget_lines
+                    (line_id, episode_id, provider, line_name, budget_cap, 
+                     stop_threshold, unit, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (line_id, episode_id, "higgsfield", line_name, cap, 
+                      stop_threshold, unit))
+            
+            # Initialize ElevenLabs lines
+            el_budget = self.policy.get_elevenlabs_budget(episode_id)
+            el_lines = el_budget.get("lines", {})
+            el_stop_fraction = el_budget.get("stop_fraction", 0.8)
+            el_unit = el_budget.get("unit", "ElevenLabs credits")
+            
+            for line_name, cap in el_lines.items():
+                line_id = f"{episode_id}:el_{line_name}"
+                stop_threshold = cap * el_stop_fraction
+                
+                await db.execute("""
+                    INSERT OR IGNORE INTO budget_lines
+                    (line_id, episode_id, provider, line_name, budget_cap,
+                     stop_threshold, unit, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (line_id, episode_id, "elevenlabs", line_name, cap,
+                      stop_threshold, el_unit))
+            
+            await db.commit()
+    
+    async def reserve(self, episode_id: str, line_name: str, amount: float, 
+                     reason: str = "") -> bool:
+        """
+        Reserve budget from a line before generation.
+        
+        Args:
+            episode_id: Episode identifier
+            line_name: Budget line (e.g., 'L1_refs', 'L4_video')
+            amount: Amount to reserve (in line's native units)
+            reason: Reason for reservation
+        
+        Returns:
+            True if reserved, False if would exceed stop threshold
+        
+        Raises:
+            ValueError: If line doesn't exist or insufficient budget
+        """
+        line_id = f"{episode_id}:{line_name}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Check current spend + reserve
+            async with db.execute("""
+                SELECT spent, reserved, stop_threshold, budget_cap
+                FROM budget_lines WHERE line_id = ?
+            """, (line_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Budget line {line_id} not found")
+                
+                spent, reserved, stop_threshold, cap = row
+                total = spent + reserved + amount
+                
+                # Check against stop threshold (GC.02 80% stop)
+                if total > stop_threshold:
+                    return False
+                
+                # Hard cap check
+                if total > cap:
+                    raise ValueError(
+                        f"Budget cap exceeded: {total} > {cap} for {line_id}"
+                    )
+            
+            # Reserve the amount
+            await db.execute("""
+                UPDATE budget_lines 
+                SET reserved = reserved + ?
+                WHERE line_id = ?
+            """, (amount, line_id))
+            
+            # Log transaction
+            await db.execute("""
+                INSERT INTO budget_transactions
+                (line_id, episode_id, txn_type, amount, timestamp, reason)
+                VALUES (?, ?, 'reserve', ?, datetime('now'), ?)
+            """, (line_id, episode_id, amount, reason))
+            
+            await db.commit()
+            return True
+    
+    async def commit(self, episode_id: str, line_name: str, amount: float,
+                    usd_micros: int | None = None, job_id: str | None = None,
+                    reason: str = ""):
+        """
+        Commit actual spend (release reserve, add to spent).
+        
+        Args:
+            episode_id: Episode identifier
+            line_name: Budget line
+            amount: Actual amount spent (native units)
+            usd_micros: Cost in USD micros (optional)
+            job_id: Associated job ID (optional)
+            reason: Reason for spend
+        """
+        line_id = f"{episode_id}:{line_name}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Release reserve and add to spent
+            await db.execute("""
+                UPDATE budget_lines
+                SET reserved = reserved - ?, spent = spent + ?
+                WHERE line_id = ?
+            """, (amount, amount, line_id))
+            
+            # Log transaction
+            await db.execute("""
+                INSERT INTO budget_transactions
+                (line_id, episode_id, job_id, txn_type, amount, usd_micros,
+                 timestamp, reason)
+                VALUES (?, ?, ?, 'commit', ?, ?, datetime('now'), ?)
+            """, (line_id, episode_id, job_id, amount, usd_micros, reason))
+            
+            await db.commit()
+    
+    async def release(self, episode_id: str, line_name: str, amount: float,
+                     reason: str = ""):
+        """
+        Release reserved budget without committing (e.g., on block or refund).
+        
+        Args:
+            episode_id: Episode identifier
+            line_name: Budget line
+            amount: Amount to release
+            reason: Reason for release
+        """
+        line_id = f"{episode_id}:{line_name}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Release reserve without adding to spent
+            await db.execute("""
+                UPDATE budget_lines
+                SET reserved = reserved - ?
+                WHERE line_id = ?
+            """, (amount, line_id))
+            
+            # Log transaction
+            await db.execute("""
+                INSERT INTO budget_transactions
+                (line_id, episode_id, txn_type, amount, timestamp, reason)
+                VALUES (?, ?, 'release', ?, datetime('now'), ?)
+            """, (line_id, episode_id, amount, reason))
+            
+            await db.commit()
+    
+    async def get_line_status(self, episode_id: str, line_name: str) -> dict[str, Any]:
+        """
+        Get current status of a budget line.
+        
+        Returns:
+            dict with: spent, reserved, budget_cap, stop_threshold, unit,
+                      available, at_stop (bool)
+        """
+        line_id = f"{episode_id}:{line_name}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute("""
+                SELECT spent, reserved, budget_cap, stop_threshold, unit, provider
+                FROM budget_lines WHERE line_id = ?
+            """, (line_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Budget line {line_id} not found")
+                
+                spent, reserved, cap, stop, unit, provider = row
+                total_committed = spent + reserved
+                available = stop - total_committed
+                at_stop = total_committed >= stop
+                
+                return {
+                    "line_id": line_id,
+                    "provider": provider,
+                    "spent": spent,
+                    "reserved": reserved,
+                    "total_committed": total_committed,
+                    "budget_cap": cap,
+                    "stop_threshold": stop,
+                    "available": available,
+                    "at_stop": at_stop,
+                    "unit": unit,
+                }
+    
+    async def get_episode_summary(self, episode_id: str) -> dict[str, Any]:
+        """
+        Get budget summary for an episode.
+        
+        Returns:
+            dict with per-provider totals and line details
+        """
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Get all lines for episode
+            async with db.execute("""
+                SELECT line_id, provider, line_name, spent, reserved, 
+                       budget_cap, stop_threshold, unit
+                FROM budget_lines WHERE episode_id = ?
+            """, (episode_id,)) as cursor:
+                lines = []
+                hf_total = 0
+                el_total = 0
+                
+                async for row in cursor:
+                    line_id, provider, name, spent, reserved, cap, stop, unit = row
+                    total = spent + reserved
+                    
+                    lines.append({
+                        "line_name": name,
+                        "provider": provider,
+                        "spent": spent,
+                        "reserved": reserved,
+                        "total": total,
+                        "cap": cap,
+                        "stop": stop,
+                        "at_stop": total >= stop,
+                        "unit": unit,
+                    })
+                    
+                    if provider == "higgsfield":
+                        hf_total += total
+                    elif provider == "elevenlabs":
+                        el_total += total
+                
+                return {
+                    "episode_id": episode_id,
+                    "lines": lines,
+                    "higgsfield_total": hf_total,
+                    "elevenlabs_total": el_total,
+                }

@@ -117,10 +117,18 @@ class Ledger:
             await db.commit()
 
     async def update_job_status(self, key: str, status: str):
-        """Update job status."""
+        """Update job status by idempotency key."""
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             await db.execute(
                 "UPDATE jobs SET status = ? WHERE idempotency_key = ?", (status, key)
+            )
+            await db.commit()
+    
+    async def update_job_status_by_job_id(self, job_id: str, status: str):
+        """Update job status by provider job ID."""
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute(
+                "UPDATE jobs SET status = ? WHERE provider_job_id = ?", (status, job_id)
             )
             await db.commit()
 

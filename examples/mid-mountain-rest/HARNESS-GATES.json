@@ -1,0 +1,1493 @@
+{
+ "schema_version": "1.1",
+ "series": "Quacked Concierge Peak Glow Up (Mid-Mountain Rest)",
+ "harness": "DuckDuckGoose (TravisBuilds/DuckDuckGoose)",
+ "first_run": "Ep04",
+ "created": "2026-10-04T22:13+02:00",
+ "handbook": "/workspace/mid-mountain-rest/HARNESS-HANDBOOK.md",
+ "steps": [
+  "0-bible",
+  "1-story",
+  "2-stills",
+  "3-video",
+  "4-mute",
+  "5-script",
+  "6-audio",
+  "7-delivery"
+ ],
+ "rules": {
+  "blocking": "A blocking gate must be PASS before the next step (or the next job of the same kind) starts.",
+  "approver": "'harness' = automatic QC by DuckDuckGoose; 'Travis' = explicit approval logged in STATUS.md with CEST time; 'harness + Travis' = harness check then Travis decision.",
+  "default_external_actions": "HOLD (never post/upload/send without explicit Travis order)",
+  "check_type": "code = deterministic script decides; judge = vision/LLM model decides under judge_policy; human = Travis decides (logged in STATUS with CEST time). 'assist' names the secondary check."
+ },
+ "travis_approval_points": [
+  "GX.01",
+  "GC.02",
+  "GC.06",
+  "G1.01",
+  "G1.03",
+  "G1.08",
+  "G2.01",
+  "G2.12",
+  "G4.06",
+  "G4.08",
+  "G4.09",
+  "G5.01",
+  "G6.10",
+  "G7.02",
+  "G7.03"
+ ],
+ "budgets": {
+  "ep04": {
+   "higgsfield": {
+    "target": 1000,
+    "hard_cap": 1250,
+    "lines": {
+     "L1_refs": 120,
+     "L2_drafts": 100,
+     "L3_final_stills": 230,
+     "L4_video": 300,
+     "L5_finalize": 0,
+     "L6_revision_reserve": 250
+    },
+    "stop_fraction": 0.8,
+    "unit": "Higgsfield app credits",
+    "l5_note": "Ep03 used 0 on finalize. A Seedance finalize/upscale pilot is drawn from L6 with a GC.06 report."
+   },
+   "elevenlabs": {
+    "target": 3500,
+    "hard_cap": 4000,
+    "lines": {
+     "vo_takes": 700,
+     "vo_pickups": 500,
+     "music_one_take": 1750,
+     "sfx": 550
+    },
+    "unit": "ElevenLabs credits",
+    "stop_fraction": 0.8
+   }
+  },
+  "actuals": {
+   "ep01": {
+    "higgsfield": 6576.5,
+    "elevenlabs_est": "2400-2500",
+    "revision_share": 0.9
+   },
+   "ep02": {
+    "higgsfield": 3842.5,
+    "elevenlabs": 3695.67,
+    "revision_share": 0.8
+   },
+   "ep03": {
+    "higgsfield": 1655,
+    "elevenlabs": 5558.7,
+    "revision_share": 0.55
+   }
+  },
+  "unit_prices": {
+   "gpt_image_2_1k_medium": 1,
+   "gpt_image_2_2k_medium": 2,
+   "gpt_image_2_2k_high": 6.5,
+   "kling3_pro_per_s": 1.5,
+   "seedance25_480p_draft_per_s": 3,
+   "seedance25_720p_per_s": 7,
+   "seedance25_1080p_or_finalize_per_s": 12,
+   "elevenlabs_music_115s_take": 1725,
+   "elevenlabs_vo_pickup_take": 243,
+   "unit": "Higgsfield app credits (ElevenLabs entries: ElevenLabs credits)",
+   "upscale_image_flat": 2,
+   "video_upscale_per_s": 0.02,
+   "gpt_image_2_1k_high": 3.5,
+   "gpt_image_2_5_1k": 0.5,
+   "gpt_image_2_5_2k": 2.75
+  },
+  "usd": {
+   "basis": "Higgsfield app credits ~ $0.0475-0.049 each (4,000 = $190, 2,000 = $95 -> $0.0475; 1,000 = $49 -> $0.049; 500 = $26 = $0.052); ElevenLabs ~ $0.0002/credit",
+   "ep04_app_route": {
+    "higgsfield_target_usd": 48,
+    "higgsfield_cap_usd": 60,
+    "elevenlabs_target_usd": 0.7,
+    "elevenlabs_cap_usd": 0.8,
+    "status": "pending Travis confirmation"
+   },
+   "ep04_lines_app_usd": {
+    "L1_refs": 5.7,
+    "L2_drafts": 4.75,
+    "L3_final_stills": 10.93,
+    "L4_video": 14.25,
+    "L5_finalize": 0.0,
+    "L6_revision_reserve": 11.88
+   },
+   "actuals_usd": {
+    "ep01": {
+     "higgsfield": "312-322",
+     "elevenlabs": "~0.50"
+    },
+    "ep02": {
+     "higgsfield": "183-188",
+     "elevenlabs": "0.74"
+    },
+    "ep03": {
+     "higgsfield": "79-81",
+     "elevenlabs": "1.11"
+    }
+   },
+   "cloud_api_route": {
+    "note": "DuckDuckGoose PR #2 bills the Higgsfield Cloud REST API USD balance (no balance endpoint). The USD cap is the binding constraint there; map per-model API prices into provider_costs.usd_micros.",
+    "prices_usd": {
+     "kling3_pro_per_s": [
+      0.056,
+      0.084
+     ],
+     "seedance25_480p_per_s": 0.144,
+     "seedance25_1080p_per_s": 0.7961,
+     "seedance25_720p_per_s": "not in the price file",
+     "still_per_image": [
+      0.0032,
+      0.04
+     ],
+     "gpt_image_2": "not on the API"
+    },
+    "ep04_line_estimates_usd": {
+     "L1_refs": "<= 1 (stills at <= $0.04; model TBD, needs identity A/B)",
+     "L2_drafts": "<= 4",
+     "L3_final_stills": "<= 2",
+     "L4_video": "12-18 Kling (~210 s at $0.056-0.084) + <= 4.3 Seedance 480p (~30 s)",
+     "L5_finalize": "0",
+     "L6_revision_reserve": "<= 10 (one notes round)",
+     "total": "~ $25-40 [A]"
+    },
+    "source": "/workspace/harness-doc/PRICING-MODEL.md (price file refetched 2026-10-04 21:20 CEST)"
+   }
+  }
+ },
+ "gates": [
+  {
+   "gate_id": "GX.01",
+   "step": "all",
+   "name": "Never post / upload / hand off",
+   "check": "No social post, TikTok publish, Grower/Social message, Drive upload or external send unless Travis explicitly ordered that specific action for that file (logged in STATUS with CEST time).",
+   "fail_criteria": "Any external post/upload/send/handoff without a logged explicit Travis order.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "always",
+   "check_type": "human",
+   "assist": "code (default-deny on every external action)"
+  },
+  {
+   "gate_id": "GX.02",
+   "step": "all",
+   "name": "QC first",
+   "check": "Everything shown to Travis (strip, mute, mix) has passed every AUTO gate of its step, with the QC table attached.",
+   "fail_criteria": "Material reaches Travis with a failing or unrun blocking gate.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before every Travis review",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "GC.01",
+   "step": "all",
+   "name": "Balance preflight",
+   "check": "Read the Higgsfield (or ElevenLabs) balance before a round.",
+   "fail_criteria": "balance < round_budget + 100, or balance unknown.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before every generation round",
+   "thresholds": {
+    "min_headroom_credits": 100
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "GC.02",
+   "step": "all",
+   "name": "Budget line stop",
+   "check": "Track spend per CREDIT-PLAN line and per round.",
+   "fail_criteria": "Spend reaches 80% of a line/round cap without a stop+report; any spend beyond 100% without Travis; episode total above hard cap.",
+   "blocking": "yes",
+   "approver": "harness + Travis",
+   "when": "continuous",
+   "thresholds": {
+    "stop_fraction": 0.8,
+    "ep04_higgsfield_target": 1000,
+    "ep04_higgsfield_cap": 1250,
+    "ep04_elevenlabs_target": 3500,
+    "ep04_elevenlabs_cap": 4000,
+    "ep04_revision_share_max": 0.3,
+    "video_headroom": 0.15,
+    "units": {
+     "higgsfield": "Higgsfield app credits",
+     "elevenlabs": "ElevenLabs credits",
+     "usd": "USD (Cloud API route)"
+    }
+   },
+   "check_type": "code",
+   "assist": "Travis decides any spend beyond 100% of a line or above the cap"
+  },
+  {
+   "gate_id": "GC.03",
+   "step": "all",
+   "name": "Retry caps / surgical regen",
+   "check": "Count attempts per shot per round; regenerate only failed shot IDs.",
+   "fail_criteria": "> 2 draft retries in first-pass QC; > 1 paid retry per shot in a revision round; > 3 attempts on a high-risk video; whole-chain regen for a single-shot note.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "continuous",
+   "thresholds": {
+    "draft_retries_max": 2,
+    "revision_paid_retries_max": 1,
+    "high_risk_video_attempts_max": 3
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "GC.04",
+   "step": "all",
+   "name": "Draft-first / finals only on approval",
+   "check": "Finals (2k stills, Seedance finalize) are created only for Travis-approved shots; no video before strip approval.",
+   "fail_criteria": "Any final or video job for a shot without the required approval.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before each final/video job",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "GC.05",
+   "step": "all",
+   "name": "Ledger + reconciliation",
+   "check": "Every job logged with id, model, tier, cost, verdict, used/unused; STATUS has balance before/after; ledger reconciled with the account after timeouts.",
+   "fail_criteria": "Unlogged job; ledger total != account delta.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "after every round",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "GC.06",
+   "step": "all",
+   "name": "Reserve draws reported",
+   "check": "Any move of credits between lines or reserve draw is reported to Travis before spending.",
+   "fail_criteria": "Reserve spent without a report/approval.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "on reserve draw",
+   "check_type": "human",
+   "assist": "code (default-deny on any reserve draw / line move)"
+  },
+  {
+   "gate_id": "G0.01",
+   "step": "0-bible",
+   "name": "Bible + refs loaded",
+   "check": "Episode folder created; series refs listed in epNN refs/world/media-ids.json (Ep01/Ep02 frames, FAC00-08, desk S01), duck v3 ABs + bare-tuft ABs, logo; media ids valid (re-upload if rejected).",
+   "fail_criteria": "Any required ref missing or unresolvable.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "episode start",
+   "refs": [
+    "refs/apparel/concierge-mallard-tuque-v3/",
+    "ep03-snow-monkeys/refs/duck-bare/",
+    "envs/facility/",
+    "concept-art/",
+    "ep03-snow-monkeys/refs/world/media-ids.json",
+    "logo/locked/"
+   ],
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G0.02",
+   "step": "0-bible",
+   "name": "Duck = host/narrator, never a guest",
+   "check": "Every beat-map row has a duck role in {host, service-side, absent}; duck never in the group, soak, huddle or sitting with guests; stool only at reception.",
+   "fail_criteria": "Any shot with the duck as a group member/guest or stool outside reception.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "beat map + every strip/mute",
+   "rubric": {
+    "items": [
+     "1 Duck role per row is one of host / service-side / absent",
+     "2 Duck is never inside the guest group, soak, huddle or seated with guests",
+     "3 Stool appears only at reception",
+     "4 Duck never shares the pool/soak water"
+    ],
+    "pass_rule": "all items pass",
+    "refs": [
+     "BEATMAP.md",
+     "PIPELINE-LESSONS.md"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G0.03",
+   "step": "0-bible",
+   "name": "One resort / STYLE-LOCK plan",
+   "check": "Every present-day room is mapped to a resort plate/series ref; only flashbacks/pre-resort scenes are exempt.",
+   "fail_criteria": "A present-day room with no resort source or a new-spa look.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "beat map",
+   "check_type": "code",
+   "assist": "code lint (banned-word list) + plate attached"
+  },
+  {
+   "gate_id": "G0.04",
+   "step": "0-bible",
+   "name": "NatGeo motion + individuality in templates",
+   "check": "Every guest prompt template contains gait + carry clause and individual-timing wording.",
+   "fail_criteria": "Template lacks gait/carry clause or allows upright/hand-carry/synced action.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before drafts",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G1.01",
+   "step": "1-story",
+   "name": "Pick 1 of 3 pitches",
+   "check": "PITCHES.md with 3 storylines (species, logline, want, climax on real behaviour, duck service role, species fact, set feasibility).",
+   "fail_criteria": "Fewer than 3 pitches or no Travis pick logged.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "pre-production",
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G1.02",
+   "step": "1-story",
+   "name": "One-page brief",
+   "check": "BRIEF.md: logline, duck role, cast table, climax, ending, JP VO outline, rules, open questions with defaults.",
+   "fail_criteria": "Missing section or > 1 page of core brief.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "pre-production",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G1.03",
+   "step": "1-story",
+   "name": "Beat map locked with transitions",
+   "check": "BEATMAP.md row per shot: length, gen length, model, WET/DRY tag, who+count, duck role, action in/out, trajectory for grabs, transition to next, TOD, props; function-only room words; Travis lock + open questions answered.",
+   "fail_criteria": "Missing transition/trajectory/model/tag; décor words in room descriptions; no Travis lock.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "before any credit spend",
+   "thresholds": {
+    "runtime_s": [
+     113,
+     125
+    ],
+    "min_gen_len_s": {
+     "seedance": 4,
+     "kling": 3
+    },
+    "resolution": "1080x1920",
+    "fps": 24
+   },
+   "check_type": "human",
+   "assist": "code (row completeness + décor-word lint) before Travis"
+  },
+  {
+   "gate_id": "G1.04",
+   "step": "1-story",
+   "name": "Ep01 ending template",
+   "check": "Last scene continues under centred white text logo: 62% width, 2.5 s fade-in, visible last 6.5 s; order gift -> bags on/departure -> ONE small wave/nod -> calm view under logo.",
+   "fail_criteria": "Separate end plate, plush in the fade, wrong logo spec, long wave, gift after departure.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "beat map + mute",
+   "thresholds": {
+    "logo_width_frac": 0.62,
+    "fade_in_s": 2.5,
+    "visible_s": 6.5,
+    "runtime_s": [
+     113,
+     125
+    ],
+    "end_take_s": [
+     11,
+     12
+    ],
+    "waves_max": 1
+   },
+   "check_type": "code",
+   "assist": "judge (ending order, ONE small wave)"
+  },
+  {
+   "gate_id": "G1.05",
+   "step": "1-story",
+   "name": "Time-of-day lock",
+   "check": "TOD per block with sky/light cues and anti-drift lines; written into every prompt.",
+   "fail_criteria": "Shot without TOD or prompt without sky/light state.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "beat map",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G1.06",
+   "step": "1-story",
+   "name": "Height/scale board",
+   "check": "Numeric ratio board built locally (duck 1.00x, stool rail at mid-chest, guest cascade); attached or heights stated in prompt.",
+   "fail_criteria": "No board; ratios missing from multi-character prompts.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before drafts",
+   "thresholds": {
+    "tolerance": 0.1
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G1.07",
+   "step": "1-story",
+   "name": "Per-room continuity sheet",
+   "check": "CONTINUITY.md: STYLE-LOCK block, room master per room, fixed props with counts, prop chains, costume, wet/dry, duck presence, geography (L/R, launch points).",
+   "fail_criteria": "Room without master or prop counts; prop chain gaps.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "before drafts",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G1.08",
+   "step": "1-story",
+   "name": "Credit plan",
+   "check": "CREDIT-PLAN.md lines with budget and 80% stop; totals within Ep04 target/cap.",
+   "fail_criteria": "Plan over cap or lines without stops.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "with beat map lock",
+   "check_type": "human",
+   "assist": "code (sums, stops, caps) before Travis"
+  },
+  {
+   "gate_id": "G2.01",
+   "step": "2-stills",
+   "name": "New identity refs approved",
+   "check": "New guest ABs/head sheets/turnarounds, room masters (with _qc vs-world sheet), duck variants pass drift/height check and Travis approval.",
+   "fail_criteria": "Drafts use a ref that isn't approved or fails resort-match.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "after refs, before drafts",
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G2.02",
+   "step": "2-stills",
+   "name": "Character drift gate",
+   "check": "AB side-by-side crop per character per still (stills/qc/drift/<SHOT>-<char>.jpg); MATCH/DRIFT verdict logged.",
+   "fail_criteria": "Any DRIFT (crest/tuft colour, texture or size; eyewear; body shape; costume).",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft + final",
+   "rubric": {
+    "items": [
+     "1 Crest/tuft colour matches the AB",
+     "2 Crest/tuft texture + size match (not only shape)",
+     "3 Eyewear/accessories present and identical",
+     "4 Body shape/proportions match",
+     "5 Costume items present (hats, glasses, bundle) per CONTINUITY"
+    ],
+    "pass_rule": "all items pass on every character; any fail = DRIFT",
+    "refs": [
+     "epNN refs/characters/*AB*.png"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.03",
+   "step": "2-stills",
+   "name": "Duck identity gate (§13)",
+   "check": "Duck crop vs v3 AB02/AB03 (+ bare-tuft AB02 when bare).",
+   "fail_criteria": "Long/wedge/realistic bill; flat wild-mallard head; white neck ring; slim body or long neck; tuque/vest mismatch; tuft not 3-lobe ~1/4 head height; duck < ~12% frame height when acting; missing reception stool.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every duck still",
+   "thresholds": {
+    "min_duck_frame_height_frac": 0.12,
+    "tuft_height_frac_of_head": 0.25
+   },
+   "refs": [
+    "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
+    "refs/apparel/concierge-mallard-tuque-v3/AB03.png",
+    "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+   ],
+   "rubric": {
+    "see": "G4.02 scoring applied per still/frame"
+   },
+   "check_type": "judge",
+   "assist": "code (duck count, height fraction >= 0.12, stool at reception)"
+  },
+  {
+   "gate_id": "G2.04",
+   "step": "2-stills",
+   "name": "Headcount",
+   "check": "Count characters vs beat map.",
+   "fail_criteria": "Extra or missing character; second duck; phantom.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft + final",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.05",
+   "step": "2-stills",
+   "name": "Height/scale",
+   "check": "Measure ratios vs board.",
+   "fail_criteria": "> 10% off; size morph between shots.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every multi-character still",
+   "thresholds": {
+    "tolerance": 0.1
+   },
+   "check_type": "judge",
+   "assist": "code (bbox height ratios vs board)"
+  },
+  {
+   "gate_id": "G2.06",
+   "step": "2-stills",
+   "name": "STYLE-LOCK / background drift (still)",
+   "check": "Side-by-side vs series refs; banned list; >= 2 series signatures (dome glazing, curved warm wood, LED strip, ring light, glass balustrade, round fire pit).",
+   "fail_criteria": "Any banned element (noren, glyphs, paper/stone/iron onsen lanterns, niwaki, boulder rims, stepping stones, bamboo, tatami, zabuton, shoji, ryokan panelling, arch tunnels, irori, tetsubin, celadon, lacquer, key paddles); < 2 signatures; reads as another spa. Exempt: flashback/pre-resort shots.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every present-day draft + final",
+   "thresholds": {
+    "min_series_signatures": 2
+   },
+   "rubric": {
+    "items": [
+     "1 No banned element (list in fail_criteria) anywhere in frame",
+     "2 >= 2 series signatures visible (dome glazing, curved warm wood, LED strip, ring light, glass balustrade, round fire pit)",
+     "3 Materials/palette read as the same Mid-Mountain resort as the refs, not a ryokan/bathhouse/other spa",
+     "4 Room geometry matches its room master",
+     "5 Lighting is consistent with the TOD lock"
+    ],
+    "pass_rule": "items 1-3 must pass; 4-5 fail -> WATCH with crop. Flashback/pre-resort shots exempt.",
+    "refs": [
+     "concept-art/01-igloo-grid.jpg",
+     "concept-art/02-living-room.jpg",
+     "concept-art/03-kitchen.jpg",
+     "concept-art/04-bedroom-concierge-grid.jpg",
+     "envs/facility/FAC00-aerial.png ... FAC08-nightpath.png",
+     "envs/ENV-canonical-sauna.png",
+     "ep03-snow-monkeys/stills/style3/SP-s1.png",
+     "ep03-snow-monkeys/stills/style3/DP-s1.png",
+     "ep03-snow-monkeys/stills/style3/LB-s1.png",
+     "ep03-snow-monkeys/stills/style3/CO-s1.png",
+     "ep03-snow-monkeys/refs/world/*.jpg (Ep01/Ep02 frames)"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.07",
+   "step": "2-stills",
+   "name": "Props and counts",
+   "check": "Compare to continuity sheet.",
+   "fail_criteria": "Prop added/lost/moved; wrong count; story prop early (e.g. key on desk before hand-off); wrong luggage.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft + final",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.08",
+   "step": "2-stills",
+   "name": "Side / screen-direction continuity",
+   "check": "LEFT/RIGHT of each character vs neighbouring shots.",
+   "fail_criteria": "Unmotivated side swap across a cut.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.09",
+   "step": "2-stills",
+   "name": "NatGeo pose",
+   "check": "Gait/carry/hold check.",
+   "fail_criteria": "Upright stance; human-style carry/hold while moving; hand-held cup; synced group pose.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft + final",
+   "rubric": {
+    "items": [
+     "1 Quadrupedal or natural species stance (no upright human stance)",
+     "2 Nothing carried in hands/forepaws while moving; mouth/back carry only",
+     "3 No hand-held cup or human-style grip",
+     "4 Group poses not synchronised (individual timing/pose)"
+    ],
+    "pass_rule": "all items pass",
+    "refs": [
+     "ep03-snow-monkeys/stills/finals4/B05-F1.png",
+     "ep03-snow-monkeys/stills/finals4/D07-F1.png"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.10",
+   "step": "2-stills",
+   "name": "Treadmill rule (staging)",
+   "check": "Runs drafted as START + END frames, same locked camera, opposite sides.",
+   "fail_criteria": "Single-frame run; planned travel < 40% frame width.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "run shots",
+   "thresholds": {
+    "min_travel_frac": 0.4
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.11",
+   "step": "2-stills",
+   "name": "Leap / hand-off path",
+   "check": "Launch -> contact -> landing as 3 frames from the same camera; contact on the arc; depth plausible.",
+   "fail_criteria": "Contact off path; object behind the duck; mid-action start frame.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "grab/steal/throw shots",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.12",
+   "step": "2-stills",
+   "name": "Edit-order stills strip approval",
+   "check": "Strip of every still in edit order with beat text, duck role, TOD, per-cut transition notes, QC verdicts, open notes.",
+   "fail_criteria": "No strip, or video started before Travis approval.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "before any video",
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G2.13",
+   "step": "2-stills",
+   "name": "Wet / water realism (still)",
+   "check": "Wet props heavy/dark/matted/sagging; refraction, caustics, ripples, steam; wet fur; underwater particles + blue falloff.",
+   "fail_criteria": "Dry-balloon wet props; glassy CGI water; no depth.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every wet still",
+   "rubric": {
+    "items": [
+     "1 Wet props read heavy: dark, matted, sagging (not dry balloons)",
+     "2 Water shows refraction and/or caustics and ripples",
+     "3 Steam present where the water is hot",
+     "4 Wet fur/feathers clump and darken",
+     "5 Underwater: particles + blue depth falloff",
+     "6 Water is not glassy/CGI-smooth"
+    ],
+    "pass_rule": "all applicable items pass",
+    "refs": [
+     "ep03-snow-monkeys/stills/finals4/D07-F1.png",
+     "ep03-snow-monkeys/stills/finals4/E03-F1.png",
+     "ep03-snow-monkeys/stills/finals4/C01-F1.png",
+     "ep03-snow-monkeys/stills/finals4/D02-F1.png",
+     "ep03-snow-monkeys/refs/world/ep02-E04-underwater.jpg",
+     "ep03-snow-monkeys/refs/world/ep01-C05-pool.jpg"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.14",
+   "step": "2-stills",
+   "name": "TOD match",
+   "check": "Sky/light vs TOD lock.",
+   "fail_criteria": "Wrong TOD block.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every draft + final",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G2.15",
+   "step": "2-stills",
+   "name": "Final-res check",
+   "check": "2k final matches approved draft 1:1; textures; small props legible; clean faces; no garbled text.",
+   "fail_criteria": "Any composition/prop difference; illegible story prop; melted features.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every 2k final",
+   "rubric": {
+    "items": [
+     "1 Composition matches the approved draft 1:1 (same framing, positions, counts)",
+     "2 Small story props legible",
+     "3 Faces/eyes clean, no melted features",
+     "4 No garbled text/glyphs",
+     "5 Textures at 2k detail"
+    ],
+    "pass_rule": "all items pass",
+    "precheck": "code: SSIM of a 512-px downscale vs the approved draft; flag < 0.6 for the judge (uncalibrated; log values on Ep04)",
+    "refs": [
+     "approved draft of the same shot"
+    ]
+   },
+   "check_type": "judge",
+   "assist": "code (SSIM pre-check vs approved draft; uncalibrated)"
+  },
+  {
+   "gate_id": "G3.01",
+   "step": "3-video",
+   "name": "Model routing",
+   "check": "WET/MUD/POOL/SOAK/UNDERWATER/splash -> Kling 3.0 pro (sound off, 1.5 cr/s); dry identity-critical/hand-off -> Seedance 2.5 480p draft then finalize/upscale, always with declined_preset_id 24bae836-2c4a-48e0-89b6-49fcc0b21612.",
+   "fail_criteria": "Wet shot sent to Seedance; Seedance job without declined_preset_id; >1 rephrase on a blocked dry Seedance job before switching to Kling.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every video job",
+   "thresholds": {
+    "declined_preset_id": "24bae836-2c4a-48e0-89b6-49fcc0b21612",
+    "seedance_rephrase_max": 1,
+    "seedance_finalize_within_days": 7,
+    "kling_sound": "off"
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G3.02",
+   "step": "3-video",
+   "name": "First/mid/last frame gate",
+   "check": "Frame 0/mid/end sheet (+ full-fps for high-risk); first frame matches start still.",
+   "fail_criteria": "Doesn't start on the still; headcount change; prop appears/vanishes; morph; hidden cut/teleport.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every clip",
+   "tools": [
+    "/workspace/vgate.py",
+    "/workspace/fps_sheet.py"
+   ],
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G3.03",
+   "step": "3-video",
+   "name": "Duck identity gate in motion (§13)",
+   "check": "Duck crop at first/mid/last vs AB02/AB03 (+ bare-tuft AB).",
+   "fail_criteria": "Any §13 failure at any of the three frames.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every duck clip",
+   "tools": [
+    "/workspace/headcrop.py"
+   ],
+   "thresholds": {
+    "min_duck_frame_height_frac": 0.12,
+    "frames": "0, duration/2, last decoded; plus in/mid/out of the used window if picks trims; every 0.5 s for high-risk clips",
+    "refs": "same as G2.03"
+   },
+   "refs": [
+    "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
+    "refs/apparel/concierge-mallard-tuque-v3/AB03.png",
+    "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+   ],
+   "rubric": {
+    "see": "G4.02 scoring applied at first/mid/last (+ used-window frames)"
+   },
+   "check_type": "judge",
+   "assist": "code (duck count, height fraction, frame sampling)"
+  },
+  {
+   "gate_id": "G3.04",
+   "step": "3-video",
+   "name": "Background drift / no timelapse sky",
+   "check": "bgdrift.py on first/mid/last (sky band top 30%, side bands 12%) + eyeball top third t0 vs tend.",
+   "fail_criteria": "DRIFT (sky >= 14 or sides >= 18) not explained by subject or scripted camera move; new background features; timelapse clouds.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every clip",
+   "thresholds": {
+    "sky_drift": 14,
+    "side_drift": 18,
+    "sky_watch": 9,
+    "side_watch": 12
+   },
+   "tools": [
+    "/workspace/bgdrift.py"
+   ],
+   "rubric": {
+    "items": [
+     "1 Drift is localised where the subject moves (body/splash/steam), or the scripted camera move explains it (push-in raises side drift evenly)",
+     "2 Sky band shows no cloud travel / timelapse between t0 and tend",
+     "3 No new background feature appears (waterfall, dome, building)",
+     "4 Fixed geometry (rails, domes, roofline) keeps its shape"
+    ],
+    "pass_rule": "DRIFT/watch passes only if 1 and 2-4 all pass; otherwise FAIL",
+    "refs": [
+     "bgdrift.py sheet first/mid/last",
+     "Ep03 O03-v2: sides 12.3 watch explained by push-in -> PASS (ep03-snow-monkeys/clips/step9/qc/)"
+    ]
+   },
+   "check_type": "code",
+   "assist": "judge (is a DRIFT/watch explained by subject motion or the scripted camera move? rubric)"
+  },
+  {
+   "gate_id": "G3.05",
+   "step": "3-video",
+   "name": "NatGeo motion",
+   "check": "Gait/carry/hold/individual timing over the used window.",
+   "fail_criteria": "Bipedal walk/stand inside the used window; synced motion; cartoon motion.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every guest clip",
+   "rubric": {
+    "items": [
+     "1 No bipedal walk/stand inside the used window",
+     "2 Gait species-correct on all fours",
+     "3 Individual timing, no synced motion",
+     "4 No cartoon motion"
+    ],
+    "pass_rule": "all items pass inside the used window"
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G3.06",
+   "step": "3-video",
+   "name": "No Ken Burns / no stiffness / no static fills",
+   "check": "Per-clip frame-motion metric over the used window (stillgate thresholds, see G4.10) + freezedetect; vgate local p90 as a stiffness hint; no pan/zoom over stills; blocked shots rerouted, not filled.",
+   "fail_criteria": "peak_fd < 3.0 AND mean_fd < 0.15 over the used window (still-only); Ken Burns; frozen bodies (local p90 far below neighbours, e.g. 1.3 vs 6-16, judged on WATCH); static hold used as a fill.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every clip",
+   "thresholds": {
+    "fail_peak_fd": 3.0,
+    "fail_mean_fd": 0.15,
+    "watch_peak_fd": 6.0,
+    "watch_mean_fd": 0.25,
+    "stiffness_hint": "vgate local_p90 far below neighbours (Ep03 A04 v1: 1.3 vs 6-16) -> WATCH, judge",
+    "freezedetect": "n=0.0008:d=0.5",
+    "note": "per-clip version of G4.10 over the used window"
+   },
+   "tools": [
+    "/workspace/stillgate.py",
+    "/workspace/vgate.py"
+   ],
+   "check_type": "code",
+   "assist": "judge (Ken Burns / WATCH frame sheet)"
+  },
+  {
+   "gate_id": "G3.07",
+   "step": "3-video",
+   "name": "Treadmill rule (motion)",
+   "check": "Runner screen position across the clip.",
+   "fail_criteria": "< 40% frame-width travel and no background parallax.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "run clips",
+   "thresholds": {
+    "min_travel_frac": 0.4
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G3.08",
+   "step": "3-video",
+   "name": "Spatial logic",
+   "check": "Launch point = last seen position; path on arc.",
+   "fail_criteria": "Character relocates to a new launch point; teleport between shots.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "action clips",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G3.09",
+   "step": "3-video",
+   "name": "Wet realism in motion",
+   "check": "Water depth/refraction; heavy wet props; no standing in deep water.",
+   "fail_criteria": "Glassy water; dry-balloon props; character stands in deep water in the used window.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "wet clips",
+   "rubric": {
+    "items": [
+     "1 Water keeps depth/refraction over the clip",
+     "2 Wet props stay heavy (no floating dry balloon)",
+     "3 No character stands up in deep water inside the used window",
+     "4 Ripples/splashes react to motion",
+     "5 Not glassy"
+    ],
+    "pass_rule": "all items pass in the used window",
+    "refs": [
+     "ep03-snow-monkeys/stills/finals4/D07-F1.png",
+     "ep03-snow-monkeys/stills/finals4/E03-F1.png",
+     "ep03-snow-monkeys/stills/finals4/C01-F1.png",
+     "ep03-snow-monkeys/stills/finals4/D02-F1.png",
+     "ep03-snow-monkeys/refs/world/ep02-E04-underwater.jpg",
+     "ep03-snow-monkeys/refs/world/ep01-C05-pool.jpg",
+     "ep03-snow-monkeys/clips/step4/raw/D07-v1.mp4",
+     "ep03-snow-monkeys/clips/step4/raw/E03-v1.mp4"
+    ]
+   },
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G3.10",
+   "step": "3-video",
+   "name": "Edge extras",
+   "check": "Full-fps check of frame edges and doorways.",
+   "fail_criteria": "Any invented character (phantom animal, real mallard walking in).",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every clip",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G4.01",
+   "step": "4-mute",
+   "name": "Per-cut QC",
+   "check": "Last frame A vs first frame B for every cut: props/counts, holder, costume, wet/dry, TOD, geometry, LEFT/RIGHT, headcount; hand-offs one at a time. Table in STATUS.",
+   "fail_criteria": "Any unexplained continuity break at a cut.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G4.02",
+   "step": "4-mute",
+   "name": "Duck contact sheet",
+   "check": "One crop per duck shot next to the AB, built per mute.",
+   "fail_criteria": "Any major drift (fix before delivery); minor drift not reported with crops.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute",
+   "rubric": {
+    "scoring": {
+     "signs": [
+      "a bill long/thin/wedge/realistic",
+      "b head flat wild-mallard or sleek, long neck",
+      "c white neck ring",
+      "d slim body, not pear",
+      "e too small to read (code measures; < 0.12 frame height when acting)"
+     ],
+     "plus": [
+      "apparel: cream tuque with pom-pom, cream->olive vest (T shots)",
+      "B shots: 3-lobe tuft ~1/4 head height"
+     ],
+     "score": "0 on-model / 1 minor / 2 drift per sign, with confidence and one-line evidence"
+    },
+    "major": "any sign = 2, OR neck ring at confidence >= 0.5, OR apparel/tuft mismatch, OR sum of minors >= 3 across the frame set -> regenerate before delivery",
+    "minor": "only 1s, summing <= 2 -> report with crops",
+    "examples": {
+     "major": "Ep03 A05a (pre-STEP 8)",
+     "moderate": "Ep03 A04 tail",
+     "minor": "Ep03 F02 speculum, B03/E03 bill"
+    },
+    "refs": [
+     "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
+     "refs/apparel/concierge-mallard-tuque-v3/AB03.png (dae1d7e4, canonical)",
+     "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+    ],
+    "pass_rule": "no major in the mute; every minor listed with crops"
+   },
+   "check_type": "judge",
+   "assist": "code (contact-sheet build, height fraction)"
+  },
+  {
+   "gate_id": "G4.03",
+   "step": "4-mute",
+   "name": "STYLE-LOCK audit",
+   "check": "One mid-frame per shot vs series refs; list pre-style-lock shots still in the timeline.",
+   "fail_criteria": "Banned element or pre-style-lock shot left without a redo plan.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G4.04",
+   "step": "4-mute",
+   "name": "Technical mute check",
+   "check": "freezedetect n=0.0008 d=0.5 none; blackdetect none; no audio stream; 1080x1920 24 fps; dissolves + logo frames checked. Runtime 113-125 s.",
+   "fail_criteria": "Any detection or wrong format.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute",
+   "thresholds": {
+    "freezedetect": "n=0.0008:d=0.5",
+    "freeze_events_max": 0,
+    "blackdetect_events_max": 0,
+    "resolution": "1080x1920",
+    "fps": 24,
+    "audio_streams": 0,
+    "runtime_s": [
+     113,
+     125
+    ]
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G4.05",
+   "step": "4-mute",
+   "name": "Flashback treatment",
+   "check": "Memory/past graded warm faded film (lifted blacks, lower contrast, warm, ~0.7 sat, soft blur, vignette, grain); colour returns through the dissolve.",
+   "fail_criteria": "Flashback ungraded or present-day graded.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "mutes with flashbacks",
+   "thresholds": {
+    "saturation": 0.7,
+    "grade_recipe": "ep03-snow-monkeys/clips/step5/stitch_v4.py GRADE",
+    "grade_outgoing_clip_only": true
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G4.06",
+   "step": "4-mute",
+   "name": "Cut-for-story review",
+   "check": "Flag shots that read inconsistently (humanoid-looking tiny animals, wrong duck, ghosts) or don't move the story; propose cuts; re-check neighbouring cuts and VO references.",
+   "fail_criteria": "Known-inconsistent shot left in without flag; cut leaves a dangling reference.",
+   "blocking": "no",
+   "approver": "harness + Travis",
+   "when": "every mute",
+   "rubric": {
+    "flag_triggers": [
+     "tiny animals that read humanoid (Ep03 A01 drone)",
+     "wrong duck not fixable cheaply",
+     "ghost/phantom",
+     "set-up whose pay-off reads alone (Ep03 C03/C04)",
+     "shot flagged WATCH by 2+ gates"
+    ],
+    "note": "human gate: harness proposes, Travis decides"
+   },
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G4.07",
+   "step": "4-mute",
+   "name": "Review copy <= 30 MB",
+   "check": "720x1280 2-pass x264 ~1.7 Mb/s + 2 fps sheet.",
+   "fail_criteria": "Size > 30 MB or duration mismatch.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute",
+   "thresholds": {
+    "max_mb": 30,
+    "resolution": "720x1280",
+    "video_mbps": [
+     1.7,
+     1.75
+    ],
+    "passes": 2,
+    "codec": "x264",
+    "sheet_fps": 2
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G4.08",
+   "step": "4-mute",
+   "name": "Travis mute review",
+   "check": "Travis notes logged verbatim with CEST time; fixes surgical; re-QC.",
+   "fail_criteria": "Notes not logged or fixed without re-QC.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "each mute round",
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G4.09",
+   "step": "4-mute",
+   "name": "Picture lock",
+   "check": "Travis picture-locks the mute; after lock no picture change without Travis reopening (new version).",
+   "fail_criteria": "Audio work before lock; picture altered after lock.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "before Step 5",
+   "check_type": "human",
+   "assist": "code (picture MD5 frozen after lock)"
+  },
+  {
+   "gate_id": "G4.10",
+   "step": "4-mute",
+   "name": "No still-only shots (frame-motion gate)",
+   "check": "Per-shot consecutive-frame |diff| on every mute AND on every final picture (re-run on the nosubs master before G6.09 and on the delivery file at G7.01). Decode at 180x320 grey; shot boundaries from the stitch manifest/EDL; dissolve overlaps excluded. mean_fd = mean |diff| (0-255); peak_fd = median over frames of the 99.5th-percentile |diff|. Writes <mute>-stillgate.json next to the QC artifacts.",
+   "fail_criteria": "FAIL (still-only): peak_fd < 3.0 AND mean_fd < 0.15 -> route the shot back to Step 3 (re-animate from the SAME approved still at the SAME duration, prompt names continuous ambient motion; never 'nothing else moves'). WATCH: peak_fd < 6.0 OR mean_fd < 0.25 -> judge on a frame sheet; PASS only if real motion is visible.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mute + every final picture (Travis rule 2026-10-04 22:21 CEST)",
+   "thresholds": {
+    "fail_peak_fd": 3.0,
+    "fail_mean_fd": 0.15,
+    "watch_peak_fd": 6.0,
+    "watch_mean_fd": 0.25,
+    "fail_rule": "peak_fd < fail_peak_fd AND mean_fd < fail_mean_fd",
+    "watch_rule": "peak_fd < watch_peak_fd OR mean_fd < watch_mean_fd",
+    "decode": "180x320 gray",
+    "fps": 24,
+    "peak_stat": "median over frames of per-frame p99.5 |diff|",
+    "exclude": "dissolve overlap frames + 1 frame at each boundary"
+   },
+   "tools": [
+    "/workspace/stillgate.py"
+   ],
+   "calibration": {
+    "ep03_mute_v5": {
+     "O03": {
+      "mean_fd": 0.083,
+      "peak_fd": 1.0,
+      "verdict": "FAIL (shipped as a still)"
+     },
+     "B04": {
+      "mean_fd": 0.168,
+      "peak_fd": 2.0,
+      "verdict": "WATCH -> pass (two head turns)"
+     },
+     "E04": {
+      "mean_fd": 0.192,
+      "peak_fd": 3.0,
+      "verdict": "WATCH -> pass (fire flicker, steam, blink)"
+     },
+     "F04": {
+      "mean_fd": 0.307,
+      "peak_fd": 3.0,
+      "verdict": "WATCH -> pass (one wave then calm end take)"
+     },
+     "others": "all >= 0.31 / >= 6"
+    },
+    "ep03_mute_v6": {
+     "O03": {
+      "mean_fd": 0.878,
+      "peak_fd": 6.0,
+      "verdict": "PASS (Kling 9f67a133, 6 cr)"
+     }
+    },
+    "test": "the known still (Ep03 mute v5 O03) must FAIL; mute v6 must have no FAIL"
+   },
+   "refs": [
+    "ep03-snow-monkeys/mutes/ep03-mute-v6-stillgate.json",
+    "PIPELINE-LESSONS.md#14"
+   ],
+   "check_type": "code",
+   "assist": "judge on WATCH only (frame sheet)"
+  },
+  {
+   "gate_id": "G5.01",
+   "step": "5-script",
+   "name": "Script lock: Travis approves the placed script before any audio",
+   "check": "VO-SCRIPT.md (JP + EN, per shot, in/out on locked picture) + timing JSON + draft SRT exist, AND Travis approval is logged in STATUS with CEST time. Conditional approvals (\"OK if timing checks out\"): the condition is checked by code and the result logged before any generation.",
+   "fail_criteria": "Any ElevenLabs VO/music/SFX credit spent before the logged approval, or with an unchecked condition; script files missing.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "before Step 6",
+   "merged_from": [
+    "G5.01",
+    "G5.03"
+   ],
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G5.02",
+   "step": "5-script",
+   "name": "VO style checklist",
+   "check": "JP prose, no rhymes, ぼく/です・ます; opens きょうのお客様は; cute lines over action; one species fact; climax lines in gaps (>= 0.3 s after hit, >= 0.4 s before next); no VO in cold open/flashback or logo fade-in; callback きょうも、いいご滞在でした… in farewell slot; sign-off ぼくはクアックド・コンシェルジュ。またあした。 under the logo; ~4.2 mora/s; >= 0.4 s between lines; every line matches on-screen action.",
+   "fail_criteria": "Any checklist item missing or violated.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "script draft",
+   "thresholds": {
+    "after_hit_s": 0.3,
+    "before_next_hit_s": 0.4,
+    "line_gap_s": 0.4,
+    "mora_per_s": 4.2
+   },
+   "check_type": "judge",
+   "assist": "code (gap/timing asserts, protected windows, mora rate)"
+  },
+  {
+   "gate_id": "G6.01",
+   "step": "6-audio",
+   "name": "VO voice settings",
+   "check": "ElevenLabs Sora 4sirbXwrtRlmPV80MJkQ, eleven_v3, [softly] [gently] [warm smile], atempo 0.90, peaks -2 dBFS; every line ASR-checked; pickups RMS-matched.",
+   "fail_criteria": "Other voice/model/tags; unchecked line; pickup level mismatch > 1 dB.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "VO generation",
+   "thresholds": {
+    "voice_id": "4sirbXwrtRlmPV80MJkQ",
+    "model": "eleven_v3",
+    "tags": [
+     "[softly]",
+     "[gently]",
+     "[warm smile]"
+    ],
+    "atempo": 0.9,
+    "peak_dbfs": -2.0,
+    "pickup_rms_tolerance_db": 1.0,
+    "asr_check": "every line"
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.02",
+   "step": "6-audio",
+   "name": "Music approach",
+   "check": "ElevenLabs Music, instrumental Ghibli-style chamber score shaped to beats; ONE take by default; automation for beats; VO duck -4 dB (climax -7), floor -9, never gated; cadence resolves under the logo.",
+   "fail_criteria": "Second take without Travis OK; lyrical/English vocals; gated dropouts.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "music",
+   "thresholds": {
+    "takes_max": 1,
+    "vo_duck_db": -4,
+    "climax_duck_db": -7,
+    "floor_db": -9,
+    "attack_s": 0.3,
+    "release_s": 0.5,
+    "fade_in_s": 2.0,
+    "fade_out_s": 1.0,
+    "gating": "never"
+   },
+   "check_type": "code",
+   "assist": "judge (instrumental, no lyrics/English vocals, cadence under the logo)"
+  },
+  {
+   "gate_id": "G6.03",
+   "step": "6-audio",
+   "name": "SFX / species sounds / water",
+   "check": "Real species vocalisations; duck sounds sparing; each water shot has its own layered distinct real water sound; no loops; beds ducked -3 dB (-5 climax); de-buzzed.",
+   "fail_criteria": "Generic/looped water bed; missing species sounds on key beats; duck sound under the end watermark other than sign-off.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "SFX pass",
+   "thresholds": {
+    "bed_duck_db": -3,
+    "bed_duck_climax_db": -5,
+    "vox_duck_db": -14,
+    "snippet_fade_in_ms": 15,
+    "snippet_fade_out_ms_max": 120,
+    "water_loops_allowed": false,
+    "debuzz": "audio/src/debuzz.py"
+   },
+   "rubric": {
+    "items": [
+     "1 Each water shot has its own distinct layered real water sound (no shared bed across shots)",
+     "2 No audible loop/repeat within a shot (autocorrelation pre-check flags period < shot length)",
+     "3 Key beats carry real species vocalisations",
+     "4 Duck sounds sparing; nothing under the end watermark but the sign-off",
+     "5 No 50 Hz buzz"
+    ],
+    "pass_rule": "all items pass",
+    "precheck": "code: cue table one water cue per wet shot; loop autocorrelation"
+   },
+   "check_type": "code",
+   "assist": "judge (water distinct per shot, no loop; rubric)"
+  },
+  {
+   "gate_id": "G6.04",
+   "step": "6-audio",
+   "name": "Tagger sanity",
+   "check": "PANNs tags judged on stem + full mix with window-edge awareness.",
+   "fail_criteria": "Take accepted/rejected on a solo short-window tag alone; human-like animal take kept.",
+   "blocking": "no",
+   "approver": "harness",
+   "when": "SFX pass",
+   "check_type": "judge"
+  },
+  {
+   "gate_id": "G6.05",
+   "step": "6-audio",
+   "name": "Builder asserts",
+   "check": "No VO in protected windows; climax lines start >= 0.3 s after a hit ends and end >= 0.4 s before the next hit; line gap >= 0.4 s; last line ends <= T-0.3 s; subs = VO +/- 5 ms.",
+   "fail_criteria": "Any assert fails.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mix build",
+   "thresholds": {
+    "sub_sync_ms": 5,
+    "climax_gap_after_hit_s": 0.3,
+    "climax_gap_before_next_hit_s": 0.4,
+    "line_gap_min_s": 0.4,
+    "last_line_end_before_T_s": 0.3
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.06",
+   "step": "6-audio",
+   "name": "Loudness = Ep02",
+   "check": "ebur128 on the master and on every AAC copy (review, delivery): integrated -12.5 +/- 0.5 LUFS, LRA ~7-9 LU, TP <= -0.3 dBTP; limiter alimiter 0.86 level=disabled.",
+   "fail_criteria": "Integrated outside -12.5 +/- 0.5 LUFS; true peak > -0.3 dBTP on master or review copy.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mix",
+   "thresholds": {
+    "lufs_target": -12.5,
+    "lufs_tolerance": 0.5,
+    "true_peak_max_dbtp": -0.3,
+    "limiter": "alimiter limit=0.86 level=disabled",
+    "lra_lu": [
+     7,
+     9
+    ],
+    "measure": "master + every AAC copy"
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.07",
+   "step": "6-audio",
+   "name": "Picture untouched",
+   "check": "No-subs video stream MD5 equals locked mute.",
+   "fail_criteria": "MD5 mismatch.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mix",
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.08",
+   "step": "6-audio",
+   "name": "Cream EN subs",
+   "check": "ASS WarmVacation: Comfortaa 58, &H00E8F8FF, outline &H002A3A5C 5, shadow 2, MarginV 240, PlayRes 1080x1920; max 2 lines; SRT too.",
+   "fail_criteria": "Different style/colour; > 2 lines; auto captions.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mix",
+   "thresholds": {
+    "style": "WarmVacation",
+    "font": "Comfortaa",
+    "size": 58,
+    "primary": "&H00E8F8FF",
+    "outline_colour": "&H002A3A5C",
+    "outline": 5,
+    "shadow": 2,
+    "margin_v": 240,
+    "play_res": "1080x1920",
+    "max_lines": 2,
+    "srt_too": true
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.09",
+   "step": "6-audio",
+   "name": "Outputs + QC doc",
+   "check": "final mp4 (subs), nosubs, review <= 30 MB, stems, subs, cues JSON, audio ledger, QC md with loudness vs Ep02 and open points.",
+   "fail_criteria": "Any output missing.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "every mix",
+   "thresholds": {
+    "review_max_mb": 30
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G6.10",
+   "step": "6-audio",
+   "name": "Travis mix approval / episode lock",
+   "check": "Travis approves or locks; notes -> pickups only, reuse stems.",
+   "fail_criteria": "Delivery before lock.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "before Step 7",
+   "check_type": "human",
+   "assist": "code (G6.* all PASS before showing)"
+  },
+  {
+   "gate_id": "G7.01",
+   "step": "7-delivery",
+   "name": "Drive copy encode",
+   "check": "1080x1920 2-pass x264 (~3.0-3.1 Mb/s) + AAC 160-192k encoded from the mix WAV (never AAC->AAC); size < 50 MB (aim <= 48); true peak <= -0.3 dBTP; G4.10 re-run on the file.",
+   "fail_criteria": "Size >= 50 MB; TP over; duration mismatch.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "after lock",
+   "thresholds": {
+    "max_mb": 50,
+    "aim_mb": 48,
+    "resolution": "1080x1920",
+    "video_mbps": [
+     3.0,
+     3.1
+    ],
+    "passes": 2,
+    "codec": "x264",
+    "audio": "AAC 160-192k",
+    "true_peak_max_dbtp": -0.3,
+    "audio_source": "encode from the mix WAV, never AAC->AAC (Ep03 22:09 copy hit 0.0 dBTP)",
+    "rerun": "G4.10 on the delivery file"
+   },
+   "check_type": "code"
+  },
+  {
+   "gate_id": "G7.02",
+   "step": "7-delivery",
+   "name": "Drive upload (only on order)",
+   "check": "Upload to folder 1dCbQN4dYL8fl4Nn4uOmaAaqa5R_BLdnd as 'EpNN - <Title> (final).mp4' only when Travis orders it; link logged.",
+   "fail_criteria": "Upload without explicit order; wrong folder/name.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "after lock",
+   "check_type": "human",
+   "assist": "code (folder id + filename pattern)"
+  },
+  {
+   "gate_id": "G7.03",
+   "step": "7-delivery",
+   "name": "Grower handoff (never post)",
+   "check": "Package (final, nosubs, review, title, JP/EN logline, @thequackedconcierge, Travis-set priority) prepared; sent only on Travis go; nobody posts without the lock.",
+   "fail_criteria": "Handoff sent without Travis go; any post.",
+   "blocking": "yes",
+   "approver": "Travis",
+   "when": "after lock",
+   "check_type": "human"
+  },
+  {
+   "gate_id": "G7.04",
+   "step": "7-delivery",
+   "name": "Lock record + lessons",
+   "check": "LOCKED block in STATUS (files, CEST time, never posted); CREDIT-PLAN closed; lessons appended to PIPELINE-LESSONS + handbook.",
+   "fail_criteria": "Missing lock record or credit close-out.",
+   "blocking": "yes",
+   "approver": "harness",
+   "when": "after lock",
+   "check_type": "code"
+  }
+ ],
+ "version": "1.1",
+ "updated": "2026-10-04T22:40+02:00",
+ "changelog": [
+  "1.1 (2026-10-04 CEST): check_type code|judge|human on every gate (+assist); G4.10 no-still-only-shots frame-motion gate (Travis 22:21); G5.03 merged into G5.01; numeric thresholds added (G1.03/04, G3.01/03/06, G4.04/05/07, G6.01-03/05/06/08, G7.01, GC.02); judge rubrics + judge_policy; Higgsfield L5 60->0 (lines sum 1,000); units, ElevenLabs stop_fraction, unit prices, USD view; BARE retired as routing tag.",
+  "1.0 (2026-10-04 22:13 CEST): first release, 71 gates."
+ ],
+ "judge_policy": {
+  "temperature": 0,
+  "runs": 2,
+  "ref_order": "swapped on run 2",
+  "verdict": "keep the worse of the two runs",
+  "confidence_escalate_below": 0.6,
+  "on_escalate": "fail closed -> human (Travis sees the crop)",
+  "output": "JSON per rubric item: pass|fail, confidence, one-line evidence",
+  "calibration": "before Ep04 on Ep01-03 known fails/passes; 100% recall on known fails, <= 15% false fails",
+  "spend": "judge model cost is NOT in any Higgsfield/ElevenLabs line; log it separately (open question to Travis)"
+ },
+ "tags": {
+  "routing": "WET/MUD/POOL/SOAK/UNDERWATER/splash -> Kling; DRY -> Seedance-eligible. BARE is retired as a routing tag (Ep02 blocks were image-driven by wet/mud content, not by the bare duck).",
+  "duck_state": "separate beat-map column: T = tuque on, B = bare-head tuft (selects the duck refs and clause)"
+ },
+ "counts": {
+  "gates": 71,
+  "blocking": 69,
+  "check_type": {
+   "code": 31,
+   "judge": 26,
+   "human": 14
+  },
+  "travis_approval_points": 15
+ },
+ "retired_gate_ids": {
+  "G5.03": "merged into G5.01 in v1.1"
+ }
+}
