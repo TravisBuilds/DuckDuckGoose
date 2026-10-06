@@ -109,6 +109,12 @@ async def test_canary_starts_shot_workflow():
                 task_queue="test-task-queue",
             )
             
+            # Give workflow time to generate still
+            await asyncio.sleep(0.5)
+            
+            # Send approval signal (workflow waits for stills approval before generating clip)
+            await handle.signal("stills_approved")
+            
             # Wait for completion (with timeout)
             try:
                 result = await asyncio.wait_for(handle.result(), timeout=10)

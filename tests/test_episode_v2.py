@@ -1,14 +1,12 @@
 """Tests for Episode Workflow V2 (handbook-compliant with approval gates)."""
 
 import pytest
-
-# Skip these tests in CI - they need time-skipping environment which can hang
-pytestmark = pytest.mark.skip(reason="Workflow V2 tests require Temporal time-skipping (can timeout in CI)")
-
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from hfvg import activities
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+from hfvg.workflows.shot import ShotWorkflow
 
 
 @pytest.mark.asyncio
@@ -114,8 +112,22 @@ async def test_episode_v2_picture_lock_blocks_audio():
         async with Worker(
             env.client,
             task_queue="test-task-queue",
-            workflows=[EpisodeWorkflowV2],
-            activities=[],
+            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            activities=[
+                activities.load_gate_policy_activity,
+                activities.parse_beatmap_activity,
+                activities.submit_still_job_enforced,
+                activities.submit_clip_job_enforced,
+                activities.await_job_enforced,
+                activities.review_still,
+                activities.review_clip,
+                activities.trim_clips,
+                activities.render_edit,
+                activities.mix_audio,
+                activities.generate_voiceover,
+                activities.generate_sfx,
+                activities.generate_music,
+            ],
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
@@ -160,8 +172,22 @@ async def test_episode_v2_gx01_hold():
         async with Worker(
             env.client,
             task_queue="test-task-queue",
-            workflows=[EpisodeWorkflowV2],
-            activities=[],
+            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            activities=[
+                activities.load_gate_policy_activity,
+                activities.parse_beatmap_activity,
+                activities.submit_still_job_enforced,
+                activities.submit_clip_job_enforced,
+                activities.await_job_enforced,
+                activities.review_still,
+                activities.review_clip,
+                activities.trim_clips,
+                activities.render_edit,
+                activities.mix_audio,
+                activities.generate_voiceover,
+                activities.generate_sfx,
+                activities.generate_music,
+            ],
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,

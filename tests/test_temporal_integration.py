@@ -216,6 +216,11 @@ async def test_a_full_episode_through_all_gates(tmp_path):
                 activities.generate_sfx,
                 activities.generate_music,
                 activities.post_to_platform,
+                activities.submit_still_job_enforced,
+                activities.submit_clip_job_enforced,
+                activities.await_job_enforced,
+                activities.load_gate_policy_activity,
+                activities.parse_beatmap_activity,
             ],
         ):
             handle = await env.client.start_workflow(
@@ -243,10 +248,22 @@ async def test_a_full_episode_through_all_gates(tmp_path):
             await asyncio.sleep(2)
 
             await handle.execute_update(EpisodeWorkflow.approve_final)
-            await asyncio.sleep(0.5)
+            
+            # Wait for PostingWorkflow to be started as child workflow (with retries)
+            posting_handle = None
+            for attempt in range(10):
+                try:
+                    posting_handle = env.client.get_workflow_handle("test-ep-posting")
+                    # Try to describe it to verify it exists
+                    await posting_handle.describe()
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
+            
+            if not posting_handle:
+                raise RuntimeError("PostingWorkflow was not started")
 
             # Approve posts
-            posting_handle = env.client.get_workflow_handle("test-ep-posting")
             await posting_handle.execute_update(PostingWorkflow.approve_posts, args=[["instagram"]])
 
             # Wait for completion
