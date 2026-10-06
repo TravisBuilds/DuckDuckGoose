@@ -68,6 +68,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "v1/generate/image")
     
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
