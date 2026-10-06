@@ -86,7 +86,6 @@ async def test_reserve_commit_flow():
             pass
 
 
-@pytest.mark.skip(reason="Test isolation issue after merge - under investigation")
 @pytest.mark.asyncio
 async def test_80_percent_stop():
     """Test 80% stop threshold."""
@@ -102,20 +101,26 @@ async def test_80_percent_stop():
         assert status["spent"] == 0
         assert status["reserved"] == 0
         
-        # Reserve 90 - should succeed
+        # Reserve 90 - should succeed (below stop of 96)
         reserved = await ledger.reserve("ep04", "L1_refs", 90.0)
         assert reserved is True
         
         # Verify reserve took effect
         status = await ledger.get_line_status("ep04", "L1_refs")
         assert status["reserved"] == 90
+        assert status["at_stop"] is False  # Not at stop yet (90 < 96)
         
         # Try to reserve 10 more (total 100, exceeds stop 96) - should fail
         reserved = await ledger.reserve("ep04", "L1_refs", 10.0)
-        assert reserved is False, f"Second reserve should fail: {status}"
+        assert reserved is False, "Reserve should fail when exceeding stop"
         
-        # Check at_stop flag
+        # Reserve right up to the stop threshold (6 more to reach exactly 96)
+        reserved = await ledger.reserve("ep04", "L1_refs", 6.0)
+        assert reserved is True
+        
+        # Now check at_stop flag - should be True (exactly at stop)
         status = await ledger.get_line_status("ep04", "L1_refs")
+        assert status["reserved"] == 96
         assert status["at_stop"] is True
     
     finally:
@@ -187,7 +192,6 @@ async def test_episode_summary():
             pass
 
 
-@pytest.mark.skip(reason="Test isolation issue after merge - under investigation")
 @pytest.mark.asyncio
 async def test_hard_cap_enforcement():
     """Test hard cap cannot be exceeded."""

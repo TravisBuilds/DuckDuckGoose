@@ -171,15 +171,15 @@ class BudgetLedger:
                 spent, reserved, stop_threshold, cap = row
                 total = spent + reserved + amount
                 
-                # Check against stop threshold (GC.02 80% stop)
-                if total > stop_threshold:
-                    return False
-                
-                # Hard cap check
+                # Hard cap check (MUST be checked first - fail hard if exceeded)
                 if total > cap:
                     raise ValueError(
                         f"Budget cap exceeded: {total} > {cap} for {line_id}"
                     )
+                
+                # Check against stop threshold (GC.02 80% stop) - soft limit
+                if total > stop_threshold:
+                    return False
             
             # Reserve the amount
             await db.execute("""
