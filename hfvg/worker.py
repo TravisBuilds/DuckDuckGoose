@@ -10,6 +10,7 @@ from hfvg import activities
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow
+from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ async def main():
     worker = Worker(
         client,
         task_queue=config.TASK_QUEUE,
-        workflows=[EpisodeWorkflow, ShotWorkflow, PostingWorkflow],
+        workflows=[EpisodeWorkflow, EpisodeWorkflowV2, ShotWorkflow, PostingWorkflow],
         activities=[
             activities.submit_still_job,
             activities.submit_clip_job,
@@ -45,6 +46,10 @@ async def main():
             activities.generate_sfx,
             activities.generate_music,
             activities.post_to_platform,
+            activities.record_shot_result,
+            activities.submit_still_job_enforced,
+            activities.submit_clip_job_enforced,
+            activities.await_job_enforced,
         ],
     )
 

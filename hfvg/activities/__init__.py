@@ -5,6 +5,12 @@ from hfvg.activities.generation import await_job, submit_clip_job, submit_still_
 from hfvg.activities.media import mix_audio, render_edit, trim_clips
 from hfvg.activities.posting import post_to_platform
 from hfvg.activities.qc import review_clip, review_still
+from hfvg.activities.shot_result import record_shot_result
+from hfvg.activities.studio_generation import (
+    submit_still_job_enforced,
+    submit_clip_job_enforced,
+    await_job_enforced,
+)
 
 __all__ = [
     "submit_still_job",
@@ -19,4 +25,8 @@ __all__ = [
     "generate_sfx",
     "generate_music",
     "post_to_platform",
+    "record_shot_result",
+    "submit_still_job_enforced",
+    "submit_clip_job_enforced",
+    "await_job_enforced",
 ]

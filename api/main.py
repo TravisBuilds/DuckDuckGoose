@@ -2,7 +2,7 @@
 Studio API: Backend service wrapping the Temporal workflow.
 
 Environment variables:
-- ADMIN_SECRET: Required. Admin secret for access control (min 32 chars).
+- ADMIN_SECRET: Required. Admin secret for access control (min 32 chars). NO DEFAULT.
 - TEMPORAL_ADDRESS: Temporal server address (default: localhost:7233).
 - TEMPORAL_NAMESPACE: Temporal namespace (default: default).
 - DATABASE_PATH: SQLite database path (default: ./data/studio.db).
@@ -10,33 +10,47 @@ Environment variables:
 - DRY_RUN: Run in dry-run mode (default: true).
 
 Routes:
+- POST /api/login: Set admin cookie
 - POST /api/episodes: Start a new episode
+- POST /api/episodes/upload: Upload beatmap
 - GET /api/episodes/{episode_id}: Get episode state
 - POST /api/episodes/{episode_id}/approve: Send approval signal
 - GET /api/episodes/{episode_id}/shots: List shots with status
+- POST /api/episodes/{episode_id}/shots/{shot_id}/approve: Approve still
+- POST /api/episodes/{episode_id}/shots/{shot_id}/reject: Reject still
+- POST /api/episodes/{episode_id}/clips/{clip_id}/approve: Approve clip
+- POST /api/episodes/{episode_id}/clips/{clip_id}/reject: Reject clip
+- GET /api/episodes/{episode_id}/gates: Get gate status
 - GET /api/episodes/{episode_id}/budget: Get budget status
+- GET /api/episodes/{episode_id}/audit: Get audit trail
 - POST /api/episodes/{episode_id}/canary: Run canary (1 still + 1 clip)
-- POST /api/episodes/{episode_id}/set-live: Switch to live mode
+- POST /api/episodes/{episode_id}/set-live: Switch to live mode (requires confirmation)
 """
 
 import os
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from temporalio.client import Client as TemporalClient
 
-# Check ADMIN_SECRET early
+from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
+from hfvg.budget import BudgetLedger
+from hfvg.episode_parser import parse_beatmap
+from hfvg.credit_plan_parser import parse_credit_plan
+
+# Check ADMIN_SECRET early - FAIL CLOSED
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
 if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:
     raise ValueError(
         "ADMIN_SECRET environment variable is required and must be at least 32 characters. "
-        "Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        "NO DEFAULT SECRET. Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
     )
 
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
@@ -81,8 +95,31 @@ app.add_middleware(
 )
 
 
+def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
+    """
+    Verify admin auth from httpOnly cookie (fail closed).
+    
+    Args:
+        studio_admin_token: Cookie value
+    
+    Raises:
+        HTTPException: If cookie missing or invalid
+    """
+    if not studio_admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please log in."
+        )
+    
+    if studio_admin_token != ADMIN_SECRET:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid session. Please log in again."
+        )
+
+
 def verify_admin_secret(authorization: str | None = Header(None)):
-    """Verify admin secret from Authorization header."""
+    """Verify admin secret from Authorization header (for programmatic access)."""
     if not authorization:
         raise HTTPException(
             status_code=401,
@@ -159,6 +196,23 @@ class BudgetResponse(BaseModel):
     elevenlabs_total: float
 
 
+class LoginRequest(BaseModel):
+    admin_secret: str = Field(..., description="Admin secret for authentication")
+
+
+class SetLiveModeRequest(BaseModel):
+    confirmation: str = Field(..., description="Must be 'ENABLE_LIVE_MODE' to confirm")
+
+
+class AuditLogEntry(BaseModel):
+    id: int
+    episode_id: str
+    action: str
+    details: str | None
+    user: str | None
+    timestamp: str
+
+
 # Routes
 @app.get("/")
 async def root():
@@ -177,6 +231,88 @@ async def health(_: None = Header(None, alias="Authorization", include_in_schema
     Health check (no auth required for monitoring).
     """
     return {"status": "ok", "temporal": temporal_client is not None}
+
+
+@app.post("/api/login")
+async def login(request: LoginRequest, response: Response):
+    """
+    Login and set httpOnly cookie.
+    
+    Args:
+        request: Login request with admin_secret
+        response: Response to set cookie on
+    
+    Returns:
+        Success message
+    """
+    if request.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid admin secret")
+    
+    # Set httpOnly cookie
+    response.set_cookie(
+        key="studio_admin_token",
+        value=ADMIN_SECRET,
+        httponly=True,
+        secure=False,  # Set True in production with HTTPS
+        samesite="lax",
+        max_age=86400,  # 24 hours
+    )
+    
+    return {"success": True, "message": "Logged in successfully"}
+
+
+@app.post("/api/episodes/upload")
+async def upload_beatmap(
+    episode_id: str = Form(...),
+    beatmap_file: UploadFile = File(...),
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Upload beatmap file and parse into shots.
+    
+    Requires: Cookie auth
+    
+    Returns:
+        Number of shots parsed
+    """
+    verify_admin_cookie(_cookie)
+    
+    # Save beatmap file
+    beatmap_dir = Path("./data/episodes") / episode_id
+    beatmap_dir.mkdir(parents=True, exist_ok=True)
+    beatmap_path = beatmap_dir / "BEATMAP.md"
+    
+    content = await beatmap_file.read()
+    beatmap_path.write_bytes(content)
+    
+    # Parse beatmap
+    shots = parse_beatmap(str(beatmap_path))
+    
+    # Initialize database
+    await init_studio_db(DATABASE_PATH)
+    
+    # Create episode record
+    await create_episode(DATABASE_PATH, episode_id, str(beatmap_path))
+    
+    # Insert shots
+    await insert_shots_from_beatmap(DATABASE_PATH, episode_id, shots)
+    
+    # Parse and initialize budget if credit plan exists
+    credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
+    if credit_plan_path.exists():
+        credit_plan = parse_credit_plan(credit_plan_path)
+        
+        # Initialize budget ledger with credit plan
+        ledger = BudgetLedger(DATABASE_PATH)
+        await ledger.init_db()
+        await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "shots_count": len(shots),
+        "beatmap_path": str(beatmap_path),
+    }
 
 
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
@@ -353,43 +489,239 @@ async def get_budget_status(
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     List all shots for an episode with their status.
     
-    Requires: Authorization header with admin secret.
+    Requires: Cookie auth
     """
-    verify_admin_secret(_admin)
+    verify_admin_cookie(_cookie)
     
-    # TODO: Implement shot status tracking
-    # For now, return placeholder
+    import aiosqlite
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            """SELECT shot_id, status, still_url, clip_url, qc_results, retries, prompt
+               FROM shots WHERE episode_id = ? ORDER BY shot_id""",
+            (episode_id,)
+        ) as cursor:
+            shots = []
+            async for row in cursor:
+                qc_results = json.loads(row[4]) if row[4] else {}
+                shots.append({
+                    "shot_id": row[0],
+                    "status": row[1],
+                    "still_url": row[2],
+                    "clip_url": row[3],
+                    "qc_results": qc_results,
+                    "retries": row[5],
+                    "prompt": row[6],
+                })
+    
     return {
         "episode_id": episode_id,
-        "shots": [],
-        "message": "Shot tracking not yet implemented",
+        "shots": shots,
+    }
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/approve")
+async def approve_still(
+    episode_id: str,
+    shot_id: str,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Approve still for a shot (sends signal to workflow).
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    # Send signal to shot workflow
+    workflow_id = f"{episode_id}-shot-{shot_id}"
+    
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        await handle.signal("stills_approved")
+        
+        # Audit log
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "approve_still", f"Shot {shot_id} still approved", "admin")
+            )
+            await db.commit()
+        
+        return {"success": True, "shot_id": shot_id, "message": "Still approved"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/reject")
+async def reject_still(
+    episode_id: str,
+    shot_id: str,
+    reason: str = Form(...),
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Reject still for a shot.
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    # Audit log
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "reject_still", f"Shot {shot_id} still rejected: {reason}", "admin")
+        )
+        await db.commit()
+    
+    return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
+
+
+@app.get("/api/episodes/{episode_id}/gates")
+async def get_gates(
+    episode_id: str,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Get gate status for episode.
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    import aiosqlite
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Episode not found")
+            
+            live_mode, g108_approved = row
+    
+    return {
+        "episode_id": episode_id,
+        "gates": {
+            "live_mode": bool(live_mode),
+            "g108_approved": bool(g108_approved),
+        },
+    }
+
+
+@app.get("/api/episodes/{episode_id}/audit")
+async def get_audit_trail(
+    episode_id: str,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Get audit trail for episode.
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    import aiosqlite
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            """SELECT id, episode_id, action, details, user, timestamp
+               FROM audit_log WHERE episode_id = ? ORDER BY timestamp DESC LIMIT 100""",
+            (episode_id,)
+        ) as cursor:
+            entries = []
+            async for row in cursor:
+                entries.append({
+                    "id": row[0],
+                    "episode_id": row[1],
+                    "action": row[2],
+                    "details": row[3],
+                    "user": row[4],
+                    "timestamp": row[5],
+                })
+    
+    return {
+        "episode_id": episode_id,
+        "audit_log": entries,
     }
 
 
 @app.post("/api/episodes/{episode_id}/set-live")
-async def set_live_mode(
+async def set_live_mode_endpoint(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    request: SetLiveModeRequest,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
 ):
     """
-    Switch episode to live (paid) mode.
+    Switch episode to live (paid) mode with confirmation.
     
-    Requires: Authorization header with admin secret.
-    Also requires G1.08 credit plan approval before any paid generation.
+    Requires: Cookie auth + confirmation string "ENABLE_LIVE_MODE"
     """
-    verify_admin_secret(_admin)
+    verify_admin_cookie(_cookie)
     
-    # TODO: Implement live mode tracking
+    if request.confirmation != "ENABLE_LIVE_MODE":
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide confirmation='ENABLE_LIVE_MODE' to enable live mode"
+        )
+    
+    # Set live mode in database
+    await db_set_live_mode(DATABASE_PATH, episode_id, True, user="admin")
+    
     return {
         "success": True,
         "episode_id": episode_id,
-        "mode": "live",
-        "message": "Episode switched to live mode. Paid generation enabled after G1.08 approval.",
+        "live_mode": True,
+        "message": "Episode switched to LIVE mode. Paid generation enabled.",
+    }
+
+
+@app.post("/api/episodes/{episode_id}/approve-g108")
+async def approve_g108_endpoint(
+    episode_id: str,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Approve G1.08 credit plan for episode.
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    # Approve in database
+    await approve_g108(DATABASE_PATH, episode_id, user="admin")
+    
+    # Also send signal to workflow if running
+    if temporal_client:
+        try:
+            workflows = temporal_client.list_workflows(f'WorkflowId STARTS_WITH "{episode_id}-"')
+            async for workflow_info in workflows:
+                handle = temporal_client.get_workflow_handle(workflow_info.id)
+                await handle.signal("approve_g108")
+                break
+        except Exception:
+            pass  # Workflow might not be running yet
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "message": "G1.08 credit plan approved",
     }
 
 

@@ -110,6 +110,34 @@ class BudgetLedger:
                       stop_threshold, el_unit))
             
             await db.commit()
+
+    async def init_episode_budget_from_plan(self, episode_id: str, credit_plan: dict):
+        """
+        Initialize budget from parsed credit plan.
+        
+        Args:
+            episode_id: Episode ID
+            credit_plan: Parsed credit plan dict with lines, caps, stops
+        """
+        await self.init_db()
+        
+        unit = "Higgsfield app credits"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            for line_name, line_data in credit_plan["lines"].items():
+                line_id = f"{episode_id}:{line_name}"
+                cap = line_data["cap"]
+                stop = line_data["stop"]
+                
+                await db.execute("""
+                    INSERT OR IGNORE INTO budget_lines
+                    (line_id, episode_id, provider, line_name, budget_cap, 
+                     stop_threshold, unit, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (line_id, episode_id, "higgsfield", line_name, cap, 
+                      stop, unit))
+            
+            await db.commit()
     
     async def reserve(self, episode_id: str, line_name: str, amount: float, 
                      reason: str = "") -> bool:

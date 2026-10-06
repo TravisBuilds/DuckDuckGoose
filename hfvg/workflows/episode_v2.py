@@ -144,7 +144,7 @@ class EpisodeWorkflowV2:
         for shot in shots:
             handle = await workflow.start_child_workflow(
                 ShotWorkflow.run,
-                args=[episode_id, shot, dry_run],
+                args=[episode_id, shot],  # Fixed: 2 args not 3
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
