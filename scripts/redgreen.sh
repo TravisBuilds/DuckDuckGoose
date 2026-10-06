@@ -41,7 +41,7 @@ log_success() {
 expect_red() {
     local test_name=$1
     log_red "Running test (expecting FAILURE)..."
-    if python3 -m pytest "$test_name" -v --tb=line -q 2>&1 | grep -q "FAILED\|ERROR"; then
+    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "FAILED\|ERROR"; then
         log_success "Test FAILED as expected (red confirmed)"
         return 0
     else
@@ -53,7 +53,7 @@ expect_red() {
 expect_green() {
     local test_name=$1
     log_green "Running test (expecting PASS)..."
-    if python3 -m pytest "$test_name" -v --tb=line -q 2>&1 | grep -q "PASSED"; then
+    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "PASSED\|1 passed"; then
         log_success "Test PASSED as expected (green confirmed)"
         return 0
     else
@@ -120,6 +120,63 @@ test_budget_stop() {
     
     log_red "Mutation: Removing budget stop check..."
     sed -i 's/if total > stop_threshold:/if False and total > stop_threshold:/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_credit_plan_parsing() {
+    log_test "4. Credit Plan Parsing"
+    
+    local file="hfvg/credit_plan_parser.py"
+    local test="tests/test_studio_safety.py::test_credit_plan_parsing"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Breaking credit plan parser..."
+    sed -i 's/return credits/return 9999  # /' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_idempotent_retries() {
+    log_test "5. Idempotent Retry Prevention"
+    
+    local file="hfvg/activities/studio_generation.py"
+    local test="tests/test_studio_safety.py::test_idempotent_retries"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Skipping idempotency key generation..."
+    sed -i 's/idempotency_key = generate_idempotency_key/idempotency_key = f"broken-{episode_id}-{shot_id}" # /' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_activity_level_enforcement() {
+    log_test "6. Activity-Level Enforcement"
+    
+    local file="hfvg/activities/studio_generation.py"
+    local test="tests/test_studio_safety.py::test_activity_level_enforcement"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Removing activity-level gate check..."
+    sed -i 's/check_live_mode_and_g108(/# check_live_mode_and_g108(/' "$file"
     expect_red "$test"
     
     restore_file "$file"
