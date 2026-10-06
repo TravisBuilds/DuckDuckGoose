@@ -292,10 +292,12 @@ async def login(request: LoginRequest, response: Response):
 async def upload_beatmap(
     episode_id: str = Form(...),
     beatmap_file: UploadFile = File(...),
+    credit_plan_file: UploadFile = File(None),
+    continuity_file: UploadFile = File(None),
     _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
-    Upload beatmap file and parse into shots.
+    Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
     Requires: Cookie auth
     
@@ -304,13 +306,28 @@ async def upload_beatmap(
     """
     verify_admin_cookie(_cookie)
     
-    # Save beatmap file
+    # Create episode directory
     beatmap_dir = Path("./data/episodes") / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
-    beatmap_path = beatmap_dir / "BEATMAP.md"
     
+    # Save beatmap file
+    beatmap_path = beatmap_dir / "BEATMAP.md"
     content = await beatmap_file.read()
     beatmap_path.write_bytes(content)
+    
+    # Save credit plan if provided
+    credit_plan_path = None
+    if credit_plan_file:
+        credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
+        content = await credit_plan_file.read()
+        credit_plan_path.write_bytes(content)
+    
+    # Save continuity file if provided
+    continuity_path = None
+    if continuity_file:
+        continuity_path = beatmap_dir / "CONTINUITY.md"
+        content = await continuity_file.read()
+        continuity_path.write_bytes(content)
     
     # Parse beatmap
     shots = parse_beatmap(str(beatmap_path))
@@ -324,9 +341,8 @@ async def upload_beatmap(
     # Insert shots
     await insert_shots_from_beatmap(DATABASE_PATH, episode_id, shots)
     
-    # Parse and initialize budget if credit plan exists
-    credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
-    if credit_plan_path.exists():
+    # Parse and initialize budget if credit plan was provided
+    if credit_plan_path and credit_plan_path.exists():
         credit_plan = parse_credit_plan(credit_plan_path)
         
         # Initialize budget ledger with credit plan
@@ -338,6 +354,11 @@ async def upload_beatmap(
         "success": True,
         "episode_id": episode_id,
         "shots_count": len(shots),
+        "files_uploaded": {
+            "beatmap": True,
+            "credit_plan": credit_plan_file is not None,
+            "continuity": continuity_file is not None,
+        },
         "beatmap_path": str(beatmap_path),
     }
 
@@ -812,19 +833,35 @@ async def run_canary(
             "g108_approved": bool(g108_approved),
         }
     
-    # Create canary shot
+    # Load first shot from parsed beatmap for canary
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT shot_id, prompt FROM shots WHERE episode_id = ? ORDER BY shot_id LIMIT 1",
+            (episode_id,)
+        ) as cursor:
+            shot_row = await cursor.fetchone()
+            if not shot_row:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No shots found. Upload beatmap first."
+                )
+            
+            first_shot_id, first_prompt = shot_row
+    
+    # Create canary shot using first real shot from episode
     canary_shot = {
-        "shot_id": "CANARY01",
-        "prompt": "A serene duck standing beside a warm fjord pool at golden hour, steam rising from the water",
+        "shot_id": first_shot_id,
+        "prompt": first_prompt,
         "refs": [],
-        "duration": 5.0,
+        "params": {"duration": 5.0},
     }
     
     # Start ShotWorkflow
     from hfvg.workflows.shot import ShotWorkflow
+    from hfvg.activities.shot_activity import record_shot_result
     import time
     
-    workflow_id = f"{episode_id}-canary-shot-CANARY01-{int(time.time())}"
+    workflow_id = f"{episode_id}-canary-{first_shot_id}-{int(time.time())}"
     
     try:
         handle = await temporal_client.start_workflow(
@@ -837,9 +874,17 @@ async def run_canary(
         # Wait for completion (with timeout)
         result = await asyncio.wait_for(handle.result(), timeout=300)  # 5 min timeout
         
+        # Record canary result
+        await record_shot_result(
+            episode_id=episode_id,
+            shot_id=first_shot_id,
+            result=result,
+        )
+        
         return {
             "success": True,
             "episode_id": episode_id,
+            "shot_id": first_shot_id,
             "canary_result": result,
             "dry_run": dry_run,
             "live_mode": bool(live_mode),
