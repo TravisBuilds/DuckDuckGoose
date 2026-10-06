@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+# Red-Green Proof: 3 Core Safety Tests
+
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
@@ -49,7 +51,7 @@ restore_file() {
 expect_red() {
     local test_name=$1
     log_red "Running test (expecting FAILURE)..."
-    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "FAILED\|ERROR"; then
+    if python3 -m pytest "$test_name" -v --tb=short --cache-clear 2>&1 | grep -q "FAILED\|ERROR"; then
         log_success "Test FAILED as expected (red confirmed)"
         return 0
     else
@@ -61,7 +63,7 @@ expect_red() {
 expect_green() {
     local test_name=$1
     log_green "Running test (expecting PASS)..."
-    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "PASSED\|1 passed"; then
+    if python3 -m pytest "$test_name" -v --tb=short --cache-clear 2>&1 | grep -q "PASSED\|1 passed"; then
         log_success "Test PASSED as expected (green confirmed)"
         return 0
     else
