@@ -429,7 +429,49 @@ async def set_live_mode(episode_id: str, enabled: bool):
     
     return {"episode_id": episode_id, "live_mode": enabled}
 
-async def check_live_mode_enforcement(episode_id: str) -> tuple[bool, str]:
+async def check_budget_reserve(episode_id: str, line: str, amount: float) -> tuple[bool, str]:
+    """
+    Check if budget can be reserved for a job.
+    
+    Returns: (allowed, reason)
+    """
+    # TODO: Full BudgetLedger integration
+    # For now, check against hardcoded caps
+    budget_caps = {
+        "L1": 120,
+        "L2": 100,
+        "L3": 230,
+        "L4": 300,
+        "L6": 250,
+    }
+    
+    stop_thresholds = {
+        "L1": 96,
+        "L2": 80,
+        "L3": 184,
+        "L4": 240,
+        "L6": 200,
+    }
+    
+    # Get current spent from DB
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT SUM(amount) FROM budget_transactions WHERE episode_id = ? AND line_id LIKE ?",
+        (episode_id, f"{episode_id}:{line}%")
+    )
+    row = await cursor.fetchone()
+    await db.close()
+    
+    spent = row[0] if row and row[0] else 0.0
+    
+    # Check against stop threshold
+    stop = stop_thresholds.get(line, 0)
+    if spent + amount > stop:
+        return (False, f"Budget stop: {line} would exceed {stop} (currently {spent}, requesting {amount})")
+    
+    return (True, "Budget OK")
+
+async def check_live_mode_enforcement(episode_id: str, line: str = "L2", amount: float = 0.0) -> tuple[bool, str]:
     """
     Check if episode can spend credits (live mode enforcement).
     
@@ -467,6 +509,13 @@ async def check_live_mode_enforcement(episode_id: str) -> tuple[bool, str]:
         return (False, "G1.08 (credit plan) not approved")
     
     await db.close()
+    
+    # Check budget reserve
+    if amount > 0:
+        budget_ok, budget_reason = await check_budget_reserve(episode_id, line, amount)
+        if not budget_ok:
+            return (False, budget_reason)
+    
     return (True, "OK")
 
 @app.post("/api/episodes/{episode_id}/canary", dependencies=[Depends(verify_admin)])
