@@ -127,13 +127,154 @@ test_budget_stop() {
     echo ""
 }
 
+test_activity_enforcement() {
+    log_test "4. Activity-Level Enforcement (Not Just API-Level)"
+    
+    local file="hfvg/workflows/shot.py"
+    local test="tests/test_studio_safety.py::test_activity_level_enforcement"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Switching to unenforced activity..."
+    sed -i 's/submit_still_job_enforced/submit_still_job/g' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_idempotency() {
+    log_test "5. Idempotent Retry (No Double-Charge)"
+    
+    local file="hfvg/activities/studio_generation.py"
+    local test="tests/test_studio_safety.py::test_idempotent_retry_no_double_charge"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Removing idempotency key..."
+    sed -i 's/idempotency_key = generate_idempotency_key/idempotency_key = None  # generate_idempotency_key/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_auth() {
+    log_test "6. Auth Fail-Closed (No Default Secret)"
+    
+    local file="api/main.py"
+    local test="tests/test_studio_safety.py::test_auth_fail_closed"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Adding default admin secret..."
+    sed -i 's/if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:/if False and (not ADMIN_SECRET or len(ADMIN_SECRET) < 32):/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_ledger_math() {
+    log_test "7. Ledger Math (Reserve, Commit, Release)"
+    
+    local file="hfvg/budget.py"
+    local test="tests/test_studio_safety.py::test_ledger_math_reserve_commit_release"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Breaking commit to add twice..."
+    sed -i 's/SET reserved = reserved - ?, spent = spent + ?/SET reserved = reserved - ?, spent = spent + ? + ?/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_hard_cap() {
+    log_test "8. Hard Cap Enforcement"
+    
+    local file="hfvg/budget.py"
+    local test="tests/test_budget.py::test_hard_cap_enforcement"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Removing hard cap check..."
+    sed -i 's/if total > cap:/if False and total > cap:/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_canary_workflow() {
+    log_test "9. Canary Starts ShotWorkflow"
+    
+    local file="hfvg/workflows/shot.py"
+    local test="tests/test_studio_temporal_integration.py::test_canary_starts_shot_workflow"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Breaking workflow by removing signal handler..."
+    sed -i 's/@workflow.signal/#@workflow.signal/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+test_approval_signal() {
+    log_test "10. Approval Signal Reaches Workflow"
+    
+    local file="api/main.py"
+    local test="tests/test_studio_temporal_integration.py::test_approval_signal_reaches_episode_workflow"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Breaking signal routing..."
+    sed -i 's/await handle.signal("stills_approved")/await handle.signal("wrong_signal_name")/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
 echo ""
 echo "RED-GREEN SAFETY TEST PROOF"
+echo "Testing all 10 critical safety mechanisms"
 echo ""
 
 test_live_mode
 test_g108
 test_budget_stop
+test_activity_enforcement
+test_idempotency
+test_auth
+test_ledger_math
+test_hard_cap
+test_canary_workflow
+test_approval_signal
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -144,7 +285,7 @@ echo "Failed verifications: ${FAIL_COUNT}"
 echo ""
 
 if [ $FAIL_COUNT -eq 0 ]; then
-    echo "✓ ALL RED-GREEN PROOFS PASSED"
+    echo "✓ ALL 10 RED-GREEN PROOFS PASSED"
     exit 0
 else
     echo "✗ SOME RED-GREEN PROOFS FAILED"
