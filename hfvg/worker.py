@@ -36,9 +36,10 @@ async def main():
         task_queue=config.TASK_QUEUE,
         workflows=[EpisodeWorkflow, EpisodeWorkflowV2, ShotWorkflow, PostingWorkflow],
         activities=[
-            activities.submit_still_job,
-            activities.submit_clip_job,
-            activities.await_job,
+            # Only enforced activities registered - legacy ungated activities removed
+            activities.submit_still_job_enforced,
+            activities.submit_clip_job_enforced,
+            activities.await_job_enforced,
             activities.review_still,
             activities.review_clip,
             activities.trim_clips,
@@ -49,9 +50,6 @@ async def main():
             activities.generate_music,
             activities.post_to_platform,
             activities.record_shot_result,
-            activities.submit_still_job_enforced,
-            activities.submit_clip_job_enforced,
-            activities.await_job_enforced,
             activities.load_gate_policy_activity,
             activities.parse_beatmap_activity,
         ],

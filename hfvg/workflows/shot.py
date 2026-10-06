@@ -7,11 +7,11 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from hfvg.activities import (
-        await_job,
+        await_job_enforced,
         review_clip,
         review_still,
         submit_clip_job_enforced,
-        submit_still_job,
+        submit_still_job_enforced,
     )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
@@ -68,7 +68,7 @@ class ShotWorkflow:
 
                 # Call enforced activity with individual parameters
                 job_id = await workflow.execute_activity(
-                    submit_still_job,
+                    submit_still_job_enforced,
                     args=[
                         self.episode_id,
                         self.shot_id,
@@ -83,7 +83,7 @@ class ShotWorkflow:
                 )
 
                 self.still_asset = await workflow.execute_activity(
-                    await_job,
+                    await_job_enforced,
                     args=[job_id, "still"],
                     start_to_close_timeout=timedelta(minutes=10),
                     heartbeat_timeout=timedelta(minutes=2),
@@ -156,7 +156,7 @@ class ShotWorkflow:
                 )
 
                 self.clip_asset = await workflow.execute_activity(
-                    await_job,
+                    await_job_enforced,
                     args=[job_id, "clip"],
                     start_to_close_timeout=timedelta(minutes=15),
                     heartbeat_timeout=timedelta(minutes=3),
