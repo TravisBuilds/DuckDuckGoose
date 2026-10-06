@@ -7,7 +7,6 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 
 import pytest
 import aiosqlite
-from fastapi.testclient import TestClient
 
 from hfvg.budget import BudgetLedger
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -94,6 +93,8 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
 @pytest.mark.asyncio  
 async def test_auth_fail_closed(monkeypatch, tmp_path):
     """Test 6: Auth rejects requests without valid secret (through real API app)."""
+    from fastapi.testclient import TestClient
+    
     monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("DRY_RUN", "true")
