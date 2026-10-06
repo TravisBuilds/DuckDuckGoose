@@ -63,40 +63,158 @@ class TestLiveModeEnforcement:
         """
         Test that paid submit is blocked if episode not in live mode.
         """
-        # Simulate episode in dry-run mode
-        episode_state = {
-            "id": "ep04",
-            "live_mode": False,
-            "approvals": {"G1.08": True},
-        }
+        import aiosqlite
+        import tempfile
+        import os
         
-        # Attempt paid submit
-        # Should fail with "Episode not in live mode"
-        pass
+        # Create temp DB
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        
+        try:
+            # Setup episode in dry-run mode
+            async with aiosqlite.connect(db_path) as db:
+                await db.execute("""
+                    CREATE TABLE episodes (
+                        id TEXT PRIMARY KEY,
+                        name TEXT,
+                        live_mode BOOLEAN DEFAULT 0
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE approvals (
+                        episode_id TEXT,
+                        gate TEXT,
+                        approved BOOLEAN
+                    )
+                """)
+                
+                await db.execute(
+                    "INSERT INTO episodes (id, name, live_mode) VALUES ('ep04', 'Test', 0)"
+                )
+                await db.execute(
+                    "INSERT INTO approvals (episode_id, gate, approved) VALUES ('ep04', 'G1.08', 1)"
+                )
+                await db.commit()
+            
+            # Test enforcement
+            from api.main import check_live_mode_enforcement
+            
+            # Monkey-patch DB_PATH
+            import api.main
+            old_path = api.main.DB_PATH
+            api.main.DB_PATH = db_path
+            
+            try:
+                allowed, reason = await check_live_mode_enforcement("ep04")
+                assert not allowed, "Should block dry-run episode"
+                assert "not in live mode" in reason.lower()
+            finally:
+                api.main.DB_PATH = old_path
+        finally:
+            os.unlink(db_path)
     
     @pytest.mark.asyncio
     async def test_no_paid_submit_without_g108_approval(self):
         """
         Test that paid submit is blocked if G1.08 not approved.
         """
-        episode_state = {
-            "id": "ep04",
-            "live_mode": True,
-            "approvals": {"G1.08": False},
-        }
+        import aiosqlite
+        import tempfile
+        import os
         
-        # Should fail with "G1.08 not approved"
-        pass
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        
+        try:
+            # Setup episode in live mode but no G1.08
+            async with aiosqlite.connect(db_path) as db:
+                await db.execute("""
+                    CREATE TABLE episodes (
+                        id TEXT PRIMARY KEY,
+                        name TEXT,
+                        live_mode BOOLEAN DEFAULT 0
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE approvals (
+                        episode_id TEXT,
+                        gate TEXT,
+                        approved BOOLEAN
+                    )
+                """)
+                
+                await db.execute(
+                    "INSERT INTO episodes (id, name, live_mode) VALUES ('ep04', 'Test', 1)"
+                )
+                # No G1.08 approval
+                await db.commit()
+            
+            from api.main import check_live_mode_enforcement
+            import api.main
+            old_path = api.main.DB_PATH
+            api.main.DB_PATH = db_path
+            
+            try:
+                allowed, reason = await check_live_mode_enforcement("ep04")
+                assert not allowed, "Should block without G1.08"
+                assert "g1.08" in reason.lower()
+            finally:
+                api.main.DB_PATH = old_path
+        finally:
+            os.unlink(db_path)
     
     @pytest.mark.asyncio
-    async def test_paid_submit_requires_budget_reserve(self):
+    async def test_live_mode_with_g108_allows(self):
         """
-        Test that paid submit requires successful budget reservation.
+        Test that live mode + G1.08 allows spend.
         """
-        # Mock budget at 99% of line
-        # Attempt to reserve 2 credits
-        # Should fail with "Budget exceeded"
-        pass
+        import aiosqlite
+        import tempfile
+        import os
+        
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        
+        try:
+            # Setup episode in live mode with G1.08
+            async with aiosqlite.connect(db_path) as db:
+                await db.execute("""
+                    CREATE TABLE episodes (
+                        id TEXT PRIMARY KEY,
+                        name TEXT,
+                        live_mode BOOLEAN DEFAULT 0
+                    )
+                """)
+                await db.execute("""
+                    CREATE TABLE approvals (
+                        episode_id TEXT,
+                        gate TEXT,
+                        approved BOOLEAN
+                    )
+                """)
+                
+                await db.execute(
+                    "INSERT INTO episodes (id, name, live_mode) VALUES ('ep04', 'Test', 1)"
+                )
+                await db.execute(
+                    "INSERT INTO approvals (episode_id, gate, approved) VALUES ('ep04', 'G1.08', 1)"
+                )
+                await db.commit()
+            
+            from api.main import check_live_mode_enforcement
+            import api.main
+            old_path = api.main.DB_PATH
+            api.main.DB_PATH = db_path
+            
+            try:
+                allowed, reason = await check_live_mode_enforcement("ep04")
+                assert allowed, f"Should allow with live mode + G1.08: {reason}"
+                assert reason == "OK"
+            finally:
+                api.main.DB_PATH = old_path
+        finally:
+            os.unlink(db_path)
 
 
 class TestDuckIdentityGate:

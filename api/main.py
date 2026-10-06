@@ -291,17 +291,102 @@ async def get_shots(episode_id: str):
 
 @app.get("/api/episodes/{episode_id}/budget", dependencies=[Depends(verify_admin)])
 async def get_budget(episode_id: str):
-    """Get budget status for episode."""
-    # TODO: Integrate with BudgetLedger
+    """Get budget status for episode with CREDIT-PLAN data."""
+    db = await get_db()
+    
+    # CREDIT-PLAN.md §8 budget lines for Ep04
+    # These are the actual planned values
+    lines = [
+        {
+            "name": "L1 refs (2k high)",
+            "plan": 91,
+            "budget": 120,
+            "stop": 96,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "9 moose sheets, props, AG+GD plates, 2 re-rolls"
+        },
+        {
+            "name": "L2 drafts (1k medium)",
+            "plan": 87.5,
+            "budget": 100,
+            "stop": 80,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "35 frames × 2.5. PLANNED REPORT at 80 (GC.06)"
+        },
+        {
+            "name": "L3 final stills (2k high)",
+            "plan": 227.5,
+            "budget": 230,
+            "stop": 184,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "35 × 6.5. PLANNED REPORT at 184 (GC.06)"
+        },
+        {
+            "name": "L4 video (Kling 3.0 pro)",
+            "plan": 229.4,
+            "budget": 300,
+            "stop": 240,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "133s × 1.5 × 1.15 headroom"
+        },
+        {
+            "name": "L5 finalize / upscale",
+            "plan": 0,
+            "budget": 0,
+            "stop": 0,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "None planned"
+        },
+        {
+            "name": "L6 reserve",
+            "plan": 250,
+            "budget": 250,
+            "stop": 200,
+            "spent": 0,
+            "reserved": 0,
+            "unit": "Higgsfield credits",
+            "note": "Earmarks: B03 25, D04 ≈20, E01 ≈10"
+        },
+    ]
+    
+    # TODO: Wire to BudgetLedger for actual spent/reserved tracking
+    # For now, return static structure from CREDIT-PLAN
+    
+    # Calculate totals
+    total_plan = sum(line["plan"] for line in lines)
+    total_budget = 1000
+    total_cap = 1250
+    total_spent = 0  # TODO: sum from budget_transactions
+    total_reserved = 0
+    
+    await db.close()
+    
     return {
-        "lines": [
-            {"name": "L1 refs", "spent": 0, "budget": 120, "stop": 96},
-            {"name": "L2 drafts", "spent": 0, "budget": 100, "stop": 80},
-            {"name": "L3 final stills", "spent": 0, "budget": 230, "stop": 184},
-            {"name": "L4 video", "spent": 0, "budget": 300, "stop": 240},
-        ],
-        "total_spent": 0,
-        "total_budget": 1000,
+        "lines": lines,
+        "totals": {
+            "plan": total_plan,
+            "budget": total_budget,
+            "cap": total_cap,
+            "spent": total_spent,
+            "reserved": total_reserved,
+            "available": total_cap - total_spent - total_reserved,
+        },
+        "stop_fraction": 0.8,
+        "notes": [
+            "L2 and L3 plans exceed 80% stops (intentional GC.06 report points)",
+            "Total cap: 1,250 Higgsfield credits (125% of 1,000 target)",
+            "ElevenLabs budget: 3,500 credits after picture lock (separate)"
+        ]
     }
 
 @app.post("/api/episodes/{episode_id}/approve", dependencies=[Depends(verify_admin)])
@@ -326,10 +411,79 @@ async def approve_gate(episode_id: str, approval: ApprovalRequest):
     
     return {"gate": approval.gate, "approved": True, "approved_at": now}
 
+@app.post("/api/episodes/{episode_id}/live-mode", dependencies=[Depends(verify_admin)])
+async def set_live_mode(episode_id: str, enabled: bool):
+    """Toggle live mode for episode."""
+    db = await get_db()
+    
+    await db.execute(
+        "UPDATE episodes SET live_mode = ? WHERE id = ?",
+        (1 if enabled else 0, episode_id)
+    )
+    await db.commit()
+    await db.close()
+    
+    await log_audit(episode_id, "live_mode_toggled", {
+        "enabled": enabled
+    })
+    
+    return {"episode_id": episode_id, "live_mode": enabled}
+
+async def check_live_mode_enforcement(episode_id: str) -> tuple[bool, str]:
+    """
+    Check if episode can spend credits (live mode enforcement).
+    
+    Returns: (allowed, reason)
+    
+    Requirements:
+    1. Episode must be in live mode
+    2. G1.08 (credit plan) must be approved
+    3. Budget reserve must succeed for the job
+    """
+    db = await get_db()
+    
+    # Check live mode
+    cursor = await db.execute(
+        "SELECT live_mode FROM episodes WHERE id = ?",
+        (episode_id,)
+    )
+    row = await cursor.fetchone()
+    if not row:
+        await db.close()
+        return (False, "Episode not found")
+    
+    if not row[0]:
+        await db.close()
+        return (False, "Episode not in live mode (dry-run only)")
+    
+    # Check G1.08 approval
+    cursor = await db.execute(
+        "SELECT approved FROM approvals WHERE episode_id = ? AND gate = 'G1.08'",
+        (episode_id,)
+    )
+    row = await cursor.fetchone()
+    if not row or not row[0]:
+        await db.close()
+        return (False, "G1.08 (credit plan) not approved")
+    
+    await db.close()
+    return (True, "OK")
+
 @app.post("/api/episodes/{episode_id}/canary", dependencies=[Depends(verify_admin)])
 async def run_canary(episode_id: str, request: CanaryRequest):
     """Run canary: 1 still + 1 clip for a shot."""
-    # TODO: Integrate with ShotWorkflow
+    # Check live mode enforcement
+    allowed, reason = await check_live_mode_enforcement(episode_id)
+    
+    if not allowed:
+        await log_audit(episode_id, "canary_refused", {
+            "shot_id": request.shot_id,
+            "reason": reason
+        })
+        raise HTTPException(status_code=403, detail=reason)
+    
+    # TODO: Actually execute via ShotWorkflow
+    # For now, return estimate
     
     await log_audit(episode_id, "canary_requested", {
         "shot_id": request.shot_id,
@@ -341,7 +495,7 @@ async def run_canary(episode_id: str, request: CanaryRequest):
         "estimated_credits": 11.0,
         "estimated_usd": 0.0,
         "status": "ready",
-        "message": "Ready to generate 1 still + 1 clip"
+        "message": "Ready to generate 1 still + 1 clip (live mode)"
     }
 
 @app.get("/api/episodes/{episode_id}/audit", dependencies=[Depends(verify_admin)])

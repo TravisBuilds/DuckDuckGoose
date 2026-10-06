@@ -1,12 +1,8 @@
-"""Real provider adapters for Higgsfield and ElevenLabs."""
+"""Higgsfield and external generation providers."""
 
-from hfvg.providers.base import GenerationProvider, ProviderJobStatus
-from hfvg.providers.higgsfield import HiggsfieldProvider
-from hfvg.providers.elevenlabs import ElevenLabsProvider
+from hfvg.providers.higgsfield_still import HiggsfieldStillProvider, create_higgsfield_provider
 
 __all__ = [
-    "GenerationProvider",
-    "ProviderJobStatus",
-    "HiggsfieldProvider",
-    "ElevenLabsProvider",
+    "HiggsfieldStillProvider",
+    "create_higgsfield_provider",
 ]
