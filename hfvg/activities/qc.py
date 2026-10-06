@@ -32,7 +32,15 @@ async def review_still(asset_url: str, rubric: dict) -> dict:
             "issues": [] if passed else ["Character drift detected", "Height mismatch"],
         }
 
-    raise NotImplementedError("Real QC agent not implemented in milestone 1")
+    # Fail closed: reject in live mode until real QC agent is implemented
+    activity.logger.error(
+        f"[LIVE MODE] Still review attempted but real QC not implemented. "
+        f"Failing closed to prevent unreviewed content. Asset: {asset_url}"
+    )
+    return {
+        "passed": False,
+        "issues": ["Real QC agent not implemented - failing closed for safety"],
+    }
 
 
 @activity.defn
@@ -57,4 +65,12 @@ async def review_clip(asset_url: str, rubric: dict) -> dict:
             "issues": [] if passed else ["Motion stiffness", "Prop continuity break"],
         }
 
-    raise NotImplementedError("Real QC agent not implemented in milestone 1")
+    # Fail closed: reject in live mode until real QC agent is implemented
+    activity.logger.error(
+        f"[LIVE MODE] Clip review attempted but real QC not implemented. "
+        f"Failing closed to prevent unreviewed content. Asset: {asset_url}"
+    )
+    return {
+        "passed": False,
+        "issues": ["Real QC agent not implemented - failing closed for safety"],
+    }

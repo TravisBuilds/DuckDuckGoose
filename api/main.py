@@ -44,6 +44,7 @@ from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_s
 from hfvg.budget import BudgetLedger
 from hfvg.episode_parser import parse_beatmap
 from hfvg.credit_plan_parser import parse_credit_plan
+from hfvg.temporal_converter import temporal_data_converter
 
 # Check ADMIN_SECRET early - FAIL CLOSED
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
         temporal_client = await TemporalClient.connect(
             TEMPORAL_ADDRESS,
             namespace=TEMPORAL_NAMESPACE,
+            data_converter=temporal_data_converter,
         )
         yield
     finally:
@@ -349,7 +351,7 @@ async def start_episode(
         EpisodeWorkflowV2.run,
         args=[request.episode_id, beatmap_path, request.dry_run],
         id=workflow_id,
-        task_queue="hfvg-task-queue",
+        task_queue="hfvg-tasks",
     )
     
     return StartEpisodeResponse(

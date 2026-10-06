@@ -10,8 +10,8 @@ with workflow.unsafe.imports_passed_through():
         await_job,
         review_clip,
         review_still,
-        submit_clip_job,
-        submit_still_job,
+        submit_clip_job_enforced,
+        submit_still_job_enforced,
     )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
@@ -28,12 +28,12 @@ class ShotWorkflow:
         self.clip_asset: Asset | None = None
         self.version = 1
         self.max_retries = 3
-        self.scene_approved = False  # Wait for parent to approve this scene's stills
+        self.stills_approved = False  # Wait for parent to approve this scene's stills
 
     @workflow.signal
-    def scene_approved(self):
+    def stills_approved(self):
         """Signal from parent that this scene's stills have been approved."""
-        self.scene_approved = True
+        self.stills_approved = True
 
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
@@ -60,18 +60,24 @@ class ShotWorkflow:
 
         for attempt in range(self.max_retries):
             try:
-                still_req = GenerationRequest(
-                    shot_id=self.shot_id,
-                    version=self.version,
-                    prompt=shot_plan["prompt"],
-                    refs=shot_plan.get("refs", []),
-                    params={"type": "still"},
-                    estimated_cost=6.5,
-                )
+                # Extract parameters from shot plan
+                refs = shot_plan.get("refs", [])
+                params = shot_plan.get("params", {})
+                resolution = params.get("resolution", "1k")
+                quality = params.get("quality", "medium")
 
+                # Call enforced activity with individual parameters
                 job_id = await workflow.execute_activity(
-                    submit_still_job,
-                    args=[self.episode_id, still_req],
+                    submit_still_job_enforced,
+                    args=[
+                        self.episode_id,
+                        self.shot_id,
+                        shot_plan["prompt"],
+                        self.version,
+                        refs,
+                        resolution,
+                        quality,
+                    ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
                 )
@@ -124,24 +130,27 @@ class ShotWorkflow:
             }
 
         # CRITICAL: Wait for parent to approve this scene's stills before generating clip
-        workflow.logger.info(f"Still ready, waiting for scene approval before clip generation")
-        await workflow.wait_condition(lambda: self.scene_approved)
-        workflow.logger.info(f"Scene approved, proceeding to clip generation")
+        workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
+        await workflow.wait_condition(lambda: self.stills_approved)
+        workflow.logger.info(f"Stills approved, proceeding to clip generation")
 
         for attempt in range(self.max_retries):
             try:
-                clip_req = GenerationRequest(
-                    shot_id=self.shot_id,
-                    version=self.version,
-                    prompt=shot_plan["prompt"],
-                    refs=[self.still_asset.url] + shot_plan.get("refs", []),
-                    params={"type": "clip", "duration": 5},
-                    estimated_cost=28.0,
-                )
+                # Extract duration from shot plan params
+                params = shot_plan.get("params", {})
+                duration = params.get("duration", 5.0)
 
+                # Call enforced activity with individual parameters
                 job_id = await workflow.execute_activity(
-                    submit_clip_job,
-                    args=[self.episode_id, clip_req],
+                    submit_clip_job_enforced,
+                    args=[
+                        self.episode_id,
+                        self.shot_id,
+                        self.still_asset.url,  # start_image_url
+                        shot_plan["prompt"],
+                        duration,
+                        self.version,
+                    ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
                 )

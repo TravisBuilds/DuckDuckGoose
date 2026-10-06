@@ -9,6 +9,7 @@ from temporalio.worker import Worker
 from hfvg import activities
 from hfvg.config import config
 from hfvg.ledger import Ledger
+from hfvg.temporal_converter import temporal_data_converter
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
@@ -26,6 +27,7 @@ async def main():
     client = await Client.connect(
         config.TEMPORAL_HOST,
         namespace=config.TEMPORAL_NAMESPACE,
+        data_converter=temporal_data_converter,
     )
 
     logger.info(f"Starting worker on task queue: {config.TASK_QUEUE}")
@@ -50,6 +52,8 @@ async def main():
             activities.submit_still_job_enforced,
             activities.submit_clip_job_enforced,
             activities.await_job_enforced,
+            activities.load_gate_policy_activity,
+            activities.parse_beatmap_activity,
         ],
     )
 
