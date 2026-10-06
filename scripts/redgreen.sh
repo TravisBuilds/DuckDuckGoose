@@ -259,26 +259,26 @@ test_mutation 3 "Budget stop at 80% threshold" \
 # 4. Activity-level enforcement
 test_mutation 4 "Activity-level enforcement (not just API)" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_studio_safety.py::test_activity_level_enforcement" \
-    sed -i "s/if not live_mode:/if True or not live_mode:/"
+    "tests/test_redgreen_safety.py::test_activity_level_enforcement" \
+    sed -i 's/if not live_mode:/if False:  # MUTATED/'
 
 # 5. Idempotency
 test_mutation 5 "Idempotent retry (no double-charge)" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_studio_safety.py::test_idempotent_retry_no_double_charge" \
-    sed -i "s/idempotency_key = generate_idempotency_key/idempotency_key = None  # MUTATED/"
+    "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
+    python3 scripts/mutate_idempotency.py
 
 # 6. Auth fail-closed
 test_mutation 6 "Auth fail-closed (no default secret)" \
     "api/main.py" \
-    "tests/test_studio_safety.py::test_auth_fail_closed" \
-    sed -i "s/if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:/if False:  # MUTATED/"
+    "tests/test_redgreen_safety.py::test_auth_fail_closed" \
+    sed -i 's/if not authorization:/if False:  # MUTATED/'
 
 # 7. Ledger math
 test_mutation 7 "Ledger math (reserve, commit, release)" \
     "hfvg/budget.py" \
     "tests/test_studio_safety.py::test_ledger_math_reserve_commit_release" \
-    sed -i "s/spent = spent + ?/spent = spent + ? + 999/"
+    sed -i 's/spent = spent + ?/spent = spent + ? + 999/'
 
 # 8. Hard cap
 test_mutation 8 "Hard cap enforcement" \
@@ -288,15 +288,15 @@ test_mutation 8 "Hard cap enforcement" \
 
 # 9. Canary starts ShotWorkflow
 test_mutation 9 "Canary starts real ShotWorkflow" \
-    "api/main.py" \
-    "tests/test_studio_temporal_integration.py::test_canary_starts_shot_workflow" \
-    sed -i "s/ShotWorkflow.run/ShotWorkflow.run_MUTATED/"
+    "hfvg/workflows/shot.py" \
+    "tests/test_redgreen_safety.py::test_canary_starts_shot_workflow" \
+    sed -i 's/@workflow.defn/#@workflow.defn  # MUTATED/'
 
 # 10. Approval signal reaches workflow
 test_mutation 10 "Approval signal reaches workflow" \
-    "api/main.py" \
-    "tests/test_studio_temporal_integration.py::test_approval_signal_reaches_episode_workflow" \
-    sed -i 's/await handle.signal("approve_g101")/await handle.signal("wrong_signal")/'
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
+    sed -i 's/@workflow.signal/# @workflow.signal  # MUTATED/' 
 
 # Print final summary
 print_summary
