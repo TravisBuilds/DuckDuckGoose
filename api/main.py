@@ -30,6 +30,8 @@ Routes:
 import os
 import asyncio
 import json
+import hashlib
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -61,6 +63,27 @@ DRY_RUN_DEFAULT = os.getenv("DRY_RUN", "true").lower() == "true"
 
 # Global Temporal client
 temporal_client: TemporalClient | None = None
+
+# Session token cache (in-memory for simplicity)
+# In production, use Redis or a database
+_session_tokens: set[str] = set()
+
+
+def generate_session_token() -> str:
+    """Generate a secure session token."""
+    return secrets.token_urlsafe(32)
+
+
+def create_session() -> str:
+    """Create a new session and return the token."""
+    token = generate_session_token()
+    _session_tokens.add(token)
+    return token
+
+
+def verify_session_token(token: str) -> bool:
+    """Verify a session token."""
+    return token in _session_tokens
 
 
 @asynccontextmanager
@@ -102,7 +125,7 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     Verify admin auth from httpOnly cookie (fail closed).
     
     Args:
-        studio_admin_token: Cookie value
+        studio_admin_token: Session token from cookie
     
     Raises:
         HTTPException: If cookie missing or invalid
@@ -113,10 +136,10 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
             detail="Authentication required. Please log in."
         )
     
-    if studio_admin_token != ADMIN_SECRET:
+    if not verify_session_token(studio_admin_token):
         raise HTTPException(
             status_code=403,
-            detail="Invalid session. Please log in again."
+            detail="Invalid or expired session. Please log in again."
         )
 
 
@@ -228,7 +251,7 @@ async def root():
 
 
 @app.get("/api/health")
-async def health(_: None = Header(None, alias="Authorization", include_in_schema=False)):
+async def health(_auth: str | None = Header(None, alias="Authorization", include_in_schema=False)):
     """
     Health check (no auth required for monitoring).
     """
@@ -247,13 +270,15 @@ async def login(request: LoginRequest, response: Response):
     Returns:
         Success message
     """
-    if request.admin_secret != ADMIN_SECRET:
+    # Validate secret server-side (fail closed)
+    if not request.admin_secret or request.admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
-    # Set httpOnly cookie
+    # Create session and set httpOnly cookie with session token (NOT the secret)
+    session_token = create_session()
     response.set_cookie(
         key="studio_admin_token",
-        value=ADMIN_SECRET,
+        value=session_token,
         httponly=True,
         secure=False,  # Set True in production with HTTPS
         samesite="lax",
@@ -547,7 +572,13 @@ async def approve_still(
     workflow_id = f"{episode_id}-shot-{shot_id}"
     
     try:
-        handle = temporal_client.get_workflow_handle(workflow_id)
+        # Import workflow type for exact targeting
+        from hfvg.workflows.shot import ShotWorkflow
+        
+        handle = temporal_client.get_workflow_handle_for(
+            ShotWorkflow.run,
+            workflow_id=workflow_id,
+        )
         await handle.signal("stills_approved")
         
         # Audit log
