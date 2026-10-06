@@ -4,8 +4,8 @@ import { cookies } from 'next/headers';
 const API_URL = process.env.API_URL || 'http://localhost:8000';
 const ADMIN_SECRET = process.env.STUDIO_ADMIN_SECRET || '';
 
-function getAdminToken(): string | undefined {
-  const cookieStore = cookies();
+async function getAdminToken(): Promise<string | undefined> {
+  const cookieStore = await cookies();
   return cookieStore.get('studio_admin_token')?.value;
 }
 
@@ -18,7 +18,7 @@ function verifyToken(token: string | undefined): boolean {
  * POST /api/studio/episodes - Start a new episode
  */
 export async function POST(request: NextRequest) {
-  const token = getAdminToken();
+  const token = await getAdminToken();
   
   if (!verifyToken(token)) {
     return NextResponse.json(
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
  * GET /api/studio/episodes - List episodes
  */
 export async function GET(request: NextRequest) {
-  const token = getAdminToken();
+  const token = await getAdminToken();
   
   if (!verifyToken(token)) {
     return NextResponse.json(
