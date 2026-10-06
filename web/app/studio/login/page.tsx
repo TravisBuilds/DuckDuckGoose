@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+// Force dynamic rendering to avoid SSG issues with useSearchParams
+export const dynamic = 'force-dynamic';
+
 export default function StudioLoginPage() {
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
