@@ -239,15 +239,17 @@ async def test_dry_run_succeeds_without_checks(episode_with_budget, monkeypatch)
     live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
     assert not live_mode and not g108
     
-    # Should succeed in dry run mode
-    job_id = await submit_still_job_enforced(
+    # Should succeed in dry run mode (returns dict with job info)
+    job_info = await submit_still_job_enforced(
         episode_id=episode_id,
         shot_id="A01",
         prompt="Dry run test",
         version=1,
     )
     
-    assert job_id.startswith("still-dry-"), f"Dry run job ID should start with 'still-dry-', got {job_id}"
+    assert isinstance(job_info, dict), "Should return dict with job info"
+    assert "job_id" in job_info, "Should have job_id"
+    assert job_info["job_id"].startswith("still-dry-"), f"Dry run job ID should start with 'still-dry-', got {job_info['job_id']}"
 
 
 @pytest.mark.asyncio

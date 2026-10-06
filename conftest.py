@@ -22,33 +22,10 @@ def configure_test_environment():
         del os.environ["DATABASE_PATH"]
 
 
-def pytest_configure(config):
-    """Configure pytest-socket to allow only localhost connections."""
-    # pytest-socket will block all socket connections except those we explicitly allow
-    config.addinivalue_line(
-        "markers",
-        "allow_hosts: Allow network connections to specified hosts"
-    )
-
-
-def pytest_runtest_setup(item):
-    """Set up test with socket restrictions."""
-    # Allow localhost for Temporal test server
-    marker = item.get_closest_marker("allow_hosts")
-    if marker:
-        # Test explicitly allows certain hosts
-        pass
-    else:
-        # By default, only allow localhost
-        if hasattr(item.config, "_socket_allow_hosts"):
-            # pytest-socket is installed
-            pass
-
-
-# Configure pytest-socket to allow localhost by default
-def pytest_socket_allow_hosts():
+@pytest.fixture(scope="session", autouse=True)
+def socket_allow_hosts():
     """
-    Allow connections to localhost and 127.0.0.1 for Temporal test server.
-    Block all other connections.
+    Allow connections to localhost for Temporal test server.
+    Block all other connections (pytest-socket).
     """
     return ["localhost", "127.0.0.1", "::1"]
