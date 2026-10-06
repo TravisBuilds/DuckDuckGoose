@@ -130,13 +130,14 @@ test_budget_stop() {
 test_activity_enforcement() {
     log_test "4. Activity-Level Enforcement (Not Just API-Level)"
     
-    local file="hfvg/workflows/shot.py"
+    local file="hfvg/activities/studio_generation.py"
     local test="tests/test_studio_safety.py::test_activity_level_enforcement"
     
     backup_file "$file"
     
-    log_red "Mutation: Switching to unenforced activity..."
-    sed -i 's/submit_still_job_enforced/submit_still_job/g' "$file"
+    log_red "Mutation: Bypassing enforcement in activity..."
+    # Remove the live mode check from the enforced activity
+    sed -i '/if not live_mode:/,+3d' "$file"
     expect_red "$test"
     
     restore_file "$file"

@@ -69,12 +69,16 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
     
-    # Episode is NOT in live mode, G1.08 is NOT approved
+    # Approve G1.08 first (so we can test live mode check specifically)
+    from hfvg.studio_db import approve_g108
+    await approve_g108(db_path, episode_id)
+    
+    # Episode is NOT in live mode (but G1.08 IS approved)
     live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
     assert not live_mode, "Episode should not be in live mode by default"
-    assert not g108, "G1.08 should not be approved by default"
+    assert g108, "G1.08 should be approved"
     
-    # Attempt to submit still - should fail
+    # Attempt to submit still - should fail due to live mode
     with pytest.raises(ValueError, match="not in live mode"):
         await submit_still_job_enforced(
             episode_id=episode_id,
@@ -208,8 +212,11 @@ async def test_activity_level_enforcement(episode_with_budget, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
     
-    # No live mode, no G1.08
-    # Direct activity call should still fail
+    # Approve G1.08 first (so we test live mode enforcement at activity level)
+    from hfvg.studio_db import approve_g108
+    await approve_g108(db_path, episode_id)
+    
+    # No live mode set - direct activity call should still fail
     with pytest.raises(ValueError, match="not in live mode"):
         await submit_still_job_enforced(
             episode_id=episode_id,
