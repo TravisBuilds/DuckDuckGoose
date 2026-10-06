@@ -1,0 +1,289 @@
+================================================================================
+ Episode Shots (31 total)
+ Generated: 2026-10-06T13:10:11.179782
+================================================================================
+
+{
+  "episode_id": "ep04",
+  "shots": [
+    {
+      "shot_id": "A01",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Wide, locked camera. The family climbs the steps toward the doors on all four legs, nothing carried, each on its own timing; Birch's rack reads against the domes"
+    },
+    {
+      "shot_id": "A02",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "BOARD SHOT. Locked side-on, one ground plane. The duck stands beside the open doors as the 1.00x ruler; the family walks L\u2192R behind him on all four legs, nothing carried, individual timing: Twig, Willow, then Birch, whose rack top passes above the door crown line. START: family entering LEFT; END: Birch level with the doors"
+    },
+    {
+      "shot_id": "A03",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Locked on the open doors from inside. Twig trots through on all four legs, nothing carried, a full metre of room above his ears; exits frame RIGHT"
+    },
+    {
+      "shot_id": "A04",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Same angle. Willow walks through with a small natural head dip on all four legs, nothing carried; her ears pass about half a metre under the crown; exits RIGHT"
+    },
+    {
+      "shot_id": "A05",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "DOOR #1. Birch halts at the threshold, lowers his head to ~1.3 m and tilts the rack ~30\u00b0 (his LEFT palm down), easing through on all four legs, nothing carried; the tips clear the jambs by a hand's width (~11\u201315 cm) and snow sifts off the top palm. Clearance, never contact. START: halted, rack level; END: through, head rising"
+    },
+    {
+      "shot_id": "A06",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Wide in the hall. Three moose stand on all four legs, nothing carried, each turning its head on its own timing; the duck sits small on his stool at the desk beyond"
+    },
+    {
+      "shot_id": "B01",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "BOARD SHOT at the desk. The duck on his stool tilts his head right back; three moose heads loom above the counter, standing on all four legs, nothing carried"
+    },
+    {
+      "shot_id": "B02",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Birch lowers his head over the counter on all four legs, nothing carried until his eye is level with the duck's eye; the duck holds still and blinks"
+    },
+    {
+      "shot_id": "B03",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "\u2605 Hand-off: key. With Birch's head lowered and still on all four legs, nothing carried, the duck takes one fob off the board (fobs 5 \u2192 4) and hooks its ring with his bill over the lowest tine of Birch's LEFT antler (his own left), then lets go. START: fob in bill; END: fob hanging on the tine"
+    },
+    {
+      "shot_id": "B04",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Birch lifts his head back to full height on all four legs, nothing carried; the fob swings up out of reach, far above the duck, who watches it go"
+    },
+    {
+      "shot_id": "B05",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck walks a step ahead and aside across the hall toward the deck doors; the family follows on all four legs, nothing carried, each on its own timing"
+    },
+    {
+      "shot_id": "C01",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "DOOR #2, from the deck side. The duck holds the door aside; Birch dips his head slightly and walks through on all four legs, nothing carried; the antler tips pass a hand's width under the top of the opening"
+    },
+    {
+      "shot_id": "C02",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck shows the guest dome. Twig pokes his head in through the round door up to the neck on all four legs, nothing carried; Birch stands behind, his rack wider than the whole door"
+    },
+    {
+      "shot_id": "C03",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck looks from the fob on Birch's tine to the snowy deck by the fjord, then gives one small nod: an idea. Birch stands at frame edge on all four legs, nothing carried"
+    },
+    {
+      "shot_id": "C04",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "POOL. Willow and Twig wade into the warm pool water on all four legs, nothing carried; at the deep side the water reaches Twig's back and Willow's belly, coats wet to the waterline"
+    },
+    {
+      "shot_id": "C05",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "POOL. Birch steps into the pool water on the shallow side on all four legs, nothing carried; it barely reaches his knees, legs wet; he lowers his muzzle to drink"
+    },
+    {
+      "shot_id": "C06",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck sets a towel stack on the bench a step back from the rim; Birch's dripping legs stand in the water beside, on all four legs, nothing carried; the stack reaches his knee"
+    },
+    {
+      "shot_id": "C07",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Birch stretches up on all four legs, nothing carried and browses the top twigs of a tall bare tree at ~3 m; snow showers off the branch"
+    },
+    {
+      "shot_id": "D01",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck walks ahead with a small hand lamp under his wing and pushes open the low gate between two snow-laden trees; the family follows behind on all four legs, nothing carried"
+    },
+    {
+      "shot_id": "D02",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Twig slips through the gap with room to spare; Willow follows, brushing snow off the boughs, both on all four legs, nothing carried; the duck holds the gate with the lamp"
+    },
+    {
+      "shot_id": "D03",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Birch faces the gap, his rack wider than the gap even tilted; he stands on all four legs, nothing carried, ears forward, considering; the duck holds the lamp still"
+    },
+    {
+      "shot_id": "D04",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "DOOR #3, CLIMAX. Birch lays his rack back along his neck and rotates his head ~65\u00b0, threading through the gap in one forest move on all four legs, nothing carried; snow showers off both trees onto his back; the tips clear the trunks by a hand's width. START: rack level at the gap; END: through, head righting"
+    },
+    {
+      "shot_id": "D05",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The family beds down in the snow: each, standing on all four legs, nothing carried, folds its legs and lies down on its own timing, Twig against Willow, Birch a little apart"
+    },
+    {
+      "shot_id": "D06",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "The duck, small at the gate with his lamp, watches over the bedded family, then turns back along the path. The moose rest bedded with legs folded under (real moose rest posture), nothing carried"
+    },
+    {
+      "shot_id": "D07",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Aurora wide: three bedded moose on the deck, the resort domes glowing beyond; Birch lifts his head once; all rest bedded with legs folded under (real moose rest posture), nothing carried"
+    },
+    {
+      "shot_id": "D08",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Pre-dawn. Birch stands on all four legs, nothing carried and rubs his rack once against a tree trunk (real antler rubbing); snow falls off the branches. Cut-for-story candidate"
+    },
+    {
+      "shot_id": "E01",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "Birch stands up from his snow bed on all four legs, nothing carried; his LEFT antler, with the key fob still on its tine, stays lying in the snow (shed overnight, never shown falling). He is lopsided"
+    },
+    {
+      "shot_id": "E02",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "\u2605 Hand-off: gift. Birch lowers his head to the shed antler and sniffs it, looks at the duck arriving along the path, then steps back on all four legs, nothing carried, leaving the antler (and the key on it) to him"
+    },
+    {
+      "shot_id": "E03",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "BOARD SHOT. The duck stands in front of the desk (not on his stool) beside the shed antler propped on its base; its top reaches just above his pom-pom. The fob is back on the board (fobs 5). Species-fact VO"
+    },
+    {
+      "shot_id": "E04",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "DOOR PAYOFF. One-antlered Birch walks out through the open doors with only a small dip and a step to the left, no tilt; Willow and Twig follow, all on all four legs, nothing carried; the duck watches from beside the desk"
+    },
+    {
+      "shot_id": "E05",
+      "status": "pending",
+      "still_url": null,
+      "clip_url": null,
+      "qc_results": {},
+      "retries": 0,
+      "prompt": "ENDING (Ep01 template): one continuous calm take. The duck at the top landing by the doors gives ONE small wave (~1.5\u20133.0 s), then watches calmly as the family walks down the snowy steps and away on all four legs, nothing carried, getting smaller. Logo: white text watermark, 62 % frame width, centred, 2.5 s fade-in from E05 +5.0 s, visible the last 6.5 s"
+    }
+  ]
+}

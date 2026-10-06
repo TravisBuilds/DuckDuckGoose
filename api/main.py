@@ -265,7 +265,7 @@ async def login(request: LoginRequest, response: Response):
 async def upload_beatmap(
     episode_id: str = Form(...),
     beatmap_file: UploadFile = File(...),
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Upload beatmap file and parse into shots.
@@ -489,7 +489,7 @@ async def get_budget_status(
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     List all shots for an episode with their status.
@@ -529,7 +529,7 @@ async def get_shots(
 async def approve_still(
     episode_id: str,
     shot_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Approve still for a shot (sends signal to workflow).
@@ -569,7 +569,7 @@ async def reject_still(
     episode_id: str,
     shot_id: str,
     reason: str = Form(...),
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Reject still for a shot.
@@ -594,7 +594,7 @@ async def reject_still(
 @app.get("/api/episodes/{episode_id}/gates")
 async def get_gates(
     episode_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Get gate status for episode.
@@ -628,7 +628,7 @@ async def get_gates(
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Get audit trail for episode.
@@ -666,7 +666,7 @@ async def get_audit_trail(
 async def set_live_mode_endpoint(
     episode_id: str,
     request: SetLiveModeRequest,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Switch episode to live (paid) mode with confirmation.
@@ -695,7 +695,7 @@ async def set_live_mode_endpoint(
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
     episode_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Approve G1.08 credit plan for episode.
@@ -728,7 +728,7 @@ async def approve_g108_endpoint(
 @app.post("/api/episodes/{episode_id}/canary")
 async def run_canary(
     episode_id: str,
-    _cookie: None = Cookie(None, alias="studio_admin_token"),
+    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
     Run canary test: 1 still + 1 clip through real ShotWorkflow.
@@ -759,25 +759,25 @@ async def run_canary(
     
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     
-    # In live mode, enforce checks
-    if not dry_run:
-        if not live_mode:
-            return {
-                "success": False,
-                "message": "Live mode not enabled. Canary refused.",
-                "dry_run": dry_run,
-                "live_mode": bool(live_mode),
-                "g108_approved": bool(g108_approved),
-            }
-        
-        if not g108_approved:
-            return {
-                "success": False,
-                "message": "G1.08 credit plan not approved. Canary refused.",
-                "dry_run": dry_run,
-                "live_mode": bool(live_mode),
-                "g108_approved": bool(g108_approved),
-            }
+    # Always enforce G1.08 check (even in dry run)
+    if not g108_approved:
+        return {
+            "success": False,
+            "message": "G1.08 credit plan not approved. Canary refused.",
+            "dry_run": dry_run,
+            "live_mode": bool(live_mode),
+            "g108_approved": bool(g108_approved),
+        }
+    
+    # In live mode (not dry run), also enforce live_mode gate
+    if not dry_run and not live_mode:
+        return {
+            "success": False,
+            "message": "Live mode not enabled. Canary refused.",
+            "dry_run": dry_run,
+            "live_mode": bool(live_mode),
+            "g108_approved": bool(g108_approved),
+        }
     
     # Create canary shot
     canary_shot = {
@@ -789,15 +789,16 @@ async def run_canary(
     
     # Start ShotWorkflow
     from hfvg.workflows.shot import ShotWorkflow
+    import time
     
-    workflow_id = f"{episode_id}-canary-shot-CANARY01"
+    workflow_id = f"{episode_id}-canary-shot-CANARY01-{int(time.time())}"
     
     try:
         handle = await temporal_client.start_workflow(
             ShotWorkflow.run,
             args=[episode_id, canary_shot],
             id=workflow_id,
-            task_queue="hfvg-task-queue",
+            task_queue="hfvg-tasks",
         )
         
         # Wait for completion (with timeout)
