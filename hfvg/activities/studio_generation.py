@@ -72,7 +72,7 @@ async def submit_still_job_enforced(
     refs: list[str] | None = None,
     resolution: str = "1k",
     quality: str = "medium",
-) -> str:
+) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
     
@@ -84,7 +84,7 @@ async def submit_still_job_enforced(
     - Cost estimate before submit
     
     Returns:
-        job_id for polling
+        dict with job_id, line_name, reserved_amount for polling
     
     Raises:
         ValueError: If enforcement checks fail
@@ -102,7 +102,12 @@ async def submit_still_job_enforced(
             f"[DRY-RUN] Submitted still {job_id} for {episode_id}/{shot_id} "
             f"(live={live_mode}, g108={g108_approved})"
         )
-        return job_id
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,
+            "line_name": "L2_drafts",
+            "reserved_amount": 2.5,
+        }
     
     # Live mode: enforce all checks
     if not live_mode:
@@ -181,7 +186,12 @@ async def submit_still_job_enforced(
             f"(cost: {estimated_cost}, line: {line_name})"
         )
         
-        return job_id
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,
+            "line_name": line_name,
+            "reserved_amount": estimated_cost,
+        }
         
     finally:
         await provider.close()
@@ -195,7 +205,7 @@ async def submit_clip_job_enforced(
     prompt: str,
     duration: float = 5.0,
     version: int = 1,
-) -> str:
+) -> dict[str, Any]:
     """
     Submit Kling 3.0 Pro video generation job with full enforcement.
     
@@ -207,7 +217,7 @@ async def submit_clip_job_enforced(
     - Cost estimate before submit
     
     Returns:
-        job_id for polling
+        dict with job_id, line_name, reserved_amount for polling
     
     Raises:
         ValueError: If enforcement checks fail
@@ -225,7 +235,12 @@ async def submit_clip_job_enforced(
             f"[DRY-RUN] Submitted clip {job_id} for {episode_id}/{shot_id} "
             f"(live={live_mode}, g108={g108_approved})"
         )
-        return job_id
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,
+            "line_name": "L4_video",
+            "reserved_amount": duration * 1.5,
+        }
     
     # Live mode: enforce all checks
     if not live_mode:
@@ -292,7 +307,12 @@ async def submit_clip_job_enforced(
             f"(cost: {estimated_cost}, {duration}s)"
         )
         
-        return job_id
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,
+            "line_name": line_name,
+            "reserved_amount": estimated_cost,
+        }
         
     finally:
         await provider.close()

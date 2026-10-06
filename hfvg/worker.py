@@ -40,6 +40,8 @@ async def main():
             activities.submit_still_job_enforced,
             activities.submit_clip_job_enforced,
             activities.await_job_enforced,
+            activities.precheck_still_qc,
+            activities.precheck_clip_qc,
             activities.review_still,
             activities.review_clip,
             activities.trim_clips,

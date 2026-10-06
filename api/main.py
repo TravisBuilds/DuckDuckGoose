@@ -64,26 +64,57 @@ DRY_RUN_DEFAULT = os.getenv("DRY_RUN", "true").lower() == "true"
 # Global Temporal client
 temporal_client: TemporalClient | None = None
 
-# Session token cache (in-memory for simplicity)
-# In production, use Redis or a database
-_session_tokens: set[str] = set()
-
-
-def generate_session_token() -> str:
-    """Generate a secure session token."""
-    return secrets.token_urlsafe(32)
-
-
-def create_session() -> str:
-    """Create a new session and return the token."""
-    token = generate_session_token()
-    _session_tokens.add(token)
+# Session management - stored in DB to survive restart
+async def create_session() -> str:
+    """Create a new session and store in database."""
+    import aiosqlite
+    
+    token = secrets.token_urlsafe(32)
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Create sessions table if not exists
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        
+        # Insert session (24 hour expiry)
+        await db.execute(
+            """INSERT INTO sessions (token, created_at, expires_at)
+               VALUES (?, datetime('now'), datetime('now', '+1 day'))""",
+            (token,)
+        )
+        await db.commit()
+    
     return token
 
 
-def verify_session_token(token: str) -> bool:
-    """Verify a session token."""
-    return token in _session_tokens
+async def verify_session_token(token: str) -> bool:
+    """Verify a session token from database."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+            """)
+            
+            async with db.execute(
+                """SELECT token FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row is not None
+    except Exception:
+        return False
 
 
 @asynccontextmanager
@@ -120,7 +151,7 @@ app.add_middleware(
 )
 
 
-def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
+async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     """
     Verify admin auth from httpOnly cookie (fail closed).
     
@@ -136,7 +167,7 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
             detail="Authentication required. Please log in."
         )
     
-    if not verify_session_token(studio_admin_token):
+    if not await verify_session_token(studio_admin_token):
         raise HTTPException(
             status_code=403,
             detail="Invalid or expired session. Please log in again."
@@ -167,6 +198,22 @@ def verify_admin_secret(authorization: str | None = Header(None)):
 
 
 # Request/Response models
+def validate_episode_id(episode_id: str) -> str:
+    """
+    Validate episode ID format.
+    
+    Must match: ep## (e.g., ep04, ep99)
+    Prevents path traversal attacks.
+    """
+    import re
+    if not re.match(r"^ep\d{2}$", episode_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid episode_id format: {episode_id}. Must match ep## (e.g., ep04)"
+        )
+    return episode_id
+
+
 class StartEpisodeRequest(BaseModel):
     episode_id: str = Field(..., pattern=r"^ep\d{2}$", description="Episode ID (e.g., ep04)")
     beatmap_content: str | None = Field(None, description="Beatmap markdown content (optional)")
@@ -275,7 +322,7 @@ async def login(request: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
     # Create session and set httpOnly cookie with session token (NOT the secret)
-    session_token = create_session()
+    session_token = await create_session()
     response.set_cookie(
         key="studio_admin_token",
         value=session_token,
@@ -294,7 +341,7 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
@@ -304,7 +351,8 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Create episode directory
     beatmap_dir = Path("./data/episodes") / episode_id
@@ -366,14 +414,15 @@ async def upload_beatmap(
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Start a new episode workflow.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(request.episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -411,14 +460,15 @@ async def start_episode(
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeStateResponse)
 async def get_episode_state(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Get current episode workflow state.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -456,14 +506,15 @@ async def get_episode_state(
 async def approve_gate(
     episode_id: str,
     request: ApprovalRequest,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Send approval signal to episode workflow.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -497,14 +548,15 @@ async def approve_gate(
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)
 async def get_budget_status(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Get budget status for an episode.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
     
     from hfvg.budget import BudgetLedger
     
@@ -537,14 +589,15 @@ async def get_budget_status(
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     List all shots for an episode with their status.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -577,14 +630,15 @@ async def get_shots(
 async def approve_still(
     episode_id: str,
     shot_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Approve still for a shot (sends signal to workflow).
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -623,14 +677,15 @@ async def reject_still(
     episode_id: str,
     shot_id: str,
     reason: str = Form(...),
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Reject still for a shot.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Audit log
     import aiosqlite
@@ -645,17 +700,45 @@ async def reject_still(
     return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
 
 
+@app.post("/api/episodes/{episode_id}/clips/{shot_id}/approve")
+async def approve_clip(
+    episode_id: str,
+    shot_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Approve clip for a shot (no signal needed - just logs approval).
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Audit log
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "approve_clip", f"Shot {shot_id} clip approved", "admin")
+        )
+        await db.commit()
+    
+    return {"success": True, "shot_id": shot_id, "message": "Clip approved"}
+
+
 @app.get("/api/episodes/{episode_id}/gates")
 async def get_gates(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get gate status for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -670,26 +753,26 @@ async def get_gates(
             
             live_mode, g108_approved = row
     
+    # Return flat structure (not nested) for UI compatibility
     return {
         "episode_id": episode_id,
-        "gates": {
-            "live_mode": bool(live_mode),
-            "g108_approved": bool(g108_approved),
-        },
+        "live_mode": bool(live_mode),
+        "g108_approved": bool(g108_approved),
     }
 
 
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get audit trail for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -710,9 +793,10 @@ async def get_audit_trail(
                     "timestamp": row[5],
                 })
     
+    # Return as .entries for UI compatibility (not .audit_log)
     return {
         "episode_id": episode_id,
-        "audit_log": entries,
+        "entries": entries,
     }
 
 
@@ -720,14 +804,15 @@ async def get_audit_trail(
 async def set_live_mode_endpoint(
     episode_id: str,
     request: SetLiveModeRequest,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Switch episode to live (paid) mode with confirmation.
     
     Requires: Cookie auth + confirmation string "ENABLE_LIVE_MODE"
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     if request.confirmation != "ENABLE_LIVE_MODE":
         raise HTTPException(
@@ -749,14 +834,15 @@ async def set_live_mode_endpoint(
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Approve G1.08 credit plan for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Approve in database
     await approve_g108(DATABASE_PATH, episode_id, user="admin")
@@ -782,17 +868,20 @@ async def approve_g108_endpoint(
 @app.post("/api/episodes/{episode_id}/canary")
 async def run_canary(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Run canary test: 1 still + 1 clip through real ShotWorkflow.
+    Run canary test: 1 still + 1 clip through real ShotWorkflow (async).
     
     In dry-run mode: uses fake providers (no spend, fake URLs).
     In live mode: requires live_mode=true AND g108_approved=true.
     
+    Returns immediately with workflow_id. Poll /api/canary/{workflow_id} for status.
+    
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -856,9 +945,8 @@ async def run_canary(
         "params": {"duration": 5.0},
     }
     
-    # Start ShotWorkflow
+    # Start ShotWorkflow (async)
     from hfvg.workflows.shot import ShotWorkflow
-    from hfvg.activities.shot_activity import record_shot_result
     import time
     
     workflow_id = f"{episode_id}-canary-{first_shot_id}-{int(time.time())}"
@@ -871,32 +959,30 @@ async def run_canary(
             task_queue="hfvg-tasks",
         )
         
-        # Wait for completion (with timeout)
-        result = await asyncio.wait_for(handle.result(), timeout=300)  # 5 min timeout
+        # Charge ledger for canary (record as L6_reserve)
+        from hfvg.budget import BudgetLedger
+        ledger = BudgetLedger(DATABASE_PATH)
+        await ledger.init_db()
         
-        # Record canary result
-        await record_shot_result(
-            episode_id=episode_id,
-            shot_id=first_shot_id,
-            result=result,
-        )
+        # Reserve from L6_reserve (canary budget)
+        canary_cost = 10.0  # Estimated: 1 still + 1 clip
+        reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
         
+        # Return immediately with workflow_id (async)
         return {
             "success": True,
             "episode_id": episode_id,
             "shot_id": first_shot_id,
-            "canary_result": result,
+            "workflow_id": workflow_id,
             "dry_run": dry_run,
             "live_mode": bool(live_mode),
             "g108_approved": bool(g108_approved),
-            "message": "Canary completed successfully",
+            "message": "Canary started (async). Poll workflow for status.",
+            "budget_reserved": reserved,
         }
     
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Canary workflow timed out")
-    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Canary failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Canary failed to start: {str(e)}")
 
 
 if __name__ == "__main__":

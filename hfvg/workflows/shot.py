@@ -8,6 +8,9 @@ from temporalio.common import RetryPolicy
 with workflow.unsafe.imports_passed_through():
     from hfvg.activities import (
         await_job_enforced,
+        precheck_clip_qc,
+        precheck_still_qc,
+        record_shot_result,
         review_clip,
         review_still,
         submit_clip_job_enforced,
@@ -15,6 +18,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
+    
+    import os
 
 
 @workflow.defn
@@ -66,8 +71,26 @@ class ShotWorkflow:
                 resolution = params.get("resolution", "1k")
                 quality = params.get("quality", "medium")
 
-                # Call enforced activity with individual parameters
-                job_id = await workflow.execute_activity(
+                # PRE-FLIGHT QC: Check before any paid generation
+                precheck = await workflow.execute_activity(
+                    precheck_still_qc,
+                    args=[self.episode_id, self.shot_id, shot_plan["prompt"], params],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                if not precheck["passed"]:
+                    workflow.logger.error(
+                        f"Still pre-flight QC failed for {self.shot_id}: {precheck['issues']}"
+                    )
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "error": f"Pre-flight QC failed: {', '.join(precheck['issues'])}",
+                    }
+
+                # Call enforced activity with individual parameters - returns dict with job info
+                job_info = await workflow.execute_activity(
                     submit_still_job_enforced,
                     args=[
                         self.episode_id,
@@ -82,19 +105,27 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
 
+                # Poll for completion with all required args
                 self.still_asset = await workflow.execute_activity(
                     await_job_enforced,
-                    args=[job_id, "still"],
+                    args=[
+                        job_info["job_id"],
+                        "still",
+                        self.episode_id,
+                        self.shot_id,
+                        job_info["line_name"],
+                        job_info["reserved_amount"],
+                    ],
                     start_to_close_timeout=timedelta(minutes=10),
                     heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
                 )
 
-                workflow.logger.info(f"Still generated: {self.still_asset.url}")
+                workflow.logger.info(f"Still generated: {self.still_asset['url']}")
 
                 review_result = await workflow.execute_activity(
                     review_still,
-                    args=[self.still_asset.url, {}],
+                    args=[self.still_asset["url"], {}],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
@@ -102,7 +133,36 @@ class ShotWorkflow:
 
                 if review_result["passed"]:
                     workflow.logger.info(f"Still passed QC on attempt {attempt + 1}")
+                    
+                    # Record still URL to DB
+                    await workflow.execute_activity(
+                        record_shot_result,
+                        args=[
+                            os.getenv("DATABASE_PATH", "./data/studio.db"),
+                            self.episode_id,
+                            self.shot_id,
+                            "still_complete",
+                            self.still_asset["url"],
+                            None,  # clip_url
+                            {"still_qc": review_result},
+                            attempt,
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                    
                     break
+                elif review_result.get("escalate"):
+                    # QC failed in live mode - escalate to human review, don't retry
+                    workflow.logger.error(
+                        f"Still QC failed in live mode, escalating to human review: {review_result['issues']}"
+                    )
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "needs_review",
+                        "still_url": self.still_asset["url"],
+                        "error": f"QC failed - escalated to human review: {', '.join(review_result['issues'])}",
+                    }
                 else:
                     workflow.logger.warning(
                         f"Still failed QC: {review_result['issues']}, retrying..."
@@ -140,13 +200,32 @@ class ShotWorkflow:
                 params = shot_plan.get("params", {})
                 duration = params.get("duration", 5.0)
 
-                # Call enforced activity with individual parameters
-                job_id = await workflow.execute_activity(
+                # PRE-FLIGHT QC: Check before any paid generation
+                precheck = await workflow.execute_activity(
+                    precheck_clip_qc,
+                    args=[self.episode_id, self.shot_id, shot_plan["prompt"], duration],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                if not precheck["passed"]:
+                    workflow.logger.error(
+                        f"Clip pre-flight QC failed for {self.shot_id}: {precheck['issues']}"
+                    )
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "still_url": self.still_asset["url"],
+                        "error": f"Clip pre-flight QC failed: {', '.join(precheck['issues'])}",
+                    }
+
+                # Call enforced activity with individual parameters - returns dict with job info
+                job_info = await workflow.execute_activity(
                     submit_clip_job_enforced,
                     args=[
                         self.episode_id,
                         self.shot_id,
-                        self.still_asset.url,  # start_image_url
+                        self.still_asset["url"],  # start_image_url
                         shot_plan["prompt"],
                         duration,
                         self.version,
@@ -155,19 +234,27 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
 
+                # Poll for completion with all required args
                 self.clip_asset = await workflow.execute_activity(
                     await_job_enforced,
-                    args=[job_id, "clip"],
+                    args=[
+                        job_info["job_id"],
+                        "clip",
+                        self.episode_id,
+                        self.shot_id,
+                        job_info["line_name"],
+                        job_info["reserved_amount"],
+                    ],
                     start_to_close_timeout=timedelta(minutes=15),
                     heartbeat_timeout=timedelta(minutes=3),
                     retry_policy=retry_policy,
                 )
 
-                workflow.logger.info(f"Clip generated: {self.clip_asset.url}")
+                workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
 
                 clip_qc = await workflow.execute_activity(
                     review_clip,
-                    args=[self.clip_asset.url, {}],
+                    args=[self.clip_asset["url"], {}],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
@@ -176,6 +263,18 @@ class ShotWorkflow:
                 if clip_qc["passed"]:
                     workflow.logger.info(f"Clip passed QC on attempt {attempt + 1}")
                     break
+                elif clip_qc.get("escalate"):
+                    # QC failed in live mode - escalate to human review, don't retry
+                    workflow.logger.error(
+                        f"Clip QC failed in live mode, escalating to human review: {clip_qc['issues']}"
+                    )
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "needs_review",
+                        "still_url": self.still_asset["url"],
+                        "clip_url": self.clip_asset["url"],
+                        "error": f"Clip QC failed - escalated to human review: {', '.join(clip_qc['issues'])}",
+                    }
                 else:
                     workflow.logger.warning(f"Clip failed QC: {clip_qc['issues']}, retrying...")
                     self.version += 1
@@ -185,7 +284,7 @@ class ShotWorkflow:
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
-                    "still_url": self.still_asset.url,
+                    "still_url": self.still_asset["url"],
                     "error": str(e),
                 }
 
@@ -198,14 +297,32 @@ class ShotWorkflow:
             return {
                 "shot_id": self.shot_id,
                 "status": "failed",
-                "still_url": self.still_asset.url,
+                "still_url": self.still_asset["url"],
                 "error": "Max clip retries exceeded",
             }
 
         workflow.logger.info(f"Shot {self.shot_id} completed successfully")
+        
+        # Record final result to DB
+        await workflow.execute_activity(
+            record_shot_result,
+            args=[
+                os.getenv("DATABASE_PATH", "./data/studio.db"),
+                self.episode_id,
+                self.shot_id,
+                "completed",
+                self.still_asset["url"],
+                self.clip_asset["url"],
+                {"still_qc": review_result, "clip_qc": clip_qc},
+                self.version - 1,  # Total retries
+            ],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+        
         return {
             "shot_id": self.shot_id,
             "status": "completed",
-            "still_url": self.still_asset.url,
-            "clip_url": self.clip_asset.url,
+            "still_url": self.still_asset["url"],
+            "clip_url": self.clip_asset["url"],
         }
