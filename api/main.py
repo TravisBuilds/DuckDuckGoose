@@ -725,6 +725,101 @@ async def approve_g108_endpoint(
     }
 
 
+@app.post("/api/episodes/{episode_id}/canary")
+async def run_canary(
+    episode_id: str,
+    _cookie: None = Cookie(None, alias="studio_admin_token"),
+):
+    """
+    Run canary test: 1 still + 1 clip through real ShotWorkflow.
+    
+    In dry-run mode: uses fake providers (no spend, fake URLs).
+    In live mode: requires live_mode=true AND g108_approved=true.
+    
+    Requires: Cookie auth
+    """
+    verify_admin_cookie(_cookie)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    import aiosqlite
+    
+    # Check live mode and G1.08
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Episode not found")
+            
+            live_mode, g108_approved = row
+    
+    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # In live mode, enforce checks
+    if not dry_run:
+        if not live_mode:
+            return {
+                "success": False,
+                "message": "Live mode not enabled. Canary refused.",
+                "dry_run": dry_run,
+                "live_mode": bool(live_mode),
+                "g108_approved": bool(g108_approved),
+            }
+        
+        if not g108_approved:
+            return {
+                "success": False,
+                "message": "G1.08 credit plan not approved. Canary refused.",
+                "dry_run": dry_run,
+                "live_mode": bool(live_mode),
+                "g108_approved": bool(g108_approved),
+            }
+    
+    # Create canary shot
+    canary_shot = {
+        "shot_id": "CANARY01",
+        "prompt": "A serene duck standing beside a warm fjord pool at golden hour, steam rising from the water",
+        "refs": [],
+        "duration": 5.0,
+    }
+    
+    # Start ShotWorkflow
+    from hfvg.workflows.shot import ShotWorkflow
+    
+    workflow_id = f"{episode_id}-canary-shot-CANARY01"
+    
+    try:
+        handle = await temporal_client.start_workflow(
+            ShotWorkflow.run,
+            args=[episode_id, canary_shot],
+            id=workflow_id,
+            task_queue="hfvg-task-queue",
+        )
+        
+        # Wait for completion (with timeout)
+        result = await asyncio.wait_for(handle.result(), timeout=300)  # 5 min timeout
+        
+        return {
+            "success": True,
+            "episode_id": episode_id,
+            "canary_result": result,
+            "dry_run": dry_run,
+            "live_mode": bool(live_mode),
+            "g108_approved": bool(g108_approved),
+            "message": "Canary completed successfully",
+        }
+    
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Canary workflow timed out")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Canary failed: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     
