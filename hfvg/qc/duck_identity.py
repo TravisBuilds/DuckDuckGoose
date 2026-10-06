@@ -114,11 +114,22 @@ class DuckIdentityGate:
         
         Args:
             detector: Duck detector (default: FakeDuckDetector for dry-run)
-            judge: Vision judge (default: FakeVisionJudge for dry-run)
+            judge: Vision judge (default: OpenAI if key available, else escalates)
             refs_path: Path to reference images (default: from config)
         """
         self.detector = detector or FakeDuckDetector()
-        self.judge = judge or FakeVisionJudge()
+        
+        # Default judge: Try OpenAI, escalate if key missing
+        if judge is None:
+            try:
+                from hfvg.qc.openai_vision_judge import create_openai_judge
+                self.judge = create_openai_judge()
+            except ValueError:
+                # Key missing - use fake judge that escalates
+                self.judge = FakeVisionJudge()
+        else:
+            self.judge = judge
+            
         self.refs_path = Path(refs_path) if refs_path else None
     
     async def extract_frames(self, video_path: str | Path, 
