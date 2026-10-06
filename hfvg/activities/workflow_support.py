@@ -46,11 +46,14 @@ async def parse_beatmap_activity(beatmap_path: str | None = None) -> dict:
         beatmap_path: Path to BEATMAP.md, or None to use fixture
     
     Returns:
-        Parsed beatmap dict with shots, scenes, metadata
+        Parsed beatmap dict with shots list (wraps parse_beatmap result)
     """
     if beatmap_path:
-        return _parse_beatmap(beatmap_path)
+        shots = _parse_beatmap(beatmap_path)
     else:
         # Use synthetic fixture for dry-run
         fixture_path = Path(__file__).parent.parent.parent / "tests" / "fixtures" / "sample_beatmap.md"
-        return _parse_beatmap(str(fixture_path))
+        shots = _parse_beatmap(str(fixture_path))
+    
+    # parse_beatmap returns a list of shots; wrap in dict for workflow
+    return {"shots": shots if isinstance(shots, list) else []}
