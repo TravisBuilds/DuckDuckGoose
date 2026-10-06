@@ -30,8 +30,6 @@ Routes:
 import os
 import asyncio
 import json
-import hashlib
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -46,7 +44,6 @@ from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_s
 from hfvg.budget import BudgetLedger
 from hfvg.episode_parser import parse_beatmap
 from hfvg.credit_plan_parser import parse_credit_plan
-from hfvg.temporal_converter import temporal_data_converter
 
 # Check ADMIN_SECRET early - FAIL CLOSED
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
@@ -64,27 +61,6 @@ DRY_RUN_DEFAULT = os.getenv("DRY_RUN", "true").lower() == "true"
 # Global Temporal client
 temporal_client: TemporalClient | None = None
 
-# Session token cache (in-memory for simplicity)
-# In production, use Redis or a database
-_session_tokens: set[str] = set()
-
-
-def generate_session_token() -> str:
-    """Generate a secure session token."""
-    return secrets.token_urlsafe(32)
-
-
-def create_session() -> str:
-    """Create a new session and return the token."""
-    token = generate_session_token()
-    _session_tokens.add(token)
-    return token
-
-
-def verify_session_token(token: str) -> bool:
-    """Verify a session token."""
-    return token in _session_tokens
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -95,7 +71,6 @@ async def lifespan(app: FastAPI):
         temporal_client = await TemporalClient.connect(
             TEMPORAL_ADDRESS,
             namespace=TEMPORAL_NAMESPACE,
-            data_converter=temporal_data_converter,
         )
         yield
     finally:
@@ -125,7 +100,7 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     Verify admin auth from httpOnly cookie (fail closed).
     
     Args:
-        studio_admin_token: Session token from cookie
+        studio_admin_token: Cookie value
     
     Raises:
         HTTPException: If cookie missing or invalid
@@ -136,10 +111,10 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
             detail="Authentication required. Please log in."
         )
     
-    if not verify_session_token(studio_admin_token):
+    if studio_admin_token != ADMIN_SECRET:
         raise HTTPException(
             status_code=403,
-            detail="Invalid or expired session. Please log in again."
+            detail="Invalid session. Please log in again."
         )
 
 
@@ -251,7 +226,7 @@ async def root():
 
 
 @app.get("/api/health")
-async def health(_auth: str | None = Header(None, alias="Authorization", include_in_schema=False)):
+async def health(_: None = Header(None, alias="Authorization", include_in_schema=False)):
     """
     Health check (no auth required for monitoring).
     """
@@ -270,15 +245,13 @@ async def login(request: LoginRequest, response: Response):
     Returns:
         Success message
     """
-    # Validate secret server-side (fail closed)
-    if not request.admin_secret or request.admin_secret != ADMIN_SECRET:
+    if request.admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
-    # Create session and set httpOnly cookie with session token (NOT the secret)
-    session_token = create_session()
+    # Set httpOnly cookie
     response.set_cookie(
         key="studio_admin_token",
-        value=session_token,
+        value=ADMIN_SECRET,
         httponly=True,
         secure=False,  # Set True in production with HTTPS
         samesite="lax",
@@ -292,12 +265,10 @@ async def login(request: LoginRequest, response: Response):
 async def upload_beatmap(
     episode_id: str = Form(...),
     beatmap_file: UploadFile = File(...),
-    credit_plan_file: UploadFile = File(None),
-    continuity_file: UploadFile = File(None),
     _cookie: str | None = Cookie(None, alias="studio_admin_token"),
 ):
     """
-    Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
+    Upload beatmap file and parse into shots.
     
     Requires: Cookie auth
     
@@ -306,28 +277,13 @@ async def upload_beatmap(
     """
     verify_admin_cookie(_cookie)
     
-    # Create episode directory
+    # Save beatmap file
     beatmap_dir = Path("./data/episodes") / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save beatmap file
     beatmap_path = beatmap_dir / "BEATMAP.md"
+    
     content = await beatmap_file.read()
     beatmap_path.write_bytes(content)
-    
-    # Save credit plan if provided
-    credit_plan_path = None
-    if credit_plan_file:
-        credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
-        content = await credit_plan_file.read()
-        credit_plan_path.write_bytes(content)
-    
-    # Save continuity file if provided
-    continuity_path = None
-    if continuity_file:
-        continuity_path = beatmap_dir / "CONTINUITY.md"
-        content = await continuity_file.read()
-        continuity_path.write_bytes(content)
     
     # Parse beatmap
     shots = parse_beatmap(str(beatmap_path))
@@ -341,8 +297,9 @@ async def upload_beatmap(
     # Insert shots
     await insert_shots_from_beatmap(DATABASE_PATH, episode_id, shots)
     
-    # Parse and initialize budget if credit plan was provided
-    if credit_plan_path and credit_plan_path.exists():
+    # Parse and initialize budget if credit plan exists
+    credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
+    if credit_plan_path.exists():
         credit_plan = parse_credit_plan(credit_plan_path)
         
         # Initialize budget ledger with credit plan
@@ -354,11 +311,6 @@ async def upload_beatmap(
         "success": True,
         "episode_id": episode_id,
         "shots_count": len(shots),
-        "files_uploaded": {
-            "beatmap": True,
-            "credit_plan": credit_plan_file is not None,
-            "continuity": continuity_file is not None,
-        },
         "beatmap_path": str(beatmap_path),
     }
 
@@ -397,7 +349,7 @@ async def start_episode(
         EpisodeWorkflowV2.run,
         args=[request.episode_id, beatmap_path, request.dry_run],
         id=workflow_id,
-        task_queue="hfvg-tasks",
+        task_queue="hfvg-task-queue",
     )
     
     return StartEpisodeResponse(
@@ -593,13 +545,7 @@ async def approve_still(
     workflow_id = f"{episode_id}-shot-{shot_id}"
     
     try:
-        # Import workflow type for exact targeting
-        from hfvg.workflows.shot import ShotWorkflow
-        
-        handle = temporal_client.get_workflow_handle_for(
-            ShotWorkflow.run,
-            workflow_id=workflow_id,
-        )
+        handle = temporal_client.get_workflow_handle(workflow_id)
         await handle.signal("stills_approved")
         
         # Audit log
@@ -833,35 +779,19 @@ async def run_canary(
             "g108_approved": bool(g108_approved),
         }
     
-    # Load first shot from parsed beatmap for canary
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        async with db.execute(
-            "SELECT shot_id, prompt FROM shots WHERE episode_id = ? ORDER BY shot_id LIMIT 1",
-            (episode_id,)
-        ) as cursor:
-            shot_row = await cursor.fetchone()
-            if not shot_row:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No shots found. Upload beatmap first."
-                )
-            
-            first_shot_id, first_prompt = shot_row
-    
-    # Create canary shot using first real shot from episode
+    # Create canary shot
     canary_shot = {
-        "shot_id": first_shot_id,
-        "prompt": first_prompt,
+        "shot_id": "CANARY01",
+        "prompt": "A serene duck standing beside a warm fjord pool at golden hour, steam rising from the water",
         "refs": [],
-        "params": {"duration": 5.0},
+        "duration": 5.0,
     }
     
     # Start ShotWorkflow
     from hfvg.workflows.shot import ShotWorkflow
-    from hfvg.activities.shot_activity import record_shot_result
     import time
     
-    workflow_id = f"{episode_id}-canary-{first_shot_id}-{int(time.time())}"
+    workflow_id = f"{episode_id}-canary-shot-CANARY01-{int(time.time())}"
     
     try:
         handle = await temporal_client.start_workflow(
@@ -874,17 +804,9 @@ async def run_canary(
         # Wait for completion (with timeout)
         result = await asyncio.wait_for(handle.result(), timeout=300)  # 5 min timeout
         
-        # Record canary result
-        await record_shot_result(
-            episode_id=episode_id,
-            shot_id=first_shot_id,
-            result=result,
-        )
-        
         return {
             "success": True,
             "episode_id": episode_id,
-            "shot_id": first_shot_id,
             "canary_result": result,
             "dry_run": dry_run,
             "live_mode": bool(live_mode),

@@ -10,12 +10,12 @@ with workflow.unsafe.imports_passed_through():
         generate_music,
         generate_sfx,
         generate_voiceover,
+        load_gate_policy_activity,
         mix_audio,
+        parse_beatmap_activity,
         render_edit,
         trim_clips,
     )
-    from hfvg.episode_parser import parse_beatmap
-    from hfvg.gates import load_policy
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
     from hfvg.workflows.shot import ShotWorkflow
@@ -80,7 +80,15 @@ class EpisodeWorkflowV2:
             dict with episode results
         """
         self.state.episode_id = episode_id
-        self.policy = load_policy("mid-mountain-rest")
+        
+        # Load gate policy via activity (not deterministic in workflow)
+        policy_data = await workflow.execute_activity(
+            load_gate_policy_activity,
+            args=["mid-mountain-rest"],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        # Store policy data as dict (we only need the data, not GatePolicy methods)
+        self.policy = policy_data
         
         workflow.logger.info(f"Starting episode {episode_id} (dry_run={dry_run})")
         
@@ -98,17 +106,15 @@ class EpisodeWorkflowV2:
         await workflow.wait_condition(lambda: self.approved_g101)
         workflow.logger.info(f"[APPROVED G1.01] Pitch picked for {episode_id}")
         
-        # Parse beatmap
+        # Parse beatmap via activity (filesystem I/O not allowed in workflow)
         workflow.logger.info("Parsing BEATMAP.md...")
         self.state.stage = PipelineStage.SCRIPT
         
-        if beatmap_path:
-            self.parsed_beatmap = parse_beatmap(beatmap_path)
-        else:
-            # Use synthetic fixture for dry-run
-            from pathlib import Path
-            fixture_path = Path(__file__).parent.parent.parent / "tests" / "fixtures" / "sample_beatmap.md"
-            self.parsed_beatmap = parse_beatmap(str(fixture_path))
+        self.parsed_beatmap = await workflow.execute_activity(
+            parse_beatmap_activity,
+            args=[beatmap_path],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
         
         shots = self.parsed_beatmap.get("shots", [])
         workflow.logger.info(f"Parsed {len(shots)} shots from beatmap")
@@ -144,7 +150,7 @@ class EpisodeWorkflowV2:
         for shot in shots:
             handle = await workflow.start_child_workflow(
                 ShotWorkflow.run,
-                args=[episode_id, shot, dry_run],
+                args=[episode_id, shot],  # Fixed: 2 args not 3
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
