@@ -157,6 +157,9 @@ test_mutation() {
     log_green "Restoring file..."
     git checkout -- "$file" 2>/dev/null
     
+    # Clear Python caches to ensure restored code is loaded
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    
     # Step 5: Run restored test (should pass)
     log_green "Running restored test (expecting PASS)..."
     restored_result=$(run_test "$test")
