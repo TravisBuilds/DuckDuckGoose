@@ -108,6 +108,7 @@ class EpisodeWorkflowV2:
         
         # G1.01: Pitch pick
         workflow.logger.info("G1.01: Awaiting pitch pick...")
+        self.state.current_gate = "G1.01"
         await workflow.wait_condition(lambda: self.approved_g101)
         workflow.logger.info(f"[APPROVED G1.01] Pitch picked for {episode_id}")
         
@@ -131,6 +132,7 @@ class EpisodeWorkflowV2:
         
         # G1.08: Credit plan approval (check DB for single source of truth)
         workflow.logger.info("G1.08: Awaiting credit plan approval...")
+        self.state.current_gate = "G1.08"
         await workflow.wait_condition(lambda: self.approved_g108)
         
         # Verify approval in DB before proceeding (fail-closed)
@@ -187,6 +189,7 @@ class EpisodeWorkflowV2:
         
         # G2.12: Still strip approval
         workflow.logger.info("G2.12: Awaiting still strip approval...")
+        self.state.current_gate = "G2.12"
         await workflow.wait_condition(lambda: self.approved_g212)
         workflow.logger.info("[APPROVED G2.12] Still strip approved")
         
@@ -233,6 +236,7 @@ class EpisodeWorkflowV2:
         
         # G4.09: Picture lock
         workflow.logger.info("G4.09: Awaiting picture lock...")
+        self.state.current_gate = "G4.09"
         await workflow.wait_condition(lambda: self.approved_g409)
         workflow.logger.info("[APPROVED G4.09] ⚠️ PICTURE LOCK - no more picture changes")
         
@@ -265,6 +269,7 @@ class EpisodeWorkflowV2:
         # GX.01: External actions HOLD by default
         workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
         workflow.logger.info("Awaiting explicit GX.01 approval for external actions...")
+        self.state.current_gate = "GX.01"
         await workflow.wait_condition(lambda: self.approved_gx01)
         workflow.logger.info("[APPROVED GX.01] External actions authorized")
         
@@ -384,6 +389,7 @@ class EpisodeWorkflowV2:
         return {
             "episode_id": self.state.episode_id,
             "stage": self.state.stage.value if self.state.stage else None,
+            "current_gate": self.state.current_gate,
             "approvals": {
                 "gx01": self.approved_gx01,
                 "gc02": self.approved_gc02,

@@ -99,6 +99,7 @@ class EpisodeState(BaseModel):
     scenes_approved: set[int] = Field(default_factory=set)
     final_approved: bool = False
     post_approved: bool = False
+    current_gate: str = ""  # Tracks which gate workflow is waiting at
 
 
 class CreditTransaction(BaseModel):
