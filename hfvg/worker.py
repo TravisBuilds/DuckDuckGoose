@@ -54,6 +54,7 @@ async def main():
             activities.record_shot_result,
             activities.load_gate_policy_activity,
             activities.parse_beatmap_activity,
+            activities.check_live_mode_and_g108,
         ],
     )
 

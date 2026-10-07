@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from hfvg import budget
@@ -132,10 +133,16 @@ class EpisodeWorkflowV2:
         await workflow.wait_condition(lambda: self.approved_g108)
         
         # Verify approval in DB before proceeding (fail-closed)
+        # Activity reads DATABASE_PATH from environment (studio DB)
         _, g108_db = await workflow.execute_activity(
             check_live_mode_and_g108,
-            args=[config.DB_PATH, self.state.episode_id],
+            args=[self.state.episode_id],
             start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=5),
+            ),
         )
         if not g108_db:
             raise RuntimeError("G1.08 approval signal received but DB shows not approved (fail-closed)")

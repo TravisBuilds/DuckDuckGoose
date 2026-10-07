@@ -45,6 +45,7 @@ async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
     # Set up test database
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DB_PATH", db_path)
+    monkeypatch.setenv("DATABASE_PATH", db_path)  # EpisodeWorkflowV2 uses DATABASE_PATH
     
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
     await init_studio_db(db_path)
@@ -75,7 +76,7 @@ async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
                 activities.generate_sfx,
                 activities.generate_music,
                 activities.post_to_platform,
-                check_live_mode_and_g108,
+                activities.check_live_mode_and_g108,
             ],
         ):
             # Start workflow
@@ -118,6 +119,7 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
     # Set up test database
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DB_PATH", db_path)
+    monkeypatch.setenv("DATABASE_PATH", db_path)  # EpisodeWorkflowV2 uses DATABASE_PATH
     
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
     await init_studio_db(db_path)
@@ -147,7 +149,7 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
                 activities.generate_voiceover,
                 activities.generate_sfx,
                 activities.generate_music,
-                check_live_mode_and_g108,
+                activities.check_live_mode_and_g108,
             ],
         ):
             handle = await env.client.start_workflow(
@@ -205,6 +207,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
     # Set up test database
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DB_PATH", db_path)
+    monkeypatch.setenv("DATABASE_PATH", db_path)  # EpisodeWorkflowV2 uses DATABASE_PATH
     
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
     await init_studio_db(db_path)
@@ -231,7 +234,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
                 activities.generate_voiceover,
                 activities.generate_sfx,
                 activities.generate_music,
-                check_live_mode_and_g108,
+                activities.check_live_mode_and_g108,
             ],
         ):
             handle = await env.client.start_workflow(

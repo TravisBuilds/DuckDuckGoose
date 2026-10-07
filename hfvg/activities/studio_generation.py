@@ -29,13 +29,19 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
 
 @activity.defn
-async def check_live_mode_and_g108(db_path: str, episode_id: str) -> tuple[bool, bool]:
+async def check_live_mode_and_g108(episode_id: str) -> tuple[bool, bool]:
     """
     Check if episode is in live mode and G1.08 is approved.
+    
+    Reads DATABASE_PATH from environment (studio DB).
+    
+    Args:
+        episode_id: Episode identifier
     
     Returns:
         (live_mode, g108_approved)
     """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
             "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
@@ -107,7 +113,7 @@ async def submit_still_job_enforced(
         }
     
     # Check DB for live mode and G1.08 (DRY_RUN=false, so check requirements)
-    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108_approved = await check_live_mode_and_g108(episode_id)
     
     if not live_mode:
         raise ValueError(
@@ -243,7 +249,7 @@ async def submit_clip_job_enforced(
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
     # Check DB for live mode and G1.08
-    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108_approved = await check_live_mode_and_g108(episode_id)
     
     # Decision logic: DRY_RUN env can force dry, but never force live
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
@@ -412,7 +418,7 @@ async def await_job_enforced(
         return result
     
     # Check DB for live mode and G1.08 (DRY_RUN=false means we need these)
-    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108_approved = await check_live_mode_and_g108(episode_id)
     
     if not live_mode:
         raise ValueError(

@@ -294,14 +294,14 @@ async def test_canary_checks_g108(test_db, monkeypatch):
     await create_episode(test_db, "ep99")
     
     # Check should return (False, False)
-    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    live_mode, g108_approved = await check_live_mode_and_g108("ep99")
     assert not g108_approved, "G1.08 should not be approved"
     
     # Approve G1.08
     await approve_g108(test_db, "ep99")
     
     # Check should return (False, True)
-    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    live_mode, g108_approved = await check_live_mode_and_g108("ep99")
     assert g108_approved, "G1.08 should be approved"
 
 
@@ -319,14 +319,14 @@ async def test_canary_checks_live_mode_in_live(test_db, monkeypatch):
     await set_live_mode(test_db, "ep99", False)
     
     # Check should return (False, False)
-    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    live_mode, g108_approved = await check_live_mode_and_g108("ep99")
     assert not live_mode, "Live mode should be OFF"
     
     # Enable live mode
     await set_live_mode(test_db, "ep99", True)
     
     # Check should return (True, False)
-    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    live_mode, g108_approved = await check_live_mode_and_g108("ep99")
     assert live_mode, "Live mode should be ON"
 
 

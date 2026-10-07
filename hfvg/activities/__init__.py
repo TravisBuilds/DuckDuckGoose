@@ -10,6 +10,7 @@ from hfvg.activities.studio_generation import (
     submit_still_job_enforced,
     submit_clip_job_enforced,
     await_job_enforced,
+    check_live_mode_and_g108,
 )
 from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
@@ -35,6 +36,7 @@ __all__ = [
     "submit_still_job_enforced",
     "submit_clip_job_enforced",
     "await_job_enforced",
+    "check_live_mode_and_g108",
     "load_gate_policy_activity",
     "parse_beatmap_activity",
 ]
