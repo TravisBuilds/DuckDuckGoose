@@ -22,6 +22,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
+    from hfvg.episode_parser import build_prompt_from_shot
     # ShotWorkflow is referenced by name string, not imported
 
 
@@ -168,9 +169,14 @@ class EpisodeWorkflowV2:
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
         for shot in shots:
+            # Build shot plan with prompt from beatmap fields
+            shot_plan = shot.copy()
+            if "prompt" not in shot_plan:
+                shot_plan["prompt"] = build_prompt_from_shot(shot)
+            
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[episode_id, shot],  # Fixed: 2 args not 3
+                args=[episode_id, shot_plan],
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )

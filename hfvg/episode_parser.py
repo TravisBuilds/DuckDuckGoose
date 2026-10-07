@@ -115,6 +115,54 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     return shots
 
 
+def build_prompt_from_shot(shot: dict[str, Any]) -> str:
+    """
+    Build a generation prompt from beatmap shot metadata.
+    
+    Args:
+        shot: Shot dict with fields like action, characters, duck_role, room, tod, etc.
+    
+    Returns:
+        A descriptive prompt string for image/video generation
+    """
+    parts = []
+    
+    # Add duck role if present
+    duck_role = shot.get("duck_role")
+    if duck_role:
+        parts.append(f"{duck_role} duck")
+    
+    # Add characters
+    characters = shot.get("characters", [])
+    if characters:
+        chars_str = ", ".join(characters)
+        if duck_role:
+            parts.append(f"with {chars_str}")
+        else:
+            parts.append(chars_str)
+    
+    # Add action
+    action = shot.get("action", "")
+    if action:
+        parts.append(action)
+    
+    # Add location context
+    room = shot.get("room", "")
+    tod = shot.get("tod", "")
+    if room:
+        location = f"in {room}"
+        if tod:
+            location += f" ({tod})"
+        parts.append(location)
+    
+    # Fallback if no data
+    if not parts:
+        shot_id = shot.get("shot_id", "unknown")
+        parts.append(f"Scene {shot_id}")
+    
+    return " ".join(parts).strip()
+
+
 def get_model_routing(shot: dict[str, Any]) -> dict[str, Any]:
     """
     Determine model routing per PIPELINE-LESSONS.md rules.

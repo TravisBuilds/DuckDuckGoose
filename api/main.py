@@ -524,10 +524,18 @@ async def approve_gate(
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
     try:
-        # Find the workflow
-        workflows = temporal_client.list_workflows(f'WorkflowId STARTS_WITH "{episode_id}-"')
+        # Find the EpisodeWorkflowV2 only (not child shot workflows)
+        # Episode workflow ID is just the episode_id (e.g., "ep14")
+        # Shot workflows have IDs like "ep14-shot-A01" which we must exclude
+        workflows = temporal_client.list_workflows(
+            f'WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-" AND WorkflowType = "EpisodeWorkflowV2"'
+        )
         
         async for workflow_info in workflows:
+            # Double-check: skip shot workflows
+            if "-shot-" in workflow_info.id:
+                continue
+            
             handle = temporal_client.get_workflow_handle(workflow_info.id)
             
             # Map gate_id to signal method
@@ -543,7 +551,7 @@ async def approve_gate(
                 "note": request.note,
             }
         
-        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+        raise HTTPException(status_code=404, detail=f"No running EpisodeWorkflowV2 found for episode {episode_id}")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
