@@ -446,9 +446,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 Higgsfield Total
               </div>
               <div className="text-2xl font-bold">
-                {budget?.higgsfield_total.toFixed(1) || '0.0'}¢
+                {budget?.higgsfield_total.toFixed(1) || '0.0'} credits
                 <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">
-                  / {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'}¢ cap
+                  / {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} credits cap
                 </span>
               </div>
             </div>
@@ -458,7 +458,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 ElevenLabs Total (deferred)
               </div>
               <div className="text-2xl font-bold text-gray-400 dark:text-gray-600">
-                {budget?.elevenlabs_total.toFixed(1) || '0.0'}¢
+                {budget?.elevenlabs_total.toFixed(1) || '0.0'} credits
               </div>
             </div>
           </div>
@@ -476,9 +476,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-medium text-sm">{line.line_name}</div>
                   <div className="text-sm">
-                    {line.total.toFixed(1)}¢ / {line.stop.toFixed(1)}¢
+                    {line.total.toFixed(1)} / {line.stop.toFixed(1)} credits
                     <span className="text-gray-500 dark:text-gray-400 ml-1">
-                      (cap {line.cap.toFixed(1)}¢)
+                      (cap {line.cap.toFixed(1)} credits)
                     </span>
                   </div>
                 </div>
@@ -491,7 +491,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   />
                 </div>
                 <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Spent: {line.spent.toFixed(1)}¢ • Reserved: {line.reserved.toFixed(1)}¢
+                  Spent: {line.spent.toFixed(1)} • Reserved: {line.reserved.toFixed(1)} credits
                   {line.at_stop && <span className="ml-2 text-red-600 dark:text-red-400 font-semibold">⚠️ AT STOP</span>}
                 </div>
               </div>

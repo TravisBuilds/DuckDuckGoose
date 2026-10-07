@@ -207,8 +207,7 @@ class BudgetLedger:
                     SET reserved = reserved + ?
                     WHERE line_id = ? 
                       AND (spent + reserved + ?) <= stop_threshold
-                      AND (spent + reserved + ?) <= budget_cap
-                """, (amount, line_id, amount, amount))
+                """, (amount, line_id, amount))
                 
                 if cursor.rowcount == 0:
                     # Race condition: another reserve beat us to the threshold

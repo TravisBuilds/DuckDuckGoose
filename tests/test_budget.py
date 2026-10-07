@@ -204,9 +204,24 @@ async def test_hard_cap_enforcement():
         status = await ledger.get_line_status("ep04", "L1_refs")
         assert status["budget_cap"] == 120
         
-        # Try to reserve 130 (exceeds hard cap) - should raise
-        with pytest.raises(ValueError, match="Budget cap exceeded"):
+        # Try to reserve 130 (exceeds hard cap) - should raise ValueError
+        exception_raised = False
+        error_message = ""
+        try:
             await ledger.reserve("ep04", "L1_refs", 130.0)
+        except ValueError as e:
+            exception_raised = True
+            error_message = str(e)
+        
+        # MUST raise ValueError (not just return False)
+        assert exception_raised, \
+            "Hard cap check must raise ValueError, not silently return False"
+        assert "cap exceeded" in error_message.lower(), \
+            f"Error should mention cap exceeded, got: {error_message}"
+        
+        # Verify nothing was reserved
+        status_after = await ledger.get_line_status("ep04", "L1_refs")
+        assert status_after["reserved"] == 0.0
     
     finally:
         try:

@@ -258,19 +258,6 @@ async def test_still_approve_route_sends_signal(test_db_api, monkeypatch):
     signal_name = mock_handle.signal.call_args.args[0]
     assert signal_name == "stills_approved", "Should send stills_approved signal"
 
-
-@pytest.mark.skip(reason="Clip approve route removed - workflow doesn't wait for signal (see api/main.py comment)")
-@pytest.mark.asyncio
-async def test_clip_approve_route_sends_signal(test_db_api, monkeypatch):
-    pass  # Test skipped - route removed
-
-
-@pytest.mark.skip(reason="Clip approve route removed - workflow doesn't wait for signal (see api/main.py comment)")
-@pytest.mark.asyncio
-async def test_clip_approve_rejects_unknown_shot(test_db_api, monkeypatch):
-    pass  # Test skipped - route removed
-
-
 @pytest.mark.asyncio
 async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path):
     """Test: Canary reconciles L6 reservation when workflow fails."""

@@ -180,13 +180,13 @@ def verify_admin_secret(authorization: str | None = Header(None)):
             detail="Authorization header required. Set 'Authorization: Bearer <ADMIN_SECRET>'"
         )
     
-    if not authorization.startswith("Bearer "):
+    if authorization and not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Authorization must use Bearer token format"
         )
     
-    token = authorization[7:]  # Remove 'Bearer ' prefix
+    token = authorization[7:] if authorization else ""
     
     if token != ADMIN_SECRET:
         raise HTTPException(

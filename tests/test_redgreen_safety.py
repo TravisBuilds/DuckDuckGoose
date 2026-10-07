@@ -149,6 +149,11 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
+    # Verify ShotWorkflow is properly decorated
+    # Check for the __temporal_workflow_definition attribute that @workflow.defn adds
+    assert hasattr(ShotWorkflow, "__temporal_workflow_definition"), \
+        "ShotWorkflow must be decorated with @workflow.defn (missing __temporal_workflow_definition)"
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -266,8 +271,19 @@ async def test_episode_cap_enforced(test_db):
         await db.commit()
     
     # Try to reserve 1,251 credits (over episode cap of 1,250)
-    with pytest.raises(ValueError, match="1,250 credit cap"):
+    exception_raised = False
+    error_message = ""
+    try:
         await ledger.reserve("ep99", "L2_drafts", 1251.0, "Over cap")
+    except ValueError as e:
+        exception_raised = True
+        error_message = str(e)
+    
+    # MUST raise ValueError (not just return False)
+    assert exception_raised, \
+        "Episode cap check must raise ValueError, not silently return False"
+    assert "1,250 credit cap" in error_message, \
+        f"Error should mention 1,250 credit cap, got: {error_message}"
 
 
 @pytest.mark.asyncio
