@@ -52,11 +52,10 @@ class ShotWorkflow:
 
         workflow.logger.info(f"Starting shot {self.shot_id}")
 
+        # NO RETRY after reserve: each retry would resubmit a paid call and leak reservations
+        # Provider idempotency-key should dedupe, but we must not rely on that
         retry_policy = RetryPolicy(
-            maximum_attempts=3,
-            initial_interval=timedelta(seconds=1),
-            maximum_interval=timedelta(seconds=10),
-            backoff_coefficient=2.0,
+            maximum_attempts=1,  # No automatic retries on paid activities
             non_retryable_error_types=[
                 "InsufficientCreditsError",
                 "ContentBlockError",
