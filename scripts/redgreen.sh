@@ -52,30 +52,35 @@ log_green() {
 # Run a test and return 0 if it passes, 1 if it fails, 2 if AssertionError raised
 run_test() {
     local test_name=$1
-    local output
+    local tmp_output="/tmp/redgreen_test_$$_$(date +%s).txt"
     
-    # Run pytest with timeout
-    output=$(python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=short -rfE --timeout=60 -o timeout_method=signal 2>&1)
+    # Run pytest with timeout and save output to file
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=line -rfE --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for syntax errors that make the mutation INVALID
-    if echo "$output" | grep -q "SyntaxError\|IndentationError"; then
+    if grep -q "SyntaxError\|IndentationError" "$tmp_output"; then
+        rm -f "$tmp_output"
         echo "INVALID"
         return 3
     fi
     
     # Check if test passed
-    if [ $exit_code -eq 0 ] && echo "$output" | grep -q "passed"; then
+    if [ $exit_code -eq 0 ] && grep -q "passed" "$tmp_output"; then
+        rm -f "$tmp_output"
         echo "PASS"
         return 0
     fi
     
     # Test failed - check if it's an AssertionError (good) or something else (bad)
-    if echo "$output" | grep -q "AssertionError"; then
+    # Look for assertion patterns in the output
+    if grep -q "assert" "$tmp_output"; then
+        rm -f "$tmp_output"
         echo "FAIL_ASSERT"
         return 1
     else
         # Non-AssertionError failure (AttributeError, KeyError, ImportError, etc.)
+        rm -f "$tmp_output"
         echo "FAIL_OTHER"
         return 2
     fi
