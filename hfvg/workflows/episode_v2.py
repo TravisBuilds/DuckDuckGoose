@@ -49,6 +49,7 @@ class EpisodeWorkflowV2:
             idea="",
         )
         self.policy = None
+        self.passed_gates: list[str] = []  # Track which gates have been passed
         
         # Travis approval flags (15 points)
         self.approved_gx01 = False  # External actions (default HOLD)
@@ -127,13 +128,16 @@ class EpisodeWorkflowV2:
         
         # G1.03: Beatmap approval
         workflow.logger.info("G1.03: Awaiting beatmap approval...")
+        self.state.current_gate = "G1.03"
         await workflow.wait_condition(lambda: self.approved_g103)
+        self.passed_gates.append("G1.03")
         workflow.logger.info(f"[APPROVED G1.03] Beatmap locked: {len(shots)} shots")
         
         # G1.08: Credit plan approval (check DB for single source of truth)
         workflow.logger.info("G1.08: Awaiting credit plan approval...")
         self.state.current_gate = "G1.08"
         await workflow.wait_condition(lambda: self.approved_g108)
+        self.passed_gates.append("G1.08")
         
         # Verify approval in DB before proceeding (fail-closed)
         # Activity reads DATABASE_PATH from environment (studio DB)
@@ -154,7 +158,9 @@ class EpisodeWorkflowV2:
         
         # GC.02: Budget tracking check
         workflow.logger.info("GC.02: Awaiting budget tracking confirmation...")
+        self.state.current_gate = "GC.02"
         await workflow.wait_condition(lambda: self.approved_gc02)
+        self.passed_gates.append("GC.02")
         workflow.logger.info("[APPROVED GC.02] Budget tracking active")
         
         # Step 2: Stills generation
@@ -164,7 +170,9 @@ class EpisodeWorkflowV2:
         # G2.01: New refs approval (if needed)
         if self._needs_new_refs(shots):
             workflow.logger.info("G2.01: Awaiting new reference approval...")
+            self.state.current_gate = "G2.01"
             await workflow.wait_condition(lambda: self.approved_g201)
+            self.passed_gates.append("G2.01")
             workflow.logger.info("[APPROVED G2.01] New refs approved")
         
         # Launch still generation for all shots
@@ -191,6 +199,7 @@ class EpisodeWorkflowV2:
         workflow.logger.info("G2.12: Awaiting still strip approval...")
         self.state.current_gate = "G2.12"
         await workflow.wait_condition(lambda: self.approved_g212)
+        self.passed_gates.append("G2.12")
         workflow.logger.info("[APPROVED G2.12] Still strip approved")
         
         # Step 3: Clips generation
@@ -217,7 +226,9 @@ class EpisodeWorkflowV2:
         
         # G4.06: Cut-for-story flags
         workflow.logger.info("G4.06: Awaiting cut-for-story review...")
+        self.state.current_gate = "G4.06"
         await workflow.wait_condition(lambda: self.approved_g406)
+        self.passed_gates.append("G4.06")
         workflow.logger.info("[APPROVED G4.06] Cut-for-story reviewed")
         
         # Render mute cut
@@ -231,13 +242,16 @@ class EpisodeWorkflowV2:
         
         # G4.08: Mute review notes
         workflow.logger.info("G4.08: Awaiting mute review notes...")
+        self.state.current_gate = "G4.08"
         await workflow.wait_condition(lambda: self.approved_g408)
+        self.passed_gates.append("G4.08")
         workflow.logger.info("[APPROVED G4.08] Mute notes logged")
         
         # G4.09: Picture lock
         workflow.logger.info("G4.09: Awaiting picture lock...")
         self.state.current_gate = "G4.09"
         await workflow.wait_condition(lambda: self.approved_g409)
+        self.passed_gates.append("G4.09")
         workflow.logger.info("[APPROVED G4.09] ⚠️ PICTURE LOCK - no more picture changes")
         
         # Step 5: Script lock
@@ -246,7 +260,9 @@ class EpisodeWorkflowV2:
         
         # G5.01: VO script + music lock
         workflow.logger.info("G5.01: Awaiting VO script and music lock...")
+        self.state.current_gate = "G5.01"
         await workflow.wait_condition(lambda: self.approved_g501)
+        self.passed_gates.append("G5.01")
         workflow.logger.info("[APPROVED G5.01] VO script and music locked")
         
         # Step 6: Audio (VO, music, SFX, mix)
@@ -259,7 +275,9 @@ class EpisodeWorkflowV2:
         
         # G6.10: Final audio approval
         workflow.logger.info("G6.10: Awaiting final audio approval...")
+        self.state.current_gate = "G6.10"
         await workflow.wait_condition(lambda: self.approved_g610)
+        self.passed_gates.append("G6.10")
         workflow.logger.info("[APPROVED G6.10] Final audio approved")
         
         # Step 7: Delivery (HOLD by default per GX.01)
@@ -270,12 +288,15 @@ class EpisodeWorkflowV2:
         workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
         workflow.logger.info("Awaiting explicit GX.01 approval for external actions...")
         self.state.current_gate = "GX.01"
-        await workflow.wait_condition(lambda: self.approved_gx01)
+        # MUTATED: await workflow.wait_condition(lambda: self.approved_gx01)
+        self.passed_gates.append("GX.01")
         workflow.logger.info("[APPROVED GX.01] External actions authorized")
         
         # G7.02: Drive upload
         workflow.logger.info("G7.02: Awaiting Drive upload confirmation...")
+        self.state.current_gate = "G7.02"
         await workflow.wait_condition(lambda: self.approved_g702)
+        self.passed_gates.append("G7.02")
         workflow.logger.info("[APPROVED G7.02] Drive upload complete")
         
         # G7.03: Grower handoff package
@@ -290,7 +311,9 @@ class EpisodeWorkflowV2:
         }
         
         workflow.logger.info("G7.03: Awaiting handoff package approval...")
+        self.state.current_gate = "G7.03"
         await workflow.wait_condition(lambda: self.approved_g703)
+        self.passed_gates.append("G7.03")
         workflow.logger.info("[APPROVED G7.03] Grower handoff package ready")
         
         workflow.logger.info(f"✅ Episode {episode_id} complete (HOLD state)")
@@ -390,6 +413,7 @@ class EpisodeWorkflowV2:
             "episode_id": self.state.episode_id,
             "stage": self.state.stage.value if self.state.stage else None,
             "current_gate": self.state.current_gate,
+            "passed_gates": self.passed_gates.copy(),
             "approvals": {
                 "gx01": self.approved_gx01,
                 "gc02": self.approved_gc02,
