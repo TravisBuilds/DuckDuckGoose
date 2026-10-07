@@ -329,6 +329,15 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
                 reserved = await ledger.reserve("ep99", "L6_reserve", 10.0, "Canary test")
                 assert reserved, "Should reserve L6"
                 
+                # Log the canary start (what the API does)
+                async with aiosqlite.connect(test_db_api) as db:
+                    await db.execute(
+                        """INSERT INTO audit_log (episode_id, action, details, user)
+                           VALUES (?, ?, ?, ?)""",
+                        ("ep99", "start_canary", "Workflow canary-fail-test, reserved L6=10.0", "system")
+                    )
+                    await db.commit()
+                
                 # Start workflow
                 try:
                     handle = await env.client.start_workflow(
@@ -343,8 +352,11 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
                     return None  # Won't reach here
                 except Exception as e:
                     # Workflow failed - this is where _reconcile_canary_l6 should be called
-                    # Simulate what the API does on failure
-                    await ledger.release("ep99", "L6_reserve", 10.0, "Canary workflow failed")
+                    # Import the function from api.main (set env var first)
+                    monkeypatch.setenv("DATABASE_PATH", test_db_api)
+                    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+                    from api.main import _reconcile_canary_l6
+                    await _reconcile_canary_l6("canary-fail-test", "failed")
                     return str(e)
             
             error = await start_canary_with_l6()
@@ -357,3 +369,13 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             # Key assertion: L6 should be back to original (released on failure)
             assert l6_reserved_after == l6_reserved_before, \
                 f"L6 should be released on canary failure: was {l6_reserved_before}, now {l6_reserved_after}"
+            
+            # Also verify the reconciliation was logged
+            async with aiosqlite.connect(test_db_api) as db:
+                async with db.execute(
+                    """SELECT COUNT(*) FROM audit_log 
+                       WHERE action = 'reconcile_canary_l6' AND details LIKE ?""",
+                    ("%canary-fail-test%",)
+                ) as cursor:
+                    count = (await cursor.fetchone())[0]
+                    assert count == 1, f"Reconciliation should be logged once, got {count}"

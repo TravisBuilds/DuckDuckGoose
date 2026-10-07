@@ -136,7 +136,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
 
 @pytest.mark.asyncio
 async def test_poll_502_releases_reservation(test_episode, monkeypatch):
-    """Test: poll returns 502 → reservation released."""
+    """Test: poll returns 502 → retries, then releases reservation."""
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
@@ -171,9 +171,13 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             reserved_before = status_before["reserved"]
             assert reserved_before == 4.0, "Should have 4.0 reserved"
             
-            # Poll should fail with HTTPStatusError, and the exception handler should release
+            # Poll should fail with HTTPStatusError after retries
             with pytest.raises(httpx.HTTPStatusError):
                 await await_job_enforced("test-job", "still", "ep99", "A01", "L2_drafts", 4.0)
+            
+            # Verify retries happened (should be called 4 times: initial + 3 retries)
+            assert mock_provider.get_job_status.call_count == 4, \
+                f"Should retry 3 times after initial failure (4 total calls), got {mock_provider.get_job_status.call_count}"
             
             # Check reservation was released by the exception handler
             status_after = await ledger.get_line_status("ep99", "L2_drafts")

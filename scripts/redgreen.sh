@@ -428,7 +428,7 @@ test_mutation 28 "5xx poll retries before releasing budget" \
 test_mutation 29 "Canary reconciles L6 on workflow failure" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
-    sed -i 's/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
+    sed -i '/Workflow failed: release/,+1 s/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
 
 # Print final summary
 print_summary
