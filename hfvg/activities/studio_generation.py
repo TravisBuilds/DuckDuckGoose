@@ -172,26 +172,40 @@ async def submit_still_job_enforced(
             f"Reserved {estimated_cost} credits from {line_name} for {shot_id}"
         )
         
-        # Submit to provider
-        job_id = await provider.submit_image(
-            prompt=prompt,
-            resolution=resolution,
-            quality=quality,
-            references=refs,
-            idempotency_key=idempotency_key,
-        )
+        # Submit to provider - wrapped to release reservation on ANY error
+        try:
+            job_id = await provider.submit_image(
+                prompt=prompt,
+                resolution=resolution,
+                quality=quality,
+                references=refs,
+                idempotency_key=idempotency_key,
+            )
+            
+            activity.logger.info(
+                f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
+                f"(cost: {estimated_cost}, line: {line_name})"
+            )
+            
+            # Return dict with job info for polling
+            return {
+                "job_id": job_id,
+                "line_name": line_name,
+                "reserved_amount": estimated_cost,
+            }
         
-        activity.logger.info(
-            f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
-            f"(cost: {estimated_cost}, line: {line_name})"
-        )
-        
-        # Return dict with job info for polling
-        return {
-            "job_id": job_id,
-            "line_name": line_name,
-            "reserved_amount": estimated_cost,
-        }
+        except Exception as submit_error:
+            # Release reservation on submission failure
+            activity.logger.error(
+                f"Submit failed, releasing {estimated_cost} from {line_name}: {submit_error}"
+            )
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount=estimated_cost,
+                reason=f"Submit failed: {str(submit_error)[:100]}"
+            )
+            raise
         
     finally:
         await provider.close()
