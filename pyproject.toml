@@ -42,6 +42,7 @@ hfvg = "hfvg.cli:cli"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
+addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
 
 [tool.ruff]
 line-length = 100
