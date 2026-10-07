@@ -166,40 +166,50 @@ async def review_clip(asset_url: str, rubric: dict) -> dict:
     # Check live mode from DB
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
-    live_mode = False
-    g108_approved = False
     
+    # DRY_RUN forces dry mode (kill switch)
+    if dry_run_env:
+        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+        return {"passed": True, "issues": []}
+    
+    # Extract episode_id from asset_url
+    episode_id = None
     try:
-        import aiosqlite
-        # Extract episode_id from asset_url
-        episode_id = None
         if "/" in asset_url:
             parts = asset_url.split("/")
             if len(parts) > 2:
                 filename = parts[-1].split(".")[0]
                 if "-" in filename:
                     episode_id = filename.split("-")[0]
-        
-        if episode_id:
+    except Exception:
+        pass
+    
+    # Check DB requirements
+    if episode_id:
+        try:
+            import aiosqlite
             async with aiosqlite.connect(db_path) as db:
                 async with db.execute(
                     "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
                     (episode_id,)
                 ) as cursor:
                     row = await cursor.fetchone()
-                    if row:
-                        live_mode = bool(row[0])
-                        g108_approved = bool(row[1])
-    except Exception as e:
-        activity.logger.warning(f"Could not check DB live_mode: {e}")
-    
-    # Decision logic: DRY_RUN env can force dry, but never force live
-    use_live = not dry_run_env and live_mode and g108_approved
-    
-    if not use_live:
-        # Dry run mode - deterministic pass (no random failures) for tests
-        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-        return {"passed": True, "issues": []}
+                    if not row:
+                        # Episode not found - run in dry mode
+                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+                        return {"passed": True, "issues": []}
+                    
+                    live_mode = bool(row[0])
+                    g108_approved = bool(row[1])
+                    
+                    if not live_mode or not g108_approved:
+                        # Requirements not met - run in dry mode
+                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+                        return {"passed": True, "issues": []}
+        except Exception as e:
+            activity.logger.warning(f"Could not check DB, defaulting to dry mode: {e}")
+            await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+            return {"passed": True, "issues": []}
 
     # In live mode, always pass clip QC (real QC not implemented yet)
     activity.logger.info(f"[LIVE MODE] Clip QC passed (real QC not implemented): {asset_url}")
