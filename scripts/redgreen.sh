@@ -49,28 +49,35 @@ log_green() {
     echo -e "${GREEN}[GREEN] $1${NC}"
 }
 
-# Run a test and return 0 if it passes, 1 if it fails
+# Run a test and return 0 if it passes, 1 if it fails, 2 if AssertionError raised
 run_test() {
     local test_name=$1
     local output
     
     # Run pytest with timeout
-    output=$(python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=line -rfE --timeout=60 -o timeout_method=signal 2>&1)
+    output=$(python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=short -rfE --timeout=60 -o timeout_method=signal 2>&1)
     local exit_code=$?
     
-    # Check for invalid mutations (syntax errors, SQL binding errors, import errors)
-    if echo "$output" | grep -q "SyntaxError\|ProgrammingError\|ModuleNotFoundError\|ImportError"; then
+    # Check for syntax errors that make the mutation INVALID
+    if echo "$output" | grep -q "SyntaxError\|IndentationError"; then
         echo "INVALID"
-        return 2
+        return 3
     fi
     
-    # Check if test passed or failed
+    # Check if test passed
     if [ $exit_code -eq 0 ] && echo "$output" | grep -q "passed"; then
         echo "PASS"
         return 0
-    else
-        echo "FAIL"
+    fi
+    
+    # Test failed - check if it's an AssertionError (good) or something else (bad)
+    if echo "$output" | grep -q "AssertionError"; then
+        echo "FAIL_ASSERT"
         return 1
+    else
+        # Non-AssertionError failure (AttributeError, KeyError, ImportError, etc.)
+        echo "FAIL_OTHER"
+        return 2
     fi
 }
 
@@ -126,22 +133,32 @@ test_mutation() {
         return
     fi
     
-    # Step 3: Run mutated test (should fail)
-    log_red "Running mutated test (expecting FAIL)..."
+    # Step 3: Run mutated test (should fail with AssertionError)
+    log_red "Running mutated test (expecting FAIL with AssertionError)..."
     mutated_result=$(run_test "$test")
     mutated_exit=$?
     
     if [ "$mutated_result" = "INVALID" ]; then
-        echo -e "${RED}✗ INVALID: Mutation caused syntax/import/SQL error${NC}"
+        echo -e "${RED}✗ INVALID: Mutation caused syntax error${NC}"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
-        MUTATION_REASONS+=("Mutation breaks code")
+        MUTATION_REASONS+=("Syntax error")
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return
     fi
     
-    if [ "$mutated_result" != "FAIL" ]; then
+    if [ "$mutated_result" = "FAIL_OTHER" ]; then
+        echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Non-AssertionError")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" != "FAIL_ASSERT" ]; then
         echo -e "${RED}✗ FAIL: Mutated test still passes (mutation had no effect)${NC}"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
@@ -151,7 +168,7 @@ test_mutation() {
         return
     fi
     
-    echo -e "${RED}✓ Mutated test fails (red confirmed)${NC}"
+    echo -e "${RED}✓ Mutated test fails with AssertionError (red confirmed)${NC}"
     
     # Step 4: Restore file
     log_green "Restoring file..."
@@ -376,6 +393,52 @@ test_mutation 22 "Clip approve rejects unknown shot (ZZ99)" \
     "api/main.py" \
     "tests/test_api_routes.py::test_clip_approve_rejects_unknown_shot" \
     sed -i 's/if not await cursor.fetchone():/if False and not await cursor.fetchone():  # MUTATED/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Fixes #1-#8): PR #7 safety protections
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 23. G4.09 picture lock (folded from redgreen_new.sh)
+test_mutation 23 "G4.09 picture lock blocks audio" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio" \
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_g409)/# await workflow.wait_condition(lambda: self.approved_g409)  # MUTATED/'
+
+# 24. GX.01 hold (folded from redgreen_new.sh)
+test_mutation 24 "GX.01 HOLD prevents auto-post" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_gx01)/# await workflow.wait_condition(lambda: self.approved_gx01)  # MUTATED/'
+
+# 25. Human-approved-still check before clip
+test_mutation 25 "Human-approved still required for clip" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_shot_live.py::test_shot_workflow_human_approval_proceeds_to_clip" \
+    sed -i 's/if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):/if not self.still_asset:  # MUTATED - skip human check/'
+
+# 26. Idempotent release (clamp to current reserved)
+test_mutation 26 "Idempotent release clamps to reserved" \
+    "hfvg/budget.py" \
+    "tests/test_exception_release.py::test_idempotent_release_safe" \
+    sed -i 's/release_amount = min(amount, current_reserved)/release_amount = amount  # MUTATED - no clamp/'
+
+# 27. Overage commits actual cost
+test_mutation 27 "Overage commits actual_cost not reserved" \
+    "hfvg/budget.py" \
+    "tests/test_exception_release.py::test_commit_handles_overage" \
+    sed -i 's/, actual_cost/, reserved_amount  # MUTATED/'
+
+# 28. 5xx poll retry before release
+test_mutation 28 "5xx poll retries before releasing budget" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_exception_release.py::test_poll_502_releases_reservation" \
+    sed -i 's/for attempt in range(3):/for attempt in range(0):  # MUTATED - no retry/'
+
+# 29. Canary L6 reconcile on failure
+test_mutation 29 "Canary reconciles L6 on workflow failure" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
+    sed -i 's/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
 
 # Print final summary
 print_summary
