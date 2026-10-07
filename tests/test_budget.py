@@ -24,17 +24,19 @@ async def test_init_episode_budget():
     try:
         await ledger.init_episode_budget("ep04")
         
-        # Check Higgsfield lines were created
+        # Check Higgsfield lines were created (converted from app credits to API credits)
+        # Policy: L1_refs=120 app credits * 0.76 = 91.2 API credits
         l1_status = await ledger.get_line_status("ep04", "L1_refs")
-        assert l1_status["budget_cap"] == 120
-        assert l1_status["stop_threshold"] == 96  # 80%
-        assert l1_status["unit"] == "Higgsfield app credits"
+        assert l1_status["budget_cap"] == 120 * 0.76  # 91.2 API credits
+        assert l1_status["stop_threshold"] == 120 * 0.76 * 0.8  # 72.96 (80%)
+        assert l1_status["unit"] == "Higgsfield API credits"
         
+        # Policy: L4_video=300 app credits * 0.76 = 228 API credits
         l4_status = await ledger.get_line_status("ep04", "L4_video")
-        assert l4_status["budget_cap"] == 300
-        assert l4_status["stop_threshold"] == 240  # 80%
+        assert l4_status["budget_cap"] == 300 * 0.76  # 228 API credits
+        assert l4_status["stop_threshold"] == 300 * 0.76 * 0.8  # 182.4 (80%)
         
-        # Check ElevenLabs lines
+        # Check ElevenLabs lines (no conversion)
         vo_status = await ledger.get_line_status("ep04", "el_vo_takes")
         assert vo_status["budget_cap"] == 700
         assert vo_status["stop_threshold"] == 560  # 80%
@@ -94,33 +96,34 @@ async def test_80_percent_stop():
     try:
         await ledger.init_episode_budget("ep04")
         
-        # Verify line was created correctly
+        # Verify line was created correctly (converted from app to API credits)
+        # Policy: L1_refs=120 app credits * 0.76 = 91.2 API credits, stop=72.96
         status = await ledger.get_line_status("ep04", "L1_refs")
-        assert status["budget_cap"] == 120
-        assert status["stop_threshold"] == 96
+        assert status["budget_cap"] == 120 * 0.76  # 91.2 API credits
+        assert status["stop_threshold"] == 120 * 0.76 * 0.8  # 72.96
         assert status["spent"] == 0
         assert status["reserved"] == 0
         
-        # Reserve 90 - should succeed (below stop of 96)
-        reserved = await ledger.reserve("ep04", "L1_refs", 90.0)
+        # Reserve 70 - should succeed (below stop of 72.96)
+        reserved = await ledger.reserve("ep04", "L1_refs", 70.0)
         assert reserved is True
         
         # Verify reserve took effect
         status = await ledger.get_line_status("ep04", "L1_refs")
-        assert status["reserved"] == 90
-        assert status["at_stop"] is False  # Not at stop yet (90 < 96)
+        assert status["reserved"] == 70
+        assert status["at_stop"] is False  # Not at stop yet (70 < 72.96)
         
-        # Try to reserve 10 more (total 100, exceeds stop 96) - should fail
-        reserved = await ledger.reserve("ep04", "L1_refs", 10.0)
+        # Try to reserve 5 more (total 75, exceeds stop 72.96) - should fail
+        reserved = await ledger.reserve("ep04", "L1_refs", 5.0)
         assert reserved is False, "Reserve should fail when exceeding stop"
         
-        # Reserve right up to the stop threshold (6 more to reach exactly 96)
-        reserved = await ledger.reserve("ep04", "L1_refs", 6.0)
+        # Reserve right up to the stop threshold (2.96 more to reach exactly 72.96)
+        reserved = await ledger.reserve("ep04", "L1_refs", 2.96)
         assert reserved is True
         
         # Now check at_stop flag - should be True (exactly at stop)
         status = await ledger.get_line_status("ep04", "L1_refs")
-        assert status["reserved"] == 96
+        assert status["reserved"] == 72.96
         assert status["at_stop"] is True
     
     finally:
@@ -200,15 +203,16 @@ async def test_hard_cap_enforcement():
     try:
         await ledger.init_episode_budget("ep04")
         
-        # Verify line was created correctly
+        # Verify line was created correctly (converted from app to API credits)
+        # Policy: L1_refs=120 app credits * 0.76 = 91.2 API credits
         status = await ledger.get_line_status("ep04", "L1_refs")
-        assert status["budget_cap"] == 120
+        assert status["budget_cap"] == 120 * 0.76  # 91.2 API credits
         
-        # Try to reserve 130 (exceeds hard cap) - should raise ValueError
+        # Try to reserve 100 (exceeds hard cap of 91.2) - should raise ValueError
         exception_raised = False
         error_message = ""
         try:
-            await ledger.reserve("ep04", "L1_refs", 130.0)
+            await ledger.reserve("ep04", "L1_refs", 100.0)
         except ValueError as e:
             exception_raised = True
             error_message = str(e)

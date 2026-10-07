@@ -50,13 +50,14 @@ async def test_e2e_gates_and_budget():
         ledger = BudgetLedger(db_path=path)
         await ledger.init_episode_budget("ep04")
         
-        # Verify Higgsfield budget
+        # Verify Higgsfield budget (converted from app to API credits)
+        # Policy: L4_video=300 app credits * 0.76 = 228 API credits, stop=182.4
         l4_status = await ledger.get_line_status("ep04", "L4_video")
-        assert l4_status["budget_cap"] == 300
-        assert l4_status["stop_threshold"] == 240  # 80%
-        assert l4_status["unit"] == "Higgsfield app credits"
+        assert l4_status["budget_cap"] == 300 * 0.76  # 228 API credits
+        assert l4_status["stop_threshold"] == 300 * 0.76 * 0.8  # 182.4 (80%)
+        assert l4_status["unit"] == "Higgsfield API credits"
         
-        # Verify ElevenLabs budget
+        # Verify ElevenLabs budget (no conversion)
         vo_status = await ledger.get_line_status("ep04", "el_vo_takes")
         assert vo_status["budget_cap"] == 700
         assert vo_status["stop_threshold"] == 560  # 80%
@@ -67,11 +68,11 @@ async def test_e2e_gates_and_budget():
         
         status = await ledger.get_line_status("ep04", "L4_video")
         assert status["reserved"] == 100
-        assert status["available"] == 140  # 240 - 100
+        assert status["available"] == 82.4  # 182.4 - 100 (stop - reserved)
         
         # 4. Test 80% stop
-        reserved = await ledger.reserve("ep04", "L4_video", 150.0, "More clips")
-        assert reserved is False, "Should hit 80% stop at 240"
+        reserved = await ledger.reserve("ep04", "L4_video", 90.0, "More clips")
+        assert reserved is False, "Should hit 80% stop at 182.4"
         
     finally:
         try:

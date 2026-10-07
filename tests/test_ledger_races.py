@@ -132,7 +132,7 @@ async def test_stop_threshold_validation():
         with pytest.raises(ValueError, match="stop_threshold .* must be <= budget_cap"):
             await ledger.init_episode_budget_from_plan("ep_invalid", invalid_plan)
         
-        # Valid: stop <= cap
+        # Valid: stop <= cap (values in app credits, will be converted to API credits)
         valid_plan = {
             "lines": {
                 "L2_drafts": {"cap": 100.0, "stop": 80.0}
@@ -140,10 +140,10 @@ async def test_stop_threshold_validation():
         }
         await ledger.init_episode_budget_from_plan("ep_valid", valid_plan)
         
-        # Verify it was created
+        # Verify it was created (converted from app to API credits: 100*0.76=76, 80*0.76=60.8)
         status = await ledger.get_line_status("ep_valid", "L2_drafts")
-        assert status["budget_cap"] == 100.0
-        assert status["stop_threshold"] == 80.0
+        assert status["budget_cap"] == 100.0 * 0.76  # 76.0 API credits
+        assert status["stop_threshold"] == 80.0 * 0.76  # 60.8 API credits
         
     finally:
         os.unlink(db_path)

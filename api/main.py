@@ -1182,49 +1182,59 @@ async def run_canary(
     # Reserve from L6_reserve BEFORE starting workflow (canary budget)
     # Size the hold from provider estimates (still + clip) with a margin
     from hfvg.budget import BudgetLedger
-    from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
     
     ledger = BudgetLedger(DATABASE_PATH)
     await ledger.init_db()
     
-    # Estimate still cost (with aspect_ratio but no refs for now - refs may not be uploaded yet)
-    still_provider = HiggsfieldStillProvider()
-    try:
-        still_estimate = await still_provider.estimate_cost(
-            prompt=prompt,
-            resolution="1k",
-            quality="medium",
-            aspect_ratio="9:16",
-        )
-    except Exception as e:
-        # Fail if we can't get estimate
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to estimate still cost: {str(e)}"
-        )
-    finally:
-        await still_provider.close()
+    # In dry-run mode or when keys are missing, use default estimate
+    # In live mode with keys available, get real estimates from providers
+    higgsfield_key = os.getenv("HIGGSFIELD_API_KEY", "")
     
-    # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
-    # The actual estimate will be done again before clip submission with the real still URL
-    clip_provider = KlingVideoProvider()
-    try:
-        clip_estimate = await clip_provider.estimate_cost(
-            image_url="https://example.com/placeholder.jpg",
-            prompt=prompt,
-            duration=5,
-        )
-    except Exception as e:
-        # Fail if we can't get estimate
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to estimate clip cost: {str(e)}"
-        )
-    finally:
-        await clip_provider.close()
-    
-    # Size L6 hold with 20% margin for safety
-    canary_cost = (still_estimate + clip_estimate) * 1.2
+    if dry_run or not higgsfield_key:
+        # Dry-run mode: use default estimate (no provider instantiation)
+        canary_cost = 10.0
+    else:
+        # Live mode: get real estimates from providers
+        from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+        
+        # Estimate still cost (with aspect_ratio but no refs for now - refs may not be uploaded yet)
+        still_provider = HiggsfieldStillProvider()
+        try:
+            still_estimate = await still_provider.estimate_cost(
+                prompt=prompt,
+                resolution="1k",
+                quality="medium",
+                aspect_ratio="9:16",
+            )
+        except Exception as e:
+            # Fail if we can't get estimate
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to estimate still cost: {str(e)}"
+            )
+        finally:
+            await still_provider.close()
+        
+        # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
+        # The actual estimate will be done again before clip submission with the real still URL
+        clip_provider = KlingVideoProvider()
+        try:
+            clip_estimate = await clip_provider.estimate_cost(
+                image_url="https://example.com/placeholder.jpg",
+                prompt=prompt,
+                duration=5,
+            )
+        except Exception as e:
+            # Fail if we can't get estimate
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to estimate clip cost: {str(e)}"
+            )
+        finally:
+            await clip_provider.close()
+        
+        # Size L6 hold with 20% margin for safety
+        canary_cost = (still_estimate + clip_estimate) * 1.2
     
     try:
         reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
