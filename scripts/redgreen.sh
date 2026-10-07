@@ -382,17 +382,7 @@ test_mutation 20 "Still approve route sends signal" \
     "tests/test_api_routes.py::test_still_approve_route_sends_signal" \
     sed -i 's/await handle.signal("stills_approved")/# MUTATED: skip signal; await handle.signal("stills_approved")/'
 
-# 21. Clip approve sends signal
-test_mutation 21 "Clip approve route sends signal" \
-    "api/main.py" \
-    "tests/test_api_routes.py::test_clip_approve_route_sends_signal" \
-    sed -i 's/await handle.signal("clip_approved")/# MUTATED: skip signal; await handle.signal("clip_approved")/'
-
-# 22. Clip approve rejects unknown shot
-test_mutation 22 "Clip approve rejects unknown shot (ZZ99)" \
-    "api/main.py" \
-    "tests/test_api_routes.py::test_clip_approve_rejects_unknown_shot" \
-    sed -i 's/if not await cursor.fetchone():/if False and not await cursor.fetchone():  # MUTATED/'
+# 21-22: Clip approve tests removed (route removed - workflow doesn't wait for signal)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW MUTATIONS (Fixes #1-#8): PR #7 safety protections

@@ -270,63 +270,16 @@ async def test_still_approve_route_sends_signal(test_db_api, monkeypatch):
     assert signal_name == "stills_approved", "Should send stills_approved signal"
 
 
+@pytest.mark.skip(reason="Clip approve route removed - workflow doesn't wait for signal (see api/main.py comment)")
 @pytest.mark.asyncio
 async def test_clip_approve_route_sends_signal(test_db_api, monkeypatch):
-    """Test: Clip approve route sends signal to workflow."""
-    await create_episode(test_db_api, "ep99")
-    
-    # Add shot to DB
-    async with aiosqlite.connect(test_db_api) as db:
-        await db.execute(
-            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
-            ("ep99-A01", "ep99", "A01", "Test", "pending")
-        )
-        # Add audit entry for canary
-        await db.execute(
-            """INSERT INTO audit_log (episode_id, action, details, user, timestamp)
-               VALUES (?, ?, ?, ?, datetime('now'))""",
-            ("ep99", "start_canary", "Workflow ep99-canary-A01-12345, reserved L6=10.0", "test")
-        )
-        await db.commit()
-    
-    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
-    
-    # Mock temporal client
-    from unittest.mock import AsyncMock, MagicMock
-    from api import main as api_main
-    mock_client = MagicMock()
-    mock_handle = MagicMock()
-    mock_handle.signal = AsyncMock()
-    mock_client.get_workflow_handle_for = MagicMock(return_value=mock_handle)
-    api_main.temporal_client = mock_client
-    
-    # Call clip approve
-    response = client.post("/api/episodes/ep99/clips/A01/approve", cookies=cookies)
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True, "Should succeed"
-    
-    # Verify signal was sent
-    assert mock_handle.signal.called, "Should send signal"
-    signal_name = mock_handle.signal.call_args.args[0]
-    assert signal_name == "clip_approved", "Should send clip_approved signal"
+    pass  # Test skipped - route removed
 
 
+@pytest.mark.skip(reason="Clip approve route removed - workflow doesn't wait for signal (see api/main.py comment)")
 @pytest.mark.asyncio
 async def test_clip_approve_rejects_unknown_shot(test_db_api, monkeypatch):
-    """Test: Clip approve route rejects nonexistent shot (e.g., ZZ99)."""
-    await create_episode(test_db_api, "ep99")
-    
-    # Do NOT add shot ZZ99 to DB
-    
-    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
-    
-    # Try to approve nonexistent shot
-    response = client.post("/api/episodes/ep99/clips/ZZ99/approve", cookies=cookies)
-    
-    assert response.status_code == 404, "Should reject unknown shot"
-    assert "not found" in response.json()["detail"].lower(), "Should mention not found"
+    pass  # Test skipped - route removed
 
 
 @pytest.mark.asyncio

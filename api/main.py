@@ -18,8 +18,6 @@ Routes:
 - GET /api/episodes/{episode_id}/shots: List shots with status
 - POST /api/episodes/{episode_id}/shots/{shot_id}/approve: Approve still
 - POST /api/episodes/{episode_id}/shots/{shot_id}/reject: Reject still
-- POST /api/episodes/{episode_id}/clips/{clip_id}/approve: Approve clip
-- POST /api/episodes/{episode_id}/clips/{clip_id}/reject: Reject clip
 - GET /api/episodes/{episode_id}/gates: Get gate status
 - GET /api/episodes/{episode_id}/budget: Get budget status
 - GET /api/episodes/{episode_id}/audit: Get audit trail
@@ -734,89 +732,19 @@ async def reject_still(
     return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
 
 
-@app.post("/api/episodes/{episode_id}/clips/{shot_id}/approve")
-async def approve_clip(
-    episode_id: str,
-    shot_id: str,
-    studio_admin_token: str | None = Cookie(None),
-):
-    """
-    Approve clip for a shot (sends signal to workflow).
-    
-    Requires: Cookie auth
-    """
-    await verify_admin_cookie(studio_admin_token)
-    validate_episode_id(episode_id)
-    
-    # Validate shot_id format
-    if not shot_id or not isinstance(shot_id, str):
-        raise HTTPException(status_code=400, detail=f"Invalid shot_id: {shot_id}")
-    
-    # Check if shot exists in this episode
-    import aiosqlite
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        async with db.execute(
-            "SELECT shot_id FROM shots WHERE episode_id = ? AND shot_id = ?",
-            (episode_id, shot_id)
-        ) as cursor:
-            if not await cursor.fetchone():
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Shot {shot_id} not found in episode {episode_id}"
-                )
-    
-    if not temporal_client:
-        raise HTTPException(status_code=503, detail="Temporal client not initialized")
-    
-    # Try to find the workflow: first check for canary, then regular shot
-    from hfvg.workflows.shot import ShotWorkflow
-    
-    # Check audit log for canary workflow_id with this shot_id
-    workflow_id = None
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        async with db.execute(
-            """SELECT details FROM audit_log 
-               WHERE episode_id = ? AND action = 'start_canary' AND details LIKE ?
-               ORDER BY timestamp DESC LIMIT 1""",
-            (episode_id, f"%canary-{shot_id}-%")
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                # Extract workflow_id from details
-                details = row[0]
-                if "Workflow " in details:
-                    workflow_id = details.split("Workflow ")[1].split(",")[0]
-    
-    # If no canary found, use regular shot workflow ID
-    if not workflow_id:
-        workflow_id = f"{episode_id}-shot-{shot_id}"
-    
-    try:
-        handle = temporal_client.get_workflow_handle_for(
-            ShotWorkflow.run,
-            workflow_id=workflow_id,
-        )
-        await handle.signal("clip_approved")
-        
-        # Audit log
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute(
-                """INSERT INTO audit_log (episode_id, action, details, user)
-                   VALUES (?, ?, ?, ?)""",
-                (episode_id, "approve_clip", f"Shot {shot_id} clip approved, signal sent to {workflow_id}", "admin")
-            )
-            await db.commit()
-        
-        return {"success": True, "shot_id": shot_id, "workflow_id": workflow_id, "message": "Clip approved, signal sent"}
-    
-    except Exception as e:
-        error_str = str(e).lower()
-        if "not found" in error_str or "does not exist" in error_str:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow for shot {shot_id} not found. It may not have started yet or may have already completed."
-            )
-        raise HTTPException(status_code=500, detail=f"Error approving clip: {str(e)}")
+"""
+Clip approve route removed - ShotWorkflow doesn't wait for clip_approved signal.
+The clip_approved handler (shot.py:46-48) is a no-op pass statement.
+To re-enable this route:
+1. Add workflow.wait_condition in ShotWorkflow after clip generation
+2. Add self.clip_approved_flag similar to stills_approved
+3. Uncomment the route below and update tests
+See verification doc § "Clip-approve semantics" for details.
+"""
+# @app.post("/api/episodes/{episode_id}/clips/{shot_id}/approve")
+# async def approve_clip(...): ...
+# (83 lines removed - see git history to restore)
+
 
 
 @app.get("/api/episodes/{episode_id}/gates")
