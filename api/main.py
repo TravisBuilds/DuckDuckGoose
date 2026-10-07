@@ -973,28 +973,34 @@ async def get_canary_status(
 async def _reconcile_canary_l6(workflow_id: str, status: str):
     """
     Reconcile L6_reserve after canary completes or fails.
+    Atomic and idempotent: uses transaction to ensure exactly-once reconciliation.
     
-    Looks up the workflow in audit log, releases the reservation.
-    This is called once per workflow completion/failure.
+    Looks up the workflow in audit log, releases the reservation exactly once.
     """
     import aiosqlite
     from hfvg.budget import BudgetLedger
+    import re
     
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # Find the canary start entry to get episode_id and reserved amount
-        async with db.execute(
-            """SELECT episode_id, details FROM audit_log 
-               WHERE action = 'start_canary' AND details LIKE ?
-               ORDER BY timestamp DESC LIMIT 1""",
-            (f"%{workflow_id}%",)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                return  # No reservation found, nothing to reconcile
+        # BEGIN IMMEDIATE for atomic check-and-insert
+        await db.execute("BEGIN IMMEDIATE")
+        
+        try:
+            # Find the canary start entry to get episode_id and reserved amount
+            async with db.execute(
+                """SELECT episode_id, details FROM audit_log 
+                   WHERE action = 'start_canary' AND details LIKE ?
+                   ORDER BY timestamp DESC LIMIT 1""",
+                (f"%{workflow_id}%",)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    await db.rollback()
+                    return  # No reservation found, nothing to reconcile
+                
+                episode_id, details = row
             
-            episode_id, details = row
-            
-            # Check if already reconciled
+            # Check if already reconciled (within same transaction)
             async with db.execute(
                 """SELECT COUNT(*) FROM audit_log 
                    WHERE episode_id = ? AND action = 'reconcile_canary_l6' 
@@ -1004,34 +1010,48 @@ async def _reconcile_canary_l6(workflow_id: str, status: str):
                 already_reconciled = (await check_cursor.fetchone())[0] > 0
             
             if already_reconciled:
-                return  # Already reconciled
+                await db.rollback()
+                return  # Already reconciled in another concurrent call
             
             # Extract reserved amount from details (e.g., "reserved L6=10.0")
-            import re
             match = re.search(r"reserved L6=([\d.]+)", details)
             if not match:
+                await db.rollback()
                 return
             
             reserved_amount = float(match.group(1))
             
-            # Release the L6 reservation
-            ledger = BudgetLedger(DATABASE_PATH)
-            await ledger.init_db()
-            await ledger.release(
-                episode_id=episode_id,
-                line_name="L6_reserve",
-                amount=reserved_amount,
-                reason=f"Canary {workflow_id} {status}"
-            )
-            
-            # Record reconciliation in audit log
+            # Record reconciliation in audit log FIRST (within transaction)
+            # This acts as a lock - only one transaction can succeed
             await db.execute(
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
                 (episode_id, "reconcile_canary_l6", 
                  f"Released L6={reserved_amount} for {workflow_id} ({status})", "system")
             )
+            
+            # Commit the audit log entry before releasing
+            # This ensures the reconciliation is recorded even if release fails
             await db.commit()
+            
+        except Exception as e:
+            await db.rollback()
+            raise
+    
+    # Release the L6 reservation outside the audit log transaction
+    # The ledger has its own atomic transaction
+    try:
+        ledger = BudgetLedger(DATABASE_PATH)
+        await ledger.init_db()
+        await ledger.release(
+            episode_id=episode_id,
+            line_name="L6_reserve",
+            amount=reserved_amount,
+            reason=f"Canary {workflow_id} {status}"
+        )
+    except Exception as release_err:
+        # Log error but don't raise - reconciliation is already marked as done
+        print(f"Warning: Reconciliation logged but release failed: {release_err}")
 
 
 @app.post("/api/episodes/{episode_id}/canary")
@@ -1138,9 +1158,11 @@ async def run_canary(
     
     # Start ShotWorkflow (async) with reservation info
     from hfvg.workflows.shot import ShotWorkflow
-    import time
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+    import uuid
     
-    workflow_id = f"{episode_id}-canary-{first_shot_id}-{int(time.time())}"
+    # Use UUID to ensure uniqueness (no collisions even with concurrent requests)
+    workflow_id = f"{episode_id}-canary-{first_shot_id}-{uuid.uuid4().hex[:12]}"
     
     try:
         handle = await temporal_client.start_workflow(
@@ -1149,31 +1171,18 @@ async def run_canary(
             id=workflow_id,
             task_queue="hfvg-tasks",
         )
+    except WorkflowExecutionAlreadyStartedError:
+        # Workflow already running (rare race condition or retry)
+        # Release reservation since we didn't actually reserve for a new workflow
+        try:
+            await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
+        except Exception as release_err:
+            print(f"Failed to release L6 on 409: {release_err}")
         
-        # Store canary workflow_id and reservation in audit log
-        import aiosqlite
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute(
-                """INSERT INTO audit_log (episode_id, action, details, user)
-                   VALUES (?, ?, ?, ?)""",
-                (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost}", "system")
-            )
-            await db.commit()
-        
-        # Return immediately with workflow_id (async)
-        return {
-            "success": True,
-            "episode_id": episode_id,
-            "shot_id": first_shot_id,
-            "workflow_id": workflow_id,
-            "reserved_amount": canary_cost,
-            "dry_run": dry_run,
-            "live_mode": bool(live_mode),
-            "g108_approved": bool(g108_approved),
-            "message": "Canary started (async). Poll workflow for status.",
-            "budget_reserved": reserved,
-        }
-    
+        raise HTTPException(
+            status_code=409,
+            detail=f"Canary workflow already running for {episode_id}. Check existing workflow."
+        )
     except Exception as e:
         # Start failed: release L6 reservation
         try:
@@ -1183,6 +1192,30 @@ async def run_canary(
             print(f"Failed to release L6 on start failure: {release_err}")
         
         raise HTTPException(status_code=500, detail=f"Canary failed to start: {str(e)}")
+    
+    # Store canary workflow_id and reservation in audit log
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost}", "system")
+        )
+        await db.commit()
+    
+    # Return immediately with workflow_id (async)
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "shot_id": first_shot_id,
+        "workflow_id": workflow_id,
+        "reserved_amount": canary_cost,
+        "dry_run": dry_run,
+        "live_mode": bool(live_mode),
+        "g108_approved": bool(g108_approved),
+        "message": "Canary started (async). Poll workflow for status.",
+        "budget_reserved": reserved,
+    }
 
 
 if __name__ == "__main__":

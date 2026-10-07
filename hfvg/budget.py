@@ -118,10 +118,24 @@ class BudgetLedger:
         Args:
             episode_id: Episode ID
             credit_plan: Parsed credit plan dict with lines, caps, stops
+        
+        Raises:
+            ValueError: If any stop_threshold > budget_cap
         """
         await self.init_db()
         
         unit = "Higgsfield app credits"
+        
+        # Validate all lines before inserting
+        for line_name, line_data in credit_plan["lines"].items():
+            cap = line_data["cap"]
+            stop = line_data["stop"]
+            
+            if stop > cap:
+                raise ValueError(
+                    f"Invalid credit plan for {line_name}: stop_threshold ({stop}) "
+                    f"must be <= budget_cap ({cap})"
+                )
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             for line_name, line_data in credit_plan["lines"].items():
@@ -311,60 +325,80 @@ class BudgetLedger:
                      reason: str = ""):
         """
         Release reserved budget without committing (e.g., on block or refund).
-        Idempotent: will not release more than currently reserved.
+        Atomic and idempotent: uses BEGIN IMMEDIATE and conditional UPDATE.
+        Never allows reserved to go below 0.
         
         Args:
             episode_id: Episode identifier
             line_name: Budget line
-            amount: Amount to release
+            amount: Amount to release (must be > 0)
             reason: Reason for release
         """
+        if amount <= 0:
+            return  # Nothing to release
+        
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Get current reserved amount to ensure we don't go negative
-            async with db.execute("""
-                SELECT reserved FROM budget_lines WHERE line_id = ?
-            """, (line_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    raise ValueError(f"Budget line {line_id} not found")
-                current_reserved = row[0]
+            # BEGIN IMMEDIATE for atomic read-modify-write
+            await db.execute("BEGIN IMMEDIATE")
             
-            # Clamp release amount to not go below 0
-            release_amount = min(amount, current_reserved)
-            
-            if release_amount <= 0:
-                # Already at 0 or trying to release 0 - log but don't update
+            try:
+                # Conditional UPDATE that checks reserved >= amount atomically
+                # This prevents reserved from going negative under concurrency
+                cursor = await db.execute("""
+                    UPDATE budget_lines
+                    SET reserved = reserved - ?
+                    WHERE line_id = ? AND reserved >= ?
+                """, (amount, line_id, amount))
+                
+                rows_affected = cursor.rowcount
+                
+                if rows_affected == 0:
+                    # Either line not found or insufficient reserved
+                    # Check which case
+                    async with db.execute("""
+                        SELECT reserved FROM budget_lines WHERE line_id = ?
+                    """, (line_id,)) as check_cursor:
+                        row = await check_cursor.fetchone()
+                        if not row:
+                            await db.rollback()
+                            raise ValueError(f"Budget line {line_id} not found")
+                        
+                        current_reserved = row[0]
+                        
+                        if current_reserved < amount:
+                            # Partial release: release what's available
+                            await db.execute("""
+                                UPDATE budget_lines
+                                SET reserved = 0
+                                WHERE line_id = ?
+                            """, (line_id,))
+                            
+                            actual_released = current_reserved
+                            reason_with_note = f"Partial: requested {amount}, released {actual_released} (all available). {reason}"
+                        else:
+                            # Race condition: another transaction changed reserved
+                            # Log idempotent case
+                            actual_released = 0
+                            reason_with_note = f"Idempotent: concurrent release. {reason}"
+                else:
+                    # Full release succeeded
+                    actual_released = amount
+                    reason_with_note = reason
+                
+                # Log transaction
                 await db.execute("""
                     INSERT INTO budget_transactions
                     (line_id, episode_id, txn_type, amount, timestamp, reason)
-                    VALUES (?, ?, 'release_idempotent', 0, datetime('now'), ?)
-                """, (line_id, episode_id, f"Idempotent: reserved already 0. {reason}"))
+                    VALUES (?, ?, 'release', ?, datetime('now'), ?)
+                """, (line_id, episode_id, actual_released, reason_with_note))
+                
                 await db.commit()
-                return
-            
-            # Release reserve without adding to spent
-            await db.execute("""
-                UPDATE budget_lines
-                SET reserved = reserved - ?
-                WHERE line_id = ?
-            """, (release_amount, line_id))
-            
-            # Log transaction
-            if release_amount < amount:
-                # Log partial release due to clamping
-                reason_with_note = f"Clamped from {amount} to {release_amount} (would go negative). {reason}"
-            else:
-                reason_with_note = reason
-            
-            await db.execute("""
-                INSERT INTO budget_transactions
-                (line_id, episode_id, txn_type, amount, timestamp, reason)
-                VALUES (?, ?, 'release', ?, datetime('now'), ?)
-            """, (line_id, episode_id, release_amount, reason_with_note))
-            
-            await db.commit()
+                
+            except Exception as e:
+                await db.rollback()
+                raise
     
     async def get_line_status(self, episode_id: str, line_name: str) -> dict[str, Any]:
         """
