@@ -87,11 +87,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
       const [stateRes, budgetRes, gatesRes, shotsRes, auditRes] = await Promise.all([
-        fetch(`${apiUrl}/api/episodes/${episodeId}`, { credentials: \'include\' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { credentials: \'include\' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { credentials: \'include\' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { credentials: \'include\' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { credentials: \'include\' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { credentials: 'include' }),
       ]);
 
       if (stateRes.ok) setState(await stateRes.json());
