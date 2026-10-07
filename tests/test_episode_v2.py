@@ -266,7 +266,11 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["approvals"]["gx01"] is False, "Should be at HOLD gate"
             assert state["approvals"]["g610"] is True, "Audio should be complete"
-            # This proves GX.01 HOLD works: workflow stopped before posting
+            
+            # The workflow should be blocked at GX.01, not proceed to G7.02
+            # If the wait_condition is removed, it would skip to G7.02
+            assert state["approvals"]["g702"] is False, \
+                "Workflow must be blocked at GX.01, not proceed to G7.02 without approval"
             
             # Workflow should not proceed without explicit GX.01 approval
             await handle.terminate()

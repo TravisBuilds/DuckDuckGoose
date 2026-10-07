@@ -47,6 +47,18 @@ class ShotWorkflow:
         """Signal from API that this shot's clip has been approved."""
         pass  # Just for audit trail; workflow completes after clip generation
 
+    @workflow.query
+    def get_state(self) -> dict:
+        """Query current workflow state."""
+        return {
+            "shot_id": self.shot_id,
+            "episode_id": self.episode_id,
+            "has_still": self.still_asset is not None,
+            "has_clip": self.clip_asset is not None,
+            "stills_approved": self.stills_approved,
+            "human_approved_still": self.human_approved_still,
+        }
+
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
