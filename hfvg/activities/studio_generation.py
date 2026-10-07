@@ -53,21 +53,38 @@ async def check_live_mode_and_g108(episode_id: str) -> tuple[bool, bool]:
             return bool(row[0]), bool(row[1])
 
 
-def generate_idempotency_key(episode_id: str, shot_id: str, version: int, prompt: str) -> str:
+def generate_idempotency_key(episode_id: str = None, shot_id: str = None, version: int = None, prompt: str = None, **kwargs) -> str:
     """
-    Generate deterministic idempotency key.
+    Generate deterministic idempotency key from request parameters.
     
-    Args:
-        episode_id: Episode ID
-        shot_id: Shot ID
-        version: Version number
-        prompt: Generation prompt
+    For backward compatibility, accepts legacy positional args.
+    For new calls, pass all parameters as kwargs for full coverage:
+    - episode_id, shot_id, version, prompt (base)
+    - refs, quality, resolution (for stills)
+    - start_image, duration (for clips)
     
-    Returns:
-        Deterministic idempotency key
+    Returns: 32-character hex hash
     """
-    content = f"{episode_id}:{shot_id}:v{version}:{prompt}"
-    hash_bytes = hashlib.sha256(content.encode()).digest()
+    import json
+    
+    # Build key data from all parameters
+    if episode_id is not None:
+        # Legacy positional args provided
+        key_data = {
+            'episode_id': episode_id,
+            'shot_id': shot_id,
+            'version': version,
+            'prompt': prompt,
+        }
+        # Also include any kwargs
+        key_data.update(kwargs)
+    else:
+        # New style: all kwargs
+        key_data = kwargs
+    
+    # Sort keys for deterministic ordering
+    key_str = json.dumps(key_data, sort_keys=True)
+    hash_bytes = hashlib.sha256(key_str.encode()).digest()
     return hash_bytes.hex()[:32]
 
 
@@ -132,8 +149,16 @@ async def submit_still_job_enforced(
         f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
     )
     
-    # Generate idempotency key
-    idempotency_key = generate_idempotency_key(episode_id, shot_id, version, prompt)
+    # Generate idempotency key including all parameters that affect generation
+    idempotency_key = generate_idempotency_key(
+        episode_id=episode_id,
+        shot_id=shot_id,
+        version=version,
+        prompt=prompt,
+        refs=refs,
+        quality=quality,
+        resolution=resolution,
+    )
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -289,8 +314,15 @@ async def submit_clip_job_enforced(
             "Approve credit plan before generating."
         )
     
-    # Generate idempotency key
-    idempotency_key = generate_idempotency_key(episode_id, shot_id, version, f"clip:{prompt}")
+    # Generate idempotency key including all parameters that affect generation
+    idempotency_key = generate_idempotency_key(
+        episode_id=episode_id,
+        shot_id=shot_id,
+        version=version,
+        prompt=f"clip:{prompt}",
+        start_image=start_image_url,
+        duration=duration,
+    )
     
     # Initialize provider
     provider = KlingVideoProvider()

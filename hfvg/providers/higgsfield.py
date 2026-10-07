@@ -60,12 +60,15 @@ class HiggsfieldProvider(GenerationProvider):
         self.mock_balance = 1500.0  # Mock balance for dry-run
         
         if not self.dry_run:
-            # Get credentials from config (handles multiple formats)
-            self.api_key = api_key or config.get_higgsfield_credentials()
+            # Get credentials from environment (HIGGSFIELD_API_KEY format: id:secret)
+            self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
             if not self.api_key:
                 raise ValueError(
-                    "Higgsfield credentials not found. Set HF_KEY, HF_API_KEY (with colon), "
-                    "or HF_API_KEY_ID + HF_API_KEY_SECRET environment variables."
+                    "HIGGSFIELD_API_KEY not set. Required for live mode."
+                )
+            if ":" not in self.api_key:
+                raise ValueError(
+                    "HIGGSFIELD_API_KEY must be in format 'id:secret'"
                 )
             
             # Import HTTP client for REST API calls with custom headers
