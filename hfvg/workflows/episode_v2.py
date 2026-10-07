@@ -111,6 +111,7 @@ class EpisodeWorkflowV2:
         workflow.logger.info("G1.01: Awaiting pitch pick...")
         self.state.current_gate = "G1.01"
         await workflow.wait_condition(lambda: self.approved_g101)
+        self.passed_gates.append("G1.01")
         workflow.logger.info(f"[APPROVED G1.01] Pitch picked for {episode_id}")
         
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)

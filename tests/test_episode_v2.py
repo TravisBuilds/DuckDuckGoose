@@ -261,7 +261,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
                 task_queue="test-task-queue",
             )
             
-            # Fast-forward through all gates up to (but not including) GX.01
+            # Fast-forward through all gates up to G6.10 (but not including GX.01)
             await handle.signal(EpisodeWorkflowV2.approve_g101)
             await handle.signal(EpisodeWorkflowV2.approve_g103)
             await handle.signal(EpisodeWorkflowV2.approve_g108)
@@ -271,10 +271,27 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             await handle.signal(EpisodeWorkflowV2.approve_g408)
             await handle.signal(EpisodeWorkflowV2.approve_g409)
             await handle.signal(EpisodeWorkflowV2.approve_g501)
+            # Do NOT send g610 yet - we'll send it after verifying we're at G6.10
+            
+            # Poll to verify workflow reaches G6.10 first
+            import time
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                if state.get("current_gate") == "G6.10":
+                    break
+                await env.sleep(0.1)
+            else:
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                pytest.fail(f"Workflow did not reach G6.10. Current: {state.get('current_gate')}")
+            
+            # Now send g610 to let it proceed to GX.01
             await handle.signal(EpisodeWorkflowV2.approve_g610)
             
+            # Give workflow time to process the signal and reach GX.01
+            await env.sleep(0.5)
+            
             # Poll to verify workflow reaches GX.01 (with bounded timeout)
-            import time
             deadline = time.time() + 5.0
             while time.time() < deadline:
                 state = await handle.query(EpisodeWorkflowV2.get_state)
@@ -282,7 +299,8 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
                     break
                 await env.sleep(0.1)
             else:
-                pytest.fail("Workflow did not reach GX.01 within timeout")
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                pytest.fail(f"Workflow did not reach GX.01 within timeout. Current gate: {state.get('current_gate')}, Passed: {state.get('passed_gates', [])}")
             
             # Verify workflow is at GX.01 and RUNNING
             state = await handle.query(EpisodeWorkflowV2.get_state)
