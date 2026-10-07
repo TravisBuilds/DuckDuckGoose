@@ -45,6 +45,7 @@ from hfvg.budget import BudgetLedger
 from hfvg.episode_parser import parse_beatmap
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
+from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
 # Check ADMIN_SECRET early - FAIL CLOSED
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
@@ -665,29 +666,11 @@ async def approve_still(
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
-    # Try to find the workflow: first check for canary, then regular shot
+    # Find the canary workflow for this shot (use deterministic workflow_id)
     from hfvg.workflows.shot import ShotWorkflow
-    import aiosqlite
     
-    # Check audit log for canary workflow_id with this shot_id
-    workflow_id = None
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        async with db.execute(
-            """SELECT details FROM audit_log 
-               WHERE episode_id = ? AND action = 'start_canary' AND details LIKE ?
-               ORDER BY timestamp DESC LIMIT 1""",
-            (episode_id, f"%canary-{shot_id}-%")
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                # Extract workflow_id from details like "Workflow ep04-canary-A01-1234567890, reserved L6=10.0"
-                details = row[0]
-                if "Workflow " in details:
-                    workflow_id = details.split("Workflow ")[1].split(",")[0]
-    
-    # If no canary found, use regular shot workflow ID
-    if not workflow_id:
-        workflow_id = f"{episode_id}-shot-{shot_id}"
+    # Canary workflows use deterministic ID: {episode_id}-canary-{shot_id}
+    workflow_id = f"{episode_id}-canary-{shot_id}"
     
     try:
         handle = temporal_client.get_workflow_handle_for(
@@ -709,6 +692,13 @@ async def approve_still(
         return {"success": True, "shot_id": shot_id, "message": "Still approved"}
     
     except Exception as e:
+        error_str = str(e).lower()
+        if "not found" in error_str or "does not exist" in error_str:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Canary workflow not found for {episode_id}/{shot_id}. "
+                       "Has the canary been started?"
+            )
         raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
 
 
@@ -1188,11 +1178,51 @@ async def run_canary(
     }
     
     # Reserve from L6_reserve BEFORE starting workflow (canary budget)
+    # Size the hold from provider estimates (still + clip) with a margin
     from hfvg.budget import BudgetLedger
+    from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+    
     ledger = BudgetLedger(DATABASE_PATH)
     await ledger.init_db()
     
-    canary_cost = 10.0  # Estimated: 1 still + 1 clip
+    # Estimate still cost (with aspect_ratio but no refs for now - refs may not be uploaded yet)
+    still_provider = HiggsfieldStillProvider()
+    try:
+        still_estimate = await still_provider.estimate_cost(
+            prompt=prompt,
+            resolution="1k",
+            quality="medium",
+            aspect_ratio="9:16",
+        )
+    except Exception as e:
+        # Fail if we can't get estimate
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to estimate still cost: {str(e)}"
+        )
+    finally:
+        await still_provider.close()
+    
+    # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
+    # The actual estimate will be done again before clip submission with the real still URL
+    clip_provider = KlingVideoProvider()
+    try:
+        clip_estimate = await clip_provider.estimate_cost(
+            image_url="https://example.com/placeholder.jpg",
+            prompt=prompt,
+            duration=5,
+        )
+    except Exception as e:
+        # Fail if we can't get estimate
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to estimate clip cost: {str(e)}"
+        )
+    finally:
+        await clip_provider.close()
+    
+    # Size L6 hold with 20% margin for safety
+    canary_cost = (still_estimate + clip_estimate) * 1.2
     
     try:
         reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
@@ -1201,6 +1231,7 @@ async def run_canary(
                 "success": False,
                 "error": "L6_reserve budget insufficient for canary",
                 "episode_id": episode_id,
+                "estimated_cost": canary_cost,
             }
     except Exception as e:
         return {
@@ -1214,8 +1245,9 @@ async def run_canary(
     from temporalio.exceptions import WorkflowAlreadyStartedError
     import uuid
     
-    # Use UUID to ensure uniqueness (no collisions even with concurrent requests)
-    workflow_id = f"{episode_id}-canary-{first_shot_id}-{uuid.uuid4().hex[:12]}"
+    # Check if there's already a running canary for this episode
+    # Use deterministic workflow ID based on episode to enforce one-at-a-time
+    workflow_id = f"{episode_id}-canary-{first_shot_id}"
     
     try:
         handle = await temporal_client.start_workflow(
@@ -1225,8 +1257,7 @@ async def run_canary(
             task_queue="hfvg-tasks",
         )
     except WorkflowAlreadyStartedError:
-        # Workflow already running (rare race condition or retry)
-        # Release reservation since we didn't actually reserve for a new workflow
+        # Workflow already running - return 409 and release the new reservation
         try:
             await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
         except Exception as release_err:
@@ -1234,7 +1265,8 @@ async def run_canary(
         
         raise HTTPException(
             status_code=409,
-            detail=f"Canary workflow already running for {episode_id}. Check existing workflow."
+            detail=f"Canary workflow already running for {episode_id}. "
+                   f"Wait for the current canary to complete before starting a new one."
         )
     except Exception as e:
         # Start failed: release L6 reservation
