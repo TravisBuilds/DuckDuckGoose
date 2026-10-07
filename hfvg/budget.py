@@ -142,7 +142,7 @@ class BudgetLedger:
     async def reserve(self, episode_id: str, line_name: str, amount: float, 
                      reason: str = "") -> bool:
         """
-        Reserve budget from a line before generation.
+        Reserve budget from a line before generation (atomic).
         
         Args:
             episode_id: Episode identifier
@@ -154,81 +154,160 @@ class BudgetLedger:
             True if reserved, False if would exceed stop threshold
         
         Raises:
-            ValueError: If line doesn't exist or insufficient budget
+            ValueError: If line doesn't exist, episode cap exceeded
         """
+        EPISODE_CAP = 1250.0  # GC.04 1,250 credit episode cap
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Check current spend + reserve
-            async with db.execute("""
-                SELECT spent, reserved, stop_threshold, budget_cap
-                FROM budget_lines WHERE line_id = ?
-            """, (line_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    raise ValueError(f"Budget line {line_id} not found")
+            # BEGIN IMMEDIATE for atomic reserve (prevents concurrent double-reserve)
+            await db.execute("BEGIN IMMEDIATE")
+            
+            try:
+                # Check line-level caps
+                async with db.execute("""
+                    SELECT spent, reserved, stop_threshold, budget_cap
+                    FROM budget_lines WHERE line_id = ?
+                """, (line_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if not row:
+                        await db.rollback()
+                        raise ValueError(f"Budget line {line_id} not found")
+                    
+                    spent, reserved, stop_threshold, cap = row
+                    total = spent + reserved + amount
+                    
+                    # Hard cap check (line-level)
+                    if total > cap:
+                        await db.rollback()
+                        raise ValueError(
+                            f"Budget cap exceeded: {total} > {cap} for {line_id}"
+                        )
+                    
+                    # Check against stop threshold (GC.02 80% stop) - soft limit
+                    if total > stop_threshold:
+                        await db.rollback()
+                        return False
                 
-                spent, reserved, stop_threshold, cap = row
-                total = spent + reserved + amount
+                # Check episode-level 1,250 cap (GC.04)
+                async with db.execute("""
+                    SELECT SUM(spent + reserved) as total
+                    FROM budget_lines WHERE episode_id = ?
+                """, (episode_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    episode_total = (row[0] or 0.0) + amount
+                    
+                    if episode_total > EPISODE_CAP:
+                        await db.rollback()
+                        raise ValueError(
+                            f"Episode {episode_id} would exceed 1,250 credit cap. "
+                            f"Current: {row[0] or 0.0:.1f}, requested: {amount:.1f}, "
+                            f"cap: {EPISODE_CAP}"
+                        )
                 
-                # Hard cap check (MUST be checked first - fail hard if exceeded)
-                if total > cap:
-                    raise ValueError(
-                        f"Budget cap exceeded: {total} > {cap} for {line_id}"
-                    )
+                # Atomic conditional UPDATE (prevents race on concurrent reserves)
+                cursor = await db.execute("""
+                    UPDATE budget_lines 
+                    SET reserved = reserved + ?
+                    WHERE line_id = ? 
+                      AND (spent + reserved + ?) <= stop_threshold
+                """, (amount, line_id, amount))
                 
-                # Check against stop threshold (GC.02 80% stop) - soft limit
-                if total > stop_threshold:
+                if cursor.rowcount == 0:
+                    # Race condition: another reserve beat us to the threshold
+                    await db.rollback()
                     return False
+                
+                # Log transaction
+                await db.execute("""
+                    INSERT INTO budget_transactions
+                    (line_id, episode_id, txn_type, amount, timestamp, reason)
+                    VALUES (?, ?, 'reserve', ?, datetime('now'), ?)
+                """, (line_id, episode_id, amount, reason))
+                
+                await db.commit()
+                return True
             
-            # Reserve the amount
-            await db.execute("""
-                UPDATE budget_lines 
-                SET reserved = reserved + ?
-                WHERE line_id = ?
-            """, (amount, line_id))
-            
-            # Log transaction
-            await db.execute("""
-                INSERT INTO budget_transactions
-                (line_id, episode_id, txn_type, amount, timestamp, reason)
-                VALUES (?, ?, 'reserve', ?, datetime('now'), ?)
-            """, (line_id, episode_id, amount, reason))
-            
-            await db.commit()
-            return True
+            except Exception:
+                await db.rollback()
+                raise
     
-    async def commit(self, episode_id: str, line_name: str, amount: float,
+    async def commit(self, episode_id: str, line_name: str, reserved_amount: float,
+                    actual_cost: float | None = None,
                     usd_micros: int | None = None, job_id: str | None = None,
                     reason: str = ""):
         """
         Commit actual spend (release reserve, add to spent).
         
+        Handles actual cost != reserved: if actual > reserved, commits reserved and logs
+        overage warning. If actual < reserved, commits actual and releases remainder.
+        
         Args:
             episode_id: Episode identifier
             line_name: Budget line
-            amount: Actual amount spent (native units)
+            reserved_amount: Amount that was reserved
+            actual_cost: Actual cost from provider (defaults to reserved_amount)
             usd_micros: Cost in USD micros (optional)
             job_id: Associated job ID (optional)
             reason: Reason for spend
         """
+        if actual_cost is None:
+            actual_cost = reserved_amount
+        
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Release reserve and add to spent
-            await db.execute("""
-                UPDATE budget_lines
-                SET reserved = reserved - ?, spent = spent + ?
-                WHERE line_id = ?
-            """, (amount, amount, line_id))
-            
-            # Log transaction
-            await db.execute("""
-                INSERT INTO budget_transactions
-                (line_id, episode_id, job_id, txn_type, amount, usd_micros,
-                 timestamp, reason)
-                VALUES (?, ?, ?, 'commit', ?, ?, datetime('now'), ?)
-            """, (line_id, episode_id, job_id, amount, usd_micros, reason))
+            if actual_cost <= reserved_amount:
+                # Normal: commit actual, release remainder
+                remainder = reserved_amount - actual_cost
+                
+                await db.execute("""
+                    UPDATE budget_lines
+                    SET reserved = reserved - ?, spent = spent + ?
+                    WHERE line_id = ?
+                """, (reserved_amount, actual_cost, line_id))
+                
+                # Log commit
+                await db.execute("""
+                    INSERT INTO budget_transactions
+                    (line_id, episode_id, job_id, txn_type, amount, usd_micros,
+                     timestamp, reason)
+                    VALUES (?, ?, ?, 'commit', ?, ?, datetime('now'), ?)
+                """, (line_id, episode_id, job_id, actual_cost, usd_micros, reason))
+                
+                # Log remainder release if significant
+                if remainder > 0.01:
+                    await db.execute("""
+                        INSERT INTO budget_transactions
+                        (line_id, episode_id, txn_type, amount, timestamp, reason)
+                        VALUES (?, ?, 'release', ?, datetime('now'), ?)
+                    """, (line_id, episode_id, remainder, 
+                          f"Unused from reserve: {reason}"))
+            else:
+                # Overage: commit reserved amount, log warning
+                overage = actual_cost - reserved_amount
+                
+                await db.execute("""
+                    UPDATE budget_lines
+                    SET reserved = reserved - ?, spent = spent + ?
+                    WHERE line_id = ?
+                """, (reserved_amount, reserved_amount, line_id))
+                
+                # Log commit at reserved amount
+                await db.execute("""
+                    INSERT INTO budget_transactions
+                    (line_id, episode_id, job_id, txn_type, amount, usd_micros,
+                     timestamp, reason)
+                    VALUES (?, ?, ?, 'commit', ?, ?, datetime('now'), ?)
+                """, (line_id, episode_id, job_id, reserved_amount, usd_micros, reason))
+                
+                # Log overage warning
+                await db.execute("""
+                    INSERT INTO budget_transactions
+                    (line_id, episode_id, job_id, txn_type, amount, timestamp, reason)
+                    VALUES (?, ?, ?, 'overage_warning', ?, datetime('now'), ?)
+                """, (line_id, episode_id, job_id, overage,
+                      f"Cost exceeded reserve by {overage:.2f}: {reason}"))
             
             await db.commit()
     
