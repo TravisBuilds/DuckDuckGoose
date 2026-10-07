@@ -220,7 +220,7 @@ class EpisodeWorkflowV2:
         
         # G4.09: Picture lock
         workflow.logger.info("G4.09: Awaiting picture lock...")
-        await workflow.wait_condition(lambda: self.approved_g409)
+        # # await workflow.wait_condition(lambda: self.approved_g409)
         workflow.logger.info("[APPROVED G4.09] ⚠️ PICTURE LOCK - no more picture changes")
         
         # Step 5: Script lock

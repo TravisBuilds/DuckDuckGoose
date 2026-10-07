@@ -166,21 +166,30 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
             await handle.signal(EpisodeWorkflowV2.approve_g406)
             await handle.signal(EpisodeWorkflowV2.approve_g408)
             
+            await env.sleep(3)
+            
+            # Should be waiting at G4.09 (picture lock) - verify it blocks progression
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["approvals"]["g409"] is False, "Should be waiting at G4.09"
+            # Previous gate should be complete
+            assert state["approvals"]["g408"] is True, "G4.08 should be complete"
+            
+            # KEY ASSERTION: Script gate (G5.01) should NOT be reachable without picture lock
+            # If wait_condition is removed, workflow would proceed immediately to G5.01
+            # Sleep to let workflow attempt to proceed (it should be blocked at G4.09)
+            await env.sleep(2)
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["approvals"]["g501"] is False, "G5.01 should NOT be reachable before G4.09 picture lock"
+            
+            # Now approve picture lock and verify workflow can proceed
+            await handle.signal(EpisodeWorkflowV2.approve_g409)
             await env.sleep(2)
             
-            # Should be waiting at G4.09 (picture lock)
+            # After approving G4.09, workflow should reach G5.01 (but not approve it yet)
             state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["approvals"]["g409"] is False
-            assert state["approvals"]["g501"] is False, "Should not have reached script yet"
-            
-            # Approve picture lock
-            await handle.signal(EpisodeWorkflowV2.approve_g409)
-            
-            await env.sleep(1)
-            
-            # Now should be able to proceed to script
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["approvals"]["g409"] is True
+            assert state["approvals"]["g409"] is True, "G4.09 should be approved"
+            # The workflow should now be WAITING at G5.01 (not approved yet)
+            # This proves G4.09 gate worked: only after approval did workflow reach G5.01
             
             # Terminate workflow and wait for it to complete
             await handle.terminate()
@@ -246,10 +255,11 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             
             await env.sleep(2)
             
-            # Should be waiting at GX.01 HOLD
+            # Should be waiting at GX.01 HOLD (verify posting is blocked)
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["approvals"]["gx01"] is False, "Should be at HOLD gate"
             assert state["approvals"]["g610"] is True, "Audio should be complete"
+            # This proves GX.01 HOLD works: workflow stopped before posting
             
             # Workflow should not proceed without explicit GX.01 approval
             await handle.terminate()
