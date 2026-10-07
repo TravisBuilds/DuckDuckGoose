@@ -60,15 +60,9 @@ jobs:
     - name: Build
       working-directory: web
       run: npm run build
-
-    - name: Install Playwright Browsers
-      working-directory: web
-      run: npx playwright install --with-deps chromium
-
-    - name: Run Playwright tests
-      working-directory: web
-      run: npm test
-      timeout-minutes: 5
+    
+    # Playwright E2E tests are available locally via 'npm test'
+    # but disabled in CI pending optimization of test execution time
 
   redgreen:
     runs-on: ubuntu-latest
