@@ -31,6 +31,7 @@ dev = [
     "pytest-timeout>=2.2.0",
     "pytest-socket>=0.7.0",
     "respx>=0.21.0",
+    "fastapi>=0.100.0",
 ]
 
 [project.scripts]
@@ -40,6 +41,7 @@ hfvg = "hfvg.cli:cli"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
+addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
 
 [tool.ruff]
 line-length = 100
