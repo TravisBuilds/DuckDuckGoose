@@ -339,7 +339,7 @@ test_mutation 15 "Canary route requires live_mode in non-dry" \
 test_mutation 16 "Canary route starts ShotWorkflow" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_route_starts_workflow" \
-    sed -i 's/await temporal_client.start_workflow/# MUTATED: skip workflow; await temporal_client.start_workflow/'
+    sed -i 's/handle = await temporal_client.start_workflow/handle = None  # MUTATED: skip; handle = await temporal_client.start_workflow/'
 
 # 17. Canary reserves L6 before workflow
 test_mutation 17 "Canary reserves L6_reserve before workflow" \
