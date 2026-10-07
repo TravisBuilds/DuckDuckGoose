@@ -414,6 +414,196 @@ async def submit_clip_job_enforced(
 
 
 @activity.defn
+async def poll_job_status(
+    job_id: str,
+    job_type: str,
+    episode_id: str,
+) -> dict[str, Any]:
+    """
+    Poll job status once (short activity, ≤60s).
+    
+    This activity is called repeatedly from the workflow with workflow.sleep between calls.
+    It does NOT release reservations on timeout - the workflow handles reconciliation.
+    
+    Args:
+        job_id: Provider job ID
+        job_type: "still" or "clip"
+        episode_id: Episode ID
+    
+    Returns:
+        dict with status (str), output_url (str|None), error (str|None), cost (float|None)
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # DRY_RUN env forces dry mode (kill switch)
+    if dry_run_env:
+        await asyncio.sleep(0.1)
+        return {
+            "status": "completed",
+            "output_url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
+            "error": None,
+            "cost": None,
+        }
+    
+    # Check DB for live mode
+    live_mode, g108_approved = await check_live_mode_and_g108(episode_id)
+    
+    if not live_mode:
+        raise ValueError(
+            f"Episode {episode_id} not in live mode. "
+            "Switch to live mode before polling."
+        )
+    
+    if not g108_approved:
+        raise ValueError(
+            f"G1.08 credit plan not approved for {episode_id}. "
+            "Approve before polling."
+        )
+    
+    # Live mode: poll provider
+    if job_type == "still":
+        provider = HiggsfieldStillProvider()
+    else:
+        provider = KlingVideoProvider()
+    
+    try:
+        job_status = await provider.get_job_status(job_id)
+        
+        # Return status without taking any budget actions
+        # The workflow will handle commit/release based on terminal status
+        return {
+            "status": job_status.status.value,  # "completed", "failed", "blocked", "canceled", "in_progress", "queued"
+            "output_url": job_status.output_url if job_status.status.value == "completed" else None,
+            "error": job_status.error if job_status.status.value in ("failed", "blocked") else None,
+            "cost": job_status.cost,  # May be None until completion
+        }
+    finally:
+        await provider.close()
+
+
+@activity.defn
+async def commit_job_budget(
+    episode_id: str,
+    shot_id: str,
+    job_id: str,
+    job_type: str,
+    line_name: str,
+    reserved_amount: float,
+    actual_cost: float | None = None,
+) -> None:
+    """
+    Commit reserved budget after successful job completion.
+    
+    Args:
+        episode_id: Episode ID
+        shot_id: Shot ID
+        job_id: Provider job ID
+        job_type: "still" or "clip"
+        line_name: Budget line
+        reserved_amount: Amount reserved
+        actual_cost: Actual cost from provider (defaults to reserved_amount)
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    cost = actual_cost if actual_cost is not None else reserved_amount
+    
+    await ledger.commit(
+        episode_id=episode_id,
+        line_name=line_name,
+        reserved_amount=reserved_amount,
+        actual_cost=cost,
+        usd_micros=None,
+        job_id=job_id,
+        reason=f"{job_type} {shot_id} completed"
+    )
+    
+    activity.logger.info(
+        f"Committed {cost} credits to {line_name} for {shot_id}"
+    )
+
+
+@activity.defn
+async def release_job_budget(
+    episode_id: str,
+    shot_id: str,
+    job_id: str,
+    job_type: str,
+    line_name: str,
+    reserved_amount: float,
+    reason: str,
+) -> None:
+    """
+    Release reserved budget after confirmed job failure.
+    
+    Only called for confirmed terminal failures (failed, blocked, canceled).
+    NOT called on timeout or poll exhaustion - those keep the reservation.
+    
+    Args:
+        episode_id: Episode ID
+        shot_id: Shot ID
+        job_id: Provider job ID
+        job_type: "still" or "clip"
+        line_name: Budget line
+        reserved_amount: Amount reserved
+        reason: Release reason
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    await ledger.release(
+        episode_id=episode_id,
+        line_name=line_name,
+        amount=reserved_amount,
+        reason=f"{job_type} {shot_id} {reason}"
+    )
+    
+    activity.logger.info(
+        f"Released {reserved_amount} credits from {line_name} for {shot_id}: {reason}"
+    )
+
+
+@activity.defn
+async def mark_job_pending_reconcile(
+    episode_id: str,
+    shot_id: str,
+    job_id: str,
+    job_type: str,
+) -> None:
+    """
+    Mark job as pending_reconcile in DB after poll timeout/exhaustion.
+    
+    The reservation remains held. Manual intervention required.
+    
+    Args:
+        episode_id: Episode ID
+        shot_id: Shot ID
+        job_id: Provider job ID
+        job_type: "still" or "clip"
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Record in audit log
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "job_pending_reconcile",
+             f"{job_type} {shot_id} job {job_id} exhausted polling window, reservation held",
+             "system")
+        )
+        await db.commit()
+    
+    activity.logger.error(
+        f"Job {job_id} marked pending_reconcile. Reservation held - manual intervention required."
+    )
+
+
+@activity.defn
 async def await_job_enforced(
     job_id: str,
     job_type: str,
@@ -424,6 +614,11 @@ async def await_job_enforced(
 ) -> dict[str, Any]:
     """
     Poll generation job and commit/release budget based on result.
+    
+    DEPRECATED: This activity is being phased out in favor of workflow-based polling
+    with poll_job_status(). It remains for backward compatibility with existing workflows.
+    
+    New workflows should use the workflow polling loop pattern instead.
     
     Args:
         job_id: Provider job ID
