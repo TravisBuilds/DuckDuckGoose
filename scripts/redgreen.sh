@@ -635,6 +635,82 @@ test_mutation 31 "QC escalates to human review in live mode" \
     "tests/test_shot_live.py::test_qc_escalates_in_live_mode" \
     sed -i 's/"escalate": True,/"escalate": False,  # MUTATED - auto-pass instead of escalate/'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Final Fix Round): R2, R3, R4, R5
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 32. M-R2a: Random workflow-ID suffix for canary (409 can never fire)
+test_mutation 32 "Canary uses stable workflow ID (409 detection)" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_concurrent_409" \
+    sed -i 's/workflow_id = f"{episode_id}-canary-{first_shot_id}"/workflow_id = f"{episode_id}-canary-{first_shot_id}-{uuid.uuid4().hex[:8]}"  # MUTATED/'
+
+# 33. M-R2b: Delete WorkflowAlreadyStartedError -> 409 handling
+test_mutation 33 "Canary handles WorkflowAlreadyStartedError with 409" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_concurrent_409" \
+    sed -i '/except WorkflowAlreadyStartedError:/,/^    except Exception/d'
+
+# 34. M-R2d: Approve route lets exception propagate (500) on completed canary
+test_mutation 34 "Approve route returns 409 on completed workflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_approve_completed_canary_409" \
+    sed -i 's/if status != WorkflowExecutionStatus.RUNNING:/if False and status != WorkflowExecutionStatus.RUNNING:  # MUTATED/'
+
+# 35. M-R2e: Live-mode estimate failure falls back to 10.0
+test_mutation 35 "Live canary fails closed without estimate" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_live_estimate_fail_closed" \
+    sed -i 's/raise HTTPException(/canary_cost = 10.0  # MUTATED fallback; raise HTTPException(/' | head -1
+
+# 36. M-R3a: Drop character descriptions from composed prompt
+test_mutation 36 "Prompt includes character descriptions" \
+    "hfvg/continuity_parser.py" \
+    "tests/test_continuity_parser.py::test_prompt_kit_resolves_characters" \
+    sed -i '/char_descriptions.append(char_info\["description"\])/d'
+
+# 37. M-R3b: Allow live still with unresolved character code
+test_mutation 37 "Live mode refuses unresolved character codes" \
+    "hfvg/continuity_parser.py" \
+    "tests/test_continuity_parser.py::test_prompt_kit_live_refuses_unresolved" \
+    sed -i 's/if prompt_kit and unresolved_codes:/if False and prompt_kit and unresolved_codes:  # MUTATED/'
+
+# 38. M-R3d: Omit aspect_ratio from still request
+test_mutation 38 "Still request includes aspect_ratio" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_contracts.py::test_still_includes_aspect_ratio" \
+    sed -i 's/aspect_ratio=aspect_ratio,/# aspect_ratio=aspect_ratio,  # MUTATED/'
+
+# 39. M-R4a: Change conversion constant to 1.0
+test_mutation 39 "App-to-API credit conversion constant is 0.76" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_conversion_constant_is_076" \
+    sed -i 's/APP_TO_API_CREDIT_CONVERSION = 0.76/APP_TO_API_CREDIT_CONVERSION = 1.0  # MUTATED/'
+
+# 40. M-R4b: Leave episode cap unconverted (1250)
+test_mutation 40 "Episode cap converted to API credits (950)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_episode_cap_converted" \
+    sed -i 's/EPISODE_CAP = 950.0/EPISODE_CAP = 1250.0  # MUTATED - not converted/'
+
+# 41. M-R4c: Change >= to > in stop check
+test_mutation 41 "Reserve to exactly stop threshold triggers at_stop" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_80_percent_stop" \
+    sed -i 's/total_committed >= stop_threshold/total_committed > stop_threshold  # MUTATED/'
+
+# 42. M-R5a: review_clip returns passed=True in live mode
+test_mutation 42 "review_clip escalates in live mode" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_review_clip_escalates_in_live_mode" \
+    sed -i 's/return {$/return {"passed": True, "issues": []}  # MUTATED; return {/'
+
+# 43. M-R5b: DRY_RUN=false + DB live off returns passed=True
+test_mutation 43 "DRY_RUN=false + DB live off escalates" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_review_clip_dry_run_false_live_off_escalates" \
+    sed -i 's/"escalate": True,$/"passed": True, "escalate": False,  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -248,3 +248,43 @@ async def test_hard_cap_enforcement():
             os.unlink(path)
         except:
             pass
+
+
+@pytest.mark.asyncio
+async def test_conversion_constant_is_076():
+    """
+    Test: APP_TO_API_CREDIT_CONVERSION constant is 0.76.
+    
+    M-R4a will change it to 1.0 - this test must fail.
+    """
+    from hfvg.budget import APP_TO_API_CREDIT_CONVERSION
+    
+    assert APP_TO_API_CREDIT_CONVERSION == 0.76, \
+        "Conversion constant must be 0.76 (from $0.0475 app / $0.0625 API)"
+
+
+@pytest.mark.asyncio
+async def test_episode_cap_converted():
+    """
+    Test: EPISODE_CAP is converted to API credits (950 from 1250 app credits).
+    
+    M-R4b will leave it at 1250 - this test must fail.
+    """
+    ledger, path = create_test_ledger()
+    
+    try:
+        await ledger.init_episode_budget("ep04")
+        
+        # Try to reserve 951 credits (exceeds 950 cap)
+        try:
+            await ledger.reserve("ep04", "L1_refs", 951.0, "Test over cap")
+            assert False, "Should have raised ValueError for exceeding episode cap"
+        except ValueError as e:
+            assert "episode cap" in str(e).lower() or "1250" not in str(e), \
+                "Episode cap should be 950 API credits (not 1250 app credits)"
+    
+    finally:
+        try:
+            os.unlink(path)
+        except:
+            pass

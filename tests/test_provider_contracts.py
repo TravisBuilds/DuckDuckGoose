@@ -561,3 +561,44 @@ async def test_full_live_flow_with_strict_mock():
     finally:
         # Cleanup
         os.unlink(db_path)
+
+
+@pytest.mark.asyncio
+async def test_still_includes_aspect_ratio():
+    """
+    Test: Still generation includes aspect_ratio parameter.
+    
+    M-R3d will omit aspect_ratio - this test must fail.
+    """
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    from unittest.mock import AsyncMock, patch
+    
+    provider = HiggsfieldStillProvider()
+    
+    with patch.object(provider, '_client') as mock_client:
+        mock_client.post = AsyncMock(return_value=AsyncMock(
+            status_code=200,
+            json=AsyncMock(return_value={"job_id": "test_job"})
+        ))
+        
+        await provider.submit_image(
+            prompt="Test scene",
+            resolution="1k",
+            quality="medium",
+            image_urls=[],
+            idempotency_key="test_key",
+            aspect_ratio="9:16",
+        )
+        
+        # Verify aspect_ratio was included in the request
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args[1]
+        
+        assert "json" in call_kwargs or "data" in call_kwargs, \
+            "Request must include JSON payload"
+        
+        payload = call_kwargs.get("json") or call_kwargs.get("data")
+        assert "aspect_ratio" in payload or "aspectRatio" in payload, \
+            "Still request must include aspect_ratio parameter"
+    
+    await provider.close()
