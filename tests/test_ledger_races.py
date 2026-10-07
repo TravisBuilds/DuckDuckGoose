@@ -142,8 +142,8 @@ async def test_stop_threshold_validation():
         
         # Verify it was created (converted from app to API credits: 100*0.76=76, 80*0.76=60.8)
         status = await ledger.get_line_status("ep_valid", "L2_drafts")
-        assert status["budget_cap"] == 100.0 * 0.76  # 76.0 API credits
-        assert status["stop_threshold"] == 80.0 * 0.76  # 60.8 API credits
+        assert status["budget_cap"] == 76.0  # API credits (from 100 app credits)
+        assert status["stop_threshold"] == 60.8  # API credits (from 80 app credits)
         
     finally:
         os.unlink(db_path)

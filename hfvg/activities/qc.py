@@ -148,10 +148,18 @@ async def review_still(asset_url: str, rubric: dict, episode_id: str = None, sho
                 live_mode = bool(row[0])
                 g108_approved = bool(row[1])
                 
+                # Fail closed: if DRY_RUN=false but live requirements not met, escalate
+                # Don't fall back to dry mode when DRY_RUN=false is explicitly set
                 if not live_mode or not g108_approved:
-                    # Not in live mode - run in dry mode
-                    await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                    return {"passed": True, "issues": []}
+                    activity.logger.error(
+                        f"[FAIL CLOSED] Still review: DRY_RUN=false but live requirements not met "
+                        f"(live_mode={live_mode}, g108={g108_approved}). Escalating."
+                    )
+                    return {
+                        "passed": False,
+                        "issues": [f"DRY_RUN=false but episode not in live mode or G1.08 not approved"],
+                        "escalate": True,
+                    }
     except Exception as e:
         # Fail closed on DB error
         activity.logger.error(f"[FAIL CLOSED] DB error checking live mode: {e}. Escalating.")
@@ -240,10 +248,18 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
                 live_mode = bool(row[0])
                 g108_approved = bool(row[1])
                 
+                # Fail closed: if DRY_RUN=false but live requirements not met, escalate
+                # Don't fall back to dry mode when DRY_RUN=false is explicitly set
                 if not live_mode or not g108_approved:
-                    # Not in live mode - run in dry mode
-                    await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                    return {"passed": True, "issues": []}
+                    activity.logger.error(
+                        f"[FAIL CLOSED] Clip review: DRY_RUN=false but live requirements not met "
+                        f"(live_mode={live_mode}, g108={g108_approved}). Escalating."
+                    )
+                    return {
+                        "passed": False,
+                        "issues": [f"DRY_RUN=false but episode not in live mode or G1.08 not approved"],
+                        "escalate": True,
+                    }
     except Exception as e:
         # Fail closed on DB error
         activity.logger.error(f"[FAIL CLOSED] DB error checking live mode: {e}. Escalating.")

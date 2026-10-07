@@ -53,8 +53,8 @@ async def test_e2e_gates_and_budget():
         # Verify Higgsfield budget (converted from app to API credits)
         # Policy: L4_video=300 app credits * 0.76 = 228 API credits, stop=182.4
         l4_status = await ledger.get_line_status("ep04", "L4_video")
-        assert l4_status["budget_cap"] == 300 * 0.76  # 228 API credits
-        assert l4_status["stop_threshold"] == 300 * 0.76 * 0.8  # 182.4 (80%)
+        assert l4_status["budget_cap"] == 228.0  # API credits (from 300 app credits)
+        assert l4_status["stop_threshold"] == 182.4  # 80% of 228
         assert l4_status["unit"] == "Higgsfield API credits"
         
         # Verify ElevenLabs budget (no conversion)

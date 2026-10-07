@@ -247,3 +247,155 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
             assert result["status"] == "completed"
             assert result["still_url"] is not None, "Still should be generated"
             assert result["clip_url"] is not None, "Clip should be generated after approval"
+
+
+@pytest.mark.asyncio
+async def test_review_clip_fail_closed_without_episode_id(tmp_path, monkeypatch):
+    """
+    Test: review_clip fails closed when episode_id is not provided.
+    
+    This verifies R5: review_clip must have the same fail-closed behavior as review_still.
+    """
+    from hfvg.activities.qc import review_clip
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_clip_qc_fail_closed.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    
+    # Call review_clip without episode_id
+    result = await review_clip(
+        asset_url="https://example.com/some-clip.mp4",
+        rubric={},
+        episode_id=None,  # Missing episode_id
+        shot_id="A01"
+    )
+    
+    # Should fail closed with escalate=True
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "episode_id not provided" in result["issues"][0]
+
+
+@pytest.mark.asyncio
+async def test_review_clip_escalates_in_live_mode(tmp_path, monkeypatch):
+    """
+    Test: review_clip escalates to human review in live mode.
+    
+    This verifies R5: review_clip must have the same escalation behavior as review_still.
+    """
+    from hfvg.activities.qc import review_clip
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_clip_qc_escalate.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Set episode to live mode + g108 approved
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?",
+            ("ep99",)
+        )
+        await db.commit()
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    
+    # Call review_clip with valid episode_id
+    result = await review_clip(
+        asset_url="https://example.com/some-clip.mp4",
+        rubric={},
+        episode_id="ep99",
+        shot_id="A01"
+    )
+    
+    # Should escalate in live mode
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "Real QC agent not implemented" in result["issues"][0]
+
+
+@pytest.mark.asyncio
+async def test_review_clip_dry_run_false_live_off_escalates(tmp_path, monkeypatch):
+    """
+    Test: review_clip fails closed when DRY_RUN=false but DB live mode off.
+    
+    This verifies R5: DRY_RUN=false + DB live off must NOT return passed=True.
+    """
+    from hfvg.activities.qc import review_clip
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_clip_dry_false_live_off.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Episode exists but live_mode=false
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET live_mode = 0, g108_approved = 0 WHERE episode_id = ?",
+            ("ep99",)
+        )
+        await db.commit()
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")  # DRY_RUN=false but live requirements not met
+    
+    # Call review_clip
+    result = await review_clip(
+        asset_url="https://example.com/some-clip.mp4",
+        rubric={},
+        episode_id="ep99",
+        shot_id="A01"
+    )
+    
+    # Should fail closed and escalate, NOT return passed=True
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "DRY_RUN=false but episode not in live mode" in result["issues"][0]
+
+
+@pytest.mark.asyncio
+async def test_review_still_dry_run_false_live_off_escalates(tmp_path, monkeypatch):
+    """
+    Test: review_still fails closed when DRY_RUN=false but DB live mode off.
+    
+    This verifies R5: DRY_RUN=false + DB live off must NOT return passed=True.
+    """
+    from hfvg.activities.qc import review_still
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_still_dry_false_live_off.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Episode exists but live_mode=false
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET live_mode = 0, g108_approved = 0 WHERE episode_id = ?",
+            ("ep99",)
+        )
+        await db.commit()
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")  # DRY_RUN=false but live requirements not met
+    
+    # Call review_still
+    result = await review_still(
+        asset_url="https://example.com/some-still.jpg",
+        rubric={},
+        episode_id="ep99",
+        shot_id="A01"
+    )
+    
+    # Should fail closed and escalate, NOT return passed=True
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "DRY_RUN=false but episode not in live mode" in result["issues"][0]
+

@@ -666,18 +666,79 @@ async def approve_still(
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
-    # Find the canary workflow for this shot (use deterministic workflow_id)
+    # Try to find the workflow:
+    # 1. First try canary workflow: {episode_id}-canary-{shot_id}
+    # 2. Then try regular episode workflow: {episode_id}-episode
     from hfvg.workflows.shot import ShotWorkflow
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
-    # Canary workflows use deterministic ID: {episode_id}-canary-{shot_id}
-    workflow_id = f"{episode_id}-canary-{shot_id}"
+    # Try canary workflow first (most common for manual approval)
+    canary_workflow_id = f"{episode_id}-canary-{shot_id}"
+    episode_workflow_id = f"{episode_id}-episode"
     
+    workflow_found = False
+    workflow_type = None
+    handle = None
+    
+    # Try canary workflow
     try:
         handle = temporal_client.get_workflow_handle_for(
             ShotWorkflow.run,
-            workflow_id=workflow_id,
+            workflow_id=canary_workflow_id,
         )
-        await handle.signal("stills_approved")
+        workflow_found = True
+        workflow_type = "canary"
+    except Exception:
+        pass
+    
+    # Try episode workflow if canary not found
+    if not workflow_found:
+        try:
+            handle = temporal_client.get_workflow_handle_for(
+                EpisodeWorkflowV2.run,
+                workflow_id=episode_workflow_id,
+            )
+            workflow_found = True
+            workflow_type = "episode"
+        except Exception:
+            pass
+    
+    if not workflow_found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No workflow found for {episode_id}/{shot_id}. "
+                   f"Canary or episode workflow must be running to approve stills."
+        )
+    
+    try:
+        # Check if the workflow is still running before sending signal
+        from temporalio.client import WorkflowExecutionStatus
+        try:
+            desc = await handle.describe()
+            status = desc.status
+            
+            if status != WorkflowExecutionStatus.RUNNING:
+                # Workflow already completed or in terminal state
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot approve: {workflow_type} workflow for {episode_id}/{shot_id} "
+                           f"already in terminal state ({status.name}). "
+                           "The workflow must be running to accept approval signals."
+                )
+        except HTTPException:
+            raise  # Re-raise our own 409
+        except Exception as desc_err:
+            # If describe fails, try to send signal anyway (might work)
+            pass
+        
+        # Send the appropriate signal based on workflow type
+        if workflow_type == "canary":
+            # For canary (ShotWorkflow), signal directly
+            await handle.signal("stills_approved")
+        else:
+            # For episode workflow, send signal with shot_id
+            # EpisodeWorkflowV2 has a signal that targets specific shots
+            await handle.signal("approve_stills", shot_id)
         
         # Audit log
         import aiosqlite
@@ -685,12 +746,20 @@ async def approve_still(
             await db.execute(
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
-                (episode_id, "approve_still", f"Shot {shot_id} still approved", "admin")
+                (episode_id, "approve_still", 
+                 f"Shot {shot_id} still approved ({workflow_type} workflow)", "admin")
             )
             await db.commit()
         
-        return {"success": True, "shot_id": shot_id, "message": "Still approved"}
+        return {
+            "success": True, 
+            "shot_id": shot_id, 
+            "workflow_type": workflow_type,
+            "message": "Still approved"
+        }
     
+    except HTTPException:
+        raise  # Re-raise our HTTPExceptions (404, 409)
     except Exception as e:
         error_str = str(e).lower()
         if "not found" in error_str or "does not exist" in error_str:
@@ -1186,13 +1255,20 @@ async def run_canary(
     ledger = BudgetLedger(DATABASE_PATH)
     await ledger.init_db()
     
-    # In dry-run mode or when keys are missing, use default estimate
-    # In live mode with keys available, get real estimates from providers
+    # In dry-run mode, use default estimate
+    # In live mode, get real estimates from providers (fail closed if unavailable)
     higgsfield_key = os.getenv("HIGGSFIELD_API_KEY", "")
     
-    if dry_run or not higgsfield_key:
-        # Dry-run mode: use default estimate (no provider instantiation)
+    if dry_run:
+        # Dry-run mode: use default estimate
         canary_cost = 10.0
+    elif not higgsfield_key:
+        # Live mode but no API key: fail closed (refuse canary)
+        raise HTTPException(
+            status_code=503,
+            detail="Live canary requires HIGGSFIELD_API_KEY to estimate costs. "
+                   "Cannot proceed without cost estimation. Set DRY_RUN=true for testing without keys."
+        )
     else:
         # Live mode: get real estimates from providers
         from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
@@ -1207,16 +1283,15 @@ async def run_canary(
                 aspect_ratio="9:16",
             )
         except Exception as e:
-            # Fail if we can't get estimate
+            # Fail closed if we can't get estimate in live mode
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to estimate still cost: {str(e)}"
+                status_code=503,
+                detail=f"Failed to estimate still cost in live mode (fail closed): {str(e)}"
             )
         finally:
             await still_provider.close()
         
         # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
-        # The actual estimate will be done again before clip submission with the real still URL
         clip_provider = KlingVideoProvider()
         try:
             clip_estimate = await clip_provider.estimate_cost(
@@ -1225,10 +1300,10 @@ async def run_canary(
                 duration=5,
             )
         except Exception as e:
-            # Fail if we can't get estimate
+            # Fail closed if we can't get estimate in live mode
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to estimate clip cost: {str(e)}"
+                status_code=503,
+                detail=f"Failed to estimate clip cost in live mode (fail closed): {str(e)}"
             )
         finally:
             await clip_provider.close()
@@ -1255,11 +1330,57 @@ async def run_canary(
     # Start ShotWorkflow (async) with reservation info
     from hfvg.workflows.shot import ShotWorkflow
     from temporalio.exceptions import WorkflowAlreadyStartedError
+    from temporalio.client import WorkflowExecutionStatus
     import uuid
     
-    # Check if there's already a running canary for this episode
+    # Check if there's already a running OR completed canary for this episode
     # Use deterministic workflow ID based on episode to enforce one-at-a-time
     workflow_id = f"{episode_id}-canary-{first_shot_id}"
+    
+    # Check if workflow exists (running or completed)
+    try:
+        existing_handle = temporal_client.get_workflow_handle(workflow_id)
+        # Try to get the workflow description to see if it exists and its status
+        try:
+            desc = await existing_handle.describe()
+            status = desc.status
+            
+            if status == WorkflowExecutionStatus.RUNNING:
+                # Workflow is currently running - return 409 and release reservation
+                try:
+                    await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
+                except Exception as release_err:
+                    print(f"Failed to release L6 on 409: {release_err}")
+                
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Canary workflow already running for {episode_id}. "
+                           f"Wait for the current canary to complete before starting a new one."
+                )
+            elif status in (WorkflowExecutionStatus.COMPLETED, 
+                           WorkflowExecutionStatus.FAILED, 
+                           WorkflowExecutionStatus.CANCELED,
+                           WorkflowExecutionStatus.TERMINATED,
+                           WorkflowExecutionStatus.TIMED_OUT):
+                # Workflow already completed - refuse re-run with 409
+                # (Policy: one canary per episode, no re-runs after completion)
+                try:
+                    await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already completed (409)")
+                except Exception as release_err:
+                    print(f"Failed to release L6 on 409: {release_err}")
+                
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Canary workflow already completed for {episode_id} (status: {status.name}). "
+                           f"Only one canary per episode is allowed. "
+                           f"To run another canary, use a different shot or reset the episode."
+                )
+        except Exception as describe_err:
+            # If describe fails, the workflow might not exist - proceed to create
+            pass
+    except Exception:
+        # Workflow doesn't exist or error getting handle - proceed to create
+        pass
     
     try:
         handle = await temporal_client.start_workflow(

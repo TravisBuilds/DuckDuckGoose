@@ -192,7 +192,9 @@ class BudgetLedger:
         Raises:
             ValueError: If line doesn't exist, episode cap exceeded
         """
-        EPISODE_CAP = 1250.0  # GC.04 1,250 credit episode cap
+        # GC.04 1,250 app credit episode cap, converted to API credits
+        # 1250 app credits * 0.76 = 950 API credits
+        EPISODE_CAP = 950.0  # API credits (1250 app credits * 0.76 conversion)
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:

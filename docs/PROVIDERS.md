@@ -495,13 +495,13 @@ export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Must configure from cloud.
 - ✅ Result retrieval: `result()` / `get()`
 - ✅ Cost estimation: `POST /estimate/{model_path}`
 - ❌ No `get_balance()` method documented
-- ❌ No job cancellation endpoint documented in API
+- ❌ Job cancellation: not documented in public API docs (https://docs.higgsfield.ai/docs)
 
 **Implication**: 
 - Balance must be checked via cloud.higgsfield.ai dashboard
 - Cost estimation is available via the estimate endpoint and is used before every generation
-- Actual costs are returned in the status response after completion
-- **Job cancellation**: No documented cancel endpoint found. When a job exhausts the polling window (~30 min), the reservation remains held and manual intervention via the provider dashboard is required to confirm the job's final status.
+- Status response does NOT return actual costs; costs must be tracked client-side or checked in dashboard after completion
+- **Job cancellation**: No cancel endpoint is documented in the public Higgsfield API documentation (https://docs.higgsfield.ai/docs). When a job exhausts the polling window (~30 min), the reservation remains held and manual intervention via the provider dashboard is required to confirm the job's final status.
 
 ### (d) NSFW / Moderation Status → ContentBlockError
 
