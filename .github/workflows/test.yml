@@ -79,4 +79,6 @@ jobs:
 
     - name: Run red-green mutation tests
       run: |
+        find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        rm -rf .pytest_cache 2>/dev/null || true
         bash scripts/redgreen.sh
