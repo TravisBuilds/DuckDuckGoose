@@ -10,8 +10,18 @@ from hfvg.workflows.shot import ShotWorkflow
 
 
 @pytest.mark.asyncio
-async def test_episode_v2_approval_gates():
+async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
     """Test that workflow stops at each Travis approval gate."""
+    # Set up test database
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DB_PATH", db_path)
+    
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep04-test")
+    await set_live_mode(db_path, "ep04-test", True)
+    await approve_g108(db_path, "ep04-test")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -72,8 +82,18 @@ async def test_episode_v2_approval_gates():
 
 
 @pytest.mark.asyncio
-async def test_episode_v2_picture_lock_blocks_audio():
+async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
     """Test that G4.09 picture lock must be approved before audio."""
+    # Set up test database
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DB_PATH", db_path)
+    
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep04-test")
+    await set_live_mode(db_path, "ep04-test", True)
+    await approve_g108(db_path, "ep04-test")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -135,8 +155,18 @@ async def test_episode_v2_picture_lock_blocks_audio():
 
 
 @pytest.mark.asyncio
-async def test_episode_v2_gx01_hold():
+async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
     """Test that GX.01 holds by default (never auto-post)."""
+    # Set up test database
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DB_PATH", db_path)
+    
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep04-test")
+    await set_live_mode(db_path, "ep04-test", True)
+    await approve_g108(db_path, "ep04-test")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,

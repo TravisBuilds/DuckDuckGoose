@@ -133,7 +133,7 @@ class EpisodeWorkflowV2:
         from hfvg.activities.studio_generation import check_live_mode_and_g108
         _, g108_db = await workflow.execute_activity(
             check_live_mode_and_g108,
-            args=[self.state.episode_id],
+            args=[config.DB_PATH, self.state.episode_id],
             start_to_close_timeout=timedelta(seconds=10),
         )
         if not g108_db:
