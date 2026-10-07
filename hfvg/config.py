@@ -48,4 +48,5 @@ class Config:
     TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
     TASK_QUEUE: str = os.getenv("TASK_QUEUE", "hfvg-tasks")
 
-    config = Config()
+
+config = Config()
