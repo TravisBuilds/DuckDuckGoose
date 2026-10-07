@@ -176,12 +176,16 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
             # Previous gate should be complete
             assert state["approvals"]["g408"] is True, "G4.08 should be complete"
             
-            # KEY ASSERTION: Script gate (G5.01) should NOT be reachable without picture lock
-            # If wait_condition is removed, workflow would proceed immediately to G5.01
-            # Sleep to let workflow attempt to proceed (it should be blocked at G4.09)
+            # KEY ASSERTION: verify workflow is blocked at G4.09, not proceeding
+            # If the wait_condition is removed, workflow proceeds immediately
+            # Check that we're still in MUTE_EDIT stage, not AUDIO yet
+            assert state["stage"] == "mute_edit", f"Should be in mute_edit stage (at G4.09), got {state['stage']}"
+            
+            # Sleep to let workflow attempt to proceed (it should remain blocked at G4.09)
             await env.sleep(2)
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["approvals"]["g501"] is False, "G5.01 should NOT be reachable before G4.09 picture lock"
+            assert state["stage"] == "mute_edit", f"Should still be in mute_edit stage, got {state['stage']}"
             
             # Now approve picture lock and verify workflow can proceed
             await handle.signal(EpisodeWorkflowV2.approve_g409)

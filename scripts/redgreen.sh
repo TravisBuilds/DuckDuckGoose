@@ -356,7 +356,7 @@ test_mutation 15 "Canary route requires live_mode in non-dry" \
 test_mutation 16 "Canary route starts ShotWorkflow" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_route_starts_workflow" \
-    sed -i 's/handle = await temporal_client.start_workflow/handle = None  # MUTATED: skip; handle = await temporal_client.start_workflow/'
+    python3 scripts/mutate_workflow_start.py
 
 # 17. Canary reserves L6 before workflow
 test_mutation 17 "Canary reserves L6_reserve before workflow" \
@@ -368,13 +368,13 @@ test_mutation 17 "Canary reserves L6_reserve before workflow" \
 test_mutation 18 "Still activity reserves before provider call" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_still_activity_reserves_budget" \
-    sed -i 's/reserved = await ledger.reserve/reserved = True  # MUTATED: skip reserve; await ledger.reserve/'
+    python3 scripts/mutate_reserve.py
 
 # 19. Clip idempotency key
 test_mutation 19 "Clip sends Idempotency-Key header" \
     "hfvg/providers/kling_video.py" \
     "tests/test_redgreen_safety.py::test_clip_idempotency_key_sent" \
-    sed -i 's/headers = {"Idempotency-Key": idempotency_key}/headers = {"Idempotency-Key": None}  # MUTATED/'
+    sed -i 's/headers = {"Idempotency-Key": idempotency_key}/headers = {}  # MUTATED - no idempotency key/'
 
 # 20. Still approve sends signal
 test_mutation 20 "Still approve route sends signal" \
@@ -410,11 +410,11 @@ test_mutation 24 "GX.01 HOLD prevents auto-post" \
     "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
     sed -i 's/await workflow.wait_condition(lambda: self.approved_gx01)/# await workflow.wait_condition(lambda: self.approved_gx01)  # MUTATED/'
 
-# 25. Human-approved-still check before clip
-test_mutation 25 "Human-approved still required for clip" \
+# 25. Stills approved wait (retargeted from human-approved check)
+test_mutation 25 "Workflow waits for parent stills_approved signal" \
     "hfvg/workflows/shot.py" \
     "tests/test_shot_live.py::test_shot_workflow_human_approval_proceeds_to_clip" \
-    sed -i 's/if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):/if not self.still_asset:  # MUTATED - skip human check/'
+    sed -i 's/await workflow.wait_condition(lambda: self.stills_approved)/# await workflow.wait_condition(lambda: self.stills_approved)  # MUTATED/'
 
 # 26. Idempotent release (clamp to current reserved)
 test_mutation 26 "Idempotent release clamps to reserved" \
@@ -426,13 +426,13 @@ test_mutation 26 "Idempotent release clamps to reserved" \
 test_mutation 27 "Overage commits actual_cost not reserved" \
     "hfvg/budget.py" \
     "tests/test_exception_release.py::test_commit_handles_overage" \
-    sed -i 's/, actual_cost/, reserved_amount  # MUTATED/'
+    python3 scripts/mutate_overage.py
 
 # 28. 5xx poll retry before release
 test_mutation 28 "5xx poll retries before releasing budget" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_exception_release.py::test_poll_502_releases_reservation" \
-    sed -i 's/for attempt in range(3):/for attempt in range(0):  # MUTATED - no retry/'
+    sed -i 's/max_retries_5xx = 3/max_retries_5xx = 0  # MUTATED - no retry/'
 
 # 29. Canary L6 reconcile on failure
 test_mutation 29 "Canary reconciles L6 on workflow failure" \

@@ -262,23 +262,40 @@ async def test_episode_cap_enforced(test_db):
 
 
 @pytest.mark.asyncio
-async def test_dry_run_forces_dry_never_live(test_db, monkeypatch):
+async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     """Test 13: DRY_RUN=true forces dry mode (never forces live)."""
+    import httpx
     from hfvg.activities.studio_generation import submit_still_job_enforced
     
     monkeypatch.setenv("DRY_RUN", "true")
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
     # Even with live mode and G1.08 enabled in DB
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
+    
+    # Mock estimate endpoint (should NOT be called in dry mode)
+    estimate_mock = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+    )
+    
+    # Mock generation endpoint (should NOT be called in dry mode)
+    generate_mock = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123"})
+    )
     
     # Should return dry job (not call provider)
     result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
     
     assert result["job_id"].startswith("still-dry-"), "Should return dry job"
     assert result["reserved_amount"] == 2.5, "Should return estimate"
+    
+    # Key assertion: provider endpoints should NOT be called when DRY_RUN=true
+    assert not estimate_mock.called, "Should NOT call estimate endpoint in dry mode"
+    assert not generate_mock.called, "Should NOT call generate endpoint in dry mode"
 
 
 @pytest.mark.asyncio

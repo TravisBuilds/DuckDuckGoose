@@ -219,3 +219,53 @@ async def test_commit_handles_overage(test_episode):
             row = await cursor.fetchone()
             assert row is not None, "overage_warning transaction should exist"
             assert row[0] == 2.0, f"Overage should be 2.0, got {row[0]}"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_release_safe(test_episode):
+    """Test: Release is idempotent and clamps to current reserved amount."""
+    ledger = BudgetLedger(test_episode)
+    await ledger.init_db()
+    
+    # Reserve 10
+    reserved = await ledger.reserve("ep99", "L2_drafts", 10.0, "test reserve")
+    assert reserved
+    
+    status_before = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_before["reserved"] == 10.0
+    
+    # Release 5 (normal)
+    await ledger.release(
+        episode_id="ep99",
+        line_name="L2_drafts",
+        amount=5.0,
+        reason="partial release"
+    )
+    
+    status_after_first = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_after_first["reserved"] == 5.0, "Should have 5.0 remaining after releasing 5"
+    
+    # Try to release 10 more (but only 5 is reserved) - should clamp to 5
+    await ledger.release(
+        episode_id="ep99",
+        line_name="L2_drafts",
+        amount=10.0,  # Trying to release more than reserved
+        reason="over-release attempt"
+    )
+    
+    # Should have released only the remaining 5, not go negative
+    status_final = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_final["reserved"] == 0.0, f"Reserved should be 0 (clamped), got {status_final['reserved']}"
+    
+    # Additional release should do nothing (idempotent)
+    await ledger.release(
+        episode_id="ep99",
+        line_name="L2_drafts",
+        amount=5.0,
+        reason="double release"
+    )
+    
+    status_idempotent = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_idempotent["reserved"] == 0.0, "Reserved should remain 0 (idempotent)"
+    # Verify we don't go negative
+    assert status_idempotent["reserved"] >= 0, "Reserved should never go negative"
