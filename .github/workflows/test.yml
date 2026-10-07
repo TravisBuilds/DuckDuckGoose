@@ -37,7 +37,7 @@ jobs:
 
   test-web:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v4
@@ -68,6 +68,7 @@ jobs:
     - name: Run Playwright tests
       working-directory: web
       run: npm test
+      timeout-minutes: 5
 
   redgreen:
     runs-on: ubuntu-latest
