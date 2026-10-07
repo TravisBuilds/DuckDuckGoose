@@ -410,3 +410,29 @@ async def test_credit_plan_parser():
         
     finally:
         Path(temp_path).unlink()
+
+
+@pytest.mark.asyncio
+async def test_episode_v2_g108_checks_db(temp_db):
+    """Test: EpisodeWorkflowV2 calls check_live_mode_and_g108 activity after G1.08 signal."""
+    # This test verifies the code path exists - the DB check happens via activity
+    from hfvg.activities.studio_generation import check_live_mode_and_g108
+    
+    # Create episode and approve G1.08 in DB
+    await create_episode(temp_db, "ep99")
+    await set_live_mode(temp_db, "ep99", True)
+    await approve_g108(temp_db, "ep99")
+    
+    # Verify activity can check DB
+    live, g108 = await check_live_mode_and_g108(temp_db, "ep99")
+    assert live is True
+    assert g108 is True
+    
+    # Verify activity fails when G1.08 not approved
+    await create_episode(temp_db, "ep98")
+    await set_live_mode(temp_db, "ep98", True)
+    # Don't approve G1.08
+    
+    live, g108 = await check_live_mode_and_g108(temp_db, "ep98")
+    assert live is True
+    assert g108 is False

@@ -27,6 +27,7 @@ from hfvg.budget import BudgetLedger
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
 
+@activity.defn
 async def check_live_mode_and_g108(db_path: str, episode_id: str) -> tuple[bool, bool]:
     """
     Check if episode is in live mode and G1.08 is approved.

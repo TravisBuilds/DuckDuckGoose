@@ -124,10 +124,21 @@ class EpisodeWorkflowV2:
         await workflow.wait_condition(lambda: self.approved_g103)
         workflow.logger.info(f"[APPROVED G1.03] Beatmap locked: {len(shots)} shots")
         
-        # G1.08: Credit plan approval
+        # G1.08: Credit plan approval (check DB for single source of truth)
         workflow.logger.info("G1.08: Awaiting credit plan approval...")
         await workflow.wait_condition(lambda: self.approved_g108)
-        workflow.logger.info("[APPROVED G1.08] Credit plan locked")
+        
+        # Verify approval in DB before proceeding (fail-closed)
+        from hfvg.activities.studio_generation import check_live_mode_and_g108
+        _, g108_db = await workflow.execute_activity(
+            check_live_mode_and_g108,
+            args=[self.state.episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        if not g108_db:
+            raise RuntimeError("G1.08 approval signal received but DB shows not approved (fail-closed)")
+        
+        workflow.logger.info("[APPROVED G1.08] Credit plan locked (DB verified)")
         
         # GC.02: Budget tracking check
         workflow.logger.info("GC.02: Awaiting budget tracking confirmation...")
