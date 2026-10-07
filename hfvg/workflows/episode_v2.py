@@ -204,7 +204,7 @@ class EpisodeWorkflowV2:
         
         # Step 4: Mute (trim, QC, picture lock)
         workflow.logger.info("=== STEP 4: MUTE ===")
-        self.state.stage = PipelineStage.VIDEO_EDITING
+        self.state.stage = PipelineStage.MUTE_EDIT
         
         # G4.06: Cut-for-story flags
         workflow.logger.info("G4.06: Awaiting cut-for-story review...")
