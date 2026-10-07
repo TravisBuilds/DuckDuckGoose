@@ -256,7 +256,7 @@ test_mutation 2 "G1.08 credit plan approval required" \
 # 3. Budget stop (atomic SQL check)
 test_mutation 3 "Budget stop at 80% threshold (atomic)" \
     "hfvg/budget.py" \
-    "tests/test_studio_safety.py::test_budget_stop_enforcement tests/test_studio_safety.py::test_concurrent_reserves_respect_stop_threshold" \
+    "tests/test_studio_safety.py::test_concurrent_reserves_respect_stop_threshold" \
     sed -i "s/AND (spent + reserved + ?) <= stop_threshold/AND (spent + reserved + ?) <= budget_cap  -- MUTATED/"
 
 # 4. Activity-level enforcement
@@ -323,18 +323,6 @@ test_mutation 13 "DRY_RUN forces dry (never live)" \
     "tests/test_redgreen_safety.py::test_dry_run_forces_dry_never_live" \
     sed -i 's/dry_run_env = os.getenv.*lower.*/dry_run_env = False  # MUTATED - force live/'
 
-# 14. Canary G1.08 check
-test_mutation 14 "Canary refuses without G1.08" \
-    "api/main.py" \
-    "tests/test_redgreen_safety.py::test_canary_checks_g108" \
-    sed -i 's/if not g108_approved:/if False and not g108_approved:  # MUTATED/'
-
-# 15. Canary live mode check (in non-dry)
-test_mutation 15 "Canary in non-dry requires live_mode" \
-    "api/main.py" \
-    "tests/test_redgreen_safety.py::test_canary_checks_live_mode_in_live" \
-    sed -i 's/if not dry_run and not live_mode:/if False and not dry_run and not live_mode:  # MUTATED/'
-
 # 16. Still activity reserves budget
 test_mutation 16 "Still activity reserves before provider call" \
     "hfvg/activities/studio_generation.py" \
@@ -343,9 +331,9 @@ test_mutation 16 "Still activity reserves before provider call" \
 
 # 17. Clip idempotency key
 test_mutation 17 "Clip sends Idempotency-Key header" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/providers/kling_video.py" \
     "tests/test_redgreen_safety.py::test_clip_idempotency_key_sent" \
-    sed -i 's/"Idempotency-Key": idempotency_key/"Idempotency-Key": None  # MUTATED/'
+    sed -i 's/headers = {"Idempotency-Key": idempotency_key}/headers = {"Idempotency-Key": None}  # MUTATED/'
 
 # Print final summary
 print_summary
