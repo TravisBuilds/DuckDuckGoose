@@ -209,3 +209,68 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             # Check state after - signal should have reached workflow
             state_after = await handle.query("get_state")
             assert state_after["approvals"]["g101"], "Signal should reach workflow and approve"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Task #2): Simpler tests for undetected protections
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_api_auth_rejects_invalid_secret(monkeypatch):
+    """Test 11: API rejects requests with invalid/missing secrets."""
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    
+    client = TestClient(app)
+    
+    # Try with wrong secret (403 when secret doesn't match)
+    response = client.post(
+        "/api/episodes",
+        json={"episode_id": "ep99"},
+        headers={"Authorization": "Bearer wrong_secret"}
+    )
+    assert response.status_code == 403, "Should reject wrong secret"
+
+
+@pytest.mark.asyncio
+async def test_episode_cap_enforced(test_db):
+    """Test 12: Episode cannot exceed 1,250 credit cap."""
+    from hfvg.budget import BudgetLedger
+    import aiosqlite
+    
+    ledger = BudgetLedger(test_db)
+    await ledger.init_db()
+    
+    # Update line cap and stop threshold to be higher than episode cap
+    async with aiosqlite.connect(test_db) as db:
+        await db.execute(
+            "UPDATE budget_lines SET budget_cap = ?, stop_threshold = ? WHERE line_id = ?",
+            (2000.0, 1600.0, "ep99:L2_drafts")
+        )
+        await db.commit()
+    
+    # Try to reserve 1,251 credits (over episode cap of 1,250)
+    with pytest.raises(ValueError, match="1,250 credit cap"):
+        await ledger.reserve("ep99", "L2_drafts", 1251.0, "Over cap")
+
+
+@pytest.mark.asyncio
+async def test_dry_run_forces_dry_never_live(test_db, monkeypatch):
+    """Test 13: DRY_RUN=true forces dry mode (never forces live)."""
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("DATABASE_PATH", test_db)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    
+    # Even with live mode and G1.08 enabled in DB
+    await set_live_mode(test_db, "ep99", True)
+    await approve_g108(test_db, "ep99")
+    
+    # Should return dry job (not call provider)
+    result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+    
+    assert result["job_id"].startswith("still-dry-"), "Should return dry job"
+    assert result["reserved_amount"] == 2.5, "Should return estimate"

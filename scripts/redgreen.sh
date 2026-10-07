@@ -301,6 +301,28 @@ test_mutation 10 "Approval signal reaches workflow" \
     "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
     sed -i 's/@workflow.signal/# @workflow.signal  # MUTATED/' 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Task #2): Additional safety protections
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 11. API auth rejects invalid secret
+test_mutation 11 "API rejects invalid/missing secrets" \
+    "api/main.py" \
+    "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
+    sed -i 's/if token != ADMIN_SECRET:/if False and token != ADMIN_SECRET:/'
+
+# 12. Episode 1,250 cap enforced
+test_mutation 12 "Episode 1,250 credit cap" \
+    "hfvg/budget.py" \
+    "tests/test_redgreen_safety.py::test_episode_cap_enforced" \
+    sed -i 's/if episode_total > EPISODE_CAP:/if False and episode_total > EPISODE_CAP:/'
+
+# 13. DRY_RUN forces dry, never live
+test_mutation 13 "DRY_RUN forces dry (never live)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_dry_run_forces_dry_never_live" \
+    sed -i 's/dry_run_env = os.getenv.*lower.*/dry_run_env = False  # MUTATED - force live/'
+
 # Print final summary
 print_summary
 exit_code=$?
