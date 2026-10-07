@@ -143,7 +143,7 @@ class ShotWorkflow:
 
                 review_result = await workflow.execute_activity(
                     review_still,
-                    args=[self.still_asset["url"], {}],
+                    args=[self.still_asset["url"], {}, self.episode_id, self.shot_id],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
@@ -152,7 +152,7 @@ class ShotWorkflow:
                 if review_result["passed"]:
                     workflow.logger.info(f"Still passed QC on attempt {attempt + 1}")
                     
-                    # Record still URL to DB
+                    # Record still URL to DB (clear any stale clip_url from previous runs)
                     await workflow.execute_activity(
                         record_shot_result,
                         args=[
@@ -164,6 +164,8 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
+                            None,  # prompt
+                            True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=retry_policy,
@@ -176,7 +178,7 @@ class ShotWorkflow:
                         f"Still QC escalated to human review, waiting for approval signal: {review_result['issues']}"
                     )
                     
-                    # Record still as needs_review
+                    # Record still as needs_review (clear any stale clip_url from previous runs)
                     await workflow.execute_activity(
                         record_shot_result,
                         args=[
@@ -188,6 +190,8 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
+                            None,  # prompt
+                            True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=retry_policy,
@@ -197,6 +201,8 @@ class ShotWorkflow:
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
                     await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
                     workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
+                    
+                    # Set human_approved_still flag AFTER approval
                     self.human_approved_still = True
                     
                     # Update status to still_complete after approval
@@ -315,7 +321,7 @@ class ShotWorkflow:
 
                 clip_qc = await workflow.execute_activity(
                     review_clip,
-                    args=[self.clip_asset["url"], {}],
+                    args=[self.clip_asset["url"], {}, self.episode_id, self.shot_id],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,

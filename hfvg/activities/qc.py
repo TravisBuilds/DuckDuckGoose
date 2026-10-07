@@ -82,12 +82,18 @@ async def precheck_clip_qc(episode_id: str, shot_id: str, prompt: str, duration:
 
 
 @activity.defn
-async def review_still(asset_url: str, rubric: dict) -> dict:
+async def review_still(asset_url: str, rubric: dict, episode_id: str = None, shot_id: str = None) -> dict:
     """
     Agent-based still review against a rubric.
 
+    Args:
+        asset_url: URL of the still asset to review
+        rubric: Review rubric (not used in current stub)
+        episode_id: Episode identifier (required for live mode checks)
+        shot_id: Shot identifier (for logging)
+
     Returns:
-        dict with 'passed' (bool) and 'issues' (list of strings)
+        dict with 'passed' (bool), 'issues' (list of strings), and 'escalate' (bool) in live mode
     """
     activity.heartbeat({"stage": "reviewing_still", "url": asset_url})
 
@@ -100,50 +106,58 @@ async def review_still(asset_url: str, rubric: dict) -> dict:
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
         return {"passed": True, "issues": []}
     
-    # Extract episode_id from asset_url
-    episode_id = None
-    try:
-        # URL format: /fake/{line}/{episode}-{shot}.jpg
-        if "/" in asset_url:
-            parts = asset_url.split("/")
-            if len(parts) > 2:
-                filename = parts[-1].split(".")[0]
-                if "-" in filename:
-                    episode_id = filename.split("-")[0]
-    except Exception:
-        pass
+    # Fail closed: if episode_id is missing, cannot verify live mode, so escalate
+    if not episode_id:
+        activity.logger.error(
+            f"[FAIL CLOSED] Still review called without episode_id. "
+            f"Cannot verify live mode. Escalating to human review. Asset: {asset_url}"
+        )
+        return {
+            "passed": False,
+            "issues": ["episode_id not provided - cannot verify live mode"],
+            "escalate": True,
+        }
     
     # Check DB requirements
-    if episode_id:
-        try:
-            import aiosqlite
-            async with aiosqlite.connect(db_path) as db:
-                async with db.execute(
-                    "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
-                    (episode_id,)
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if not row:
-                        # Episode not found - run in dry mode
-                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                        return {"passed": True, "issues": []}
-                    
-                    live_mode = bool(row[0])
-                    g108_approved = bool(row[1])
-                    
-                    if not live_mode or not g108_approved:
-                        # Requirements not met - run in dry mode
-                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                        return {"passed": True, "issues": []}
-        except Exception as e:
-            activity.logger.warning(f"Could not check DB, defaulting to dry mode: {e}")
-            await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-            return {"passed": True, "issues": []}
+    try:
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
+                (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    # Episode not found - fail closed
+                    activity.logger.error(
+                        f"[FAIL CLOSED] Episode {episode_id} not found in DB. "
+                        f"Escalating to human review. Asset: {asset_url}"
+                    )
+                    return {
+                        "passed": False,
+                        "issues": [f"Episode {episode_id} not found"],
+                        "escalate": True,
+                    }
+                
+                live_mode = bool(row[0])
+                g108_approved = bool(row[1])
+                
+                if not live_mode or not g108_approved:
+                    # Not in live mode - run in dry mode
+                    await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+                    return {"passed": True, "issues": []}
+    except Exception as e:
+        # Fail closed on DB error
+        activity.logger.error(f"[FAIL CLOSED] DB error checking live mode: {e}. Escalating.")
+        return {
+            "passed": False,
+            "issues": [f"DB error: {str(e)[:100]}"],
+            "escalate": True,
+        }
     
-    # Fail closed: reject in live mode until real QC agent is implemented
-    # This should escalate to human review, not retry automatically
-    activity.logger.error(
-        f"[LIVE MODE] Still review attempted but real QC not implemented. "
+    # Live mode confirmed: always escalate to human review (real QC not implemented)
+    activity.logger.info(
+        f"[LIVE MODE] Still review for {episode_id}/{shot_id}. "
         f"Escalating to human review. Asset: {asset_url}"
     )
     return {
@@ -154,12 +168,18 @@ async def review_still(asset_url: str, rubric: dict) -> dict:
 
 
 @activity.defn
-async def review_clip(asset_url: str, rubric: dict) -> dict:
+async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot_id: str = None) -> dict:
     """
     Agent-based clip QC against a rubric.
 
+    Args:
+        asset_url: URL of the clip asset to review
+        rubric: Review rubric (not used in current stub)
+        episode_id: Episode identifier (required for live mode checks)
+        shot_id: Shot identifier (for logging)
+
     Returns:
-        dict with 'passed' (bool) and 'issues' (list of strings)
+        dict with 'passed' (bool), 'issues' (list of strings), and 'escalate' (bool) in live mode
     """
     activity.heartbeat({"stage": "reviewing_clip", "url": asset_url})
 
@@ -172,60 +192,58 @@ async def review_clip(asset_url: str, rubric: dict) -> dict:
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
         return {"passed": True, "issues": []}
     
-    # Extract episode_id from asset_url
-    episode_id = None
-    try:
-        if "/" in asset_url:
-            parts = asset_url.split("/")
-            if len(parts) > 2:
-                filename = parts[-1].split(".")[0]
-                if "-" in filename:
-                    episode_id = filename.split("-")[0]
-    except Exception:
-        pass
+    # Fail closed: if episode_id is missing, cannot verify live mode, so escalate
+    if not episode_id:
+        activity.logger.error(
+            f"[FAIL CLOSED] Clip review called without episode_id. "
+            f"Cannot verify live mode. Escalating to human review. Asset: {asset_url}"
+        )
+        return {
+            "passed": False,
+            "issues": ["episode_id not provided - cannot verify live mode"],
+            "escalate": True,
+        }
     
     # Check DB requirements
-    if episode_id:
-        try:
-            import aiosqlite
-            async with aiosqlite.connect(db_path) as db:
-                async with db.execute(
-                    "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
-                    (episode_id,)
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if not row:
-                        # Episode not found - run in dry mode
-                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                        return {"passed": True, "issues": []}
-                    
-                    live_mode = bool(row[0])
-                    g108_approved = bool(row[1])
-                    
-                    if not live_mode or not g108_approved:
-                        # Requirements not met - run in dry mode
-                        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-                        return {"passed": True, "issues": []}
-        except Exception as e:
-            activity.logger.warning(f"Could not check DB, defaulting to dry mode: {e}")
-            await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-            return {"passed": True, "issues": []}
+    try:
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
+                (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    # Episode not found - fail closed
+                    activity.logger.error(
+                        f"[FAIL CLOSED] Episode {episode_id} not found in DB. "
+                        f"Escalating to human review. Asset: {asset_url}"
+                    )
+                    return {
+                        "passed": False,
+                        "issues": [f"Episode {episode_id} not found"],
+                        "escalate": True,
+                    }
+                
+                live_mode = bool(row[0])
+                g108_approved = bool(row[1])
+                
+                if not live_mode or not g108_approved:
+                    # Not in live mode - run in dry mode
+                    await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+                    return {"passed": True, "issues": []}
+    except Exception as e:
+        # Fail closed on DB error
+        activity.logger.error(f"[FAIL CLOSED] DB error checking live mode: {e}. Escalating.")
+        return {
+            "passed": False,
+            "issues": [f"DB error: {str(e)[:100]}"],
+            "escalate": True,
+        }
 
-    # In live mode, always pass clip QC (real QC not implemented yet)
-    activity.logger.info(f"[LIVE MODE] Clip QC passed (real QC not implemented): {asset_url}")
-    return {"passed": True, "issues": []}
-
-    # In live mode, check if we're actually in dry run via env var
-    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
-    if dry_run:
-        # Still in dry run despite config - allow it
-        await asyncio.sleep(0.1)
-        return {"passed": True, "issues": []}
-    
-    # Fail closed: reject in live mode until real QC agent is implemented
-    # This should escalate to human review, not retry automatically
-    activity.logger.error(
-        f"[LIVE MODE] Clip review attempted but real QC not implemented. "
+    # Live mode confirmed: always escalate to human review (real QC not implemented)
+    activity.logger.info(
+        f"[LIVE MODE] Clip review for {episode_id}/{shot_id}. "
         f"Escalating to human review. Asset: {asset_url}"
     )
     return {
