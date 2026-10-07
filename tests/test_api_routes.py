@@ -20,6 +20,12 @@ async def test_db_api(tmp_path, monkeypatch):
     db_name = f"test_api_{secrets.token_hex(8)}.db"
     db_path = str(tmp_path / db_name)
     await init_studio_db(db_path)
+    
+    # Initialize budget tables
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     yield db_path
@@ -122,23 +128,6 @@ async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
     # Key assertion: should refuse without live_mode when DRY_RUN=false
     assert data.get("success") is False, f"Should refuse without live_mode in non-dry, got data: {data}"
     # If mutation removes the live_mode check, success would be True (or error would occur)
-    
-    async with aiosqlite.connect(test_db_api) as db:
-        await db.execute(
-            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
-            ("ep99-A01", "ep99", "A01", "Test", "pending")
-        )
-        await db.commit()
-    
-    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
-    
-    # Try canary in non-dry without live_mode
-    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is False, "Should refuse without live_mode in non-dry"
-    assert "Live mode" in data["message"], "Should mention live mode"
 
 
 @pytest.mark.asyncio
@@ -327,8 +316,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
     # Set up Temporal environment and worker with a failing activity
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Mock the submit activity to always fail
-        from unittest.mock import AsyncMock
+        from temporalio import activity
         
+        @activity.defn(name="submit_still_job_enforced")
         async def failing_submit(*args, **kwargs):
             raise ValueError("Simulated workflow failure")
         

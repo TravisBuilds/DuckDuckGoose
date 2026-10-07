@@ -76,8 +76,17 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
     
-    # Calculate expected idempotency key
-    expected_key = generate_idempotency_key("ep99", "A01", 1, "Test prompt")
+    # Calculate expected idempotency key with all parameters
+    # submit_still_job_enforced defaults: refs=None, resolution="1k", quality="medium"
+    expected_key = generate_idempotency_key(
+        episode_id="ep99",
+        shot_id="A01",
+        version=1,
+        prompt="Test prompt",
+        refs=None,
+        quality="medium",
+        resolution="1k",
+    )
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
@@ -411,8 +420,16 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         """, ("ep99:L4_video", "ep99", "higgsfield", "L4_video", 500.0, 400.0, "credits"))
         await db.commit()
     
-    # Calculate expected key
-    expected_key = generate_idempotency_key("ep99", "A01", 1, "clip:Test prompt")
+    # Calculate expected key with all parameters
+    # submit_clip_job_enforced will be called with: episode_id, shot_id, start_image_url, prompt, duration, version
+    expected_key = generate_idempotency_key(
+        episode_id="ep99",
+        shot_id="A01",
+        version=1,
+        prompt="clip:Test prompt",  # Activity prefixes with "clip:"
+        start_image="https://example.com/still.jpg",
+        duration=5.0,
+    )
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
