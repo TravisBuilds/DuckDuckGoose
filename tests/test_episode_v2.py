@@ -171,15 +171,16 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
             # Poll to verify workflow reaches G4.09 (with bounded timeout)
             import time
             deadline = time.time() + 5.0
+            reached_g409 = False
             while time.time() < deadline:
                 state = await handle.query(EpisodeWorkflowV2.get_state)
                 if state.get("current_gate") == "G4.09":
+                    reached_g409 = True
                     break
                 await env.sleep(0.1)
-            else:
-                pytest.fail("Workflow did not reach G4.09 within timeout")
             
-            # Verify workflow is at G4.09 (picture lock blocks audio)
+            # Verify workflow reached and stopped at G4.09 (picture lock blocks audio)
+            assert reached_g409, f"Workflow did not reach G4.09 within timeout, current gate: {state.get('current_gate')}"
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["current_gate"] == "G4.09", f"Should be at G4.09, got {state.get('current_gate')}"
             assert state["approvals"]["g409"] is False, "G4.09 should not be approved yet"
@@ -276,14 +277,16 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             # Poll to verify workflow reaches G6.10 first
             import time
             deadline = time.time() + 5.0
+            reached_g610 = False
             while time.time() < deadline:
                 state = await handle.query(EpisodeWorkflowV2.get_state)
                 if state.get("current_gate") == "G6.10":
+                    reached_g610 = True
                     break
                 await env.sleep(0.1)
-            else:
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                pytest.fail(f"Workflow did not reach G6.10. Current: {state.get('current_gate')}")
+            
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert reached_g610, f"Workflow did not reach G6.10. Current: {state.get('current_gate')}"
             
             # Now send g610 to let it proceed to GX.01
             await handle.signal(EpisodeWorkflowV2.approve_g610)
@@ -293,17 +296,18 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             
             # Poll to verify workflow reaches GX.01 (with bounded timeout)
             deadline = time.time() + 5.0
+            reached_gx01 = False
             while time.time() < deadline:
                 state = await handle.query(EpisodeWorkflowV2.get_state)
                 if state.get("current_gate") == "GX.01":
+                    reached_gx01 = True
                     break
                 await env.sleep(0.1)
-            else:
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                pytest.fail(f"Workflow did not reach GX.01 within timeout. Current gate: {state.get('current_gate')}, Passed: {state.get('passed_gates', [])}")
+            
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert reached_gx01, f"Workflow did not reach GX.01 within timeout. Current gate: {state.get('current_gate')}, Passed: {state.get('passed_gates', [])}"
             
             # Verify workflow is at GX.01 and RUNNING
-            state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["current_gate"] == "GX.01", f"Should be at GX.01, got {state.get('current_gate')}"
             assert state["approvals"]["gx01"] is False, "GX.01 should not be approved yet"
             assert "GX.01" not in state["passed_gates"], "GX.01 should not be in passed_gates yet"

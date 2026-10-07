@@ -82,14 +82,14 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    /home/ubuntu/.local/bin/pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for collection errors or syntax errors (INVALID mutation)
     if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
         rm -f "$junit_xml" "$tmp_output"
         echo "INVALID"
-        return 3
+        return 0
     fi
     
     # Parse JUnit XML to classify failure
@@ -108,22 +108,33 @@ run_test() {
     if grep -q '<error' "$junit_xml"; then
         rm -f "$junit_xml" "$tmp_output"
         echo "FAIL_OTHER"
-        return 2
+        return 0
     fi
     
-    # Check for <failure> nodes with type="AssertionError"
-    # Must have at least one AssertionError failure to count as caught
-    if grep -q '<failure.*type="AssertionError"' "$junit_xml" || \
-       grep -q '<failure message="AssertionError:' "$junit_xml"; then
+    # Check for <failure> nodes with AssertionError
+    # In pytest's JUnit XML, the failure message contains the exception type:
+    # - AssertionError: message="AssertionError: ..." or message="assert ..."
+    # - Other exceptions: message="ValueError: ..." etc.
+    if grep -q '<failure' "$junit_xml"; then
+        # Check if it's an AssertionError (not other exception types)
+        # Look for failures that contain AssertionError or bare assert statements
+        # But exclude failures with other exception types like ValueError, AttributeError, etc.
+        if grep -o '<failure message="[^"]*"' "$junit_xml" | grep -qE 'message="(AssertionError:|assert [^a-z])'; then
+            rm -f "$junit_xml" "$tmp_output"
+            echo "FAIL_ASSERT"
+            return 0
+        fi
+        
+        # Failed with non-AssertionError exception
         rm -f "$junit_xml" "$tmp_output"
-        echo "FAIL_ASSERT"
-        return 1
+        echo "FAIL_OTHER"
+        return 0
     fi
     
-    # Failed but not with AssertionError (other exception types)
+    # Failed but no failure/error nodes (shouldn't happen)
     rm -f "$junit_xml" "$tmp_output"
     echo "FAIL_OTHER"
-    return 2
+    return 0
 }
 
 # Test one probe (classifier verification)
@@ -591,7 +602,7 @@ test_mutation 25 "Workflow waits for parent stills_approved signal" \
 test_mutation 26 "Idempotent release clamps to reserved" \
     "hfvg/budget.py" \
     "tests/test_exception_release.py::test_idempotent_release_safe" \
-    sed -i 's/WHERE line_id = ? AND reserved >= ?/WHERE line_id = ?  -- MUTATED: removed reserved check/'
+    python3 scripts/mutate_release_check.py
 
 # 27. Overage commits actual cost
 test_mutation 27 "Overage commits actual_cost not reserved" \
