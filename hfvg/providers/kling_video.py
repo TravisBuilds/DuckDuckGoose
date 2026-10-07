@@ -1,15 +1,21 @@
 """
 Kling video provider for image-to-video generation.
 
+Implements the documented Higgsfield API:
+- Authorization: Key <id>:<secret>
+- POST /{model_path} → {"request_id": "..."}
+- GET /requests/{request_id}/status
+- Deterministic idempotency keys covering all request params (including start_image)
+
 Uses Kling 3.0 Pro (sound off): kling-video/v3.0/pro/image-to-video
 - Native 1080p
 - 3-12s duration (cost scales linearly with length)
 - Cost: ~1.5 credits/second
-- Idempotency-Key on every call
 """
 
 import os
 import uuid
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -34,22 +40,30 @@ class KlingVideoProvider(GenerationProvider):
         Initialize Kling video provider.
         
         Args:
-            api_key: Higgsfield API key (default: from HIGGSFIELD_API_KEY)
-            base_url: API base URL (default: https://api.higgsfield.ai)
+            api_key: Higgsfield API key in format 'id:secret' (default: from HIGGSFIELD_API_KEY)
+            base_url: API base URL (default: from HIGGSFIELD_BASE_URL or https://api.higgsfield.ai)
         """
-        self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
-        if not self.api_key:
+        api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
+        if not api_key:
+            raise ValueError("HIGGSFIELD_API_KEY not set. Video generation will fail.")
+        
+        if ":" not in api_key:
             raise ValueError(
-                "HIGGSFIELD_API_KEY not set. Video generation will fail."
+                "HIGGSFIELD_API_KEY must be in format 'id:secret' "
+                "(e.g. 'hf_abc123:sk_xyz789')"
             )
         
-        self.base_url = base_url or "https://api.higgsfield.ai"
+        self.api_key_id, self.api_key_secret = api_key.split(":", 1)
+        
+        self.base_url = base_url or os.getenv(
+            "HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai"
+        )
         self.model_path = "kling-video/v3.0/pro/image-to-video"
         
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Key {self.api_key_id}:{self.api_key_secret}",
                 "Content-Type": "application/json",
             },
             timeout=120.0,  # Longer timeout for video
@@ -58,6 +72,23 @@ class KlingVideoProvider(GenerationProvider):
     async def close(self):
         """Close HTTP client."""
         await self.client.aclose()
+    
+    def _generate_idempotency_key(
+        self,
+        start_image: str,
+        prompt: str,
+        duration: float,
+        resolution: str,
+        draft: bool,
+    ) -> str:
+        """
+        Generate deterministic idempotency key covering all request params.
+        
+        Format: hf-clip-{sha256(img|prompt|dur|res|draft)[:16]}
+        """
+        key_input = f"{start_image}|{prompt}|{duration}|{resolution}|{draft}"
+        hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        return f"hf-clip-{hash_digest}"
     
     async def upload_image(self, image_path: str | Path) -> str:
         """
@@ -100,16 +131,13 @@ class KlingVideoProvider(GenerationProvider):
         
         Args:
             duration: Video duration in seconds (3-12)
-            resolution: Resolution (1080p native)
+            resolution: Resolution (default 1080p)
         
         Returns:
             Estimated cost in Higgsfield app credits
         """
-        # Kling 3.0 Pro: ~1.5 credits/second
+        # Kling 3.0 Pro pricing: 1.5 credits/second
         cost_per_second = 1.5
-        
-        # Clamp duration to valid range
-        duration = max(3.0, min(12.0, duration))
         
         total = duration * cost_per_second
         
@@ -120,111 +148,103 @@ class KlingVideoProvider(GenerationProvider):
         self,
         start_image: str,
         prompt: str,
-        model: str | None = None,
         duration: float = 5.0,
         resolution: str = "1080p",
         draft: bool = False,
-        references: list[str] | None = None,
         idempotency_key: str | None = None,
     ) -> str:
         """
         Submit video generation job.
         
+        API: POST /{model_path}
+        Response: {"request_id": "..."}
+        
         Args:
-            start_image: Path to start image or media ID
+            start_image: URL or path to start image
             prompt: Generation prompt
-            model: Model path (default: kling-video/v3.0/pro/image-to-video)
             duration: Video duration in seconds (3-12)
-            resolution: Resolution (1080p)
-            draft: Ignored for Kling (always pro quality)
-            references: Additional reference images (not used for Kling)
-            idempotency_key: Idempotency key for deduplication
+            resolution: Resolution (default 1080p)
+            draft: Draft mode (faster, lower quality)
+            idempotency_key: Idempotency key (default: deterministic based on params)
         
         Returns:
-            job_id for polling
+            request_id for polling
         """
-        model = model or self.model_path
-        idempotency_key = idempotency_key or str(uuid.uuid4())
+        # Generate deterministic idempotency key if not provided
+        if not idempotency_key:
+            idempotency_key = self._generate_idempotency_key(
+                start_image, prompt, duration, resolution, draft
+            )
         
-        # Clamp duration
-        duration = max(3.0, min(12.0, duration))
-        
-        # Upload start image if needed
-        if start_image.startswith("med_"):
-            # Already a media ID
-            start_image_id = start_image
-        elif Path(start_image).exists():
-            # Local file - upload it
-            start_image_id = await self.upload_image(start_image)
-        elif start_image.startswith("http"):
-            # URL - need to import via API
-            # For now, assume it's already accessible
-            start_image_id = start_image
-        else:
-            raise ValueError(f"Invalid start_image: {start_image}")
+        # Upload start image if it's a local path
+        if Path(start_image).exists():
+            start_image = await self.upload_image(start_image)
         
         # Submit generation
         payload = {
-            "model": model,
-            "start_image": start_image_id,
+            "start_image": start_image,
             "prompt": prompt,
             "duration": duration,
             "resolution": resolution,
-            "sound": False,  # Sound off (as per requirements)
+            "draft": draft,
         }
         
         headers = {"Idempotency-Key": idempotency_key}
         
+        # POST /{model_path} per documented API
         response = await self.client.post(
-            "/v1/generate/video",
+            f"/{self.model_path}",
             json=payload,
             headers=headers,
         )
         response.raise_for_status()
         
         data = response.json()
-        return data["job_id"]
+        # Documented API returns "request_id"
+        return data["request_id"]
     
-    async def get_job_status(self, job_id: str) -> ProviderJob:
+    async def get_job_status(self, request_id: str) -> ProviderJob:
         """
         Get status of a generation job.
         
+        API: GET /requests/{request_id}/status
+        Response: {
+            "status": "queued"|"in_progress"|"completed"|"failed"|"nsfw"|"canceled",
+            "output_url": "...",
+            "cost": 7.5,
+            "error": "..."
+        }
+        
         Args:
-            job_id: Job identifier
+            request_id: Request identifier from submit
         
         Returns:
             ProviderJob with status, output_url, cost, error
         """
-        response = await self.client.get(f"/v1/jobs/{job_id}")
+        # GET /requests/{request_id}/status per documented API
+        response = await self.client.get(f"/requests/{request_id}/status")
         response.raise_for_status()
         
         data = response.json()
-        status_str = data.get("status", "pending").lower()
+        status_str = data.get("status", "queued").lower()
         
-        # Map Higgsfield status to ProviderJobStatus
+        # Map Higgsfield API status to ProviderJobStatus
         if status_str == "completed":
             status = ProviderJobStatus.COMPLETED
         elif status_str == "failed":
             status = ProviderJobStatus.FAILED
-        elif status_str == "blocked" or status_str == "nsfw":
+        elif status_str in ("blocked", "nsfw", "canceled"):
             status = ProviderJobStatus.BLOCKED
-        elif status_str == "processing" or status_str == "running":
+        elif status_str == "in_progress":
             status = ProviderJobStatus.PROCESSING
-        else:
+        else:  # "queued"
             status = ProviderJobStatus.PENDING
         
         return ProviderJob(
-            job_id=job_id,
+            job_id=request_id,
             status=status,
             progress=data.get("progress", 0.0),
             output_url=data.get("output_url"),
             cost=data.get("cost", 0.0),
             error=data.get("error"),
         )
-
-    async def get_balance(self) -> float:
-        """Get current Higgsfield credit balance."""
-        response = await self.client.get("/v1/account/balance")
-        response.raise_for_status()
-        data = response.json()
-        return data.get("balance", 0.0)
