@@ -73,10 +73,14 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
             reserved_before = row[0] if row else 0.0
     
     # Activity should check live mode and refuse (activity-level enforcement)
-    with pytest.raises(ValueError, match="not in live mode"):
+    call_succeeded = False
+    try:
         await submit_still_job_enforced("ep99", "A01", "Test", 1)
+        call_succeeded = True
+    except ValueError as e:
+        assert "not in live mode" in str(e), f"Expected live mode error, got: {e}"
     
-    # Assert provider was never called
+    assert not call_succeeded, "Call should have raised ValueError for missing live mode"
     assert not mock_submit.called, "Provider should not be called without live mode"
     
     # Assert ledger unchanged (no budget reserved)

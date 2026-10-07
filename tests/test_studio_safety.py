@@ -104,15 +104,19 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
             reserved_before = row[0] if row else 0.0
     
     # Attempt to submit still - should fail due to live mode
-    with pytest.raises(ValueError, match="not in live mode"):
+    call_succeeded = False
+    try:
         await submit_still_job_enforced(
             episode_id=episode_id,
             shot_id="A01",
             prompt="Test prompt",
             version=1,
         )
+        call_succeeded = True
+    except ValueError as e:
+        assert "not in live mode" in str(e), f"Expected live mode error, got: {e}"
     
-    # Assert provider was never called (protection worked before API call)
+    assert not call_succeeded, "Call should have raised ValueError for missing live mode"
     assert not mock_submit.called, "Provider submit should not be called without live mode"
     
     # Assert ledger unchanged (no budget reserved)
@@ -167,15 +171,19 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
             reserved_before = row[0] if row else 0.0
     
     # Attempt to submit still - should fail
-    with pytest.raises(ValueError, match="G1\\.08"):
+    call_succeeded = False
+    try:
         await submit_still_job_enforced(
             episode_id=episode_id,
             shot_id="A01",
             prompt="Test prompt",
             version=1,
         )
+        call_succeeded = True
+    except ValueError as e:
+        assert "G1.08" in str(e), f"Expected G1.08 error, got: {e}"
     
-    # Assert provider was never called (protection worked before API call)
+    assert not call_succeeded, "Call should have raised ValueError for missing G1.08"
     assert not mock_submit.called, "Provider submit should not be called without G1.08"
     
     # Assert ledger unchanged (no budget reserved)
