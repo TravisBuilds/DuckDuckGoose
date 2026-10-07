@@ -101,6 +101,92 @@ run_test() {
     return 2
 }
 
+# Test one probe (classifier verification)
+test_probe() {
+    local num=$1
+    local name=$2
+    local expected_class=$3  # "FAIL_ASSERT" or "FAIL_OTHER"
+    local file=$4
+    local test=$5
+    shift 5
+    local mutation_cmd=("$@")
+    
+    log_test "$num" "$name"
+    
+    # Step 1: Run baseline (should pass)
+    log_green "Running baseline test (expecting PASS)..."
+    baseline_result=$(run_test "$test")
+    
+    if [ "$baseline_result" != "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Baseline fails")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Baseline passes${NC}"
+    
+    # Step 2: Apply mutation
+    log_red "Applying mutation to $file..."
+    "${mutation_cmd[@]}" "$file" 2>/dev/null
+    
+    if ! git diff --quiet "$file"; then
+        echo -e "${BLUE}Mutation applied (file changed)${NC}"
+    else
+        echo -e "${RED}✗ FAIL: Mutation did not change the file${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("No file change")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Step 3: Run mutated test and check classification
+    log_red "Running mutated test (expecting $expected_class)..."
+    mutated_result=$(run_test "$test")
+    
+    git checkout -- "$file" 2>/dev/null
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    
+    if [ "$mutated_result" = "INVALID" ]; then
+        echo -e "${RED}✗ FAIL: Mutation caused syntax error${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Syntax error")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" = "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Mutated test still passes${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Not detected")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Check if classification matches expected
+    if [ "$mutated_result" != "$expected_class" ]; then
+        echo -e "${RED}✗ FAIL: Expected $expected_class but got $mutated_result${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Wrong classification: $mutated_result")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Classified correctly as $expected_class${NC}"
+    echo -e "${GREEN}━━━ ✓ PROBE VERIFICATION PASSED ━━━${NC}"
+    
+    MUTATION_NAMES+=("$num. $name")
+    MUTATION_RESULTS+=("PASS")
+    MUTATION_REASONS+=("Correct classification")
+    PASS_COUNT=$((PASS_COUNT + 1))
+}
+
 # Test one mutation
 test_mutation() {
     local num=$1
@@ -280,26 +366,30 @@ log_header "PROBE TESTS: Verify JUnit XML classifier"
 echo "These probes verify the classifier correctly rejects wrong-reason failures"
 echo ""
 
-# Positive control: real assertion should be caught
-test_mutation "PC" "Positive control: Real assertion caught" \
+# Positive control: real assertion should be caught (FAIL_ASSERT)
+test_probe "PC" "Positive control: Real assertion caught" \
+    "FAIL_ASSERT" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_positive_control" \
     sed -i 's/assert value == 42/assert value == 999/'
 
-# Probe P1: AttributeError (should FAIL - wrong reason)
-test_mutation "P1" "Probe P1: AttributeError must report FAILED" \
+# Probe P1: AttributeError (should FAIL_OTHER - wrong reason)
+test_probe "P1" "Probe P1: AttributeError must report FAILED" \
+    "FAIL_OTHER" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p1_attribute_error" \
     python3 scripts/mutate_probe_p1.py
 
-# Probe P2: respx unmocked request (should FAIL - wrong reason)
-test_mutation "P2" "Probe P2: respx unmocked must report FAILED" \
+# Probe P2: respx unmocked request (should FAIL_OTHER - wrong reason)
+test_probe "P2" "Probe P2: respx unmocked must report FAILED" \
+    "FAIL_OTHER" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p2_respx_unmocked" \
     python3 scripts/mutate_probe_p2.py
 
-# Probe P3: RuntimeError during AssertionError handling (should FAIL - wrong reason)
-test_mutation "P3" "Probe P3: RuntimeError in except must report FAILED" \
+# Probe P3: RuntimeError during AssertionError handling (should FAIL_OTHER - wrong reason)
+test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
+    "FAIL_OTHER" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
