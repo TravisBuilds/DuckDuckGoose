@@ -79,6 +79,11 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     # Calculate expected idempotency key
     expected_key = generate_idempotency_key("ep99", "A01", 1, "Test prompt")
     
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+    )
+    
     # Mock provider - this will catch calls to the provider
     mock_route = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
@@ -340,6 +345,11 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
     
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+    )
+    
     # Mock provider
     respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
@@ -386,6 +396,11 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     
     # Calculate expected key
     expected_key = generate_idempotency_key("ep99", "A01", 1, "clip:Test prompt")
+    
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 7.5})
+    )
     
     # Mock provider
     mock_route = respx_mock.post("https://api.higgsfield.ai/kling-video/v3.0/pro/image-to-video").mock(
