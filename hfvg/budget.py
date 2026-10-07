@@ -210,7 +210,7 @@ class BudgetLedger:
                     UPDATE budget_lines 
                     SET reserved = reserved + ?
                     WHERE line_id = ? 
-                      AND (spent + reserved + ?) <= stop_threshold
+                      AND (spent + reserved + ?) <= budget_cap
                 """, (amount, line_id, amount))
                 
                 if cursor.rowcount == 0:
