@@ -323,17 +323,59 @@ test_mutation 13 "DRY_RUN forces dry (never live)" \
     "tests/test_redgreen_safety.py::test_dry_run_forces_dry_never_live" \
     sed -i 's/dry_run_env = os.getenv.*lower.*/dry_run_env = False  # MUTATED - force live/'
 
-# 16. Still activity reserves budget
-test_mutation 16 "Still activity reserves before provider call" \
+# 14. Canary route checks G1.08
+test_mutation 14 "Canary route refuses without G1.08" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_checks_g108" \
+    sed -i 's/if not g108_approved:/if False and not g108_approved:  # MUTATED/'
+
+# 15. Canary route checks live mode in non-dry
+test_mutation 15 "Canary route requires live_mode in non-dry" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_checks_live_mode" \
+    sed -i 's/if not dry_run and not live_mode:/if False and not dry_run and not live_mode:  # MUTATED/'
+
+# 16. Canary route actually starts workflow
+test_mutation 16 "Canary route starts ShotWorkflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_starts_workflow" \
+    sed -i 's/await temporal_client.start_workflow/# MUTATED: skip workflow; await temporal_client.start_workflow/'
+
+# 17. Canary reserves L6 before workflow
+test_mutation 17 "Canary reserves L6_reserve before workflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_reserves_l6_before_workflow" \
+    sed -i 's/reserved = await ledger.reserve/reserved = True  # MUTATED: skip; await ledger.reserve/'
+
+# 18. Still activity reserves budget
+test_mutation 18 "Still activity reserves before provider call" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_still_activity_reserves_budget" \
     sed -i 's/reserved = await ledger.reserve/reserved = True  # MUTATED: skip reserve; await ledger.reserve/'
 
-# 17. Clip idempotency key
-test_mutation 17 "Clip sends Idempotency-Key header" \
+# 19. Clip idempotency key
+test_mutation 19 "Clip sends Idempotency-Key header" \
     "hfvg/providers/kling_video.py" \
     "tests/test_redgreen_safety.py::test_clip_idempotency_key_sent" \
     sed -i 's/headers = {"Idempotency-Key": idempotency_key}/headers = {"Idempotency-Key": None}  # MUTATED/'
+
+# 20. Still approve sends signal
+test_mutation 20 "Still approve route sends signal" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_still_approve_route_sends_signal" \
+    sed -i 's/await handle.signal("stills_approved")/# MUTATED: skip signal; await handle.signal("stills_approved")/'
+
+# 21. Clip approve sends signal
+test_mutation 21 "Clip approve route sends signal" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_clip_approve_route_sends_signal" \
+    sed -i 's/await handle.signal("clip_approved")/# MUTATED: skip signal; await handle.signal("clip_approved")/'
+
+# 22. Clip approve rejects unknown shot
+test_mutation 22 "Clip approve rejects unknown shot (ZZ99)" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_clip_approve_rejects_unknown_shot" \
+    sed -i 's/if not await cursor.fetchone():/if False and not await cursor.fetchone():  # MUTATED/'
 
 # Print final summary
 print_summary

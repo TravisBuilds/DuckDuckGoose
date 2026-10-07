@@ -11,25 +11,46 @@ Verifies that:
 
 import pytest
 import aiosqlite
+import sys
 
 from hfvg.studio_db import init_studio_db
 
 
 @pytest.fixture
-async def test_db(tmp_path):
-    """Create test database."""
-    db_path = str(tmp_path / "test.db")
+async def test_db(tmp_path, monkeypatch):
+    """Create fresh test database per test (isolated)."""
+    import secrets
+    # Use random name to ensure complete isolation between tests
+    db_name = f"test_{secrets.token_hex(8)}.db"
+    db_path = str(tmp_path / db_name)
     await init_studio_db(db_path)
+    
+    # Set DATABASE_PATH early before any imports that might cache it
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    
     yield db_path
+
+
+@pytest.fixture(autouse=True)
+def reload_api_module():
+    """Reload api.main module to avoid caching issues between tests."""
+    # Remove api.main from sys.modules if it exists
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+    yield
+    # Clean up after test
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_secret_rejected(test_db, monkeypatch):
     """Test: Wrong admin secret is rejected by /api/login."""
-    # Set correct admin secret
-    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
-    monkeypatch.setenv("DATABASE_PATH", test_db)
+    # Set correct admin secret early
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     
+    # Import after setting env vars to avoid module caching issues
     from fastapi.testclient import TestClient
     from api.main import app
     
@@ -48,10 +69,9 @@ async def test_login_wrong_secret_rejected(test_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_login_secret_not_in_cookie(test_db, monkeypatch):
     """Test: Raw admin secret never appears in Set-Cookie header."""
-    # Set correct admin secret
+    # Set correct admin secret early
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
-    monkeypatch.setenv("DATABASE_PATH", test_db)
     
     from fastapi.testclient import TestClient
     from api.main import app
@@ -88,7 +108,6 @@ async def test_session_cookie_accepted_by_routes(test_db, monkeypatch):
     """Test: Budget and gates routes accept the session cookie."""
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
-    monkeypatch.setenv("DATABASE_PATH", test_db)
     
     from fastapi.testclient import TestClient
     from api.main import app
@@ -143,7 +162,6 @@ async def test_logout_clears_session(test_db, monkeypatch):
     """Test: Logout clears the session cookie."""
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
-    monkeypatch.setenv("DATABASE_PATH", test_db)
     
     from fastapi.testclient import TestClient
     from api.main import app
