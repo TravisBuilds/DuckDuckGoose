@@ -76,27 +76,22 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     return () => clearInterval(interval);
   }, [episodeId]);
 
-  const getAdminSecret = () => {
-    return document.cookie
-      .split('; ')
-      .find(row => row.startsWith('studio_admin_token='))
-      ?.split('=')[1];
-  };
+
 
   const loadEpisodeData = async () => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) return;
+      // Session cookie is httpOnly - can't read in JS
+      // Make API calls with credentials: 'include'
+
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const headers = { 'Cookie': `studio_admin_token=${secret}` };
 
       const [stateRes, budgetRes, gatesRes, shotsRes, auditRes] = await Promise.all([
-        fetch(`${apiUrl}/api/episodes/${episodeId}`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { headers, credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}`, { credentials: \'include\' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { credentials: \'include\' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { credentials: \'include\' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { credentials: \'include\' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { credentials: \'include\' }),
       ]);
 
       if (stateRes.ok) setState(await stateRes.json());
@@ -118,14 +113,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     const formData = new FormData(e.currentTarget);
     
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/upload`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
         body: formData,
       });
@@ -142,14 +136,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const handleApproveG108 = async () => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve-g108`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -167,14 +160,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
 
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/set-live`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -188,19 +180,37 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  const handleSetDryMode = async () => {
+    if (!confirm('Switch to dry mode? This will disable live generation.')) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/set-dry`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Failed to set dry mode');
+      
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to set dry mode');
+    }
+  };
+
   const handleRunCanary = async () => {
     if (!confirm('Run canary test? This will generate 1 still + 1 clip.')) return;
 
     setCanaryRunning(true);
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/canary`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -222,14 +232,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const handleApproveStill = async (shotId: string) => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/shots/${shotId}/approve`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -245,8 +254,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     if (!reason) return;
 
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
@@ -255,7 +263,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/shots/${shotId}/reject`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
         body: formData,
       });
@@ -336,6 +344,17 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
               >
                 Enable Live Mode
+              </button>
+            )}
+            
+            
+            
+            {gates?.live_mode && (
+              <button
+                onClick={handleSetDryMode}
+                className="w-full mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700"
+              >
+                Switch to Dry Mode
               </button>
             )}
             
