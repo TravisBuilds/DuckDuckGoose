@@ -61,6 +61,14 @@ jobs:
       working-directory: web
       run: npm run build
 
+    - name: Install Playwright Browsers
+      working-directory: web
+      run: npx playwright install --with-deps chromium
+
+    - name: Run Playwright tests
+      working-directory: web
+      run: npm test
+
   redgreen:
     runs-on: ubuntu-latest
     timeout-minutes: 10
