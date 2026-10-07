@@ -289,7 +289,7 @@ class EpisodeWorkflowV2:
         workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
         workflow.logger.info("Awaiting explicit GX.01 approval for external actions...")
         self.state.current_gate = "GX.01"
-        # MUTATED: await workflow.wait_condition(lambda: self.approved_gx01)
+        await workflow.wait_condition(lambda: self.approved_gx01)
         self.passed_gates.append("GX.01")
         workflow.logger.info("[APPROVED GX.01] External actions authorized")
         

@@ -283,6 +283,16 @@ test_mutation() {
     # Clear Python caches to ensure restored code is loaded
     find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
     
+    # Verify restoration: fail if mutation leaked into working tree
+    if ! git diff --quiet "$file"; then
+        echo -e "${RED}✗ FAIL: Mutation leaked - file not fully restored${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Restore incomplete")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
     # Step 5: Run restored test (should pass)
     log_green "Running restored test (expecting PASS)..."
     restored_result=$(run_test "$test")
