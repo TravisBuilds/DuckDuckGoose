@@ -480,6 +480,37 @@ async def await_job_enforced(
         )
         
         raise ValueError(f"Job {job_id} timed out after {max_polls} polls")
+    
+    except asyncio.CancelledError:
+        # Activity cancelled: release reservation
+        activity.logger.warning(f"Activity cancelled for job {job_id}, releasing reservation")
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await ledger.release(
+            episode_id=episode_id,
+            line_name=line_name,
+            amount=reserved_amount,
+            reason=f"{job_type} {job_id} cancelled"
+        )
+        if 'provider' in locals():
+            await provider.close()
+        raise
+    
+    except Exception as poll_error:
+        # Poll exception: release reservation  
+        activity.logger.error(f"Poll failed for job {job_id}: {poll_error}")
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await ledger.release(
+            episode_id=episode_id,
+            line_name=line_name,
+            amount=reserved_amount,
+            reason=f"{job_type} {job_id} poll error: {str(poll_error)[:100]}"
+        )
+        if 'provider' in locals():
+            await provider.close()
+        raise
         
     finally:
-        await provider.close()
+        if 'provider' in locals():
+            await provider.close()

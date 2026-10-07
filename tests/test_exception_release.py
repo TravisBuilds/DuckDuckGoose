@@ -131,9 +131,16 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     # Mock provider that raises on poll
     from unittest.mock import patch, AsyncMock, Mock
     
+    # Create a proper httpx exception
+    mock_request = Mock()
+    mock_request.url = "https://api.higgsfield.ai/status"
+    mock_response = Mock()
+    mock_response.status_code = 502
+    mock_response.text = "Bad Gateway"
+    
     mock_provider = AsyncMock()
     mock_provider.get_job_status = AsyncMock(
-        side_effect=httpx.HTTPStatusError("Bad Gateway", request=Mock(), response=Mock(status_code=502))
+        side_effect=httpx.HTTPStatusError("Bad Gateway", request=mock_request, response=mock_response)
     )
     mock_provider.close = AsyncMock()
     
@@ -143,22 +150,23 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             ledger = BudgetLedger(test_episode)
             await ledger.init_db()
             
-            # Reserve first
+            # Reserve first (simulating what submit would do)
             reserved = await ledger.reserve("ep99", "L2_drafts", 4.0, "test reserve")
             assert reserved
             
             status_before = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_before = status_before["reserved"]
+            assert reserved_before == 4.0, "Should have 4.0 reserved"
             
-            # Poll should fail and release
+            # Poll should fail with HTTPStatusError, and the exception handler should release
             with pytest.raises(httpx.HTTPStatusError):
                 await await_job_enforced("test-job", "still", "ep99", "A01", "L2_drafts", 4.0)
             
-            # Check reservation was released
+            # Check reservation was released by the exception handler
             status_after = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_after = status_after["reserved"]
             
-            assert reserved_after < reserved_before, f"Reserved should decrease: was {reserved_before}, now {reserved_after}"
+            assert reserved_after == 0.0, f"Reserved should be 0 after release: was {reserved_before}, now {reserved_after}"
 
 
 @pytest.mark.asyncio
