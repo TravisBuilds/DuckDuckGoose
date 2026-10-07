@@ -60,7 +60,8 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
         duck_role = "absent"
         
         if chars_raw != '–':
-            char_codes = re.findall(r'([A-Z]+)(?:\([^)]*\))?', chars_raw)
+            # Match character codes including digits (e.g., M1, M2, B, W, T)
+            char_codes = re.findall(r'([A-Z]\d*)(?:\([^)]*\))?', chars_raw)
             for code in char_codes:
                 characters.append(code)
                 if code == 'D':

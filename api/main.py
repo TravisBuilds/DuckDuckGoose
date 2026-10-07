@@ -1195,10 +1195,25 @@ async def run_canary(
     
     # Load beatmap to get full shot data for prompt building
     beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
+    episode_path = Path("./data/episodes") / episode_id
     
     if beatmap_path.exists():
-        # Load continuity notes if available
-        continuity_path = Path("./data/episodes") / episode_id / "CONTINUITY.md"
+        # Load prompt_kit.json (required for live mode, optional for dry mode)
+        from hfvg.continuity_parser import load_prompt_kit, build_prompt_with_continuity, get_character_refs
+        
+        prompt_kit = load_prompt_kit(episode_path)
+        
+        # In live mode, prompt_kit is REQUIRED
+        if not dry_run and not prompt_kit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Live mode requires prompt_kit.json for {episode_id}. "
+                       "Create data/episodes/{episode_id}/prompt_kit.json with style, characters, aspect_ratio, and sets. "
+                       "See docs for format."
+            )
+        
+        # Load continuity notes as fallback (for dry mode only)
+        continuity_path = episode_path / "CONTINUITY.md"
         continuity = {"characters": {}, "sets": {}, "lighting": {}, "style": ""}
         
         if continuity_path.exists():
@@ -1206,45 +1221,77 @@ async def run_canary(
             continuity = parse_continuity(continuity_path)
         
         from hfvg.episode_parser import parse_beatmap
-        from hfvg.continuity_parser import build_prompt_with_continuity
         
         shots = parse_beatmap(str(beatmap_path))
         first_shot_data = next((s for s in shots if s["shot_id"] == first_shot_id), None)
         
         if first_shot_data:
-            # Build prompt from continuity + beatmap
-            prompt = build_prompt_with_continuity(first_shot_data, continuity)
+            # Build prompt from prompt_kit (preferred) or continuity (fallback)
+            # In live mode, this will raise ValueError if character codes are unresolved
+            try:
+                prompt = build_prompt_with_continuity(
+                    first_shot_data, 
+                    continuity, 
+                    prompt_kit=prompt_kit
+                )
+            except ValueError as e:
+                # Fail closed: unresolved character codes in live mode
+                if not dry_run:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Prompt building failed (fail closed): {str(e)}"
+                    )
+                # In dry mode, allow it but warn
+                prompt = build_prompt_with_continuity(first_shot_data, continuity, prompt_kit=None)
             
-            # Load character reference images if available (limit to 3)
-            refs_dir = Path("./data/episodes") / episode_id / "refs"
+            # Get aspect ratio from prompt_kit (default to 9:16)
+            aspect_ratio = "9:16"
+            if prompt_kit:
+                aspect_ratio = prompt_kit.get("aspect_ratio", "9:16")
+            
+            # Load character reference images
             refs = []
-            if refs_dir.exists():
-                # Get character codes from shot
-                characters = first_shot_data.get("characters", [])
-                for char_code in characters[:3]:  # Limit to 3 refs
-                    # Look for character reference image
-                    ref_files = list(refs_dir.glob(f"{char_code}.*"))
-                    if ref_files:
-                        # In production, these would be uploaded to a CDN
-                        # For now, we'll use local paths (dry mode only)
-                        refs.append(str(ref_files[0]))
+            if prompt_kit:
+                # Get refs from prompt_kit
+                refs = get_character_refs(first_shot_data, prompt_kit, episode_path)
+                
+                # In live mode, refs must be uploaded to Higgsfield (not local paths)
+                # For now, we'll document this requirement and refuse local paths in live mode
+                if not dry_run and refs:
+                    raise HTTPException(
+                        status_code=501,
+                        detail="Live mode with character refs requires Higgsfield media upload (not yet implemented). "
+                               "Upload refs via Higgsfield's documented media upload mechanism and update prompt_kit.json "
+                               "to reference the returned URLs. See docs/PROVIDERS.md for upload endpoint."
+                    )
+            elif continuity:
+                # Legacy: try to find refs by character code (dry mode only)
+                refs_dir = episode_path / "refs"
+                if refs_dir.exists():
+                    characters = first_shot_data.get("characters", [])
+                    for char_code in characters[:3]:  # Limit to 3 refs
+                        ref_files = list(refs_dir.glob(f"{char_code}.*"))
+                        if ref_files:
+                            refs.append(str(ref_files[0]))
         else:
             # Beatmap exists but shot not found - use stored prompt
             prompt = stored_prompt or f"Shot {first_shot_id}"
             refs = []
+            aspect_ratio = "9:16"
     else:
         # No beatmap file - use stored prompt from database
         prompt = stored_prompt or f"Shot {first_shot_id}"
         refs = []
+        aspect_ratio = "9:16"
     
-    # Create canary shot with full prompt and refs
+    # Create canary shot with full prompt, refs, and aspect_ratio
     canary_shot = {
         "shot_id": first_shot_id,
         "prompt": prompt,
         "refs": refs,
         "params": {
             "duration": 5.0,
-            "aspect_ratio": "9:16",
+            "aspect_ratio": aspect_ratio,
         },
     }
     
@@ -1422,12 +1469,16 @@ async def run_canary(
         await db.commit()
     
     # Return immediately with workflow_id (async)
+    # Include composed prompt, aspect_ratio, and refs BEFORE any spend
     return {
         "success": True,
         "episode_id": episode_id,
         "shot_id": first_shot_id,
         "workflow_id": workflow_id,
         "reserved_amount": canary_cost,
+        "composed_prompt": prompt,  # Full prompt with resolved character descriptions
+        "aspect_ratio": aspect_ratio,  # From prompt_kit or default 9:16
+        "refs": refs,  # Character reference paths/URLs
         "dry_run": dry_run,
         "live_mode": bool(live_mode),
         "g108_approved": bool(g108_approved),
