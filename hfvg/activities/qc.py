@@ -95,7 +95,13 @@ async def review_still(asset_url: str, rubric: dict, episode_id: str = None, sho
     Returns:
         dict with 'passed' (bool), 'issues' (list of strings), and 'escalate' (bool) in live mode
     """
-    activity.heartbeat({"stage": "reviewing_still", "url": asset_url})
+    # Heartbeat only if in activity context
+    try:
+        activity.heartbeat({"stage": "reviewing_still", "url": asset_url})
+    except RuntimeError:
+        # Not in activity context (e.g., direct test call) - skip heartbeat
+        pass
+
 
     # Check live mode from DB
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
@@ -181,7 +187,13 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
     Returns:
         dict with 'passed' (bool), 'issues' (list of strings), and 'escalate' (bool) in live mode
     """
-    activity.heartbeat({"stage": "reviewing_clip", "url": asset_url})
+    # Heartbeat only if in activity context
+    try:
+        activity.heartbeat({"stage": "reviewing_clip", "url": asset_url})
+    except RuntimeError:
+        # Not in activity context (e.g., direct test call) - skip heartbeat
+        pass
+
 
     # Check live mode from DB
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")

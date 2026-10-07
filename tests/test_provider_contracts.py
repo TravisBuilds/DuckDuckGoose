@@ -296,7 +296,7 @@ async def test_estimate_apis_called():
             prompt="Test",
             resolution="2k",
             quality="medium",
-            num_refs=2
+            aspect_ratio="9:16"
         )
         
         assert cost == 5.5
@@ -385,7 +385,7 @@ async def test_full_live_flow_with_strict_mock():
         )
         
         still_estimate = await still_provider.estimate_cost(
-            prompt="A duck", resolution="1k", quality="medium", num_refs=0
+            prompt="A duck", resolution="1k", quality="medium", aspect_ratio="9:16"
         )
         assert still_estimate == 4.0
         
