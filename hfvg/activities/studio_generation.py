@@ -132,7 +132,7 @@ async def submit_still_job_enforced(
     # Check DB for live mode and G1.08 (DRY_RUN=false, so check requirements)
     live_mode, g108_approved = await check_live_mode_and_g108(episode_id)
     
-    if False and not live_mode:
+    if not live_mode:
         raise ValueError(
             f"Episode {episode_id} not in live mode. "
             "Switch to live mode before generating."
