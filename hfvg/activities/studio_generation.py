@@ -306,27 +306,52 @@ async def submit_clip_job_enforced(
             f"Reserved {estimated_cost} credits from {line_name} for {shot_id}"
         )
         
-        # Submit to provider
-        job_id = await provider.submit_video(
-            start_image=start_image_url,
-            prompt=prompt,
-            duration=duration,
-            resolution="1080p",
-            draft=False,
-            idempotency_key=idempotency_key,
-        )
+        # Validate start_image URL
+        if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
+            # Release reservation on validation failure
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount=estimated_cost,
+                reason=f"Invalid start_image: {start_image_url}"
+            )
+            raise ValueError(f"Invalid start_image URL: {start_image_url}")
         
-        activity.logger.info(
-            f"[LIVE] Submitted Kling clip {job_id} for {episode_id}/{shot_id} "
-            f"(cost: {estimated_cost}, {duration}s)"
-        )
+        # Submit to provider - wrapped to release reservation on ANY error
+        try:
+            job_id = await provider.submit_video(
+                start_image=start_image_url,
+                prompt=prompt,
+                duration=duration,
+                resolution="1080p",
+                draft=False,
+                idempotency_key=idempotency_key,
+            )
+            
+            activity.logger.info(
+                f"[LIVE] Submitted Kling clip {job_id} for {episode_id}/{shot_id} "
+                f"(cost: {estimated_cost}, {duration}s)"
+            )
+            
+            # Return dict with job info for polling
+            return {
+                "job_id": job_id,
+                "line_name": line_name,
+                "reserved_amount": estimated_cost,
+            }
         
-        # Return dict with job info for polling
-        return {
-            "job_id": job_id,
-            "line_name": line_name,
-            "reserved_amount": estimated_cost,
-        }
+        except Exception as submit_error:
+            # Release reservation on submission failure
+            activity.logger.error(
+                f"Clip submit failed, releasing {estimated_cost} from {line_name}: {submit_error}"
+            )
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount=estimated_cost,
+                reason=f"Clip submit failed: {str(submit_error)[:100]}"
+            )
+            raise
         
     finally:
         await provider.close()
@@ -403,7 +428,9 @@ async def await_job_enforced(
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
-                    amount=actual_cost,
+                    reserved_amount=reserved_amount,
+                    actual_cost=actual_cost,
+                    usd_micros=None,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed"
                 )
