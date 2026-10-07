@@ -126,7 +126,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         prompt: str,
         resolution: str = "1k",
         quality: str = "medium",
-        num_refs: int = 0,
+        aspect_ratio: str | None = None,
     ) -> float:
         """
         Estimate cost before submission via API.
@@ -138,10 +138,10 @@ class HiggsfieldStillProvider(GenerationProvider):
             prompt: Generation prompt
             resolution: Resolution (1k, 2k)
             quality: Quality (low, medium only - no high)
-            num_refs: Number of reference images
+            aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
         
         Returns:
-            Estimated cost in Higgsfield app credits
+            Estimated cost in Higgsfield API credits
         
         Raises:
             ValueError: If estimate fails or response is invalid (fail closed)
@@ -156,8 +156,8 @@ class HiggsfieldStillProvider(GenerationProvider):
             "resolution": resolution,
             "quality": quality,
         }
-        if num_refs > 0:
-            payload["num_references"] = num_refs
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
         
         try:
             response = await self.client.post(
@@ -188,12 +188,14 @@ class HiggsfieldStillProvider(GenerationProvider):
         quality: str = "medium",
         image_urls: list[str] | None = None,
         idempotency_key: str | None = None,
+        aspect_ratio: str | None = None,
     ) -> str:
         """
         Submit still image generation job.
         
         API: POST /{model_path}
-        Request: {"prompt": "...", "resolution": "1k", "quality": "medium", "image_urls": [...]}
+        Request: {"prompt": "...", "resolution": "1k", "quality": "medium", 
+                  "image_urls": [...], "aspect_ratio": "9:16"}
         Response: {"request_id": "..."}
         
         Args:
@@ -202,6 +204,7 @@ class HiggsfieldStillProvider(GenerationProvider):
             quality: Quality (low, medium only - no high)
             image_urls: List of public reference image URLs (max 3)
             idempotency_key: Idempotency key (default: deterministic based on params)
+            aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
         
         Returns:
             request_id for polling
@@ -226,6 +229,9 @@ class HiggsfieldStillProvider(GenerationProvider):
         if image_urls:
             # Use image_urls as documented, limit to 3
             payload["image_urls"] = image_urls[:3]
+        
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
         
         headers = {"Idempotency-Key": idempotency_key}
         

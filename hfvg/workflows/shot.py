@@ -88,6 +88,7 @@ class ShotWorkflow:
                 params = shot_plan.get("params", {})
                 resolution = params.get("resolution", "1k")
                 quality = params.get("quality", "medium")
+                aspect_ratio = params.get("aspect_ratio", "9:16")  # Default to 9:16
 
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
@@ -118,6 +119,7 @@ class ShotWorkflow:
                         refs,
                         resolution,
                         quality,
+                        aspect_ratio,
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -164,7 +166,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
-                            None,  # prompt
+                            shot_plan["prompt"],  # Store the composed prompt
                             True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
@@ -190,7 +192,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
-                            None,  # prompt
+                            shot_plan["prompt"],  # Store the composed prompt
                             True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
@@ -217,6 +219,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result, "human_approved": True},
                             attempt,
+                            shot_plan["prompt"],  # Store the composed prompt
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=retry_policy,

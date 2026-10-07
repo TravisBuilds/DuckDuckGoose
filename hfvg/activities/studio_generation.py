@@ -97,6 +97,7 @@ async def submit_still_job_enforced(
     refs: list[str] | None = None,
     resolution: str = "1k",
     quality: str = "medium",
+    aspect_ratio: str = "9:16",
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
@@ -158,19 +159,19 @@ async def submit_still_job_enforced(
         refs=refs,
         quality=quality,
         resolution=resolution,
+        aspect_ratio=aspect_ratio,
     )
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
     
     try:
-        # Estimate cost
-        num_refs = len(refs) if refs else 0
+        # Estimate cost (no longer passes num_refs, uses aspect_ratio instead)
         estimated_cost = await provider.estimate_cost(
             prompt=prompt,
             resolution=resolution,
             quality=quality,
-            num_refs=num_refs,
+            aspect_ratio=aspect_ratio,
         )
         
         activity.logger.info(
@@ -214,6 +215,7 @@ async def submit_still_job_enforced(
                 quality=quality,
                 image_urls=refs,
                 idempotency_key=idempotency_key,
+                aspect_ratio=aspect_ratio,
             )
             
             activity.logger.info(
