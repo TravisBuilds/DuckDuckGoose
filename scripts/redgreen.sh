@@ -623,6 +623,18 @@ test_mutation 29 "Canary reconciles L6 on workflow failure" \
     "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
     sed -i '/Workflow failed: release/,+1 s/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
 
+# 30. QC fail-closed without episode_id
+test_mutation 30 "QC fails closed when episode_id is missing" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_qc_fail_closed_without_episode_id" \
+    sed -i 's/if not episode_id:/if False and not episode_id:  # MUTATED - allow missing episode_id/'
+
+# 31. QC escalates in live mode
+test_mutation 31 "QC escalates to human review in live mode" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_qc_escalates_in_live_mode" \
+    sed -i 's/"escalate": True,/"escalate": False,  # MUTATED - auto-pass instead of escalate/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -15,6 +15,81 @@ from hfvg import activities
 
 
 @pytest.mark.asyncio
+async def test_qc_fail_closed_without_episode_id(tmp_path, monkeypatch):
+    """
+    Test: QC fails closed when episode_id is not provided.
+    
+    This verifies fix #1: QC must receive episode_id explicitly and fail
+    closed if it's missing, escalating to human review.
+    """
+    from hfvg.activities.qc import review_still
+    
+    # Set up database
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_qc_fail_closed.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")  # Simulate live mode env
+    
+    # Call review_still without episode_id (simulates the old bug)
+    result = await review_still(
+        asset_url="https://example.com/some-asset.jpg",
+        rubric={},
+        episode_id=None,  # Missing episode_id
+        shot_id="A01"
+    )
+    
+    # Should fail closed with escalate=True
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "episode_id not provided" in result["issues"][0]
+
+
+@pytest.mark.asyncio
+async def test_qc_escalates_in_live_mode(tmp_path, monkeypatch):
+    """
+    Test: QC escalates to human review in live mode.
+    
+    This verifies fix #1: When DRY_RUN=false and live_mode=true,
+    QC must escalate (needs_review) rather than auto-passing.
+    """
+    from hfvg.activities.qc import review_still
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_qc_escalate.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Set episode to live mode + g108 approved
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?",
+            ("ep99",)
+        )
+        await db.commit()
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")  # Live mode env
+    
+    # Call review_still with valid episode_id
+    result = await review_still(
+        asset_url="https://example.com/some-asset.jpg",
+        rubric={},
+        episode_id="ep99",
+        shot_id="A01"
+    )
+    
+    # Should escalate in live mode (real QC not implemented)
+    assert result["passed"] is False
+    assert result.get("escalate") is True
+    assert "Real QC agent not implemented" in result["issues"][0]
+
+
+@pytest.mark.asyncio
 async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypatch):
     """
     Test: After QC escalation and human approval, workflow proceeds to clip.
