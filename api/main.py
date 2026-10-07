@@ -1179,7 +1179,7 @@ async def run_canary(
             id=workflow_id,
             task_queue="hfvg-tasks",
         )
-    except WorkflowExecutionAlreadyStartedError:
+    except WorkflowAlreadyStartedError:
         # Workflow already running (rare race condition or retry)
         # Release reservation since we didn't actually reserve for a new workflow
         try:
