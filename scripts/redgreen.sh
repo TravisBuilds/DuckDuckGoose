@@ -298,7 +298,7 @@ test_mutation 6 "Auth fail-closed (no default secret)" \
 test_mutation 7 "Ledger math (reserve, commit, release)" \
     "hfvg/budget.py" \
     "tests/test_studio_safety.py::test_ledger_math_reserve_commit_release" \
-    sed -i 's/spent = spent + ?/spent = spent + ? + 999/'
+    sed -i '0,/spent = spent + ?/s//spent = spent + ? + 999/'  # Only first occurrence
 
 # 8. Hard cap
 test_mutation 8 "Hard cap enforcement" \
