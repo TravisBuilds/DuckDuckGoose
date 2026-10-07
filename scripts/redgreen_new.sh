@@ -246,6 +246,46 @@ test_approval_signaling() {
     echo ""
 }
 
+# Test 10: G4.09 Picture Lock Required Before Audio
+test_picture_lock_gate() {
+    log_test "10. G4.09 Picture Lock Required Before Audio"
+    
+    local file="hfvg/workflows/episode_v2.py"
+    local test="tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Removing picture lock wait..."
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_g409)/# await workflow.wait_condition(lambda: self.approved_g409)/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
+# Test 11: GX.01 HOLD Required (No Auto-Post)
+test_gx01_hold_gate() {
+    log_test "11. GX.01 HOLD Required (No Auto-Post)"
+    
+    local file="hfvg/workflows/episode_v2.py"
+    local test="tests/test_episode_v2.py::test_episode_v2_gx01_hold"
+    
+    backup_file "$file"
+    
+    log_red "Mutation: Bypassing GX.01 HOLD..."
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_gx01)/# await workflow.wait_condition(lambda: self.approved_gx01)/' "$file"
+    expect_red "$test"
+    
+    restore_file "$file"
+    
+    expect_green "$test"
+    
+    echo ""
+}
+
 echo ""
 echo "RED-GREEN SAFETY TEST PROOF"
 echo "Testing all safety gates with mutation verification"
@@ -260,6 +300,8 @@ test_ledger_math
 test_auth_fail_closed
 test_canary_workflow
 test_approval_signaling
+test_picture_lock_gate
+test_gx01_hold_gate
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

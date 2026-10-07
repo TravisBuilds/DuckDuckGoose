@@ -6,7 +6,8 @@ from typing import Any
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
-    from hfvg import budget, config  # Non-deterministic modules with os.getenv
+    from hfvg import budget
+    from hfvg.config import config  # Non-deterministic module with os.getenv
     from hfvg.activities import (
         generate_music,
         generate_sfx,
@@ -17,9 +18,10 @@ with workflow.unsafe.imports_passed_through():
         render_edit,
         trim_clips,
     )
+    from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
-    from hfvg.workflows.shot import ShotWorkflow
+    # ShotWorkflow is referenced by name string, not imported
 
 
 @workflow.defn
@@ -130,7 +132,6 @@ class EpisodeWorkflowV2:
         await workflow.wait_condition(lambda: self.approved_g108)
         
         # Verify approval in DB before proceeding (fail-closed)
-        from hfvg.activities.studio_generation import check_live_mode_and_g108
         _, g108_db = await workflow.execute_activity(
             check_live_mode_and_g108,
             args=[config.DB_PATH, self.state.episode_id],
@@ -161,7 +162,7 @@ class EpisodeWorkflowV2:
         shot_workflow_handles = []
         for shot in shots:
             handle = await workflow.start_child_workflow(
-                ShotWorkflow.run,
+                "ShotWorkflow",
                 args=[episode_id, shot],  # Fixed: 2 args not 3
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,

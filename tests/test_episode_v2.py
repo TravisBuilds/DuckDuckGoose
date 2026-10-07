@@ -1,12 +1,42 @@
 """Tests for Episode Workflow V2 (handbook-compliant with approval gates)."""
 
 import pytest
+from temporalio import workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from hfvg import activities
+from hfvg.activities.studio_generation import check_live_mode_and_g108
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-from hfvg.workflows.shot import ShotWorkflow
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class StubShotWorkflow:
+    """Stub ShotWorkflow that returns immediately after stills_approved signal."""
+    
+    def __init__(self):
+        self.stills_approved_flag = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        """Signal from parent that stills have been approved."""
+        self.stills_approved_flag = True
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_plan: dict) -> dict:
+        """Wait for stills_approved signal, then return immediately."""
+        shot_id = shot_plan["shot_id"]
+        
+        # Wait for stills_approved signal (just like real ShotWorkflow)
+        await workflow.wait_condition(lambda: self.stills_approved_flag)
+        
+        # Return success immediately without doing any work
+        return {
+            "shot_id": shot_id,
+            "still_url": f"https://test.com/{episode_id}/{shot_id}_still.png",
+            "clip_url": f"https://test.com/{episode_id}/{shot_id}_clip.mp4",
+            "status": "success",
+        }
 
 
 @pytest.mark.asyncio
@@ -26,7 +56,7 @@ async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
         async with Worker(
             env.client,
             task_queue="test-task-queue",
-            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            workflows=[EpisodeWorkflowV2, StubShotWorkflow],
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
@@ -45,6 +75,7 @@ async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
                 activities.generate_sfx,
                 activities.generate_music,
                 activities.post_to_platform,
+                check_live_mode_and_g108,
             ],
         ):
             # Start workflow
@@ -82,7 +113,6 @@ async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Slow test - shot workflows take too long even in dry_run mode (>30s)")
 async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
     """Test that G4.09 picture lock must be approved before audio."""
     # Set up test database
@@ -99,7 +129,7 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
         async with Worker(
             env.client,
             task_queue="test-task-queue",
-            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            workflows=[EpisodeWorkflowV2, StubShotWorkflow],
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
@@ -117,6 +147,7 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
                 activities.generate_voiceover,
                 activities.generate_sfx,
                 activities.generate_music,
+                check_live_mode_and_g108,
             ],
         ):
             handle = await env.client.start_workflow(
@@ -151,12 +182,15 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["approvals"]["g409"] is True
             
-            # Cancel workflow (we've proven the gate works)
-            await handle.cancel()
+            # Terminate workflow and wait for it to complete
+            await handle.terminate()
+            try:
+                await handle.result()
+            except:
+                pass  # Terminated workflows raise an exception
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Slow test - shot workflows take too long even in dry_run mode (>30s)")
 async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
     """Test that GX.01 holds by default (never auto-post)."""
     # Set up test database
@@ -173,7 +207,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
         async with Worker(
             env.client,
             task_queue="test-task-queue",
-            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            workflows=[EpisodeWorkflowV2, StubShotWorkflow],
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
@@ -188,6 +222,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
                 activities.generate_voiceover,
                 activities.generate_sfx,
                 activities.generate_music,
+                check_live_mode_and_g108,
             ],
         ):
             handle = await env.client.start_workflow(
@@ -217,5 +252,8 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             assert state["approvals"]["g610"] is True, "Audio should be complete"
             
             # Workflow should not proceed without explicit GX.01 approval
-            # Cancel to end test
-            await handle.cancel()
+            await handle.terminate()
+            try:
+                await handle.result()
+            except:
+                pass  # Terminated workflows raise an exception
