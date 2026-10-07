@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mutate probe P3 to raise RuntimeError chained from AssertionError."""
+"""Mutate probe P3 to raise RuntimeError during AssertionError handling."""
 
 import sys
 
@@ -12,17 +12,17 @@ filepath = sys.argv[1]
 with open(filepath, 'r') as f:
     content = f.read()
 
-# Replace the assertion with a chained exception
-old = '''def test_probe_runtime_chained_from_assert():
-    """Should pass normally, fail with RuntimeError when mutated (wrong reason)."""
-    assert True, "assertion passes"'''
+# Replace the simple assertion with try/except raising RuntimeError
+old = '''    value = 100
+    # This will be mutated to raise RuntimeError during except
+    assert value == 100, "Value should be 100"'''
 
-new = '''def test_probe_runtime_chained_from_assert():
-    """Should pass normally, fail with RuntimeError when mutated (wrong reason)."""
+new = '''    value = 100
+    # MUTATED: raise RuntimeError during except
     try:
-        assert False, "assertion failed"
+        assert value != 100, "Force assertion to fail"
     except AssertionError:
-        raise RuntimeError("Error during handling") from None'''
+        raise RuntimeError("Error during handling of AssertionError")'''
 
 content = content.replace(old, new)
 

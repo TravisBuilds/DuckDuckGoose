@@ -280,22 +280,28 @@ log_header "PROBE TESTS: Verify JUnit XML classifier"
 echo "These probes verify the classifier correctly rejects wrong-reason failures"
 echo ""
 
-# Probe P1: Control (should PASS - assertion failure is detected correctly)
-test_mutation "P1" "Probe control: AssertionError detected" \
+# Positive control: real assertion should be caught
+test_mutation "PC" "Positive control: Real assertion caught" \
     "tests/test_redgreen_probes.py" \
-    "tests/test_redgreen_probes.py::test_probe_assertion_fails" \
-    sed -i 's/assert True/assert False/'
+    "tests/test_redgreen_probes.py::test_probe_positive_control" \
+    sed -i 's/assert value == 42/assert value == 999/'
 
-# Probe P2: Plain AttributeError (should FAIL - wrong reason)
-test_mutation "P2" "Probe: Plain AttributeError must FAIL" \
+# Probe P1: AttributeError (should FAIL - wrong reason)
+test_mutation "P1" "Probe P1: AttributeError must report FAILED" \
     "tests/test_redgreen_probes.py" \
-    "tests/test_redgreen_probes.py::test_probe_attribute_error" \
-    sed -i 's/obj = object()/obj = None/'
+    "tests/test_redgreen_probes.py::test_probe_p1_attribute_error" \
+    python3 scripts/mutate_probe_p1.py
 
-# Probe P3: RuntimeError chained from AssertionError (should FAIL - wrong reason)
-test_mutation "P3" "Probe: RuntimeError chained from AssertionError must FAIL" \
+# Probe P2: respx unmocked request (should FAIL - wrong reason)
+test_mutation "P2" "Probe P2: respx unmocked must report FAILED" \
     "tests/test_redgreen_probes.py" \
-    "tests/test_redgreen_probes.py::test_probe_runtime_chained_from_assert" \
+    "tests/test_redgreen_probes.py::test_probe_p2_respx_unmocked" \
+    python3 scripts/mutate_probe_p2.py
+
+# Probe P3: RuntimeError during AssertionError handling (should FAIL - wrong reason)
+test_mutation "P3" "Probe P3: RuntimeError in except must report FAILED" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
 
 echo ""
