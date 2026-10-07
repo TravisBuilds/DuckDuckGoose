@@ -13,13 +13,48 @@ from hfvg.models import Asset, GenerationRequest, JobStatus
 from hfvg.providers import HiggsfieldProvider, ProviderJobStatus
 
 
+async def check_live_mode_and_g108(db_path: str, episode_id: str) -> tuple[bool, bool]:
+    """
+    Check if episode is in live mode and G1.08 is approved.
+    
+    Returns:
+        (live_mode, g108_approved)
+    """
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT live_mode, g108_approved FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False, False
+            return bool(row[0]), bool(row[1])
+
+
 @activity.defn
 async def submit_still_job(episode_id: str, req: GenerationRequest) -> str:
     """
     Submit a still generation job with idempotency.
+    
+    DEPRECATED: Use submit_still_job_enforced instead.
+    This legacy activity is gated identically to the enforced version.
 
     Returns provider job_id. Never submits the same request twice.
     """
+    activity.logger.warning(
+        "DEPRECATED: submit_still_job is a legacy activity. "
+        "Use submit_still_job_enforced instead."
+    )
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Check DB for live mode and G1.08
+    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    
+    # Decision logic: DRY_RUN env can force dry, but never force live
+    use_live = not dry_run_env and live_mode and g108_approved
+    
     ledger = Ledger()
     await ledger.init_db()
 
@@ -32,28 +67,30 @@ async def submit_still_job(episode_id: str, req: GenerationRequest) -> str:
 
     await ledger.check_balance(req.estimated_cost)
 
-    if config.DRY_RUN:
+    if not use_live:
         job_id = f"still-{uuid.uuid4().hex[:12]}"
         activity.logger.info(f"[DRY-RUN] Submitted still job {job_id} for {req.shot_id}")
     else:
-        # Real Higgsfield API call
-        provider = HiggsfieldProvider(dry_run=False)
+        # Real Higgsfield API call - GATED by DB live_mode and G1.08
+        from hfvg.providers import HiggsfieldStillProvider
+        provider = HiggsfieldStillProvider()
         
         # Determine resolution and quality from request
         # Default to draft tier (1k medium) unless specified
         resolution = req.params.get("resolution", "1k")
         quality = req.params.get("quality", "medium")
-        model = req.params.get("model", "gpt_image_2")
         
-        job_id = await provider.submit_image(
-            prompt=req.prompt,
-            model=model,
-            resolution=resolution,
-            quality=quality,
-            references=req.refs or [],
-            idempotency_key=key,
-        )
-        activity.logger.info(f"[API] Submitted still job {job_id} for {req.shot_id}")
+        try:
+            job_id = await provider.submit_still(
+                prompt=req.prompt,
+                resolution=resolution,
+                quality=quality,
+                refs=req.refs or [],
+                idempotency_key=key,
+            )
+            activity.logger.info(f"[LIVE] Submitted still job {job_id} for {req.shot_id}")
+        finally:
+            await provider.close()
 
     await ledger.insert_job(key, job_id, episode_id, req.shot_id, req, "running")
     await ledger.deduct_credits(episode_id, req.estimated_cost, "estimate", job_id)
@@ -65,9 +102,26 @@ async def submit_still_job(episode_id: str, req: GenerationRequest) -> str:
 async def submit_clip_job(episode_id: str, req: GenerationRequest) -> str:
     """
     Submit a clip generation job with idempotency.
+    
+    DEPRECATED: Use submit_clip_job_enforced instead.
+    This legacy activity is gated identically to the enforced version.
 
     Returns provider job_id. Never submits the same request twice.
     """
+    activity.logger.warning(
+        "DEPRECATED: submit_clip_job is a legacy activity. "
+        "Use submit_clip_job_enforced instead."
+    )
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Check DB for live mode and G1.08
+    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    
+    # Decision logic: DRY_RUN env can force dry, but never force live
+    use_live = not dry_run_env and live_mode and g108_approved
+    
     ledger = Ledger()
     await ledger.init_db()
 
@@ -80,7 +134,7 @@ async def submit_clip_job(episode_id: str, req: GenerationRequest) -> str:
 
     await ledger.check_balance(req.estimated_cost)
 
-    if config.DRY_RUN:
+    if not use_live:
         job_id = f"clip-{uuid.uuid4().hex[:12]}"
         activity.logger.info(f"[DRY-RUN] Submitted clip job {job_id} for {req.shot_id}")
     else:

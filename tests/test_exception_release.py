@@ -63,11 +63,12 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
-    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "v1/generate/image")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
-    # Mock provider to return 500
-    respx_mock.post("https://api.higgsfield.ai/v1/generate/image").mock(
+    # Mock provider to return 500 (POST /{model_path})
+    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(500, json={"error": "Internal server error"})
     )
     
@@ -96,7 +97,9 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v1/videos/image2video")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
     # Mock provider (won't be called due to early validation)
     respx_mock.post("https://api.higgsfield.ai/kling-video/v3.0/pro/image-to-video").mock(
@@ -126,7 +129,7 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     """Test: poll returns 502 → reservation released."""
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     
     # Mock provider that raises on poll
     from unittest.mock import patch, AsyncMock, Mock
