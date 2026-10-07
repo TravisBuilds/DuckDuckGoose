@@ -241,7 +241,7 @@ class EpisodeWorkflowV2:
         
         # Step 6: Audio (VO, music, SFX, mix)
         workflow.logger.info("=== STEP 6: AUDIO ===")
-        self.state.stage = PipelineStage.AUDIO_GENERATION
+        self.state.stage = PipelineStage.AUDIO
         
         workflow.logger.info("Audio generation (stubbed for Slice 2)...")
         if not dry_run:
@@ -254,7 +254,7 @@ class EpisodeWorkflowV2:
         
         # Step 7: Delivery (HOLD by default per GX.01)
         workflow.logger.info("=== STEP 7: DELIVERY ===")
-        self.state.stage = PipelineStage.POSTING
+        self.state.stage = PipelineStage.POST_APPROVAL
         
         # GX.01: External actions HOLD by default
         workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
