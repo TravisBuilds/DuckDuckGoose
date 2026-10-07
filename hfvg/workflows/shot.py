@@ -6,6 +6,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg import budget, config  # Non-deterministic modules with os.getenv
     from hfvg.activities import (
         await_job_enforced,
         precheck_clip_qc,

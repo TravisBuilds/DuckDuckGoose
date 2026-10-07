@@ -6,6 +6,7 @@ from typing import Any
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg import budget, config  # Non-deterministic modules with os.getenv
     from hfvg.activities import (
         generate_music,
         generate_sfx,
