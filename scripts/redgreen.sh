@@ -2,15 +2,40 @@
 #
 # Red-green safety proof: Mutate protections and verify tests go RED, then GREEN when restored.
 #
-# Uses a temporary git worktree to isolate mutations.
+# Uses a temporary git worktree to isolate mutations - NEVER edits the main working tree.
 # Treats syntax errors, SQL errors, and network failures as INVALID mutations.
 # Prints a summary table at the end.
 #
 
-set -u  # Fail on undefined variables, but NOT on command errors
+set -eu  # Fail on undefined variables AND command errors
 
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
+
+# Create isolated worktree for mutations
+MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+cleanup_worktree() {
+    if [ -d "$MUTATION_WORKTREE" ]; then
+        echo "Cleaning up worktree at $MUTATION_WORKTREE"
+        git worktree remove --force "$MUTATION_WORKTREE" 2>/dev/null || true
+        rm -rf "$MUTATION_WORKTREE"
+    fi
+}
+
+# Ensure cleanup on exit
+trap cleanup_worktree EXIT
+
+# Create worktree
+echo "Creating isolated worktree at $MUTATION_WORKTREE"
+git worktree add "$MUTATION_WORKTREE" "$CURRENT_BRANCH" || {
+    echo "Failed to create worktree"
+    exit 1
+}
+
+# All mutations will run in the worktree
+cd "$MUTATION_WORKTREE"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -589,5 +614,19 @@ test_mutation 29 "Canary reconciles L6 on workflow failure" \
 # Print final summary
 print_summary
 exit_code=$?
+
+# Return to main workspace and verify it's clean
+cd "$WORKSPACE_ROOT"
+
+echo ""
+log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
+if [ -n "$(git status --porcelain -- hfvg api)" ]; then
+    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
+    echo -e "${RED}Mutations leaked into the working tree!${NC}"
+    git status --porcelain -- hfvg api
+    exit 1
+else
+    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
+fi
 
 exit $exit_code

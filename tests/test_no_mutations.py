@@ -7,9 +7,17 @@ from pathlib import Path
 
 
 def test_no_mutated_markers():
-    """Fail if 'MUTATED' appears in product code."""
+    """Fail if mutation markers appear in product code."""
     repo_root = Path(__file__).parent.parent
     product_dirs = ["hfvg", "api"]
+    
+    # All mutation patterns that should never appear in product code
+    mutation_patterns = [
+        "MUTATED",
+        "if False and",  # Disabled checks
+        "+ 999",  # Ledger math mutation
+        "=None,  #",  # Idempotency key mutation
+    ]
     
     violations = []
     for dir_name in product_dirs:
@@ -20,10 +28,14 @@ def test_no_mutated_markers():
         for py_file in dir_path.rglob("*.py"):
             content = py_file.read_text()
             for line_num, line in enumerate(content.splitlines(), 1):
-                if "MUTATED" in line:
-                    violations.append(f"{py_file.relative_to(repo_root)}:{line_num}: {line.strip()}")
+                for pattern in mutation_patterns:
+                    if pattern in line:
+                        violations.append(
+                            f"{py_file.relative_to(repo_root)}:{line_num}: "
+                            f"Found '{pattern}': {line.strip()}"
+                        )
     
-    assert not violations, f"Found MUTATED markers in product code:\n" + "\n".join(violations)
+    assert not violations, f"Found mutation markers in product code:\n" + "\n".join(violations)
 
 
 def test_episode_workflow_gates_not_commented():
