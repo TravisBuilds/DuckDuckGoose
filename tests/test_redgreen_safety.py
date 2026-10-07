@@ -109,7 +109,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     await approve_g108(test_db, "ep99")
     
     # Calculate expected idempotency key with all parameters
-    # submit_still_job_enforced defaults: refs=None, resolution="1k", quality="medium"
+    # submit_still_job_enforced defaults: refs=None, resolution="1k", quality="medium", aspect_ratio="9:16"
     expected_key = generate_idempotency_key(
         episode_id="ep99",
         shot_id="A01",
@@ -118,6 +118,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
         refs=None,
         quality="medium",
         resolution="1k",
+        aspect_ratio="9:16",
     )
     
     # Mock estimate endpoint
