@@ -1,4 +1,12 @@
-"""Per-line budget ledger with 80% stop and Ep04 caps (HARNESS-GATES v1.1)."""
+"""Per-line budget ledger with 80% stop and Ep04 caps (HARNESS-GATES v1.1).
+
+Credit units:
+- All Higgsfield budget lines use **API credits** (not app credits)
+- Conversion: 1 app credit ≈ 0.76 API credits (based on $0.0475 app / $0.0625 API)
+- Episode and line caps in credit plans are in app credits and converted at init
+- All reserves, commits, and spending are in API credits
+- USD amounts are tracked alongside credits for accounting
+"""
 
 import aiosqlite
 from pathlib import Path
@@ -6,6 +14,12 @@ from typing import Any
 
 from hfvg.config import config
 from hfvg.gates import load_policy
+
+# Conversion factor from app credits to API credits
+# App credit: ~$0.0475-0.049 (from HARNESS-GATES.json examples)
+# API credit: $0.0625 (observed from live canary)
+# Conversion: 1 app credit = 0.0475 / 0.0625 ≈ 0.76 API credits
+APP_TO_API_CREDIT_CONVERSION = 0.76
 
 
 class BudgetLedger:
@@ -75,20 +89,23 @@ class BudgetLedger:
         hf_budget = self.policy.get_higgsfield_budget(episode_id)
         lines = hf_budget.get("lines", {})
         stop_fraction = hf_budget.get("stop_fraction", 0.8)
-        unit = hf_budget.get("unit", "Higgsfield app credits")
+        # All Higgsfield lines use API credits
+        unit = "Higgsfield API credits"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Initialize Higgsfield lines
-            for line_name, cap in lines.items():
+            # Initialize Higgsfield lines (convert app credits to API credits)
+            for line_name, cap_app_credits in lines.items():
                 line_id = f"{episode_id}:{line_name}"
-                stop_threshold = cap * stop_fraction
+                # Convert cap from app credits to API credits
+                cap_api_credits = cap_app_credits * APP_TO_API_CREDIT_CONVERSION
+                stop_threshold = cap_api_credits * stop_fraction
                 
                 await db.execute("""
                     INSERT OR IGNORE INTO budget_lines
                     (line_id, episode_id, provider, line_name, budget_cap, 
                      stop_threshold, unit, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                """, (line_id, episode_id, "higgsfield", line_name, cap, 
+                """, (line_id, episode_id, "higgsfield", line_name, cap_api_credits, 
                       stop_threshold, unit))
             
             # Initialize ElevenLabs lines
@@ -115,41 +132,46 @@ class BudgetLedger:
         """
         Initialize budget from parsed credit plan.
         
+        Credit plan caps are in app credits; they are converted to API credits
+        for all Higgsfield lines.
+        
         Args:
             episode_id: Episode ID
-            credit_plan: Parsed credit plan dict with lines, caps, stops
+            credit_plan: Parsed credit plan dict with lines, caps, stops (in app credits)
         
         Raises:
             ValueError: If any stop_threshold > budget_cap
         """
         await self.init_db()
         
-        unit = "Higgsfield app credits"
+        # All Higgsfield lines use API credits
+        unit = "Higgsfield API credits"
         
         # Validate all lines before inserting
         for line_name, line_data in credit_plan["lines"].items():
-            cap = line_data["cap"]
-            stop = line_data["stop"]
+            cap_app_credits = line_data["cap"]
+            stop_app_credits = line_data["stop"]
             
-            if stop > cap:
+            if stop_app_credits > cap_app_credits:
                 raise ValueError(
-                    f"Invalid credit plan for {line_name}: stop_threshold ({stop}) "
-                    f"must be <= budget_cap ({cap})"
+                    f"Invalid credit plan for {line_name}: stop_threshold ({stop_app_credits}) "
+                    f"must be <= budget_cap ({cap_app_credits}) (app credits)"
                 )
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             for line_name, line_data in credit_plan["lines"].items():
                 line_id = f"{episode_id}:{line_name}"
-                cap = line_data["cap"]
-                stop = line_data["stop"]
+                # Convert from app credits to API credits
+                cap_api_credits = line_data["cap"] * APP_TO_API_CREDIT_CONVERSION
+                stop_api_credits = line_data["stop"] * APP_TO_API_CREDIT_CONVERSION
                 
                 await db.execute("""
                     INSERT OR IGNORE INTO budget_lines
                     (line_id, episode_id, provider, line_name, budget_cap, 
                      stop_threshold, unit, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                """, (line_id, episode_id, "higgsfield", line_name, cap, 
-                      stop, unit))
+                """, (line_id, episode_id, "higgsfield", line_name, cap_api_credits, 
+                      stop_api_credits, unit))
             
             await db.commit()
     
