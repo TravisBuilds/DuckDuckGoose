@@ -90,7 +90,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
     )
     
     # Mock provider - this will catch calls to the provider
@@ -304,7 +304,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     
     # Mock estimate endpoint (should NOT be called in dry mode)
     estimate_mock = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
     )
     
     # Mock generation endpoint (should NOT be called in dry mode)
@@ -389,7 +389,7 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
     )
     
     # Mock provider
@@ -449,7 +449,7 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 7.5})
+        return_value=httpx.Response(200, json={"credits": "7.5", "usd": "0.075"})
     )
     
     # Mock provider

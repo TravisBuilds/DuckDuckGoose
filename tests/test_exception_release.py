@@ -69,7 +69,7 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
     )
     
     # Mock provider to return 500 (POST /{model_path})
@@ -108,7 +108,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
-        return_value=httpx.Response(200, json={"estimated_cost": 7.5})
+        return_value=httpx.Response(200, json={"credits": "7.5", "usd": "0.075"})
     )
     
     # Mock provider (won't be called due to early validation)
