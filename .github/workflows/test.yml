@@ -30,6 +30,7 @@ jobs:
 
     - name: Test report
       if: always()
+      timeout-minutes: 3
       run: |
         pytest tests/ --tb=line -q || true
 
