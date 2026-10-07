@@ -273,7 +273,7 @@ class BudgetLedger:
                 
                 await db.execute("""
                     UPDATE budget_lines
-                    SET reserved = reserved - ?, spent = spent + ? + 999
+                    SET reserved = reserved - ?, spent = spent + ?
                     WHERE line_id = ?
                 """, (reserved_amount, actual_cost, line_id))
                 
