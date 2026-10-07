@@ -213,7 +213,7 @@ async def submit_still_job_enforced(
                 resolution=resolution,
                 quality=quality,
                 image_urls=refs,
-                idempotency_key=idempotency_key,
+                idempotency_key=None,  # MUTATED
             )
             
             activity.logger.info(
@@ -379,7 +379,7 @@ async def submit_clip_job_enforced(
                 image_url=start_image_url,
                 prompt=prompt,
                 duration=int(duration),  # Must be integer
-                idempotency_key=idempotency_key,
+                idempotency_key=None,  # MUTATED
             )
             
             activity.logger.info(

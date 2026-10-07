@@ -57,7 +57,7 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
+    /home/ubuntu/.local/bin/pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for collection errors or syntax errors (INVALID mutation)
@@ -566,7 +566,7 @@ test_mutation 25 "Workflow waits for parent stills_approved signal" \
 test_mutation 26 "Idempotent release clamps to reserved" \
     "hfvg/budget.py" \
     "tests/test_exception_release.py::test_idempotent_release_safe" \
-    sed -i 's/release_amount = min(amount, current_reserved)/release_amount = amount  # MUTATED - no clamp/'
+    sed -i 's/WHERE line_id = ? AND reserved >= ?/WHERE line_id = ?  -- MUTATED: removed reserved check/'
 
 # 27. Overage commits actual cost
 test_mutation 27 "Overage commits actual_cost not reserved" \

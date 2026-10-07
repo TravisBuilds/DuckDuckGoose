@@ -73,8 +73,13 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
-    # Mock provider (won't be called because check happens first)
-    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+    # Mock estimate endpoint (if check is bypassed, code will call this)
+    mock_estimate = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
+    )
+    
+    # Mock provider submit (should never be called if protection works)
+    mock_submit = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
@@ -87,14 +92,46 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     assert not live_mode, "Episode should not be in live mode by default"
     assert g108, "G1.08 should be approved"
     
+    # Get ledger state before attempt
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    line_id = f"{episode_id}:L2_drafts"
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_before = row[0] if row else 0.0
+    
     # Attempt to submit still - should fail due to live mode
-    with pytest.raises(ValueError, match="not in live mode"):
+    try:
         await submit_still_job_enforced(
             episode_id=episode_id,
             shot_id="A01",
             prompt="Test prompt",
             version=1,
         )
+        # If mutation bypasses check, we reach here
+        pytest.fail("Expected ValueError for missing live mode, but call succeeded")
+    except ValueError as e:
+        if "not in live mode" in str(e):
+            # Correct: the protection worked
+            pass
+        else:
+            # Wrong error
+            raise
+    
+    # Assert provider was never called (protection worked before API call)
+    assert not mock_submit.called, "Provider submit should not be called without live mode"
+    
+    # Assert ledger unchanged (no budget reserved)
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_after = row[0] if row else 0.0
+    assert reserved_after == reserved_before, "Budget should not be reserved without live mode"
 
 
 @pytest.mark.asyncio
@@ -110,8 +147,13 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
-    # Mock provider (won't be called because check happens first)
-    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+    # Mock estimate endpoint (if check is bypassed, code will call this)
+    mock_estimate = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
+    )
+    
+    # Mock provider submit (should never be called if protection works)
+    mock_submit = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
@@ -122,14 +164,46 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     assert live_mode, "Live mode should be enabled"
     assert not g108, "G1.08 should still not be approved"
     
+    # Get ledger state before attempt
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    line_id = f"{episode_id}:L2_drafts"
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_before = row[0] if row else 0.0
+    
     # Attempt to submit still - should fail
-    with pytest.raises(ValueError, match="G1.08 credit plan not approved"):
+    try:
         await submit_still_job_enforced(
             episode_id=episode_id,
             shot_id="A01",
             prompt="Test prompt",
             version=1,
         )
+        # If mutation bypasses check, we reach here
+        pytest.fail("Expected ValueError for missing G1.08, but call succeeded")
+    except ValueError as e:
+        if "G1.08" in str(e):
+            # Correct: the protection worked
+            pass
+        else:
+            # Wrong error
+            raise
+    
+    # Assert provider was never called (protection worked before API call)
+    assert not mock_submit.called, "Provider submit should not be called without G1.08"
+    
+    # Assert ledger unchanged (no budget reserved)
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_after = row[0] if row else 0.0
+    assert reserved_after == reserved_before, "Budget should not be reserved without G1.08"
 
 
 @pytest.mark.asyncio

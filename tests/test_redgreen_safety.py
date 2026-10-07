@@ -51,14 +51,51 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     # Approve G1.08 but NOT live mode
     await approve_g108(test_db, "ep99")
     
-    # Mock provider to avoid network call
-    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+    # Mock estimate endpoint (if check is bypassed, code will call this)
+    mock_estimate = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
+    )
+    
+    # Mock provider submit (should never be called if protection works)
+    mock_submit = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
+    # Get ledger state before attempt
+    ledger = BudgetLedger(test_db)
+    await ledger.init_db()
+    line_id = "ep99:L2_drafts"
+    async with aiosqlite.connect(test_db) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_before = row[0] if row else 0.0
+    
     # Activity should check live mode and refuse (activity-level enforcement)
-    with pytest.raises(ValueError, match="not in live mode"):
+    try:
         await submit_still_job_enforced("ep99", "A01", "Test", 1)
+        # If mutation bypasses check, we reach here
+        pytest.fail("Expected ValueError for missing live mode, but call succeeded")
+    except ValueError as e:
+        if "not in live mode" in str(e):
+            # Correct: the protection worked
+            pass
+        else:
+            # Wrong error
+            raise
+    
+    # Assert provider was never called
+    assert not mock_submit.called, "Provider should not be called without live mode"
+    
+    # Assert ledger unchanged (no budget reserved)
+    async with aiosqlite.connect(test_db) as db:
+        async with db.execute(
+            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            reserved_after = row[0] if row else 0.0
+    assert reserved_after == reserved_before, "Budget should not be reserved without live mode"
 
 
 @pytest.mark.asyncio
