@@ -163,10 +163,17 @@ class ShotWorkflow:
                         "error": f"QC failed - escalated to human review: {', '.join(review_result['issues'])}",
                     }
                 else:
-                    workflow.logger.warning(
-                        f"Still failed QC: {review_result['issues']}, retrying..."
+                    # QC failed without escalation (shouldn't happen in live; review always escalates)
+                    # Treat as terminal failure to prevent automatic paid retry loop
+                    workflow.logger.error(
+                        f"Still failed QC without escalation: {review_result['issues']}"
                     )
-                    self.version += 1
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "still_url": self.still_asset["url"],
+                        "error": f"QC failed: {', '.join(review_result['issues'])}",
+                    }
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on still: {e}, routing to recovery")
@@ -275,8 +282,17 @@ class ShotWorkflow:
                         "error": f"Clip QC failed - escalated to human review: {', '.join(clip_qc['issues'])}",
                     }
                 else:
-                    workflow.logger.warning(f"Clip failed QC: {clip_qc['issues']}, retrying...")
-                    self.version += 1
+                    # QC failed without escalation (shouldn't happen in live; review always escalates)
+                    # Treat as terminal failure to prevent automatic paid retry loop
+                    workflow.logger.error(
+                        f"Clip failed QC without escalation: {clip_qc['issues']}"
+                    )
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "clip_url": self.clip_asset["url"],
+                        "error": f"QC failed: {', '.join(clip_qc['issues'])}",
+                    }
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on clip: {e}, routing to recovery")
