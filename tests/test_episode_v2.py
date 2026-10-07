@@ -260,21 +260,24 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             await handle.signal(EpisodeWorkflowV2.approve_g501)
             await handle.signal(EpisodeWorkflowV2.approve_g610)
             
-            await env.sleep(5)  # Give workflow time to proceed if gate is bypassed
-            
-            # Should be waiting at GX.01 HOLD (verify posting is blocked)
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["approvals"]["gx01"] is False, "Should be at HOLD gate"
-            
-            # Workflow should be blocked at GX.01
-            desc = await handle.describe()
-            assert desc.status.name == "RUNNING", "Workflow should still be running (blocked at GX.01)"
-            
-            # Send remaining approvals including GX.01 to allow completion
-            await handle.signal(EpisodeWorkflowV2.approve_gx01)
+            # Also send G7.02 and G7.03 approvals (but NOT GX.01)
             await handle.signal(EpisodeWorkflowV2.approve_g702)
             await handle.signal(EpisodeWorkflowV2.approve_g703)
             
-            # Now workflow should be able to complete
+            await env.sleep(5)  # Give workflow time to proceed if gate is bypassed
+            
+            # Should be waiting at GX.01 HOLD (blocked even though later gates are approved)
+            desc = await handle.describe()
+            assert desc.status.name == "RUNNING", "Workflow should still be running (blocked at GX.01)"
+            
+            # Verify workflow is truly blocked by trying to get result with timeout
+            import asyncio
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(handle.result(), timeout=1.0)
+            
+            # Now send GX.01 approval and verify workflow completes
+            await handle.signal(EpisodeWorkflowV2.approve_gx01)
+            
+            # Workflow should now complete
             result = await handle.result()
-            assert result is not None, "Workflow should complete after all approvals"
+            assert result is not None, "Workflow should complete after GX.01 approval"
