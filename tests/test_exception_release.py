@@ -223,6 +223,14 @@ async def test_commit_handles_overage(test_episode):
             row = await cursor.fetchone()
             assert row is not None, "overage_warning transaction should exist"
             assert row[0] == 2.0, f"Overage should be 2.0, got {row[0]}"
+        
+        # Also check the commit transaction has actual_cost (12.0), not reserved (10.0)
+        async with db.execute(
+            "SELECT amount FROM budget_transactions WHERE txn_type = 'commit'"
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None, "commit transaction should exist"
+            assert row[0] == 12.0, f"Commit should be 12.0 (actual cost), got {row[0]}"
 
 
 @pytest.mark.asyncio

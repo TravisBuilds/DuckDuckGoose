@@ -260,30 +260,24 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             await handle.signal(EpisodeWorkflowV2.approve_g501)
             await handle.signal(EpisodeWorkflowV2.approve_g610)
             
+            # Also send G7.02 and G7.03 approvals (but NOT GX.01)
+            await handle.signal(EpisodeWorkflowV2.approve_g702)
+            await handle.signal(EpisodeWorkflowV2.approve_g703)
+            
             await env.sleep(5)  # Give workflow time to proceed if gate is bypassed
             
-            # Should be waiting at GX.01 HOLD (verify posting is blocked)
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["approvals"]["gx01"] is False, "Should be at HOLD gate"
-            assert state["approvals"]["g610"] is True, "Audio should be complete"
-            
-            # The workflow should be blocked at GX.01, not proceed to G7.02
-            # If the wait_condition is removed, it would skip to G7.02
-            # We can tell by checking the workflow describe status - it should still be running
-            # and the history should show we're at GX.01, not G7.02
+            # Should be waiting at GX.01 HOLD (blocked even though later gates are approved)
             desc = await handle.describe()
-            assert desc.status.name == "RUNNING", "Workflow should still be running (blocked at gate)"
+            assert desc.status.name == "RUNNING", "Workflow should still be running (blocked at GX.01)"
             
-            # Another way to verify: if we're truly at GX.01 (not G7.02), 
-            # sending GX.01 approval should allow workflow to proceed to G7.02
-            # But if the wait was bypassed, we're already at G7.02
-            # So let's verify g702 is still False (hasn't been approved yet)
-            assert state["approvals"]["g702"] is False, \
-                "Workflow must not have reached beyond GX.01 (g702 should not be approved yet)"
+            # Verify workflow is truly blocked by trying to get result with timeout
+            import asyncio
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(handle.result(), timeout=1.0)
             
-            # Workflow should not proceed without explicit GX.01 approval
-            await handle.terminate()
-            try:
-                await handle.result()
-            except:
-                pass  # Terminated workflows raise an exception
+            # Now send GX.01 approval and verify workflow completes
+            await handle.signal(EpisodeWorkflowV2.approve_gx01)
+            
+            # Workflow should now complete
+            result = await handle.result()
+            assert result is not None, "Workflow should complete after GX.01 approval"
