@@ -1124,47 +1124,49 @@ async def run_canary(
             
             first_shot_id, stored_prompt = shot_row
     
-    # Load continuity notes if available
-    continuity_path = Path("./data/episodes") / episode_id / "CONTINUITY.md"
-    continuity = {"characters": {}, "sets": {}, "lighting": {}, "style": ""}
-    
-    if continuity_path.exists():
-        from hfvg.continuity_parser import parse_continuity
-        continuity = parse_continuity(continuity_path)
-    
     # Load beatmap to get full shot data for prompt building
     beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
-    if not beatmap_path.exists():
-        raise HTTPException(status_code=404, detail="BEATMAP not found")
     
-    from hfvg.episode_parser import parse_beatmap
-    from hfvg.continuity_parser import build_prompt_with_continuity
-    
-    shots = parse_beatmap(str(beatmap_path))
-    first_shot_data = next((s for s in shots if s["shot_id"] == first_shot_id), None)
-    
-    if not first_shot_data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Shot {first_shot_id} not found in beatmap"
-        )
-    
-    # Build prompt from continuity + beatmap
-    prompt = build_prompt_with_continuity(first_shot_data, continuity)
-    
-    # Load character reference images if available (limit to 3)
-    refs_dir = Path("./data/episodes") / episode_id / "refs"
-    refs = []
-    if refs_dir.exists():
-        # Get character codes from shot
-        characters = first_shot_data.get("characters", [])
-        for char_code in characters[:3]:  # Limit to 3 refs
-            # Look for character reference image
-            ref_files = list(refs_dir.glob(f"{char_code}.*"))
-            if ref_files:
-                # In production, these would be uploaded to a CDN
-                # For now, we'll use local paths (dry mode only)
-                refs.append(str(ref_files[0]))
+    if beatmap_path.exists():
+        # Load continuity notes if available
+        continuity_path = Path("./data/episodes") / episode_id / "CONTINUITY.md"
+        continuity = {"characters": {}, "sets": {}, "lighting": {}, "style": ""}
+        
+        if continuity_path.exists():
+            from hfvg.continuity_parser import parse_continuity
+            continuity = parse_continuity(continuity_path)
+        
+        from hfvg.episode_parser import parse_beatmap
+        from hfvg.continuity_parser import build_prompt_with_continuity
+        
+        shots = parse_beatmap(str(beatmap_path))
+        first_shot_data = next((s for s in shots if s["shot_id"] == first_shot_id), None)
+        
+        if first_shot_data:
+            # Build prompt from continuity + beatmap
+            prompt = build_prompt_with_continuity(first_shot_data, continuity)
+            
+            # Load character reference images if available (limit to 3)
+            refs_dir = Path("./data/episodes") / episode_id / "refs"
+            refs = []
+            if refs_dir.exists():
+                # Get character codes from shot
+                characters = first_shot_data.get("characters", [])
+                for char_code in characters[:3]:  # Limit to 3 refs
+                    # Look for character reference image
+                    ref_files = list(refs_dir.glob(f"{char_code}.*"))
+                    if ref_files:
+                        # In production, these would be uploaded to a CDN
+                        # For now, we'll use local paths (dry mode only)
+                        refs.append(str(ref_files[0]))
+        else:
+            # Beatmap exists but shot not found - use stored prompt
+            prompt = stored_prompt or f"Shot {first_shot_id}"
+            refs = []
+    else:
+        # No beatmap file - use stored prompt from database
+        prompt = stored_prompt or f"Shot {first_shot_id}"
+        refs = []
     
     # Create canary shot with full prompt and refs
     canary_shot = {
