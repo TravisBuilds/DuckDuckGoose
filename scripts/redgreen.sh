@@ -15,6 +15,7 @@ cd "$WORKSPACE_ROOT"
 # Create isolated worktree for mutations
 MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+CURRENT_COMMIT="$(git rev-parse HEAD)"
 
 cleanup_worktree() {
     if [ -d "$MUTATION_WORKTREE" ]; then
@@ -27,9 +28,9 @@ cleanup_worktree() {
 # Ensure cleanup on exit
 trap cleanup_worktree EXIT
 
-# Create worktree
+# Create worktree using commit SHA (avoids conflict when branch is already checked out)
 echo "Creating isolated worktree at $MUTATION_WORKTREE"
-git worktree add "$MUTATION_WORKTREE" "$CURRENT_BRANCH" || {
+git worktree add "$MUTATION_WORKTREE" "$CURRENT_COMMIT" || {
     echo "Failed to create worktree"
     exit 1
 }
