@@ -461,13 +461,19 @@ async def start_episode(
 async def get_episode_state(
     episode_id: str,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get current episode workflow state.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    # Accept either Bearer token or session cookie
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -549,13 +555,19 @@ async def approve_gate(
 async def get_budget_status(
     episode_id: str,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get budget status for an episode.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    # Accept either Bearer token or session cookie
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
     validate_episode_id(episode_id)
     
     from hfvg.budget import BudgetLedger

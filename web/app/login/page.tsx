@@ -17,21 +17,23 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      // Test the secret by calling the API health endpoint
-      const response = await fetch('/api/studio/verify', {
+      // Call the backend /api/login to get a session cookie
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ secret }),
+        body: JSON.stringify({ admin_secret: secret }),
+        credentials: 'include', // Important: include cookies
       });
 
       if (!response.ok) {
         throw new Error('Invalid admin secret');
       }
 
-      // Set cookie and redirect
-      document.cookie = `studio_admin_token=${secret}; path=/; max-age=86400; samesite=strict`;
+      // Backend sets httpOnly session cookie automatically
+      // Do NOT store the raw secret in any cookie or localStorage
       router.push(from);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');

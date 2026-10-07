@@ -1,31 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Verify admin secret by testing against the backend API.
+ * Verify session cookie by calling an authenticated backend endpoint.
+ * 
+ * This route is used by the Next.js frontend to check if the user has a valid
+ * session cookie. It proxies to the backend's /api/episodes/{episode_id}/gates
+ * endpoint which requires authentication.
  */
 export async function POST(request: NextRequest) {
   try {
-    const { secret } = await request.json();
-
-    if (!secret) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    
+    // Get the session cookie from the request
+    const cookie = request.cookies.get('studio_admin_token');
+    
+    if (!cookie) {
       return NextResponse.json(
-        { error: 'Admin secret required' },
-        { status: 400 }
+        { error: 'No session cookie' },
+        { status: 401 }
       );
     }
 
-    // Test the secret against the backend API
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    
-    const response = await fetch(`${apiUrl}/api/health`, {
+    // Test the session cookie against an authenticated backend endpoint
+    // Using a simple endpoint that requires authentication but has minimal side effects
+    const response = await fetch(`${apiUrl}/api/episodes/ep04/gates`, {
       headers: {
-        'Authorization': `Bearer ${secret}`,
+        'Cookie': `studio_admin_token=${cookie.value}`,
       },
+      credentials: 'include',
     });
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: 'Invalid admin secret' },
+        { error: 'Invalid or expired session' },
         { status: 401 }
       );
     }
