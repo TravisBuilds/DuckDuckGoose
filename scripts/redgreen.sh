@@ -55,7 +55,8 @@ run_test() {
     local tmp_output="/tmp/redgreen_test_$$_$(date +%s).txt"
     
     # Run pytest with timeout and save output to file
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=line -rfE --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
+    # Use --tb=long to get full traceback including error type
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=long -rfE --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for syntax errors that make the mutation INVALID
@@ -73,8 +74,8 @@ run_test() {
     fi
     
     # Test failed - check if it's an AssertionError (good) or something else (bad)
-    # Look for assertion patterns in the output
-    if grep -q "assert" "$tmp_output"; then
+    # With --tb=long, pytest shows the actual exception type
+    if grep -q "AssertionError" "$tmp_output"; then
         rm -f "$tmp_output"
         echo "FAIL_ASSERT"
         return 1
