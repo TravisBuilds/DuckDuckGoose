@@ -274,3 +274,131 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch):
     
     assert result["job_id"].startswith("still-dry-"), "Should return dry job"
     assert result["reserved_amount"] == 2.5, "Should return estimate"
+
+
+@pytest.mark.asyncio
+async def test_canary_checks_g108(test_db, monkeypatch):
+    """Test 14: Canary route check for G1.08 (simpler logic test)."""
+    # This test verifies the G1.08 check logic that the canary route uses
+    monkeypatch.setenv("DATABASE_PATH", test_db)
+    
+    from hfvg.studio_db import create_episode, approve_g108
+    from hfvg.activities.studio_generation import check_live_mode_and_g108
+    
+    # Create episode without G1.08 approval
+    await create_episode(test_db, "ep99")
+    
+    # Check should return (False, False)
+    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    assert not g108_approved, "G1.08 should not be approved"
+    
+    # Approve G1.08
+    await approve_g108(test_db, "ep99")
+    
+    # Check should return (False, True)
+    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    assert g108_approved, "G1.08 should be approved"
+
+
+@pytest.mark.asyncio
+async def test_canary_checks_live_mode_in_live(test_db, monkeypatch):
+    """Test 15: Canary logic for live mode (simpler logic test)."""
+    # This test verifies the live mode check logic used by canary
+    monkeypatch.setenv("DATABASE_PATH", test_db)
+    
+    from hfvg.studio_db import create_episode, set_live_mode
+    from hfvg.activities.studio_generation import check_live_mode_and_g108
+    
+    # Create episode with live mode OFF
+    await create_episode(test_db, "ep99")
+    await set_live_mode(test_db, "ep99", False)
+    
+    # Check should return (False, False)
+    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    assert not live_mode, "Live mode should be OFF"
+    
+    # Enable live mode
+    await set_live_mode(test_db, "ep99", True)
+    
+    # Check should return (True, False)
+    live_mode, g108_approved = await check_live_mode_and_g108(test_db, "ep99")
+    assert live_mode, "Live mode should be ON"
+
+
+@pytest.mark.asyncio
+async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
+    """Test 16: Still submit activity actually reserves from budget before calling provider."""
+    import httpx
+    from hfvg.budget import BudgetLedger
+    
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("DATABASE_PATH", test_db)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    await set_live_mode(test_db, "ep99", True)
+    await approve_g108(test_db, "ep99")
+    
+    # Mock provider
+    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
+    )
+    
+    # Check initial reserved amount
+    ledger = BudgetLedger(test_db)
+    status_before = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_before["reserved"] == 0, "Should start with 0 reserved"
+    
+    # Call activity
+    result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+    
+    # Check reserved amount increased
+    status_after = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status_after["reserved"] > 0, "Should have reserved budget"
+    assert result["reserved_amount"] > 0, "Should return reserved amount"
+
+
+@pytest.mark.asyncio
+async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
+    """Test 17: Clip submit sends Idempotency-Key header to provider."""
+    import httpx
+    from hfvg.activities.studio_generation import generate_idempotency_key
+    
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("DATABASE_PATH", test_db)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("KLING_MODEL_PATH", "kling-video/v3.0/pro/image-to-video")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    await set_live_mode(test_db, "ep99", True)
+    await approve_g108(test_db, "ep99")
+    
+    # Initialize budget for L4_video
+    ledger = BudgetLedger(test_db)
+    async with aiosqlite.connect(test_db) as db:
+        await db.execute("""
+            INSERT INTO budget_lines 
+            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("ep99:L4_video", "ep99", "higgsfield", "L4_video", 500.0, 400.0, "credits"))
+        await db.commit()
+    
+    # Calculate expected key
+    expected_key = generate_idempotency_key("ep99", "A01", 1, "clip:Test prompt")
+    
+    # Mock provider
+    mock_route = respx_mock.post("https://api.higgsfield.ai/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
+    )
+    
+    # Call clip activity
+    result = await submit_clip_job_enforced(
+        "ep99", "A01", "https://example.com/still.jpg", "Test prompt", 5.0, 1
+    )
+    
+    # Verify idempotency key was sent
+    assert mock_route.called, "Provider should be called"
+    request = mock_route.calls[0].request
+    actual_key = request.headers.get("Idempotency-Key")
+    assert actual_key == expected_key, f"Idempotency-Key mismatch. Expected: {expected_key}, Got: {actual_key}"

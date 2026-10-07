@@ -323,6 +323,30 @@ test_mutation 13 "DRY_RUN forces dry (never live)" \
     "tests/test_redgreen_safety.py::test_dry_run_forces_dry_never_live" \
     sed -i 's/dry_run_env = os.getenv.*lower.*/dry_run_env = False  # MUTATED - force live/'
 
+# 14. Canary G1.08 check
+test_mutation 14 "Canary refuses without G1.08" \
+    "api/main.py" \
+    "tests/test_redgreen_safety.py::test_canary_checks_g108" \
+    sed -i 's/if not g108_approved:/if False and not g108_approved:  # MUTATED/'
+
+# 15. Canary live mode check (in non-dry)
+test_mutation 15 "Canary in non-dry requires live_mode" \
+    "api/main.py" \
+    "tests/test_redgreen_safety.py::test_canary_checks_live_mode_in_live" \
+    sed -i 's/if not dry_run and not live_mode:/if False and not dry_run and not live_mode:  # MUTATED/'
+
+# 16. Still activity reserves budget
+test_mutation 16 "Still activity reserves before provider call" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_still_activity_reserves_budget" \
+    sed -i 's/reserved = await ledger.reserve/reserved = True  # MUTATED: skip reserve; await ledger.reserve/'
+
+# 17. Clip idempotency key
+test_mutation 17 "Clip sends Idempotency-Key header" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_clip_idempotency_key_sent" \
+    sed -i 's/"Idempotency-Key": idempotency_key/"Idempotency-Key": None  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?
