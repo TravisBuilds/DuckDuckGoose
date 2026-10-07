@@ -479,14 +479,14 @@ async def await_job_enforced(
     released = False  # Track if we've already released to prevent double release
     
     try:
-        # Poll with heartbeats
-        max_polls = 100
-        poll_interval = 5.0
+        # Phase 1: Active polling (5s intervals, up to 500s ~100 polls)
+        max_active_polls = 100
+        active_poll_interval = 5.0
         retries_5xx = 0
         max_retries_5xx = 3
         
-        for i in range(max_polls):
-            activity.heartbeat({"job_id": job_id, "poll": i})
+        for i in range(max_active_polls):
+            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "active"})
             
             try:
                 job_status = await provider.get_job_status(job_id)
@@ -498,7 +498,7 @@ async def await_job_enforced(
                     activity.logger.warning(
                         f"5xx error polling {job_id} (attempt {retries_5xx}/{max_retries_5xx}): {http_err}. Retrying..."
                     )
-                    await asyncio.sleep(poll_interval)  # Wait before retry
+                    await asyncio.sleep(active_poll_interval)  # Wait before retry
                     continue
                 # Non-5xx or max retries reached: release and raise
                 activity.logger.error(
@@ -564,21 +564,94 @@ async def await_job_enforced(
                 )
             
             # Still processing
-            await asyncio.sleep(poll_interval)
+            await asyncio.sleep(active_poll_interval)
         
-        # Timeout - release budget
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
-        await ledger.release(
-            episode_id=episode_id,
-            line_name=line_name,
-            amount=reserved_amount,
-            reason=f"{job_type} {shot_id} timeout"
+        # Phase 2: Reconciliation polling (longer intervals, up to 30 min total)
+        # DO NOT release on timeout - keep polling until we get a terminal status
+        activity.logger.warning(
+            f"Job {job_id} exceeded active polling window (~{max_active_polls * active_poll_interval}s). "
+            f"Entering reconciliation phase with longer backoff (reservation held)."
         )
-        released = True  # Mark as released
         
-        raise ValueError(f"Job {job_id} timed out after {max_polls} polls")
+        max_reconciliation_polls = 180  # ~30 min at 10s intervals
+        reconciliation_interval = 10.0
+        
+        for i in range(max_reconciliation_polls):
+            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "reconciliation"})
+            
+            try:
+                job_status = await provider.get_job_status(job_id)
+            except httpx.HTTPStatusError as http_err:
+                # In reconciliation phase, log but keep polling
+                activity.logger.warning(
+                    f"Poll error in reconciliation phase for {job_id}: {http_err}. Continuing..."
+                )
+                await asyncio.sleep(reconciliation_interval)
+                continue
+            
+            if job_status.status.value == "completed":
+                # Success - commit budget with actual cost
+                ledger = BudgetLedger(db_path)
+                await ledger.init_db()
+                
+                actual_cost = job_status.cost or reserved_amount
+                
+                await ledger.commit(
+                    episode_id=episode_id,
+                    line_name=line_name,
+                    reserved_amount=reserved_amount,
+                    actual_cost=actual_cost,
+                    usd_micros=None,
+                    job_id=job_id,
+                    reason=f"{job_type} {shot_id} completed (reconciled)"
+                )
+                
+                activity.logger.info(
+                    f"[RECONCILED] Committed {actual_cost} credits to {line_name} for {shot_id}"
+                )
+                
+                return {
+                    "status": "completed",
+                    "url": job_status.output_url,
+                    "cost": actual_cost,
+                }
+            
+            elif job_status.status.value in ("failed", "blocked", "canceled"):
+                # Confirmed terminal failure - release budget
+                ledger = BudgetLedger(db_path)
+                await ledger.init_db()
+                
+                await ledger.release(
+                    episode_id=episode_id,
+                    line_name=line_name,
+                    amount=reserved_amount,
+                    reason=f"{job_type} {shot_id} {job_status.status.value} (reconciled)"
+                )
+                released = True
+                
+                activity.logger.error(
+                    f"[RECONCILED] Job {job_id} {job_status.status.value}: {job_status.error}"
+                )
+                
+                raise ValueError(
+                    f"Generation {job_status.status.value}: {job_status.error}"
+                )
+            
+            # Still processing - continue reconciliation
+            await asyncio.sleep(reconciliation_interval)
+        
+        # Final timeout after reconciliation phase - reservation STAYS HELD
+        # This is a safety net; manual intervention required to release
+        activity.logger.error(
+            f"Job {job_id} exhausted reconciliation window (total ~{max_active_polls * active_poll_interval + max_reconciliation_polls * reconciliation_interval}s). "
+            f"Reservation for {reserved_amount} credits on {line_name} remains HELD. "
+            f"Manual reconciliation required via provider dashboard."
+        )
+        
+        raise ValueError(
+            f"Job {job_id} exhausted polling window. Reservation held - manual reconciliation required."
+        )
+
     
     except asyncio.CancelledError:
         # Activity cancelled: release reservation if not already released
