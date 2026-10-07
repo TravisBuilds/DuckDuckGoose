@@ -75,18 +75,16 @@ class KlingVideoProvider(GenerationProvider):
     
     def _generate_idempotency_key(
         self,
-        start_image: str,
+        image_url: str,
         prompt: str,
-        duration: float,
-        resolution: str,
-        draft: bool,
+        duration: int,
     ) -> str:
         """
         Generate deterministic idempotency key covering all request params.
         
-        Format: hf-clip-{sha256(img|prompt|dur|res|draft)[:16]}
+        Format: hf-clip-{sha256(img|prompt|dur)[:16]}
         """
-        key_input = f"{start_image}|{prompt}|{duration}|{resolution}|{draft}"
+        key_input = f"{image_url}|{prompt}|{duration}"
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-clip-{hash_digest}"
     
@@ -123,48 +121,46 @@ class KlingVideoProvider(GenerationProvider):
     
     async def estimate_cost(
         self,
-        duration: float,
-        resolution: str = "1080p",
+        duration: int,
     ) -> float:
         """
-        Estimate cost before submission.
+        Estimate cost before submission via API.
+        
+        API: POST /estimate/{model_path}
         
         Args:
             duration: Video duration in seconds (3-12)
-            resolution: Resolution (default 1080p)
         
         Returns:
             Estimated cost in Higgsfield app credits
         """
-        # Kling 3.0 Pro pricing: 1.5 credits/second
-        cost_per_second = 1.5
-        
-        total = duration * cost_per_second
-        
-        # Round to 1 decimal
-        return round(total, 1)
+        # Use the estimate API endpoint
+        response = await self.client.post(
+            f"/estimate/{self.model_path}",
+            json={"duration": duration},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("estimated_cost", duration * 1.5)  # Fallback to 1.5/s
     
     async def submit_video(
         self,
-        start_image: str,
+        image_url: str,
         prompt: str,
-        duration: float = 5.0,
-        resolution: str = "1080p",
-        draft: bool = False,
+        duration: int = 5,
         idempotency_key: str | None = None,
     ) -> str:
         """
         Submit video generation job.
         
         API: POST /{model_path}
+        Request: {"image_url": "...", "duration": 5, "sound": "off", "prompt": "..."}
         Response: {"request_id": "..."}
         
         Args:
-            start_image: URL or path to start image
+            image_url: Public URL of start image
             prompt: Generation prompt
-            duration: Video duration in seconds (3-12)
-            resolution: Resolution (default 1080p)
-            draft: Draft mode (faster, lower quality)
+            duration: Video duration in seconds (3-12), integer
             idempotency_key: Idempotency key (default: deterministic based on params)
         
         Returns:
@@ -173,20 +169,15 @@ class KlingVideoProvider(GenerationProvider):
         # Generate deterministic idempotency key if not provided
         if not idempotency_key:
             idempotency_key = self._generate_idempotency_key(
-                start_image, prompt, duration, resolution, draft
+                image_url, prompt, duration
             )
         
-        # Upload start image if it's a local path
-        if Path(start_image).exists():
-            start_image = await self.upload_image(start_image)
-        
-        # Submit generation
+        # Submit generation with documented API format
         payload = {
-            "start_image": start_image,
+            "image_url": image_url,
+            "duration": duration,  # Integer as required
+            "sound": "off",  # Required for cost predictability
             "prompt": prompt,
-            "duration": duration,
-            "resolution": resolution,
-            "draft": draft,
         }
         
         headers = {"Idempotency-Key": idempotency_key}
@@ -210,7 +201,7 @@ class KlingVideoProvider(GenerationProvider):
         API: GET /requests/{request_id}/status
         Response: {
             "status": "queued"|"in_progress"|"completed"|"failed"|"nsfw"|"canceled",
-            "output_url": "...",
+            "video": {"url": "..."},
             "cost": 7.5,
             "error": "..."
         }
@@ -240,11 +231,19 @@ class KlingVideoProvider(GenerationProvider):
         else:  # "queued"
             status = ProviderJobStatus.PENDING
         
+        # Parse URL from documented response format: video.url
+        output_url = None
+        if "video" in data and isinstance(data["video"], dict):
+            output_url = data["video"].get("url")
+        
+        # Parse cost from response, or None if not available
+        cost = data.get("cost")
+        
         return ProviderJob(
             job_id=request_id,
             status=status,
             progress=data.get("progress", 0.0),
-            output_url=data.get("output_url"),
-            cost=data.get("cost", 0.0),
+            output_url=output_url,
+            cost=cost,
             error=data.get("error"),
         )

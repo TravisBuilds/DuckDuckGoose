@@ -76,18 +76,17 @@ class HiggsfieldStillProvider(GenerationProvider):
     def _generate_idempotency_key(
         self,
         prompt: str,
-        model: str,
         resolution: str,
         quality: str,
-        references: list[str] | None,
+        image_urls: list[str] | None,
     ) -> str:
         """
         Generate deterministic idempotency key covering all request params.
         
-        Format: hf-still-{sha256(model|prompt|resolution|quality|refs)[:16]}
+        Format: hf-still-{sha256(prompt|resolution|quality|refs)[:16]}
         """
-        refs_str = ",".join(sorted(references or []))
-        key_input = f"{model}|{prompt}|{resolution}|{quality}|{refs_str}"
+        refs_str = ",".join(sorted(image_urls or []))
+        key_input = f"{prompt}|{resolution}|{quality}|{refs_str}"
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-still-{hash_digest}"
     
@@ -125,107 +124,98 @@ class HiggsfieldStillProvider(GenerationProvider):
     async def estimate_cost(
         self,
         prompt: str,
-        model: str,
         resolution: str = "1k",
         quality: str = "medium",
         num_refs: int = 0,
     ) -> float:
         """
-        Estimate cost before submission.
+        Estimate cost before submission via API.
+        
+        API: POST /estimate/{model_path}
         
         Args:
             prompt: Generation prompt
-            model: Model path
             resolution: Resolution (1k, 2k)
-            quality: Quality (medium, high)
+            quality: Quality (low, medium only - no high)
             num_refs: Number of reference images
         
         Returns:
             Estimated cost in Higgsfield app credits
         """
-        # Cost structure (from credit plan):
-        # - Base: ~4 credits for 1k medium
-        # - Per ref: ~1 credit
-        # - Quality multiplier: high = 1.5x
-        # - Resolution multiplier: 2k = 2x
+        # Map quality to allowed values (low, medium)
+        if quality not in ("low", "medium"):
+            quality = "medium"
         
-        base_cost = 4.0
+        # Use the estimate API endpoint
+        payload = {
+            "prompt": prompt,
+            "resolution": resolution,
+            "quality": quality,
+        }
+        if num_refs > 0:
+            payload["num_references"] = num_refs
         
-        if quality == "high":
-            base_cost *= 1.5
+        response = await self.client.post(
+            f"/estimate/{self.model_path}",
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
         
-        if resolution == "2k":
-            base_cost *= 2.0
-        
-        ref_cost = num_refs * 1.0
-        
-        total = base_cost + ref_cost
-        
-        # Round to 1 decimal
-        return round(total, 1)
+        # Return estimated cost from API
+        return data.get("estimated_cost", 4.0)  # Fallback to 4.0
     
     async def submit_image(
         self,
         prompt: str,
-        model: str | None = None,
         resolution: str = "1k",
         quality: str = "medium",
-        references: list[str] | None = None,
+        image_urls: list[str] | None = None,
         idempotency_key: str | None = None,
     ) -> str:
         """
         Submit still image generation job.
         
         API: POST /{model_path}
+        Request: {"prompt": "...", "resolution": "1k", "quality": "medium", "image_urls": [...]}
         Response: {"request_id": "..."}
         
         Args:
             prompt: Generation prompt
-            model: Model path (default: self.model_path)
             resolution: Resolution (1k, 2k)
-            quality: Quality (medium, high)
-            references: List of reference image paths or media IDs
+            quality: Quality (low, medium only - no high)
+            image_urls: List of public reference image URLs (max 3)
             idempotency_key: Idempotency key (default: deterministic based on params)
         
         Returns:
             request_id for polling
         """
-        model = model or self.model_path
+        # Map quality to allowed values (low, medium)
+        if quality not in ("low", "medium"):
+            quality = "medium"
         
         # Generate deterministic idempotency key if not provided
         if not idempotency_key:
             idempotency_key = self._generate_idempotency_key(
-                prompt, model, resolution, quality, references
+                prompt, resolution, quality, image_urls
             )
         
-        # Upload references if needed
-        media_ids = []
-        if references:
-            for ref in references[:3]:  # Max 3 refs
-                if ref.startswith("med_"):
-                    # Already a media ID
-                    media_ids.append(ref)
-                elif Path(ref).exists():
-                    # Local file - upload it
-                    media_id = await self.upload_reference(ref)
-                    media_ids.append(media_id)
-        
-        # Submit generation
+        # Submit generation with documented API format
         payload = {
-            "model": model,
             "prompt": prompt,
             "resolution": resolution,
             "quality": quality,
         }
         
-        if media_ids:
-            payload["references"] = media_ids
+        if image_urls:
+            # Use image_urls as documented, limit to 3
+            payload["image_urls"] = image_urls[:3]
         
         headers = {"Idempotency-Key": idempotency_key}
         
-        # POST /{model_path} per documented API
+        # POST /{model_path} per documented API (no model field in body)
         response = await self.client.post(
-            f"/{model}",
+            f"/{self.model_path}",
             json=payload,
             headers=headers,
         )
@@ -242,7 +232,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         API: GET /requests/{request_id}/status
         Response: {
             "status": "queued"|"in_progress"|"completed"|"failed"|"nsfw"|"canceled",
-            "output_url": "...",
+            "images": [{"url": "..."}],
             "cost": 2.5,
             "error": "..."
         }
@@ -272,12 +262,22 @@ class HiggsfieldStillProvider(GenerationProvider):
         else:  # "queued"
             status = ProviderJobStatus.PENDING
         
+        # Parse URL from documented response format: images[0].url
+        output_url = None
+        if "images" in data and isinstance(data["images"], list) and len(data["images"]) > 0:
+            first_image = data["images"][0]
+            if isinstance(first_image, dict):
+                output_url = first_image.get("url")
+        
+        # Parse cost from response, or None if not available
+        cost = data.get("cost")
+        
         return ProviderJob(
             job_id=request_id,
             status=status,
             progress=data.get("progress", 0.0),
-            output_url=data.get("output_url"),
-            cost=data.get("cost", 0.0),
+            output_url=output_url,
+            cost=cost,
             error=data.get("error"),
         )
 

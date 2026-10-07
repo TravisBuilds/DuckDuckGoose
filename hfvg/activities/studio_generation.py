@@ -136,7 +136,6 @@ async def submit_still_job_enforced(
         num_refs = len(refs) if refs else 0
         estimated_cost = await provider.estimate_cost(
             prompt=prompt,
-            model=os.getenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0"),
             resolution=resolution,
             quality=quality,
             num_refs=num_refs,
@@ -181,7 +180,7 @@ async def submit_still_job_enforced(
                 prompt=prompt,
                 resolution=resolution,
                 quality=quality,
-                references=refs,
+                image_urls=refs,
                 idempotency_key=idempotency_key,
             )
             
@@ -290,8 +289,8 @@ async def submit_clip_job_enforced(
     provider = KlingVideoProvider()
     
     try:
-        # Estimate cost (Kling 3.0 Pro: 1.5 credits/second)
-        estimated_cost = await provider.estimate_cost(duration=duration)
+        # Estimate cost (Kling 3.0 Pro: via API)
+        estimated_cost = await provider.estimate_cost(duration=int(duration))
         
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id} clip: {estimated_cost} credits ({duration}s)"
@@ -334,11 +333,9 @@ async def submit_clip_job_enforced(
         # Submit to provider - wrapped to release reservation on ANY error
         try:
             job_id = await provider.submit_video(
-                start_image=start_image_url,
+                image_url=start_image_url,
                 prompt=prompt,
-                duration=duration,
-                resolution="1080p",
-                draft=False,
+                duration=int(duration),  # Must be integer
                 idempotency_key=idempotency_key,
             )
             
