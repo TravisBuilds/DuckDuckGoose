@@ -39,6 +39,11 @@ class ShotWorkflow:
     def stills_approved(self):
         """Signal from parent that this scene's stills have been approved."""
         self.stills_approved = True
+    
+    @workflow.signal
+    def clip_approved(self):
+        """Signal from API that this shot's clip has been approved."""
+        pass  # Just for audit trail; workflow completes after clip generation
 
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
@@ -152,16 +157,51 @@ class ShotWorkflow:
                     
                     break
                 elif review_result.get("escalate"):
-                    # QC failed in live mode - escalate to human review, don't retry
-                    workflow.logger.error(
-                        f"Still QC failed in live mode, escalating to human review: {review_result['issues']}"
+                    # QC failed in live mode - escalate to human review, wait for approval
+                    workflow.logger.info(
+                        f"Still QC escalated to human review, waiting for approval signal: {review_result['issues']}"
                     )
-                    return {
-                        "shot_id": self.shot_id,
-                        "status": "needs_review",
-                        "still_url": self.still_asset["url"],
-                        "error": f"QC failed - escalated to human review: {', '.join(review_result['issues'])}",
-                    }
+                    
+                    # Record still as needs_review
+                    await workflow.execute_activity(
+                        record_shot_result,
+                        args=[
+                            os.getenv("DATABASE_PATH", "./data/studio.db"),
+                            self.episode_id,
+                            self.shot_id,
+                            "needs_review",
+                            self.still_asset["url"],
+                            None,  # clip_url
+                            {"still_qc": review_result},
+                            attempt,
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    # Wait for human approval signal (stills_approved)
+                    workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
+                    await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
+                    workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
+                    
+                    # Update status to still_complete after approval
+                    await workflow.execute_activity(
+                        record_shot_result,
+                        args=[
+                            os.getenv("DATABASE_PATH", "./data/studio.db"),
+                            self.episode_id,
+                            self.shot_id,
+                            "still_complete",
+                            self.still_asset["url"],
+                            None,  # clip_url
+                            {"still_qc": review_result, "human_approved": True},
+                            attempt,
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    break
                 else:
                     # QC failed without escalation (shouldn't happen in live; review always escalates)
                     # Treat as terminal failure to prevent automatic paid retry loop

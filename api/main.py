@@ -640,16 +640,38 @@ async def approve_still(
     await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
     
+    # Validate shot_id format
+    if not shot_id or not isinstance(shot_id, str):
+        raise HTTPException(status_code=400, detail=f"Invalid shot_id: {shot_id}")
+    
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
-    # Send signal to shot workflow
-    workflow_id = f"{episode_id}-shot-{shot_id}"
+    # Try to find the workflow: first check for canary, then regular shot
+    from hfvg.workflows.shot import ShotWorkflow
+    import aiosqlite
+    
+    # Check audit log for canary workflow_id with this shot_id
+    workflow_id = None
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            """SELECT details FROM audit_log 
+               WHERE episode_id = ? AND action = 'start_canary' AND details LIKE ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (episode_id, f"%canary-{shot_id}-%")
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                # Extract workflow_id from details like "Workflow ep04-canary-A01-1234567890, reserved L6=10.0"
+                details = row[0]
+                if "Workflow " in details:
+                    workflow_id = details.split("Workflow ")[1].split(",")[0]
+    
+    # If no canary found, use regular shot workflow ID
+    if not workflow_id:
+        workflow_id = f"{episode_id}-shot-{shot_id}"
     
     try:
-        # Import workflow type for exact targeting
-        from hfvg.workflows.shot import ShotWorkflow
-        
         handle = temporal_client.get_workflow_handle_for(
             ShotWorkflow.run,
             workflow_id=workflow_id,
@@ -707,24 +729,82 @@ async def approve_clip(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Approve clip for a shot (no signal needed - just logs approval).
+    Approve clip for a shot (sends signal to workflow).
     
     Requires: Cookie auth
     """
     await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
     
-    # Audit log
+    # Validate shot_id format
+    if not shot_id or not isinstance(shot_id, str):
+        raise HTTPException(status_code=400, detail=f"Invalid shot_id: {shot_id}")
+    
+    # Check if shot exists in this episode
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """INSERT INTO audit_log (episode_id, action, details, user)
-               VALUES (?, ?, ?, ?)""",
-            (episode_id, "approve_clip", f"Shot {shot_id} clip approved", "admin")
-        )
-        await db.commit()
+        async with db.execute(
+            "SELECT shot_id FROM shots WHERE episode_id = ? AND shot_id = ?",
+            (episode_id, shot_id)
+        ) as cursor:
+            if not await cursor.fetchone():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Shot {shot_id} not found in episode {episode_id}"
+                )
     
-    return {"success": True, "shot_id": shot_id, "message": "Clip approved"}
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    # Try to find the workflow: first check for canary, then regular shot
+    from hfvg.workflows.shot import ShotWorkflow
+    
+    # Check audit log for canary workflow_id with this shot_id
+    workflow_id = None
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            """SELECT details FROM audit_log 
+               WHERE episode_id = ? AND action = 'start_canary' AND details LIKE ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (episode_id, f"%canary-{shot_id}-%")
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                # Extract workflow_id from details
+                details = row[0]
+                if "Workflow " in details:
+                    workflow_id = details.split("Workflow ")[1].split(",")[0]
+    
+    # If no canary found, use regular shot workflow ID
+    if not workflow_id:
+        workflow_id = f"{episode_id}-shot-{shot_id}"
+    
+    try:
+        handle = temporal_client.get_workflow_handle_for(
+            ShotWorkflow.run,
+            workflow_id=workflow_id,
+        )
+        await handle.signal("clip_approved")
+        
+        # Audit log
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "approve_clip", f"Shot {shot_id} clip approved, signal sent to {workflow_id}", "admin")
+            )
+            await db.commit()
+        
+        return {"success": True, "shot_id": shot_id, "workflow_id": workflow_id, "message": "Clip approved, signal sent"}
+    
+    except Exception as e:
+        error_str = str(e).lower()
+        if "not found" in error_str or "does not exist" in error_str:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow for shot {shot_id} not found. It may not have started yet or may have already completed."
+            )
+        raise HTTPException(status_code=500, detail=f"Error approving clip: {str(e)}")
 
 
 @app.get("/api/episodes/{episode_id}/gates")
@@ -831,6 +911,30 @@ async def set_live_mode_endpoint(
     }
 
 
+@app.post("/api/episodes/{episode_id}/set-dry")
+async def set_dry_mode_endpoint(
+    episode_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Switch episode to dry-run mode (disable paid generation).
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Set live mode to false in database
+    await db_set_live_mode(DATABASE_PATH, episode_id, False, user="admin")
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "live_mode": False,
+        "message": "Episode switched to DRY-RUN mode. Paid generation disabled.",
+    }
+
+
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
     episode_id: str,
@@ -863,6 +967,53 @@ async def approve_g108_endpoint(
         "episode_id": episode_id,
         "message": "G1.08 credit plan approved",
     }
+
+
+@app.get("/api/canary/{workflow_id}")
+async def get_canary_status(
+    workflow_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Get canary workflow status.
+    
+    Requires: Cookie auth
+    
+    Returns:
+        - status: running, completed, failed, canceled
+        - result: workflow result if completed
+    """
+    await verify_admin_cookie(studio_admin_token)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    from hfvg.workflows.shot import ShotWorkflow
+    
+    try:
+        handle = temporal_client.get_workflow_handle_for(
+            ShotWorkflow.run,
+            workflow_id=workflow_id,
+        )
+        
+        # Check if workflow is still running
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            return {
+                "workflow_id": workflow_id,
+                "status": "completed",
+                "result": result,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "workflow_id": workflow_id,
+                "status": "running",
+            }
+    except Exception as e:
+        error_str = str(e).lower()
+        if "not found" in error_str or "does not exist" in error_str:
+            raise HTTPException(status_code=404, detail=f"Canary workflow {workflow_id} not found")
+        raise HTTPException(status_code=500, detail=f"Error getting canary status: {str(e)}")
 
 
 @app.post("/api/episodes/{episode_id}/canary")
@@ -937,6 +1088,28 @@ async def run_canary(
             
             first_shot_id, first_prompt = shot_row
     
+    # Reserve from L6_reserve BEFORE starting workflow (canary budget)
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(DATABASE_PATH)
+    await ledger.init_db()
+    
+    canary_cost = 10.0  # Estimated: 1 still + 1 clip
+    
+    try:
+        reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
+        if not reserved:
+            return {
+                "success": False,
+                "error": "L6_reserve budget insufficient for canary",
+                "episode_id": episode_id,
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to reserve canary budget: {str(e)}",
+            "episode_id": episode_id,
+        }
+    
     # Create canary shot using first real shot from episode
     canary_shot = {
         "shot_id": first_shot_id,
@@ -945,7 +1118,7 @@ async def run_canary(
         "params": {"duration": 5.0},
     }
     
-    # Start ShotWorkflow (async)
+    # Start ShotWorkflow (async) with reservation info
     from hfvg.workflows.shot import ShotWorkflow
     import time
     
@@ -959,14 +1132,15 @@ async def run_canary(
             task_queue="hfvg-tasks",
         )
         
-        # Charge ledger for canary (record as L6_reserve)
-        from hfvg.budget import BudgetLedger
-        ledger = BudgetLedger(DATABASE_PATH)
-        await ledger.init_db()
-        
-        # Reserve from L6_reserve (canary budget)
-        canary_cost = 10.0  # Estimated: 1 still + 1 clip
-        reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
+        # Store canary workflow_id and reservation in audit log
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost}", "system")
+            )
+            await db.commit()
         
         # Return immediately with workflow_id (async)
         return {
@@ -974,6 +1148,7 @@ async def run_canary(
             "episode_id": episode_id,
             "shot_id": first_shot_id,
             "workflow_id": workflow_id,
+            "reserved_amount": canary_cost,
             "dry_run": dry_run,
             "live_mode": bool(live_mode),
             "g108_approved": bool(g108_approved),
