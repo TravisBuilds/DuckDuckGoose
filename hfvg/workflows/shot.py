@@ -35,6 +35,7 @@ class ShotWorkflow:
         self.version = 1
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
+        self.human_approved_still = False  # Track if human approved an escalated still
 
     @workflow.signal
     def stills_approved(self):
@@ -184,6 +185,7 @@ class ShotWorkflow:
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
                     await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
                     workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
+                    self.human_approved_still = True
                     
                     # Update status to still_complete after approval
                     await workflow.execute_activity(
@@ -228,7 +230,7 @@ class ShotWorkflow:
                 workflow.logger.error(f"Insufficient credits: {e}")
                 raise
 
-        if not self.still_asset or not review_result.get("passed"):
+        if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):
             workflow.logger.error(f"Still failed after {self.max_retries} attempts")
             return {
                 "shot_id": self.shot_id,
