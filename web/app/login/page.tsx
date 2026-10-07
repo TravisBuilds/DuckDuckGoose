@@ -34,7 +34,8 @@ function LoginForm() {
 
       // Backend sets httpOnly session cookie automatically
       // Do NOT store the raw secret in any cookie or localStorage
-      router.push(from);
+      // Use window.location.assign to avoid prefetch cache issues
+      window.location.assign(from);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
       setLoading(false);

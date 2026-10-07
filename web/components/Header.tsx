@@ -16,7 +16,7 @@ export default function Header() {
               <Link href="/pricing" className="text-sm hover:text-gray-600 dark:hover:text-gray-300">
                 Pricing
               </Link>
-              <Link href="/studio" className="text-sm hover:text-gray-600 dark:hover:text-gray-300">
+              <Link href="/studio" prefetch={false} className="text-sm hover:text-gray-600 dark:hover:text-gray-300">
                 Studio
               </Link>
             </nav>

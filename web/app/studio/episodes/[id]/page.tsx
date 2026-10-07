@@ -69,12 +69,47 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [liveConfirmText, setLiveConfirmText] = useState('');
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [canaryRunning, setCanaryRunning] = useState(false);
+  const [canaryWorkflowId, setCanaryWorkflowId] = useState<string | null>(null);
+  const [canaryStatus, setCanaryStatus] = useState<string | null>(null);
+  const [canaryError, setCanaryError] = useState<string | null>(null);
 
   useEffect(() => {
     loadEpisodeData();
     const interval = setInterval(loadEpisodeData, 3000);
     return () => clearInterval(interval);
   }, [episodeId]);
+
+  useEffect(() => {
+    // Poll canary status if we have a workflow_id and it's not completed/failed
+    if (canaryWorkflowId && canaryStatus !== 'completed' && canaryStatus !== 'failed') {
+      const pollCanary = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          const response = await fetch(`${apiUrl}/api/canary/${canaryWorkflowId}`, {
+            credentials: 'include',
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            setCanaryStatus(result.status);
+            if (result.status === 'failed') {
+              setCanaryError(result.error || 'Unknown error');
+            }
+            if (result.status === 'completed' || result.status === 'failed') {
+              setCanaryRunning(false);
+              await loadEpisodeData(); // Refresh budget after completion
+            }
+          }
+        } catch (err) {
+          console.error('Failed to poll canary status:', err);
+        }
+      };
+
+      pollCanary();
+      const interval = setInterval(pollCanary, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [canaryWorkflowId, canaryStatus]);
 
 
 
@@ -166,7 +201,12 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/set-live`, {
         method: 'POST',
-        
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          confirmation: 'ENABLE_LIVE_MODE',
+        }),
         credentials: 'include',
       });
 
@@ -203,6 +243,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     if (!confirm('Run canary test? This will generate 1 still + 1 clip.')) return;
 
     setCanaryRunning(true);
+    setCanaryStatus('starting');
+    setCanaryError(null);
     try {
       // Use httpOnly cookie via credentials: 'include'
 
@@ -218,15 +260,18 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       
       if (!result.success) {
         alert(`Canary refused: ${result.message}`);
+        setCanaryRunning(false);
+        setCanaryStatus(null);
         return;
       }
 
-      alert('Canary completed successfully!');
-      await loadEpisodeData();
+      // Store workflow_id to poll for status
+      setCanaryWorkflowId(result.workflow_id);
+      setCanaryStatus('running');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Canary failed');
-    } finally {
       setCanaryRunning(false);
+      setCanaryStatus(null);
     }
   };
 
@@ -287,6 +332,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   }
 
   const estimatedCanaryCost = 6.5 + 28.0; // L1 still + L4 clip
+  // Episode cap from backend budget.py:EPISODE_CAP
+  // TODO: expose this value through the budget API if it changes
+  const EPISODE_CAP_CREDITS = 1250;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -419,11 +467,22 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             {gates?.g108_approved && (
               <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <p className="text-sm text-blue-800 dark:text-blue-300 mb-2">
-                  <strong>Canary Test</strong>: 1 still (6.5¢) + 1 clip (28¢)
+                  <strong>Canary Test</strong>: 1 still + 1 clip
                 </p>
                 <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
-                  Estimated cost: <strong>{estimatedCanaryCost.toFixed(1)}¢</strong>
+                  Estimated cost: <strong>{estimatedCanaryCost.toFixed(1)} credits</strong>
                 </p>
+                {canaryStatus && (
+                  <div className={`mb-3 p-2 rounded text-sm ${
+                    canaryStatus === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' :
+                    canaryStatus === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
+                    canaryStatus === 'running' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
+                    'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  }`}>
+                    Status: <strong>{canaryStatus}</strong>
+                    {canaryError && <div className="mt-1 text-xs">Error: {canaryError}</div>}
+                  </div>
+                )}
                 <button
                   onClick={handleRunCanary}
                   disabled={canaryRunning}
@@ -448,8 +507,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
               <div className="text-2xl font-bold">
                 {budget?.higgsfield_total.toFixed(1) || '0.0'} credits
                 <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">
-                  / {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} credits cap
+                  / {EPISODE_CAP_CREDITS} credits episode cap
                 </span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Line caps total: {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} credits
               </div>
             </div>
             
