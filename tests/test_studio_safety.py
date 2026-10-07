@@ -68,6 +68,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     # Set DRY_RUN=false to trigger live mode checks
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -82,7 +83,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     await approve_g108(db_path, episode_id)
     
     # Episode is NOT in live mode (but G1.08 IS approved)
-    live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108 = await check_live_mode_and_g108(episode_id)
     assert not live_mode, "Episode should not be in live mode by default"
     assert g108, "G1.08 should be approved"
     
@@ -117,7 +118,7 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     # Enable live mode but NOT G1.08
     await set_live_mode(db_path, episode_id, True)
     
-    live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108 = await check_live_mode_and_g108(episode_id)
     assert live_mode, "Live mode should be enabled"
     assert not g108, "G1.08 should still not be approved"
     
@@ -145,7 +146,7 @@ async def test_budget_stop_enforcement(episode_with_budget, monkeypatch):
     await set_live_mode(db_path, episode_id, True)
     await approve_g108(db_path, episode_id)
     
-    live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108 = await check_live_mode_and_g108(episode_id)
     assert live_mode and g108, "Both should be enabled"
     
     # Reserve up to the stop threshold (80 credits)
@@ -296,7 +297,7 @@ async def test_dry_run_succeeds_without_checks(episode_with_budget, monkeypatch)
     monkeypatch.setenv("DATABASE_PATH", db_path)
     
     # No live mode, no G1.08, but dry run should work
-    live_mode, g108 = await check_live_mode_and_g108(db_path, episode_id)
+    live_mode, g108 = await check_live_mode_and_g108(episode_id)
     assert not live_mode and not g108
     
     # Should succeed in dry run mode (returns dict with job info)
@@ -457,10 +458,12 @@ async def test_credit_plan_parser():
 
 
 @pytest.mark.asyncio
-async def test_episode_v2_g108_checks_db(temp_db):
+async def test_episode_v2_g108_checks_db(temp_db, monkeypatch):
     """Test: EpisodeWorkflowV2 calls check_live_mode_and_g108 activity after G1.08 signal."""
     # This test verifies the code path exists - the DB check happens via activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
+    
+    monkeypatch.setenv("DATABASE_PATH", temp_db)
     
     # Create episode and approve G1.08 in DB
     await create_episode(temp_db, "ep99")
@@ -468,7 +471,7 @@ async def test_episode_v2_g108_checks_db(temp_db):
     await approve_g108(temp_db, "ep99")
     
     # Verify activity can check DB
-    live, g108 = await check_live_mode_and_g108(temp_db, "ep99")
+    live, g108 = await check_live_mode_and_g108("ep99")
     assert live is True
     assert g108 is True
     
@@ -477,6 +480,6 @@ async def test_episode_v2_g108_checks_db(temp_db):
     await set_live_mode(temp_db, "ep98", True)
     # Don't approve G1.08
     
-    live, g108 = await check_live_mode_and_g108(temp_db, "ep98")
+    live, g108 = await check_live_mode_and_g108("ep98")
     assert live is True
     assert g108 is False
