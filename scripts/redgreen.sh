@@ -49,42 +49,56 @@ log_green() {
     echo -e "${GREEN}[GREEN] $1${NC}"
 }
 
-# Run a test and return 0 if it passes, 1 if it fails, 2 if AssertionError raised
+# Run a test and classify result from JUnit XML
+# Returns: PASS, FAIL_ASSERT, FAIL_OTHER, or INVALID
 run_test() {
     local test_name=$1
-    local tmp_output="/tmp/redgreen_test_$$_$(date +%s).txt"
+    local junit_xml="/tmp/redgreen_junit_$$_$(date +%s).xml"
+    local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
-    # Run pytest with timeout and save output to file
-    # Use --tb=long to get full traceback including error type
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --tb=long -rfE --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
+    # Run pytest with JUnit XML output
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal > "$tmp_output" 2>&1
     local exit_code=$?
     
-    # Check for syntax errors that make the mutation INVALID
-    if grep -q "SyntaxError\|IndentationError" "$tmp_output"; then
-        rm -f "$tmp_output"
+    # Check for collection errors or syntax errors (INVALID mutation)
+    if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+        rm -f "$junit_xml" "$tmp_output"
         echo "INVALID"
         return 3
     fi
     
-    # Check if test passed
-    if [ $exit_code -eq 0 ] && grep -q "passed" "$tmp_output"; then
-        rm -f "$tmp_output"
+    # Parse JUnit XML to classify failure
+    # A mutation is caught only if:
+    # 1. At least one <failure> with type="AssertionError"
+    # 2. No <error> outcomes (collection/import/runtime errors)
+    
+    # Check if all tests passed
+    if grep -q 'failures="0"' "$junit_xml" && grep -q 'errors="0"' "$junit_xml"; then
+        rm -f "$junit_xml" "$tmp_output"
         echo "PASS"
         return 0
     fi
     
-    # Test failed - check if it's an AssertionError (good) or something else (bad)
-    # With --tb=long, pytest shows the actual exception type
-    if grep -q "AssertionError" "$tmp_output"; then
-        rm -f "$tmp_output"
-        echo "FAIL_ASSERT"
-        return 1
-    else
-        # Non-AssertionError failure (AttributeError, KeyError, ImportError, etc.)
-        rm -f "$tmp_output"
+    # Check for <error> nodes (collection errors, import errors, etc.)
+    if grep -q '<error' "$junit_xml"; then
+        rm -f "$junit_xml" "$tmp_output"
         echo "FAIL_OTHER"
         return 2
     fi
+    
+    # Check for <failure> nodes with type="AssertionError"
+    # Must have at least one AssertionError failure to count as caught
+    if grep -q '<failure.*type="AssertionError"' "$junit_xml" || \
+       grep -q '<failure message="AssertionError:' "$junit_xml"; then
+        rm -f "$junit_xml" "$tmp_output"
+        echo "FAIL_ASSERT"
+        return 1
+    fi
+    
+    # Failed but not with AssertionError (other exception types)
+    rm -f "$junit_xml" "$tmp_output"
+    echo "FAIL_OTHER"
+    return 2
 }
 
 # Test one mutation
@@ -255,7 +269,37 @@ print_summary() {
 
 # Main tests
 log_header "DuckDuckGoose Studio Red-Green Safety Proofs"
-echo "Testing all 10 critical safety mechanisms with mutation testing"
+echo "Testing all critical safety mechanisms with mutation testing"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROBE MUTATIONS: Verify classifier detects wrong-reason failures
+# ─────────────────────────────────────────────────────────────────────────────
+
+log_header "PROBE TESTS: Verify JUnit XML classifier"
+echo "These probes verify the classifier correctly rejects wrong-reason failures"
+echo ""
+
+# Probe P1: Control (should PASS - assertion failure is detected correctly)
+test_mutation "P1" "Probe control: AssertionError detected" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_assertion_fails" \
+    sed -i 's/assert True/assert False/'
+
+# Probe P2: Plain AttributeError (should FAIL - wrong reason)
+test_mutation "P2" "Probe: Plain AttributeError must FAIL" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_attribute_error" \
+    sed -i 's/obj = object()/obj = None/'
+
+# Probe P3: RuntimeError chained from AssertionError (should FAIL - wrong reason)
+test_mutation "P3" "Probe: RuntimeError chained from AssertionError must FAIL" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_runtime_chained_from_assert" \
+    python3 scripts/mutate_probe_p3.py
+
+echo ""
+log_header "PRODUCTION SAFETY TESTS"
 echo ""
 
 # Ensure we're in the repo root
