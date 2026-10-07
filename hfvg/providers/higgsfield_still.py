@@ -132,6 +132,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         Estimate cost before submission via API.
         
         API: POST /estimate/{model_path}
+        Response: {"credits": "<str>", "usd": "<str>"}
         
         Args:
             prompt: Generation prompt
@@ -141,6 +142,9 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         Returns:
             Estimated cost in Higgsfield app credits
+        
+        Raises:
+            ValueError: If estimate fails or response is invalid (fail closed)
         """
         # Map quality to allowed values (low, medium)
         if quality not in ("low", "medium"):
@@ -155,15 +159,27 @@ class HiggsfieldStillProvider(GenerationProvider):
         if num_refs > 0:
             payload["num_references"] = num_refs
         
-        response = await self.client.post(
-            f"/estimate/{self.model_path}",
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Return estimated cost from API
-        return data.get("estimated_cost", 4.0)  # Fallback to 4.0
+        try:
+            response = await self.client.post(
+                f"/estimate/{self.model_path}",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Parse documented response format: {"credits": "<str>", "usd": "<str>"}
+            if "credits" not in data:
+                raise ValueError(f"Estimate response missing 'credits' field: {data}")
+            
+            credits_str = data["credits"]
+            if not isinstance(credits_str, str):
+                raise ValueError(f"Estimate 'credits' must be string, got {type(credits_str)}")
+            
+            return float(credits_str)
+            
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            # Fail closed: never submit without a valid estimate
+            raise ValueError(f"Failed to get estimate for still generation: {e}") from e
     
     async def submit_image(
         self,

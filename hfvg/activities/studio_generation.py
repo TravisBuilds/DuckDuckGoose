@@ -328,8 +328,12 @@ async def submit_clip_job_enforced(
     provider = KlingVideoProvider()
     
     try:
-        # Estimate cost (Kling 3.0 Pro: via API)
-        estimated_cost = await provider.estimate_cost(duration=int(duration))
+        # Estimate cost (Kling 3.0 Pro: via API with full request params)
+        estimated_cost = await provider.estimate_cost(
+            image_url=start_image_url,
+            prompt=prompt,
+            duration=int(duration)
+        )
         
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id} clip: {estimated_cost} credits ({duration}s)"

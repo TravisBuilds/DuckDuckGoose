@@ -121,27 +121,57 @@ class KlingVideoProvider(GenerationProvider):
     
     async def estimate_cost(
         self,
+        image_url: str,
+        prompt: str,
         duration: int,
     ) -> float:
         """
         Estimate cost before submission via API.
         
         API: POST /estimate/{model_path}
+        Request: Must mirror the full documented submit request
+        Response: {"credits": "<str>", "usd": "<str>"}
         
         Args:
+            image_url: Public URL of start image (required for estimate)
+            prompt: Generation prompt (required for estimate)
             duration: Video duration in seconds (3-12)
         
         Returns:
             Estimated cost in Higgsfield app credits
+        
+        Raises:
+            ValueError: If estimate fails or response is invalid (fail closed)
         """
-        # Use the estimate API endpoint
-        response = await self.client.post(
-            f"/estimate/{self.model_path}",
-            json={"duration": duration},
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data.get("estimated_cost", duration * 1.5)  # Fallback to 1.5/s
+        # Estimate body must mirror the full documented submit request
+        payload = {
+            "image_url": image_url,
+            "duration": duration,
+            "sound": "off",
+            "prompt": prompt,
+        }
+        
+        try:
+            response = await self.client.post(
+                f"/estimate/{self.model_path}",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Parse documented response format: {"credits": "<str>", "usd": "<str>"}
+            if "credits" not in data:
+                raise ValueError(f"Estimate response missing 'credits' field: {data}")
+            
+            credits_str = data["credits"]
+            if not isinstance(credits_str, str):
+                raise ValueError(f"Estimate 'credits' must be string, got {type(credits_str)}")
+            
+            return float(credits_str)
+            
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            # Fail closed: never submit without a valid estimate
+            raise ValueError(f"Failed to get estimate for video generation: {e}") from e
     
     async def submit_video(
         self,
