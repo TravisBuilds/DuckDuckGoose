@@ -15,17 +15,26 @@ def mutate_file(filepath: str):
     # Mutated:
     #     handle = None  # MUTATED
     
-    # Find the pattern in the canary route (around line 445)
+    # Find the pattern in the canary route (around line 1141, in run_canary function)
     lines = content.split('\n')
     new_lines = []
     i = 0
+    in_canary_route = False
     while i < len(lines):
         line = lines[i]
+        # Track when we're in the canary route
+        if 'async def run_canary(' in line:
+            in_canary_route = True
+        elif in_canary_route and line.strip().startswith('async def '):
+            # We've entered a new function, no longer in canary
+            in_canary_route = False
+        
         # Look for the workflow start in canary route
-        if 'handle = await temporal_client.start_workflow(' in line and i > 400 and i < 500:
-            # This is the canary route (first occurrence around line 445)
+        if in_canary_route and 'handle = await temporal_client.start_workflow(' in line:
+            # This is the canary route workflow start
             # Skip this line and subsequent lines until we find the closing )
-            new_lines.append('    handle = None  # MUTATED: workflow start skipped')
+            indent = len(line) - len(line.lstrip())
+            new_lines.append(' ' * indent + 'handle = None  # MUTATED: workflow start skipped')
             # Skip until we find the closing parenthesis
             depth = line.count('(') - line.count(')')
             i += 1
