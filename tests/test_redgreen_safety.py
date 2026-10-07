@@ -44,14 +44,16 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_db)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
     # Approve G1.08 but NOT live mode
     await approve_g108(test_db, "ep99")
     
     # Mock provider to avoid network call
-    respx_mock.post("https://api.higgsfield.ai/v1/generate/image").mock(
-        return_value=httpx.Response(200, json={"job_id": "test-123"})
+    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
     # Activity should check live mode and refuse (activity-level enforcement)
@@ -67,8 +69,9 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", test_db)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
-    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "v1/generate/image")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
@@ -77,8 +80,8 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     expected_key = generate_idempotency_key("ep99", "A01", 1, "Test prompt")
     
     # Mock provider - this will catch calls to the provider
-    mock_route = respx_mock.post("https://api.higgsfield.ai/v1/generate/image").mock(
-        return_value=httpx.Response(200, json={"job_id": "test-123"})
+    mock_route = respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
     # Call activity
@@ -110,6 +113,10 @@ async def test_auth_fail_closed(monkeypatch, tmp_path):
     # No auth - should fail
     response = client.get("/api/episodes/ep99")
     assert response.status_code == 401, "Should reject without auth"
+    
+    # Wrong auth - should also fail
+    response = client.get("/api/episodes/ep99", headers={"Authorization": "Bearer wrong-secret"})
+    assert response.status_code == 401 or response.status_code == 403, "Should reject wrong auth"
 
 
 @pytest.mark.asyncio

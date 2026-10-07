@@ -92,46 +92,37 @@ async def submit_still_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
-    # Check DB for live mode and G1.08
-    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
-    
-    # Decision logic: DRY_RUN env can force dry, but never force live
-    # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
-    use_live = not dry_run_env and live_mode and g108_approved
-    
-    if not use_live:
-        # Dry run mode: use fake provider
+    # DRY_RUN env forces dry mode (kill switch)
+    if dry_run_env:
         job_id = f"still-dry-{uuid.uuid4().hex[:12]}"
-        reason = []
-        if dry_run_env:
-            reason.append("DRY_RUN=true")
-        if not live_mode:
-            reason.append("DB live_mode=false")
-        if not g108_approved:
-            reason.append("DB g108_approved=false")
-        
         activity.logger.info(
-            f"[DRY-RUN] Submitted still {job_id} for {episode_id}/{shot_id} "
-            f"({', '.join(reason)})"
+            f"[DRY-RUN] Submitted still {job_id} for {episode_id}/{shot_id} (DRY_RUN=true)"
         )
-        # Return dict with job info for polling
         return {
             "job_id": job_id,
             "line_name": "L2_drafts",
             "reserved_amount": 2.5,
         }
     
-    # Live mode: all checks passed (DRY_RUN=false, live_mode=true, g108_approved=true)
-    activity.logger.info(
-        f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
-    )
+    # Check DB for live mode and G1.08 (DRY_RUN=false, so check requirements)
+    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
     
-    # Double-check: this should never happen due to use_live logic, but fail-safe
     if not live_mode:
+        raise ValueError(
+            f"Episode {episode_id} not in live mode. "
+            "Switch to live mode before generating."
+        )
+    
+    if not g108_approved:
         raise ValueError(
             f"G1.08 credit plan not approved for {episode_id}. "
             "Approve credit plan before generating."
         )
+    
+    # Live mode: all checks passed (DRY_RUN=false, live_mode=true, g108_approved=true)
+    activity.logger.info(
+        f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
+    )
     
     # Generate idempotency key
     idempotency_key = generate_idempotency_key(episode_id, shot_id, version, prompt)
@@ -284,7 +275,7 @@ async def submit_clip_job_enforced(
         f"[LIVE MODE] Submitting paid clip generation for {episode_id}/{shot_id}"
     )
     
-    # Double-check: this should never happen due to use_live logic, but fail-safe
+    # Double-check: these should never happen due to use_live logic, but fail-safe
     if not live_mode:
         raise ValueError(
             f"G1.08 credit plan not approved for {episode_id}. "
@@ -408,35 +399,33 @@ async def await_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
-    # Check DB for live mode and G1.08
-    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
-    
-    # Decision logic: DRY_RUN env can force dry, but never force live
-    use_live = not dry_run_env and live_mode and g108_approved
-    
-    if not use_live:
-        # Dry run mode: fake completion
+    # DRY_RUN env forces dry mode (kill switch)
+    if dry_run_env:
         await asyncio.sleep(0.2)
-        
-        reason = []
-        if dry_run_env:
-            reason.append("DRY_RUN=true")
-        if not live_mode:
-            reason.append("DB live_mode=false")
-        if not g108_approved:
-            reason.append("DB g108_approved=false")
-        
         result = {
             "status": "completed",
             "url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
             "cost": reserved_amount,
         }
-        
         activity.logger.info(
-            f"[DRY-RUN] Job {job_id} completed: {result['url']} ({', '.join(reason)})"
+            f"[DRY-RUN] Job {job_id} completed: {result['url']} (DRY_RUN=true)"
         )
-        
         return result
+    
+    # Check DB for live mode and G1.08 (DRY_RUN=false means we need these)
+    live_mode, g108_approved = await check_live_mode_and_g108(db_path, episode_id)
+    
+    if not live_mode:
+        raise ValueError(
+            f"Episode {episode_id} not in live mode. "
+            "Switch to live mode before polling."
+        )
+    
+    if not g108_approved:
+        raise ValueError(
+            f"G1.08 credit plan not approved for {episode_id}. "
+            "Approve before polling."
+        )
     
     # Live mode: poll provider
     if job_type == "still":

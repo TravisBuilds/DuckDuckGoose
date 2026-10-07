@@ -60,14 +60,22 @@ async def episode_with_budget(temp_db):
 
 
 @pytest.mark.asyncio
-async def test_live_mode_required_for_generation(episode_with_budget, monkeypatch):
+async def test_live_mode_required_for_generation(episode_with_budget, monkeypatch, respx_mock):
     """Test: Generation refuses without live mode in live environment."""
+    import httpx
     episode_id, db_path = episode_with_budget
     
     # Set DRY_RUN=false to trigger live mode checks
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    # Mock provider (won't be called because check happens first)
+    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
+    )
     
     # Approve G1.08 first (so we can test live mode check specifically)
     from hfvg.studio_db import approve_g108
@@ -89,14 +97,22 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_g108_required_for_generation(episode_with_budget, monkeypatch):
+async def test_g108_required_for_generation(episode_with_budget, monkeypatch, respx_mock):
     """Test: Generation refuses without G1.08 approval."""
+    import httpx
     episode_id, db_path = episode_with_budget
     
     # Set DRY_RUN=false
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    # Mock provider (won't be called because check happens first)
+    respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
+    )
     
     # Enable live mode but NOT G1.08
     await set_live_mode(db_path, episode_id, True)
