@@ -182,6 +182,50 @@ async def test_budget_stop_nonzero_amounts(episode_with_budget):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_reserves_respect_stop_threshold(episode_with_budget):
+    """
+    Test: Concurrent reserves racing against stop threshold - at most one succeeds.
+    
+    Two concurrent reserves of 50 credits each against an 80-credit stop threshold.
+    The atomic SQL WHERE clause prevents both from succeeding (which would total 100).
+    """
+    import asyncio
+    import aiosqlite
+    
+    episode_id, db_path = episode_with_budget
+    
+    # Initialize ledger
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    # Create two separate ledger instances (simulating two workers/activities)
+    ledger1 = BudgetLedger(db_path)
+    ledger2 = BudgetLedger(db_path)
+    
+    # Run two concurrent reserves of 50 credits each
+    # Stop threshold is 80, so at most one should succeed
+    results = await asyncio.gather(
+        ledger1.reserve(episode_id, "L2_drafts", 50.0, "Worker 1"),
+        ledger2.reserve(episode_id, "L2_drafts", 50.0, "Worker 2"),
+        return_exceptions=False
+    )
+    
+    success_count = sum(1 for r in results if r is True)
+    
+    # At most one should succeed (stop = 80, each wants 50)
+    assert success_count <= 1, (
+        f"Concurrent reserves violated stop threshold: "
+        f"{success_count} succeeded, both reserving 50 against stop 80"
+    )
+    
+    # Verify actual reserved amount in DB
+    status = await ledger.get_line_status(episode_id, "L2_drafts")
+    assert status["reserved"] <= 80.0, (
+        f"Reserved {status['reserved']} exceeds stop threshold 80"
+    )
+
+
+@pytest.mark.asyncio
 async def test_idempotent_retry_no_double_charge(episode_with_budget):
     """Test: Idempotent key prevents double-charging on retry."""
     episode_id, db_path = episode_with_budget

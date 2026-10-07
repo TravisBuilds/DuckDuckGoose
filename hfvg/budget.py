@@ -164,7 +164,7 @@ class BudgetLedger:
             await db.execute("BEGIN IMMEDIATE")
             
             try:
-                # Check line-level caps
+                # Check line exists and get caps (hard cap pre-check only)
                 async with db.execute("""
                     SELECT spent, reserved, stop_threshold, budget_cap
                     FROM budget_lines WHERE line_id = ?
@@ -177,17 +177,12 @@ class BudgetLedger:
                     spent, reserved, stop_threshold, cap = row
                     total = spent + reserved + amount
                     
-                    # Hard cap check (line-level)
+                    # Hard cap check (line-level) - fast fail before atomic UPDATE
                     if total > cap:
                         await db.rollback()
                         raise ValueError(
                             f"Budget cap exceeded: {total} > {cap} for {line_id}"
                         )
-                    
-                    # Check against stop threshold (GC.02 80% stop) - soft limit
-                    if total > stop_threshold:
-                        await db.rollback()
-                        return False
                 
                 # Check episode-level 1,250 cap (GC.04)
                 async with db.execute("""
@@ -205,13 +200,15 @@ class BudgetLedger:
                             f"cap: {EPISODE_CAP}"
                         )
                 
-                # Atomic conditional UPDATE (prevents race on concurrent reserves)
+                # Atomic conditional UPDATE - single source of truth for stop threshold
+                # This prevents concurrent reserves from exceeding the stop threshold
                 cursor = await db.execute("""
                     UPDATE budget_lines 
                     SET reserved = reserved + ?
                     WHERE line_id = ? 
+                      AND (spent + reserved + ?) <= stop_threshold
                       AND (spent + reserved + ?) <= budget_cap
-                """, (amount, line_id, amount))
+                """, (amount, line_id, amount, amount))
                 
                 if cursor.rowcount == 0:
                     # Race condition: another reserve beat us to the threshold
