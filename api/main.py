@@ -1001,6 +1001,7 @@ async def get_canary_status(
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
     from hfvg.workflows.shot import ShotWorkflow
+    from temporalio.client import WorkflowFailureError
     
     try:
         handle = temporal_client.get_workflow_handle_for(
@@ -1011,6 +1012,10 @@ async def get_canary_status(
         # Check if workflow is still running
         try:
             result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            
+            # Workflow completed: release L6_reserve (it was already spent via L2/L4)
+            await _reconcile_canary_l6(workflow_id, "completed")
+            
             return {
                 "workflow_id": workflow_id,
                 "status": "completed",
@@ -1021,11 +1026,84 @@ async def get_canary_status(
                 "workflow_id": workflow_id,
                 "status": "running",
             }
+        except WorkflowFailureError as wf_err:
+            # Workflow failed: release L6_reserve (no spend occurred)
+            await _reconcile_canary_l6(workflow_id, "failed")
+            
+            return {
+                "workflow_id": workflow_id,
+                "status": "failed",
+                "error": str(wf_err),
+            }
     except Exception as e:
         error_str = str(e).lower()
         if "not found" in error_str or "does not exist" in error_str:
             raise HTTPException(status_code=404, detail=f"Canary workflow {workflow_id} not found")
         raise HTTPException(status_code=500, detail=f"Error getting canary status: {str(e)}")
+
+
+async def _reconcile_canary_l6(workflow_id: str, status: str):
+    """
+    Reconcile L6_reserve after canary completes or fails.
+    
+    Looks up the workflow in audit log, releases the reservation.
+    This is called once per workflow completion/failure.
+    """
+    import aiosqlite
+    from hfvg.budget import BudgetLedger
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Find the canary start entry to get episode_id and reserved amount
+        async with db.execute(
+            """SELECT episode_id, details FROM audit_log 
+               WHERE action = 'start_canary' AND details LIKE ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (f"%{workflow_id}%",)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return  # No reservation found, nothing to reconcile
+            
+            episode_id, details = row
+            
+            # Check if already reconciled
+            async with db.execute(
+                """SELECT COUNT(*) FROM audit_log 
+                   WHERE episode_id = ? AND action = 'reconcile_canary_l6' 
+                   AND details LIKE ?""",
+                (episode_id, f"%{workflow_id}%")
+            ) as check_cursor:
+                already_reconciled = (await check_cursor.fetchone())[0] > 0
+            
+            if already_reconciled:
+                return  # Already reconciled
+            
+            # Extract reserved amount from details (e.g., "reserved L6=10.0")
+            import re
+            match = re.search(r"reserved L6=([\d.]+)", details)
+            if not match:
+                return
+            
+            reserved_amount = float(match.group(1))
+            
+            # Release the L6 reservation
+            ledger = BudgetLedger(DATABASE_PATH)
+            await ledger.init_db()
+            await ledger.release(
+                episode_id=episode_id,
+                line_name="L6_reserve",
+                amount=reserved_amount,
+                reason=f"Canary {workflow_id} {status}"
+            )
+            
+            # Record reconciliation in audit log
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "reconcile_canary_l6", 
+                 f"Released L6={reserved_amount} for {workflow_id} ({status})", "system")
+            )
+            await db.commit()
 
 
 @app.post("/api/episodes/{episode_id}/canary")
@@ -1169,6 +1247,13 @@ async def run_canary(
         }
     
     except Exception as e:
+        # Start failed: release L6 reservation
+        try:
+            await ledger.release(episode_id, "L6_reserve", canary_cost, f"Canary start failed: {str(e)[:100]}")
+        except Exception as release_err:
+            # Log but don't hide the original error
+            print(f"Failed to release L6 on start failure: {release_err}")
+        
         raise HTTPException(status_code=500, detail=f"Canary failed to start: {str(e)}")
 
 
