@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger
@@ -431,15 +432,44 @@ async def await_job_enforced(
     else:
         provider = KlingVideoProvider()
     
+    released = False  # Track if we've already released to prevent double release
+    
     try:
         # Poll with heartbeats
         max_polls = 100
         poll_interval = 5.0
+        retries_5xx = 0
+        max_retries_5xx = 3
         
         for i in range(max_polls):
             activity.heartbeat({"job_id": job_id, "poll": i})
             
-            job_status = await provider.get_job_status(job_id)
+            try:
+                job_status = await provider.get_job_status(job_id)
+                retries_5xx = 0  # Reset counter on success
+            except httpx.HTTPStatusError as http_err:
+                # Retry on 5xx errors instead of releasing (job may still be running)
+                if http_err.response.status_code >= 500 and retries_5xx < max_retries_5xx:
+                    retries_5xx += 1
+                    activity.logger.warning(
+                        f"5xx error polling {job_id} (attempt {retries_5xx}/{max_retries_5xx}): {http_err}. Retrying..."
+                    )
+                    await asyncio.sleep(poll_interval)  # Wait before retry
+                    continue
+                # Non-5xx or max retries reached: release and raise
+                activity.logger.error(
+                    f"Max retries reached or non-5xx error for {job_id}: {http_err}"
+                )
+                ledger = BudgetLedger(db_path)
+                await ledger.init_db()
+                await ledger.release(
+                    episode_id=episode_id,
+                    line_name=line_name,
+                    amount=reserved_amount,
+                    reason=f"{job_type} {shot_id} poll error: {http_err}"
+                )
+                released = True
+                raise
             
             if job_status.status.value == "completed":
                 # Success - commit budget
@@ -479,6 +509,7 @@ async def await_job_enforced(
                     amount=reserved_amount,
                     reason=f"{job_type} {shot_id} {job_status.status.value}"
                 )
+                released = True  # Mark as released
                 
                 activity.logger.error(
                     f"Job {job_id} {job_status.status.value}: {job_status.error}"
@@ -501,35 +532,38 @@ async def await_job_enforced(
             amount=reserved_amount,
             reason=f"{job_type} {shot_id} timeout"
         )
+        released = True  # Mark as released
         
         raise ValueError(f"Job {job_id} timed out after {max_polls} polls")
     
     except asyncio.CancelledError:
-        # Activity cancelled: release reservation
-        activity.logger.warning(f"Activity cancelled for job {job_id}, releasing reservation")
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        await ledger.release(
-            episode_id=episode_id,
-            line_name=line_name,
-            amount=reserved_amount,
-            reason=f"{job_type} {job_id} cancelled"
-        )
+        # Activity cancelled: release reservation if not already released
+        if not released:
+            activity.logger.warning(f"Activity cancelled for job {job_id}, releasing reservation")
+            ledger = BudgetLedger(db_path)
+            await ledger.init_db()
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount=reserved_amount,
+                reason=f"{job_type} {job_id} cancelled"
+            )
         if 'provider' in locals():
             await provider.close()
         raise
     
     except Exception as poll_error:
-        # Poll exception: release reservation  
-        activity.logger.error(f"Poll failed for job {job_id}: {poll_error}")
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        await ledger.release(
-            episode_id=episode_id,
-            line_name=line_name,
-            amount=reserved_amount,
-            reason=f"{job_type} {job_id} poll error: {str(poll_error)[:100]}"
-        )
+        # Poll exception: release reservation if not already released
+        if not released:
+            activity.logger.error(f"Poll failed for job {job_id}: {poll_error}")
+            ledger = BudgetLedger(db_path)
+            await ledger.init_db()
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount=reserved_amount,
+                reason=f"{job_type} {job_id} poll error: {str(poll_error)[:100]}"
+            )
         if 'provider' in locals():
             await provider.close()
         raise

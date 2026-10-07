@@ -281,22 +281,22 @@ class BudgetLedger:
                     """, (line_id, episode_id, remainder, 
                           f"Unused from reserve: {reason}"))
             else:
-                # Overage: commit reserved amount, log warning
+                # Overage: commit actual cost, log warning
                 overage = actual_cost - reserved_amount
                 
                 await db.execute("""
                     UPDATE budget_lines
                     SET reserved = reserved - ?, spent = spent + ?
                     WHERE line_id = ?
-                """, (reserved_amount, reserved_amount, line_id))
+                """, (reserved_amount, actual_cost, line_id))
                 
-                # Log commit at reserved amount
+                # Log commit at actual cost
                 await db.execute("""
                     INSERT INTO budget_transactions
                     (line_id, episode_id, job_id, txn_type, amount, usd_micros,
                      timestamp, reason)
                     VALUES (?, ?, ?, 'commit', ?, ?, datetime('now'), ?)
-                """, (line_id, episode_id, job_id, reserved_amount, usd_micros, reason))
+                """, (line_id, episode_id, job_id, actual_cost, usd_micros, reason))
                 
                 # Log overage warning
                 await db.execute("""
@@ -312,6 +312,7 @@ class BudgetLedger:
                      reason: str = ""):
         """
         Release reserved budget without committing (e.g., on block or refund).
+        Idempotent: will not release more than currently reserved.
         
         Args:
             episode_id: Episode identifier
@@ -322,19 +323,47 @@ class BudgetLedger:
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Get current reserved amount to ensure we don't go negative
+            async with db.execute("""
+                SELECT reserved FROM budget_lines WHERE line_id = ?
+            """, (line_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Budget line {line_id} not found")
+                current_reserved = row[0]
+            
+            # Clamp release amount to not go below 0
+            release_amount = min(amount, current_reserved)
+            
+            if release_amount <= 0:
+                # Already at 0 or trying to release 0 - log but don't update
+                await db.execute("""
+                    INSERT INTO budget_transactions
+                    (line_id, episode_id, txn_type, amount, timestamp, reason)
+                    VALUES (?, ?, 'release_idempotent', 0, datetime('now'), ?)
+                """, (line_id, episode_id, f"Idempotent: reserved already 0. {reason}"))
+                await db.commit()
+                return
+            
             # Release reserve without adding to spent
             await db.execute("""
                 UPDATE budget_lines
                 SET reserved = reserved - ?
                 WHERE line_id = ?
-            """, (amount, line_id))
+            """, (release_amount, line_id))
             
             # Log transaction
+            if release_amount < amount:
+                # Log partial release due to clamping
+                reason_with_note = f"Clamped from {amount} to {release_amount} (would go negative). {reason}"
+            else:
+                reason_with_note = reason
+            
             await db.execute("""
                 INSERT INTO budget_transactions
                 (line_id, episode_id, txn_type, amount, timestamp, reason)
                 VALUES (?, ?, 'release', ?, datetime('now'), ?)
-            """, (line_id, episode_id, amount, reason))
+            """, (line_id, episode_id, release_amount, reason_with_note))
             
             await db.commit()
     

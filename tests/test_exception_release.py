@@ -67,6 +67,11 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 4.0})
+    )
+    
     # Mock provider to return 500 (POST /{model_path})
     respx_mock.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(500, json={"error": "Internal server error"})
@@ -100,6 +105,11 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v1/videos/image2video")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"estimated_cost": 7.5})
+    )
     
     # Mock provider (won't be called due to early validation)
     respx_mock.post("https://api.higgsfield.ai/kling-video/v3.0/pro/image-to-video").mock(
@@ -195,10 +205,10 @@ async def test_commit_handles_overage(test_episode):
         reason="test overage"
     )
     
-    # Check: reserved goes to 0, spent goes to 10 (reserved amount)
+    # Check: reserved goes to 0, spent goes to 12 (actual cost, not reserved)
     status_after = await ledger.get_line_status("ep99", "L2_drafts")
     assert status_after["reserved"] == 0.0, f"Reserved should be 0, got {status_after['reserved']}"
-    assert status_after["spent"] == 10.0, f"Spent should be 10 (reserved), got {status_after['spent']}"
+    assert status_after["spent"] == 12.0, f"Spent should be 12 (actual), got {status_after['spent']}"
     
     # Check overage_warning transaction logged
     import aiosqlite
