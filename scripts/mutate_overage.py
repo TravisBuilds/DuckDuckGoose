@@ -17,17 +17,12 @@ def mutate_file(filepath: str):
         if 'Overage: commit actual cost' in line:
             in_overage = True
         
-        # If we're in overage and find the INSERT with actual_cost in the VALUES
-        if in_overage and 'VALUES (' in line and "'commit'" in line:
-            # This should be line 297 - replace actual_cost in the parameter list
-            # But actual_cost is in the next line in the parameter tuple
-            new_lines.append(line)
-            # Mark that we found it
-            in_overage = False
-        # Check if this is the parameter line with actual_cost after we found the VALUES line
-        elif i > 290 and i < 310 and 'actual_cost' in line and 'overage = actual_cost' not in line and 'spent + ?' not in line:
+        # Check if this is the parameter line with actual_cost after we found the overage section
+        if in_overage and i > 290 and i < 310 and 'actual_cost' in line and 'overage = actual_cost' not in line and 'spent + ?' not in line:
             # Replace actual_cost with reserved_amount in the parameter tuple
-            new_lines.append(line.replace('actual_cost', 'reserved_amount  # MUTATED'))
+            # Add comment at the end of the line instead of inline
+            new_lines.append(line.replace('actual_cost', 'reserved_amount') + '  # MUTATED: should use actual_cost')
+            in_overage = False
         else:
             new_lines.append(line)
     

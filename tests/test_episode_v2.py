@@ -260,7 +260,7 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             await handle.signal(EpisodeWorkflowV2.approve_g501)
             await handle.signal(EpisodeWorkflowV2.approve_g610)
             
-            await env.sleep(2)
+            await env.sleep(5)  # Give workflow time to proceed if gate is bypassed
             
             # Should be waiting at GX.01 HOLD (verify posting is blocked)
             state = await handle.query(EpisodeWorkflowV2.get_state)
@@ -269,8 +269,17 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             
             # The workflow should be blocked at GX.01, not proceed to G7.02
             # If the wait_condition is removed, it would skip to G7.02
+            # We can tell by checking the workflow describe status - it should still be running
+            # and the history should show we're at GX.01, not G7.02
+            desc = await handle.describe()
+            assert desc.status.name == "RUNNING", "Workflow should still be running (blocked at gate)"
+            
+            # Another way to verify: if we're truly at GX.01 (not G7.02), 
+            # sending GX.01 approval should allow workflow to proceed to G7.02
+            # But if the wait was bypassed, we're already at G7.02
+            # So let's verify g702 is still False (hasn't been approved yet)
             assert state["approvals"]["g702"] is False, \
-                "Workflow must be blocked at GX.01, not proceed to G7.02 without approval"
+                "Workflow must not have reached beyond GX.01 (g702 should not be approved yet)"
             
             # Workflow should not proceed without explicit GX.01 approval
             await handle.terminate()
