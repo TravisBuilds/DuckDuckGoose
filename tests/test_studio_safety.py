@@ -104,6 +104,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
             reserved_before = row[0] if row else 0.0
     
     # Attempt to submit still - should fail due to live mode
+    call_raised_error = False
     try:
         await submit_still_job_enforced(
             episode_id=episode_id,
@@ -111,15 +112,17 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
             prompt="Test prompt",
             version=1,
         )
-        # If mutation bypasses check, we reach here
-        pytest.fail("Expected ValueError for missing live mode, but call succeeded")
+        # If mutation bypasses check, we reach here without error
     except ValueError as e:
         if "not in live mode" in str(e):
             # Correct: the protection worked
-            pass
+            call_raised_error = True
         else:
-            # Wrong error
+            # Wrong error - re-raise
             raise
+    
+    # Assert the call DID raise the expected error
+    assert call_raised_error, "Expected ValueError for missing live mode, but call succeeded"
     
     # Assert provider was never called (protection worked before API call)
     assert not mock_submit.called, "Provider submit should not be called without live mode"
@@ -176,6 +179,7 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
             reserved_before = row[0] if row else 0.0
     
     # Attempt to submit still - should fail
+    call_raised_error = False
     try:
         await submit_still_job_enforced(
             episode_id=episode_id,
@@ -183,15 +187,17 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
             prompt="Test prompt",
             version=1,
         )
-        # If mutation bypasses check, we reach here
-        pytest.fail("Expected ValueError for missing G1.08, but call succeeded")
+        # If mutation bypasses check, we reach here without error
     except ValueError as e:
         if "G1.08" in str(e):
             # Correct: the protection worked
-            pass
+            call_raised_error = True
         else:
-            # Wrong error
+            # Wrong error - re-raise
             raise
+    
+    # Assert the call DID raise the expected error
+    assert call_raised_error, "Expected ValueError for missing G1.08, but call succeeded"
     
     # Assert provider was never called (protection worked before API call)
     assert not mock_submit.called, "Provider submit should not be called without G1.08"
