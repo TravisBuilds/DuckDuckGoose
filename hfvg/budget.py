@@ -248,9 +248,9 @@ class BudgetLedger:
                     if episode_total > EPISODE_CAP:
                         await db.rollback()
                         raise ValueError(
-                            f"Episode {episode_id} would exceed 1,250 credit cap. "
+                            f"Episode {episode_id} would exceed episode cap. "
                             f"Current: {row[0] or 0.0:.1f}, requested: {amount:.1f}, "
-                            f"cap: {EPISODE_CAP} API credits (1,250 app credits)"
+                            f"cap: {EPISODE_CAP} API credits"
                         )
                 
                 # Check line exists and get caps
