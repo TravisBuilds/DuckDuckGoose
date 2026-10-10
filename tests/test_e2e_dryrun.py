@@ -77,7 +77,7 @@ async def test_e2e_gates_and_budget():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -318,5 +318,5 @@ async def test_dry_mode_no_negative_reservations():
     finally:
         try:
             os.unlink(db_path)
-        except:
+        except OSError:
             pass

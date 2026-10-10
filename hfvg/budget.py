@@ -21,6 +21,10 @@ from hfvg.gates import load_policy
 # Conversion: 1 app credit = 0.0475 / 0.0625 ≈ 0.76 API credits
 APP_TO_API_CREDIT_CONVERSION = 0.76
 
+# GC.04 1,250 app credit episode cap, converted to API credits
+# 1250 app credits * 0.76 = 950 API credits
+EPISODE_CAP = 950.0
+
 
 class BudgetLedger:
     """
@@ -177,6 +181,35 @@ class BudgetLedger:
             
             await db.commit()
     
+    async def set_line(
+        self, episode_id: str, line_name: str, cap: float, stop_at: float,
+        provider: str = "higgsfield", unit: str = "Higgsfield API credits"
+    ):
+        """
+        Test-safe helper: Set a budget line directly with specified cap and stop.
+        
+        Args:
+            episode_id: Episode identifier
+            line_name: Budget line (e.g., 'L2_drafts', 'L4_video')
+            cap: Budget cap (in specified units)
+            stop_at: Stop threshold (in specified units)
+            provider: Provider name (default 'higgsfield')
+            unit: Unit name (default 'Higgsfield API credits')
+        """
+        await self.init_db()
+        
+        line_id = f"{episode_id}:{line_name}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("""
+                INSERT OR REPLACE INTO budget_lines
+                (line_id, episode_id, provider, line_name, budget_cap,
+                 stop_threshold, unit, spent, reserved, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
+            """, (line_id, episode_id, provider, line_name, cap, stop_at, unit))
+            
+            await db.commit()
+
     async def reserve(self, episode_id: str, line_name: str, amount: float, 
                      reason: str = "") -> bool:
         """
@@ -194,9 +227,6 @@ class BudgetLedger:
         Raises:
             ValueError: If line doesn't exist, episode cap exceeded
         """
-        # GC.04 1,250 app credit episode cap, converted to API credits
-        # 1250 app credits * 0.76 = 950 API credits
-        EPISODE_CAP = 950.0  # API credits (1250 app credits * 0.76 conversion)
         
         # Round amount to 2 decimals to avoid float drift
         amount = round(amount, 2)
@@ -207,27 +237,7 @@ class BudgetLedger:
             await db.execute("BEGIN IMMEDIATE")
             
             try:
-                # Check line exists and get caps (hard cap pre-check only)
-                async with db.execute("""
-                    SELECT spent, reserved, stop_threshold, budget_cap
-                    FROM budget_lines WHERE line_id = ?
-                """, (line_id,)) as cursor:
-                    row = await cursor.fetchone()
-                    if not row:
-                        await db.rollback()
-                        raise ValueError(f"Budget line {line_id} not found")
-                    
-                    spent, reserved, stop_threshold, cap = row
-                    total = spent + reserved + amount
-                    
-                    # Hard cap check (line-level) - fast fail before atomic UPDATE
-                    if total > cap:
-                        await db.rollback()
-                        raise ValueError(
-                            f"Budget cap exceeded: {total} > {cap} for {line_id}"
-                        )
-                
-                # Check episode-level 1,250 cap (GC.04)
+                # Check episode-level 950 cap first (GC.04) - most restrictive
                 async with db.execute("""
                     SELECT SUM(spent + reserved) as total
                     FROM budget_lines WHERE episode_id = ?
@@ -240,7 +250,27 @@ class BudgetLedger:
                         raise ValueError(
                             f"Episode {episode_id} would exceed 1,250 credit cap. "
                             f"Current: {row[0] or 0.0:.1f}, requested: {amount:.1f}, "
-                            f"cap: {EPISODE_CAP}"
+                            f"cap: {EPISODE_CAP} API credits (1,250 app credits)"
+                        )
+                
+                # Check line exists and get caps
+                async with db.execute("""
+                    SELECT spent, reserved, stop_threshold, budget_cap
+                    FROM budget_lines WHERE line_id = ?
+                """, (line_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if not row:
+                        await db.rollback()
+                        raise ValueError(f"Budget line {line_id} not found")
+                    
+                    spent, reserved, stop_threshold, cap = row
+                    total = spent + reserved + amount
+                    
+                    # Hard cap check (line-level)
+                    if total > cap:
+                        await db.rollback()
+                        raise ValueError(
+                            f"Budget cap exceeded: {total} > {cap} for {line_id}"
                         )
                 
                 # Atomic conditional UPDATE - single source of truth for stop threshold

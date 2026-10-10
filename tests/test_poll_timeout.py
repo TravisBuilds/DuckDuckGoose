@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg import activities
     from hfvg.budget import BudgetLedger
     from hfvg.studio_db import create_episode, init_studio_db
+    from hfvg.workflows.shot import ShotWorkflow
 
 
 # Fake provider activity that stays in_progress for testing poll exhaustion
@@ -32,7 +33,7 @@ _submit_count = 0
 _release_count = 0
 
 
-@activity.defn
+@activity.defn(name="poll_job_status")
 async def fake_poll_job_status_stuck(job_id: str, job_type: str, episode_id: str) -> dict:
     """Fake poll that always returns in_progress (simulates stuck job)."""
     global _poll_count
@@ -46,7 +47,7 @@ async def fake_poll_job_status_stuck(job_id: str, job_type: str, episode_id: str
     }
 
 
-@activity.defn
+@activity.defn(name="poll_job_status_failed")
 async def fake_poll_job_status_failed(job_id: str, job_type: str, episode_id: str) -> dict:
     """Fake poll that returns failed after first call."""
     return {
@@ -57,7 +58,7 @@ async def fake_poll_job_status_failed(job_id: str, job_type: str, episode_id: st
     }
 
 
-@activity.defn
+@activity.defn(name="submit_still_job_enforced")
 async def fake_submit_still_tracked(
     episode_id: str, shot_id: str, prompt: str, version: int, refs: list, 
     resolution: str, quality: str, aspect_ratio: str
@@ -73,7 +74,7 @@ async def fake_submit_still_tracked(
     }
 
 
-@activity.defn
+@activity.defn(name="commit_job_budget")
 async def fake_commit_job_budget(
     episode_id: str, shot_id: str, job_id: str, job_type: str,
     line_name: str, reserved_amount: float, actual_cost: float = None
@@ -82,7 +83,7 @@ async def fake_commit_job_budget(
     pass
 
 
-@activity.defn
+@activity.defn(name="release_job_budget")
 async def fake_release_job_budget(
     episode_id: str, shot_id: str, job_id: str, job_type: str,
     line_name: str, reserved_amount: float, reason: str
@@ -92,7 +93,7 @@ async def fake_release_job_budget(
     _release_count += 1
 
 
-@activity.defn
+@activity.defn(name="mark_job_pending_reconcile")
 async def fake_mark_job_pending_reconcile(
     episode_id: str, shot_id: str, job_id: str, job_type: str
 ) -> None:
@@ -290,9 +291,7 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path):
         async with Worker(
             env.client,
             task_queue="test-queue",
-            workflows=[workflow.unsafe.imports_passed_through()(
-                __import__('hfvg.workflows.shot', fromlist=['ShotWorkflow']).ShotWorkflow
-            )],
+            workflows=[ShotWorkflow],
             activities=[
                 fake_submit_still_tracked,
                 fake_poll_job_status_stuck,
@@ -395,9 +394,7 @@ async def test_confirmed_failure_releases_once(tmp_path):
         async with Worker(
             env.client,
             task_queue="test-queue",
-            workflows=[workflow.unsafe.imports_passed_through()(
-                __import__('hfvg.workflows.shot', fromlist=['ShotWorkflow']).ShotWorkflow
-            )],
+            workflows=[ShotWorkflow],
             activities=[
                 fake_submit_still_tracked,
                 fake_poll_job_status_failed,

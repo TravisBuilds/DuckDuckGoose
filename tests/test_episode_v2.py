@@ -221,7 +221,7 @@ async def test_episode_v2_picture_lock_blocks_audio(tmp_path, monkeypatch):
             await handle.terminate()
             try:
                 await handle.result()
-            except:
+            except Exception:
                 pass  # Terminated workflows raise an exception
 
 
