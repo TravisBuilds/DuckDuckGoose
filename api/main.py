@@ -492,7 +492,8 @@ async def start_episode(
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
-    workflow_id = f"{request.episode_id}-{asyncio.get_event_loop().time()}"
+    # Stable workflow ID for approve route to find
+    workflow_id = f"{request.episode_id}"
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
