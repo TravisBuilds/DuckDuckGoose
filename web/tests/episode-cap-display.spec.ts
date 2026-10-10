@@ -44,98 +44,88 @@ test.describe('Episode Cap Display Fix', () => {
     });
   });
 
-  test('should display 1,250 credits episode cap prominently', async ({ page }) => {
+  const budgetBody = (lines: object[], higgsfieldTotal: number) =>
+    JSON.stringify({
+      episode_id: 'ep04',
+      unit: 'usd_micros',
+      lines,
+      higgsfield_total: higgsfieldTotal,
+      elevenlabs_total: 0,
+      episode_total: higgsfieldTotal,
+      episode_cap: 60_000_000,
+      episode_stop: 48_000_000,
+      gc01_headroom: 5_000_000,
+      balance: {
+        manual_balance_usd_micros: 82_400_000,
+        set_at: '2026-10-10T10:00:00+00:00',
+        balance_remaining_usd_micros: 82_400_000 - higgsfieldTotal,
+      },
+    });
+
+  const lines = [
+    {
+      line_name: 'L1_stills',
+      provider: 'higgsfield',
+      spent: 5_000_000,
+      reserved: 1_000_000,
+      total: 6_000_000,
+      cap: 12_000_000,
+      stop: 9_600_000,
+      at_stop: false,
+      unit: 'usd_micros',
+    },
+    {
+      line_name: 'L4_clips',
+      provider: 'higgsfield',
+      spent: 10_000_000,
+      reserved: 2_000_000,
+      total: 12_000_000,
+      cap: 30_000_000,
+      stop: 24_000_000,
+      at_stop: false,
+      unit: 'usd_micros',
+    },
+  ];
+
+  test('should display the $60.00 episode cap prominently', async ({ page }) => {
     await page.route('**/api/episodes/ep04/budget', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          episode_id: 'ep04',
-          lines: [
-            {
-              line_name: 'L1_stills',
-              provider: 'higgsfield',
-              spent: 50,
-              reserved: 10,
-              total: 60,
-              cap: 120,
-              stop: 96,
-              at_stop: false,
-              unit: 'credits',
-            },
-            {
-              line_name: 'L4_clips',
-              provider: 'higgsfield',
-              spent: 100,
-              reserved: 20,
-              total: 120,
-              cap: 300,
-              stop: 240,
-              at_stop: false,
-              unit: 'credits',
-            },
-          ],
-          higgsfield_total: 180,
-          elevenlabs_total: 0,
-        }),
+        body: budgetBody(lines, 18_000_000),
       });
     });
 
     await page.goto('/studio/episodes/ep04');
-
-    // Wait for the budget section to load
     await page.waitForSelector('text=Budget Status', { timeout: 10000 });
 
-    // Should show 1250 credits episode cap in the budget display
-    await expect(page.locator('text=/1250 credits episode cap/')).toBeVisible();
-
-    // Should show the actual spend
-    await expect(page.locator('text=180.0 credits')).toBeVisible();
-
-    // Should NOT display the old sum of line caps as the main cap
-    // The old code showed: budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0)
-    // which would be 420 (120 + 300), but we should show 1250 as the episode cap
+    // Episode cap in dollars (not credits)
+    await expect(page.locator('text=/\\$60\\.00 episode cap/')).toBeVisible();
+    // Actual spend (integer micro-dollars rendered as dollars)
+    await expect(page.locator('text=$18.00').first()).toBeVisible();
+    // Episode stop at 80%
+    await expect(page.locator('text=/Episode stop \\(80%\\): \\$48\\.00/')).toBeVisible();
   });
 
-  test('should show credits not cents for budget values', async ({ page }) => {
+  test('should show dollars, never credits or cents', async ({ page }) => {
     await page.route('**/api/episodes/ep04/budget', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          episode_id: 'ep04',
-          lines: [
-            {
-              line_name: 'L1_stills',
-              provider: 'higgsfield',
-              spent: 25.5,
-              reserved: 5.0,
-              total: 30.5,
-              cap: 120,
-              stop: 96,
-              at_stop: false,
-              unit: 'credits',
-            },
-          ],
-          higgsfield_total: 30.5,
-          elevenlabs_total: 0,
-        }),
+        body: budgetBody(
+          [{ ...lines[0], spent: 25_500_000, reserved: 5_000_000, total: 30_500_000 }],
+          30_500_000
+        ),
       });
     });
 
     await page.goto('/studio/episodes/ep04');
-
-    // Wait for the G1.08 section to load
     await page.waitForSelector('text=G1.08 Approved', { timeout: 10000 });
 
-    // Should show credits in canary test description
-    await expect(page.locator('text=/34\\.5 credits/')).toBeVisible();
-
-    // Should NOT show cents symbol (¢) or dollar signs ($)
+    await expect(page.locator('text=$30.50').first()).toBeVisible();
     const pageContent = await page.content();
     expect(pageContent).not.toContain('¢');
-    expect(pageContent).not.toContain('6.5¢');
-    expect(pageContent).not.toContain('28¢');
+    expect(pageContent).not.toContain('API credits');
   });
 
   test('should show per-line caps separately from episode cap', async ({ page }) => {
@@ -143,51 +133,32 @@ test.describe('Episode Cap Display Fix', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          episode_id: 'ep04',
-          lines: [
-            {
-              line_name: 'L1_stills',
-              provider: 'higgsfield',
-              spent: 50,
-              reserved: 10,
-              total: 60,
-              cap: 120,
-              stop: 96,
-              at_stop: false,
-              unit: 'credits',
-            },
-            {
-              line_name: 'L4_clips',
-              provider: 'higgsfield',
-              spent: 100,
-              reserved: 20,
-              total: 120,
-              cap: 300,
-              stop: 240,
-              at_stop: false,
-              unit: 'credits',
-            },
-          ],
-          higgsfield_total: 180,
-          elevenlabs_total: 0,
-        }),
+        body: budgetBody(lines, 18_000_000),
       });
     });
 
     await page.goto('/studio/episodes/ep04');
-
-    // Wait for the budget section to load
     await page.waitForSelector('text=Budget Status', { timeout: 10000 });
 
-    // Should show episode cap prominently
-    await expect(page.locator('text=/1250 credits episode cap/')).toBeVisible();
+    await expect(page.locator('text=/\\$60\\.00 episode cap/')).toBeVisible();
+    await expect(page.locator('text=(cap $12.00)')).toBeVisible();
+    await expect(page.locator('text=(cap $30.00)')).toBeVisible();
+    await expect(page.locator('text=Line caps total: $42.00')).toBeVisible();
+  });
 
-    // Should still show per-line caps in each line's display
-    await expect(page.locator('text=cap 120 credits')).toBeVisible();
-    await expect(page.locator('text=cap 300 credits')).toBeVisible();
+  test('should show the GC.01 manual balance', async ({ page }) => {
+    await page.route('**/api/episodes/ep04/budget', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: budgetBody(lines, 18_000_000),
+      });
+    });
 
-    // Should show line caps total separately (as a secondary detail)
-    await expect(page.locator('text=Line caps total: 420.0 credits')).toBeVisible();
+    await page.goto('/studio/episodes/ep04');
+    await page.waitForSelector('text=Budget Status', { timeout: 10000 });
+
+    await expect(page.locator('text=/Manual balance: \\$82\\.40/')).toBeVisible();
+    await expect(page.locator('text=/GC\\.01 headroom \\$5\\.00/')).toBeVisible();
   });
 });

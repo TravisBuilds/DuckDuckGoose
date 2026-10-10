@@ -152,7 +152,7 @@ class ShotWorkflow:
                 
                 return {
                     "url": status_result["output_url"],
-                    "cost": status_result.get("cost", reserved_amount),
+                    "cost": status_result.get("cost") or reserved_amount,
                     "status": "completed",
                 }
             

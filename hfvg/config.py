@@ -1,7 +1,29 @@
 """Configuration and dry-run settings."""
 
+import json
 import os
 from typing import Optional
+
+
+def _load_rate_table() -> dict[str, dict[str, int]]:
+    """Per-second USD rate table in integer micro-dollars (override: MODEL_USD_PER_SECOND_JSON).
+
+    SOURCE / CAVEAT: these are LIST PRICES BEFORE ANY DISCOUNT, derived, not quoted by an API:
+    - seedance-2.5: Higgsfield pricing text (480p 0.2056, 720p 0.4622, 1080p 1.1372 USD/s). The
+      estimate endpoint for Seedance returns a pricing description, not USD, so this table is used.
+    - kling-3.0-pro: fallback only (estimate normally returns usd); 0.056 USD/s derived from the
+      live canary (5 s clip = 0.28 USD).
+    Real billing may be lower (discounts); the ledger therefore reserves conservatively.
+    """
+    table = {
+        "seedance-2.5": {"480p": 205_600, "720p": 462_200, "1080p": 1_137_200},
+        "kling-3.0-pro": {"default": 56_000},
+    }
+    override = os.getenv("MODEL_USD_PER_SECOND_JSON")
+    if override:
+        loaded = json.loads(override)
+        table = {m: {k: int(v) for k, v in rates.items()} for m, rates in loaded.items()}
+    return table
 
 
 class Config:
@@ -41,6 +63,10 @@ class Config:
 
     INITIAL_CREDIT_BALANCE: float = float(os.getenv("INITIAL_CREDIT_BALANCE", "10000.0"))
     LOW_BALANCE_THRESHOLD: float = float(os.getenv("LOW_BALANCE_THRESHOLD", "1000.0"))
+
+    # Per-second USD rate table (integer micro-dollars) for models without a USD estimate.
+    # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
+    MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
 
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 

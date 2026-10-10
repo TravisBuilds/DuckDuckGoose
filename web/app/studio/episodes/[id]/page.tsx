@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { use } from 'react';
 import Link from 'next/link';
+import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 
 interface EpisodeState {
   episode_id: string;
@@ -22,6 +23,7 @@ interface Shot {
   retries: number;
 }
 
+// All budget amounts are integer usd_micros (1 USD = 1_000_000); display with formatUsd()
 interface BudgetLine {
   line_name: string;
   provider: string;
@@ -32,6 +34,7 @@ interface BudgetLine {
   stop: number;
   at_stop: boolean;
   unit: string;
+  revision_reserve?: boolean;
 }
 
 interface BudgetStatus {
@@ -39,6 +42,15 @@ interface BudgetStatus {
   lines: BudgetLine[];
   higgsfield_total: number;
   elevenlabs_total: number;
+  episode_total?: number;
+  episode_cap?: number;
+  episode_stop?: number;
+  gc01_headroom?: number;
+  balance?: {
+    manual_balance_usd_micros: number | null;
+    set_at: string | null;
+    balance_remaining_usd_micros: number | null;
+  };
 }
 
 interface Gates {
@@ -331,13 +343,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     );
   }
 
-  // Episode cap from backend budget.py:EPISODE_CAP (950 API credits)
-  // Converted from 1,250 app credits * 0.76 = 950 API credits
-  const EPISODE_CAP_CREDITS = 950.0;
+  // Episode cap in usd_micros: from the API (hfvg/budget.py settings, default $60.00)
+  const episodeCapMicros = budget?.episode_cap ?? DEFAULT_EPISODE_CAP_USD_MICROS;
   
-  // Canary cost estimate - get from API instead of hard-coding
-  // Default fallback only used if API doesn't provide estimate
-  const estimatedCanaryCost = budget?.lines.find(l => l.line_name === 'L6_reserve')?.reserved || 10.0;
+  // Canary cost estimate (usd_micros) - the L6 hold reported by the API (0 until a canary runs)
+  const estimatedCanaryCost = budget?.lines.find(l => l.line_name === 'L6_reserve')?.reserved ?? 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -412,7 +422,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             {showLiveConfirm && (
               <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                 <p className="text-sm text-red-800 dark:text-red-300 mb-3">
-                  <strong>WARNING:</strong> Live mode will charge real credits. Type "ENABLE LIVE MODE" to confirm:
+                  <strong>WARNING:</strong> Live mode will charge real money (USD). Type "ENABLE LIVE MODE" to confirm:
                 </p>
                 <input
                   type="text"
@@ -473,7 +483,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   <strong>Canary Test</strong>: 1 still + 1 clip
                 </p>
                 <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
-                  Estimated cost: <strong>{estimatedCanaryCost.toFixed(1)} credits</strong>
+                  Estimated cost: <strong>{formatUsd(estimatedCanaryCost)}</strong>
                 </p>
                 {canaryStatus && (
                   <div className={`mb-3 p-2 rounded text-sm ${
@@ -508,13 +518,19 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 Higgsfield Total
               </div>
               <div className="text-2xl font-bold">
-                {budget?.higgsfield_total.toFixed(1) || '0.0'} API credits
+                {formatUsd(budget?.higgsfield_total ?? 0)}
                 <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">
-                  / {EPISODE_CAP_CREDITS.toFixed(1)} API credits episode cap
+                  / {formatUsd(episodeCapMicros)} episode cap
                 </span>
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Line caps total: {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} API credits
+                Line caps total: {formatUsd(budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' && !l.revision_reserve ? sum + l.cap : sum, 0) ?? 0)}
+                {budget?.episode_stop !== undefined && <> • Episode stop (80%): {formatUsd(budget.episode_stop)}</>}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {budget?.balance?.manual_balance_usd_micros != null
+                  ? <>Manual balance: {formatUsd(budget.balance.manual_balance_usd_micros)} (left above holds: {formatUsd(budget.balance.balance_remaining_usd_micros ?? 0)}; GC.01 headroom {formatUsd(budget.gc01_headroom ?? 0)})</>
+                  : <>No manual balance recorded: live paid jobs are refused (GC.01)</>}
               </div>
             </div>
             
@@ -523,7 +539,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 ElevenLabs Total (deferred)
               </div>
               <div className="text-2xl font-bold text-gray-400 dark:text-gray-600">
-                {budget?.elevenlabs_total.toFixed(1) || '0.0'} credits
+                {formatUsd(budget?.elevenlabs_total ?? 0)}
               </div>
             </div>
           </div>
@@ -541,9 +557,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-medium text-sm">{line.line_name}</div>
                   <div className="text-sm">
-                    {line.total.toFixed(1)} / {line.stop.toFixed(1)} API credits
+                    {formatUsd(line.total)} / {formatUsd(line.stop)}
                     <span className="text-gray-500 dark:text-gray-400 ml-1">
-                      (cap {line.cap.toFixed(1)} API credits)
+                      (cap {formatUsd(line.cap)}{line.revision_reserve ? ', revision tag only' : ''})
                     </span>
                   </div>
                 </div>
@@ -556,7 +572,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   />
                 </div>
                 <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Spent: {line.spent.toFixed(1)} • Reserved: {line.reserved.toFixed(1)} API credits
+                  Spent: {formatUsd(line.spent)} • Reserved: {formatUsd(line.reserved)}
                   {line.at_stop && <span className="ml-2 text-red-600 dark:text-red-400 font-semibold">⚠️ AT STOP</span>}
                 </div>
               </div>

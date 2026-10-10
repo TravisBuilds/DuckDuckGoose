@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import pytest
+from tests.ledger_helpers import insert_line, set_balance
 import asyncio
 from unittest.mock import AsyncMock, Mock
 import httpx
@@ -36,22 +37,15 @@ async def test_episode(tmp_path):
     import aiosqlite
     async with aiosqlite.connect(db_path) as db:
         # Add budget lines
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L4_video", "ep99", "higgsfield", "L4_video", 200.0, 160.0, "credits"))
+        await insert_line(db, "ep99", "L4_video", 20_000_000, 16_000_000)
         
         await db.commit()
     
     await set_live_mode(db_path, "ep99", True)
     await approve_g108(db_path, "ep99")
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     
     yield db_path
 
@@ -164,16 +158,16 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             await ledger.init_db()
             
             # Reserve first (simulating what submit would do)
-            reserved = await ledger.reserve("ep99", "L2_drafts", 4.0, "test reserve")
+            reserved = await ledger.reserve("ep99", "L2_drafts", 4_000_000, "test reserve")
             assert reserved
             
             status_before = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_before = status_before["reserved"]
-            assert reserved_before == 4.0, "Should have 4.0 reserved"
+            assert reserved_before == 4_000_000, "Should have 4_000_000 usd_micros reserved"
             
             # Poll should fail with HTTPStatusError after retries
             with pytest.raises(httpx.HTTPStatusError):
-                await await_job_enforced("test-job", "still", "ep99", "A01", "L2_drafts", 4.0)
+                await await_job_enforced("test-job", "still", "ep99", "A01", "L2_drafts", 4_000_000)
             
             # Verify retries happened (should be called 4 times: initial + 3 retries)
             assert mock_provider.get_job_status.call_count == 4, \
@@ -183,7 +177,7 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             status_after = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_after = status_after["reserved"]
             
-            assert reserved_after == 0.0, f"Reserved should be 0 after release: was {reserved_before}, now {reserved_after}"
+            assert reserved_after == 0, f"Reserved should be 0 after release: was {reserved_before}, now {reserved_after}"
 
 
 @pytest.mark.asyncio
@@ -192,27 +186,27 @@ async def test_commit_handles_overage(test_episode):
     ledger = BudgetLedger(test_episode)
     await ledger.init_db()
     
-    # Reserve 10
-    reserved = await ledger.reserve("ep99", "L2_drafts", 10.0, "test reserve")
+    # Reserve 1.00 USD
+    reserved = await ledger.reserve("ep99", "L2_drafts", 1_000_000, "test reserve")
     assert reserved
     
     status_before = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_before["reserved"] == 10.0
-    assert status_before["spent"] == 0.0
+    assert status_before["reserved"] == 1_000_000
+    assert status_before["spent"] == 0
     
-    # Commit with actual_cost=12 (overage of 2)
+    # Commit with actual cost 1.20 USD (overage of 0.20 USD)
     await ledger.commit(
         episode_id="ep99",
         line_name="L2_drafts",
-        reserved_amount=10.0,
-        actual_cost=12.0,
+        reserved_usd_micros=1_000_000,
+        actual_usd_micros=1_200_000,
         reason="test overage"
     )
     
-    # Check: reserved goes to 0, spent goes to 12 (actual cost, not reserved)
+    # Check: reserved goes to 0, spent goes to 1_200_000 (actual cost, not reserved)
     status_after = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_after["reserved"] == 0.0, f"Reserved should be 0, got {status_after['reserved']}"
-    assert status_after["spent"] == 12.0, f"Spent should be 12 (actual), got {status_after['spent']}"
+    assert status_after["reserved"] == 0, f"Reserved should be 0, got {status_after['reserved']}"
+    assert status_after["spent"] == 1_200_000, f"Spent should be 1_200_000 (actual), got {status_after['spent']}"
     
     # Check overage_warning transaction logged
     import aiosqlite
@@ -222,15 +216,15 @@ async def test_commit_handles_overage(test_episode):
         ) as cursor:
             row = await cursor.fetchone()
             assert row is not None, "overage_warning transaction should exist"
-            assert row[0] == 2.0, f"Overage should be 2.0, got {row[0]}"
+            assert row[0] == 200_000, f"Overage should be 200_000, got {row[0]}"
         
-        # Also check the commit transaction has actual_cost (12.0), not reserved (10.0)
+        # Also check the commit transaction has the actual cost (1_200_000), not reserved (1_000_000)
         async with db.execute(
             "SELECT amount FROM budget_transactions WHERE txn_type = 'commit'"
         ) as cursor:
             row = await cursor.fetchone()
             assert row is not None, "commit transaction should exist"
-            assert row[0] == 12.0, f"Commit should be 12.0 (actual cost), got {row[0]}"
+            assert row[0] == 1_200_000, f"Commit should be 1_200_000 (actual cost), got {row[0]}"
 
 
 @pytest.mark.asyncio
@@ -239,45 +233,45 @@ async def test_idempotent_release_safe(test_episode):
     ledger = BudgetLedger(test_episode)
     await ledger.init_db()
     
-    # Reserve 10
-    reserved = await ledger.reserve("ep99", "L2_drafts", 10.0, "test reserve")
+    # Reserve 1.00 USD
+    reserved = await ledger.reserve("ep99", "L2_drafts", 1_000_000, "test reserve")
     assert reserved
     
     status_before = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_before["reserved"] == 10.0
+    assert status_before["reserved"] == 1_000_000
     
-    # Release 5 (normal)
+    # Release 0.50 USD (normal)
     await ledger.release(
         episode_id="ep99",
         line_name="L2_drafts",
-        amount=5.0,
+        amount_usd_micros=500_000,
         reason="partial release"
     )
     
     status_after_first = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_after_first["reserved"] == 5.0, "Should have 5.0 remaining after releasing 5"
+    assert status_after_first["reserved"] == 500_000, "Should have 500_000 remaining after releasing 500_000"
     
-    # Try to release 10 more (but only 5 is reserved) - should clamp to 5
+    # Try to release 1_000_000 more (but only 500_000 is reserved) - should clamp to 500_000
     await ledger.release(
         episode_id="ep99",
         line_name="L2_drafts",
-        amount=10.0,  # Trying to release more than reserved
+        amount_usd_micros=1_000_000,  # Trying to release more than reserved
         reason="over-release attempt"
     )
     
-    # Should have released only the remaining 5, not go negative
+    # Should have released only the remaining 500_000, not go negative
     status_final = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_final["reserved"] == 0.0, f"Reserved should be 0 (clamped), got {status_final['reserved']}"
+    assert status_final["reserved"] == 0, f"Reserved should be 0 (clamped), got {status_final['reserved']}"
     
     # Additional release should do nothing (idempotent)
     await ledger.release(
         episode_id="ep99",
         line_name="L2_drafts",
-        amount=5.0,
+        amount_usd_micros=500_000,
         reason="double release"
     )
     
     status_idempotent = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_idempotent["reserved"] == 0.0, "Reserved should remain 0 (idempotent)"
+    assert status_idempotent["reserved"] == 0, "Reserved should remain 0 (idempotent)"
     # Verify we don't go negative
     assert status_idempotent["reserved"] >= 0, "Reserved should never go negative"

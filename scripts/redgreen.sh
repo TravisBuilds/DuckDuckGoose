@@ -467,7 +467,7 @@ test_mutation 2 "G1.08 credit plan approval required" \
 test_mutation 3 "Budget stop at 80% threshold (atomic)" \
     "hfvg/budget.py" \
     "tests/test_studio_safety.py::test_concurrent_reserves_respect_stop_threshold" \
-    sed -i "s/AND (spent + reserved + ?) <= stop_threshold/AND (spent + reserved + ?) <= budget_cap  -- MUTATED/"
+    sed -i "s/AND (spent_usd_micros + reserved_usd_micros + ?) <= stop_usd_micros/AND (spent_usd_micros + reserved_usd_micros + ?) <= cap_usd_micros  -- MUTATED/"
 
 # 4. Activity-level enforcement
 test_mutation 4 "Activity-level enforcement (not just API)" \
@@ -491,13 +491,13 @@ test_mutation 6 "Auth fail-closed (no default secret)" \
 test_mutation 7 "Ledger math (reserve, commit, release)" \
     "hfvg/budget.py" \
     "tests/test_studio_safety.py::test_ledger_math_reserve_commit_release" \
-    sed -i '0,/spent = spent + ?/s//spent = spent + ? + 999/'  # Only first occurrence
+    sed -i '0,/spent_usd_micros = spent_usd_micros + ?/s//spent_usd_micros = spent_usd_micros + ? + 999/'  # Only first occurrence
 
 # 8. Hard cap
 test_mutation 8 "Hard cap enforcement" \
     "hfvg/budget.py" \
     "tests/test_budget.py::test_hard_cap_enforcement" \
-    sed -i "s/if total > cap:/if False and total > cap:/"
+    sed -i "s/if spent + reserved + amount > cap:/if False and spent + reserved + amount > cap:/"
 
 # 9. Canary starts ShotWorkflow
 test_mutation 9 "Canary starts real ShotWorkflow" \
@@ -522,10 +522,10 @@ test_mutation 11 "API rejects invalid/missing secrets" \
     sed -i 's/if token != ADMIN_SECRET:/if False and token != ADMIN_SECRET:/'
 
 # 12. Episode 1,250 cap enforced
-test_mutation 12 "Episode 1,250 credit cap" \
+test_mutation 12 "Episode 60.00 USD cap" \
     "hfvg/budget.py" \
     "tests/test_redgreen_safety.py::test_episode_cap_enforced" \
-    sed -i 's/if episode_total > EPISODE_CAP:/if False and episode_total > EPISODE_CAP:/'
+    sed -i 's/if episode_total + amount > settings.episode_cap_usd_micros:/if False and episode_total + amount > settings.episode_cap_usd_micros:/'
 
 # 13. DRY_RUN forces dry, never live
 test_mutation 13 "DRY_RUN forces dry (never live)" \
@@ -555,7 +555,7 @@ test_mutation 16 "Canary route starts ShotWorkflow" \
 test_mutation 17 "Canary reserves L6_reserve before workflow" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_reserves_l6_before_workflow" \
-    sed -i 's/reserved = await ledger.reserve/reserved = True  # MUTATED: skip; await ledger.reserve/'
+    sed -i '/reserved = await ledger.reserve(/,/^        )$/c\        reserved = True  # MUTATED: skip the L6 reserve'
 
 # 18. Still activity reserves budget
 test_mutation 18 "Still activity reserves before provider call" \
@@ -657,11 +657,11 @@ test_mutation 34 "Approve route returns 409 on completed workflow" \
     "tests/test_api_routes.py::test_approve_completed_canary_409" \
     sed -i 's/if status != WorkflowExecutionStatus.RUNNING:/if False and status != WorkflowExecutionStatus.RUNNING:  # MUTATED/'
 
-# 35. M-R2e: Live-mode estimate failure falls back to 10.0
+# 35. M-R2e: Live-mode estimate failure falls back to a default amount
 test_mutation 35 "Live canary fails closed without estimate" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_live_estimate_fail_closed" \
-    sed -i 's/raise HTTPException(/canary_cost = 10.0  # MUTATED fallback; raise HTTPException(/' | head -1
+    sed -i -e '/still_estimate = await still_provider.estimate_usd_micros(/,/await still_provider.close()/{s/raise HTTPException(/still_estimate = 100_000; _mutated = dict(  # MUTATED fallback estimate/}' -e '/clip_estimate = await clip_provider.estimate_usd_micros(/,/await clip_provider.close()/{s/raise HTTPException(/clip_estimate = 100_000; _mutated = dict(  # MUTATED fallback estimate/}'
 
 # 36. M-R3a: Drop character descriptions from composed prompt
 test_mutation 36 "Prompt includes character descriptions" \
@@ -681,17 +681,17 @@ test_mutation 38 "Still request includes aspect_ratio" \
     "tests/test_provider_contracts.py::test_still_activity_passes_aspect_ratio" \
     sed -i 's/aspect_ratio=aspect_ratio,/# aspect_ratio=aspect_ratio,  # MUTATED/'
 
-# 39. M-R4a: Change conversion constant to 1.0
-test_mutation 39 "App-to-API credit conversion constant is 0.76" \
+# 39. Legacy plan import conversion (app credits -> usd_micros) constant
+test_mutation 39 "Legacy plan import converts at 47_500 usd_micros per app credit" \
     "hfvg/budget.py" \
-    "tests/test_budget.py::test_conversion_constant_is_076" \
-    sed -i 's/APP_TO_API_CREDIT_CONVERSION = 0.76/APP_TO_API_CREDIT_CONVERSION = 1.0  # MUTATED/'
+    "tests/test_ledger_races.py::test_stop_threshold_validation" \
+    sed -i 's/^LEGACY_APP_CREDIT_USD_MICROS = 47_500/LEGACY_APP_CREDIT_USD_MICROS = 75_000  # MUTATED/'
 
-# 40. M-R4b: Leave episode cap unconverted (1250)
-test_mutation 40 "Episode cap converted to API credits (950)" \
+# 40. M-R4b: Episode cap default no longer 60.00 USD
+test_mutation 40 "Episode cap default is 60.00 USD" \
     "hfvg/budget.py" \
-    "tests/test_budget.py::test_episode_cap_converted" \
-    sed -i 's/EPISODE_CAP = 950.0/EPISODE_CAP = 1250.0  # MUTATED - not converted/'
+    "tests/test_budget.py::test_default_settings_are_literal_dollars" \
+    sed -i 's/^DEFAULT_EPISODE_CAP_USD = "60.00"/DEFAULT_EPISODE_CAP_USD = "1250.00"  # MUTATED/'
 
 # 41. M-R4c: Change >= to > in stop check
 test_mutation 41 "Reserve to exactly stop threshold triggers at_stop" \
@@ -733,6 +733,58 @@ test_mutation 46 "Poll exhaustion never resubmits" \
     "hfvg/workflows/shot.py" \
     "tests/test_poll_timeout.py::test_poll_single_provider_submit" \
     sed -i '/Exhausted polling window/i\        # MUTATED: resubmit once\n        await workflow.execute_activity(submit_still_job_enforced, args=[self.episode_id, self.shot_id, "retry", 1, [], "1k", "medium", "9:16"], start_to_close_timeout=timedelta(minutes=2), retry_policy=retry_policy)\n'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1 MUTATIONS: dollar ledger (integer usd_micros)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 47. M-P1a: `>=` to `>` in the episode stop check (summary flag at exactly 48.00 USD)
+test_mutation 47 "M-P1a Episode at_stop uses >= (exactly 48.00 USD is at stop)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_episode_cap_default_60_usd_and_stop_48" \
+    sed -i 's/"episode_at_stop": episode_total >= settings.episode_stop_usd_micros,/"episode_at_stop": episode_total > settings.episode_stop_usd_micros,  # MUTATED/'
+
+# 48. M-P1b: stop uses the cap instead of 80%
+test_mutation 48 "M-P1b Stop threshold is 80% of cap, not the cap" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_init_episode_budget" \
+    sed -i 's|^    return cap_usd_micros \* stop_percent // 100$|    return cap_usd_micros  # MUTATED: stop == cap|'
+
+# 49. M-P1c: release can go negative
+test_mutation 49 "M-P1c Release is clamped to the hold (never negative)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_release_over_hold_is_clamped_never_negative" \
+    python3 scripts/mutate_release_check.py
+
+# 50. M-P1d: GC.01 headroom check removed
+test_mutation 50 "M-P1d GC.01 headroom refuses low balance" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_gc01_headroom_refuses_when_balance_too_low" \
+    sed -i 's/if balance_after_hold < settings.gc01_headroom_usd_micros:/if False and balance_after_hold < settings.gc01_headroom_usd_micros:  # MUTATED/'
+
+# 51. M-P1e: commit uses reserved instead of actual on overage
+test_mutation 51 "M-P1e Commit spends actual cost on overage" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_commit_overage_spends_actual_not_reserved" \
+    python3 scripts/mutate_overage.py
+
+# 52. M-P1f: float arithmetic reintroduced (cap * 0.8)
+test_mutation 52 "M-P1f Stop uses integer arithmetic (no float drift)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_stop_is_integer_80_percent_no_float_drift" \
+    sed -i 's|^    return cap_usd_micros \* stop_percent // 100$|    return cap_usd_micros * 0.8  # MUTATED: float|'
+
+# 53. M-P1g: revision reserve usable without the revision tag
+test_mutation 53 "M-P1g Revision reserve requires the revision tag" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_revision_reserve_requires_revision_tag" \
+    sed -i 's/if line_name == REVISION_LINE and not revision:/if False and line_name == REVISION_LINE and not revision:  # MUTATED/'
+
+# 54. M-P1h: micro-dollar conversion off by 10x
+test_mutation 54 "M-P1h USD to usd_micros conversion is 1_000_000" \
+    "hfvg/pricing.py" \
+    "tests/test_budget.py::test_usd_micro_conversion_literals" \
+    sed -i 's/^MICROS_PER_USD = 1_000_000/MICROS_PER_USD = 10_000_000  # MUTATED/'
 
 # Print final summary
 print_summary

@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 
+from hfvg.pricing import estimate_from_response
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
@@ -121,6 +122,37 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         return media_id
     
+    async def _estimate_response(
+        self,
+        prompt: str,
+        resolution: str,
+        quality: str,
+        aspect_ratio: str | None,
+    ) -> dict:
+        """POST /estimate/{model_path}; returns the parsed JSON (fail closed on any error)."""
+        # Map quality to allowed values (low, medium)
+        if quality not in ("low", "medium"):
+            quality = "medium"
+
+        payload = {
+            "prompt": prompt,
+            "resolution": resolution,
+            "quality": quality,
+        }
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+
+        try:
+            response = await self.client.post(
+                f"/estimate/{self.model_path}",
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            # Fail closed: never submit without a valid estimate
+            raise ValueError(f"Failed to get estimate for still generation: {e}") from e
+
     async def estimate_cost(
         self,
         prompt: str,
@@ -129,58 +161,46 @@ class HiggsfieldStillProvider(GenerationProvider):
         aspect_ratio: str | None = None,
     ) -> float:
         """
-        Estimate cost before submission via API.
-        
+        Estimate cost in Higgsfield API credits (informational; the ledger uses USD).
+
         API: POST /estimate/{model_path}
         Response: {"credits": "<str>", "usd": "<str>"}
-        
-        Args:
-            prompt: Generation prompt
-            resolution: Resolution (1k, 2k)
-            quality: Quality (low, medium only - no high)
-            aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
-        
-        Returns:
-            Estimated cost in Higgsfield API credits
-        
+
         Raises:
             ValueError: If estimate fails or response is invalid (fail closed)
         """
-        # Map quality to allowed values (low, medium)
-        if quality not in ("low", "medium"):
-            quality = "medium"
-        
-        # Use the estimate API endpoint
-        payload = {
-            "prompt": prompt,
-            "resolution": resolution,
-            "quality": quality,
-        }
-        if aspect_ratio:
-            payload["aspect_ratio"] = aspect_ratio
-        
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
         try:
-            response = await self.client.post(
-                f"/estimate/{self.model_path}",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse documented response format: {"credits": "<str>", "usd": "<str>"}
             if "credits" not in data:
                 raise ValueError(f"Estimate response missing 'credits' field: {data}")
-            
             credits_str = data["credits"]
             if not isinstance(credits_str, str):
                 raise ValueError(f"Estimate 'credits' must be string, got {type(credits_str)}")
-            
             return float(credits_str)
-            
-        except (httpx.HTTPError, ValueError, KeyError) as e:
-            # Fail closed: never submit without a valid estimate
+        except (ValueError, KeyError) as e:
             raise ValueError(f"Failed to get estimate for still generation: {e}") from e
-    
+
+    async def estimate_usd_micros(
+        self,
+        prompt: str,
+        resolution: str = "1k",
+        quality: str = "medium",
+        aspect_ratio: str | None = None,
+    ) -> int:
+        """
+        Estimate cost in integer micro-dollars from the provider's own USD value.
+
+        Stills have no per-second rate table: a response without ``usd`` is refused (fail closed).
+        """
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None or usd_micros <= 0:
+                raise ValueError(f"Estimate response has no positive 'usd' value: {data}")
+            return usd_micros
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD estimate for still generation: {e}") from e
+
     async def submit_image(
         self,
         prompt: str,

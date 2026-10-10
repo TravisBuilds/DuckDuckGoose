@@ -11,6 +11,7 @@ The documented API:
 """
 
 import pytest
+from tests.ledger_helpers import insert_line, set_balance
 import respx
 import httpx
 from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
@@ -387,13 +388,19 @@ async def test_full_live_flow_with_strict_mock():
         still_estimate = await still_provider.estimate_cost(
             prompt="A duck", resolution="1k", quality="medium", aspect_ratio="9:16"
         )
-        assert still_estimate == 4.0
+        assert still_estimate == 4.0  # credits (informational)
+        
+        # The ledger uses the estimate's USD value, as integer micro-dollars
+        still_usd_micros = await still_provider.estimate_usd_micros(
+            prompt="A duck", resolution="1k", quality="medium", aspect_ratio="9:16"
+        )
+        assert still_usd_micros == 40_000  # "0.04" USD
         
         # 2. Reserve budget
         reserved_still = await ledger.reserve(
             episode_id=episode_id,
             line_name="L2_drafts",
-            amount=still_estimate,
+            amount_usd_micros=still_usd_micros,
             reason="Still test"
         )
         assert reserved_still
@@ -435,13 +442,11 @@ async def test_full_live_flow_with_strict_mock():
         assert job_status.cost is None  # Documented API has NO cost
         
         # 5. Commit with estimate as actual cost (since status has no cost)
-        actual_still_cost = job_status.cost or still_estimate
         await ledger.commit(
             episode_id=episode_id,
             line_name="L2_drafts",
-            reserved_amount=still_estimate,
-            actual_cost=actual_still_cost,
-            usd_micros=None,
+            reserved_usd_micros=still_usd_micros,
+            actual_usd_micros=still_usd_micros,
             job_id=still_job_id,
             reason="Still completed"
         )
@@ -451,8 +456,8 @@ async def test_full_live_flow_with_strict_mock():
         # Check ledger after still
         budget = await ledger.get_episode_summary(episode_id)
         l2 = next(line for line in budget["lines"] if line["line_name"] == "L2_drafts")
-        assert l2["spent"] == 4.0
-        assert l2["reserved"] == 0.0
+        assert l2["spent"] == 40_000
+        assert l2["reserved"] == 0
         
         # CLIP FLOW
         # 1. Estimate clip with full request params
@@ -470,7 +475,14 @@ async def test_full_live_flow_with_strict_mock():
             prompt="Breathing",
             duration=5
         )
-        assert clip_estimate == 7.5
+        assert clip_estimate == 7.5  # credits (informational)
+        
+        clip_usd_micros = await clip_provider.estimate_usd_micros(
+            image_url="http://cdn.example.com/still.jpg",
+            prompt="Breathing",
+            duration=5
+        )
+        assert clip_usd_micros == 75_000  # "0.075" USD
         
         # Verify estimate request had all required fields
         est_req = clip_estimate_route.calls[0].request
@@ -485,7 +497,7 @@ async def test_full_live_flow_with_strict_mock():
         reserved_clip = await ledger.reserve(
             episode_id=episode_id,
             line_name="L4_video",
-            amount=clip_estimate,
+            amount_usd_micros=clip_usd_micros,
             reason="Clip test"
         )
         assert reserved_clip
@@ -529,13 +541,11 @@ async def test_full_live_flow_with_strict_mock():
         assert clip_status.cost is None  # Documented API has NO cost
         
         # 5. Commit with estimate as actual cost
-        actual_clip_cost = clip_status.cost or clip_estimate
         await ledger.commit(
             episode_id=episode_id,
             line_name="L4_video",
-            reserved_amount=clip_estimate,
-            actual_cost=actual_clip_cost,
-            usd_micros=None,
+            reserved_usd_micros=clip_usd_micros,
+            actual_usd_micros=clip_usd_micros,
             job_id=clip_job_id,
             reason="Clip completed"
         )
@@ -547,16 +557,16 @@ async def test_full_live_flow_with_strict_mock():
         final_budget = await ledger.get_episode_summary(episode_id)
         
         l2_final = next(line for line in final_budget["lines"] if line["line_name"] == "L2_drafts")
-        assert l2_final["spent"] == 4.0  # still estimate
-        assert l2_final["reserved"] == 0.0
+        assert l2_final["spent"] == 40_000  # still estimate (0.04 USD)
+        assert l2_final["reserved"] == 0
         
         l4_final = next(line for line in final_budget["lines"] if line["line_name"] == "L4_video")
-        assert l4_final["spent"] == 7.5  # clip estimate
-        assert l4_final["reserved"] == 0.0
+        assert l4_final["spent"] == 75_000  # clip estimate (0.075 USD)
+        assert l4_final["reserved"] == 0
         
         # Total spent equals sum of estimates
         total_spent = l2_final["spent"] + l4_final["spent"]
-        assert total_spent == 11.5  # 4.0 + 7.5
+        assert total_spent == 115_000  # 0.04 + 0.075 USD
         
     finally:
         # Cleanup
@@ -629,14 +639,11 @@ async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
     await create_episode(db_path, "ep99")
     await BudgetLedger(db_path).init_db()
     async with aiosqlite.connect(db_path) as db:
-        await db.execute("""
-            INSERT INTO budget_lines
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     await set_live_mode(db_path, "ep99", True)
     await approve_g108(db_path, "ep99")
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
 
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", db_path)

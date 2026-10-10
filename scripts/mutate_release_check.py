@@ -1,42 +1,25 @@
 #!/usr/bin/env python3
-"""Mutate release check to remove reserved >= amount condition."""
+"""Mutate BudgetLedger.release: drop the clamp to the amount actually reserved.
 
+Original:  release_amount = min(amount, row[0])
+Mutated:   release_amount = amount   (reserved can go negative)
+
+Exits non-zero (file untouched) if the target line is not found, so a stale mutation
+cannot pass silently. Used by redgreen mutation 26 and M-P1c.
+"""
 import sys
-import re
+
+TARGET = "release_amount = min(amount, row[0])"
+MUTATED = "release_amount = amount  # MUTATED: no clamp to the hold"
 
 if len(sys.argv) != 2:
-    print("Usage: mutate_release_check.py <file>")
+    print("Usage: mutate_release_check.py <file>", file=sys.stderr)
     sys.exit(1)
 
-filepath = sys.argv[1]
-
-with open(filepath, 'r') as f:
-    content = f.read()
-
-# Find the release function and mutate it to remove the reserved check
-# The SQL query uses 3 parameters: (amount, line_id, amount)
-# We need to change it to use 2 parameters and remove the check
-
-# Original:
-#     cursor = await db.execute("""
-#         UPDATE budget_lines
-#         SET reserved = reserved - ?
-#         WHERE line_id = ? AND reserved >= ?
-#     """, (amount, line_id, amount))
-#
-# Mutated:
-#     cursor = await db.execute("""
-#         UPDATE budget_lines
-#         SET reserved = reserved - ?
-#         WHERE line_id = ?
-#     """, (amount, line_id))
-
-pattern = r'(cursor = await db\.execute\("""[\s\S]*?UPDATE budget_lines[\s\S]*?SET reserved = reserved - \?[\s\S]*?)WHERE line_id = \? AND reserved >= \?[\s\S]*?""", \(amount, line_id, amount\)'
-replacement = r'\1WHERE line_id = ?  -- MUTATED: removed reserved check\n                """, (amount, line_id)'
-
-content = re.sub(pattern, replacement, content)
-
-with open(filepath, 'w') as f:
-    f.write(content)
-
-print("Mutated release: removed reserved >= amount check")
+path = sys.argv[1]
+content = open(path).read()
+if content.count(TARGET) != 1:
+    print(f"expected exactly one {TARGET!r}, found {content.count(TARGET)}", file=sys.stderr)
+    sys.exit(2)
+open(path, "w").write(content.replace(TARGET, MUTATED))
+print("Mutated release: clamp to reserved removed")

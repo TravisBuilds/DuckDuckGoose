@@ -98,6 +98,11 @@ class GatePolicy:
         budget = self.get_budget(episode)
         return budget.get("elevenlabs", {})
     
+    def get_usd_line_caps(self, episode: str = "ep04") -> dict[str, str]:
+        """USD line caps (decimal strings) for an episode from the policy's `usd` section, if any."""
+        usd = self.budgets.get("usd", {})
+        return dict(usd.get(f"{episode}_lines_app_usd", {}))
+
     def get_unit_prices(self) -> dict[str, float]:
         """Get unit prices for all services."""
         return self.budgets.get("unit_prices", {})

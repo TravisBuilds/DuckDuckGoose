@@ -50,29 +50,28 @@ async def test_e2e_gates_and_budget():
         ledger = BudgetLedger(db_path=path)
         await ledger.init_episode_budget("ep04")
         
-        # Verify Higgsfield budget (converted from app to API credits)
-        # Policy: L4_video=300 app credits * 0.76 = 228 API credits, stop=182.4
+        # Verify Higgsfield budget in usd_micros (policy usd.ep04_lines_app_usd: L4_video 14.25 USD)
         l4_status = await ledger.get_line_status("ep04", "L4_video")
-        assert l4_status["budget_cap"] == 228.0  # API credits (from 300 app credits)
-        assert l4_status["stop_threshold"] == 182.4  # 80% of 228
-        assert l4_status["unit"] == "Higgsfield API credits"
+        assert l4_status["budget_cap"] == 14_250_000
+        assert l4_status["stop_threshold"] == 11_400_000  # 80% of 14.25 USD
+        assert l4_status["unit"] == "usd_micros"
         
         # Verify ElevenLabs budget (no conversion)
         vo_status = await ledger.get_line_status("ep04", "el_vo_takes")
-        assert vo_status["budget_cap"] == 700
-        assert vo_status["stop_threshold"] == 560  # 80%
+        assert vo_status["budget_cap"] == 140_000  # 700 ElevenLabs credits * 0.0002 USD
+        assert vo_status["stop_threshold"] == 112_000  # 80%
         
         # 3. Test reserve flow
-        reserved = await ledger.reserve("ep04", "L4_video", 100.0, "Test clips")
+        reserved = await ledger.reserve("ep04", "L4_video", 5_000_000, "Test clips")
         assert reserved is True
         
         status = await ledger.get_line_status("ep04", "L4_video")
-        assert status["reserved"] == 100
-        assert status["available"] == 82.4  # 182.4 - 100 (stop - reserved)
+        assert status["reserved"] == 5_000_000
+        assert status["available"] == 6_400_000  # 11_400_000 - 5_000_000 (stop - reserved)
         
         # 4. Test 80% stop
-        reserved = await ledger.reserve("ep04", "L4_video", 90.0, "More clips")
-        assert reserved is False, "Should hit 80% stop at 182.4"
+        reserved = await ledger.reserve("ep04", "L4_video", 7_000_000, "More clips")
+        assert reserved is False, "Should hit 80% stop at 11_400_000"
         
     finally:
         try:
@@ -271,8 +270,8 @@ async def test_dry_mode_no_negative_reservations():
         await ledger.set_line(
             episode_id="ep99",
             line_name="L2_drafts",
-            cap=100.0,
-            stop_at=80.0,
+            cap_usd_micros=10_000_000,
+            stop_usd_micros=8_000_000,
         )
         
         # Set dry mode environment
@@ -294,7 +293,7 @@ async def test_dry_mode_no_negative_reservations():
         
         # Check: no reservation was made
         status_after_submit = await ledger.get_line_status("ep99", "L2_drafts")
-        assert status_after_submit["reserved"] == 0.0, \
+        assert status_after_submit["reserved"] == 0, \
             f"Dry mode submit should not reserve, got {status_after_submit['reserved']}"
         
         # Commit (should be no-op in dry mode)
@@ -312,7 +311,7 @@ async def test_dry_mode_no_negative_reservations():
         status_after_commit = await ledger.get_line_status("ep99", "L2_drafts")
         assert status_after_commit["reserved"] >= 0, \
             f"Dry mode commit created negative reservation: {status_after_commit['reserved']}"
-        assert status_after_commit["reserved"] == 0.0, \
+        assert status_after_commit["reserved"] == 0, \
             f"Dry mode should have zero reserved, got {status_after_commit['reserved']}"
         
     finally:

@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from hfvg.pricing import estimate_from_response, rate_table_estimate
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
@@ -119,6 +120,24 @@ class KlingVideoProvider(GenerationProvider):
         
         return media_id
     
+    async def _estimate_response(self, image_url: str, prompt: str, duration: int) -> dict:
+        """POST /estimate/{model_path} mirroring the full submit request (fail closed)."""
+        payload = {
+            "image_url": image_url,
+            "duration": duration,
+            "sound": "off",
+            "prompt": prompt,
+        }
+        try:
+            response = await self.client.post(
+                f"/estimate/{self.model_path}",
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            raise ValueError(f"Failed to get estimate for video generation: {e}") from e
+
     async def estimate_cost(
         self,
         image_url: str,
@@ -126,53 +145,42 @@ class KlingVideoProvider(GenerationProvider):
         duration: int,
     ) -> float:
         """
-        Estimate cost before submission via API.
-        
-        API: POST /estimate/{model_path}
-        Request: Must mirror the full documented submit request
-        Response: {"credits": "<str>", "usd": "<str>"}
-        
-        Args:
-            image_url: Public URL of start image (required for estimate)
-            prompt: Generation prompt (required for estimate)
-            duration: Video duration in seconds (3-12)
-        
-        Returns:
-            Estimated cost in Higgsfield app credits
-        
+        Estimate cost in Higgsfield credits (informational; the ledger uses USD).
+
+        API: POST /estimate/{model_path}; Response: {"credits": "<str>", "usd": "<str>"}
+
         Raises:
             ValueError: If estimate fails or response is invalid (fail closed)
         """
-        # Estimate body must mirror the full documented submit request
-        payload = {
-            "image_url": image_url,
-            "duration": duration,
-            "sound": "off",
-            "prompt": prompt,
-        }
-        
+        data = await self._estimate_response(image_url, prompt, duration)
         try:
-            response = await self.client.post(
-                f"/estimate/{self.model_path}",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse documented response format: {"credits": "<str>", "usd": "<str>"}
             if "credits" not in data:
                 raise ValueError(f"Estimate response missing 'credits' field: {data}")
-            
             credits_str = data["credits"]
             if not isinstance(credits_str, str):
                 raise ValueError(f"Estimate 'credits' must be string, got {type(credits_str)}")
-            
             return float(credits_str)
-            
-        except (httpx.HTTPError, ValueError, KeyError) as e:
-            # Fail closed: never submit without a valid estimate
+        except (ValueError, KeyError) as e:
             raise ValueError(f"Failed to get estimate for video generation: {e}") from e
-    
+
+    async def estimate_usd_micros(self, image_url: str, prompt: str, duration: int) -> int:
+        """
+        Estimate cost in integer micro-dollars.
+
+        Source of truth: the estimate's ``usd`` value. If the response carries no USD value, fall
+        back to the configured per-second rate table (list price before discount, derived).
+        """
+        data = await self._estimate_response(image_url, prompt, duration)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None:
+                usd_micros = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+            if usd_micros <= 0:
+                raise ValueError(f"Non-positive USD estimate: {data}")
+            return usd_micros
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD estimate for video generation: {e}") from e
+
     async def submit_video(
         self,
         image_url: str,

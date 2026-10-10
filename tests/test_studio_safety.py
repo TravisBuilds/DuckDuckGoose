@@ -5,6 +5,7 @@ NO STUBS. Real assertions on actual behavior.
 """
 
 import pytest
+from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 import os
 from pathlib import Path
@@ -42,17 +43,9 @@ async def episode_with_budget(temp_db):
     
     # Manual budget initialization for testing
     async with aiosqlite.connect(temp_db) as db:
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (f"{episode_id}:L2_drafts", episode_id, "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, episode_id, "L2_drafts", 10_000_000, 8_000_000)
         
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (f"{episode_id}:L4_video", episode_id, "higgsfield", "L4_video", 300.0, 240.0, "credits"))
+        await insert_line(db, episode_id, "L4_video", 30_000_000, 24_000_000)
         
         await db.commit()
     
@@ -98,7 +91,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     line_id = f"{episode_id}:L2_drafts"
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_before = row[0] if row else 0.0
@@ -122,7 +115,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     # Assert ledger unchanged (no budget reserved)
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_after = row[0] if row else 0.0
@@ -165,7 +158,7 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     line_id = f"{episode_id}:L2_drafts"
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_before = row[0] if row else 0.0
@@ -189,7 +182,7 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     # Assert ledger unchanged (no budget reserved)
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_after = row[0] if row else 0.0
@@ -213,15 +206,15 @@ async def test_budget_stop_enforcement(episode_with_budget, monkeypatch):
     live_mode, g108 = await check_live_mode_and_g108(episode_id)
     assert live_mode and g108, "Both should be enabled"
     
-    # Reserve up to the stop threshold (80 credits)
+    # Reserve up to the stop threshold (8_000_000 usd_micros)
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     
-    reserved = await ledger.reserve(episode_id, "L2_drafts", 80.0, "Test reserve")
+    reserved = await ledger.reserve(episode_id, "L2_drafts", 8_000_000, "Test reserve")
     assert reserved, "Should be able to reserve up to stop"
     
     # Now try to reserve more - should fail
-    reserved_more = await ledger.reserve(episode_id, "L2_drafts", 1.0, "Over stop")
+    reserved_more = await ledger.reserve(episode_id, "L2_drafts", 100_000, "Over stop")
     assert not reserved_more, "Should refuse to reserve over stop threshold"
 
 
@@ -233,17 +226,17 @@ async def test_budget_stop_nonzero_amounts(episode_with_budget):
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     
-    # Reserve 79 credits (under stop of 80)
-    reserved = await ledger.reserve(episode_id, "L2_drafts", 79.0, "Near stop")
-    assert reserved, "Should reserve 79 credits"
+    # Reserve 7_900_000 (under stop of 8_000_000)
+    reserved = await ledger.reserve(episode_id, "L2_drafts", 7_900_000, "Near stop")
+    assert reserved, "Should reserve 7_900_000 usd_micros"
     
-    # Try to reserve 2 more (total 81, over stop 80)
-    reserved_over = await ledger.reserve(episode_id, "L2_drafts", 2.0, "Over stop")
-    assert not reserved_over, "Should refuse 2 credits (total 81 > stop 80)"
+    # Try to reserve 200_000 more (total 8_100_000, over stop 8_000_000)
+    reserved_over = await ledger.reserve(episode_id, "L2_drafts", 200_000, "Over stop")
+    assert not reserved_over, "Should refuse 200_000 (total 8_100_000 > stop 8_000_000)"
     
     # But 1 credit should work (total 80 = stop)
-    reserved_exact = await ledger.reserve(episode_id, "L2_drafts", 1.0, "At stop")
-    assert reserved_exact, "Should reserve 1 credit (total 80 = stop)"
+    reserved_exact = await ledger.reserve(episode_id, "L2_drafts", 100_000, "At stop")
+    assert reserved_exact, "Should reserve 100_000 (total 8_000_000 = stop)"
 
 
 @pytest.mark.asyncio
@@ -251,7 +244,7 @@ async def test_concurrent_reserves_respect_stop_threshold(episode_with_budget):
     """
     Test: Concurrent reserves racing against stop threshold - at most one succeeds.
     
-    Two concurrent reserves of 50 credits each against an 80-credit stop threshold.
+    Two concurrent reserves of 5_000_000 each against an 8_000_000 stop threshold.
     The atomic SQL WHERE clause prevents both from succeeding (which would total 100).
     """
     import asyncio
@@ -267,11 +260,11 @@ async def test_concurrent_reserves_respect_stop_threshold(episode_with_budget):
     ledger1 = BudgetLedger(db_path)
     ledger2 = BudgetLedger(db_path)
     
-    # Run two concurrent reserves of 50 credits each
+    # Run two concurrent reserves of 5_000_000 each
     # Stop threshold is 80, so at most one should succeed
     results = await asyncio.gather(
-        ledger1.reserve(episode_id, "L2_drafts", 50.0, "Worker 1"),
-        ledger2.reserve(episode_id, "L2_drafts", 50.0, "Worker 2"),
+        ledger1.reserve(episode_id, "L2_drafts", 5_000_000, "Worker 1"),
+        ledger2.reserve(episode_id, "L2_drafts", 5_000_000, "Worker 2"),
         return_exceptions=False
     )
     
@@ -285,8 +278,8 @@ async def test_concurrent_reserves_respect_stop_threshold(episode_with_budget):
     
     # Verify actual reserved amount in DB
     status = await ledger.get_line_status(episode_id, "L2_drafts")
-    assert status["reserved"] <= 80.0, (
-        f"Reserved {status['reserved']} exceeds stop threshold 80"
+    assert status["reserved"] <= 8_000_000, (
+        f"Reserved {status['reserved']} exceeds stop threshold 8_000_000"
     )
 
 
@@ -299,21 +292,21 @@ async def test_idempotent_retry_no_double_charge(episode_with_budget):
     await ledger.init_db()
     
     # First reserve
-    reserved1 = await ledger.reserve(episode_id, "L2_drafts", 10.0, "First reserve")
+    reserved1 = await ledger.reserve(episode_id, "L2_drafts", 1_000_000, "First reserve")
     assert reserved1, "First reserve should succeed"
     
     # Check spent + reserved
     status = await ledger.get_line_status(episode_id, "L2_drafts")
-    assert status["reserved"] == 10.0, f"Reserved should be 10.0, got {status['reserved']}"
-    assert status["spent"] == 0.0, f"Spent should be 0.0, got {status['spent']}"
+    assert status["reserved"] == 1_000_000, f"Reserved should be 1_000_000, got {status['reserved']}"
+    assert status["spent"] == 0, f"Spent should be 0, got {status['spent']}"
     
     # Commit the reserve
-    await ledger.commit(episode_id, "L2_drafts", 10.0, reason="Complete")
+    await ledger.commit(episode_id, "L2_drafts", 1_000_000, reason="Complete")
     
     # Check again - reserved should go to 0, spent should be 10
     status_after = await ledger.get_line_status(episode_id, "L2_drafts")
-    assert status_after["reserved"] == 0.0, f"Reserved should be 0.0 after commit, got {status_after['reserved']}"
-    assert status_after["spent"] == 10.0, f"Spent should be 10.0 after commit, got {status_after['spent']}"
+    assert status_after["reserved"] == 0, f"Reserved should be 0 after commit, got {status_after['reserved']}"
+    assert status_after["spent"] == 1_000_000, f"Spent should be 1_000_000 after commit, got {status_after['spent']}"
     
     # Ensure idempotency keys are deterministic
     key1 = generate_idempotency_key(episode_id, "A01", 1, "Test prompt")
@@ -387,43 +380,43 @@ async def test_ledger_math_reserve_commit_release(episode_with_budget):
     
     # Initial state
     status = await ledger.get_line_status(episode_id, "L4_video")
-    assert status["spent"] == 0.0
-    assert status["reserved"] == 0.0
-    assert status["total_committed"] == 0.0
+    assert status["spent"] == 0
+    assert status["reserved"] == 0
+    assert status["total_committed"] == 0
     
-    # Reserve 50 credits
-    reserved = await ledger.reserve(episode_id, "L4_video", 50.0, "Job 1")
+    # Reserve 5_000_000 usd_micros
+    reserved = await ledger.reserve(episode_id, "L4_video", 5_000_000, "Job 1")
     assert reserved
     
     status = await ledger.get_line_status(episode_id, "L4_video")
-    assert status["spent"] == 0.0
-    assert status["reserved"] == 50.0
-    assert status["total_committed"] == 50.0
+    assert status["spent"] == 0
+    assert status["reserved"] == 5_000_000
+    assert status["total_committed"] == 5_000_000
     
-    # Commit 50 credits (actual cost)
-    await ledger.commit(episode_id, "L4_video", 50.0, job_id="job1", reason="Complete")
+    # Commit 5_000_000 (actual cost)
+    await ledger.commit(episode_id, "L4_video", 5_000_000, job_id="job1", reason="Complete")
     
     status = await ledger.get_line_status(episode_id, "L4_video")
-    assert status["spent"] == 50.0
-    assert status["reserved"] == 0.0
-    assert status["total_committed"] == 50.0
+    assert status["spent"] == 5_000_000
+    assert status["reserved"] == 0
+    assert status["total_committed"] == 5_000_000
     
     # Reserve 100 more
-    reserved2 = await ledger.reserve(episode_id, "L4_video", 100.0, "Job 2")
+    reserved2 = await ledger.reserve(episode_id, "L4_video", 10_000_000, "Job 2")
     assert reserved2
     
     status = await ledger.get_line_status(episode_id, "L4_video")
-    assert status["spent"] == 50.0
-    assert status["reserved"] == 100.0
-    assert status["total_committed"] == 150.0
+    assert status["spent"] == 5_000_000
+    assert status["reserved"] == 10_000_000
+    assert status["total_committed"] == 15_000_000
     
     # Release 100 (job failed)
-    await ledger.release(episode_id, "L4_video", 100.0, reason="Failed")
+    await ledger.release(episode_id, "L4_video", 10_000_000, reason="Failed")
     
     status = await ledger.get_line_status(episode_id, "L4_video")
-    assert status["spent"] == 50.0
-    assert status["reserved"] == 0.0
-    assert status["total_committed"] == 50.0
+    assert status["spent"] == 5_000_000
+    assert status["reserved"] == 0
+    assert status["total_committed"] == 5_000_000
 
 
 @pytest.mark.asyncio

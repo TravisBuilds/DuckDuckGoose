@@ -6,6 +6,7 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 """
 
 import pytest
+from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 
 from hfvg.budget import BudgetLedger
@@ -27,12 +28,9 @@ async def test_db(tmp_path):
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     async with aiosqlite.connect(db_path) as db:
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     
     yield db_path
 
@@ -67,7 +65,7 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     line_id = "ep99:L2_drafts"
     async with aiosqlite.connect(test_db) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_before = row[0] if row else 0.0
@@ -86,7 +84,7 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     # Assert ledger unchanged (no budget reserved)
     async with aiosqlite.connect(test_db) as db:
         async with db.execute(
-            "SELECT reserved FROM budget_lines WHERE line_id = ?", (line_id,)
+            "SELECT reserved_usd_micros FROM budget_lines WHERE line_id = ?", (line_id,)
         ) as cursor:
             row = await cursor.fetchone()
             reserved_after = row[0] if row else 0.0
@@ -291,26 +289,21 @@ async def test_api_auth_rejects_invalid_secret(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_episode_cap_enforced(test_db):
-    """Test 12: Episode cannot exceed 1,250 credit cap."""
+    """Test 12: Episode cannot exceed the 60.00 USD episode cap."""
     from hfvg.budget import BudgetLedger
     import aiosqlite
     
     ledger = BudgetLedger(test_db)
     await ledger.init_db()
     
-    # Update line cap and stop threshold to be higher than episode cap
-    async with aiosqlite.connect(test_db) as db:
-        await db.execute(
-            "UPDATE budget_lines SET budget_cap = ?, stop_threshold = ? WHERE line_id = ?",
-            (2000.0, 1600.0, "ep99:L2_drafts")
-        )
-        await db.commit()
+    # Line cap and stop higher than the episode cap (100.00 USD each)
+    await ledger.set_line("ep99", "L2_drafts", 100_000_000, 100_000_000)
     
-    # Try to reserve 1,251 credits (over episode cap of 1,250)
+    # Try to reserve 60.000001 USD (1 micro-dollar over the 60.00 USD episode cap)
     exception_raised = False
     error_message = ""
     try:
-        await ledger.reserve("ep99", "L2_drafts", 1251.0, "Over cap")
+        await ledger.reserve("ep99", "L2_drafts", 60_000_001, "Over cap")
     except ValueError as e:
         exception_raised = True
         error_message = str(e)
@@ -318,9 +311,10 @@ async def test_episode_cap_enforced(test_db):
     # MUST raise ValueError (not just return False)
     assert exception_raised, \
         "Episode cap check must raise ValueError, not silently return False"
-    # Message now reports the converted API credit cap (950.0) instead of app credit cap (1,250)
-    assert "950.0 API credits" in error_message or "episode cap" in error_message, \
-        f"Error should mention episode cap, got: {error_message}"
+    assert "episode cap" in error_message.lower() and "60.00 USD" in error_message, \
+        f"Error should mention the 60.00 USD episode cap, got: {error_message}"
+    status = await ledger.get_line_status("ep99", "L2_drafts")
+    assert status["reserved"] == 0, "Nothing may be reserved when the cap check fails"
 
 
 @pytest.mark.asyncio
@@ -353,7 +347,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
     
     assert result["job_id"].startswith("still-dry-"), "Should return dry job"
-    assert result["reserved_amount"] == 2.5, "Should return estimate"
+    assert result["reserved_amount"] == 60_000, "Should return the dry estimate (0.06 USD in usd_micros)"
     
     # Key assertion: provider endpoints should NOT be called when DRY_RUN=true
     assert not estimate_mock.called, "Should NOT call estimate endpoint in dry mode"
@@ -444,8 +438,8 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     
     # Check reserved amount increased
     status_after = await ledger.get_line_status("ep99", "L2_drafts")
-    assert status_after["reserved"] > 0, "Should have reserved budget"
-    assert result["reserved_amount"] > 0, "Should return reserved amount"
+    assert status_after["reserved"] == 40_000, "Should have reserved the 0.04 USD estimate"
+    assert result["reserved_amount"] == 40_000, "Should return the reserved usd_micros"
 
 
 @pytest.mark.asyncio
@@ -466,11 +460,7 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     # Initialize budget for L4_video
     ledger = BudgetLedger(test_db)
     async with aiosqlite.connect(test_db) as db:
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L4_video", "ep99", "higgsfield", "L4_video", 500.0, 400.0, "credits"))
+        await insert_line(db, "ep99", "L4_video", 50_000_000, 40_000_000)
         await db.commit()
     
     # Calculate expected key with all parameters

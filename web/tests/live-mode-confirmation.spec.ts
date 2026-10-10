@@ -154,7 +154,7 @@ test.describe('Live Mode Confirmation Fix', () => {
     await expect(page.locator('text=Type here...')).not.toBeVisible();
   });
 
-  test('should display warning about real credits', async ({ page }) => {
+  test('should display warning about real money', async ({ page }) => {
     await page.route('**/api/episodes/ep04/gates', async (route) => {
       await route.fulfill({
         status: 200,
@@ -175,8 +175,8 @@ test.describe('Live Mode Confirmation Fix', () => {
     // Click Enable Live Mode button
     await page.click('text=Enable Live Mode');
 
-    // Should show warning about real credits
-    await expect(page.locator('text=Live mode will charge real credits')).toBeVisible();
+    // Should show warning about real money (USD)
+    await expect(page.locator('text=Live mode will charge real money')).toBeVisible();
     
     // Should show the confirmation instruction
     await expect(page.locator('text=Type "ENABLE LIVE MODE" to confirm')).toBeVisible();

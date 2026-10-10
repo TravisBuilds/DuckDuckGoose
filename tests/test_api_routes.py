@@ -6,6 +6,7 @@ checks are actually enforced. Each test is paired with a red-green mutation.
 """
 
 import pytest
+from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 import sys
 
@@ -76,11 +77,7 @@ async def test_canary_route_checks_g108(test_db_api, monkeypatch):
             ("ep99-A01", "ep99", "A01", "Test", "pending")
         )
         # Add L6_reserve line so the route doesn't fail on budget check
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
@@ -111,11 +108,7 @@ async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
             ("ep99-A01", "ep99", "A01", "Test", "pending")
         )
         # Add L6_reserve line so the route doesn't fail on budget check
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
@@ -141,10 +134,7 @@ async def test_canary_route_starts_workflow(test_db_api, monkeypatch):
     ledger = BudgetLedger(test_db_api)
     await ledger.init_db()
     async with aiosqlite.connect(test_db_api) as db:
-        await db.execute("""
-            INSERT INTO budget_lines (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     async with aiosqlite.connect(test_db_api) as db:
@@ -187,10 +177,7 @@ async def test_canary_reserves_l6_before_workflow(test_db_api, monkeypatch):
     ledger = BudgetLedger(test_db_api)
     await ledger.init_db()
     async with aiosqlite.connect(test_db_api) as db:
-        await db.execute("""
-            INSERT INTO budget_lines (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     async with aiosqlite.connect(test_db_api) as db:
@@ -216,9 +203,10 @@ async def test_canary_reserves_l6_before_workflow(test_db_api, monkeypatch):
     status_after = await ledger.get_line_status("ep99", "L6_reserve")
     reserved_after = status_after["reserved"]
     
-    # Should have reserved 10 credits
+    # Dry canary hold: (0.06 still + 5 s x 0.056 Kling) * 1.2 = 0.408 USD
     assert reserved_after > reserved_before, "Should reserve from L6"
-    assert reserved_after - reserved_before == 10.0, "Should reserve 10 credits"
+    assert reserved_after - reserved_before == 408_000, "Should reserve 408_000 usd_micros (0.408 USD)"
+    assert data["reserved_amount"] == 408_000
 
 
 @pytest.mark.asyncio
@@ -231,7 +219,7 @@ async def test_still_approve_route_sends_signal(test_db_api, monkeypatch):
         await db.execute(
             """INSERT INTO audit_log (episode_id, action, details, user, timestamp)
                VALUES (?, ?, ?, ?, datetime('now'))""",
-            ("ep99", "start_canary", "Workflow ep99-canary-A01-12345, reserved L6=10.0", "test")
+            ("ep99", "start_canary", "Workflow ep99-canary-A01-12345, reserved L6=1000000 usd_micros", "test")
         )
         await db.commit()
     
@@ -283,17 +271,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             ("ep99-A01", "ep99", "A01", "Test", "pending")
         )
         # Add L6_reserve line
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         # Add L2 line (needed for ShotWorkflow)
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     
     # Get initial L6 reserved (should be 0)
@@ -327,7 +307,7 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             ],
         ):
             # Reserve L6 (what the canary API does before starting workflow)
-            reserved = await ledger.reserve("ep99", "L6_reserve", 10.0, "Canary test")
+            reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
             assert reserved, "Should reserve L6"
             
             # Log the canary start (what the API does)
@@ -335,13 +315,13 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
                 await db.execute(
                     """INSERT INTO audit_log (episode_id, action, details, user)
                        VALUES (?, ?, ?, ?)""",
-                    ("ep99", "start_canary", "Workflow canary-fail-test, reserved L6=10.0", "system")
+                    ("ep99", "start_canary", "Workflow canary-fail-test, reserved L6=1000000 usd_micros", "system")
                 )
                 await db.commit()
             
             # Verify L6 is now reserved
             status_mid = await ledger.get_line_status("ep99", "L6_reserve")
-            assert status_mid["reserved"] == 10.0, "L6 should be reserved"
+            assert status_mid["reserved"] == 1_000_000, "L6 should be reserved"
             
             # Start workflow
             handle = await env.client.start_workflow(
@@ -431,15 +411,11 @@ async def test_canary_l6_reconcile_on_completed(test_db_api, monkeypatch, tmp_pa
             "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
             ("ep99-A01", "ep99", "A01", "Test", "pending")
         )
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     # Reserve L6
-    reserved = await ledger.reserve("ep99", "L6_reserve", 10.0, "Canary test")
+    reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
     assert reserved, "Should reserve L6"
     
     # Log the canary start
@@ -447,13 +423,13 @@ async def test_canary_l6_reconcile_on_completed(test_db_api, monkeypatch, tmp_pa
         await db.execute(
             """INSERT INTO audit_log (episode_id, action, details, user)
                VALUES (?, ?, ?, ?)""",
-            ("ep99", "start_canary", "Workflow canary-success-test, reserved L6=10.0", "system")
+            ("ep99", "start_canary", "Workflow canary-success-test, reserved L6=1000000 usd_micros", "system")
         )
         await db.commit()
     
     # Verify L6 is reserved
     status_mid = await ledger.get_line_status("ep99", "L6_reserve")
-    assert status_mid["reserved"] == 10.0, "L6 should be reserved"
+    assert status_mid["reserved"] == 1_000_000, "L6 should be reserved"
     
     # Set up API with mock temporal client
     admin_secret = "a" * 32
@@ -514,16 +490,8 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
             ("ep99-A01", "ep99", "A01", "Test", "pending")
         )
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -551,7 +519,7 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             ],
         ):
             # Reserve L6
-            reserved = await ledger.reserve("ep99", "L6_reserve", 10.0, "Canary test")
+            reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
             assert reserved, "Should reserve L6"
             
             # Log the canary start
@@ -559,7 +527,7 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
                 await db.execute(
                     """INSERT INTO audit_log (episode_id, action, details, user)
                        VALUES (?, ?, ?, ?)""",
-                    ("ep99", "start_canary", "Workflow canary-concurrent-test, reserved L6=10.0", "system")
+                    ("ep99", "start_canary", "Workflow canary-concurrent-test, reserved L6=1000000 usd_micros", "system")
                 )
                 await db.commit()
             
@@ -647,11 +615,7 @@ async def test_canary_l6_release_on_start_failure(test_db_api, monkeypatch, tmp_
             "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
             ("ep99-A01", "ep99", "A01", "Test prompt", "pending")
         )
-        await db.execute("""
-            INSERT INTO budget_lines 
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     
     # Check initial L6 status
@@ -702,11 +666,7 @@ async def _setup_canary_episode(db_path):
             "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
             ("ep99-A01", "ep99", "A01", "Test prompt", "pending"),
         )
-        await db.execute("""
-            INSERT INTO budget_lines
-            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
@@ -805,46 +765,83 @@ async def test_approve_completed_canary_409(test_db_api, monkeypatch):
     assert handle.signal.called, "RUNNING workflow must receive the stills_approved signal"
 
 
-@pytest.mark.asyncio
-async def test_canary_live_estimate_fail_closed(tmp_path, monkeypatch):
-    """
-    Test: Live canary fails closed if estimate unavailable (no 10.0 fallback).
-    
-    M-R2e will add fallback to 10.0 - test must fail.
-    """
-    import inspect
-    from api.main import run_canary
-    
-    source = inspect.getsource(run_canary)
-    
-    # In live mode without API key, must refuse (raise HTTPException)
-    # Must NOT have "canary_cost = 10.0" fallback in the live path
-    assert "elif not higgsfield_key:" in source, \
-        "Must check for missing API key in live mode"
-    assert 'raise HTTPException' in source, \
-        "Must refuse canary without estimate in live mode"
-    
-    # The fallback "canary_cost = 10.0" should only be in dry_run path
-    lines = source.split('\n')
-    in_dry_run_block = False
-    found_10_fallback_in_dry = False
-    found_10_fallback_in_live = False
-    
-    for i, line in enumerate(lines):
-        if 'if dry_run:' in line:
-            in_dry_run_block = True
-        elif 'elif not higgsfield_key:' in line or 'else:' in line:
-            in_dry_run_block = False
-        
-        if 'canary_cost = 10.0' in line:
-            if in_dry_run_block:
-                found_10_fallback_in_dry = True
-            elif 'MUTATED' not in line:  # Ignore commented examples
-                # Check if this is after the key check (would be live fallback)
-                context = '\n'.join(lines[max(0, i-5):i+1])
-                if 'elif not higgsfield_key:' in context:
-                    found_10_fallback_in_live = True
-    
-    assert found_10_fallback_in_dry, "Dry mode should have 10.0 default"
-    assert not found_10_fallback_in_live, "Live mode must not fall back to 10.0"
+async def _setup_live_canary(test_db_api, monkeypatch):
+    """Live-mode canary fixtures: episode live + G1.08, one shot, L6 line, manual balance."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    await set_balance(test_db_api)
 
+
+@pytest.mark.asyncio
+async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_mock):
+    """
+    Test: Live canary fails closed when the provider estimate is unavailable: 503, nothing
+    reserved, no workflow started, and no default dollar amount is ever substituted.
+
+    M-R2e (a fallback amount instead of refusing) must fail this test.
+    """
+    import httpx
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(500, json={"error": "estimate down"})
+    )
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    import api.main as api_main
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 503, response.text
+    assert "fail closed" in response.json()["detail"].lower(), response.text
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0, "No hold may be taken without a real estimate"
+    assert not api_main.temporal_client.start_workflow.called, "No workflow without an estimate"
+
+
+@pytest.mark.asyncio
+async def test_canary_live_without_api_key_refused(test_db_api, monkeypatch):
+    """Test: Live canary without HIGGSFIELD_API_KEY is refused (503) and reserves nothing."""
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.delenv("HIGGSFIELD_API_KEY", raising=False)
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 503, response.text
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0
+
+
+@pytest.mark.asyncio
+async def test_canary_live_hold_uses_usd_estimates(test_db_api, monkeypatch, respx_mock):
+    """Test: Live canary L6 hold = (still USD + clip USD) x 1.2 in usd_micros, exact."""
+    import httpx
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.0", "usd": "0.06"})
+    )
+    respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"credits": "4.48", "usd": "0.28"})
+    )
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True, data
+    assert data["reserved_amount"] == 408_000  # (60_000 + 280_000) * 12 // 10
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 408_000

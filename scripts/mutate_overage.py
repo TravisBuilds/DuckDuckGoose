@@ -1,32 +1,26 @@
 #!/usr/bin/env python3
-"""Mutate overage commit to spend reserved_amount instead of actual_cost (mutation #27).
+"""Mutate BudgetLedger.commit to spend the reserved amount instead of the actual cost.
 
-Anchors on the 'Overage: commit actual cost' comment (no line-number windows) and rewrites
-the first UPDATE parameter tuple after it. Exits non-zero (and leaves the file untouched)
-if the anchor or the target tuple is not found, so a stale mutation cannot pass silently.
+Original:  spent_amount = actual
+Mutated:   spent_amount = reserved_amount
+
+Exits non-zero (file untouched) if the target line is not found, so a stale mutation
+cannot pass silently. Used by redgreen mutation 27 and M-P1e.
 """
 import sys
+
+TARGET = "spent_amount = actual\n"
+MUTATED = "spent_amount = reserved_amount  # MUTATED: overage not charged\n"
 
 
 def mutate_file(filepath: str) -> int:
     with open(filepath) as f:
         content = f.read()
-    anchor = "Overage: commit actual cost"
-    target = "(reserved_amount, actual_cost, line_id)"
-    idx = content.find(anchor)
-    if idx < 0:
-        print("anchor not found", file=sys.stderr)
+    if content.count(TARGET) != 1:
+        print(f"expected exactly one {TARGET!r}, found {content.count(TARGET)}", file=sys.stderr)
         return 2
-    tidx = content.find(target, idx)
-    if tidx < 0:
-        print("target tuple not found", file=sys.stderr)
-        return 2
-    # MUTATED: spend reserved_amount where actual_cost belongs (no trailing comment: the
-    # tuple is followed by the closing paren of execute() on the same line)
-    mutated = "(reserved_amount, reserved_amount, line_id)"
-    content = content[:tidx] + mutated + content[tidx + len(target):]
     with open(filepath, "w") as f:
-        f.write(content)
+        f.write(content.replace(TARGET, MUTATED))
     return 0
 
 

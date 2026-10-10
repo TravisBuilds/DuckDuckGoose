@@ -42,6 +42,7 @@ from temporalio.client import Client as TemporalClient
 
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
 from hfvg.budget import BudgetLedger
+from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
 from hfvg.episode_parser import parse_beatmap
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
@@ -249,22 +250,45 @@ class ShotStatus(BaseModel):
 
 
 class BudgetLineStatus(BaseModel):
+    """One budget line. All amounts are integer usd_micros (1 USD = 1_000_000)."""
     line_name: str
     provider: str
-    spent: float
-    reserved: float
-    total: float
-    cap: float
-    stop: float
+    spent: int
+    reserved: int
+    total: int
+    cap: int
+    stop: int
     at_stop: bool
-    unit: str
+    unit: str = "usd_micros"
+    revision_reserve: bool = False
 
 
 class BudgetResponse(BaseModel):
+    """Episode budget in integer usd_micros; *_usd fields are exact decimal strings."""
     episode_id: str
+    unit: str = "usd_micros"
     lines: list[BudgetLineStatus]
-    higgsfield_total: float
-    elevenlabs_total: float
+    higgsfield_total: int
+    elevenlabs_total: int
+    episode_total: int
+    episode_cap: int
+    episode_stop: int
+    gc01_headroom: int
+    episode_total_usd: str
+    episode_cap_usd: str
+    episode_stop_usd: str
+    gc01_headroom_usd: str
+    balance: dict
+
+
+class ManualBalanceRequest(BaseModel):
+    balance_usd: str = Field(..., description="Current Higgsfield USD balance as a decimal string, e.g. '82.40'")
+    note: str = Field("", max_length=500)
+
+
+class JobVerdictRequest(BaseModel):
+    verdict: str = Field(..., max_length=100)
+    used: bool | None = None
 
 
 class LoginRequest(BaseModel):
@@ -647,16 +671,129 @@ async def get_budget_status(
             stop=line["stop"],
             at_stop=line["at_stop"],
             unit=line["unit"],
+            revision_reserve=line["revision_reserve"],
         )
         for line in summary["lines"]
     ]
+    
+    from hfvg.pricing import micros_to_usd_str
     
     return BudgetResponse(
         episode_id=episode_id,
         lines=lines,
         higgsfield_total=summary["higgsfield_total"],
         elevenlabs_total=summary["elevenlabs_total"],
+        episode_total=summary["episode_total"],
+        episode_cap=summary["episode_cap"],
+        episode_stop=summary["episode_stop"],
+        gc01_headroom=summary["gc01_headroom"],
+        episode_total_usd=micros_to_usd_str(summary["episode_total"]),
+        episode_cap_usd=micros_to_usd_str(summary["episode_cap"]),
+        episode_stop_usd=micros_to_usd_str(summary["episode_stop"]),
+        gc01_headroom_usd=micros_to_usd_str(summary["gc01_headroom"]),
+        balance=summary["balance"],
     )
+
+
+@app.get("/api/episodes/{episode_id}/jobs")
+async def get_job_ledger(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Per-job ledger for an episode: job id, shot id, model, tier (draft/final/retry/revision),
+    usd_micros, status, verdict, used/unused.
+
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
+    
+    from hfvg.budget import BudgetLedger
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    jobs = await ledger.get_jobs(episode_id)
+    return {"episode_id": episode_id, "unit": "usd_micros", "jobs": jobs}
+
+
+@app.post("/api/episodes/{episode_id}/jobs/{job_id}/verdict")
+async def set_job_verdict(
+    episode_id: str,
+    job_id: str,
+    request: JobVerdictRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Record the verdict and used/unused flag on a job ledger row. Requires: Cookie auth."""
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    from hfvg.budget import BudgetLedger
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    jobs = {j["job_id"] for j in await ledger.get_jobs(episode_id)}
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found for {episode_id}")
+    await ledger.set_job_verdict(job_id, request.verdict, request.used)
+    return {"success": True, "job_id": job_id, "verdict": request.verdict, "used": request.used}
+
+
+@app.get("/api/budget/balance")
+async def get_manual_balance(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GC.01 status: latest manual balance, holds, headroom. Requires admin auth."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.budget import BudgetLedger
+    
+    return await BudgetLedger(DATABASE_PATH).get_balance_status()
+
+
+@app.post("/api/budget/balance")
+async def set_manual_balance(
+    request: ManualBalanceRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Record the manually entered Higgsfield USD balance (no balance endpoint exists).
+    GC.01 refuses new paid jobs when balance - spend since entry - reserved < headroom.
+    Requires: Cookie auth (admin).
+    """
+    await verify_admin_cookie(studio_admin_token)
+    
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import usd_to_micros
+    
+    try:
+        micros = usd_to_micros(request.balance_usd)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=422, detail=f"Invalid balance_usd: {e}")
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    entry = await ledger.set_manual_balance(micros, set_by="admin", note=request.note)
+    await _audit_balance(entry)
+    return {"success": True, **entry, "status": await ledger.get_balance_status()}
+
+
+async def _audit_balance(entry: dict):
+    """Audit-log a manual balance entry (balance changes gate every paid job)."""
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            ("_global", "set_manual_balance",
+             f"balance_usd_micros={entry['balance_usd_micros']} at {entry['set_at']}", "admin"),
+        )
+        await db.commit()
 
 
 @app.get("/api/episodes/{episode_id}/shots")
@@ -1127,13 +1264,13 @@ async def _reconcile_canary_l6(workflow_id: str, status: str):
                 await db.rollback()
                 return  # Already reconciled in another concurrent call
             
-            # Extract reserved amount from details (e.g., "reserved L6=10.0")
-            match = re.search(r"reserved L6=([\d.]+)", details)
+            # Extract reserved amount from details (e.g., "reserved L6=408000 usd_micros")
+            match = re.search(r"reserved L6=(\d+) usd_micros", details)
             if not match:
                 await db.rollback()
                 return
             
-            reserved_amount = float(match.group(1))
+            reserved_amount = int(match.group(1))
             
             # Record reconciliation in audit log FIRST (within transaction)
             # This acts as a lock - only one transaction can succeed
@@ -1141,7 +1278,7 @@ async def _reconcile_canary_l6(workflow_id: str, status: str):
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
                 (episode_id, "reconcile_canary_l6", 
-                 f"Released L6={reserved_amount} for {workflow_id} ({status})", "system")
+                 f"Released L6={reserved_amount} usd_micros for {workflow_id} ({status})", "system")
             )
             
             # Commit the audit log entry before releasing
@@ -1160,7 +1297,7 @@ async def _reconcile_canary_l6(workflow_id: str, status: str):
         await ledger.release(
             episode_id=episode_id,
             line_name="L6_reserve",
-            amount=reserved_amount,
+            amount_usd_micros=reserved_amount,
             reason=f"Canary {workflow_id} {status}"
         )
     except Exception as release_err:
@@ -1354,8 +1491,8 @@ async def run_canary(
     higgsfield_key = os.getenv("HIGGSFIELD_API_KEY", "")
     
     if dry_run:
-        # Dry-run mode: use default estimate
-        canary_cost = 10.0
+        # Dry-run mode: fixed estimate (0.06 still + 5 s Kling clip) with 20% margin, usd_micros
+        canary_cost = (DRY_STILL_USD_MICROS + 5 * DRY_CLIP_USD_PER_SECOND_MICROS) * 12 // 10
     elif not higgsfield_key:
         # Live mode but no API key: fail closed (refuse canary)
         raise HTTPException(
@@ -1370,7 +1507,7 @@ async def run_canary(
         # Estimate still cost (with aspect_ratio but no refs for now - refs may not be uploaded yet)
         still_provider = HiggsfieldStillProvider()
         try:
-            still_estimate = await still_provider.estimate_cost(
+            still_estimate = await still_provider.estimate_usd_micros(
                 prompt=prompt,
                 resolution="1k",
                 quality="medium",
@@ -1388,7 +1525,7 @@ async def run_canary(
         # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
         clip_provider = KlingVideoProvider()
         try:
-            clip_estimate = await clip_provider.estimate_cost(
+            clip_estimate = await clip_provider.estimate_usd_micros(
                 image_url="https://example.com/placeholder.jpg",
                 prompt=prompt,
                 duration=5,
@@ -1402,11 +1539,13 @@ async def run_canary(
         finally:
             await clip_provider.close()
         
-        # Size L6 hold with 20% margin for safety
-        canary_cost = (still_estimate + clip_estimate) * 1.2
+        # Size L6 hold with 20% margin for safety (integer usd_micros, rounded down by 1 micro max)
+        canary_cost = (still_estimate + clip_estimate) * 12 // 10
     
     try:
-        reserved = await ledger.reserve(episode_id, "L6_reserve", canary_cost, "Canary test")
+        reserved = await ledger.reserve(
+            episode_id, "L6_reserve", canary_cost, "Canary test", require_balance=not dry_run
+        )
         if not reserved:
             return {
                 "success": False,
@@ -1510,7 +1649,7 @@ async def run_canary(
         await db.execute(
             """INSERT INTO audit_log (episode_id, action, details, user)
                VALUES (?, ?, ?, ?)""",
-            (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost}", "system")
+            (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost} usd_micros", "system")
         )
         await db.commit()
     

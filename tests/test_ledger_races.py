@@ -20,7 +20,7 @@ async def test_release_atomic_never_negative():
     """
     Test that concurrent release() calls never drive reserved below 0.
     
-    Setup: Reserve 10.0, then 5 concurrent releases of 6.0 each (total 30.0 requested).
+    Setup: Reserve 1_000_000 usd_micros, then 5 concurrent releases of 600_000 each (3_000_000 requested).
     Expected: Final reserved = 0, not negative.
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
@@ -42,21 +42,21 @@ async def test_release_atomic_never_negative():
         reserved = await ledger.reserve(
             episode_id=episode_id,
             line_name="L6_reserve",
-            amount=10.0,
+            amount_usd_micros=1_000_000,
             reason="Test reservation"
         )
         assert reserved
         
         # Check initial state
         status = await ledger.get_line_status(episode_id, "L6_reserve")
-        assert status["reserved"] == 10.0
+        assert status["reserved"] == 1_000_000
         
-        # 5 concurrent releases of 6.0 each (total 30.0 > 10.0 reserved)
+        # 5 concurrent releases of 600_000 each (3_000_000 > 1_000_000 reserved)
         async def release_task():
             await ledger.release(
                 episode_id=episode_id,
                 line_name="L6_reserve",
-                amount=6.0,
+                amount_usd_micros=600_000,
                 reason="Concurrent release test"
             )
         
@@ -65,7 +65,7 @@ async def test_release_atomic_never_negative():
         
         # Check final state: reserved should be 0, not negative
         final_status = await ledger.get_line_status(episode_id, "L6_reserve")
-        assert final_status["reserved"] == 0.0, f"Reserved went negative: {final_status['reserved']}"
+        assert final_status["reserved"] == 0, f"Reserved went negative: {final_status['reserved']}"
         
     finally:
         os.unlink(db_path)
@@ -76,8 +76,8 @@ async def test_release_atomic_partial():
     """
     Test that partial releases are handled correctly under concurrency.
     
-    Setup: Reserve 10.0, then 3 concurrent releases of 4.0 each.
-    Expected: Two succeed (8.0), one is partial (2.0), final reserved = 0.
+    Setup: Reserve 1_000_000, then 3 concurrent releases of 400_000 each.
+    Expected: Two succeed (800_000), one is partial (200_000), final reserved = 0.
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         db_path = tmp.name
@@ -95,18 +95,18 @@ async def test_release_atomic_partial():
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
         
         # Reserve 10.0
-        await ledger.reserve(episode_id, "L6_reserve", 10.0, "Test")
+        await ledger.reserve(episode_id, "L6_reserve", 1_000_000, "Test")
         
-        # 3 concurrent releases of 4.0 each
+        # 3 concurrent releases of 400_000 each
         async def release_task():
-            await ledger.release(episode_id, "L6_reserve", 4.0, "Concurrent")
+            await ledger.release(episode_id, "L6_reserve", 400_000, "Concurrent")
         
         tasks = [release_task() for _ in range(3)]
         await asyncio.gather(*tasks)
         
         # Final reserved should be 0 (not negative)
         final_status = await ledger.get_line_status(episode_id, "L6_reserve")
-        assert final_status["reserved"] == 0.0
+        assert final_status["reserved"] == 0
         
     finally:
         os.unlink(db_path)
@@ -132,7 +132,7 @@ async def test_stop_threshold_validation():
         with pytest.raises(ValueError, match="stop_threshold .* must be <= budget_cap"):
             await ledger.init_episode_budget_from_plan("ep_invalid", invalid_plan)
         
-        # Valid: stop <= cap (values in app credits, will be converted to API credits)
+        # Valid: stop <= cap (values in app credits, converted once to usd_micros)
         valid_plan = {
             "lines": {
                 "L2_drafts": {"cap": 100.0, "stop": 80.0}
@@ -140,10 +140,10 @@ async def test_stop_threshold_validation():
         }
         await ledger.init_episode_budget_from_plan("ep_valid", valid_plan)
         
-        # Verify it was created (converted from app to API credits: 100*0.76=76, 80*0.76=60.8)
+        # Verify it was created: plan app credits -> usd_micros once at 47_500 per app credit
         status = await ledger.get_line_status("ep_valid", "L2_drafts")
-        assert status["budget_cap"] == 76.0  # API credits (from 100 app credits)
-        assert status["stop_threshold"] == 60.8  # API credits (from 80 app credits)
+        assert status["budget_cap"] == 4_750_000   # 100 app credits = 4.75 USD
+        assert status["stop_threshold"] == 3_800_000   # 80 app credits = 3.80 USD
         
     finally:
         os.unlink(db_path)
@@ -204,8 +204,8 @@ async def test_concurrent_canary_status_reconcile():
         }
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
         
-        # Reserve 10.0 for canary
-        await ledger.reserve(episode_id, "L6_reserve", 10.0, "Canary reserve")
+        # Reserve 1_000_000 usd_micros for canary
+        await ledger.reserve(episode_id, "L6_reserve", 1_000_000, "Canary reserve")
         
         # Add start_canary audit log entry
         workflow_id = "ep_reconcile_test-canary-A01-abc123"
@@ -213,7 +213,7 @@ async def test_concurrent_canary_status_reconcile():
             await db.execute("""
                 INSERT INTO audit_log (episode_id, action, details, user)
                 VALUES (?, ?, ?, ?)
-            """, (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6=10.0", "system"))
+            """, (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6=1000000 usd_micros", "system"))
             await db.commit()
         
         # Simulate 5 concurrent status calls that all try to reconcile
@@ -231,7 +231,7 @@ async def test_concurrent_canary_status_reconcile():
             
             # Check that L6 was released exactly once (not 5 times)
             final_status = await ledger.get_line_status(episode_id, "L6_reserve")
-            assert final_status["reserved"] == 0.0, "L6 should be released"
+            assert final_status["reserved"] == 0, "L6 should be released"
             
             # Check that only ONE reconcile_canary_l6 audit entry exists
             async with aiosqlite.connect(db_path) as db:
@@ -291,7 +291,7 @@ async def test_concurrent_failed_and_completed_reconcile():
             }
         }
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
-        await ledger.reserve(episode_id, "L6_reserve", 10.0, "Canary reserve")
+        await ledger.reserve(episode_id, "L6_reserve", 1_000_000, "Canary reserve")
         
         # Add start entry
         workflow_id = "ep_mixed-canary-A01-xyz789"
@@ -299,7 +299,7 @@ async def test_concurrent_failed_and_completed_reconcile():
             await db.execute("""
                 INSERT INTO audit_log (episode_id, action, details, user)
                 VALUES (?, ?, ?, ?)
-            """, (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6=10.0", "system"))
+            """, (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6=1000000 usd_micros", "system"))
             await db.commit()
         
         # Monkey-patch DATABASE_PATH
@@ -319,7 +319,7 @@ async def test_concurrent_failed_and_completed_reconcile():
             
             # L6 should be 0
             final_status = await ledger.get_line_status(episode_id, "L6_reserve")
-            assert final_status["reserved"] == 0.0
+            assert final_status["reserved"] == 0
             
             # Exactly one reconcile entry
             async with aiosqlite.connect(db_path) as db:

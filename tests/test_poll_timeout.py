@@ -12,6 +12,7 @@ import textwrap
 from datetime import timedelta
 
 import pytest
+from tests.ledger_helpers import set_balance
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -38,11 +39,13 @@ _poll_error_count = 0
 # Fake provider classes for testing
 class FakeStuckProvider:
     """Provider that always returns in_progress."""
+    model_path = "fake/still-model"
+
     async def close(self):
         pass
     
-    async def estimate_cost(self, **kwargs):
-        return 5.0
+    async def estimate_usd_micros(self, **kwargs):
+        return 50_000  # 0.05 USD
     
     async def submit_image(self, **kwargs):
         global _submit_count
@@ -64,11 +67,13 @@ class FakeStuckProvider:
 
 class FakeFailedProvider:
     """Provider that returns failed status."""
+    model_path = "fake/still-model"
+
     async def close(self):
         pass
     
-    async def estimate_cost(self, **kwargs):
-        return 5.0
+    async def estimate_usd_micros(self, **kwargs):
+        return 50_000  # 0.05 USD
     
     async def submit_image(self, **kwargs):
         global _submit_count
@@ -273,11 +278,12 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
     await ledger.init_db()
     
     # Set initial budget
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     await ledger.set_line(
         episode_id="test-ep",
         line_name="L2_drafts",
-        cap=100.0,
-        stop_at=80.0,
+        cap_usd_micros=10_000_000,
+        stop_usd_micros=8_000_000,
     )
     
     # Monkeypatch the provider to always return in_progress
@@ -344,8 +350,15 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
             
             # Verify budget reservation still held
             status = await ledger.get_line_status("test-ep", "L2_drafts")
-            assert status["reserved"] > 0, \
-                f"Expected reservation held, got reserved={status['reserved']}"
+            assert status["reserved"] == 50_000, \
+                f"Expected the 50_000 usd_micros reservation held, got reserved={status['reserved']}"
+            
+            # Per-job ledger: one job row, still held, flagged pending_reconcile
+            jobs = await ledger.get_jobs("test-ep")
+            assert len(jobs) == 1, jobs
+            assert jobs[0]["status"] == "pending_reconcile", jobs[0]
+            assert jobs[0]["usd_micros"] == 50_000, jobs[0]
+            assert jobs[0]["shot_id"] == "A01" and jobs[0]["tier"] == "draft", jobs[0]
             
             # Verify pending_reconcile marker in audit log
             async with aiosqlite.connect(db_path) as db:
@@ -401,11 +414,12 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
     await ledger.init_db()
     
     # Set initial budget
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     await ledger.set_line(
         episode_id="test-ep",
         line_name="L2_drafts",
-        cap=100.0,
-        stop_at=80.0,
+        cap_usd_micros=10_000_000,
+        stop_usd_micros=8_000_000,
     )
     
     # Monkeypatch the provider to return failed
@@ -495,7 +509,8 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
         await db.commit()
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
-    await ledger.set_line(episode_id="test-ep", line_name="L2_drafts", cap=100.0, stop_at=80.0)
+    await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
+    await ledger.set_line(episode_id="test-ep", line_name="L2_drafts", cap_usd_micros=10_000_000, stop_usd_micros=8_000_000)
 
     from hfvg.activities import studio_generation
     monkeypatch.setattr(studio_generation, "HiggsfieldStillProvider", FakeFlakyThenStuckProvider)

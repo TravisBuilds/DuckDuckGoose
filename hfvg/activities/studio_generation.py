@@ -24,7 +24,12 @@ import aiosqlite
 import httpx
 from temporalio import activity
 
-from hfvg.budget import BudgetLedger
+from hfvg.budget import BudgetLedger, REVISION_LINE
+from hfvg.pricing import (
+    DRY_CLIP_USD_PER_SECOND_MICROS,
+    DRY_STILL_USD_MICROS,
+    micros_to_usd_str,
+)
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
 
@@ -98,6 +103,7 @@ async def submit_still_job_enforced(
     resolution: str = "1k",
     quality: str = "medium",
     aspect_ratio: str = "9:16",
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
@@ -107,10 +113,14 @@ async def submit_still_job_enforced(
     - G1.08 approved (fail if not)
     - Budget reserve succeeds (fail if at stop)
     - Idempotency-Key (deterministic)
-    - Cost estimate before submit
+    - Cost estimate (USD) before submit; GC.01 manual balance required
+    
+    Args:
+        tier: draft/final/retry/revision for the per-job ledger. Defaults: draft on L2,
+            final on L1/L3. tier="revision" draws on the revision reserve (revision tag).
     
     Returns:
-        dict with job_id, line_name, reserved_amount for polling
+        dict with job_id, line_name, reserved_amount (int usd_micros) for polling
     
     Raises:
         ValueError: If enforcement checks fail
@@ -127,7 +137,7 @@ async def submit_still_job_enforced(
         return {
             "job_id": job_id,
             "line_name": "L2_drafts",
-            "reserved_amount": 2.5,
+            "reserved_amount": DRY_STILL_USD_MICROS,
         }
     
     # Check DB for live mode and G1.08 (DRY_RUN=false, so check requirements)
@@ -166,8 +176,8 @@ async def submit_still_job_enforced(
     provider = HiggsfieldStillProvider()
     
     try:
-        # Estimate cost (no longer passes num_refs, uses aspect_ratio instead)
-        estimated_cost = await provider.estimate_cost(
+        # Estimate cost in integer micro-dollars (provider estimate's USD value)
+        estimated_cost = await provider.estimate_usd_micros(
             prompt=prompt,
             resolution=resolution,
             quality=quality,
@@ -175,16 +185,23 @@ async def submit_still_job_enforced(
         )
         
         activity.logger.info(
-            f"Estimated cost for {episode_id}/{shot_id}: {estimated_cost} credits"
+            f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD"
         )
         
         # Determine budget line based on quality
         if quality == "high" and resolution == "2k":
             line_name = "L3_final_stills"
+            default_tier = "final"
         elif quality == "high":
             line_name = "L1_refs"
+            default_tier = "final"
         else:
             line_name = "L2_drafts"
+            default_tier = "draft"
+        tier = tier or default_tier
+        revision = tier == "revision"
+        if revision:
+            line_name = REVISION_LINE
         
         # Reserve budget
         ledger = BudgetLedger(db_path)
@@ -193,18 +210,20 @@ async def submit_still_job_enforced(
         reserved = await ledger.reserve(
             episode_id=episode_id,
             line_name=line_name,
-            amount=estimated_cost,
-            reason=f"Still {shot_id} v{version}"
+            amount_usd_micros=estimated_cost,
+            reason=f"Still {shot_id} v{version}",
+            revision=revision,
+            require_balance=True,
         )
         
         if not reserved:
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
-                f"At or over 80% stop threshold. Requested: {estimated_cost} credits."
+                f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
             )
         
         activity.logger.info(
-            f"Reserved {estimated_cost} credits from {line_name} for {shot_id}"
+            f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
         # Submit to provider - wrapped to release reservation on ANY error
@@ -220,8 +239,20 @@ async def submit_still_job_enforced(
             
             activity.logger.info(
                 f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {estimated_cost}, line: {line_name})"
+                f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
             )
+            try:
+                await ledger.record_job(
+                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                    estimated_cost,
+                )
+            except aiosqlite.Error as ledger_err:
+                # The provider already accepted (and will charge) this job: NEVER release the hold
+                # because the bookkeeping row failed. The reservation stays held.
+                activity.logger.error(
+                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Reservation HELD."
+                )
             
             # Return dict with job info for polling
             return {
@@ -233,12 +264,12 @@ async def submit_still_job_enforced(
         except Exception as submit_error:
             # Release reservation on submission failure
             activity.logger.error(
-                f"Submit failed, releasing {estimated_cost} from {line_name}: {submit_error}"
+                f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
-                amount=estimated_cost,
+                amount_usd_micros=estimated_cost,
                 reason=f"Submit failed: {str(submit_error)[:100]}"
             )
             raise
@@ -255,6 +286,7 @@ async def submit_clip_job_enforced(
     prompt: str,
     duration: float = 5.0,
     version: int = 1,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit Kling 3.0 Pro video generation job with full enforcement.
@@ -301,7 +333,7 @@ async def submit_clip_job_enforced(
         return {
             "job_id": job_id,
             "line_name": "L4_video",
-            "reserved_amount": duration * 1.5,
+            "reserved_amount": int(round(duration * DRY_CLIP_USD_PER_SECOND_MICROS)),
         }
     
     # Live mode: all checks passed (DRY_RUN=false, live_mode=true, g108_approved=true)
@@ -330,19 +362,22 @@ async def submit_clip_job_enforced(
     provider = KlingVideoProvider()
     
     try:
-        # Estimate cost (Kling 3.0 Pro: via API with full request params)
-        estimated_cost = await provider.estimate_cost(
+        # Estimate cost in micro-dollars (Kling 3.0 Pro: estimate's USD, else rate table)
+        estimated_cost = await provider.estimate_usd_micros(
             image_url=start_image_url,
             prompt=prompt,
             duration=int(duration)
         )
         
         activity.logger.info(
-            f"Estimated cost for {episode_id}/{shot_id} clip: {estimated_cost} credits ({duration}s)"
+            f"Estimated cost for {episode_id}/{shot_id} clip: "
+            f"{micros_to_usd_str(estimated_cost)} USD ({duration}s)"
         )
         
-        # Reserve budget from L4_video
-        line_name = "L4_video"
+        # Reserve budget from L4_video (revision tier draws on the revision reserve)
+        tier = tier or "final"
+        revision = tier == "revision"
+        line_name = REVISION_LINE if revision else "L4_video"
         
         ledger = BudgetLedger(db_path)
         await ledger.init_db()
@@ -350,18 +385,20 @@ async def submit_clip_job_enforced(
         reserved = await ledger.reserve(
             episode_id=episode_id,
             line_name=line_name,
-            amount=estimated_cost,
-            reason=f"Clip {shot_id} v{version} ({duration}s)"
+            amount_usd_micros=estimated_cost,
+            reason=f"Clip {shot_id} v{version} ({duration}s)",
+            revision=revision,
+            require_balance=True,
         )
         
         if not reserved:
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
-                f"At or over 80% stop threshold. Requested: {estimated_cost} credits."
+                f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
             )
         
         activity.logger.info(
-            f"Reserved {estimated_cost} credits from {line_name} for {shot_id}"
+            f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
         # Validate start_image URL
@@ -370,7 +407,7 @@ async def submit_clip_job_enforced(
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
-                amount=estimated_cost,
+                amount_usd_micros=estimated_cost,
                 reason=f"Invalid start_image: {start_image_url}"
             )
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
@@ -386,8 +423,20 @@ async def submit_clip_job_enforced(
             
             activity.logger.info(
                 f"[LIVE] Submitted Kling clip {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {estimated_cost}, {duration}s)"
+                f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
             )
+            try:
+                await ledger.record_job(
+                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                    estimated_cost,
+                )
+            except aiosqlite.Error as ledger_err:
+                # The provider already accepted (and will charge) this job: NEVER release the hold
+                # because the bookkeeping row failed. The reservation stays held.
+                activity.logger.error(
+                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Reservation HELD."
+                )
             
             # Return dict with job info for polling
             return {
@@ -399,12 +448,12 @@ async def submit_clip_job_enforced(
         except Exception as submit_error:
             # Release reservation on submission failure
             activity.logger.error(
-                f"Clip submit failed, releasing {estimated_cost} from {line_name}: {submit_error}"
+                f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
-                amount=estimated_cost,
+                amount_usd_micros=estimated_cost,
                 reason=f"Clip submit failed: {str(submit_error)[:100]}"
             )
             raise
@@ -476,7 +525,8 @@ async def poll_job_status(
             "status": job_status.status.value,  # "completed", "failed", "blocked", "canceled", "in_progress", "queued"
             "output_url": job_status.output_url if job_status.status.value == "completed" else None,
             "error": job_status.error if job_status.status.value in ("failed", "blocked") else None,
-            "cost": job_status.cost,  # May be None until completion
+            # Provider status carries credits (not USD); the ledger commits the held estimate
+            "cost": None,
         }
     finally:
         await provider.close()
@@ -489,8 +539,8 @@ async def commit_job_budget(
     job_id: str,
     job_type: str,
     line_name: str,
-    reserved_amount: float,
-    actual_cost: float | None = None,
+    reserved_amount: int,
+    actual_cost: int | None = None,
 ) -> None:
     """
     Commit reserved budget after successful job completion.
@@ -504,7 +554,7 @@ async def commit_job_budget(
         job_type: "still" or "clip"
         line_name: Budget line
         reserved_amount: Amount reserved
-        actual_cost: Actual cost from provider (defaults to reserved_amount)
+        actual_cost: Actual cost in usd_micros (defaults to reserved_amount)
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
@@ -524,15 +574,14 @@ async def commit_job_budget(
     await ledger.commit(
         episode_id=episode_id,
         line_name=line_name,
-        reserved_amount=reserved_amount,
-        actual_cost=cost,
-        usd_micros=None,
+        reserved_usd_micros=reserved_amount,
+        actual_usd_micros=cost,
         job_id=job_id,
         reason=f"{job_type} {shot_id} completed"
     )
     
     activity.logger.info(
-        f"Committed {cost} credits to {line_name} for {shot_id}"
+        f"Committed {micros_to_usd_str(cost)} USD to {line_name} for {shot_id}"
     )
 
 
@@ -543,7 +592,7 @@ async def release_job_budget(
     job_id: str,
     job_type: str,
     line_name: str,
-    reserved_amount: float,
+    reserved_amount: int,
     reason: str,
 ) -> None:
     """
@@ -568,12 +617,13 @@ async def release_job_budget(
     await ledger.release(
         episode_id=episode_id,
         line_name=line_name,
-        amount=reserved_amount,
-        reason=f"{job_type} {shot_id} {reason}"
+        amount_usd_micros=reserved_amount,
+        reason=f"{job_type} {shot_id} {reason}",
+        job_id=job_id,
     )
     
     activity.logger.info(
-        f"Released {reserved_amount} credits from {line_name} for {shot_id}: {reason}"
+        f"Released {micros_to_usd_str(reserved_amount)} USD from {line_name} for {shot_id}: {reason}"
     )
 
 
@@ -596,6 +646,9 @@ async def mark_job_pending_reconcile(
         job_type: "still" or "clip"
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Per-job ledger: flag the job (reservation stays held)
+    await BudgetLedger(db_path).mark_job_status(job_id, "pending_reconcile")
     
     # Record in audit log
     import aiosqlite
@@ -621,7 +674,7 @@ async def await_job_enforced(
     episode_id: str,
     shot_id: str,
     line_name: str,
-    reserved_amount: float,
+    reserved_amount: int,
 ) -> dict[str, Any]:
     """
     Poll generation job and commit/release budget based on result.
@@ -715,7 +768,7 @@ async def await_job_enforced(
                 await ledger.release(
                     episode_id=episode_id,
                     line_name=line_name,
-                    amount=reserved_amount,
+                    amount_usd_micros=reserved_amount,
                     reason=f"{job_type} {shot_id} poll error: {http_err}"
                 )
                 released = True
@@ -726,20 +779,19 @@ async def await_job_enforced(
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
-                actual_cost = job_status.cost or reserved_amount
+                actual_cost = reserved_amount  # status carries credits, not USD: commit the hold
                 
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
-                    reserved_amount=reserved_amount,
-                    actual_cost=actual_cost,
-                    usd_micros=None,
+                    reserved_usd_micros=reserved_amount,
+                    actual_usd_micros=actual_cost,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed"
                 )
                 
                 activity.logger.info(
-                    f"Committed {actual_cost} credits to {line_name} for {shot_id}"
+                    f"Committed {micros_to_usd_str(actual_cost)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
@@ -756,7 +808,7 @@ async def await_job_enforced(
                 await ledger.release(
                     episode_id=episode_id,
                     line_name=line_name,
-                    amount=reserved_amount,
+                    amount_usd_micros=reserved_amount,
                     reason=f"{job_type} {shot_id} {job_status.status.value}"
                 )
                 released = True  # Mark as released
@@ -800,20 +852,19 @@ async def await_job_enforced(
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
-                actual_cost = job_status.cost or reserved_amount
+                actual_cost = reserved_amount  # status carries credits, not USD: commit the hold
                 
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
-                    reserved_amount=reserved_amount,
-                    actual_cost=actual_cost,
-                    usd_micros=None,
+                    reserved_usd_micros=reserved_amount,
+                    actual_usd_micros=actual_cost,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed (reconciled)"
                 )
                 
                 activity.logger.info(
-                    f"[RECONCILED] Committed {actual_cost} credits to {line_name} for {shot_id}"
+                    f"[RECONCILED] Committed {micros_to_usd_str(actual_cost)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
@@ -830,7 +881,7 @@ async def await_job_enforced(
                 await ledger.release(
                     episode_id=episode_id,
                     line_name=line_name,
-                    amount=reserved_amount,
+                    amount_usd_micros=reserved_amount,
                     reason=f"{job_type} {shot_id} {job_status.status.value} (reconciled)"
                 )
                 released = True
@@ -850,7 +901,7 @@ async def await_job_enforced(
         # This is a safety net; manual intervention required to release
         activity.logger.error(
             f"Job {job_id} exhausted reconciliation window (total ~{max_active_polls * active_poll_interval + max_reconciliation_polls * reconciliation_interval}s). "
-            f"Reservation for {reserved_amount} credits on {line_name} remains HELD. "
+            f"Reservation for {micros_to_usd_str(reserved_amount)} USD on {line_name} remains HELD. "
             f"Manual reconciliation required via provider dashboard."
         )
         
@@ -868,7 +919,7 @@ async def await_job_enforced(
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
-                amount=reserved_amount,
+                amount_usd_micros=reserved_amount,
                 reason=f"{job_type} {job_id} cancelled"
             )
         if 'provider' in locals():
@@ -884,7 +935,7 @@ async def await_job_enforced(
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
-                amount=reserved_amount,
+                amount_usd_micros=reserved_amount,
                 reason=f"{job_type} {job_id} poll error: {str(poll_error)[:100]}"
             )
         if 'provider' in locals():
