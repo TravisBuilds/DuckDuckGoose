@@ -37,7 +37,7 @@ def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
     content = Path(plan_path).read_text()
     
     lines = {}
-    higgsfield_cap = 1250  # Default from Ep04 plan
+    higgsfield_cap = 950.0  # Default: 1,250 app credits * 0.76 = 950 API credits
     higgsfield_target = 1000
     
     # Parse line rows

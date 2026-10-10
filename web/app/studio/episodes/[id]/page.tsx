@@ -331,10 +331,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     );
   }
 
-  const estimatedCanaryCost = 6.5 + 28.0; // L1 still + L4 clip
-  // Episode cap from backend budget.py:EPISODE_CAP
-  // TODO: expose this value through the budget API if it changes
-  const EPISODE_CAP_CREDITS = 1250;
+  // Episode cap from backend budget.py:EPISODE_CAP (950 API credits)
+  // Converted from 1,250 app credits * 0.76 = 950 API credits
+  const EPISODE_CAP_CREDITS = 950.0;
+  
+  // Canary cost estimate - get from API instead of hard-coding
+  // Default fallback only used if API doesn't provide estimate
+  const estimatedCanaryCost = budget?.lines.find(l => l.line_name === 'L6_reserve')?.reserved || 10.0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -505,13 +508,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 Higgsfield Total
               </div>
               <div className="text-2xl font-bold">
-                {budget?.higgsfield_total.toFixed(1) || '0.0'} credits
+                {budget?.higgsfield_total.toFixed(1) || '0.0'} API credits
                 <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">
-                  / {EPISODE_CAP_CREDITS} credits episode cap
+                  / {EPISODE_CAP_CREDITS.toFixed(1)} API credits episode cap
                 </span>
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Line caps total: {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} credits
+                Line caps total: {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'} API credits
               </div>
             </div>
             
@@ -538,9 +541,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-medium text-sm">{line.line_name}</div>
                   <div className="text-sm">
-                    {line.total.toFixed(1)} / {line.stop.toFixed(1)} credits
+                    {line.total.toFixed(1)} / {line.stop.toFixed(1)} API credits
                     <span className="text-gray-500 dark:text-gray-400 ml-1">
-                      (cap {line.cap.toFixed(1)} credits)
+                      (cap {line.cap.toFixed(1)} API credits)
                     </span>
                   </div>
                 </div>
@@ -553,7 +556,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   />
                 </div>
                 <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Spent: {line.spent.toFixed(1)} • Reserved: {line.reserved.toFixed(1)} credits
+                  Spent: {line.spent.toFixed(1)} • Reserved: {line.reserved.toFixed(1)} API credits
                   {line.at_stop && <span className="ml-2 text-red-600 dark:text-red-400 font-semibold">⚠️ AT STOP</span>}
                 </div>
               </div>

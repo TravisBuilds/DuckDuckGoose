@@ -45,7 +45,7 @@ async def test_init_episode_budget():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -85,7 +85,7 @@ async def test_reserve_commit_flow():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -145,7 +145,7 @@ async def test_80_percent_stop():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -174,7 +174,7 @@ async def test_release_refund():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -207,7 +207,7 @@ async def test_episode_summary():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -246,7 +246,7 @@ async def test_hard_cap_enforcement():
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
 
@@ -266,25 +266,36 @@ async def test_conversion_constant_is_076():
 @pytest.mark.asyncio
 async def test_episode_cap_converted():
     """
-    Test: EPISODE_CAP is converted to API credits (950 from 1250 app credits).
+    Test: EPISODE_CAP is converted to API credits (950.0 from 1,250 app credits).
     
     M-R4b will leave it at 1250 - this test must fail.
     """
+    from hfvg.budget import EPISODE_CAP
+    
+    # First check the constant itself
+    assert EPISODE_CAP == 950.0, \
+        f"EPISODE_CAP must be 950.0 API credits (1,250 app * 0.76), got {EPISODE_CAP}"
+    
     ledger, path = create_test_ledger()
     
     try:
         await ledger.init_episode_budget("ep04")
         
-        # Try to reserve 951 credits (exceeds 950 cap)
+        # Try to reserve 951.0 credits (exceeds 950.0 cap)
         try:
             await ledger.reserve("ep04", "L1_refs", 951.0, "Test over cap")
-            assert False, "Should have raised ValueError for exceeding episode cap"
+            assert False, "Should have raised ValueError for exceeding 950.0 episode cap"
         except ValueError as e:
-            assert "episode cap" in str(e).lower() or "1250" not in str(e), \
-                "Episode cap should be 950 API credits (not 1250 app credits)"
+            # Must explicitly mention the cap value
+            error_msg = str(e).lower()
+            assert "950" in error_msg or "episode cap" in error_msg, \
+                f"Error must mention 950 or episode cap, got: {e}"
+            # Must NOT mention 1250 (the old app credit cap)
+            assert "1250" not in str(e) and "1,250" not in str(e), \
+                f"Error must not mention 1,250 (old app credit cap), got: {e}"
     
     finally:
         try:
             os.unlink(path)
-        except:
+        except OSError:
             pass
