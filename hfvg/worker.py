@@ -17,6 +17,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+PRODUCTION_ACTIVITIES = [
+    activities.submit_still_job_enforced,
+    activities.submit_clip_job_enforced,
+    activities.await_job_enforced,
+    activities.poll_job_status,
+    activities.commit_job_budget,
+    activities.release_job_budget,
+    activities.mark_job_pending_reconcile,
+    activities.precheck_still_qc,
+    activities.precheck_clip_qc,
+    activities.review_still,
+    activities.review_clip,
+    activities.trim_clips,
+    activities.render_edit,
+    activities.mix_audio,
+    activities.generate_voiceover,
+    activities.generate_sfx,
+    activities.generate_music,
+    activities.post_to_platform,
+    activities.record_shot_result,
+    activities.load_gate_policy_activity,
+    activities.parse_beatmap_activity,
+    activities.check_live_mode_and_g108,
+]
+
+
 async def main():
     """Start the Temporal worker."""
     logger.info("Initializing ledger database...")
@@ -35,24 +61,7 @@ async def main():
         client,
         task_queue=config.TASK_QUEUE,
         workflows=[EpisodeWorkflow, EpisodeWorkflowV2, ShotWorkflow, PostingWorkflow],
-        activities=[
-            # Only enforced activities registered - legacy ungated activities removed
-            activities.submit_still_job_enforced,
-            activities.submit_clip_job_enforced,
-            activities.await_job_enforced,
-            activities.review_still,
-            activities.review_clip,
-            activities.trim_clips,
-            activities.render_edit,
-            activities.mix_audio,
-            activities.generate_voiceover,
-            activities.generate_sfx,
-            activities.generate_music,
-            activities.post_to_platform,
-            activities.record_shot_result,
-            activities.load_gate_policy_activity,
-            activities.parse_beatmap_activity,
-        ],
+        activities=PRODUCTION_ACTIVITIES,
     )
 
     logger.info("Worker running. Press Ctrl+C to exit.")

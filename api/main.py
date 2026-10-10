@@ -18,8 +18,6 @@ Routes:
 - GET /api/episodes/{episode_id}/shots: List shots with status
 - POST /api/episodes/{episode_id}/shots/{shot_id}/approve: Approve still
 - POST /api/episodes/{episode_id}/shots/{shot_id}/reject: Reject still
-- POST /api/episodes/{episode_id}/clips/{clip_id}/approve: Approve clip
-- POST /api/episodes/{episode_id}/clips/{clip_id}/reject: Reject clip
 - GET /api/episodes/{episode_id}/gates: Get gate status
 - GET /api/episodes/{episode_id}/budget: Get budget status
 - GET /api/episodes/{episode_id}/audit: Get audit trail
@@ -44,9 +42,11 @@ from temporalio.client import Client as TemporalClient
 
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
 from hfvg.budget import BudgetLedger
+from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
 from hfvg.episode_parser import parse_beatmap
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
+from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
 # Check ADMIN_SECRET early - FAIL CLOSED
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
@@ -64,26 +64,57 @@ DRY_RUN_DEFAULT = os.getenv("DRY_RUN", "true").lower() == "true"
 # Global Temporal client
 temporal_client: TemporalClient | None = None
 
-# Session token cache (in-memory for simplicity)
-# In production, use Redis or a database
-_session_tokens: set[str] = set()
-
-
-def generate_session_token() -> str:
-    """Generate a secure session token."""
-    return secrets.token_urlsafe(32)
-
-
-def create_session() -> str:
-    """Create a new session and return the token."""
-    token = generate_session_token()
-    _session_tokens.add(token)
+# Session management - stored in DB to survive restart
+async def create_session() -> str:
+    """Create a new session and store in database."""
+    import aiosqlite
+    
+    token = secrets.token_urlsafe(32)
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Create sessions table if not exists
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        
+        # Insert session (24 hour expiry)
+        await db.execute(
+            """INSERT INTO sessions (token, created_at, expires_at)
+               VALUES (?, datetime('now'), datetime('now', '+1 day'))""",
+            (token,)
+        )
+        await db.commit()
+    
     return token
 
 
-def verify_session_token(token: str) -> bool:
-    """Verify a session token."""
-    return token in _session_tokens
+async def verify_session_token(token: str) -> bool:
+    """Verify a session token from database."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+            """)
+            
+            async with db.execute(
+                """SELECT token FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row is not None
+    except Exception:
+        return False
 
 
 @asynccontextmanager
@@ -120,7 +151,7 @@ app.add_middleware(
 )
 
 
-def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
+async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     """
     Verify admin auth from httpOnly cookie (fail closed).
     
@@ -136,7 +167,7 @@ def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
             detail="Authentication required. Please log in."
         )
     
-    if not verify_session_token(studio_admin_token):
+    if not await verify_session_token(studio_admin_token):
         raise HTTPException(
             status_code=403,
             detail="Invalid or expired session. Please log in again."
@@ -151,13 +182,13 @@ def verify_admin_secret(authorization: str | None = Header(None)):
             detail="Authorization header required. Set 'Authorization: Bearer <ADMIN_SECRET>'"
         )
     
-    if not authorization.startswith("Bearer "):
+    if authorization and not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Authorization must use Bearer token format"
         )
     
-    token = authorization[7:]  # Remove 'Bearer ' prefix
+    token = authorization[7:] if authorization else ""
     
     if token != ADMIN_SECRET:
         raise HTTPException(
@@ -167,6 +198,22 @@ def verify_admin_secret(authorization: str | None = Header(None)):
 
 
 # Request/Response models
+def validate_episode_id(episode_id: str) -> str:
+    """
+    Validate episode ID format.
+    
+    Must match: ep## (e.g., ep04, ep99)
+    Prevents path traversal attacks.
+    """
+    import re
+    if not re.match(r"^ep\d{2}$", episode_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid episode_id format: {episode_id}. Must match ep## (e.g., ep04)"
+        )
+    return episode_id
+
+
 class StartEpisodeRequest(BaseModel):
     episode_id: str = Field(..., pattern=r"^ep\d{2}$", description="Episode ID (e.g., ep04)")
     beatmap_content: str | None = Field(None, description="Beatmap markdown content (optional)")
@@ -203,22 +250,45 @@ class ShotStatus(BaseModel):
 
 
 class BudgetLineStatus(BaseModel):
+    """One budget line. All amounts are integer usd_micros (1 USD = 1_000_000)."""
     line_name: str
     provider: str
-    spent: float
-    reserved: float
-    total: float
-    cap: float
-    stop: float
+    spent: int
+    reserved: int
+    total: int
+    cap: int
+    stop: int
     at_stop: bool
-    unit: str
+    unit: str = "usd_micros"
+    revision_reserve: bool = False
 
 
 class BudgetResponse(BaseModel):
+    """Episode budget in integer usd_micros; *_usd fields are exact decimal strings."""
     episode_id: str
+    unit: str = "usd_micros"
     lines: list[BudgetLineStatus]
-    higgsfield_total: float
-    elevenlabs_total: float
+    higgsfield_total: int
+    elevenlabs_total: int
+    episode_total: int
+    episode_cap: int
+    episode_stop: int
+    gc01_headroom: int
+    episode_total_usd: str
+    episode_cap_usd: str
+    episode_stop_usd: str
+    gc01_headroom_usd: str
+    balance: dict
+
+
+class ManualBalanceRequest(BaseModel):
+    balance_usd: str = Field(..., description="Current Higgsfield USD balance as a decimal string, e.g. '82.40'")
+    note: str = Field("", max_length=500)
+
+
+class JobVerdictRequest(BaseModel):
+    verdict: str = Field(..., max_length=100)
+    used: bool | None = None
 
 
 class LoginRequest(BaseModel):
@@ -275,7 +345,7 @@ async def login(request: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
     # Create session and set httpOnly cookie with session token (NOT the secret)
-    session_token = create_session()
+    session_token = await create_session()
     response.set_cookie(
         key="studio_admin_token",
         value=session_token,
@@ -294,7 +364,7 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
@@ -304,7 +374,8 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Create episode directory
     beatmap_dir = Path("./data/episodes") / episode_id
@@ -363,17 +434,71 @@ async def upload_beatmap(
     }
 
 
+@app.post("/api/episodes/{episode_id}/upload-prompt-kit")
+async def upload_prompt_kit(
+    episode_id: str,
+    prompt_kit_file: UploadFile = File(...),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload prompt_kit.json for an episode.
+    
+    Requires: Cookie auth
+    
+    The prompt kit contains:
+    - style: Series visual style line
+    - aspect_ratio: e.g. "9:16"
+    - characters: Map of codes to {description, ref}
+    - sets: Map of set IDs to descriptions
+    
+    Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Create episode directory
+    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save prompt_kit.json
+    prompt_kit_path = episode_dir / "prompt_kit.json"
+    content = await prompt_kit_file.read()
+    
+    # Validate JSON format
+    try:
+        prompt_kit_data = json.loads(content)
+        
+        # Validate required fields
+        if "style" not in prompt_kit_data:
+            raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'style' field")
+        if "characters" not in prompt_kit_data:
+            raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'characters' field")
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    
+    prompt_kit_path.write_bytes(content)
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "prompt_kit_path": str(prompt_kit_path),
+        "message": "prompt_kit.json uploaded successfully"
+    }
+
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Start a new episode workflow.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(request.episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -391,7 +516,8 @@ async def start_episode(
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
-    workflow_id = f"{request.episode_id}-{asyncio.get_event_loop().time()}"
+    # Stable workflow ID for approve route to find
+    workflow_id = f"{request.episode_id}"
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
@@ -411,14 +537,21 @@ async def start_episode(
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeStateResponse)
 async def get_episode_state(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get current episode workflow state.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(_admin)
+    # Accept either Bearer token or session cookie
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -456,23 +589,32 @@ async def get_episode_state(
 async def approve_gate(
     episode_id: str,
     request: ApprovalRequest,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
 ):
     """
     Send approval signal to episode workflow.
     
     Requires: Authorization header with admin secret.
     """
-    verify_admin_secret(_admin)
+    verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
     try:
-        # Find the workflow
-        workflows = temporal_client.list_workflows(f'WorkflowId STARTS_WITH "{episode_id}-"')
+        # Find the EpisodeWorkflowV2 only (not child shot workflows)
+        # Episode workflow ID is just the episode_id (e.g., "ep14")
+        # Shot workflows have IDs like "ep14-shot-A01" which we must exclude
+        workflows = temporal_client.list_workflows(
+            f'WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-" AND WorkflowType = "EpisodeWorkflowV2"'
+        )
         
         async for workflow_info in workflows:
+            # Double-check: skip shot workflows
+            if "-shot-" in workflow_info.id:
+                continue
+            
             handle = temporal_client.get_workflow_handle(workflow_info.id)
             
             # Map gate_id to signal method
@@ -488,7 +630,7 @@ async def approve_gate(
                 "note": request.note,
             }
         
-        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+        raise HTTPException(status_code=404, detail=f"No running EpisodeWorkflowV2 found for episode {episode_id}")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
@@ -497,14 +639,21 @@ async def approve_gate(
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)
 async def get_budget_status(
     episode_id: str,
-    _admin: None = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get budget status for an episode.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(_admin)
+    # Accept either Bearer token or session cookie
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    validate_episode_id(episode_id)
     
     from hfvg.budget import BudgetLedger
     
@@ -522,29 +671,143 @@ async def get_budget_status(
             stop=line["stop"],
             at_stop=line["at_stop"],
             unit=line["unit"],
+            revision_reserve=line["revision_reserve"],
         )
         for line in summary["lines"]
     ]
+    
+    from hfvg.pricing import micros_to_usd_str
     
     return BudgetResponse(
         episode_id=episode_id,
         lines=lines,
         higgsfield_total=summary["higgsfield_total"],
         elevenlabs_total=summary["elevenlabs_total"],
+        episode_total=summary["episode_total"],
+        episode_cap=summary["episode_cap"],
+        episode_stop=summary["episode_stop"],
+        gc01_headroom=summary["gc01_headroom"],
+        episode_total_usd=micros_to_usd_str(summary["episode_total"]),
+        episode_cap_usd=micros_to_usd_str(summary["episode_cap"]),
+        episode_stop_usd=micros_to_usd_str(summary["episode_stop"]),
+        gc01_headroom_usd=micros_to_usd_str(summary["gc01_headroom"]),
+        balance=summary["balance"],
     )
+
+
+@app.get("/api/episodes/{episode_id}/jobs")
+async def get_job_ledger(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Per-job ledger for an episode: job id, shot id, model, tier (draft/final/retry/revision),
+    usd_micros, status, verdict, used/unused.
+
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
+    
+    from hfvg.budget import BudgetLedger
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    jobs = await ledger.get_jobs(episode_id)
+    return {"episode_id": episode_id, "unit": "usd_micros", "jobs": jobs}
+
+
+@app.post("/api/episodes/{episode_id}/jobs/{job_id}/verdict")
+async def set_job_verdict(
+    episode_id: str,
+    job_id: str,
+    request: JobVerdictRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Record the verdict and used/unused flag on a job ledger row. Requires: Cookie auth."""
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    from hfvg.budget import BudgetLedger
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    jobs = {j["job_id"] for j in await ledger.get_jobs(episode_id)}
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found for {episode_id}")
+    await ledger.set_job_verdict(job_id, request.verdict, request.used)
+    return {"success": True, "job_id": job_id, "verdict": request.verdict, "used": request.used}
+
+
+@app.get("/api/budget/balance")
+async def get_manual_balance(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GC.01 status: latest manual balance, holds, headroom. Requires admin auth."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.budget import BudgetLedger
+    
+    return await BudgetLedger(DATABASE_PATH).get_balance_status()
+
+
+@app.post("/api/budget/balance")
+async def set_manual_balance(
+    request: ManualBalanceRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Record the manually entered Higgsfield USD balance (no balance endpoint exists).
+    GC.01 refuses new paid jobs when balance - spend since entry - reserved < headroom.
+    Requires: Cookie auth (admin).
+    """
+    await verify_admin_cookie(studio_admin_token)
+    
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import usd_to_micros
+    
+    try:
+        micros = usd_to_micros(request.balance_usd)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=422, detail=f"Invalid balance_usd: {e}")
+    
+    ledger = BudgetLedger(DATABASE_PATH)
+    entry = await ledger.set_manual_balance(micros, set_by="admin", note=request.note)
+    await _audit_balance(entry)
+    return {"success": True, **entry, "status": await ledger.get_balance_status()}
+
+
+async def _audit_balance(entry: dict):
+    """Audit-log a manual balance entry (balance changes gate every paid job)."""
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            ("_global", "set_manual_balance",
+             f"balance_usd_micros={entry['balance_usd_micros']} at {entry['set_at']}", "admin"),
+        )
+        await db.commit()
 
 
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     List all shots for an episode with their status.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -577,29 +840,88 @@ async def get_shots(
 async def approve_still(
     episode_id: str,
     shot_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Approve still for a shot (sends signal to workflow).
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Validate shot_id format
+    if not shot_id or not isinstance(shot_id, str):
+        raise HTTPException(status_code=400, detail=f"Invalid shot_id: {shot_id}")
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
-    # Send signal to shot workflow
-    workflow_id = f"{episode_id}-shot-{shot_id}"
+    # Try to find the workflow:
+    # 1. First try canary workflow: {episode_id}-canary-{shot_id}
+    # 2. Then try episode shot workflow: {episode_id}-shot-{shot_id}
+    from hfvg.workflows.shot import ShotWorkflow
     
+    # Try canary workflow first (most common for manual approval)
+    canary_workflow_id = f"{episode_id}-canary-{shot_id}"
+    episode_shot_workflow_id = f"{episode_id}-shot-{shot_id}"
+    
+    workflow_found = False
+    workflow_type = None
+    handle = None
+    
+    # Try canary workflow
     try:
-        # Import workflow type for exact targeting
-        from hfvg.workflows.shot import ShotWorkflow
-        
         handle = temporal_client.get_workflow_handle_for(
             ShotWorkflow.run,
-            workflow_id=workflow_id,
+            workflow_id=canary_workflow_id,
         )
+        workflow_found = True
+        workflow_type = "canary"
+    except Exception:
+        pass
+    
+    # Try episode shot workflow if canary not found
+    if not workflow_found:
+        try:
+            handle = temporal_client.get_workflow_handle_for(
+                ShotWorkflow.run,
+                workflow_id=episode_shot_workflow_id,
+            )
+            workflow_found = True
+            workflow_type = "episode_shot"
+        except Exception:
+            pass
+    
+    if not workflow_found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No workflow found for {episode_id}/{shot_id}. "
+                   f"Canary or episode shot workflow must be running to approve stills."
+        )
+    
+    try:
+        # Check if the workflow is still running before sending signal
+        from temporalio.client import WorkflowExecutionStatus
+        try:
+            desc = await handle.describe()
+            status = desc.status
+            
+            if status != WorkflowExecutionStatus.RUNNING:
+                # Workflow already completed or in terminal state
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot approve: {workflow_type} workflow for {episode_id}/{shot_id} "
+                           f"already in terminal state ({status.name}). "
+                           "The workflow must be running to accept approval signals."
+                )
+        except HTTPException:
+            raise  # Re-raise our own 409
+        except Exception as desc_err:
+            # If describe fails, try to send signal anyway (might work)
+            pass
+        
+        # Send signal to ShotWorkflow (both canary and episode shots use ShotWorkflow)
         await handle.signal("stills_approved")
         
         # Audit log
@@ -608,13 +930,28 @@ async def approve_still(
             await db.execute(
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
-                (episode_id, "approve_still", f"Shot {shot_id} still approved", "admin")
+                (episode_id, "approve_still", 
+                 f"Shot {shot_id} still approved ({workflow_type} workflow)", "admin")
             )
             await db.commit()
         
-        return {"success": True, "shot_id": shot_id, "message": "Still approved"}
+        return {
+            "success": True, 
+            "shot_id": shot_id, 
+            "workflow_type": workflow_type,
+            "message": "Still approved"
+        }
     
+    except HTTPException:
+        raise  # Re-raise our HTTPExceptions (404, 409)
     except Exception as e:
+        error_str = str(e).lower()
+        if "not found" in error_str or "does not exist" in error_str:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Canary workflow not found for {episode_id}/{shot_id}. "
+                       "Has the canary been started?"
+            )
         raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
 
 
@@ -623,14 +960,15 @@ async def reject_still(
     episode_id: str,
     shot_id: str,
     reason: str = Form(...),
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Reject still for a shot.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Audit log
     import aiosqlite
@@ -645,17 +983,33 @@ async def reject_still(
     return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
 
 
+"""
+Clip approve route removed - ShotWorkflow doesn't wait for clip_approved signal.
+The clip_approved handler (shot.py:46-48) is a no-op pass statement.
+To re-enable this route:
+1. Add workflow.wait_condition in ShotWorkflow after clip generation
+2. Add self.clip_approved_flag similar to stills_approved
+3. Uncomment the route below and update tests
+See verification doc § "Clip-approve semantics" for details.
+"""
+# @app.post("/api/episodes/{episode_id}/clips/{shot_id}/approve")
+# async def approve_clip(...): ...
+# (83 lines removed - see git history to restore)
+
+
+
 @app.get("/api/episodes/{episode_id}/gates")
 async def get_gates(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get gate status for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -670,26 +1024,26 @@ async def get_gates(
             
             live_mode, g108_approved = row
     
+    # Return flat structure (not nested) for UI compatibility
     return {
         "episode_id": episode_id,
-        "gates": {
-            "live_mode": bool(live_mode),
-            "g108_approved": bool(g108_approved),
-        },
+        "live_mode": bool(live_mode),
+        "g108_approved": bool(g108_approved),
     }
 
 
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get audit trail for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     import aiosqlite
     
@@ -710,9 +1064,10 @@ async def get_audit_trail(
                     "timestamp": row[5],
                 })
     
+    # Return as .entries for UI compatibility (not .audit_log)
     return {
         "episode_id": episode_id,
-        "audit_log": entries,
+        "entries": entries,
     }
 
 
@@ -720,14 +1075,15 @@ async def get_audit_trail(
 async def set_live_mode_endpoint(
     episode_id: str,
     request: SetLiveModeRequest,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Switch episode to live (paid) mode with confirmation.
     
     Requires: Cookie auth + confirmation string "ENABLE_LIVE_MODE"
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     if request.confirmation != "ENABLE_LIVE_MODE":
         raise HTTPException(
@@ -746,17 +1102,42 @@ async def set_live_mode_endpoint(
     }
 
 
+@app.post("/api/episodes/{episode_id}/set-dry")
+async def set_dry_mode_endpoint(
+    episode_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Switch episode to dry-run mode (disable paid generation).
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Set live mode to false in database
+    await db_set_live_mode(DATABASE_PATH, episode_id, False, user="admin")
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "live_mode": False,
+        "message": "Episode switched to DRY-RUN mode. Paid generation disabled.",
+    }
+
+
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Approve G1.08 credit plan for episode.
     
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     # Approve in database
     await approve_g108(DATABASE_PATH, episode_id, user="admin")
@@ -779,20 +1160,168 @@ async def approve_g108_endpoint(
     }
 
 
+@app.get("/api/canary/{workflow_id}")
+async def get_canary_status(
+    workflow_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Get canary workflow status.
+    
+    Requires: Cookie auth
+    
+    Returns:
+        - status: running, completed, failed, canceled
+        - result: workflow result if completed
+    """
+    await verify_admin_cookie(studio_admin_token)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    from hfvg.workflows.shot import ShotWorkflow
+    from temporalio.client import WorkflowFailureError
+    
+    try:
+        handle = temporal_client.get_workflow_handle_for(
+            ShotWorkflow.run,
+            workflow_id=workflow_id,
+        )
+        
+        # Check if workflow is still running
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            
+            # Workflow completed: release L6_reserve (it was already spent via L2/L4)
+            await _reconcile_canary_l6(workflow_id, "completed")
+            
+            return {
+                "workflow_id": workflow_id,
+                "status": "completed",
+                "result": result,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "workflow_id": workflow_id,
+                "status": "running",
+            }
+        except WorkflowFailureError as wf_err:
+            # Workflow failed: release L6_reserve (no spend occurred)
+            await _reconcile_canary_l6(workflow_id, "failed")
+            
+            return {
+                "workflow_id": workflow_id,
+                "status": "failed",
+                "error": str(wf_err),
+            }
+    except Exception as e:
+        error_str = str(e).lower()
+        if "not found" in error_str or "does not exist" in error_str:
+            raise HTTPException(status_code=404, detail=f"Canary workflow {workflow_id} not found")
+        raise HTTPException(status_code=500, detail=f"Error getting canary status: {str(e)}")
+
+
+async def _reconcile_canary_l6(workflow_id: str, status: str):
+    """
+    Reconcile L6_reserve after canary completes or fails.
+    Atomic and idempotent: uses transaction to ensure exactly-once reconciliation.
+    
+    Looks up the workflow in audit log, releases the reservation exactly once.
+    """
+    import aiosqlite
+    from hfvg.budget import BudgetLedger
+    import re
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # BEGIN IMMEDIATE for atomic check-and-insert
+        await db.execute("BEGIN IMMEDIATE")
+        
+        try:
+            # Find the canary start entry to get episode_id and reserved amount
+            async with db.execute(
+                """SELECT episode_id, details FROM audit_log 
+                   WHERE action = 'start_canary' AND details LIKE ?
+                   ORDER BY timestamp DESC LIMIT 1""",
+                (f"%{workflow_id}%",)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    await db.rollback()
+                    return  # No reservation found, nothing to reconcile
+                
+                episode_id, details = row
+            
+            # Check if already reconciled (within same transaction)
+            async with db.execute(
+                """SELECT COUNT(*) FROM audit_log 
+                   WHERE episode_id = ? AND action = 'reconcile_canary_l6' 
+                   AND details LIKE ?""",
+                (episode_id, f"%{workflow_id}%")
+            ) as check_cursor:
+                already_reconciled = (await check_cursor.fetchone())[0] > 0
+            
+            if already_reconciled:
+                await db.rollback()
+                return  # Already reconciled in another concurrent call
+            
+            # Extract reserved amount from details (e.g., "reserved L6=408000 usd_micros")
+            match = re.search(r"reserved L6=(\d+) usd_micros", details)
+            if not match:
+                await db.rollback()
+                return
+            
+            reserved_amount = int(match.group(1))
+            
+            # Record reconciliation in audit log FIRST (within transaction)
+            # This acts as a lock - only one transaction can succeed
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "reconcile_canary_l6", 
+                 f"Released L6={reserved_amount} usd_micros for {workflow_id} ({status})", "system")
+            )
+            
+            # Commit the audit log entry before releasing
+            # This ensures the reconciliation is recorded even if release fails
+            await db.commit()
+            
+        except Exception as e:
+            await db.rollback()
+            raise
+    
+    # Release the L6 reservation outside the audit log transaction
+    # The ledger has its own atomic transaction
+    try:
+        ledger = BudgetLedger(DATABASE_PATH)
+        await ledger.init_db()
+        await ledger.release(
+            episode_id=episode_id,
+            line_name="L6_reserve",
+            amount_usd_micros=reserved_amount,
+            reason=f"Canary {workflow_id} {status}"
+        )
+    except Exception as release_err:
+        # Log error but don't raise - reconciliation is already marked as done
+        print(f"Warning: Reconciliation logged but release failed: {release_err}")
+
+
 @app.post("/api/episodes/{episode_id}/canary")
 async def run_canary(
     episode_id: str,
-    _cookie: str | None = Cookie(None, alias="studio_admin_token"),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Run canary test: 1 still + 1 clip through real ShotWorkflow.
+    Run canary test: 1 still + 1 clip through real ShotWorkflow (async).
     
     In dry-run mode: uses fake providers (no spend, fake URLs).
     In live mode: requires live_mode=true AND g108_approved=true.
     
+    Returns immediately with workflow_id. Poll /api/canary/{workflow_id} for status.
+    
     Requires: Cookie auth
     """
-    verify_admin_cookie(_cookie)
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -846,22 +1375,244 @@ async def run_canary(
                     detail="No shots found. Upload beatmap first."
                 )
             
-            first_shot_id, first_prompt = shot_row
+            first_shot_id, stored_prompt = shot_row
     
-    # Create canary shot using first real shot from episode
+    # Load beatmap to get full shot data for prompt building
+    beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
+    episode_path = Path("./data/episodes") / episode_id
+    
+    if beatmap_path.exists():
+        # Load prompt_kit.json (required for live mode, optional for dry mode)
+        from hfvg.continuity_parser import load_prompt_kit, build_prompt_with_continuity, get_character_refs
+        
+        prompt_kit = load_prompt_kit(episode_path)
+        
+        # In live mode, prompt_kit is REQUIRED
+        if not dry_run and not prompt_kit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Live mode requires prompt_kit.json for {episode_id}. "
+                       "Create data/episodes/{episode_id}/prompt_kit.json with style, characters, aspect_ratio, and sets. "
+                       "See docs for format."
+            )
+        
+        # Load continuity notes as fallback (for dry mode only)
+        continuity_path = episode_path / "CONTINUITY.md"
+        continuity = {"characters": {}, "sets": {}, "lighting": {}, "style": ""}
+        
+        if continuity_path.exists():
+            from hfvg.continuity_parser import parse_continuity
+            continuity = parse_continuity(continuity_path)
+        
+        from hfvg.episode_parser import parse_beatmap
+        
+        shots = parse_beatmap(str(beatmap_path))
+        first_shot_data = next((s for s in shots if s["shot_id"] == first_shot_id), None)
+        
+        if first_shot_data:
+            # Build prompt from prompt_kit (preferred) or continuity (fallback)
+            # In live mode, this will raise ValueError if character codes are unresolved
+            try:
+                prompt = build_prompt_with_continuity(
+                    first_shot_data, 
+                    continuity, 
+                    prompt_kit=prompt_kit
+                )
+            except ValueError as e:
+                # Fail closed: unresolved character codes in live mode
+                if not dry_run:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Prompt building failed (fail closed): {str(e)}"
+                    )
+                # In dry mode, allow it but warn
+                prompt = build_prompt_with_continuity(first_shot_data, continuity, prompt_kit=None)
+            
+            # Get aspect ratio from prompt_kit (default to 9:16)
+            aspect_ratio = "9:16"
+            if prompt_kit:
+                aspect_ratio = prompt_kit.get("aspect_ratio", "9:16")
+            
+            # Load character reference images
+            refs = []
+            if prompt_kit:
+                # Get refs from prompt_kit
+                refs = get_character_refs(first_shot_data, prompt_kit, episode_path)
+                
+                # In live mode, refs must be uploaded to Higgsfield (not local paths)
+                # For now, we'll document this requirement and refuse local paths in live mode
+                if not dry_run and refs:
+                    raise HTTPException(
+                        status_code=501,
+                        detail="Live mode with character refs requires Higgsfield media upload (not yet implemented). "
+                               "Upload refs via Higgsfield's documented media upload mechanism and update prompt_kit.json "
+                               "to reference the returned URLs. See docs/PROVIDERS.md for upload endpoint."
+                    )
+            elif continuity:
+                # Legacy: try to find refs by character code (dry mode only)
+                refs_dir = episode_path / "refs"
+                if refs_dir.exists():
+                    characters = first_shot_data.get("characters", [])
+                    for char_code in characters[:3]:  # Limit to 3 refs
+                        ref_files = list(refs_dir.glob(f"{char_code}.*"))
+                        if ref_files:
+                            refs.append(str(ref_files[0]))
+        else:
+            # Beatmap exists but shot not found - use stored prompt
+            prompt = stored_prompt or f"Shot {first_shot_id}"
+            refs = []
+            aspect_ratio = "9:16"
+    else:
+        # No beatmap file - use stored prompt from database
+        prompt = stored_prompt or f"Shot {first_shot_id}"
+        refs = []
+        aspect_ratio = "9:16"
+    
+    # Create canary shot with full prompt, refs, and aspect_ratio
     canary_shot = {
         "shot_id": first_shot_id,
-        "prompt": first_prompt,
-        "refs": [],
-        "params": {"duration": 5.0},
+        "prompt": prompt,
+        "refs": refs,
+        "params": {
+            "duration": 5.0,
+            "aspect_ratio": aspect_ratio,
+        },
     }
     
-    # Start ShotWorkflow
-    from hfvg.workflows.shot import ShotWorkflow
-    from hfvg.activities.shot_activity import record_shot_result
-    import time
+    # Reserve from L6_reserve BEFORE starting workflow (canary budget)
+    # Size the hold from provider estimates (still + clip) with a margin
+    from hfvg.budget import BudgetLedger
     
-    workflow_id = f"{episode_id}-canary-{first_shot_id}-{int(time.time())}"
+    ledger = BudgetLedger(DATABASE_PATH)
+    await ledger.init_db()
+    
+    # In dry-run mode, use default estimate
+    # In live mode, get real estimates from providers (fail closed if unavailable)
+    higgsfield_key = os.getenv("HIGGSFIELD_API_KEY", "")
+    
+    if dry_run:
+        # Dry-run mode: fixed estimate (0.06 still + 5 s Kling clip) with 20% margin, usd_micros
+        canary_cost = (DRY_STILL_USD_MICROS + 5 * DRY_CLIP_USD_PER_SECOND_MICROS) * 12 // 10
+    elif not higgsfield_key:
+        # Live mode but no API key: fail closed (refuse canary)
+        raise HTTPException(
+            status_code=503,
+            detail="Live canary requires HIGGSFIELD_API_KEY to estimate costs. "
+                   "Cannot proceed without cost estimation. Set DRY_RUN=true for testing without keys."
+        )
+    else:
+        # Live mode: get real estimates from providers
+        from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+        
+        # Estimate still cost (with aspect_ratio but no refs for now - refs may not be uploaded yet)
+        still_provider = HiggsfieldStillProvider()
+        try:
+            still_estimate = await still_provider.estimate_usd_micros(
+                prompt=prompt,
+                resolution="1k",
+                quality="medium",
+                aspect_ratio="9:16",
+            )
+        except Exception as e:
+            # Fail closed if we can't get estimate in live mode
+            raise HTTPException(
+                status_code=503,
+                detail=f"Failed to estimate still cost in live mode (fail closed): {str(e)}"
+            )
+        finally:
+            await still_provider.close()
+        
+        # Estimate clip cost (use placeholder image URL since still doesn't exist yet)
+        clip_provider = KlingVideoProvider()
+        try:
+            clip_estimate = await clip_provider.estimate_usd_micros(
+                image_url="https://example.com/placeholder.jpg",
+                prompt=prompt,
+                duration=5,
+            )
+        except Exception as e:
+            # Fail closed if we can't get estimate in live mode
+            raise HTTPException(
+                status_code=503,
+                detail=f"Failed to estimate clip cost in live mode (fail closed): {str(e)}"
+            )
+        finally:
+            await clip_provider.close()
+        
+        # Size L6 hold with 20% margin for safety (integer usd_micros, rounded down by 1 micro max)
+        canary_cost = (still_estimate + clip_estimate) * 12 // 10
+    
+    try:
+        reserved = await ledger.reserve(
+            episode_id, "L6_reserve", canary_cost, "Canary test", require_balance=not dry_run
+        )
+        if not reserved:
+            return {
+                "success": False,
+                "error": "L6_reserve budget insufficient for canary",
+                "episode_id": episode_id,
+                "estimated_cost": canary_cost,
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to reserve canary budget: {str(e)}",
+            "episode_id": episode_id,
+        }
+    
+    # Start ShotWorkflow (async) with reservation info
+    from hfvg.workflows.shot import ShotWorkflow
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+    from temporalio.client import WorkflowExecutionStatus
+    import uuid
+    
+    # Check if there's already a running OR completed canary for this episode
+    # Use deterministic workflow ID based on episode to enforce one-at-a-time
+    workflow_id = f"{episode_id}-canary-{first_shot_id}"
+    
+    # Check if workflow exists (running or completed)
+    try:
+        existing_handle = temporal_client.get_workflow_handle(workflow_id)
+        # Try to get the workflow description to see if it exists and its status
+        desc = await existing_handle.describe()
+        status = desc.status
+        
+        if status == WorkflowExecutionStatus.RUNNING:
+            # Workflow is currently running - return 409 and release reservation
+            try:
+                await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
+            except Exception as release_err:
+                print(f"Failed to release L6 on 409: {release_err}")
+            
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canary workflow already running for {episode_id}. "
+                       f"Wait for the current canary to complete before starting a new one."
+            )
+        elif status in (WorkflowExecutionStatus.COMPLETED, 
+                       WorkflowExecutionStatus.FAILED, 
+                       WorkflowExecutionStatus.CANCELED,
+                       WorkflowExecutionStatus.TERMINATED,
+                       WorkflowExecutionStatus.TIMED_OUT):
+            # Workflow already completed - refuse re-run with 409
+            # (Policy: one canary per episode, no re-runs after completion)
+            try:
+                await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already completed (409)")
+            except Exception as release_err:
+                print(f"Failed to release L6 on 409: {release_err}")
+            
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canary workflow already completed for {episode_id} (status: {status.name}). "
+                       f"Only one canary per episode is allowed. "
+                       f"To run another canary, use a different shot or reset the episode."
+            )
+    except HTTPException:
+        # Re-raise our 409 HTTPExceptions - don't swallow them
+        raise
+    except Exception:
+        # Workflow doesn't exist or error getting handle - proceed to create
+        pass
     
     try:
         handle = await temporal_client.start_workflow(
@@ -870,33 +1621,55 @@ async def run_canary(
             id=workflow_id,
             task_queue="hfvg-tasks",
         )
+    except WorkflowAlreadyStartedError:
+        # Workflow already running - return 409 and release the new reservation
+        try:
+            await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
+        except Exception as release_err:
+            print(f"Failed to release L6 on 409: {release_err}")
         
-        # Wait for completion (with timeout)
-        result = await asyncio.wait_for(handle.result(), timeout=300)  # 5 min timeout
-        
-        # Record canary result
-        await record_shot_result(
-            episode_id=episode_id,
-            shot_id=first_shot_id,
-            result=result,
+        raise HTTPException(
+            status_code=409,
+            detail=f"Canary workflow already running for {episode_id}. "
+                   f"Wait for the current canary to complete before starting a new one."
         )
-        
-        return {
-            "success": True,
-            "episode_id": episode_id,
-            "shot_id": first_shot_id,
-            "canary_result": result,
-            "dry_run": dry_run,
-            "live_mode": bool(live_mode),
-            "g108_approved": bool(g108_approved),
-            "message": "Canary completed successfully",
-        }
-    
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Canary workflow timed out")
-    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Canary failed: {str(e)}")
+        # Start failed: release L6 reservation
+        try:
+            await ledger.release(episode_id, "L6_reserve", canary_cost, f"Canary start failed: {str(e)[:100]}")
+        except Exception as release_err:
+            # Log but don't hide the original error
+            print(f"Failed to release L6 on start failure: {release_err}")
+        
+        raise HTTPException(status_code=500, detail=f"Canary failed to start: {str(e)}")
+    
+    # Store canary workflow_id and reservation in audit log
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "start_canary", f"Workflow {workflow_id}, reserved L6={canary_cost} usd_micros", "system")
+        )
+        await db.commit()
+    
+    # Return immediately with workflow_id (async)
+    # Include composed prompt, aspect_ratio, and refs BEFORE any spend
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "shot_id": first_shot_id,
+        "workflow_id": workflow_id,
+        "reserved_amount": canary_cost,
+        "composed_prompt": prompt,  # Full prompt with resolved character descriptions
+        "aspect_ratio": aspect_ratio,  # From prompt_kit or default 9:16
+        "refs": refs,  # Character reference paths/URLs
+        "dry_run": dry_run,
+        "live_mode": bool(live_mode),
+        "g108_approved": bool(g108_approved),
+        "message": "Canary started (async). Poll workflow for status.",
+        "budget_reserved": reserved,
+    }
 
 
 if __name__ == "__main__":

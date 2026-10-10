@@ -1,20 +1,69 @@
 #!/bin/bash
-set -e
+#
+# Red-green safety proof: Mutate protections and verify tests go RED, then GREEN when restored.
+#
+# Uses a temporary git worktree to isolate mutations - NEVER edits the main working tree.
+# Treats syntax errors, SQL errors, and network failures as INVALID mutations.
+# Prints a summary table at the end.
+#
+
+set -eu  # Fail on undefined variables AND command errors
 
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
+# Create isolated worktree for mutations
+MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+CURRENT_COMMIT="$(git rev-parse HEAD)"
+
+cleanup_worktree() {
+    if [ -d "$MUTATION_WORKTREE" ]; then
+        echo "Cleaning up worktree at $MUTATION_WORKTREE"
+        git worktree remove --force "$MUTATION_WORKTREE" 2>/dev/null || true
+        rm -rf "$MUTATION_WORKTREE"
+    fi
+}
+
+# Ensure cleanup on exit
+trap cleanup_worktree EXIT
+
+# Create worktree using commit SHA (avoids conflict when branch is already checked out)
+echo "Creating isolated worktree at $MUTATION_WORKTREE"
+git worktree add "$MUTATION_WORKTREE" "$CURRENT_COMMIT" || {
+    echo "Failed to create worktree"
+    exit 1
+}
+
+# All mutations will run in the worktree
+cd "$MUTATION_WORKTREE"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m'
+BLUE='\033[0;34m'
+NC='\033[0;
 
-FAIL_COUNT=0
+'
+
+# Results tracking
+declare -a MUTATION_NAMES
+declare -a MUTATION_RESULTS  # "PASS" or "FAIL"
+declare -a MUTATION_REASONS
+
 PASS_COUNT=0
+FAIL_COUNT=0
+
+log_header() {
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
 
 log_test() {
+    echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}TEST: $1${NC}"
+    echo -e "${YELLOW}TEST $1: $2${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
@@ -26,269 +75,733 @@ log_green() {
     echo -e "${GREEN}[GREEN] $1${NC}"
 }
 
-log_error() {
-    echo -e "${RED}✗ ERROR: $1${NC}"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
+# Run a test and classify result from JUnit XML
+# Returns: PASS, FAIL_ASSERT, FAIL_OTHER, or INVALID
+run_test() {
+    local test_name=$1
+    local junit_xml="/tmp/redgreen_junit_$$_$(date +%s).xml"
+    local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
+    
+    # Run pytest with JUnit XML output
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
+    local exit_code=$?
+    
+    # Check for collection errors or syntax errors (INVALID mutation)
+    if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+        rm -f "$junit_xml" "$tmp_output"
+        echo "INVALID"
+        return 0
+    fi
+    
+    # Parse JUnit XML to classify failure
+    # A mutation is caught only if:
+    # 1. At least one <failure> with type="AssertionError"
+    # 2. No <error> outcomes (collection/import/runtime errors)
+    
+    # Check if all tests passed
+    if grep -q 'failures="0"' "$junit_xml" && grep -q 'errors="0"' "$junit_xml"; then
+        rm -f "$junit_xml" "$tmp_output"
+        echo "PASS"
+        return 0
+    fi
+    
+    # Check for <error> nodes (collection errors, import errors, etc.)
+    if grep -q '<error' "$junit_xml"; then
+        rm -f "$junit_xml" "$tmp_output"
+        echo "FAIL_OTHER"
+        return 0
+    fi
+    
+    # Check for <failure> nodes with AssertionError
+    # In pytest's JUnit XML, the failure message contains the exception type:
+    # - AssertionError: message="AssertionError: ..." or message="assert ..."
+    # - Other exceptions: message="ValueError: ..." etc.
+    if grep -q '<failure' "$junit_xml"; then
+        # Check if it's an AssertionError (not other exception types)
+        # Look for failures that contain AssertionError or bare assert statements
+        # But exclude failures with other exception types like ValueError, AttributeError, etc.
+        if grep -o '<failure message="[^"]*"' "$junit_xml" | grep -qE 'message="(AssertionError:|assert [^a-z])'; then
+            rm -f "$junit_xml" "$tmp_output"
+            echo "FAIL_ASSERT"
+            return 0
+        fi
+        
+        # Failed with non-AssertionError exception
+        rm -f "$junit_xml" "$tmp_output"
+        echo "FAIL_OTHER"
+        return 0
+    fi
+    
+    # Failed but no failure/error nodes (shouldn't happen)
+    rm -f "$junit_xml" "$tmp_output"
+    echo "FAIL_OTHER"
+    return 0
 }
 
-log_success() {
-    echo -e "${GREEN}✓ SUCCESS: $1${NC}"
+# Test one probe (classifier verification)
+test_probe() {
+    local num=$1
+    local name=$2
+    local expected_class=$3  # "FAIL_ASSERT" or "FAIL_OTHER"
+    local file=$4
+    local test=$5
+    shift 5
+    local mutation_cmd=("$@")
+    
+    log_test "$num" "$name"
+    
+    # Step 1: Run baseline (should pass)
+    log_green "Running baseline test (expecting PASS)..."
+    baseline_result=$(run_test "$test")
+    
+    if [ "$baseline_result" != "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Baseline fails")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Baseline passes${NC}"
+    
+    # Step 2: Apply mutation
+    log_red "Applying mutation to $file..."
+    "${mutation_cmd[@]}" "$file" 2>/dev/null
+    
+    if ! git diff --quiet "$file"; then
+        echo -e "${BLUE}Mutation applied (file changed)${NC}"
+    else
+        echo -e "${RED}✗ FAIL: Mutation did not change the file${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("No file change")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Step 3: Run mutated test and check classification
+    log_red "Running mutated test (expecting $expected_class)..."
+    mutated_result=$(run_test "$test")
+    
+    git checkout -- "$file" 2>/dev/null
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    
+    if [ "$mutated_result" = "INVALID" ]; then
+        echo -e "${RED}✗ FAIL: Mutation caused syntax error${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Syntax error")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" = "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Mutated test still passes${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Not detected")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Check if classification matches expected
+    if [ "$mutated_result" != "$expected_class" ]; then
+        echo -e "${RED}✗ FAIL: Expected $expected_class but got $mutated_result${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Wrong classification: $mutated_result")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Classified correctly as $expected_class${NC}"
+    echo -e "${GREEN}━━━ ✓ PROBE VERIFICATION PASSED ━━━${NC}"
+    
+    MUTATION_NAMES+=("$num. $name")
+    MUTATION_RESULTS+=("PASS")
+    MUTATION_REASONS+=("Correct classification")
     PASS_COUNT=$((PASS_COUNT + 1))
 }
 
-backup_file() {
-    cp "$1" "$1.backup"
-}
-
-restore_file() {
-    if [ -f "$1.backup" ]; then
-        mv "$1.backup" "$1"
+# Test one mutation
+test_mutation() {
+    local num=$1
+    local name=$2
+    local file=$3
+    local test=$4
+    shift 4
+    local mutation_cmd=("$@")
+    
+    log_test "$num" "$name"
+    
+    # Step 1: Run baseline (should pass)
+    log_green "Running baseline test (expecting PASS)..."
+    baseline_result=$(run_test "$test")
+    baseline_exit=$?
+    
+    if [ "$baseline_result" = "INVALID" ]; then
+        echo -e "${RED}✗ INVALID: Baseline test has errors (syntax/import/SQL)${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("INVALID")
+        MUTATION_REASONS+=("Baseline has errors")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
     fi
+    
+    if [ "$baseline_result" != "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Baseline fails")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Baseline passes${NC}"
+    
+    # Step 2: Apply mutation
+    log_red "Applying mutation to $file..."
+    "${mutation_cmd[@]}" "$file" 2>/dev/null
+    
+    # Verify mutation actually changed the file
+    if ! git diff --quiet "$file"; then
+        echo -e "${BLUE}Mutation applied (file changed)${NC}"
+    else
+        echo -e "${RED}✗ INVALID: Mutation did not change the file${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("INVALID")
+        MUTATION_REASONS+=("No file change")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Step 3: Run mutated test (should fail with AssertionError)
+    log_red "Running mutated test (expecting FAIL with AssertionError)..."
+    mutated_result=$(run_test "$test")
+    mutated_exit=$?
+    
+    if [ "$mutated_result" = "INVALID" ]; then
+        echo -e "${RED}✗ INVALID: Mutation caused syntax error${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("INVALID")
+        MUTATION_REASONS+=("Syntax error")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" = "FAIL_OTHER" ]; then
+        echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Non-AssertionError")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" != "FAIL_ASSERT" ]; then
+        echo -e "${RED}✗ FAIL: Mutated test still passes (mutation had no effect)${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Mutation ineffective")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${RED}✓ Mutated test fails with AssertionError (red confirmed)${NC}"
+    
+    # Step 4: Restore file
+    log_green "Restoring file..."
+    git checkout -- "$file" 2>/dev/null
+    
+    # Clear Python caches to ensure restored code is loaded
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    
+    # Verify restoration: fail if mutation leaked into working tree
+    if ! git diff --quiet "$file"; then
+        echo -e "${RED}✗ FAIL: Mutation leaked - file not fully restored${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Restore incomplete")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    # Step 5: Run restored test (should pass)
+    log_green "Running restored test (expecting PASS)..."
+    restored_result=$(run_test "$test")
+    restored_exit=$?
+    
+    if [ "$restored_result" = "INVALID" ]; then
+        echo -e "${RED}✗ FAIL: Restored test has errors${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Restore failed")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    if [ "$restored_result" != "PASS" ]; then
+        echo -e "${RED}✗ FAIL: Restored test does not pass${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Restore didn't fix")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Restored test passes (green confirmed)${NC}"
+    echo -e "${GREEN}━━━ ✓ RED-GREEN PROOF PASSED ━━━${NC}"
+    
+    MUTATION_NAMES+=("$num. $name")
+    MUTATION_RESULTS+=("PASS")
+    MUTATION_REASONS+=("Red → Green confirmed")
+    PASS_COUNT=$((PASS_COUNT + 1))
 }
 
-expect_red() {
-    local test_name=$1
-    log_red "Running test (expecting FAILURE)..."
-    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "FAILED\|ERROR"; then
-        log_success "Test FAILED as expected (red confirmed)"
+# Print summary table
+print_summary() {
+    echo ""
+    log_header "RED-GREEN SAFETY TEST SUMMARY"
+    echo ""
+    
+    printf "%-50s %-10s %-30s\n" "Test" "Result" "Reason"
+    printf "%-50s %-10s %-30s\n" "$(printf '%.0s─' {1..50})" "$(printf '%.0s─' {1..10})" "$(printf '%.0s─' {1..30})"
+    
+    for i in "${!MUTATION_NAMES[@]}"; do
+        local name="${MUTATION_NAMES[$i]}"
+        local result="${MUTATION_RESULTS[$i]}"
+        local reason="${MUTATION_REASONS[$i]}"
+        
+        if [ "$result" = "PASS" ]; then
+            printf "${GREEN}%-50s ✓ PASS     %-30s${NC}\n" "$name" "$reason"
+        elif [ "$result" = "INVALID" ]; then
+            printf "${YELLOW}%-50s ⚠ INVALID  %-30s${NC}\n" "$name" "$reason"
+        else
+            printf "${RED}%-50s ✗ FAIL     %-30s${NC}\n" "$name" "$reason"
+        fi
+    done
+    
+    echo ""
+    echo -e "${BLUE}Total tests: ${#MUTATION_NAMES[@]}${NC}"
+    echo -e "${GREEN}Passed: $PASS_COUNT${NC}"
+    echo -e "${RED}Failed: $FAIL_COUNT${NC}"
+    echo ""
+    
+    if [ $FAIL_COUNT -eq 0 ]; then
+        echo -e "${GREEN}✓✓✓ ALL RED-GREEN PROOFS PASSED ✓✓✓${NC}"
         return 0
     else
-        log_error "Test PASSED when it should have FAILED"
+        echo -e "${RED}✗✗✗ SOME RED-GREEN PROOFS FAILED ✗✗✗${NC}"
         return 1
     fi
 }
 
-expect_green() {
-    local test_name=$1
-    log_green "Running test (expecting PASS)..."
-    if python3 -m pytest "$test_name" -v --tb=short 2>&1 | grep -q "PASSED\|1 passed"; then
-        log_success "Test PASSED as expected (green confirmed)"
-        return 0
-    else
-        log_error "Test FAILED when it should have PASSED"
-        return 1
-    fi
-}
-
-test_live_mode() {
-    log_test "1. Live Mode Required for Generation"
-    
-    local file="hfvg/activities/studio_generation.py"
-    local test="tests/test_studio_safety.py::test_live_mode_required_for_generation"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Removing live mode check..."
-    sed -i 's/if not live_mode:/if False and not live_mode:/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_g108() {
-    log_test "2. G1.08 Credit Plan Approval Required"
-    
-    local file="hfvg/activities/studio_generation.py"
-    local test="tests/test_studio_safety.py::test_g108_required_for_generation"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Removing G1.08 check..."
-    sed -i 's/if not g108_approved:/if False and not g108_approved:/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_budget_stop() {
-    log_test "3. Budget Stop at 80% Threshold"
-    
-    local file="hfvg/budget.py"
-    local test="tests/test_studio_safety.py::test_budget_stop_enforcement"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Removing budget stop check..."
-    sed -i 's/if total > stop_threshold:/if False and total > stop_threshold:/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_activity_enforcement() {
-    log_test "4. Activity-Level Enforcement (Not Just API-Level)"
-    
-    local file="hfvg/activities/studio_generation.py"
-    local test="tests/test_studio_safety.py::test_activity_level_enforcement"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Bypassing enforcement in activity..."
-    # Remove the live mode check from the enforced activity
-    sed -i '/if not live_mode:/,+3d' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_idempotency() {
-    log_test "5. Idempotent Retry (No Double-Charge)"
-    
-    local file="hfvg/activities/studio_generation.py"
-    local test="tests/test_studio_safety.py::test_idempotent_retry_no_double_charge"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Removing idempotency key..."
-    sed -i 's/idempotency_key = generate_idempotency_key/idempotency_key = None  # generate_idempotency_key/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_auth() {
-    log_test "6. Auth Fail-Closed (No Default Secret)"
-    
-    local file="api/main.py"
-    local test="tests/test_studio_safety.py::test_auth_fail_closed"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Adding default admin secret..."
-    sed -i 's/if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:/if False and (not ADMIN_SECRET or len(ADMIN_SECRET) < 32):/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_ledger_math() {
-    log_test "7. Ledger Math (Reserve, Commit, Release)"
-    
-    local file="hfvg/budget.py"
-    local test="tests/test_studio_safety.py::test_ledger_math_reserve_commit_release"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Breaking commit to add twice..."
-    sed -i 's/SET reserved = reserved - ?, spent = spent + ?/SET reserved = reserved - ?, spent = spent + ? + ?/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_hard_cap() {
-    log_test "8. Hard Cap Enforcement"
-    
-    local file="hfvg/budget.py"
-    local test="tests/test_budget.py::test_hard_cap_enforcement"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Removing hard cap check..."
-    sed -i 's/if total > cap:/if False and total > cap:/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_canary_workflow() {
-    log_test "9. Canary Starts ShotWorkflow"
-    
-    local file="hfvg/workflows/shot.py"
-    local test="tests/test_studio_temporal_integration.py::test_canary_starts_shot_workflow"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Breaking workflow by removing signal handler..."
-    sed -i 's/@workflow.signal/#@workflow.signal/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-test_approval_signal() {
-    log_test "10. Approval Signal Reaches Workflow"
-    
-    local file="api/main.py"
-    local test="tests/test_studio_temporal_integration.py::test_approval_signal_reaches_episode_workflow"
-    
-    backup_file "$file"
-    
-    log_red "Mutation: Breaking signal routing..."
-    sed -i 's/await handle.signal("stills_approved")/await handle.signal("wrong_signal_name")/' "$file"
-    expect_red "$test"
-    
-    restore_file "$file"
-    
-    expect_green "$test"
-    
-    echo ""
-}
-
-echo ""
-echo "RED-GREEN SAFETY TEST PROOF"
-echo "Testing all 10 critical safety mechanisms"
+# Main tests
+log_header "DuckDuckGoose Studio Red-Green Safety Proofs"
+echo "Testing all critical safety mechanisms with mutation testing"
 echo ""
 
-test_live_mode
-test_g108
-test_budget_stop
-test_activity_enforcement
-test_idempotency
-test_auth
-test_ledger_math
-test_hard_cap
-test_canary_workflow
-test_approval_signal
+# ─────────────────────────────────────────────────────────────────────────────
+# PROBE MUTATIONS: Verify classifier detects wrong-reason failures
+# ─────────────────────────────────────────────────────────────────────────────
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "SUMMARY"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Successful verifications: ${PASS_COUNT}"
-echo "Failed verifications: ${FAIL_COUNT}"
+log_header "PROBE TESTS: Verify JUnit XML classifier"
+echo "These probes verify the classifier correctly rejects wrong-reason failures"
 echo ""
 
-if [ $FAIL_COUNT -eq 0 ]; then
-    echo "✓ ALL 10 RED-GREEN PROOFS PASSED"
-    exit 0
-else
-    echo "✗ SOME RED-GREEN PROOFS FAILED"
+# Positive control: real assertion should be caught (FAIL_ASSERT)
+test_probe "PC" "Positive control: Real assertion caught" \
+    "FAIL_ASSERT" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_positive_control" \
+    sed -i 's/assert value == 42/assert value == 999/'
+
+# Probe P1: AttributeError (should FAIL_OTHER - wrong reason)
+test_probe "P1" "Probe P1: AttributeError must report FAILED" \
+    "FAIL_OTHER" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_p1_attribute_error" \
+    python3 scripts/mutate_probe_p1.py
+
+# Probe P2: respx unmocked request (should FAIL_OTHER - wrong reason)
+test_probe "P2" "Probe P2: respx unmocked must report FAILED" \
+    "FAIL_OTHER" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_p2_respx_unmocked" \
+    python3 scripts/mutate_probe_p2.py
+
+# Probe P3: RuntimeError during AssertionError handling (should FAIL_OTHER - wrong reason)
+test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
+    "FAIL_OTHER" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
+    python3 scripts/mutate_probe_p3.py
+
+echo ""
+log_header "PRODUCTION SAFETY TESTS"
+echo ""
+
+# Ensure we're in the repo root
+if [ ! -f "pyproject.toml" ]; then
+    echo "Error: Must run from repository root"
     exit 1
 fi
+
+# 1. Live mode required
+test_mutation 1 "Live mode required for generation" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_studio_safety.py::test_live_mode_required_for_generation" \
+    sed -i "s/if not live_mode:/if False and not live_mode:/"
+
+# 2. G1.08 required
+test_mutation 2 "G1.08 credit plan approval required" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_studio_safety.py::test_g108_required_for_generation" \
+    sed -i "s/if not g108_approved:/if False and not g108_approved:/"
+
+# 3. Budget stop (atomic SQL check)
+test_mutation 3 "Budget stop at 80% threshold (atomic)" \
+    "hfvg/budget.py" \
+    "tests/test_studio_safety.py::test_concurrent_reserves_respect_stop_threshold" \
+    sed -i "s/AND (spent_usd_micros + reserved_usd_micros + ?) <= stop_usd_micros/AND (spent_usd_micros + reserved_usd_micros + ?) <= cap_usd_micros  -- MUTATED/"
+
+# 4. Activity-level enforcement
+test_mutation 4 "Activity-level enforcement (not just API)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_activity_level_enforcement" \
+    sed -i 's/if not live_mode:/if False:  # MUTATED/'
+
+# 5. Idempotency
+test_mutation 5 "Idempotent retry (no double-charge)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
+    python3 scripts/mutate_idempotency.py
+
+# 6. Auth fail-closed
+test_mutation 6 "Auth fail-closed (no default secret)" \
+    "api/main.py" \
+    "tests/test_redgreen_safety.py::test_auth_fail_closed" \
+    sed -i 's/if not authorization:/if False:  # MUTATED/'
+
+# 7. Ledger math
+test_mutation 7 "Ledger math (reserve, commit, release)" \
+    "hfvg/budget.py" \
+    "tests/test_studio_safety.py::test_ledger_math_reserve_commit_release" \
+    sed -i '0,/spent_usd_micros = spent_usd_micros + ?/s//spent_usd_micros = spent_usd_micros + ? + 999/'  # Only first occurrence
+
+# 8. Hard cap
+test_mutation 8 "Hard cap enforcement" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_hard_cap_enforcement" \
+    sed -i "s/if spent + reserved + amount > cap:/if False and spent + reserved + amount > cap:/"
+
+# 9. Canary starts ShotWorkflow
+test_mutation 9 "Canary starts real ShotWorkflow" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_redgreen_safety.py::test_canary_starts_shot_workflow" \
+    sed -i 's/@workflow.defn/#@workflow.defn  # MUTATED/'
+
+# 10. Approval signal reaches workflow
+test_mutation 10 "Approval signal reaches workflow" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
+    sed -i 's/@workflow.signal/# @workflow.signal  # MUTATED/' 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Task #2): Additional safety protections
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 11. API auth rejects invalid secret
+test_mutation 11 "API rejects invalid/missing secrets" \
+    "api/main.py" \
+    "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
+    sed -i 's/if token != ADMIN_SECRET:/if False and token != ADMIN_SECRET:/'
+
+# 12. Episode 1,250 cap enforced
+test_mutation 12 "Episode 60.00 USD cap" \
+    "hfvg/budget.py" \
+    "tests/test_redgreen_safety.py::test_episode_cap_enforced" \
+    sed -i 's/if episode_total + amount > settings.episode_cap_usd_micros:/if False and episode_total + amount > settings.episode_cap_usd_micros:/'
+
+# 13. DRY_RUN forces dry, never live
+test_mutation 13 "DRY_RUN forces dry (never live)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_dry_run_forces_dry_never_live" \
+    sed -i 's/dry_run_env = os.getenv.*lower.*/dry_run_env = False  # MUTATED - force live/'
+
+# 14. Canary route checks G1.08
+test_mutation 14 "Canary route refuses without G1.08" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_checks_g108" \
+    sed -i 's/if not g108_approved:/if False and not g108_approved:  # MUTATED/'
+
+# 15. Canary route checks live mode in non-dry
+test_mutation 15 "Canary route requires live_mode in non-dry" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_checks_live_mode" \
+    sed -i 's/if not dry_run and not live_mode:/if False and not dry_run and not live_mode:  # MUTATED/'
+
+# 16. Canary route actually starts workflow
+test_mutation 16 "Canary route starts ShotWorkflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_starts_workflow" \
+    python3 scripts/mutate_workflow_start.py
+
+# 17. Canary reserves L6 before workflow
+test_mutation 17 "Canary reserves L6_reserve before workflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_reserves_l6_before_workflow" \
+    sed -i '/reserved = await ledger.reserve(/,/^        )$/c\        reserved = True  # MUTATED: skip the L6 reserve'
+
+# 18. Still activity reserves budget
+test_mutation 18 "Still activity reserves before provider call" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_redgreen_safety.py::test_still_activity_reserves_budget" \
+    python3 scripts/mutate_reserve.py
+
+# 19. Clip idempotency key
+test_mutation 19 "Clip sends Idempotency-Key header" \
+    "hfvg/providers/kling_video.py" \
+    "tests/test_redgreen_safety.py::test_clip_idempotency_key_sent" \
+    sed -i 's/headers = {"Idempotency-Key": idempotency_key}/headers = {}  # MUTATED - no idempotency key/'
+
+# 20. Still approve sends signal
+test_mutation 20 "Still approve route sends signal" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_still_approve_route_sends_signal" \
+    sed -i 's/await handle.signal("stills_approved")/# MUTATED: skip signal; await handle.signal("stills_approved")/'
+
+# 21-22: Clip approve tests removed (route removed - workflow doesn't wait for signal)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Fixes #1-#8): PR #7 safety protections
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 23. G4.09 picture lock (folded from redgreen_new.sh)
+test_mutation 23 "G4.09 picture lock blocks audio" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio" \
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_g409)/# await workflow.wait_condition(lambda: self.approved_g409)  # MUTATED/'
+
+# 24. GX.01 hold (folded from redgreen_new.sh)
+test_mutation 24 "GX.01 HOLD prevents auto-post" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
+    sed -i 's/await workflow.wait_condition(lambda: self.approved_gx01)/# await workflow.wait_condition(lambda: self.approved_gx01)  # MUTATED/'
+
+# 25. Stills approved wait (retargeted from human-approved check)
+test_mutation 25 "Workflow waits for parent stills_approved signal" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_shot_live.py::test_shot_workflow_human_approval_proceeds_to_clip" \
+    sed -i 's/await workflow.wait_condition(lambda: self.stills_approved)/# await workflow.wait_condition(lambda: self.stills_approved)  # MUTATED/'
+
+# 26. Idempotent release (clamp to current reserved)
+test_mutation 26 "Idempotent release clamps to reserved" \
+    "hfvg/budget.py" \
+    "tests/test_exception_release.py::test_idempotent_release_safe" \
+    python3 scripts/mutate_release_check.py
+
+# 27. Overage commits actual cost
+test_mutation 27 "Overage commits actual_cost not reserved" \
+    "hfvg/budget.py" \
+    "tests/test_exception_release.py::test_commit_handles_overage" \
+    python3 scripts/mutate_overage.py
+
+# 28. 5xx poll retry before release
+test_mutation 28 "5xx poll retries before releasing budget" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_exception_release.py::test_poll_502_releases_reservation" \
+    sed -i 's/max_retries_5xx = 3/max_retries_5xx = 0  # MUTATED - no retry/'
+
+# 29. Canary L6 reconcile on failure
+test_mutation 29 "Canary reconciles L6 on workflow failure" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
+    sed -i '/Workflow failed: release/,+1 s/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
+
+# 30. QC fail-closed without episode_id
+test_mutation 30 "QC fails closed when episode_id is missing" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_qc_fail_closed_without_episode_id" \
+    sed -i 's/if not episode_id:/if False and not episode_id:  # MUTATED - allow missing episode_id/'
+
+# 31. QC escalates in live mode
+test_mutation 31 "QC escalates to human review in live mode" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_qc_escalates_in_live_mode" \
+    sed -i 's/"escalate": True,/"escalate": False,  # MUTATED - auto-pass instead of escalate/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS (Final Fix Round): R2, R3, R4, R5
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 32. M-R2a: Random workflow-ID suffix for canary (409 can never fire)
+test_mutation 32 "Canary uses stable workflow ID (409 detection)" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_concurrent_409" \
+    sed -i 's/workflow_id = f"{episode_id}-canary-{first_shot_id}"/workflow_id = f"{episode_id}-canary-{first_shot_id}-{uuid.uuid4().hex[:8]}"  # MUTATED/'
+
+# 33. M-R2b: Delete WorkflowAlreadyStartedError -> 409 handling
+test_mutation 33 "Canary handles WorkflowAlreadyStartedError with 409" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_concurrent_409" \
+    sed -i '/^    except WorkflowAlreadyStartedError:/,/^    except Exception as e:/{/^    except Exception as e:/!d}'
+
+# 34. M-R2d: Approve route lets exception propagate (500) on completed canary
+test_mutation 34 "Approve route returns 409 on completed workflow" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_approve_completed_canary_409" \
+    sed -i 's/if status != WorkflowExecutionStatus.RUNNING:/if False and status != WorkflowExecutionStatus.RUNNING:  # MUTATED/'
+
+# 35. M-R2e: Live-mode estimate failure falls back to a default amount
+test_mutation 35 "Live canary fails closed without estimate" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_live_estimate_fail_closed" \
+    sed -i -e '/still_estimate = await still_provider.estimate_usd_micros(/,/await still_provider.close()/{s/raise HTTPException(/still_estimate = 100_000; _mutated = dict(  # MUTATED fallback estimate/}' -e '/clip_estimate = await clip_provider.estimate_usd_micros(/,/await clip_provider.close()/{s/raise HTTPException(/clip_estimate = 100_000; _mutated = dict(  # MUTATED fallback estimate/}'
+
+# 36. M-R3a: Drop character descriptions from composed prompt
+test_mutation 36 "Prompt includes character descriptions" \
+    "hfvg/continuity_parser.py" \
+    "tests/test_continuity_parser.py::test_prompt_kit_resolves_characters" \
+    sed -i 's/char_descriptions.append(char_info\["description"\])/pass  # MUTATED - description dropped/'
+
+# 37. M-R3b: Allow live still with unresolved character code
+test_mutation 37 "Live mode refuses unresolved character codes" \
+    "hfvg/continuity_parser.py" \
+    "tests/test_continuity_parser.py::test_prompt_kit_live_refuses_unresolved" \
+    sed -i 's/if prompt_kit and unresolved_codes:/if False and prompt_kit and unresolved_codes:  # MUTATED/'
+
+# 38. M-R3d: Omit aspect_ratio from still request
+test_mutation 38 "Still request includes aspect_ratio" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_contracts.py::test_still_activity_passes_aspect_ratio" \
+    sed -i 's/aspect_ratio=aspect_ratio,/# aspect_ratio=aspect_ratio,  # MUTATED/'
+
+# 39. Legacy plan import conversion (app credits -> usd_micros) constant
+test_mutation 39 "Legacy plan import converts at 47_500 usd_micros per app credit" \
+    "hfvg/budget.py" \
+    "tests/test_ledger_races.py::test_stop_threshold_validation" \
+    sed -i 's/^LEGACY_APP_CREDIT_USD_MICROS = 47_500/LEGACY_APP_CREDIT_USD_MICROS = 75_000  # MUTATED/'
+
+# 40. M-R4b: Episode cap default no longer 60.00 USD
+test_mutation 40 "Episode cap default is 60.00 USD" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_default_settings_are_literal_dollars" \
+    sed -i 's/^DEFAULT_EPISODE_CAP_USD = "60.00"/DEFAULT_EPISODE_CAP_USD = "1250.00"  # MUTATED/'
+
+# 41. M-R4c: Change >= to > in stop check
+test_mutation 41 "Reserve to exactly stop threshold triggers at_stop" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_80_percent_stop" \
+    sed -i 's/at_stop = total_committed >= stop$/at_stop = total_committed > stop  # MUTATED/'
+
+# 42. M-R5a: review_clip returns passed=True in live mode
+test_mutation 42 "review_clip escalates in live mode" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_review_clip_escalates_in_live_mode" \
+    sed -i '/async def review_clip/,${/Live mode confirmed/,${s/"passed": False,/"passed": True,  # MUTATED/}}'
+
+# 43. M-R5b: DRY_RUN=false + DB live off returns passed=True
+test_mutation 43 "DRY_RUN=false + DB live off escalates" \
+    "hfvg/activities/qc.py" \
+    "tests/test_shot_live.py::test_review_clip_dry_run_false_live_off_escalates" \
+    sed -i 's/"escalate": True,$/"passed": True, "escalate": False,  # MUTATED/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# R1 MUTATIONS: Poll timeout behavior (keeps reservation, marks pending_reconcile)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# M-R1a: in the timeout/cancel/exhaustion path, call the ledger release (restore old behaviour)
+test_mutation 44 "Poll exhaustion keeps reservation (no release)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_timeout_keeps_reservation" \
+    sed -i '/Exhausted polling window/,/raise RuntimeError/{ /await workflow.execute_activity/,/retry_policy=retry_policy,/{ s/mark_job_pending_reconcile/release_job_budget/; s/args=\[self.episode_id, self.shot_id, job_id, job_type\]/args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Poll exhausted"]/; } }'
+
+# M-R1b: make the generic exception handler release the reservation
+test_mutation 45 "Poll exception does not release reservation" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_activity_errors_do_not_release_runtime" \
+    sed -i '/async def _poll_job_to_completion/,/@workflow.run/{/Poll activity error on attempt/a\                await workflow.execute_activity(release_job_budget, args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Exception"], start_to_close_timeout=timedelta(seconds=30), retry_policy=retry_policy)  # MUTATED - release on exception
+}'
+
+# M-R1c: on poll exhaustion, resubmit the job once
+test_mutation 46 "Poll exhaustion never resubmits" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_single_provider_submit" \
+    sed -i '/Exhausted polling window/i\        # MUTATED: resubmit once\n        await workflow.execute_activity(submit_still_job_enforced, args=[self.episode_id, self.shot_id, "retry", 1, [], "1k", "medium", "9:16"], start_to_close_timeout=timedelta(minutes=2), retry_policy=retry_policy)\n'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1 MUTATIONS: dollar ledger (integer usd_micros)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 47. M-P1a: `>=` to `>` in the episode stop check (summary flag at exactly 48.00 USD)
+test_mutation 47 "M-P1a Episode at_stop uses >= (exactly 48.00 USD is at stop)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_episode_cap_default_60_usd_and_stop_48" \
+    sed -i 's/"episode_at_stop": episode_total >= settings.episode_stop_usd_micros,/"episode_at_stop": episode_total > settings.episode_stop_usd_micros,  # MUTATED/'
+
+# 48. M-P1b: stop uses the cap instead of 80%
+test_mutation 48 "M-P1b Stop threshold is 80% of cap, not the cap" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_init_episode_budget" \
+    sed -i 's|^    return cap_usd_micros \* stop_percent // 100$|    return cap_usd_micros  # MUTATED: stop == cap|'
+
+# 49. M-P1c: release can go negative
+test_mutation 49 "M-P1c Release is clamped to the hold (never negative)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_release_over_hold_is_clamped_never_negative" \
+    python3 scripts/mutate_release_check.py
+
+# 50. M-P1d: GC.01 headroom check removed
+test_mutation 50 "M-P1d GC.01 headroom refuses low balance" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_gc01_headroom_refuses_when_balance_too_low" \
+    sed -i 's/if balance_after_hold < settings.gc01_headroom_usd_micros:/if False and balance_after_hold < settings.gc01_headroom_usd_micros:  # MUTATED/'
+
+# 51. M-P1e: commit uses reserved instead of actual on overage
+test_mutation 51 "M-P1e Commit spends actual cost on overage" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_commit_overage_spends_actual_not_reserved" \
+    python3 scripts/mutate_overage.py
+
+# 52. M-P1f: float arithmetic reintroduced (cap * 0.8)
+test_mutation 52 "M-P1f Stop uses integer arithmetic (no float drift)" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_stop_is_integer_80_percent_no_float_drift" \
+    sed -i 's|^    return cap_usd_micros \* stop_percent // 100$|    return cap_usd_micros * 0.8  # MUTATED: float|'
+
+# 53. M-P1g: revision reserve usable without the revision tag
+test_mutation 53 "M-P1g Revision reserve requires the revision tag" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_revision_reserve_requires_revision_tag" \
+    sed -i 's/if line_name == REVISION_LINE and not revision:/if False and line_name == REVISION_LINE and not revision:  # MUTATED/'
+
+# 54. M-P1h: micro-dollar conversion off by 10x
+test_mutation 54 "M-P1h USD to usd_micros conversion is 1_000_000" \
+    "hfvg/pricing.py" \
+    "tests/test_budget.py::test_usd_micro_conversion_literals" \
+    sed -i 's/^MICROS_PER_USD = 1_000_000/MICROS_PER_USD = 10_000_000  # MUTATED/'
+
+# Print final summary
+print_summary
+exit_code=$?
+
+# Return to main workspace and verify it's clean
+cd "$WORKSPACE_ROOT"
+
+echo ""
+log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
+if [ -n "$(git status --porcelain -- hfvg api)" ]; then
+    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
+    echo -e "${RED}Mutations leaked into the working tree!${NC}"
+    git status --porcelain -- hfvg api
+    exit 1
+else
+    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
+fi
+
+exit $exit_code

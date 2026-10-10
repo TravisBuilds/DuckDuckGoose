@@ -4,8 +4,11 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg import budget
+    from hfvg.config import config  # Non-deterministic module with os.getenv
     from hfvg.activities import (
         generate_music,
         generate_sfx,
@@ -16,9 +19,11 @@ with workflow.unsafe.imports_passed_through():
         render_edit,
         trim_clips,
     )
+    from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
-    from hfvg.workflows.shot import ShotWorkflow
+    from hfvg.episode_parser import build_prompt_from_shot
+    # ShotWorkflow is referenced by name string, not imported
 
 
 @workflow.defn
@@ -44,6 +49,7 @@ class EpisodeWorkflowV2:
             idea="",
         )
         self.policy = None
+        self.passed_gates: list[str] = []  # Track which gates have been passed
         
         # Travis approval flags (15 points)
         self.approved_gx01 = False  # External actions (default HOLD)
@@ -103,7 +109,9 @@ class EpisodeWorkflowV2:
         
         # G1.01: Pitch pick
         workflow.logger.info("G1.01: Awaiting pitch pick...")
+        self.state.current_gate = "G1.01"
         await workflow.wait_condition(lambda: self.approved_g101)
+        self.passed_gates.append("G1.01")
         workflow.logger.info(f"[APPROVED G1.01] Pitch picked for {episode_id}")
         
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)
@@ -121,17 +129,39 @@ class EpisodeWorkflowV2:
         
         # G1.03: Beatmap approval
         workflow.logger.info("G1.03: Awaiting beatmap approval...")
+        self.state.current_gate = "G1.03"
         await workflow.wait_condition(lambda: self.approved_g103)
+        self.passed_gates.append("G1.03")
         workflow.logger.info(f"[APPROVED G1.03] Beatmap locked: {len(shots)} shots")
         
-        # G1.08: Credit plan approval
+        # G1.08: Credit plan approval (check DB for single source of truth)
         workflow.logger.info("G1.08: Awaiting credit plan approval...")
+        self.state.current_gate = "G1.08"
         await workflow.wait_condition(lambda: self.approved_g108)
-        workflow.logger.info("[APPROVED G1.08] Credit plan locked")
+        self.passed_gates.append("G1.08")
+        
+        # Verify approval in DB before proceeding (fail-closed)
+        # Activity reads DATABASE_PATH from environment (studio DB)
+        _, g108_db = await workflow.execute_activity(
+            check_live_mode_and_g108,
+            args=[self.state.episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=5),
+            ),
+        )
+        if not g108_db:
+            raise RuntimeError("G1.08 approval signal received but DB shows not approved (fail-closed)")
+        
+        workflow.logger.info("[APPROVED G1.08] Credit plan locked (DB verified)")
         
         # GC.02: Budget tracking check
         workflow.logger.info("GC.02: Awaiting budget tracking confirmation...")
+        self.state.current_gate = "GC.02"
         await workflow.wait_condition(lambda: self.approved_gc02)
+        self.passed_gates.append("GC.02")
         workflow.logger.info("[APPROVED GC.02] Budget tracking active")
         
         # Step 2: Stills generation
@@ -141,16 +171,23 @@ class EpisodeWorkflowV2:
         # G2.01: New refs approval (if needed)
         if self._needs_new_refs(shots):
             workflow.logger.info("G2.01: Awaiting new reference approval...")
+            self.state.current_gate = "G2.01"
             await workflow.wait_condition(lambda: self.approved_g201)
+            self.passed_gates.append("G2.01")
             workflow.logger.info("[APPROVED G2.01] New refs approved")
         
         # Launch still generation for all shots
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
         for shot in shots:
+            # Build shot plan with prompt from beatmap fields
+            shot_plan = shot.copy()
+            if "prompt" not in shot_plan:
+                shot_plan["prompt"] = build_prompt_from_shot(shot)
+            
             handle = await workflow.start_child_workflow(
-                ShotWorkflow.run,
-                args=[episode_id, shot],  # Fixed: 2 args not 3
+                "ShotWorkflow",
+                args=[episode_id, shot_plan],
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
@@ -161,7 +198,9 @@ class EpisodeWorkflowV2:
         
         # G2.12: Still strip approval
         workflow.logger.info("G2.12: Awaiting still strip approval...")
+        self.state.current_gate = "G2.12"
         await workflow.wait_condition(lambda: self.approved_g212)
+        self.passed_gates.append("G2.12")
         workflow.logger.info("[APPROVED G2.12] Still strip approved")
         
         # Step 3: Clips generation
@@ -184,11 +223,13 @@ class EpisodeWorkflowV2:
         
         # Step 4: Mute (trim, QC, picture lock)
         workflow.logger.info("=== STEP 4: MUTE ===")
-        self.state.stage = PipelineStage.VIDEO_EDITING
+        self.state.stage = PipelineStage.MUTE_EDIT
         
         # G4.06: Cut-for-story flags
         workflow.logger.info("G4.06: Awaiting cut-for-story review...")
+        self.state.current_gate = "G4.06"
         await workflow.wait_condition(lambda: self.approved_g406)
+        self.passed_gates.append("G4.06")
         workflow.logger.info("[APPROVED G4.06] Cut-for-story reviewed")
         
         # Render mute cut
@@ -202,12 +243,16 @@ class EpisodeWorkflowV2:
         
         # G4.08: Mute review notes
         workflow.logger.info("G4.08: Awaiting mute review notes...")
+        self.state.current_gate = "G4.08"
         await workflow.wait_condition(lambda: self.approved_g408)
+        self.passed_gates.append("G4.08")
         workflow.logger.info("[APPROVED G4.08] Mute notes logged")
         
         # G4.09: Picture lock
         workflow.logger.info("G4.09: Awaiting picture lock...")
+        self.state.current_gate = "G4.09"
         await workflow.wait_condition(lambda: self.approved_g409)
+        self.passed_gates.append("G4.09")
         workflow.logger.info("[APPROVED G4.09] ⚠️ PICTURE LOCK - no more picture changes")
         
         # Step 5: Script lock
@@ -216,12 +261,14 @@ class EpisodeWorkflowV2:
         
         # G5.01: VO script + music lock
         workflow.logger.info("G5.01: Awaiting VO script and music lock...")
+        self.state.current_gate = "G5.01"
         await workflow.wait_condition(lambda: self.approved_g501)
+        self.passed_gates.append("G5.01")
         workflow.logger.info("[APPROVED G5.01] VO script and music locked")
         
         # Step 6: Audio (VO, music, SFX, mix)
         workflow.logger.info("=== STEP 6: AUDIO ===")
-        self.state.stage = PipelineStage.AUDIO_GENERATION
+        self.state.stage = PipelineStage.AUDIO
         
         workflow.logger.info("Audio generation (stubbed for Slice 2)...")
         if not dry_run:
@@ -229,22 +276,28 @@ class EpisodeWorkflowV2:
         
         # G6.10: Final audio approval
         workflow.logger.info("G6.10: Awaiting final audio approval...")
+        self.state.current_gate = "G6.10"
         await workflow.wait_condition(lambda: self.approved_g610)
+        self.passed_gates.append("G6.10")
         workflow.logger.info("[APPROVED G6.10] Final audio approved")
         
         # Step 7: Delivery (HOLD by default per GX.01)
         workflow.logger.info("=== STEP 7: DELIVERY ===")
-        self.state.stage = PipelineStage.POSTING
+        self.state.stage = PipelineStage.POST_APPROVAL
         
         # GX.01: External actions HOLD by default
         workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
         workflow.logger.info("Awaiting explicit GX.01 approval for external actions...")
+        self.state.current_gate = "GX.01"
         await workflow.wait_condition(lambda: self.approved_gx01)
+        self.passed_gates.append("GX.01")
         workflow.logger.info("[APPROVED GX.01] External actions authorized")
         
         # G7.02: Drive upload
         workflow.logger.info("G7.02: Awaiting Drive upload confirmation...")
+        self.state.current_gate = "G7.02"
         await workflow.wait_condition(lambda: self.approved_g702)
+        self.passed_gates.append("G7.02")
         workflow.logger.info("[APPROVED G7.02] Drive upload complete")
         
         # G7.03: Grower handoff package
@@ -259,7 +312,9 @@ class EpisodeWorkflowV2:
         }
         
         workflow.logger.info("G7.03: Awaiting handoff package approval...")
+        self.state.current_gate = "G7.03"
         await workflow.wait_condition(lambda: self.approved_g703)
+        self.passed_gates.append("G7.03")
         workflow.logger.info("[APPROVED G7.03] Grower handoff package ready")
         
         workflow.logger.info(f"✅ Episode {episode_id} complete (HOLD state)")
@@ -358,6 +413,8 @@ class EpisodeWorkflowV2:
         return {
             "episode_id": self.state.episode_id,
             "stage": self.state.stage.value if self.state.stage else None,
+            "current_gate": self.state.current_gate,
+            "passed_gates": self.passed_gates.copy(),
             "approvals": {
                 "gx01": self.approved_gx01,
                 "gc02": self.approved_gc02,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { use } from 'react';
 import Link from 'next/link';
+import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 
 interface EpisodeState {
   episode_id: string;
@@ -22,6 +23,7 @@ interface Shot {
   retries: number;
 }
 
+// All budget amounts are integer usd_micros (1 USD = 1_000_000); display with formatUsd()
 interface BudgetLine {
   line_name: string;
   provider: string;
@@ -32,6 +34,7 @@ interface BudgetLine {
   stop: number;
   at_stop: boolean;
   unit: string;
+  revision_reserve?: boolean;
 }
 
 interface BudgetStatus {
@@ -39,6 +42,15 @@ interface BudgetStatus {
   lines: BudgetLine[];
   higgsfield_total: number;
   elevenlabs_total: number;
+  episode_total?: number;
+  episode_cap?: number;
+  episode_stop?: number;
+  gc01_headroom?: number;
+  balance?: {
+    manual_balance_usd_micros: number | null;
+    set_at: string | null;
+    balance_remaining_usd_micros: number | null;
+  };
 }
 
 interface Gates {
@@ -69,6 +81,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [liveConfirmText, setLiveConfirmText] = useState('');
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [canaryRunning, setCanaryRunning] = useState(false);
+  const [canaryWorkflowId, setCanaryWorkflowId] = useState<string | null>(null);
+  const [canaryStatus, setCanaryStatus] = useState<string | null>(null);
+  const [canaryError, setCanaryError] = useState<string | null>(null);
 
   useEffect(() => {
     loadEpisodeData();
@@ -76,27 +91,54 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     return () => clearInterval(interval);
   }, [episodeId]);
 
-  const getAdminSecret = () => {
-    return document.cookie
-      .split('; ')
-      .find(row => row.startsWith('studio_admin_token='))
-      ?.split('=')[1];
-  };
+  useEffect(() => {
+    // Poll canary status if we have a workflow_id and it's not completed/failed
+    if (canaryWorkflowId && canaryStatus !== 'completed' && canaryStatus !== 'failed') {
+      const pollCanary = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          const response = await fetch(`${apiUrl}/api/canary/${canaryWorkflowId}`, {
+            credentials: 'include',
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            setCanaryStatus(result.status);
+            if (result.status === 'failed') {
+              setCanaryError(result.error || 'Unknown error');
+            }
+            if (result.status === 'completed' || result.status === 'failed') {
+              setCanaryRunning(false);
+              await loadEpisodeData(); // Refresh budget after completion
+            }
+          }
+        } catch (err) {
+          console.error('Failed to poll canary status:', err);
+        }
+      };
+
+      pollCanary();
+      const interval = setInterval(pollCanary, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [canaryWorkflowId, canaryStatus]);
+
+
 
   const loadEpisodeData = async () => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) return;
+      // Session cookie is httpOnly - can't read in JS
+      // Make API calls with credentials: 'include'
+
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const headers = { 'Cookie': `studio_admin_token=${secret}` };
 
       const [stateRes, budgetRes, gatesRes, shotsRes, auditRes] = await Promise.all([
-        fetch(`${apiUrl}/api/episodes/${episodeId}`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { headers, credentials: 'include' }),
-        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { headers, credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { credentials: 'include' }),
       ]);
 
       if (stateRes.ok) setState(await stateRes.json());
@@ -118,14 +160,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     const formData = new FormData(e.currentTarget);
     
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/upload`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
         body: formData,
       });
@@ -142,14 +183,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const handleApproveG108 = async () => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve-g108`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -167,14 +207,18 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
 
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/set-live`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          confirmation: 'ENABLE_LIVE_MODE',
+        }),
         credentials: 'include',
       });
 
@@ -188,19 +232,39 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  const handleSetDryMode = async () => {
+    if (!confirm('Switch to dry mode? This will disable live generation.')) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/set-dry`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Failed to set dry mode');
+      
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to set dry mode');
+    }
+  };
+
   const handleRunCanary = async () => {
     if (!confirm('Run canary test? This will generate 1 still + 1 clip.')) return;
 
     setCanaryRunning(true);
+    setCanaryStatus('starting');
+    setCanaryError(null);
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/canary`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -208,28 +272,30 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       
       if (!result.success) {
         alert(`Canary refused: ${result.message}`);
+        setCanaryRunning(false);
+        setCanaryStatus(null);
         return;
       }
 
-      alert('Canary completed successfully!');
-      await loadEpisodeData();
+      // Store workflow_id to poll for status
+      setCanaryWorkflowId(result.workflow_id);
+      setCanaryStatus('running');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Canary failed');
-    } finally {
       setCanaryRunning(false);
+      setCanaryStatus(null);
     }
   };
 
   const handleApproveStill = async (shotId: string) => {
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/shots/${shotId}/approve`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
       });
 
@@ -245,8 +311,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     if (!reason) return;
 
     try {
-      const secret = getAdminSecret();
-      if (!secret) throw new Error('Not authenticated');
+      // Use httpOnly cookie via credentials: 'include'
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
@@ -255,7 +320,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/shots/${shotId}/reject`, {
         method: 'POST',
-        headers: { 'Cookie': `studio_admin_token=${secret}` },
+        
         credentials: 'include',
         body: formData,
       });
@@ -278,7 +343,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     );
   }
 
-  const estimatedCanaryCost = 6.5 + 28.0; // L1 still + L4 clip
+  // Episode cap in usd_micros: from the API (hfvg/budget.py settings, default $60.00)
+  const episodeCapMicros = budget?.episode_cap ?? DEFAULT_EPISODE_CAP_USD_MICROS;
+  
+  // Canary cost estimate (usd_micros) - the L6 hold reported by the API (0 until a canary runs)
+  const estimatedCanaryCost = budget?.lines.find(l => l.line_name === 'L6_reserve')?.reserved ?? 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -339,10 +408,21 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
               </button>
             )}
             
+            
+            
+            {gates?.live_mode && (
+              <button
+                onClick={handleSetDryMode}
+                className="w-full mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700"
+              >
+                Switch to Dry Mode
+              </button>
+            )}
+            
             {showLiveConfirm && (
               <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                 <p className="text-sm text-red-800 dark:text-red-300 mb-3">
-                  <strong>WARNING:</strong> Live mode will charge real credits. Type "ENABLE LIVE MODE" to confirm:
+                  <strong>WARNING:</strong> Live mode will charge real money (USD). Type "ENABLE LIVE MODE" to confirm:
                 </p>
                 <input
                   type="text"
@@ -400,11 +480,22 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             {gates?.g108_approved && (
               <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <p className="text-sm text-blue-800 dark:text-blue-300 mb-2">
-                  <strong>Canary Test</strong>: 1 still (6.5¢) + 1 clip (28¢)
+                  <strong>Canary Test</strong>: 1 still + 1 clip
                 </p>
                 <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
-                  Estimated cost: <strong>{estimatedCanaryCost.toFixed(1)}¢</strong>
+                  Estimated cost: <strong>{formatUsd(estimatedCanaryCost)}</strong>
                 </p>
+                {canaryStatus && (
+                  <div className={`mb-3 p-2 rounded text-sm ${
+                    canaryStatus === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' :
+                    canaryStatus === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
+                    canaryStatus === 'running' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
+                    'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  }`}>
+                    Status: <strong>{canaryStatus}</strong>
+                    {canaryError && <div className="mt-1 text-xs">Error: {canaryError}</div>}
+                  </div>
+                )}
                 <button
                   onClick={handleRunCanary}
                   disabled={canaryRunning}
@@ -427,10 +518,19 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 Higgsfield Total
               </div>
               <div className="text-2xl font-bold">
-                {budget?.higgsfield_total.toFixed(1) || '0.0'}¢
+                {formatUsd(budget?.higgsfield_total ?? 0)}
                 <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">
-                  / {budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' ? sum + l.cap : sum, 0).toFixed(1) || '0'}¢ cap
+                  / {formatUsd(episodeCapMicros)} episode cap
                 </span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Line caps total: {formatUsd(budget?.lines.reduce((sum, l) => l.provider === 'higgsfield' && !l.revision_reserve ? sum + l.cap : sum, 0) ?? 0)}
+                {budget?.episode_stop !== undefined && <> • Episode stop (80%): {formatUsd(budget.episode_stop)}</>}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {budget?.balance?.manual_balance_usd_micros != null
+                  ? <>Manual balance: {formatUsd(budget.balance.manual_balance_usd_micros)} (left above holds: {formatUsd(budget.balance.balance_remaining_usd_micros ?? 0)}; GC.01 headroom {formatUsd(budget.gc01_headroom ?? 0)})</>
+                  : <>No manual balance recorded: live paid jobs are refused (GC.01)</>}
               </div>
             </div>
             
@@ -439,7 +539,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 ElevenLabs Total (deferred)
               </div>
               <div className="text-2xl font-bold text-gray-400 dark:text-gray-600">
-                {budget?.elevenlabs_total.toFixed(1) || '0.0'}¢
+                {formatUsd(budget?.elevenlabs_total ?? 0)}
               </div>
             </div>
           </div>
@@ -457,9 +557,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-medium text-sm">{line.line_name}</div>
                   <div className="text-sm">
-                    {line.total.toFixed(1)}¢ / {line.stop.toFixed(1)}¢
+                    {formatUsd(line.total)} / {formatUsd(line.stop)}
                     <span className="text-gray-500 dark:text-gray-400 ml-1">
-                      (cap {line.cap.toFixed(1)}¢)
+                      (cap {formatUsd(line.cap)}{line.revision_reserve ? ', revision tag only' : ''})
                     </span>
                   </div>
                 </div>
@@ -472,7 +572,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   />
                 </div>
                 <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Spent: {line.spent.toFixed(1)}¢ • Reserved: {line.reserved.toFixed(1)}¢
+                  Spent: {formatUsd(line.spent)} • Reserved: {formatUsd(line.reserved)}
                   {line.at_stop && <span className="ml-2 text-red-600 dark:text-red-400 font-semibold">⚠️ AT STOP</span>}
                 </div>
               </div>

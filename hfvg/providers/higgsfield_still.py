@@ -1,23 +1,22 @@
 """
-Higgsfield still image provider using xai/grok-imagine-image-2.0.
+Higgsfield still image provider.
 
-Model: xai/grok-imagine-image-2.0 (default)
-- 1k resolution, quality medium
-- Up to 3 reference images (duck refs + location plate)
-- Cost: ~9 Higgsfield credits per still
-- Idempotency-Key on every call
-- Pre-spend budget check via cost estimate
-
-Fallback: alibaba/qwen-image-3/edit
+Implements the documented Higgsfield API:
+- Authorization: Key <id>:<secret>
+- POST /{model_path} → {"request_id": "..."}
+- GET /requests/{request_id}/status → {"status": "queued"|"in_progress"|"completed"|"failed"|"nsfw"|"canceled", ...}
+- Deterministic idempotency keys covering all request params
 """
 
 import os
 import uuid
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from hfvg.pricing import estimate_from_response
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
@@ -25,44 +24,47 @@ class HiggsfieldStillProvider(GenerationProvider):
     """
     Higgsfield still generation provider.
     
-    Uses xai/grok-imagine-image-2.0 by default.
-    Fallback: alibaba/qwen-image-3/edit
+    Uses documented API with Key authentication.
     """
     
     def __init__(
         self,
         api_key: str | None = None,
         model_path: str | None = None,
-        fallback_model: str | None = None,
         base_url: str | None = None,
     ):
         """
         Initialize Higgsfield still provider.
         
         Args:
-            api_key: Higgsfield API key (default: from HIGGSFIELD_API_KEY)
-            model_path: Model path (default: xai/grok-imagine-image-2.0)
-            fallback_model: Fallback model (default: alibaba/qwen-image-3/edit)
-            base_url: API base URL (default: https://api.higgsfield.ai)
+            api_key: Higgsfield API key in format 'id:secret' (default: from HIGGSFIELD_API_KEY)
+            model_path: Model path (default: from MODEL_PATH_STILL or xai/grok-imagine-image-2.0)
+            base_url: API base URL (default: from HIGGSFIELD_BASE_URL or https://api.higgsfield.ai)
         """
-        self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
-        if not self.api_key:
+        api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
+        if not api_key:
+            raise ValueError("HIGGSFIELD_API_KEY not set. Still generation will fail.")
+        
+        if ":" not in api_key:
             raise ValueError(
-                "HIGGSFIELD_API_KEY not set. Still generation will fail."
+                "HIGGSFIELD_API_KEY must be in format 'id:secret' "
+                "(e.g. 'hf_abc123:sk_xyz789')"
             )
+        
+        self.api_key_id, self.api_key_secret = api_key.split(":", 1)
         
         self.model_path = model_path or os.getenv(
             "MODEL_PATH_STILL", "xai/grok-imagine-image-2.0"
         )
-        self.fallback_model = fallback_model or os.getenv(
-            "MODEL_PATH_STILL_FALLBACK", "alibaba/qwen-image-3/edit"
+        
+        self.base_url = base_url or os.getenv(
+            "HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai"
         )
         
-        self.base_url = base_url or "https://api.higgsfield.ai"
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Key {self.api_key_id}:{self.api_key_secret}",
                 "Content-Type": "application/json",
             },
             timeout=60.0,
@@ -71,6 +73,23 @@ class HiggsfieldStillProvider(GenerationProvider):
     async def close(self):
         """Close HTTP client."""
         await self.client.aclose()
+    
+    def _generate_idempotency_key(
+        self,
+        prompt: str,
+        resolution: str,
+        quality: str,
+        image_urls: list[str] | None,
+    ) -> str:
+        """
+        Generate deterministic idempotency key covering all request params.
+        
+        Format: hf-still-{sha256(prompt|resolution|quality|refs)[:16]}
+        """
+        refs_str = ",".join(sorted(image_urls or []))
+        key_input = f"{prompt}|{resolution}|{quality}|{refs_str}"
+        hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        return f"hf-still-{hash_digest}"
     
     async def upload_reference(self, image_path: str | Path) -> str:
         """
@@ -103,143 +122,204 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         return media_id
     
+    async def _estimate_response(
+        self,
+        prompt: str,
+        resolution: str,
+        quality: str,
+        aspect_ratio: str | None,
+    ) -> dict:
+        """POST /estimate/{model_path}; returns the parsed JSON (fail closed on any error)."""
+        # Map quality to allowed values (low, medium)
+        if quality not in ("low", "medium"):
+            quality = "medium"
+
+        payload = {
+            "prompt": prompt,
+            "resolution": resolution,
+            "quality": quality,
+        }
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+
+        try:
+            response = await self.client.post(
+                f"/estimate/{self.model_path}",
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            # Fail closed: never submit without a valid estimate
+            raise ValueError(f"Failed to get estimate for still generation: {e}") from e
+
     async def estimate_cost(
         self,
         prompt: str,
-        model: str,
         resolution: str = "1k",
         quality: str = "medium",
-        num_refs: int = 0,
+        aspect_ratio: str | None = None,
     ) -> float:
         """
-        Estimate cost before submission.
-        
-        Args:
-            prompt: Generation prompt
-            model: Model path
-            resolution: Resolution (1k, 2k)
-            quality: Quality (medium, high)
-            num_refs: Number of reference images
-        
-        Returns:
-            Estimated cost in Higgsfield app credits
+        Estimate cost in Higgsfield API credits (informational; the ledger uses USD).
+
+        API: POST /estimate/{model_path}
+        Response: {"credits": "<str>", "usd": "<str>"}
+
+        Raises:
+            ValueError: If estimate fails or response is invalid (fail closed)
         """
-        # Cost structure (from credit plan):
-        # - Base: ~4 credits for 1k medium
-        # - Per ref: ~1 credit
-        # - Quality multiplier: high = 1.5x
-        # - Resolution multiplier: 2k = 2x
-        
-        base_cost = 4.0
-        
-        if quality == "high":
-            base_cost *= 1.5
-        
-        if resolution == "2k":
-            base_cost *= 2.0
-        
-        ref_cost = num_refs * 1.0
-        
-        total = base_cost + ref_cost
-        
-        # Round to 1 decimal
-        return round(total, 1)
-    
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
+        try:
+            if "credits" not in data:
+                raise ValueError(f"Estimate response missing 'credits' field: {data}")
+            credits_str = data["credits"]
+            if not isinstance(credits_str, str):
+                raise ValueError(f"Estimate 'credits' must be string, got {type(credits_str)}")
+            return float(credits_str)
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Failed to get estimate for still generation: {e}") from e
+
+    async def estimate_usd_micros(
+        self,
+        prompt: str,
+        resolution: str = "1k",
+        quality: str = "medium",
+        aspect_ratio: str | None = None,
+    ) -> int:
+        """
+        Estimate cost in integer micro-dollars from the provider's own USD value.
+
+        Stills have no per-second rate table: a response without ``usd`` is refused (fail closed).
+        """
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None or usd_micros <= 0:
+                raise ValueError(f"Estimate response has no positive 'usd' value: {data}")
+            return usd_micros
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD estimate for still generation: {e}") from e
+
     async def submit_image(
         self,
         prompt: str,
-        model: str | None = None,
         resolution: str = "1k",
         quality: str = "medium",
-        references: list[str] | None = None,
+        image_urls: list[str] | None = None,
         idempotency_key: str | None = None,
+        aspect_ratio: str | None = None,
     ) -> str:
         """
         Submit still image generation job.
         
+        API: POST /{model_path}
+        Request: {"prompt": "...", "resolution": "1k", "quality": "medium", 
+                  "image_urls": [...], "aspect_ratio": "9:16"}
+        Response: {"request_id": "..."}
+        
         Args:
             prompt: Generation prompt
-            model: Model path (default: self.model_path)
             resolution: Resolution (1k, 2k)
-            quality: Quality (medium, high)
-            references: List of reference image paths or media IDs
-            idempotency_key: Idempotency key for deduplication
+            quality: Quality (low, medium only - no high)
+            image_urls: List of public reference image URLs (max 3)
+            idempotency_key: Idempotency key (default: deterministic based on params)
+            aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
         
         Returns:
-            job_id for polling
+            request_id for polling
         """
-        model = model or self.model_path
-        idempotency_key = idempotency_key or str(uuid.uuid4())
+        # Map quality to allowed values (low, medium)
+        if quality not in ("low", "medium"):
+            quality = "medium"
         
-        # Upload references if needed
-        media_ids = []
-        if references:
-            for ref in references[:3]:  # Max 3 refs
-                if ref.startswith("med_"):
-                    # Already a media ID
-                    media_ids.append(ref)
-                elif Path(ref).exists():
-                    # Local file - upload it
-                    media_id = await self.upload_reference(ref)
-                    media_ids.append(media_id)
+        # Generate deterministic idempotency key if not provided
+        if not idempotency_key:
+            idempotency_key = self._generate_idempotency_key(
+                prompt, resolution, quality, image_urls
+            )
         
-        # Submit generation
+        # Submit generation with documented API format
         payload = {
-            "model": model,
             "prompt": prompt,
             "resolution": resolution,
             "quality": quality,
         }
         
-        if media_ids:
-            payload["references"] = media_ids
+        if image_urls:
+            # Use image_urls as documented, limit to 3
+            payload["image_urls"] = image_urls[:3]
+        
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
         
         headers = {"Idempotency-Key": idempotency_key}
         
+        # POST /{model_path} per documented API (no model field in body)
         response = await self.client.post(
-            "/v1/generate/image",
+            f"/{self.model_path}",
             json=payload,
             headers=headers,
         )
         response.raise_for_status()
         
         data = response.json()
-        return data["job_id"]
+        # Documented API returns "request_id"
+        return data["request_id"]
     
-    async def get_job_status(self, job_id: str) -> ProviderJob:
+    async def get_job_status(self, request_id: str) -> ProviderJob:
         """
         Get status of a generation job.
         
+        API: GET /requests/{request_id}/status
+        Response: {
+            "status": "queued"|"in_progress"|"completed"|"failed"|"nsfw"|"canceled",
+            "images": [{"url": "..."}],
+            "cost": 2.5,
+            "error": "..."
+        }
+        
         Args:
-            job_id: Job identifier
+            request_id: Request identifier from submit
         
         Returns:
             ProviderJob with status, output_url, cost, error
         """
-        response = await self.client.get(f"/v1/jobs/{job_id}")
+        # GET /requests/{request_id}/status per documented API
+        response = await self.client.get(f"/requests/{request_id}/status")
         response.raise_for_status()
         
         data = response.json()
-        status_str = data.get("status", "pending").lower()
+        status_str = data.get("status", "queued").lower()
         
-        # Map Higgsfield status to ProviderJobStatus
+        # Map Higgsfield API status to ProviderJobStatus
         if status_str == "completed":
             status = ProviderJobStatus.COMPLETED
         elif status_str == "failed":
             status = ProviderJobStatus.FAILED
-        elif status_str == "blocked" or status_str == "nsfw":
+        elif status_str in ("blocked", "nsfw", "canceled"):
             status = ProviderJobStatus.BLOCKED
-        elif status_str == "processing" or status_str == "running":
+        elif status_str == "in_progress":
             status = ProviderJobStatus.PROCESSING
-        else:
+        else:  # "queued"
             status = ProviderJobStatus.PENDING
         
+        # Parse URL from documented response format: images[0].url
+        output_url = None
+        if "images" in data and isinstance(data["images"], list) and len(data["images"]) > 0:
+            first_image = data["images"][0]
+            if isinstance(first_image, dict):
+                output_url = first_image.get("url")
+        
+        # Parse cost from response, or None if not available
+        cost = data.get("cost")
+        
         return ProviderJob(
-            job_id=job_id,
+            job_id=request_id,
             status=status,
             progress=data.get("progress", 0.0),
-            output_url=data.get("output_url"),
-            cost=data.get("cost", 0.0),
+            output_url=output_url,
+            cost=cost,
             error=data.get("error"),
         )
 

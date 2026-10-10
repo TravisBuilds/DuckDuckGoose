@@ -17,10 +17,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hfvg.budget import app_credits_to_usd_micros
+
 
 def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
     """
     Parse CREDIT-PLAN.md into budget configuration.
+    
+    The plan document is authored in Higgsfield *app credits*; `cap`/`stop`/`plan` keep those
+    authored numbers. Each line also carries `cap_usd_micros` / `stop_usd_micros` (integer
+    micro-dollars, converted once at the legacy 0.0475 USD per app credit). The dollar ledger
+    only ever uses the usd_micros values.
     
     Returns:
         {
@@ -37,7 +44,7 @@ def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
     content = Path(plan_path).read_text()
     
     lines = {}
-    higgsfield_cap = 1250  # Default from Ep04 plan
+    higgsfield_cap = 1250.0  # Default: 1,250 app credits (authored unit)
     higgsfield_target = 1000
     
     # Parse line rows
@@ -79,6 +86,8 @@ def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
             "cap": cap_value,
             "stop": stop_value,
             "plan": plan_value,
+            "cap_usd_micros": app_credits_to_usd_micros(cap_value),
+            "stop_usd_micros": app_credits_to_usd_micros(stop_value),
         }
     
     # Parse total line
@@ -93,6 +102,7 @@ def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
     return {
         "lines": lines,
         "higgsfield_cap": higgsfield_cap,
+        "higgsfield_cap_usd_micros": app_credits_to_usd_micros(higgsfield_cap),
         "higgsfield_target": higgsfield_target,
         "stop_fraction": 0.8,
     }

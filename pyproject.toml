@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "higgsfield-client>=0.2.0",
     "elevenlabs>=2.70.0",
+    "uvicorn>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -29,6 +30,10 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-timeout>=2.2.0",
+    "pytest-socket>=0.7.0",
+    "respx>=0.21.0",
+    "fastapi>=0.100.0",
+    "python-multipart>=0.0.6",
 ]
 
 [project.scripts]
@@ -38,6 +43,7 @@ hfvg = "hfvg.cli:cli"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
+addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost"
 
 [tool.ruff]
 line-length = 100

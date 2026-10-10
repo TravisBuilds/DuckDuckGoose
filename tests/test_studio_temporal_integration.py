@@ -36,7 +36,10 @@ async def test_approval_signal_reaches_episode_workflow():
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             # Start workflow (will pause at G1.01)
@@ -70,12 +73,23 @@ async def test_approval_signal_reaches_episode_workflow():
 
 
 @pytest.mark.asyncio
-async def test_canary_starts_shot_workflow():
+async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
     """
     Test: Canary actually starts ShotWorkflow (not just a stub).
     
     This verifies the canary path through real workflow execution.
     """
+    # Set up database for this test
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_canary.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Set environment variables for activities
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Create worker with ShotWorkflow
         async with Worker(
@@ -86,12 +100,17 @@ async def test_canary_starts_shot_workflow():
                 activities.submit_still_job,
                 activities.submit_clip_job,
                 activities.await_job,
+                activities.precheck_still_qc,
+                activities.precheck_clip_qc,
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             # Start ShotWorkflow (like canary does)
@@ -99,7 +118,7 @@ async def test_canary_starts_shot_workflow():
                 "shot_id": "CANARY01",
                 "prompt": "A serene duck standing beside a warm fjord pool",
                 "refs": [],
-                "duration": 5.0,
+                "params": {"duration": 5.0},
             }
             
             handle = await env.client.start_workflow(
@@ -133,10 +152,21 @@ async def test_canary_starts_shot_workflow():
 
 
 @pytest.mark.asyncio
-async def test_shot_workflow_waits_for_still_approval():
+async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
     """
     Test: ShotWorkflow waits for still approval signal before generating clip.
     """
+    # Set up database for this test
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    db_path = str(tmp_path / "test_approval.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Set environment variables for activities
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -146,19 +176,24 @@ async def test_shot_workflow_waits_for_still_approval():
                 activities.submit_still_job,
                 activities.submit_clip_job,
                 activities.await_job,
+                activities.precheck_still_qc,
+                activities.precheck_clip_qc,
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             shot_plan = {
                 "shot_id": "A01",
                 "prompt": "Test shot",
                 "refs": [],
-                "duration": 5.0,
+                "params": {"duration": 5.0},
             }
             
             handle = await env.client.start_workflow(

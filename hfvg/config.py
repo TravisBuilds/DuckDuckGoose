@@ -1,7 +1,29 @@
 """Configuration and dry-run settings."""
 
+import json
 import os
 from typing import Optional
+
+
+def _load_rate_table() -> dict[str, dict[str, int]]:
+    """Per-second USD rate table in integer micro-dollars (override: MODEL_USD_PER_SECOND_JSON).
+
+    SOURCE / CAVEAT: these are LIST PRICES BEFORE ANY DISCOUNT, derived, not quoted by an API:
+    - seedance-2.5: Higgsfield pricing text (480p 0.2056, 720p 0.4622, 1080p 1.1372 USD/s). The
+      estimate endpoint for Seedance returns a pricing description, not USD, so this table is used.
+    - kling-3.0-pro: fallback only (estimate normally returns usd); 0.056 USD/s derived from the
+      live canary (5 s clip = 0.28 USD).
+    Real billing may be lower (discounts); the ledger therefore reserves conservatively.
+    """
+    table = {
+        "seedance-2.5": {"480p": 205_600, "720p": 462_200, "1080p": 1_137_200},
+        "kling-3.0-pro": {"default": 56_000},
+    }
+    override = os.getenv("MODEL_USD_PER_SECOND_JSON")
+    if override:
+        loaded = json.loads(override)
+        table = {m: {k: int(v) for k, v in rates.items()} for m, rates in loaded.items()}
+    return table
 
 
 class Config:
@@ -42,48 +64,15 @@ class Config:
     INITIAL_CREDIT_BALANCE: float = float(os.getenv("INITIAL_CREDIT_BALANCE", "10000.0"))
     LOW_BALANCE_THRESHOLD: float = float(os.getenv("LOW_BALANCE_THRESHOLD", "1000.0"))
 
+    # Per-second USD rate table (integer micro-dollars) for models without a USD estimate.
+    # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
+    MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
+
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 
     TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "localhost:7233")
     TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
     TASK_QUEUE: str = os.getenv("TASK_QUEUE", "hfvg-tasks")
-
-    @staticmethod
-    def get_higgsfield_credentials() -> Optional[str]:
-        """
-        Get Higgsfield API credentials in combined format: <key-id>:<secret>
-        
-        Checks in priority order:
-        1. HF_KEY (combined format)
-        2. HF_API_KEY containing colon (combined format)
-        3. HF_API_KEY + HF_API_SECRET (separate, combine them)
-        4. HF_API_KEY_ID + HF_API_KEY_SECRET (docs naming, combine them)
-        
-        Returns None if no credentials found.
-        Never logs or prints the credential value.
-        """
-        # 1. HF_KEY (combined)
-        hf_key = os.getenv("HF_KEY")
-        if hf_key:
-            return hf_key
-        
-        # 2. HF_API_KEY containing colon (combined)
-        hf_api_key = os.getenv("HF_API_KEY")
-        if hf_api_key and ":" in hf_api_key:
-            return hf_api_key
-        
-        # 3. HF_API_KEY + HF_API_SECRET (separate)
-        hf_api_secret = os.getenv("HF_API_SECRET")
-        if hf_api_key and hf_api_secret:
-            return f"{hf_api_key}:{hf_api_secret}"
-        
-        # 4. HF_API_KEY_ID + HF_API_KEY_SECRET (docs naming)
-        hf_api_key_id = os.getenv("HF_API_KEY_ID")
-        hf_api_key_secret = os.getenv("HF_API_KEY_SECRET")
-        if hf_api_key_id and hf_api_key_secret:
-            return f"{hf_api_key_id}:{hf_api_key_secret}"
-        
-        return None
 
 
 config = Config()

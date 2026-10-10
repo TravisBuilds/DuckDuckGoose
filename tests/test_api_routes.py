@@ -1,0 +1,847 @@
+"""
+Red-green API route tests: Call actual API routes to verify protections.
+
+These tests use FastAPI TestClient to call API routes and verify that safety
+checks are actually enforced. Each test is paired with a red-green mutation.
+"""
+
+import pytest
+from tests.ledger_helpers import insert_line, set_balance
+import aiosqlite
+import sys
+
+from hfvg.studio_db import init_studio_db, create_episode, approve_g108, set_live_mode
+from hfvg.budget import BudgetLedger
+
+
+@pytest.fixture
+async def test_db_api(tmp_path, monkeypatch):
+    """Create fresh test database for API tests."""
+    import secrets
+    db_name = f"test_api_{secrets.token_hex(8)}.db"
+    db_path = str(tmp_path / db_name)
+    await init_studio_db(db_path)
+    
+    # Initialize budget tables
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    yield db_path
+
+
+@pytest.fixture(autouse=True)
+def reload_api_for_mutations():
+    """Reload api.main to pick up mutations."""
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+    yield
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+
+
+async def get_authenticated_client(test_db, monkeypatch):
+    """Helper: Get TestClient with authenticated session cookie."""
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from unittest.mock import MagicMock, AsyncMock
+    
+    # Mock temporal client to avoid 503 errors
+    import api.main as api_main
+    mock_client = MagicMock()
+    mock_client.start_workflow = AsyncMock(return_value=MagicMock(id="test-workflow"))
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
+    
+    # Login
+    response = client.post("/api/login", json={"admin_secret": admin_secret})
+    assert response.status_code == 200
+    
+    return client, response.cookies
+
+
+@pytest.mark.asyncio
+async def test_canary_route_checks_g108(test_db_api, monkeypatch):
+    """Test: Canary route refuses without G1.08 approval."""
+    # Create episode and shot, but do NOT approve G1.08
+    await create_episode(test_db_api, "ep99")
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        # Add L6_reserve line so the route doesn't fail on budget check
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Try canary without G1.08
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+    
+    assert response.status_code == 200
+    data = response.json()
+    # Key assertion: should refuse without G1.08
+    assert data.get("success") is False, f"Should refuse without G1.08, got data: {data}"
+    # If mutation removes the G1.08 check, success would be True (or error would occur)
+
+
+@pytest.mark.asyncio
+async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
+    """Test: Canary in non-dry mode requires live_mode in DB."""
+    monkeypatch.setenv("DRY_RUN", "false")  # Non-dry mode
+    
+    # Create episode, approve G1.08, but do NOT enable live_mode
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", False)
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        # Add L6_reserve line so the route doesn't fail on budget check
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Try canary without live_mode
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+    
+    assert response.status_code == 200
+    data = response.json()
+    # Key assertion: should refuse without live_mode when DRY_RUN=false
+    assert data.get("success") is False, f"Should refuse without live_mode in non-dry, got data: {data}"
+    # If mutation removes the live_mode check, success would be True (or error would occur)
+
+
+@pytest.mark.asyncio
+async def test_canary_route_starts_workflow(test_db_api, monkeypatch):
+    """Test: Canary route actually starts a ShotWorkflow."""
+    # Create episode with G1.08 (dry mode is default)
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")  # Required for canary
+    
+    # Initialize budget and add L6_reserve line
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    async with aiosqlite.connect(test_db_api) as db:
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test prompt", "pending")
+        )
+        await db.commit()
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Get the mocked client that was set in get_authenticated_client
+    from api import main as api_main
+    mock_client = api_main.temporal_client
+    
+    # Call canary
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True, f"Canary should succeed, got: {data}"
+    
+    # Verify workflow was started
+    assert mock_client.start_workflow.called, "Should start workflow"
+    # Workflow is passed as positional arg, check args or kwargs
+    call_args = mock_client.start_workflow.call_args
+    # The workflow should be ShotWorkflow.run
+    assert call_args is not None, "start_workflow should have been called"
+    # Just verify it was called - the actual workflow type is complex to check
+    assert mock_client.start_workflow.call_count == 1, "Should start exactly one workflow"
+
+
+@pytest.mark.asyncio
+async def test_canary_reserves_l6_before_workflow(test_db_api, monkeypatch):
+    """Test: Canary reserves from L6_reserve before starting workflow."""
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")  # Required
+    
+    # Initialize budget and add L6_reserve line
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    async with aiosqlite.connect(test_db_api) as db:
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        await db.commit()
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Check L6 before canary
+    status_before = await ledger.get_line_status("ep99", "L6_reserve")
+    reserved_before = status_before["reserved"]
+    
+    # Call canary
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True, f"Should succeed, got: {data}"
+    
+    # Check L6 after canary
+    status_after = await ledger.get_line_status("ep99", "L6_reserve")
+    reserved_after = status_after["reserved"]
+    
+    # Dry canary hold: (0.06 still + 5 s x 0.056 Kling) * 1.2 = 0.408 USD
+    assert reserved_after > reserved_before, "Should reserve from L6"
+    assert reserved_after - reserved_before == 408_000, "Should reserve 408_000 usd_micros (0.408 USD)"
+    assert data["reserved_amount"] == 408_000
+
+
+@pytest.mark.asyncio
+async def test_still_approve_route_sends_signal(test_db_api, monkeypatch):
+    """Test: Still approve route sends signal to workflow."""
+    await create_episode(test_db_api, "ep99")
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        # Add audit entry for a canary workflow (so approve can find it)
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user, timestamp)
+               VALUES (?, ?, ?, ?, datetime('now'))""",
+            ("ep99", "start_canary", "Workflow ep99-canary-A01-12345, reserved L6=1000000 usd_micros", "test")
+        )
+        await db.commit()
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Mock temporal client
+    from unittest.mock import AsyncMock, MagicMock
+    from api import main as api_main
+    mock_client = MagicMock()
+    mock_handle = MagicMock()
+    mock_handle.signal = AsyncMock()
+    mock_client.get_workflow_handle_for = MagicMock(return_value=mock_handle)
+    api_main.temporal_client = mock_client
+    
+    # Call still approve
+    response = client.post("/api/episodes/ep99/shots/A01/approve", cookies=cookies)
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True, "Should succeed"
+    
+    # Verify signal was sent
+    assert mock_handle.signal.called, "Should send signal to workflow"
+    signal_name = mock_handle.signal.call_args.args[0]
+    assert signal_name == "stills_approved", "Should send stills_approved signal"
+
+@pytest.mark.asyncio
+async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path):
+    """Test: Canary reconciles L6 reservation when workflow fails via real route."""
+    import asyncio
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from hfvg.workflows.shot import ShotWorkflow
+    from hfvg import activities
+    from hfvg.budget import BudgetLedger
+    
+    # Set up episode with L6 budget line
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        # Add shot
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        # Add L6_reserve line
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        # Add L2 line (needed for ShotWorkflow)
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
+        await db.commit()
+    
+    # Get initial L6 reserved (should be 0)
+    status_before = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status_before["reserved"] == 0, "L6 should start at 0"
+    
+    # Set up Temporal environment and worker with a failing activity
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        # Mock the submit activity to always fail
+        from temporalio import activity
+        
+        @activity.defn(name="submit_still_job_enforced")
+        async def failing_submit(*args, **kwargs):
+            raise ValueError("Simulated workflow failure")
+        
+        async with Worker(
+            env.client,
+            task_queue="test-task-queue",
+            workflows=[ShotWorkflow],
+            activities=[
+                failing_submit,  # This will cause workflow to fail
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
+                activities.precheck_still_qc,
+                activities.precheck_clip_qc,
+                activities.review_still,
+                activities.review_clip,
+                activities.record_shot_result,
+            ],
+        ):
+            # Reserve L6 (what the canary API does before starting workflow)
+            reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
+            assert reserved, "Should reserve L6"
+            
+            # Log the canary start (what the API does)
+            async with aiosqlite.connect(test_db_api) as db:
+                await db.execute(
+                    """INSERT INTO audit_log (episode_id, action, details, user)
+                       VALUES (?, ?, ?, ?)""",
+                    ("ep99", "start_canary", "Workflow canary-fail-test, reserved L6=1000000 usd_micros", "system")
+                )
+                await db.commit()
+            
+            # Verify L6 is now reserved
+            status_mid = await ledger.get_line_status("ep99", "L6_reserve")
+            assert status_mid["reserved"] == 1_000_000, "L6 should be reserved"
+            
+            # Start workflow
+            handle = await env.client.start_workflow(
+                ShotWorkflow.run,
+                args=["ep99", {"shot_id": "A01", "prompt": "Test", "refs": [], "params": {}}],
+                id="canary-fail-test",
+                task_queue="test-task-queue",
+            )
+            
+            # Wait for workflow to fail
+            try:
+                await asyncio.wait_for(handle.result(), timeout=5)
+                assert False, "Workflow should have failed"
+            except Exception:
+                pass  # Expected to fail
+            
+            # Set up API with authenticated session
+            admin_secret = "a" * 32
+            monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+            
+            from fastapi.testclient import TestClient
+            from api.main import app
+            import api.main as api_main
+            
+            # Connect temporal_client to test environment
+            api_main.temporal_client = env.client
+            
+            client = TestClient(app)
+            
+            # Login to get session cookie
+            response = client.post("/api/login", json={"admin_secret": admin_secret})
+            assert response.status_code == 200
+            cookies = response.cookies
+            
+            # Call the real canary status route (triggers reconcile on failed)
+            response = client.get(
+                f"/api/canary/canary-fail-test",
+                cookies=cookies,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "failed", f"Expected failed status, got {data}"
+            
+            # Check that L6 reservation was released to exactly 0
+            status_after = await ledger.get_line_status("ep99", "L6_reserve")
+            assert status_after["reserved"] == 0, \
+                f"L6 should be exactly 0 after failed reconcile, got {status_after['reserved']}"
+            
+            # Verify idempotent: second call should not change anything
+            response = client.get(
+                f"/api/canary/canary-fail-test",
+                cookies=cookies,
+            )
+            assert response.status_code == 200
+            assert response.json()["status"] == "failed"
+            
+            status_after2 = await ledger.get_line_status("ep99", "L6_reserve")
+            assert status_after2["reserved"] == 0, "L6 should still be 0 (idempotent)"
+            
+            # Also verify the reconciliation was logged exactly once
+            async with aiosqlite.connect(test_db_api) as db:
+                async with db.execute(
+                    """SELECT COUNT(*) FROM audit_log 
+                       WHERE action = 'reconcile_canary_l6' AND details LIKE ?""",
+                    ("%canary-fail-test%",)
+                ) as cursor:
+                    count = (await cursor.fetchone())[0]
+                    assert count == 1, f"Reconciliation should be logged once, got {count}"
+
+
+@pytest.mark.asyncio
+async def test_canary_l6_reconcile_on_completed(test_db_api, monkeypatch, tmp_path):
+    """Test: Canary reconciles L6 reservation when workflow completes via real route."""
+    from hfvg.budget import BudgetLedger
+    from unittest.mock import AsyncMock, MagicMock
+    
+    # Set up episode with L6 budget line
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    # Reserve L6
+    reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
+    assert reserved, "Should reserve L6"
+    
+    # Log the canary start
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            ("ep99", "start_canary", "Workflow canary-success-test, reserved L6=1000000 usd_micros", "system")
+        )
+        await db.commit()
+    
+    # Verify L6 is reserved
+    status_mid = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status_mid["reserved"] == 1_000_000, "L6 should be reserved"
+    
+    # Set up API with mock temporal client
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    # Mock workflow handle that is completed
+    mock_handle = AsyncMock()
+    mock_handle.result = AsyncMock(return_value={"status": "completed", "result": "success"})
+    
+    mock_client = MagicMock()
+    mock_client.get_workflow_handle_for = MagicMock(return_value=mock_handle)
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
+    response = client.post("/api/login", json={"admin_secret": admin_secret})
+    assert response.status_code == 200
+    cookies = response.cookies
+    
+    # Call the real canary status route (triggers reconcile on completed)
+    response = client.get(
+        f"/api/canary/canary-success-test",
+        cookies=cookies,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed", f"Expected completed status, got {data}"
+    
+    # Check that L6 reservation was released to exactly 0
+    status_after = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status_after["reserved"] == 0, \
+        f"L6 should be exactly 0 after completed reconcile, got {status_after['reserved']}"
+
+
+@pytest.mark.asyncio
+async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path):
+    """Test: Concurrent canary status calls reconcile L6 exactly once."""
+    import asyncio
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from hfvg.workflows.shot import ShotWorkflow
+    from hfvg import activities
+    from hfvg.budget import BudgetLedger
+    
+    # Set up episode
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
+        await db.commit()
+    
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        from temporalio import activity
+        
+        @activity.defn(name="submit_still_job_enforced")
+        async def failing_submit(*args, **kwargs):
+            raise ValueError("Simulated workflow failure")
+        
+        async with Worker(
+            env.client,
+            task_queue="test-task-queue",
+            workflows=[ShotWorkflow],
+            activities=[
+                failing_submit,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
+                activities.precheck_still_qc,
+                activities.precheck_clip_qc,
+                activities.review_still,
+                activities.review_clip,
+                activities.record_shot_result,
+            ],
+        ):
+            # Reserve L6
+            reserved = await ledger.reserve("ep99", "L6_reserve", 1_000_000, "Canary test")
+            assert reserved, "Should reserve L6"
+            
+            # Log the canary start
+            async with aiosqlite.connect(test_db_api) as db:
+                await db.execute(
+                    """INSERT INTO audit_log (episode_id, action, details, user)
+                       VALUES (?, ?, ?, ?)""",
+                    ("ep99", "start_canary", "Workflow canary-concurrent-test, reserved L6=1000000 usd_micros", "system")
+                )
+                await db.commit()
+            
+            # Start workflow
+            handle = await env.client.start_workflow(
+                ShotWorkflow.run,
+                args=["ep99", {"shot_id": "A01", "prompt": "Test", "refs": [], "params": {}}],
+                id="canary-concurrent-test",
+                task_queue="test-task-queue",
+            )
+            
+            # Wait for failure
+            try:
+                await asyncio.wait_for(handle.result(), timeout=5)
+                assert False, "Should fail"
+            except Exception:
+                pass
+            
+            # Set up API
+            admin_secret = "a" * 32
+            monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+            
+            from fastapi.testclient import TestClient
+            from api.main import app
+            import api.main as api_main
+            
+            api_main.temporal_client = env.client
+            
+            client = TestClient(app)
+            response = client.post("/api/login", json={"admin_secret": admin_secret})
+            assert response.status_code == 200
+            cookies = response.cookies
+            
+            # Make 5 concurrent calls to the canary status route
+            def call_canary():
+                # TestClient is synchronous
+                resp = client.get(
+                    f"/api/canary/canary-concurrent-test",
+                    cookies=cookies,
+                )
+                return resp
+            
+            # Use threads for concurrent sync calls
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(call_canary) for _ in range(5)]
+                results = [f.result() for f in futures]
+            
+            # All should succeed
+            for resp in results:
+                assert resp.status_code == 200
+                assert resp.json()["status"] == "failed"
+            
+            # Check that L6 is exactly 0 (not negative!)
+            status_after = await ledger.get_line_status("ep99", "L6_reserve")
+            assert status_after["reserved"] == 0, \
+                f"L6 must be exactly 0 after concurrent reconciles, got {status_after['reserved']}"
+            
+            # Verify exactly one reconciliation was logged
+            async with aiosqlite.connect(test_db_api) as db:
+                async with db.execute(
+                    """SELECT COUNT(*) FROM audit_log 
+                       WHERE action = 'reconcile_canary_l6' AND details LIKE ?""",
+                    ("%canary-concurrent-test%",)
+                ) as cursor:
+                    count = (await cursor.fetchone())[0]
+                    assert count == 1, f"Should reconcile exactly once, got {count}"
+
+
+@pytest.mark.asyncio
+async def test_canary_l6_release_on_start_failure(test_db_api, monkeypatch, tmp_path):
+    """Test: Canary releases L6 when workflow start fails."""
+    from hfvg.budget import BudgetLedger
+    
+    # Set up episode
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    
+    ledger = BudgetLedger(test_db_api)
+    await ledger.init_db()
+    
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test prompt", "pending")
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    
+    # Check initial L6 status
+    status_before = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status_before["reserved"] == 0, "L6 should start at 0"
+    
+    # Set up API with mock temporal client that fails on start_workflow
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    from unittest.mock import AsyncMock
+    
+    # Mock temporal client that fails on start
+    mock_client = AsyncMock()
+    mock_client.start_workflow.side_effect = Exception("Temporal connection failed")
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
+    response = client.post("/api/login", json={"admin_secret": admin_secret})
+    assert response.status_code == 200
+    cookies = response.cookies
+    
+    # Try to start canary (should fail and release L6)
+    response = client.post(
+        f"/api/episodes/ep99/canary",
+        cookies=cookies,
+    )
+    
+    # Should return 500 error (start failed)
+    assert response.status_code == 500
+    assert "failed to start" in response.json()["detail"].lower()
+    
+    # Check that L6 is exactly 0 (reservation was released on start failure)
+    status_after = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status_after["reserved"] == 0, \
+        f"L6 must be 0 after start failure (released), got {status_after['reserved']}"
+
+
+async def _setup_canary_episode(db_path):
+    """Episode ep99 with G1.08 approved, shot A01 and an L6_reserve line (dry-run canary route)."""
+    await create_episode(db_path, "ep99")
+    await approve_g108(db_path, "ep99")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test prompt", "pending"),
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    return ledger
+
+
+def _canary_client(monkeypatch, mock_client):
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)  # must be set before api.main is imported
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+
+    api_main.temporal_client = mock_client
+    client = TestClient(app)
+    response = client.post("/api/login", json={"admin_secret": admin_secret})
+    assert response.status_code == 200
+    return client, response.cookies
+
+
+@pytest.mark.asyncio
+async def test_canary_concurrent_409(test_db_api, monkeypatch):
+    """
+    Test: a duplicate canary POST is refused with 409, releases its L6 hold, and the
+    canary always starts with the STABLE workflow id (no random suffix).
+
+    M-R2a (random workflow-id suffix) must fail the stable-id assertion.
+    M-R2b (delete WorkflowAlreadyStartedError handling) must turn the 409 into a 500.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    ledger = await _setup_canary_episode(test_db_api)
+
+    mock_client = MagicMock()
+    # describe() fails -> pre-check treats the workflow as not existing, so the 409 must come
+    # from the WorkflowAlreadyStartedError race path (two concurrent POSTs).
+    existing = MagicMock()
+    existing.describe = AsyncMock(side_effect=Exception("not found"))
+    mock_client.get_workflow_handle = MagicMock(return_value=existing)
+    mock_client.start_workflow = AsyncMock(
+        side_effect=WorkflowAlreadyStartedError("ep99-canary-A01", "ShotWorkflow")
+    )
+    client, cookies = _canary_client(monkeypatch, mock_client)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"
+    assert "already running" in response.json()["detail"].lower()
+
+    # Stable, deterministic workflow id: this is what makes the duplicate detectable at all
+    assert mock_client.start_workflow.await_count == 1
+    assert mock_client.start_workflow.call_args.kwargs["id"] == "ep99-canary-A01"
+
+    # The hold taken for the refused canary was released
+    status = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0, f"L6 must be released on 409, got {status['reserved']}"
+
+
+@pytest.mark.asyncio
+async def test_approve_completed_canary_409(test_db_api, monkeypatch):
+    """
+    Test: Approve route returns 409 (never 500, never a signal) when the workflow is not running,
+    and still signals a running workflow.
+
+    M-R2d will disable the status check - the COMPLETED case must then fail.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    from temporalio.client import WorkflowExecutionStatus
+
+    await create_episode(test_db_api, "ep99")
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    from api import main as api_main
+
+    def make_client(status):
+        handle = MagicMock()
+        handle.signal = AsyncMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=status))
+        mc = MagicMock()
+        mc.get_workflow_handle_for = MagicMock(return_value=handle)
+        return mc, handle
+
+    for terminal in (WorkflowExecutionStatus.COMPLETED, WorkflowExecutionStatus.FAILED,
+                     WorkflowExecutionStatus.TERMINATED):
+        mc, handle = make_client(terminal)
+        api_main.temporal_client = mc
+        response = client.post("/api/episodes/ep99/shots/A01/approve", cookies=cookies)
+        assert response.status_code == 409, \
+            f"{terminal.name}: expected 409, got {response.status_code}: {response.text}"
+        assert not handle.signal.called, f"{terminal.name}: signal must NOT be sent"
+
+    mc, handle = make_client(WorkflowExecutionStatus.RUNNING)
+    api_main.temporal_client = mc
+    response = client.post("/api/episodes/ep99/shots/A01/approve", cookies=cookies)
+    assert response.status_code == 200, response.text
+    assert handle.signal.called, "RUNNING workflow must receive the stills_approved signal"
+
+
+async def _setup_live_canary(test_db_api, monkeypatch):
+    """Live-mode canary fixtures: episode live + G1.08, one shot, L6 line, manual balance."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    await create_episode(test_db_api, "ep99")
+    await approve_g108(test_db_api, "ep99")
+    await set_live_mode(test_db_api, "ep99", True)
+    async with aiosqlite.connect(test_db_api) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test", "pending")
+        )
+        await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
+        await db.commit()
+    await set_balance(test_db_api)
+
+
+@pytest.mark.asyncio
+async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_mock):
+    """
+    Test: Live canary fails closed when the provider estimate is unavailable: 503, nothing
+    reserved, no workflow started, and no default dollar amount is ever substituted.
+
+    M-R2e (a fallback amount instead of refusing) must fail this test.
+    """
+    import httpx
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(500, json={"error": "estimate down"})
+    )
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    import api.main as api_main
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 503, response.text
+    assert "fail closed" in response.json()["detail"].lower(), response.text
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0, "No hold may be taken without a real estimate"
+    assert not api_main.temporal_client.start_workflow.called, "No workflow without an estimate"
+
+
+@pytest.mark.asyncio
+async def test_canary_live_without_api_key_refused(test_db_api, monkeypatch):
+    """Test: Live canary without HIGGSFIELD_API_KEY is refused (503) and reserves nothing."""
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.delenv("HIGGSFIELD_API_KEY", raising=False)
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 503, response.text
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0
+
+
+@pytest.mark.asyncio
+async def test_canary_live_hold_uses_usd_estimates(test_db_api, monkeypatch, respx_mock):
+    """Test: Live canary L6 hold = (still USD + clip USD) x 1.2 in usd_micros, exact."""
+    import httpx
+    await _setup_live_canary(test_db_api, monkeypatch)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.0", "usd": "0.06"})
+    )
+    respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"credits": "4.48", "usd": "0.28"})
+    )
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True, data
+    assert data["reserved_amount"] == 408_000  # (60_000 + 280_000) * 12 // 10
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 408_000
