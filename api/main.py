@@ -668,13 +668,12 @@ async def approve_still(
     
     # Try to find the workflow:
     # 1. First try canary workflow: {episode_id}-canary-{shot_id}
-    # 2. Then try regular episode workflow: {episode_id}-episode
+    # 2. Then try episode shot workflow: {episode_id}-shot-{shot_id}
     from hfvg.workflows.shot import ShotWorkflow
-    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Try canary workflow first (most common for manual approval)
     canary_workflow_id = f"{episode_id}-canary-{shot_id}"
-    episode_workflow_id = f"{episode_id}-episode"
+    episode_shot_workflow_id = f"{episode_id}-shot-{shot_id}"
     
     workflow_found = False
     workflow_type = None
@@ -691,15 +690,15 @@ async def approve_still(
     except Exception:
         pass
     
-    # Try episode workflow if canary not found
+    # Try episode shot workflow if canary not found
     if not workflow_found:
         try:
             handle = temporal_client.get_workflow_handle_for(
-                EpisodeWorkflowV2.run,
-                workflow_id=episode_workflow_id,
+                ShotWorkflow.run,
+                workflow_id=episode_shot_workflow_id,
             )
             workflow_found = True
-            workflow_type = "episode"
+            workflow_type = "episode_shot"
         except Exception:
             pass
     
@@ -707,7 +706,7 @@ async def approve_still(
         raise HTTPException(
             status_code=404,
             detail=f"No workflow found for {episode_id}/{shot_id}. "
-                   f"Canary or episode workflow must be running to approve stills."
+                   f"Canary or episode shot workflow must be running to approve stills."
         )
     
     try:
@@ -731,14 +730,8 @@ async def approve_still(
             # If describe fails, try to send signal anyway (might work)
             pass
         
-        # Send the appropriate signal based on workflow type
-        if workflow_type == "canary":
-            # For canary (ShotWorkflow), signal directly
-            await handle.signal("stills_approved")
-        else:
-            # For episode workflow, send signal with shot_id
-            # EpisodeWorkflowV2 has a signal that targets specific shots
-            await handle.signal("approve_stills", shot_id)
+        # Send signal to ShotWorkflow (both canary and episode shots use ShotWorkflow)
+        await handle.signal("stills_approved")
         
         # Audit log
         import aiosqlite
@@ -1388,43 +1381,42 @@ async def run_canary(
     try:
         existing_handle = temporal_client.get_workflow_handle(workflow_id)
         # Try to get the workflow description to see if it exists and its status
-        try:
-            desc = await existing_handle.describe()
-            status = desc.status
+        desc = await existing_handle.describe()
+        status = desc.status
+        
+        if status == WorkflowExecutionStatus.RUNNING:
+            # Workflow is currently running - return 409 and release reservation
+            try:
+                await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
+            except Exception as release_err:
+                print(f"Failed to release L6 on 409: {release_err}")
             
-            if status == WorkflowExecutionStatus.RUNNING:
-                # Workflow is currently running - return 409 and release reservation
-                try:
-                    await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already running (409)")
-                except Exception as release_err:
-                    print(f"Failed to release L6 on 409: {release_err}")
-                
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Canary workflow already running for {episode_id}. "
-                           f"Wait for the current canary to complete before starting a new one."
-                )
-            elif status in (WorkflowExecutionStatus.COMPLETED, 
-                           WorkflowExecutionStatus.FAILED, 
-                           WorkflowExecutionStatus.CANCELED,
-                           WorkflowExecutionStatus.TERMINATED,
-                           WorkflowExecutionStatus.TIMED_OUT):
-                # Workflow already completed - refuse re-run with 409
-                # (Policy: one canary per episode, no re-runs after completion)
-                try:
-                    await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already completed (409)")
-                except Exception as release_err:
-                    print(f"Failed to release L6 on 409: {release_err}")
-                
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Canary workflow already completed for {episode_id} (status: {status.name}). "
-                           f"Only one canary per episode is allowed. "
-                           f"To run another canary, use a different shot or reset the episode."
-                )
-        except Exception as describe_err:
-            # If describe fails, the workflow might not exist - proceed to create
-            pass
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canary workflow already running for {episode_id}. "
+                       f"Wait for the current canary to complete before starting a new one."
+            )
+        elif status in (WorkflowExecutionStatus.COMPLETED, 
+                       WorkflowExecutionStatus.FAILED, 
+                       WorkflowExecutionStatus.CANCELED,
+                       WorkflowExecutionStatus.TERMINATED,
+                       WorkflowExecutionStatus.TIMED_OUT):
+            # Workflow already completed - refuse re-run with 409
+            # (Policy: one canary per episode, no re-runs after completion)
+            try:
+                await ledger.release(episode_id, "L6_reserve", canary_cost, "Canary already completed (409)")
+            except Exception as release_err:
+                print(f"Failed to release L6 on 409: {release_err}")
+            
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canary workflow already completed for {episode_id} (status: {status.name}). "
+                       f"Only one canary per episode is allowed. "
+                       f"To run another canary, use a different shot or reset the episode."
+            )
+    except HTTPException:
+        # Re-raise our 409 HTTPExceptions - don't swallow them
+        raise
     except Exception:
         # Workflow doesn't exist or error getting handle - proceed to create
         pass

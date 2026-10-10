@@ -110,68 +110,10 @@ class ShotWorkflow:
                     start_to_close_timeout=timedelta(seconds=60),
                     retry_policy=retry_policy,
                 )
-                
-                status = status_result["status"]
-                
-                # Terminal statuses
-                if status == "completed":
-                    # Commit budget
-                    await workflow.execute_activity(
-                        commit_job_budget,
-                        args=[
-                            self.episode_id,
-                            self.shot_id,
-                            job_id,
-                            job_type,
-                            line_name,
-                            reserved_amount,
-                            status_result.get("cost"),
-                        ],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    workflow.logger.info(f"Job {job_id} completed, budget committed")
-                    
-                    return {
-                        "url": status_result["output_url"],
-                        "cost": status_result.get("cost", reserved_amount),
-                        "status": "completed",
-                    }
-                
-                elif status in ("failed", "blocked", "canceled"):
-                    # Provider confirmed failure - release reservation
-                    reason = f"{status}: {status_result.get('error', 'no details')}"
-                    
-                    await workflow.execute_activity(
-                        release_job_budget,
-                        args=[
-                            self.episode_id,
-                            self.shot_id,
-                            job_id,
-                            job_type,
-                            line_name,
-                            reserved_amount,
-                            reason,
-                        ],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    workflow.logger.error(f"Job {job_id} {status}, reservation released")
-                    
-                    # Raise appropriate error
-                    if status == "blocked":
-                        raise ContentBlockError(f"Provider blocked: {status_result.get('error')}")
-                    else:
-                        raise RuntimeError(f"Job {status}: {status_result.get('error')}")
-                
-                # Non-terminal: continue polling
-                workflow.logger.info(f"Job {job_id} status: {status}, poll {poll_count + 1}/{max_polls}")
-                await workflow.sleep(timedelta(seconds=delay_secs))
-                
+            except (ContentBlockError, InsufficientCreditsError):
+                raise
             except Exception as e:
-                # Activity timeout/cancel/error: DO NOT release reservation
+                # Activity timeout/cancel/error from poll_job_status: DO NOT release reservation
                 workflow.logger.error(f"Poll activity error on attempt {poll_count + 1}: {e}")
                 
                 # If we've exhausted retries within this poll attempt, continue to next poll
@@ -182,6 +124,65 @@ class ShotWorkflow:
                 else:
                     # Exhausted all polls - mark pending reconcile, keep reservation
                     break
+            
+            status = status_result["status"]
+            
+            # Terminal statuses
+            if status == "completed":
+                # Commit budget
+                await workflow.execute_activity(
+                    commit_job_budget,
+                    args=[
+                        self.episode_id,
+                        self.shot_id,
+                        job_id,
+                        job_type,
+                        line_name,
+                        reserved_amount,
+                        status_result.get("cost"),
+                    ],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.info(f"Job {job_id} completed, budget committed")
+                
+                return {
+                    "url": status_result["output_url"],
+                    "cost": status_result.get("cost", reserved_amount),
+                    "status": "completed",
+                }
+            
+            elif status in ("failed", "blocked", "canceled"):
+                # Provider confirmed failure - release reservation
+                reason = f"{status}: {status_result.get('error', 'no details')}"
+                
+                await workflow.execute_activity(
+                    release_job_budget,
+                    args=[
+                        self.episode_id,
+                        self.shot_id,
+                        job_id,
+                        job_type,
+                        line_name,
+                        reserved_amount,
+                        reason,
+                    ],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.error(f"Job {job_id} {status}, reservation released")
+                
+                # Raise appropriate error - these will NOT be caught by the except above
+                if status == "blocked":
+                    raise ContentBlockError(f"Provider blocked: {status_result.get('error')}")
+                else:
+                    raise RuntimeError(f"Job {status}: {status_result.get('error')}")
+            
+            # Non-terminal: continue polling
+            workflow.logger.info(f"Job {job_id} status: {status}, poll {poll_count + 1}/{max_polls}")
+            await workflow.sleep(timedelta(seconds=delay_secs))
         
         # Exhausted polling window - mark pending_reconcile, keep reservation
         workflow.logger.error(
