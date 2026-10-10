@@ -495,6 +495,8 @@ async def commit_job_budget(
     """
     Commit reserved budget after successful job completion.
     
+    In dry mode, this is a no-op since no reservation was made.
+    
     Args:
         episode_id: Episode ID
         shot_id: Shot ID
@@ -505,6 +507,15 @@ async def commit_job_budget(
         actual_cost: Actual cost from provider (defaults to reserved_amount)
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # In dry mode, submit never reserved, so commit is a no-op
+    if dry_run_env:
+        activity.logger.info(
+            f"[DRY-RUN] Skipping commit for {job_type} {shot_id} (no reservation was made)"
+        )
+        return
+    
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     

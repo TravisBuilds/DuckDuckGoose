@@ -410,6 +410,59 @@ async def upload_beatmap(
     }
 
 
+@app.post("/api/episodes/{episode_id}/upload-prompt-kit")
+async def upload_prompt_kit(
+    episode_id: str,
+    prompt_kit_file: UploadFile = File(...),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload prompt_kit.json for an episode.
+    
+    Requires: Cookie auth
+    
+    The prompt kit contains:
+    - style: Series visual style line
+    - aspect_ratio: e.g. "9:16"
+    - characters: Map of codes to {description, ref}
+    - sets: Map of set IDs to descriptions
+    
+    Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Create episode directory
+    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save prompt_kit.json
+    prompt_kit_path = episode_dir / "prompt_kit.json"
+    content = await prompt_kit_file.read()
+    
+    # Validate JSON format
+    try:
+        prompt_kit_data = json.loads(content)
+        
+        # Validate required fields
+        if "style" not in prompt_kit_data:
+            raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'style' field")
+        if "characters" not in prompt_kit_data:
+            raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'characters' field")
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    
+    prompt_kit_path.write_bytes(content)
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "prompt_kit_path": str(prompt_kit_path),
+        "message": "prompt_kit.json uploaded successfully"
+    }
+
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,

@@ -237,3 +237,86 @@ def test_e2e_g409_picture_lock():
     g409_idx = policy.travis_approval_points.index("G4.09")
     g501_idx = policy.travis_approval_points.index("G5.01")
     assert g409_idx < g501_idx, "Picture lock must come before script lock"
+
+
+@pytest.mark.asyncio
+async def test_dry_mode_no_negative_reservations():
+    """
+    Test: Dry mode must not create negative reservations.
+    
+    In dry mode, submit activities don't reserve budget, so commit
+    should be a no-op to avoid negative reserved amounts.
+    """
+    import tempfile
+    import os
+    from hfvg.budget import BudgetLedger
+    from hfvg.activities.studio_generation import (
+        submit_still_job_enforced,
+        commit_job_budget,
+    )
+    from hfvg.studio_db import init_studio_db, create_episode
+    
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    
+    try:
+        # Initialize DB and budget
+        await init_studio_db(db_path)
+        await create_episode(db_path, "ep99")
+        
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        
+        # Set up budget line
+        await ledger.set_line(
+            episode_id="ep99",
+            line_name="L2_drafts",
+            cap=100.0,
+            stop_at=80.0,
+        )
+        
+        # Set dry mode environment
+        import os as os_module
+        os_module.environ["DRY_RUN"] = "true"
+        os_module.environ["DATABASE_PATH"] = db_path
+        
+        # Submit in dry mode (doesn't reserve)
+        job_info = await submit_still_job_enforced(
+            episode_id="ep99",
+            shot_id="A01",
+            prompt="Test",
+            version=1,
+            refs=[],
+            resolution="1k",
+            quality="medium",
+            aspect_ratio="9:16",
+        )
+        
+        # Check: no reservation was made
+        status_after_submit = await ledger.get_line_status("ep99", "L2_drafts")
+        assert status_after_submit["reserved"] == 0.0, \
+            f"Dry mode submit should not reserve, got {status_after_submit['reserved']}"
+        
+        # Commit (should be no-op in dry mode)
+        await commit_job_budget(
+            episode_id="ep99",
+            shot_id="A01",
+            job_id=job_info["job_id"],
+            job_type="still",
+            line_name=job_info["line_name"],
+            reserved_amount=job_info["reserved_amount"],
+            actual_cost=None,
+        )
+        
+        # Check: reserved must still be >= 0 (not negative)
+        status_after_commit = await ledger.get_line_status("ep99", "L2_drafts")
+        assert status_after_commit["reserved"] >= 0, \
+            f"Dry mode commit created negative reservation: {status_after_commit['reserved']}"
+        assert status_after_commit["reserved"] == 0.0, \
+            f"Dry mode should have zero reserved, got {status_after_commit['reserved']}"
+        
+    finally:
+        try:
+            os.unlink(db_path)
+        except:
+            pass
