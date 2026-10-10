@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
-"""Mutate overage commit to use reserved_amount (for mutation #27)."""
+"""Mutate overage commit to spend reserved_amount instead of actual_cost (mutation #27).
+
+Anchors on the 'Overage: commit actual cost' comment (no line-number windows) and rewrites
+the first UPDATE parameter tuple after it. Exits non-zero (and leaves the file untouched)
+if the anchor or the target tuple is not found, so a stale mutation cannot pass silently.
+"""
 import sys
 
-def mutate_file(filepath: str):
-    with open(filepath, 'r') as f:
-        content = f.read()
-    
-    # In the overage path, replace actual_cost with reserved_amount in the commit
-    # This is around line 333, in the overage branch (after "Overage: commit actual cost")
-    lines = content.split('\n')
-    new_lines = []
-    in_overage = False
-    
-    for i, line in enumerate(lines):
-        # Detect overage section by looking for the comment
-        if 'Overage: commit actual cost' in line:
-            in_overage = True
-        
-        # Check if this is the parameter line with actual_cost after we found the overage section
-        # Expanded range to 290-340 to cover the actual location
-        if in_overage and i > 290 and i < 340 and 'actual_cost' in line and 'overage = actual_cost' not in line and 'spent + ?' not in line:
-            # Replace actual_cost with reserved_amount in the parameter tuple
-            # Add comment at the end of the line instead of inline
-            new_lines.append(line.replace('actual_cost', 'reserved_amount') + '  # MUTATED: should use actual_cost')
-            in_overage = False
-        else:
-            new_lines.append(line)
-    
-    with open(filepath, 'w') as f:
-        f.write('\n'.join(new_lines))
 
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        mutate_file(sys.argv[1])
+def mutate_file(filepath: str) -> int:
+    with open(filepath) as f:
+        content = f.read()
+    anchor = "Overage: commit actual cost"
+    target = "(reserved_amount, actual_cost, line_id)"
+    idx = content.find(anchor)
+    if idx < 0:
+        print("anchor not found", file=sys.stderr)
+        return 2
+    tidx = content.find(target, idx)
+    if tidx < 0:
+        print("target tuple not found", file=sys.stderr)
+        return 2
+    # MUTATED: spend reserved_amount where actual_cost belongs (no trailing comment: the
+    # tuple is followed by the closing paren of execute() on the same line)
+    mutated = "(reserved_amount, reserved_amount, line_id)"
+    content = content[:tidx] + mutated + content[tidx + len(target):]
+    with open(filepath, "w") as f:
+        f.write(content)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(mutate_file(sys.argv[1]))

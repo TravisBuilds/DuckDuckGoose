@@ -649,7 +649,7 @@ test_mutation 32 "Canary uses stable workflow ID (409 detection)" \
 test_mutation 33 "Canary handles WorkflowAlreadyStartedError with 409" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_concurrent_409" \
-    sed -i '/except WorkflowAlreadyStartedError:/,/^    except Exception/d'
+    sed -i '/^    except WorkflowAlreadyStartedError:/,/^    except Exception as e:/{/^    except Exception as e:/!d}'
 
 # 34. M-R2d: Approve route lets exception propagate (500) on completed canary
 test_mutation 34 "Approve route returns 409 on completed workflow" \
@@ -667,7 +667,7 @@ test_mutation 35 "Live canary fails closed without estimate" \
 test_mutation 36 "Prompt includes character descriptions" \
     "hfvg/continuity_parser.py" \
     "tests/test_continuity_parser.py::test_prompt_kit_resolves_characters" \
-    sed -i '/char_descriptions.append(char_info\["description"\])/d'
+    sed -i 's/char_descriptions.append(char_info\["description"\])/pass  # MUTATED - description dropped/'
 
 # 37. M-R3b: Allow live still with unresolved character code
 test_mutation 37 "Live mode refuses unresolved character codes" \
@@ -678,7 +678,7 @@ test_mutation 37 "Live mode refuses unresolved character codes" \
 # 38. M-R3d: Omit aspect_ratio from still request
 test_mutation 38 "Still request includes aspect_ratio" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_provider_contracts.py::test_still_includes_aspect_ratio" \
+    "tests/test_provider_contracts.py::test_still_activity_passes_aspect_ratio" \
     sed -i 's/aspect_ratio=aspect_ratio,/# aspect_ratio=aspect_ratio,  # MUTATED/'
 
 # 39. M-R4a: Change conversion constant to 1.0
@@ -697,13 +697,13 @@ test_mutation 40 "Episode cap converted to API credits (950)" \
 test_mutation 41 "Reserve to exactly stop threshold triggers at_stop" \
     "hfvg/budget.py" \
     "tests/test_budget.py::test_80_percent_stop" \
-    sed -i 's/total_committed >= stop_threshold/total_committed > stop_threshold  # MUTATED/'
+    sed -i 's/at_stop = total_committed >= stop$/at_stop = total_committed > stop  # MUTATED/'
 
 # 42. M-R5a: review_clip returns passed=True in live mode
 test_mutation 42 "review_clip escalates in live mode" \
     "hfvg/activities/qc.py" \
     "tests/test_shot_live.py::test_review_clip_escalates_in_live_mode" \
-    sed -i 's/return {$/return {"passed": True, "issues": []}  # MUTATED; return {/'
+    sed -i '/async def review_clip/,${/Live mode confirmed/,${s/"passed": False,/"passed": True,  # MUTATED/}}'
 
 # 43. M-R5b: DRY_RUN=false + DB live off returns passed=True
 test_mutation 43 "DRY_RUN=false + DB live off escalates" \
@@ -724,9 +724,9 @@ test_mutation 44 "Poll exhaustion keeps reservation (no release)" \
 # M-R1b: make the generic exception handler release the reservation
 test_mutation 45 "Poll exception does not release reservation" \
     "hfvg/workflows/shot.py" \
-    "tests/test_poll_timeout.py::test_poll_timeout_keeps_reservation" \
-    sed -i '/except Exception as e:/,/continue/{ /workflow.logger.error/a\                await workflow.execute_activity(release_job_budget, args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Exception"], start_to_close_timeout=timedelta(seconds=30), retry_policy=retry_policy)  # MUTATED - release on exception
- }'
+    "tests/test_poll_timeout.py::test_poll_activity_errors_do_not_release_runtime" \
+    sed -i '/async def _poll_job_to_completion/,/@workflow.run/{/Poll activity error on attempt/a\                await workflow.execute_activity(release_job_budget, args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Exception"], start_to_close_timeout=timedelta(seconds=30), retry_policy=retry_policy)  # MUTATED - release on exception
+}'
 
 # M-R1c: on poll exhaustion, resubmit the job once
 test_mutation 46 "Poll exhaustion never resubmits" \

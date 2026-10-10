@@ -693,48 +693,116 @@ async def test_canary_l6_release_on_start_failure(test_db_api, monkeypatch, tmp_
         f"L6 must be 0 after start failure (released), got {status_after['reserved']}"
 
 
-@pytest.mark.asyncio
-async def test_canary_concurrent_409(tmp_path, monkeypatch):
-    """
-    Test: Concurrent canary POSTs return 409 for duplicate.
-    
-    M-R2a will add random suffix - test must fail.
-    M-R2b will remove WorkflowAlreadyStartedError handling - test must fail.
-    """
-    # This test requires actual Temporal setup which is complex
-    # For now, we'll test the workflow_id format is stable
-    episode_id = "ep99"
-    shot_id = "A01"
-    
-    # Expected stable workflow ID format
-    expected_workflow_id = f"{episode_id}-canary-{shot_id}"
-    
-    # Verify the format is deterministic (no random component)
-    assert "uuid" not in expected_workflow_id.lower()
-    assert expected_workflow_id == "ep99-canary-A01"
+async def _setup_canary_episode(db_path):
+    """Episode ep99 with G1.08 approved, shot A01 and an L6_reserve line (dry-run canary route)."""
+    await create_episode(db_path, "ep99")
+    await approve_g108(db_path, "ep99")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO shots (id, episode_id, shot_id, prompt, status) VALUES (?, ?, ?, ?, ?)",
+            ("ep99-A01", "ep99", "A01", "Test prompt", "pending"),
+        )
+        await db.execute("""
+            INSERT INTO budget_lines
+            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("ep99:L6_reserve", "ep99", "higgsfield", "L6_reserve", 250.0, 200.0, "credits"))
+        await db.commit()
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    return ledger
+
+
+def _canary_client(monkeypatch, mock_client):
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)  # must be set before api.main is imported
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+
+    api_main.temporal_client = mock_client
+    client = TestClient(app)
+    response = client.post("/api/login", json={"admin_secret": admin_secret})
+    assert response.status_code == 200
+    return client, response.cookies
 
 
 @pytest.mark.asyncio
-async def test_approve_completed_canary_409(tmp_path, monkeypatch):
+async def test_canary_concurrent_409(test_db_api, monkeypatch):
     """
-    Test: Approve route returns 409 on completed workflow, never 500.
-    
-    M-R2d will disable the status check - test must fail.
+    Test: a duplicate canary POST is refused with 409, releases its L6 hold, and the
+    canary always starts with the STABLE workflow id (no random suffix).
+
+    M-R2a (random workflow-id suffix) must fail the stable-id assertion.
+    M-R2b (delete WorkflowAlreadyStartedError handling) must turn the 409 into a 500.
     """
-    # This test requires Temporal workflow mocking
-    # For now, verify the logic exists in the code
-    import inspect
-    from api.main import approve_still
-    
-    source = inspect.getsource(approve_still)
-    
-    # Must check workflow status before sending signal
-    assert "WorkflowExecutionStatus" in source, \
-        "approve_still must check workflow status"
-    assert "status != WorkflowExecutionStatus.RUNNING" in source or "status == WorkflowExecutionStatus" in source, \
-        "approve_still must check if workflow is running"
-    assert "409" in source or "HTTPException" in source, \
-        "approve_still must return 409 for non-running workflows"
+    from unittest.mock import AsyncMock, MagicMock
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    ledger = await _setup_canary_episode(test_db_api)
+
+    mock_client = MagicMock()
+    # describe() fails -> pre-check treats the workflow as not existing, so the 409 must come
+    # from the WorkflowAlreadyStartedError race path (two concurrent POSTs).
+    existing = MagicMock()
+    existing.describe = AsyncMock(side_effect=Exception("not found"))
+    mock_client.get_workflow_handle = MagicMock(return_value=existing)
+    mock_client.start_workflow = AsyncMock(
+        side_effect=WorkflowAlreadyStartedError("ep99-canary-A01", "ShotWorkflow")
+    )
+    client, cookies = _canary_client(monkeypatch, mock_client)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"
+    assert "already running" in response.json()["detail"].lower()
+
+    # Stable, deterministic workflow id: this is what makes the duplicate detectable at all
+    assert mock_client.start_workflow.await_count == 1
+    assert mock_client.start_workflow.call_args.kwargs["id"] == "ep99-canary-A01"
+
+    # The hold taken for the refused canary was released
+    status = await ledger.get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0, f"L6 must be released on 409, got {status['reserved']}"
+
+
+@pytest.mark.asyncio
+async def test_approve_completed_canary_409(test_db_api, monkeypatch):
+    """
+    Test: Approve route returns 409 (never 500, never a signal) when the workflow is not running,
+    and still signals a running workflow.
+
+    M-R2d will disable the status check - the COMPLETED case must then fail.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    from temporalio.client import WorkflowExecutionStatus
+
+    await create_episode(test_db_api, "ep99")
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    from api import main as api_main
+
+    def make_client(status):
+        handle = MagicMock()
+        handle.signal = AsyncMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=status))
+        mc = MagicMock()
+        mc.get_workflow_handle_for = MagicMock(return_value=handle)
+        return mc, handle
+
+    for terminal in (WorkflowExecutionStatus.COMPLETED, WorkflowExecutionStatus.FAILED,
+                     WorkflowExecutionStatus.TERMINATED):
+        mc, handle = make_client(terminal)
+        api_main.temporal_client = mc
+        response = client.post("/api/episodes/ep99/shots/A01/approve", cookies=cookies)
+        assert response.status_code == 409, \
+            f"{terminal.name}: expected 409, got {response.status_code}: {response.text}"
+        assert not handle.signal.called, f"{terminal.name}: signal must NOT be sent"
+
+    mc, handle = make_client(WorkflowExecutionStatus.RUNNING)
+    api_main.temporal_client = mc
+    response = client.post("/api/episodes/ep99/shots/A01/approve", cookies=cookies)
+    assert response.status_code == 200, response.text
+    assert handle.signal.called, "RUNNING workflow must receive the stills_approved signal"
 
 
 @pytest.mark.asyncio

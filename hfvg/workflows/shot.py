@@ -26,7 +26,10 @@ with workflow.unsafe.imports_passed_through():
     import os
 
 
-@workflow.defn
+# RuntimeError raised by the poll loop (confirmed provider failure, poll exhaustion) MUST fail the
+# workflow. In temporalio-python any non-ApplicationError exception only fails the workflow *task*,
+# which the server retries forever, so the workflow would never reach a terminal state.
+@workflow.defn(failure_exception_types=[RuntimeError])
 class ShotWorkflow:
     """Workflow for a single shot: still → review → clip → QC."""
 

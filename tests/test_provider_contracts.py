@@ -607,3 +607,58 @@ async def test_still_includes_aspect_ratio():
             "Still request must include aspect_ratio parameter"
     
     await provider.close()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
+    """
+    Test: the live still ACTIVITY forwards aspect_ratio to both the estimate and the paid submit.
+
+    (test_still_includes_aspect_ratio covers the provider; this covers the activity wiring.)
+    M-R3d (drop aspect_ratio= from the activity's provider calls) must fail this test.
+    """
+    import json
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    from hfvg.budget import BudgetLedger
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    import aiosqlite
+
+    db_path = str(tmp_path / "ar.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    await BudgetLedger(db_path).init_db()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            INSERT INTO budget_lines
+            (line_id, episode_id, provider, line_name, budget_cap, stop_threshold, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("ep99:L2_drafts", "ep99", "higgsfield", "L2_drafts", 100.0, 80.0, "credits"))
+        await db.commit()
+    await set_live_mode(db_path, "ep99", True)
+    await approve_g108(db_path, "ep99")
+
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+
+    est = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.0", "usd": "0.06"})
+    )
+    sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "req-ar-1"})
+    )
+
+    # 16:9 is deliberately NOT the 9:16 default, so a dropped kwarg cannot hide behind the default
+    result = await submit_still_job_enforced(
+        "ep99", "A01", "Test prompt", 1, aspect_ratio="16:9"
+    )
+    assert result["job_id"] == "req-ar-1"
+
+    assert est.call_count == 1 and sub.call_count == 1
+    est_body = json.loads(est.calls[0].request.content)
+    sub_body = json.loads(sub.calls[0].request.content)
+    assert est_body.get("aspect_ratio") == "16:9", f"estimate body: {est_body}"
+    assert sub_body.get("aspect_ratio") == "16:9", f"submit body: {sub_body}"

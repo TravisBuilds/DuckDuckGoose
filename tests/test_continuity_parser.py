@@ -90,14 +90,20 @@ def test_prompt_kit_live_refuses_unresolved(tmp_path):
         "tod": "afternoon",
     }
     
-    # Should raise ValueError about unresolved M2
-    # M-R3b will disable this check, causing no exception
-    with pytest.raises(ValueError) as exc_info:
-        build_prompt_with_continuity(shot, {}, prompt_kit=loaded)
+    # Should raise ValueError about unresolved M2.
+    # Explicit try/except (not pytest.raises) so that M-R3b (check disabled) fails with a plain
+    # AssertionError instead of pytest's "DID NOT RAISE" failure type.
+    raised = None
+    try:
+        prompt = build_prompt_with_continuity(shot, {}, prompt_kit=loaded)
+    except ValueError as e:
+        raised = e
     
-    # Explicitly assert the exception message (M-R3b must fail with AssertionError)
-    assert "Unresolved character codes" in str(exc_info.value), \
-        f"Expected 'Unresolved character codes' in error, got: {exc_info.value}"
+    assert raised is not None, \
+        "Unresolved character code M2 must raise ValueError in prompt_kit mode (fail closed)"
+    assert "Unresolved character codes" in str(raised), \
+        f"Expected 'Unresolved character codes' in error, got: {raised}"
+    assert "M2" in str(raised), f"Error must name the unresolved code, got: {raised}"
 
 
 def test_get_character_refs():
