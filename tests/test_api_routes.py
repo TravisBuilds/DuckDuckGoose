@@ -315,7 +315,10 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             workflows=[ShotWorkflow],
             activities=[
                 failing_submit,  # This will cause workflow to fail
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.precheck_clip_qc,
                 activities.review_still,
@@ -536,7 +539,10 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             workflows=[ShotWorkflow],
             activities=[
                 failing_submit,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.precheck_clip_qc,
                 activities.review_still,

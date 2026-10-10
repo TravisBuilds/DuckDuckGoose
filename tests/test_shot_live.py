@@ -117,7 +117,10 @@ async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypat
             activities=[
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.precheck_clip_qc,
                 activities.review_still,
@@ -212,7 +215,10 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
             activities=[
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.precheck_clip_qc,
                 activities.review_still,

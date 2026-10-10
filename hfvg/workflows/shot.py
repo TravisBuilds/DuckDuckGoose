@@ -8,10 +8,13 @@ from temporalio.common import RetryPolicy
 with workflow.unsafe.imports_passed_through():
     from hfvg import budget, config  # Non-deterministic modules with os.getenv
     from hfvg.activities import (
-        await_job_enforced,
+        commit_job_budget,
+        mark_job_pending_reconcile,
+        poll_job_status,
         precheck_clip_qc,
         precheck_still_qc,
         record_shot_result,
+        release_job_budget,
         review_clip,
         review_still,
         submit_clip_job_enforced,
@@ -58,6 +61,145 @@ class ShotWorkflow:
             "stills_approved": self.stills_approved,
             "human_approved_still": self.human_approved_still,
         }
+    
+    async def _poll_job_to_completion(
+        self,
+        job_id: str,
+        job_type: str,
+        line_name: str,
+        reserved_amount: float,
+    ) -> dict:
+        """
+        Poll job status with workflow-level retry loop (R1 design).
+        
+        Each poll is a short activity (≤60s) called in a loop with workflow.sleep backoff.
+        Bounded to ~30 minutes total. On exhaustion/timeout/cancel: reservation stays reserved,
+        job marked pending_reconcile, never resubmit, never release.
+        Release only on confirmed provider failure.
+        
+        Args:
+            job_id: Provider job ID
+            job_type: "still" or "clip"
+            line_name: Budget line name
+            reserved_amount: Reserved amount
+            
+        Returns:
+            dict with url, cost, and status
+        """
+        retry_policy = RetryPolicy(
+            maximum_attempts=3,
+            non_retryable_error_types=[
+                "InsufficientCreditsError",
+                "ContentBlockError",
+            ],
+        )
+        
+        # Polling parameters: ~30 min total
+        max_polls = 180
+        initial_delay_secs = 5
+        max_delay_secs = 10
+        
+        for poll_count in range(max_polls):
+            # Exponential backoff with cap
+            delay_secs = min(initial_delay_secs * (1.5 ** (poll_count // 10)), max_delay_secs)
+            
+            try:
+                status_result = await workflow.execute_activity(
+                    poll_job_status,
+                    args=[job_id, job_type, self.episode_id],
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=retry_policy,
+                )
+                
+                status = status_result["status"]
+                
+                # Terminal statuses
+                if status == "completed":
+                    # Commit budget
+                    await workflow.execute_activity(
+                        commit_job_budget,
+                        args=[
+                            self.episode_id,
+                            self.shot_id,
+                            job_id,
+                            job_type,
+                            line_name,
+                            reserved_amount,
+                            status_result.get("cost"),
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    workflow.logger.info(f"Job {job_id} completed, budget committed")
+                    
+                    return {
+                        "url": status_result["output_url"],
+                        "cost": status_result.get("cost", reserved_amount),
+                        "status": "completed",
+                    }
+                
+                elif status in ("failed", "blocked", "canceled"):
+                    # Provider confirmed failure - release reservation
+                    reason = f"{status}: {status_result.get('error', 'no details')}"
+                    
+                    await workflow.execute_activity(
+                        release_job_budget,
+                        args=[
+                            self.episode_id,
+                            self.shot_id,
+                            job_id,
+                            job_type,
+                            line_name,
+                            reserved_amount,
+                            reason,
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    workflow.logger.error(f"Job {job_id} {status}, reservation released")
+                    
+                    # Raise appropriate error
+                    if status == "blocked":
+                        raise ContentBlockError(f"Provider blocked: {status_result.get('error')}")
+                    else:
+                        raise RuntimeError(f"Job {status}: {status_result.get('error')}")
+                
+                # Non-terminal: continue polling
+                workflow.logger.info(f"Job {job_id} status: {status}, poll {poll_count + 1}/{max_polls}")
+                await workflow.sleep(timedelta(seconds=delay_secs))
+                
+            except Exception as e:
+                # Activity timeout/cancel/error: DO NOT release reservation
+                workflow.logger.error(f"Poll activity error on attempt {poll_count + 1}: {e}")
+                
+                # If we've exhausted retries within this poll attempt, continue to next poll
+                # The retry_policy will retry the activity, but if all retries fail, we continue
+                if poll_count < max_polls - 1:
+                    await workflow.sleep(timedelta(seconds=delay_secs))
+                    continue
+                else:
+                    # Exhausted all polls - mark pending reconcile, keep reservation
+                    break
+        
+        # Exhausted polling window - mark pending_reconcile, keep reservation
+        workflow.logger.error(
+            f"Job {job_id} exhausted {max_polls} polls (~30 min). "
+            f"Marking pending_reconcile, reservation held."
+        )
+        
+        await workflow.execute_activity(
+            mark_job_pending_reconcile,
+            args=[self.episode_id, self.shot_id, job_id, job_type],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+        
+        raise RuntimeError(
+            f"Job {job_id} polling exhausted after {max_polls} attempts (~30 min). "
+            f"Reservation held, manual reconciliation required."
+        )
 
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
@@ -125,21 +267,18 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
 
-                # Poll for completion with all required args
-                self.still_asset = await workflow.execute_activity(
-                    await_job_enforced,
-                    args=[
-                        job_info["job_id"],
-                        "still",
-                        self.episode_id,
-                        self.shot_id,
-                        job_info["line_name"],
-                        job_info["reserved_amount"],
-                    ],
-                    start_to_close_timeout=timedelta(minutes=10),
-                    heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=retry_policy,
+                # Poll for completion using workflow-level polling loop (R1)
+                poll_result = await self._poll_job_to_completion(
+                    job_id=job_info["job_id"],
+                    job_type="still",
+                    line_name=job_info["line_name"],
+                    reserved_amount=job_info["reserved_amount"],
                 )
+                
+                self.still_asset = {
+                    "url": poll_result["url"],
+                    "cost": poll_result["cost"],
+                }
 
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
 
@@ -304,21 +443,18 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
 
-                # Poll for completion with all required args
-                self.clip_asset = await workflow.execute_activity(
-                    await_job_enforced,
-                    args=[
-                        job_info["job_id"],
-                        "clip",
-                        self.episode_id,
-                        self.shot_id,
-                        job_info["line_name"],
-                        job_info["reserved_amount"],
-                    ],
-                    start_to_close_timeout=timedelta(minutes=15),
-                    heartbeat_timeout=timedelta(minutes=3),
-                    retry_policy=retry_policy,
+                # Poll for completion using workflow-level polling loop (R1)
+                poll_result = await self._poll_job_to_completion(
+                    job_id=job_info["job_id"],
+                    job_type="clip",
+                    line_name=job_info["line_name"],
+                    reserved_amount=job_info["reserved_amount"],
                 )
+                
+                self.clip_asset = {
+                    "url": poll_result["url"],
+                    "cost": poll_result["cost"],
+                }
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
 

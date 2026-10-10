@@ -573,13 +573,18 @@ async def test_still_includes_aspect_ratio():
     from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
     from unittest.mock import AsyncMock, patch
     
+    from unittest.mock import Mock
+    
     provider = HiggsfieldStillProvider()
     
-    with patch.object(provider, '_client') as mock_client:
-        mock_client.post = AsyncMock(return_value=AsyncMock(
-            status_code=200,
-            json=AsyncMock(return_value={"job_id": "test_job"})
-        ))
+    with patch.object(provider, 'client') as mock_client:
+        # Create a proper mock response (json() is sync in httpx)
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json = Mock(return_value={"request_id": "test_job"})
+        
+        mock_client.post = AsyncMock(return_value=mock_response)
         
         await provider.submit_image(
             prompt="Test scene",

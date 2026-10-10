@@ -15,6 +15,14 @@ def configure_test_environment():
     os.environ["DRY_RUN"] = "true"
     os.environ["DATABASE_PATH"] = ":memory:"
     
+    # Set required secrets for API initialization (32+ chars)
+    if "ADMIN_SECRET" not in os.environ:
+        os.environ["ADMIN_SECRET"] = "test_admin_secret_minimum_32_characters_long_for_security"
+    
+    # Set Higgsfield API key for provider initialization
+    if "HIGGSFIELD_API_KEY" not in os.environ:
+        os.environ["HIGGSFIELD_API_KEY"] = "test_key_id:test_key_secret"
+    
     yield
     
     # Cleanup

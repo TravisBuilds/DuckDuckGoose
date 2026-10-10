@@ -194,7 +194,10 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
             workflows=[ShotWorkflow],
             activities=[
                 activities.submit_still_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,

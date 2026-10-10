@@ -36,7 +36,10 @@ async def test_approval_signal_reaches_episode_workflow():
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             # Start workflow (will pause at G1.01)
@@ -104,7 +107,10 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             # Start ShotWorkflow (like canary does)
@@ -177,7 +183,10 @@ async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
                 activities.record_shot_result,
                 activities.submit_still_job_enforced,
                 activities.submit_clip_job_enforced,
-                activities.await_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
             ],
         ):
             shot_plan = {

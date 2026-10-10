@@ -96,9 +96,9 @@ class BudgetLedger:
             # Initialize Higgsfield lines (convert app credits to API credits)
             for line_name, cap_app_credits in lines.items():
                 line_id = f"{episode_id}:{line_name}"
-                # Convert cap from app credits to API credits
-                cap_api_credits = cap_app_credits * APP_TO_API_CREDIT_CONVERSION
-                stop_threshold = cap_api_credits * stop_fraction
+                # Convert cap from app credits to API credits, round to 2 decimals to avoid float drift
+                cap_api_credits = round(cap_app_credits * APP_TO_API_CREDIT_CONVERSION, 2)
+                stop_threshold = round(cap_api_credits * stop_fraction, 2)
                 
                 await db.execute("""
                     INSERT OR IGNORE INTO budget_lines
@@ -116,7 +116,9 @@ class BudgetLedger:
             
             for line_name, cap in el_lines.items():
                 line_id = f"{episode_id}:el_{line_name}"
-                stop_threshold = cap * el_stop_fraction
+                # Round to 2 decimals to avoid float drift
+                cap = round(cap, 2)
+                stop_threshold = round(cap * el_stop_fraction, 2)
                 
                 await db.execute("""
                     INSERT OR IGNORE INTO budget_lines
@@ -161,9 +163,9 @@ class BudgetLedger:
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             for line_name, line_data in credit_plan["lines"].items():
                 line_id = f"{episode_id}:{line_name}"
-                # Convert from app credits to API credits
-                cap_api_credits = line_data["cap"] * APP_TO_API_CREDIT_CONVERSION
-                stop_api_credits = line_data["stop"] * APP_TO_API_CREDIT_CONVERSION
+                # Convert from app credits to API credits, round to 2 decimals to avoid float drift
+                cap_api_credits = round(line_data["cap"] * APP_TO_API_CREDIT_CONVERSION, 2)
+                stop_api_credits = round(line_data["stop"] * APP_TO_API_CREDIT_CONVERSION, 2)
                 
                 await db.execute("""
                     INSERT OR IGNORE INTO budget_lines
@@ -195,6 +197,9 @@ class BudgetLedger:
         # GC.04 1,250 app credit episode cap, converted to API credits
         # 1250 app credits * 0.76 = 950 API credits
         EPISODE_CAP = 950.0  # API credits (1250 app credits * 0.76 conversion)
+        
+        # Round amount to 2 decimals to avoid float drift
+        amount = round(amount, 2)
         line_id = f"{episode_id}:{line_name}"
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
@@ -444,8 +449,9 @@ class BudgetLedger:
                     raise ValueError(f"Budget line {line_id} not found")
                 
                 spent, reserved, cap, stop, unit, provider = row
-                total_committed = spent + reserved
-                available = stop - total_committed
+                # Round to 2 decimals to avoid float drift
+                total_committed = round(spent + reserved, 2)
+                available = round(stop - total_committed, 2)
                 at_stop = total_committed >= stop
                 
                 return {

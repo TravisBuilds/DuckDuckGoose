@@ -711,6 +711,29 @@ test_mutation 43 "DRY_RUN=false + DB live off escalates" \
     "tests/test_shot_live.py::test_review_clip_dry_run_false_live_off_escalates" \
     sed -i 's/"escalate": True,$/"passed": True, "escalate": False,  # MUTATED/'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# R1 MUTATIONS: Poll timeout behavior (keeps reservation, marks pending_reconcile)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# M-R1a: in the timeout/cancel/exhaustion path, call the ledger release (restore old behaviour)
+test_mutation 44 "Poll exhaustion keeps reservation (no release)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_timeout_keeps_reservation" \
+    sed -i '/Exhausted polling window/,/raise RuntimeError/{ /await workflow.execute_activity/,/retry_policy=retry_policy,/{ s/mark_job_pending_reconcile/release_job_budget/; s/args=\[self.episode_id, self.shot_id, job_id, job_type\]/args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Poll exhausted"]/; } }'
+
+# M-R1b: make the generic exception handler release the reservation
+test_mutation 45 "Poll exception does not release reservation" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_timeout_keeps_reservation" \
+    sed -i '/except Exception as e:/,/continue/{ /workflow.logger.error/a\                await workflow.execute_activity(release_job_budget, args=[self.episode_id, self.shot_id, job_id, job_type, line_name, reserved_amount, "Exception"], start_to_close_timeout=timedelta(seconds=30), retry_policy=retry_policy)  # MUTATED - release on exception
+ }'
+
+# M-R1c: on poll exhaustion, resubmit the job once
+test_mutation 46 "Poll exhaustion never resubmits" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_poll_timeout.py::test_poll_single_provider_submit" \
+    sed -i '/Exhausted polling window/i\        # MUTATED: resubmit once\n        await workflow.execute_activity(submit_still_job_enforced, args=[self.episode_id, self.shot_id, "retry", 1, [], "1k", "medium", "9:16"], start_to_close_timeout=timedelta(minutes=2), retry_policy=retry_policy)\n'
+
 # Print final summary
 print_summary
 exit_code=$?
