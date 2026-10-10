@@ -61,7 +61,7 @@ def test_prompt_kit_live_refuses_unresolved(tmp_path):
     """
     Test: Live mode with prompt_kit refuses unresolved character codes.
     
-    M-R3b will disable the check - this test must fail.
+    M-R3b will disable the check - this test must fail with AssertionError.
     """
     episode_path = tmp_path / "ep99"
     episode_path.mkdir()
@@ -91,8 +91,13 @@ def test_prompt_kit_live_refuses_unresolved(tmp_path):
     }
     
     # Should raise ValueError about unresolved M2
-    with pytest.raises(ValueError, match="Unresolved character codes"):
+    # M-R3b will disable this check, causing no exception
+    with pytest.raises(ValueError) as exc_info:
         build_prompt_with_continuity(shot, {}, prompt_kit=loaded)
+    
+    # Explicitly assert the exception message (M-R3b must fail with AssertionError)
+    assert "Unresolved character codes" in str(exc_info.value), \
+        f"Expected 'Unresolved character codes' in error, got: {exc_info.value}"
 
 
 def test_get_character_refs():
@@ -131,10 +136,13 @@ def test_get_character_refs():
 
 def test_aspect_ratio_in_prompt():
     """
-    Test: 9:16 aspect_ratio adds vertical framing text to prompt.
+    Test: 9:16 aspect_ratio should NOT duplicate vertical framing text.
+    
+    The style should already contain aspect ratio info. Adding it again
+    causes duplication like "vertical 9:16 frame vertical 9:16 framing".
     """
     prompt_kit = {
-        "style": "Painterly 3D animation",
+        "style": "Painterly 3D animation, vertical 9:16 frame",
         "aspect_ratio": "9:16",
         "characters": {},
         "sets": {}
@@ -148,5 +156,43 @@ def test_aspect_ratio_in_prompt():
     
     prompt = build_prompt_with_continuity(shot, {}, prompt_kit=prompt_kit)
     
-    # Should include vertical 9:16 framing text
-    assert "vertical 9:16 framing" in prompt or "9:16" in prompt
+    # Should not duplicate vertical/9:16 text
+    assert prompt.count("vertical") <= 1, f"Duplicated 'vertical' in prompt: {prompt}"
+    assert prompt.count("9:16") <= 1, f"Duplicated '9:16' in prompt: {prompt}"
+
+
+def test_multi_letter_character_codes():
+    """
+    Test: Beat-map parser handles multi-letter codes like AG, B, W, M1.
+    
+    Regex must be [A-Z]+\d* to match both multi-letter codes and digits.
+    """
+    from hfvg.episode_parser import parse_beatmap
+    import tempfile
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        # Simple beatmap with various character code formats
+        f.write("""
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|----|--------------|----|-----|-------|--------|---------|----|----|-------|
+| 1 | A01 | 5.0 (7.0) | lobby | day | B W | Two characters | Test | fade | cut | K |
+| 2 | A02 | 5.0 (7.0) | lobby | day | M1 M2 | Moose variants | Test | cut | fade | S |
+| 3 | A03 | 5.0 (7.0) | lobby | day | AG B | Multi-letter code | Test | cut | fade | K |
+""")
+        f.flush()
+        beatmap_path = f.name
+    
+    shots = parse_beatmap(beatmap_path)
+    
+    # Check shot 1: B, W (single letters)
+    assert shots[0]["characters"] == ["B", "W"]
+    
+    # Check shot 2: M1, M2 (letter + digit)
+    assert shots[1]["characters"] == ["M1", "M2"]
+    
+    # Check shot 3: AG, B (multi-letter + single letter)
+    assert shots[2]["characters"] == ["AG", "B"], \
+        f"Expected ['AG', 'B'], got {shots[2]['characters']}"
+    
+    import os
+    os.unlink(beatmap_path)

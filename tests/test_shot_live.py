@@ -405,3 +405,35 @@ async def test_review_still_dry_run_false_live_off_escalates(tmp_path, monkeypat
     assert result.get("escalate") is True
     assert "DRY_RUN=false but episode not in live mode" in result["issues"][0]
 
+
+
+@pytest.mark.asyncio
+async def test_canary_refuses_local_refs_in_live(tmp_path, monkeypatch):
+    """
+    Test: Canary route refuses local file paths for refs in live mode.
+    
+    M-R3c will allow local paths - this test must fail with AssertionError.
+    """
+    # This test verifies the logic exists in the code
+    import inspect
+    import sys
+    sys.path.insert(0, '/workspace')
+    from api.main import run_canary
+    
+    source = inspect.getsource(run_canary)
+    
+    # Must check for local refs in live mode and refuse them
+    assert "not dry_run and refs" in source, \
+        "Canary must check for refs in live mode"
+    assert "501" in source or "not yet implemented" in source.lower(), \
+        "Canary must refuse local refs in live mode with 501"
+    
+    # The check should explicitly refuse refs, not silently ignore them
+    lines = source.split('\n')
+    found_ref_check = False
+    for line in lines:
+        if 'not dry_run and refs' in line:
+            found_ref_check = True
+            break
+    
+    assert found_ref_check, "Must have explicit check for refs in live mode"

@@ -165,9 +165,8 @@ def build_prompt_with_continuity(
     if style:
         parts.append(style)
     
-    # Add aspect_ratio text if specified in prompt_kit
-    if prompt_kit and prompt_kit.get("aspect_ratio") == "9:16":
-        parts.append("vertical 9:16 framing")
+    # Note: Do NOT add aspect_ratio text separately - it should be in the style already
+    # Adding it again causes duplication like "vertical 9:16 frame vertical 9:16 framing"
     
     # Add characters with descriptions
     characters = shot.get("characters", [])
