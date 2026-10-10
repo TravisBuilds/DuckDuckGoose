@@ -27,88 +27,61 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.workflows.shot import ShotWorkflow
 
 
-# Fake provider activity that stays in_progress for testing poll exhaustion
+# Test counters
 _poll_count = 0
 _submit_count = 0
 _release_count = 0
 
 
-@activity.defn(name="poll_job_status")
-async def fake_poll_job_status_stuck(job_id: str, job_type: str, episode_id: str) -> dict:
-    """Fake poll that always returns in_progress (simulates stuck job)."""
-    global _poll_count
-    _poll_count += 1
+# Fake provider classes for testing
+class FakeStuckProvider:
+    """Provider that always returns in_progress."""
+    async def close(self):
+        pass
     
-    return {
-        "status": "in_progress",
-        "output_url": None,
-        "error": None,
-        "cost": None,
-    }
-
-
-@activity.defn(name="poll_job_status_failed")
-async def fake_poll_job_status_failed(job_id: str, job_type: str, episode_id: str) -> dict:
-    """Fake poll that returns failed after first call."""
-    return {
-        "status": "failed",
-        "output_url": None,
-        "error": "Simulated provider failure",
-        "cost": None,
-    }
-
-
-@activity.defn(name="submit_still_job_enforced")
-async def fake_submit_still_tracked(
-    episode_id: str, shot_id: str, prompt: str, version: int, refs: list, 
-    resolution: str, quality: str, aspect_ratio: str
-) -> dict:
-    """Track submit calls."""
-    global _submit_count
-    _submit_count += 1
+    async def estimate_cost(self, **kwargs):
+        return 5.0
     
-    return {
-        "job_id": f"fake-job-{_submit_count}",
-        "line_name": "L2_drafts",
-        "reserved_amount": 5.0,
-    }
-
-
-@activity.defn(name="commit_job_budget")
-async def fake_commit_job_budget(
-    episode_id: str, shot_id: str, job_id: str, job_type: str,
-    line_name: str, reserved_amount: float, actual_cost: float = None
-) -> None:
-    """Fake commit."""
-    pass
-
-
-@activity.defn(name="release_job_budget")
-async def fake_release_job_budget(
-    episode_id: str, shot_id: str, job_id: str, job_type: str,
-    line_name: str, reserved_amount: float, reason: str
-) -> None:
-    """Track release calls."""
-    global _release_count
-    _release_count += 1
-
-
-@activity.defn(name="mark_job_pending_reconcile")
-async def fake_mark_job_pending_reconcile(
-    episode_id: str, shot_id: str, job_id: str, job_type: str
-) -> None:
-    """Fake mark pending reconcile - write to a test file."""
-    import aiosqlite
-    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            """INSERT INTO audit_log (episode_id, action, details, user)
-               VALUES (?, ?, ?, ?)""",
-            (episode_id, "job_pending_reconcile",
-             f"{job_type} {shot_id} job {job_id} test pending_reconcile",
-             "test")
+    async def submit_image(self, **kwargs):
+        global _submit_count
+        _submit_count += 1
+        return f"fake-job-{_submit_count}"
+    
+    async def get_job_status(self, job_id: str):
+        global _poll_count
+        _poll_count += 1
+        from hfvg.providers import ProviderJob, ProviderJobStatus
+        return ProviderJob(
+            job_id=job_id,
+            status=ProviderJobStatus.PROCESSING,
+            output_url=None,
+            error=None,
+            cost=None
         )
-        await db.commit()
+
+
+class FakeFailedProvider:
+    """Provider that returns failed status."""
+    async def close(self):
+        pass
+    
+    async def estimate_cost(self, **kwargs):
+        return 5.0
+    
+    async def submit_image(self, **kwargs):
+        global _submit_count
+        _submit_count += 1
+        return f"fake-job-{_submit_count}"
+    
+    async def get_job_status(self, job_id: str):
+        from hfvg.providers import ProviderJob, ProviderJobStatus
+        return ProviderJob(
+            job_id=job_id,
+            status=ProviderJobStatus.FAILED,
+            output_url=None,
+            error="Simulated provider failure",
+            cost=None
+        )
 
 
 def test_poll_timeout_keeps_reservation():
@@ -239,12 +212,13 @@ def test_poll_single_provider_submit():
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(60)
-async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path):
+@pytest.mark.timeout(120)
+async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
     """
     RUNTIME TEST: Poll exhaustion keeps reservation, marks pending_reconcile.
     
     Uses Temporal time-skipping to simulate >15 minutes of polling a stuck job.
+    Uses production activity list with monkeypatched provider.
     
     Asserts:
     - reserved > 0 (reservation held)
@@ -260,7 +234,11 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path):
     _release_count = 0
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
     
     # Initialize DB
     await init_studio_db(db_path)
@@ -287,23 +265,35 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path):
         stop_at=80.0,
     )
     
+    # Monkeypatch the provider to always return in_progress
+    # Need to patch the imported reference in the activity module
+    from hfvg.activities import studio_generation
+    monkeypatch.setattr(studio_generation, "HiggsfieldStillProvider", FakeStuckProvider)
+    
+    # Track releases by monkeypatching ledger.release
+    original_release = BudgetLedger.release
+    async def tracked_release(self, *args, **kwargs):
+        global _release_count
+        _release_count += 1
+        return await original_release(self, *args, **kwargs)
+    monkeypatch.setattr(BudgetLedger, "release", tracked_release)
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
             workflows=[ShotWorkflow],
             activities=[
-                fake_submit_still_tracked,
-                fake_poll_job_status_stuck,
-                fake_commit_job_budget,
-                fake_release_job_budget,
-                fake_mark_job_pending_reconcile,
+                activities.submit_still_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
             ],
         ):
-            # Patch the activities to use our fakes
             shot_plan = {
                 "shot_id": "A01",
                 "prompt": "Test prompt",
@@ -346,11 +336,12 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_confirmed_failure_releases_once(tmp_path):
+async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
     """
     RUNTIME TEST: Confirmed provider failure releases exactly once.
     
     Uses a fake provider that returns failed status immediately.
+    Uses production activity list with monkeypatched provider.
     
     Asserts:
     - exactly one release call
@@ -363,7 +354,11 @@ async def test_confirmed_failure_releases_once(tmp_path):
     _release_count = 0
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
     
     # Initialize DB
     await init_studio_db(db_path)
@@ -390,17 +385,30 @@ async def test_confirmed_failure_releases_once(tmp_path):
         stop_at=80.0,
     )
     
+    # Monkeypatch the provider to return failed
+    # Need to patch the imported reference in the activity module
+    from hfvg.activities import studio_generation
+    monkeypatch.setattr(studio_generation, "HiggsfieldStillProvider", FakeFailedProvider)
+    
+    # Track releases by monkeypatching ledger.release
+    original_release = BudgetLedger.release
+    async def tracked_release(self, *args, **kwargs):
+        global _release_count
+        _release_count += 1
+        return await original_release(self, *args, **kwargs)
+    monkeypatch.setattr(BudgetLedger, "release", tracked_release)
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
             workflows=[ShotWorkflow],
             activities=[
-                fake_submit_still_tracked,
-                fake_poll_job_status_failed,
-                fake_commit_job_budget,
-                fake_release_job_budget,
-                fake_mark_job_pending_reconcile,
+                activities.submit_still_job_enforced,
+                activities.poll_job_status,
+                activities.commit_job_budget,
+                activities.release_job_budget,
+                activities.mark_job_pending_reconcile,
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,

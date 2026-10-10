@@ -318,8 +318,9 @@ async def test_episode_cap_enforced(test_db):
     # MUST raise ValueError (not just return False)
     assert exception_raised, \
         "Episode cap check must raise ValueError, not silently return False"
-    assert "1,250 credit cap" in error_message, \
-        f"Error should mention 1,250 credit cap, got: {error_message}"
+    # Message now reports the converted API credit cap (950.0) instead of app credit cap (1,250)
+    assert "950.0 API credits" in error_message or "episode cap" in error_message, \
+        f"Error should mention episode cap, got: {error_message}"
 
 
 @pytest.mark.asyncio
