@@ -42,12 +42,18 @@ class ShotWorkflow:
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
         self.human_approved_still = False  # Track if human approved an escalated still
+        self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
 
     @workflow.signal
     def stills_approved(self):
         """Signal from parent that this scene's stills have been approved."""
         self.stills_approved = True
     
+    @workflow.signal
+    def set_end_image(self, url: str):
+        """Signal: the END-frame image URL for a start+end clip (Kling last_image_url)."""
+        self.end_image_url = url
+
     @workflow.signal
     def clip_approved(self):
         """Signal from API that this shot's clip has been approved."""
@@ -268,6 +274,7 @@ class ShotWorkflow:
                         aspect_ratio,
                         None,  # tier (activity default)
                         shot_plan.get("shot_meta"),  # prompt lint metadata
+                        shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -414,6 +421,15 @@ class ShotWorkflow:
                 # Extract duration from shot plan params
                 params = shot_plan.get("params", {})
                 duration = params.get("duration", 5.0)
+                end_image_url = params.get("end_image_url") or self.end_image_url
+                if params.get("end_frame") and not end_image_url:
+                    if shot_plan.get("dry_run"):
+                        end_image_url = "/fake/end.jpg"  # dry run: nothing is submitted
+                    else:
+                        # Live: never generate an END-frame shot as a start-only clip
+                        workflow.logger.info(f"{self.shot_id} needs an end frame: waiting for it")
+                        await workflow.wait_condition(lambda: self.end_image_url is not None)
+                        end_image_url = self.end_image_url
 
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
@@ -448,7 +464,9 @@ class ShotWorkflow:
                         shot_plan.get("shot_meta"),  # prompt lint metadata
                         params.get("model", "kling"),  # explicit routing
                         shot_plan.get("tags", []),
-                        params.get("end_image_url"),
+                        end_image_url,
+                        None,  # bitrate_mode (activity default)
+                        shot_plan.get("missing_refs", []),
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,

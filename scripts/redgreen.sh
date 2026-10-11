@@ -874,6 +874,222 @@ test_mutation 68 "M-P3e Lint requires the antler clause when Birch is present" \
     "tests/test_prompt_lint.py::test_antler_clause_required_when_antler_character_present" \
     sed -i 's/^    if present \& {c.lower() for c in kit.antler_characters}:/    if False:  # MUTATED/'
 
+# 69. M-R4a shot_meta.count comes from shots.json
+test_mutation 69 "M-R4a shot_meta.count comes from shots.json" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_shot_meta_filled_from_shots_json" \
+    sed -i 's/^                "count": count,$/                "count": count + 1,  # MUTATED/'
+
+# 70. M-R4b prompt from shots.json is used as-is
+test_mutation 70 "M-R4b prompt from shots.json is used as-is" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_prompt_is_used_as_is" \
+    sed -i 's/^            "prompt": prompt,  # AS-IS: never recomposed$/            "prompt": prompt.strip(),  # MUTATED/'
+
+# 71. M-R4c SHOTS_JSON_PATH env override is honoured
+test_mutation 71 "M-R4c SHOTS_JSON_PATH env override is honoured" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_shots_json_path_env_override" \
+    sed -i '/^def shots_json_path/,/^def refs_json_path/ s/return Path(override)/return Path("\/nonexistent-MUTATED")/'
+
+# 72. M-R4d Live refuses when shots.json is missing
+test_mutation 72 "M-R4d Live refuses when shots.json is missing" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_live_refuses_without_shots_json" \
+    sed -i 's/^        if require:$/        if False:  # MUTATED/'
+
+# 73. M-R4e Live refuses beatmap/shots.json id mismatch
+test_mutation 73 "M-R4e Live refuses beatmap/shots.json id mismatch" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_merge_requires_matching_shot_sets_in_live" \
+    sed -i 's/^    if require and beat_ids != set(plans):$/    if False:  # MUTATED/'
+
+# 74. M-R4f DRY_RUN=false forces per-shot data requirement
+test_mutation 74 "M-R4f DRY_RUN=false forces per-shot data requirement" \
+    "hfvg/activities/workflow_support.py" \
+    "tests/test_round4_shot_data.py::test_parse_beatmap_activity_merges_and_live_requires" \
+    sed -i 's/^    return bool(require) or os.getenv("DRY_RUN", "true").lower() != "true"$/    return bool(require)  # MUTATED/'
+
+# 75. M-R4g per-shot duration from shots.json (E05 12 s, 3 s stays 3 s)
+test_mutation 75 "M-R4g per-shot duration from shots.json (E05 12 s, 3 s stays 3 s)" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_params_carry_model_duration_and_end_frame" \
+    sed -i 's/^                "duration": duration,$/                "duration": 5.0,  # MUTATED/'
+
+# 76. M-R4h per-shot model from shots.json
+test_mutation 76 "M-R4h per-shot model from shots.json" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_params_carry_model_duration_and_end_frame" \
+    sed -i 's/^                "model": model,$/                "model": "kling",  # MUTATED/'
+
+# 77. M-R4i end_frame flag from shots.json
+test_mutation 77 "M-R4i end_frame flag from shots.json" \
+    "hfvg/shot_data.py" \
+    "tests/test_round4_shot_data.py::test_params_carry_model_duration_and_end_frame" \
+    sed -i 's/"end_frame": end_frame,/"end_frame": False,  # MUTATED/'
+
+# 78. M-R4j dry clip reservation uses real model and duration
+test_mutation 78 "M-R4j dry clip reservation uses real model and duration" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round4_shot_data.py::test_dry_clip_reservation_uses_model_and_duration" \
+    sed -i 's/clip_estimate_usd_micros(route.model, tier, duration)/clip_estimate_usd_micros("kling", tier, 5)  # MUTATED/'
+
+# 79. M-R4k Seedance draft estimate uses the 480p rate
+test_mutation 79 "M-R4k Seedance draft estimate uses the 480p rate" \
+    "hfvg/pricing.py" \
+    "tests/test_round4_shot_data.py::test_dry_clip_estimates_use_real_model_and_duration" \
+    sed -i 's/^        resolution = "480p" if tier == "draft" else "1080p"$/        resolution = "1080p"  # MUTATED/'
+
+# 80. M-R4l Live start+end shot without end image is refused
+test_mutation 80 "M-R4l Live start+end shot without end image is refused" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round4_shot_data.py::test_live_start_end_shot_without_end_image_is_refused_before_spend" \
+    sed -i 's/^        if (shot_meta or {}).get("end_frame") and not end_image_url:$/        if False:  # MUTATED/'
+
+# 81. M-R4m Live still held when planned refs are missing
+test_mutation 81 "M-R4m Live still held when planned refs are missing" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round4_shot_data.py::test_live_still_with_missing_refs_is_held_before_spend" \
+    sed -i '/# Refs gate: a shot never runs/,+1 s/if missing_refs:/if False:  # MUTATED/'
+
+# 82. M-R4n Live clip held when planned refs are missing
+test_mutation 82 "M-R4n Live clip held when planned refs are missing" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round4_shot_data.py::test_live_clip_with_missing_refs_is_held_before_spend" \
+    sed -i '/# A shot never runs without its planned refs/,+1 s/if missing_refs:/if False:  # MUTATED/'
+
+# 83. M-R4o Still activity refuses refs over the limit
+test_mutation 83 "M-R4o Still activity refuses refs over the limit" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round4_shot_data.py::test_live_still_over_ref_limit_is_refused_not_truncated" \
+    sed -i 's/^    if refs and len(refs) > config.STILL_MAX_REFS:$/    if False:  # MUTATED/'
+
+# 84. M-R4p Still provider refuses instead of truncating refs
+test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_round4_shot_data.py::test_still_provider_refuses_instead_of_truncating_refs" \
+    sed -i 's/^            if len(image_urls) > config.STILL_MAX_REFS:$/            if False:  # MUTATED/'
+
+# 85. M-R4q Workflow passes the shot's refs to the still activity
+test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_to_still_provider_activity" \
+    sed -i 's/^                        refs,$/                        [],  # MUTATED/'
+
+# 86. M-R4r Workflow passes missing refs to the still activity
+test_mutation 86 "M-R4r Workflow passes missing refs to the still activity" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_to_still_provider_activity" \
+    sed -i 's/^                        shot_plan.get("missing_refs", \[\]),  # planned refs not on disk: live refuses$/                        [],  # MUTATED/'
+
+# 87. M-R4s Workflow uses the shot's real clip duration
+test_mutation 87 "M-R4s Workflow uses the shot's real clip duration" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
+    sed -i 's/^                duration = params.get("duration", 5.0)$/                duration = 5.0  # MUTATED/'
+
+# 88. M-R4t Workflow uses the shot's model
+test_mutation 88 "M-R4t Workflow uses the shot's model" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
+    sed -i 's/^                        params.get("model", "kling"),  # explicit routing$/                        "kling",  # MUTATED/'
+
+# 89. M-R4u Workflow passes shot tags (wet) to the clip activity
+test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
+    sed -i 's/^                        shot_plan.get("tags", \[\]),$/                        [],  # MUTATED/'
+
+# 90. M-R4v Workflow passes missing refs to the clip activity
+test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
+    sed -i 's/^                        shot_plan.get("missing_refs", \[\]),$/                        [],  # MUTATED/'
+
+# 91. M-R4w Dry end-frame shot gets a placeholder end image
+test_mutation 91 "M-R4w Dry end-frame shot gets a placeholder end image" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
+    sed -i 's|^                        end_image_url = "/fake/end.jpg"  # dry run: nothing is submitted$|                        end_image_url = None  # MUTATED|'
+
+# 92. M-R4x End-image signal stores the URL
+test_mutation 92 "M-R4x End-image signal stores the URL" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
+    sed -i 's/^        self.end_image_url = url$/        self.end_image_url = "MUTATED-url"/'
+
+# 93. M-R4y Live end-frame shot waits for its end image
+test_mutation 93 "M-R4y Live end-frame shot waits for its end image" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
+    sed -i 's/^                        await workflow.wait_condition(lambda: self.end_image_url is not None)$/                        pass  # MUTATED/'
+
+# 94. M-R4z Workflow passes the end image to the clip activity
+test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
+    sed -i 's/^                        end_image_url,$/                        None,  # MUTATED/'
+
+# 95. M-R4A G2.01 triggers when a shot has missing refs
+test_mutation 95 "M-R4A G2.01 triggers when a shot has missing refs" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
+    sed -i 's/^        return bool(self._collect_missing_refs(shots))$/        return False  # MUTATED/'
+
+# 96. M-R4B Live G2.01 holds while refs are still missing
+test_mutation 96 "M-R4B Live G2.01 holds while refs are still missing" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round4_shot_data.py::test_g201_holds_live_while_refs_still_missing_then_releases" \
+    sed -i 's/^                if not self.missing_refs or dry_run:$/                if True:  # MUTATED/'
+
+# 97. M-R4C G2.01 recheck updates the shot plans
+test_mutation 97 "M-R4C G2.01 recheck updates the shot plans" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round4_shot_data.py::test_g201_holds_live_while_refs_still_missing_then_releases" \
+    sed -i 's/^                    {\*\*s_, \*\*rechecked\[s_\["shot_id"\]\]} if s_\["shot_id"\] in rechecked else s_$/                    s_  # MUTATED/'
+
+# 98. M-R4D Episode workflow loads per-shot data for its episode
+test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
+    sed -i 's/^            args=\[beatmap_path, episode_id, not dry_run\],$/            args=[beatmap_path, None, not dry_run],  # MUTATED/'
+
+# 99. M-R4E GET episode looks up the id the workflow was started with
+test_mutation 99 "M-R4E GET episode looks up the id the workflow was started with" \
+    "api/main.py" \
+    "tests/test_round4_shot_data.py::test_get_episode_looks_up_the_started_workflow_id" \
+    sed -i 's/^    workflow_id = episode_workflow_id(episode_id)$/    workflow_id = f"{episode_id}-"  # MUTATED/'
+
+# 100. M-R4F GET episode accepts the ep04-episode id style
+test_mutation 100 "M-R4F GET episode accepts the ep04-episode id style" \
+    "api/main.py" \
+    "tests/test_round4_shot_data.py::test_get_episode_accepts_episode_suffix_style_id" \
+    sed -i 's/^    return episode_id\[: -len("-episode")\] if episode_id.endswith("-episode") else episode_id$/    return episode_id  # MUTATED/'
+
+# 101. M-R4G GET episode unknown workflow is 404
+test_mutation 101 "M-R4G GET episode unknown workflow is 404" \
+    "api/main.py" \
+    "tests/test_round4_shot_data.py::test_get_episode_unknown_workflow_is_404_not_500" \
+    sed -i 's/^        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:$/        if False:  # MUTATED/'
+
+# 102. M-R4H upload-shots validates shots.json
+test_mutation 102 "M-R4H upload-shots validates shots.json" \
+    "api/main.py" \
+    "tests/test_round4_shot_data.py::test_upload_shots_route_validates_and_stores" \
+    sed -i 's/^        plans = parse_shots(json.loads(shots_bytes))$/        plans = {"x": 1}  # MUTATED/'
+
+# 103. M-R4I Lint kit loads the lint section of a full prompt_kit.json
+test_mutation 103 "M-R4I Lint kit loads the lint section of a full prompt_kit.json" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_round4_shot_data.py::test_lint_kit_loads_lint_section_of_full_prompt_kit" \
+    sed -i 's/^    section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data$/    section = data  # MUTATED/'
+
+# 104. M-R4J Lint requires antler/duck clauses on shot_meta flags
+test_mutation 104 "M-R4J Lint requires antler/duck clauses on shot_meta flags" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_round4_shot_data.py::test_lint_flags_require_antler_and_duck_clauses_without_character_codes" \
+    sed -i 's/^        if meta.get(flag) and not (present \& {c.lower() for c in codes}):$/        if False:  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -25,9 +25,10 @@ import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, REVISION_LINE
+from hfvg.config import config
 from hfvg.pricing import (
-    DRY_CLIP_USD_PER_SECOND_MICROS,
     DRY_STILL_USD_MICROS,
+    clip_estimate_usd_micros,
     micros_to_usd_str,
 )
 from hfvg.prompt_lint import enforce_prompt_lint
@@ -107,6 +108,7 @@ async def submit_still_job_enforced(
     aspect_ratio: str = "9:16",
     tier: str | None = None,
     shot_meta: dict[str, Any] | None = None,
+    missing_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
@@ -135,6 +137,10 @@ async def submit_still_job_enforced(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
+        if missing_refs:
+            activity.logger.warning(
+                f"[DRY-RUN] {shot_id}: refs not on disk (live would hold at G2.01): {sorted(missing_refs)}"
+            )
         job_id = f"still-dry-{uuid.uuid4().hex[:12]}"
         activity.logger.info(
             f"[DRY-RUN] Submitted still {job_id} for {episode_id}/{shot_id} (DRY_RUN=true)"
@@ -167,6 +173,17 @@ async def submit_still_job_enforced(
     
     # Prompt lint gate: refuses before provider init, estimate, reserve
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
+    
+    # Refs gate: a shot never runs without its planned refs, and refs are never silently dropped
+    if missing_refs:
+        raise ValueError(
+            f"Shot {shot_id} is held at G2.01: refs not on disk yet: {sorted(missing_refs)}"
+        )
+    if refs and len(refs) > config.STILL_MAX_REFS:
+        raise ValueError(
+            f"Shot {shot_id} has {len(refs)} refs, over the still limit of {config.STILL_MAX_REFS}; "
+            "refusing instead of silently dropping refs"
+        )
     
     # Generate idempotency key including all parameters that affect generation
     idempotency_key = generate_idempotency_key(
@@ -300,6 +317,7 @@ async def submit_clip_job_enforced(
     tags: list[str] | None = None,
     end_image_url: str | None = None,
     bitrate_mode: str | None = None,
+    missing_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
@@ -348,6 +366,17 @@ async def submit_clip_job_enforced(
     # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live)
     
+    if use_live:
+        # A shot never runs without its planned refs or its END frame
+        if missing_refs:
+            raise ValueError(
+                f"Shot {shot_id} is held at G2.01: refs not on disk yet: {sorted(missing_refs)}"
+            )
+        if (shot_meta or {}).get("end_frame") and not end_image_url:
+            raise ValueError(
+                f"Shot {shot_id} is a start+end shot but no end_image_url was given; refusing a start-only clip"
+            )
+    
     if not use_live:
         # Dry run mode: use fake provider
         job_id = f"clip-dry-{uuid.uuid4().hex[:12]}"
@@ -367,7 +396,7 @@ async def submit_clip_job_enforced(
         return {
             "job_id": job_id,
             "line_name": "L4_video",
-            "reserved_amount": int(round(duration * DRY_CLIP_USD_PER_SECOND_MICROS)),
+            "reserved_amount": clip_estimate_usd_micros(route.model, tier, duration),
         }
     
     # Live mode: all checks passed (DRY_RUN=false, live_mode=true, g108_approved=true)

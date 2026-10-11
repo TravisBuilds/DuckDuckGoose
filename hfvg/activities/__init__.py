@@ -19,9 +19,11 @@ from hfvg.activities.studio_generation import (
 from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
     parse_beatmap_activity,
+    recheck_refs_activity,
 )
 
 __all__ = [
+    "recheck_refs_activity",
     "submit_still_job",
     "submit_clip_job",
     "await_job",

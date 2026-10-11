@@ -198,6 +198,15 @@ def verify_admin_secret(authorization: str | None = Header(None)):
 
 
 # Request/Response models
+def episode_workflow_id(episode_id: str) -> str:
+    """Temporal workflow id of the episode workflow: the bare episode id (``ep04``).
+
+    Also accepts the ``ep04-episode`` style used by clients. Starting and looking up an episode
+    workflow MUST both go through this function (child shot workflows are ``ep04-shot-<id>``).
+    """
+    return episode_id[: -len("-episode")] if episode_id.endswith("-episode") else episode_id
+
+
 def validate_episode_id(episode_id: str) -> str:
     """
     Validate episode ID format.
@@ -487,6 +496,51 @@ async def upload_prompt_kit(
     }
 
 
+@app.post("/api/episodes/{episode_id}/upload-shots")
+async def upload_shots(
+    episode_id: str,
+    shots_file: UploadFile = File(...),
+    refs_file: UploadFile = File(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload the private per-shot data: shots.json (required) and refs.json (optional).
+
+    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
+    the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    from hfvg.shot_data import ShotDataError, parse_shots
+
+    shots_bytes = await shots_file.read()
+    try:
+        plans = parse_shots(json.loads(shots_bytes))
+    except (ValueError, ShotDataError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")
+    refs_bytes = None
+    if refs_file:
+        refs_bytes = await refs_file.read()
+        try:
+            if not isinstance(json.loads(refs_bytes).get("per_shot"), dict):
+                raise ValueError("missing 'per_shot' object")
+        except (ValueError, AttributeError) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
+
+    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    (episode_dir / "shots.json").write_bytes(shots_bytes)
+    if refs_bytes is not None:
+        (episode_dir / "refs.json").write_bytes(refs_bytes)
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "shots_count": len(plans),
+        "refs_uploaded": refs_bytes is not None,
+    }
+
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
@@ -517,7 +571,7 @@ async def start_episode(
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Stable workflow ID for approve route to find
-    workflow_id = f"{request.episode_id}"
+    workflow_id = episode_workflow_id(request.episode_id)
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
@@ -551,38 +605,30 @@ async def get_episode_state(
     else:
         verify_admin_secret(authorization)
     
+    episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
-    # Find the most recent workflow for this episode
-    from temporalio.client import WorkflowExecutionStatus
-    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    
+    # The episode workflow id is the episode id itself (same as start_episode); do NOT prefix-match,
+    # that would only ever find child shot workflows ("ep04-shot-A01").
+    workflow_id = episode_workflow_id(episode_id)
     try:
-        # List workflows matching the episode prefix
-        workflows = temporal_client.list_workflows(f'WorkflowId STARTS_WITH "{episode_id}-"')
-        
-        # Get the first (most recent) workflow
-        async for workflow_info in workflows:
-            if workflow_info.status in [WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.COMPLETED]:
-                handle = temporal_client.get_workflow_handle(workflow_info.id)
-                
-                # Query workflow state
-                state = await handle.query("get_state")
-                
-                return EpisodeStateResponse(
-                    episode_id=state["episode_id"],
-                    stage=state.get("stage"),
-                    approvals=state.get("approvals", {}),
-                    shots_count=state.get("shots", 0),
-                )
-        
-        raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
-        
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        state = await handle.query("get_state")
     except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error querying workflow: {str(e)}")
+    
+    return EpisodeStateResponse(
+        episode_id=state["episode_id"],
+        stage=state.get("stage"),
+        approvals=state.get("approvals", {}),
+        shots_count=state.get("shots", 0),
+    )
 
 
 @app.post("/api/episodes/{episode_id}/approve")

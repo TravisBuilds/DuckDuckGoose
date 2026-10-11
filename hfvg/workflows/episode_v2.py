@@ -16,6 +16,7 @@ with workflow.unsafe.imports_passed_through():
         load_gate_policy_activity,
         mix_audio,
         parse_beatmap_activity,
+        recheck_refs_activity,
         render_edit,
         trim_clips,
     )
@@ -70,6 +71,7 @@ class EpisodeWorkflowV2:
         
         self.shot_results: dict[str, dict] = {}
         self.parsed_beatmap: dict[str, Any] | None = None
+        self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk (G2.01 hold)
     
     @workflow.run
     async def run(self, episode_id: str, beatmap_path: str | None = None, 
@@ -120,8 +122,10 @@ class EpisodeWorkflowV2:
         
         self.parsed_beatmap = await workflow.execute_activity(
             parse_beatmap_activity,
-            args=[beatmap_path],
+            args=[beatmap_path, episode_id, not dry_run],
             start_to_close_timeout=timedelta(seconds=30),
+            # Missing/invalid per-shot data in live mode is a hard refusal, not something to retry
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
         
         shots = self.parsed_beatmap.get("shots", [])
@@ -168,11 +172,34 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== STEP 2: STILLS ===")
         self.state.stage = PipelineStage.STILL_GENERATION
         
-        # G2.01: New refs approval (if needed)
+        # G2.01: New refs approval (any shot with a ref that is not on disk yet)
         if self._needs_new_refs(shots):
-            workflow.logger.info("G2.01: Awaiting new reference approval...")
-            self.state.current_gate = "G2.01"
-            await workflow.wait_condition(lambda: self.approved_g201)
+            self.missing_refs = self._collect_missing_refs(shots)
+            while True:
+                workflow.logger.info(
+                    f"G2.01: Awaiting new reference approval (missing: {self.missing_refs})..."
+                )
+                self.state.current_gate = "G2.01"
+                await workflow.wait_condition(lambda: self.approved_g201)
+                # Re-check the filesystem: approval alone never lets a shot run without its refs
+                rechecked = await workflow.execute_activity(
+                    recheck_refs_activity,
+                    args=[episode_id, {s_["shot_id"]: s_.get("ref_keys", []) for s_ in shots}],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                shots = [
+                    {**s_, **rechecked[s_["shot_id"]]} if s_["shot_id"] in rechecked else s_
+                    for s_ in shots
+                ]
+                self.missing_refs = self._collect_missing_refs(shots)
+                if not self.missing_refs or dry_run:
+                    break
+                # Live: refs still missing -> HOLD at G2.01 (approval consumed, wait again)
+                workflow.logger.warning(
+                    f"G2.01 approved but refs still missing, holding: {self.missing_refs}"
+                )
+                self.approved_g201 = False
             self.passed_gates.append("G2.01")
             workflow.logger.info("[APPROVED G2.01] New refs approved")
         
@@ -182,6 +209,7 @@ class EpisodeWorkflowV2:
         for shot in shots:
             # Build shot plan with prompt from beatmap fields
             shot_plan = shot.copy()
+            shot_plan["dry_run"] = dry_run
             if "prompt" not in shot_plan:
                 shot_plan["prompt"] = build_prompt_from_shot(shot)
             
@@ -326,10 +354,13 @@ class EpisodeWorkflowV2:
             "handoff": handoff_stub,
         }
     
+    @staticmethod
+    def _collect_missing_refs(shots: list[dict]) -> dict[str, list[str]]:
+        return {s["shot_id"]: list(s["missing_refs"]) for s in shots if s.get("missing_refs")}
+
     def _needs_new_refs(self, shots: list[dict]) -> bool:
-        """Check if episode needs new reference images (simplified)."""
-        # In real impl, check if any shot has new characters or props
-        return False  # For now, assume no new refs needed
+        """G2.01 is needed when any shot references a ref that is not on disk (planned new ref)."""
+        return bool(self._collect_missing_refs(shots))
     
     # Signal handlers for Travis approvals
     @workflow.signal
@@ -415,6 +446,7 @@ class EpisodeWorkflowV2:
             "stage": self.state.stage.value if self.state.stage else None,
             "current_gate": self.state.current_gate,
             "passed_gates": self.passed_gates.copy(),
+            "missing_refs": {k: list(v) for k, v in self.missing_refs.items()},
             "approvals": {
                 "gx01": self.approved_gx01,
                 "gc02": self.approved_gc02,

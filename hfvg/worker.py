@@ -39,6 +39,7 @@ PRODUCTION_ACTIVITIES = [
     activities.record_shot_result,
     activities.load_gate_policy_activity,
     activities.parse_beatmap_activity,
+    activities.recheck_refs_activity,
     activities.check_live_mode_and_g108,
 ]
 

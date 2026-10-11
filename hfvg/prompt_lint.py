@@ -5,7 +5,8 @@ Clause texts (count clause, locked-camera clause, real-time pattern, antler/duck
 decor list) come from a LintKit loaded from the per-episode ``prompt_kit.json`` (``"lint"`` section)
 or from the file named by ``PROMPT_LINT_KIT_PATH``; none is hardcoded here.
 
-shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]).
+shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]),
+optional ``antler`` / ``duck`` flags (clause required whatever the character codes say).
 
 Live mode: any violation (or missing kit / shot_meta) refuses. Dry mode: warn only.
 """
@@ -138,6 +139,16 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> lis
             problems.append("lint kit has no duck_clause but the duck is present")
         elif not _contains(prompt, kit.duck_clause):
             problems.append(f"missing duck clause: {kit.duck_clause!r}")
+    # 9. Explicit shot_meta flags (antler / duck) require the clause even if no character code matched
+    for flag, clause, codes, label in (
+        ("antler", kit.antler_clause, kit.antler_characters, "antler"),
+        ("duck", kit.duck_clause, kit.duck_characters, "duck"),
+    ):
+        if meta.get(flag) and not (present & {c.lower() for c in codes}):
+            if not clause.strip():
+                problems.append(f"lint kit has no {label}_clause but shot_meta.{flag} is set")
+            elif not _contains(prompt, clause):
+                problems.append(f"missing {label} clause (shot_meta.{flag}): {clause!r}")
     return problems
 
 
@@ -161,7 +172,9 @@ def load_lint_kit(episode_id: str) -> LintKit:
         data = json.loads(path.read_text())
     except (OSError, ValueError) as e:
         raise PromptLintError(f"Cannot read prompt lint kit {path}: {e}") from e
-    section = data if override else data.get("lint")
+    # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
+    # section file is still accepted.
+    section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
     if not isinstance(section, dict):
         raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
     return LintKit.from_dict(section)

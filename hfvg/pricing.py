@@ -89,3 +89,17 @@ def rate_table_estimate(model_key: str, resolution: str | None, seconds: int | f
         derived=True,
         note=f"{model_key}@{key}: {per_second} usd_micros/s x {seconds}s (list price before discount)",
     )
+
+
+def clip_estimate_usd_micros(model: str, tier: str | None, seconds: int | float) -> int:
+    """Offline per-model clip estimate (rate table, list price) for dry reservations and dry tables.
+
+    Uses the REAL per-shot model and duration. Seedance draft -> 480p, otherwise 1080p; Kling has
+    one rate. Never touches the network.
+    """
+    if model == "seedance":
+        resolution = "480p" if tier == "draft" else "1080p"
+        return rate_table_estimate("seedance-2.5", resolution, seconds).usd_micros
+    if model == "kling":
+        return rate_table_estimate("kling-3.0-pro", None, seconds).usd_micros
+    raise ValueError(f"Unknown clip model {model!r}")

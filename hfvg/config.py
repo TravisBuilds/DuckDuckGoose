@@ -68,6 +68,10 @@ class Config:
     # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
     MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
 
+    # Max reference images the still request accepts (documented max 3). Over the limit the harness
+    # REFUSES (never silently truncates a shot's ref list).
+    STILL_MAX_REFS: int = int(os.getenv("STILL_MAX_REFS", "3"))
+
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 
     TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "localhost:7233")
