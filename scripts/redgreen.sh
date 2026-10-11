@@ -786,6 +786,94 @@ test_mutation 54 "M-P1h USD to usd_micros conversion is 1_000_000" \
     "tests/test_budget.py::test_usd_micro_conversion_literals" \
     sed -i 's/^MICROS_PER_USD = 1_000_000/MICROS_PER_USD = 10_000_000  # MUTATED/'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# P2/P3 MUTATIONS: Seedance, routing, declined_preset_id, prompt lint
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 55. M-P2a Seedance generate_audio is always false
+test_mutation 55 "M-P2a Seedance generate_audio is always false" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_request_body_exact_and_audio_false" \
+    sed -i 's/"generate_audio": False,  # always false/"generate_audio": True,  # MUTATED/'
+
+# 56. M-P2b Seedance refuses duration 3 (min 4 s)
+test_mutation 56 "M-P2b Seedance refuses duration 3 (min 4 s)" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_refuses_short_and_long_durations_before_any_request" \
+    sed -i 's/if duration < MIN_DURATION_S:/if duration < 3:  # MUTATED/'
+
+# 57. M-P2c Planner never routes wet shots to Seedance
+test_mutation 57 "M-P2c Planner never routes wet shots to Seedance" \
+    "hfvg/routing.py" \
+    "tests/test_seedance_routing.py::test_planner_never_routes_wet_shot_to_seedance" \
+    sed -i 's/^        if blocked:/        if blocked and False:  # MUTATED/'
+
+# 58. M-P2d declined_preset_id is sent on Kling requests
+test_mutation 58 "M-P2d declined_preset_id is sent on Kling requests" \
+    "hfvg/providers/kling_video.py" \
+    "tests/test_seedance_routing.py::test_declined_preset_sent_on_kling_request" \
+    sed -i 's/^        apply_declined_preset(payload)$/        pass  # MUTATED/'
+
+# 59. M-P2e declined_preset_id is sent on still requests
+test_mutation 59 "M-P2e declined_preset_id is sent on still requests" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_seedance_routing.py::test_declined_preset_sent_on_still_request" \
+    sed -i 's/^        apply_declined_preset(payload)$/        pass  # MUTATED/'
+
+# 60. M-P2f Seedance end_image_url is sent
+test_mutation 60 "M-P2f Seedance end_image_url is sent" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_end_image_url_is_sent" \
+    sed -i 's/^            payload\["end_image_url"\] = end_image_url$/            pass  # MUTATED/'
+
+# 61. M-P2g Seedance model path is bytedance/seedance-2.5/image-to-video
+test_mutation 61 "M-P2g Seedance model path is bytedance/seedance-2.5/image-to-video" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_model_path_is_documented_literal" \
+    sed -i 's|^SEEDANCE_MODEL_PATH = .*|SEEDANCE_MODEL_PATH = "bytedance/seedance-2.0/image-to-video"  # MUTATED|'
+
+# 62. M-P2h Seedance resolution is forwarded (not fixed 480p)
+test_mutation 62 "M-P2h Seedance resolution is forwarded (not fixed 480p)" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_resolution_is_forwarded" \
+    sed -i 's/^            "resolution": resolution,$/            "resolution": "480p",  # MUTATED/'
+
+# 63. M-P2i Seedance 1080p estimate uses the 1080p rate
+test_mutation 63 "M-P2i Seedance 1080p estimate uses the 1080p rate" \
+    "hfvg/providers/seedance_video.py" \
+    "tests/test_seedance_routing.py::test_seedance_estimates_use_per_resolution_rates" \
+    sed -i 's/rate_table_estimate(SEEDANCE_RATE_KEY, resolution, duration)/rate_table_estimate(SEEDANCE_RATE_KEY, "480p", duration)  # MUTATED/'
+
+# 64. M-P3a Lint checks the count clause
+test_mutation 64 "M-P3a Lint checks the count clause" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_prompt_lint.py::test_missing_count_clause_refused" \
+    sed -i -e 's/^        if not found:/        if False:  # MUTATED/' -e 's/^        elif any(n != count for n in found):/        elif False:  # MUTATED/'
+
+# 65. M-P3b Lint forbids 'nothing else moves'
+test_mutation 65 "M-P3b Lint forbids 'nothing else moves'" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_prompt_lint.py::test_nothing_else_moves_is_forbidden" \
+    sed -i 's/^DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")/DEFAULT_FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
+
+# 66. M-P3c Lint is enforced in live mode
+test_mutation 66 "M-P3c Lint is enforced in live mode" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_prompt_lint.py::test_live_still_lint_failure_refuses_before_estimate_reserve_and_submit" \
+    sed -i 's/^    if problems and live:/    if problems and False:  # MUTATED/'
+
+# 67. M-P3d Lint applies the banned-decor list
+test_mutation 67 "M-P3d Lint applies the banned-decor list" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_prompt_lint.py::test_banned_decor_words_forbidden" \
+    sed -i 's/^    for word in kit.banned_decor:/    for word in ():  # MUTATED/'
+
+# 68. M-P3e Lint requires the antler clause when Birch is present
+test_mutation 68 "M-P3e Lint requires the antler clause when Birch is present" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_prompt_lint.py::test_antler_clause_required_when_antler_character_present" \
+    sed -i 's/^    if present \& {c.lower() for c in kit.antler_characters}:/    if False:  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

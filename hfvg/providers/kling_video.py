@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 
 from hfvg.pricing import estimate_from_response, rate_table_estimate
+from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
@@ -79,13 +80,15 @@ class KlingVideoProvider(GenerationProvider):
         image_url: str,
         prompt: str,
         duration: int,
+        end_image_url: str | None = None,
     ) -> str:
         """
         Generate deterministic idempotency key covering all request params.
         
-        Format: hf-clip-{sha256(img|prompt|dur)[:16]}
+        Format: hf-clip-{sha256(model|img|end_img|prompt_hash|dur)[:16]}
         """
-        key_input = f"{image_url}|{prompt}|{duration}"
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+        key_input = f"{self.model_path}|{image_url}|{end_image_url or ''}|{prompt_hash}|{duration}"
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-clip-{hash_digest}"
     
@@ -120,7 +123,9 @@ class KlingVideoProvider(GenerationProvider):
         
         return media_id
     
-    async def _estimate_response(self, image_url: str, prompt: str, duration: int) -> dict:
+    async def _estimate_response(
+        self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None
+    ) -> dict:
         """POST /estimate/{model_path} mirroring the full submit request (fail closed)."""
         payload = {
             "image_url": image_url,
@@ -128,6 +133,8 @@ class KlingVideoProvider(GenerationProvider):
             "sound": "off",
             "prompt": prompt,
         }
+        if end_image_url:
+            payload["last_image_url"] = end_image_url
         try:
             response = await self.client.post(
                 f"/estimate/{self.model_path}",
@@ -163,14 +170,16 @@ class KlingVideoProvider(GenerationProvider):
         except (ValueError, KeyError) as e:
             raise ValueError(f"Failed to get estimate for video generation: {e}") from e
 
-    async def estimate_usd_micros(self, image_url: str, prompt: str, duration: int) -> int:
+    async def estimate_usd_micros(
+        self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None
+    ) -> int:
         """
         Estimate cost in integer micro-dollars.
 
         Source of truth: the estimate's ``usd`` value. If the response carries no USD value, fall
         back to the configured per-second rate table (list price before discount, derived).
         """
-        data = await self._estimate_response(image_url, prompt, duration)
+        data = await self._estimate_response(image_url, prompt, duration, end_image_url)
         try:
             usd_micros = estimate_from_response(data)
             if usd_micros is None:
@@ -187,6 +196,7 @@ class KlingVideoProvider(GenerationProvider):
         prompt: str,
         duration: int = 5,
         idempotency_key: str | None = None,
+        end_image_url: str | None = None,
     ) -> str:
         """
         Submit video generation job.
@@ -207,7 +217,7 @@ class KlingVideoProvider(GenerationProvider):
         # Generate deterministic idempotency key if not provided
         if not idempotency_key:
             idempotency_key = self._generate_idempotency_key(
-                image_url, prompt, duration
+                image_url, prompt, duration, end_image_url
             )
         
         # Submit generation with documented API format
@@ -217,6 +227,11 @@ class KlingVideoProvider(GenerationProvider):
             "sound": "off",  # Required for cost predictability
             "prompt": prompt,
         }
+        if end_image_url:
+            # Higgsfield's public Kling 3.0 docs name the optional final frame `last_image_url`
+            # (NOT end_image_url): see docs/PROVIDERS.md.
+            payload["last_image_url"] = end_image_url
+        apply_declined_preset(payload)
         
         headers = {"Idempotency-Key": idempotency_key}
         

@@ -12,6 +12,7 @@ import textwrap
 from datetime import timedelta
 
 import pytest
+from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import set_balance
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
@@ -317,7 +318,8 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
         ):
             shot_plan = {
                 "shot_id": "A01",
-                "prompt": "Test prompt",
+                "prompt": lint_ok("Test prompt"),
+                "shot_meta": lint_meta(),
                 "params": {"resolution": "1k", "quality": "medium", "aspect_ratio": "9:16"},
                 "refs": [],
             }
@@ -453,7 +455,8 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
         ):
             shot_plan = {
                 "shot_id": "A01",
-                "prompt": "Test prompt",
+                "prompt": lint_ok("Test prompt"),
+                "shot_meta": lint_meta(),
                 "params": {"resolution": "1k", "quality": "medium", "aspect_ratio": "9:16"},
                 "refs": [],
             }
@@ -540,7 +543,8 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
         ):
             shot_plan = {
                 "shot_id": "A01",
-                "prompt": "Test prompt",
+                "prompt": lint_ok("Test prompt"),
+                "shot_meta": lint_meta(),
                 "params": {"resolution": "1k", "quality": "medium", "aspect_ratio": "9:16"},
                 "refs": [],
             }

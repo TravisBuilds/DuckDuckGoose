@@ -6,7 +6,9 @@ checks are actually enforced. Each test is paired with a red-green mutation.
 """
 
 import pytest
+import json
 from tests.ledger_helpers import insert_line, set_balance
+from tests.lint_helpers import lint_ok
 import aiosqlite
 import sys
 
@@ -765,7 +767,7 @@ async def test_approve_completed_canary_409(test_db_api, monkeypatch):
     assert handle.signal.called, "RUNNING workflow must receive the stills_approved signal"
 
 
-async def _setup_live_canary(test_db_api, monkeypatch):
+async def _setup_live_canary(test_db_api, monkeypatch, tmp_path, style=None):
     """Live-mode canary fixtures: episode live + G1.08, one shot, L6 line, manual balance."""
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -781,10 +783,27 @@ async def _setup_live_canary(test_db_api, monkeypatch):
         await insert_line(db, "ep99", "L6_reserve", 25_000_000, 20_000_000)
         await db.commit()
     await set_balance(test_db_api)
+    # Prompt lint (live) needs real shot metadata: a synthetic beatmap + prompt kit in a tmp cwd.
+    # The kit style carries the lint-required clauses (0 characters => "Exactly 0 animals").
+    episode_dir = tmp_path / "data" / "episodes" / "ep99"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "BEATMAP.md").write_text(
+        "# Synthetic canary beatmap\n\n## Shot Plan\n\n"
+        "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        "| 1 | A01 | 3.0 (4.0) | Lobby | Morning | – | Wide lobby interior | Establish | – | – | K |\n"
+    )
+    (episode_dir / "prompt_kit.json").write_text(json.dumps({
+        "style": style if style is not None else lint_ok("Synthetic style", count=0),
+        "aspect_ratio": "9:16",
+        "characters": {},
+        "sets": {},
+    }))
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_mock):
+async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_mock, tmp_path):
     """
     Test: Live canary fails closed when the provider estimate is unavailable: 503, nothing
     reserved, no workflow started, and no default dollar amount is ever substituted.
@@ -792,7 +811,7 @@ async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_
     M-R2e (a fallback amount instead of refusing) must fail this test.
     """
     import httpx
-    await _setup_live_canary(test_db_api, monkeypatch)
+    await _setup_live_canary(test_db_api, monkeypatch, tmp_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(500, json={"error": "estimate down"})
@@ -810,9 +829,9 @@ async def test_canary_live_estimate_fail_closed(test_db_api, monkeypatch, respx_
 
 
 @pytest.mark.asyncio
-async def test_canary_live_without_api_key_refused(test_db_api, monkeypatch):
+async def test_canary_live_without_api_key_refused(test_db_api, monkeypatch, tmp_path):
     """Test: Live canary without HIGGSFIELD_API_KEY is refused (503) and reserves nothing."""
-    await _setup_live_canary(test_db_api, monkeypatch)
+    await _setup_live_canary(test_db_api, monkeypatch, tmp_path)
     monkeypatch.delenv("HIGGSFIELD_API_KEY", raising=False)
     client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
 
@@ -824,10 +843,10 @@ async def test_canary_live_without_api_key_refused(test_db_api, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_canary_live_hold_uses_usd_estimates(test_db_api, monkeypatch, respx_mock):
+async def test_canary_live_hold_uses_usd_estimates(test_db_api, monkeypatch, respx_mock, tmp_path):
     """Test: Live canary L6 hold = (still USD + clip USD) x 1.2 in usd_micros, exact."""
     import httpx
-    await _setup_live_canary(test_db_api, monkeypatch)
+    await _setup_live_canary(test_db_api, monkeypatch, tmp_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "1.0", "usd": "0.06"})
@@ -845,3 +864,27 @@ async def test_canary_live_hold_uses_usd_estimates(test_db_api, monkeypatch, res
     assert data["reserved_amount"] == 408_000  # (60_000 + 280_000) * 12 // 10
     status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
     assert status["reserved"] == 408_000
+
+
+@pytest.mark.asyncio
+async def test_canary_live_prompt_lint_refuses_before_estimate_and_reserve(test_db_api, monkeypatch, respx_mock, tmp_path):
+    """Test: a live canary whose prompt fails the lint gate is refused (422) before any provider
+    estimate, hold, or workflow. M-P3c (lint skipped in live) must fail this test."""
+    import httpx
+    await _setup_live_canary(test_db_api, monkeypatch, tmp_path, style="Synthetic style with no clauses")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    est_still = respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.0", "usd": "0.06"})
+    )
+    est_clip = respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"credits": "4.48", "usd": "0.28"})
+    )
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+
+    response = client.post("/api/episodes/ep99/canary", cookies=cookies)
+
+    assert response.status_code == 422, response.text
+    assert "lint" in response.json()["detail"].lower(), response.text
+    assert est_still.call_count == 0 and est_clip.call_count == 0
+    status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
+    assert status["reserved"] == 0

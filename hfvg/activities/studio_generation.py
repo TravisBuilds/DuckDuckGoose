@@ -30,7 +30,9 @@ from hfvg.pricing import (
     DRY_STILL_USD_MICROS,
     micros_to_usd_str,
 )
-from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+from hfvg.prompt_lint import enforce_prompt_lint
+from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
+from hfvg.routing import plan_route
 
 
 @activity.defn
@@ -104,11 +106,13 @@ async def submit_still_job_enforced(
     quality: str = "medium",
     aspect_ratio: str = "9:16",
     tier: str | None = None,
+    shot_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
     
     Enforcement:
+    - Prompt lint gate (live: refuse BEFORE estimate/reserve/provider call; dry: warn)
     - Episode in live mode (fail if not)
     - G1.08 approved (fail if not)
     - Budget reserve succeeds (fail if at stop)
@@ -130,6 +134,7 @@ async def submit_still_job_enforced(
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
+        enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
         job_id = f"still-dry-{uuid.uuid4().hex[:12]}"
         activity.logger.info(
             f"[DRY-RUN] Submitted still {job_id} for {episode_id}/{shot_id} (DRY_RUN=true)"
@@ -159,6 +164,9 @@ async def submit_still_job_enforced(
     activity.logger.info(
         f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
     )
+    
+    # Prompt lint gate: refuses before provider init, estimate, reserve
+    enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
     
     # Generate idempotency key including all parameters that affect generation
     idempotency_key = generate_idempotency_key(
@@ -287,11 +295,24 @@ async def submit_clip_job_enforced(
     duration: float = 5.0,
     version: int = 1,
     tier: str | None = None,
+    shot_meta: dict[str, Any] | None = None,
+    model: str = "kling",
+    tags: list[str] | None = None,
+    end_image_url: str | None = None,
+    bitrate_mode: str | None = None,
 ) -> dict[str, Any]:
     """
-    Submit Kling 3.0 Pro video generation job with full enforcement.
+    Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
+    
+    Args:
+        model: explicit routing, "kling" (default) or "seedance". The planner refuses Seedance
+            for shots tagged ``wet`` or shorter than 4 s (RoutingError, fail closed).
+        tier: ledger tier draft/final/retry/revision. For Seedance draft -> 480p, anything else
+            -> 1080p (a fresh submit; draft_job_id finalize is not implemented).
+        end_image_url: optional last frame (Kling: sent as the documented ``last_image_url``).
     
     Enforcement:
+    - Routing plan (fail closed) and prompt lint gate (live: refuse before estimate/reserve)
     - Episode in live mode (fail if not)
     - G1.08 approved (fail if not)
     - Budget reserve succeeds (fail if at stop)
@@ -313,6 +334,19 @@ async def submit_clip_job_enforced(
     # Decision logic: DRY_RUN env can force dry, but never force live
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
     use_live = not dry_run_env and live_mode and g108_approved
+    
+    # Explicit routing plan (fail closed in every mode)
+    route = plan_route({
+        "model": model,
+        "tier": "draft" if tier == "draft" else "final",
+        "duration": duration,
+        "tags": tags or [],
+    })
+    if route.model == "seedance" and duration != int(duration):
+        raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
+    
+    # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
+    enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live)
     
     if not use_live:
         # Dry run mode: use fake provider
@@ -356,18 +390,28 @@ async def submit_clip_job_enforced(
         prompt=f"clip:{prompt}",
         start_image=start_image_url,
         duration=duration,
+        model=route.model,
+        resolution=route.resolution,
+        end_image=end_image_url,
+        prompt_hash=hashlib.sha256(prompt.encode()).hexdigest(),
     )
     
     # Initialize provider
-    provider = KlingVideoProvider()
+    provider = SeedanceVideoProvider() if route.model == "seedance" else KlingVideoProvider()
     
     try:
-        # Estimate cost in micro-dollars (Kling 3.0 Pro: estimate's USD, else rate table)
-        estimated_cost = await provider.estimate_usd_micros(
-            image_url=start_image_url,
-            prompt=prompt,
-            duration=int(duration)
-        )
+        # Estimate cost in micro-dollars
+        if route.model == "seedance":
+            # Seedance: configurable per-second USD rate table (list price before discount)
+            estimated_cost = await provider.estimate_usd_micros(int(duration), route.resolution)
+        else:
+            # Kling 3.0 Pro: estimate's USD, else rate table
+            estimated_cost = await provider.estimate_usd_micros(
+                image_url=start_image_url,
+                prompt=prompt,
+                duration=int(duration),
+                end_image_url=end_image_url,
+            )
         
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id} clip: "
@@ -414,15 +458,27 @@ async def submit_clip_job_enforced(
         
         # Submit to provider - wrapped to release reservation on ANY error
         try:
-            job_id = await provider.submit_video(
-                image_url=start_image_url,
-                prompt=prompt,
-                duration=int(duration),  # Must be integer
-                idempotency_key=idempotency_key,
-            )
+            if route.model == "seedance":
+                job_id = await provider.submit_video(
+                    image_url=start_image_url,
+                    prompt=prompt,
+                    duration=int(duration),
+                    resolution=route.resolution,
+                    bitrate_mode=bitrate_mode,
+                    end_image_url=end_image_url,
+                    idempotency_key=idempotency_key,
+                )
+            else:
+                job_id = await provider.submit_video(
+                    image_url=start_image_url,
+                    prompt=prompt,
+                    duration=int(duration),  # Must be integer
+                    idempotency_key=idempotency_key,
+                    end_image_url=end_image_url,
+                )
             
             activity.logger.info(
-                f"[LIVE] Submitted Kling clip {job_id} for {episode_id}/{shot_id} "
+                f"[LIVE] Submitted {route.model} clip {job_id} for {episode_id}/{shot_id} "
                 f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
             )
             try:

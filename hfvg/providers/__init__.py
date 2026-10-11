@@ -4,6 +4,7 @@ from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStat
 from hfvg.providers.higgsfield import HiggsfieldProvider
 from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
 from hfvg.providers.kling_video import KlingVideoProvider
+from hfvg.providers.seedance_video import SeedanceVideoProvider
 from hfvg.providers.elevenlabs import ElevenLabsProvider
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "HiggsfieldProvider",
     "HiggsfieldStillProvider",
     "KlingVideoProvider",
+    "SeedanceVideoProvider",
     "ElevenLabsProvider",
 ]

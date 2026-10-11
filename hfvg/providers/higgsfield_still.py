@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from hfvg.pricing import estimate_from_response
+from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
@@ -252,6 +253,8 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         if aspect_ratio:
             payload["aspect_ratio"] = aspect_ratio
+        
+        apply_declined_preset(payload)
         
         headers = {"Idempotency-Key": idempotency_key}
         

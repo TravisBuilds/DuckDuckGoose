@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import pytest
+from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import asyncio
 from unittest.mock import AsyncMock, Mock
@@ -80,7 +81,7 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     
     # Submit should fail and release reservation
     with pytest.raises(httpx.HTTPStatusError):
-        await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+        await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
     # Check reservation was released
     status_after = await ledger.get_line_status("ep99", "L2_drafts")
@@ -119,7 +120,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     
     # Submit with bad URL should fail and release reservation
     with pytest.raises(ValueError, match="Invalid start_image"):
-        await submit_clip_job_enforced("ep99", "A01", "not-a-url", "Test prompt", 5.0, 1)
+        await submit_clip_job_enforced("ep99", "A01", "not-a-url", lint_ok("Test prompt"), 5.0, 1, shot_meta=lint_meta())
     
     # Check reservation was released
     status_after = await ledger.get_line_status("ep99", "L4_video")

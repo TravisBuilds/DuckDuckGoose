@@ -552,3 +552,52 @@ async for status in controller.poll_request_status():
 - Model paths must be verified in Cloud API dashboard after signup
 
 **Ready for headless workflows** with manual balance tracking.
+
+---
+
+## Seedance 2.5, Kling end frames, declined_preset_id, model routing (P2)
+
+### Seedance 2.5 image-to-video
+- Endpoint: `POST /bytedance/seedance-2.5/image-to-video`
+  ([docs](https://docs.higgsfield.ai/docs/models/seedance-2-5/image-to-video)). Provider: `hfvg/providers/seedance_video.py`.
+- Body (`additionalProperties: false`): `image_url` (required), `prompt`, `duration` (integer 4-30),
+  `resolution` (`480p|720p|1080p`), `bitrate_mode` (`standard|high`), `end_image_url`, `generate_audio`.
+  There is **no aspect-ratio parameter** (framing follows the image). We **always send `generate_audio: false`**.
+- `duration < 4` is refused with a clear error before any request (the planner routes such shots to Kling).
+- **Cost**: the Seedance estimate endpoint returns a pricing description, not USD, so the dollar ledger uses the
+  configurable per-second rate table `MODEL_USD_PER_SECOND_MICROS["seedance-2.5"]` in `hfvg/config.py`
+  (default 480p 0.2056, 720p 0.4622, 1080p 1.1372 USD/s, from Higgsfield's pricing text). These are
+  **list prices before any discount**; override with `MODEL_USD_PER_SECOND_JSON`. Real billing may be lower.
+- **Draft -> final**: finalizing from a `draft_job_id` is **UNVERIFIED on REST and is NOT implemented**.
+  A Seedance *final* is a **fresh 1080p submit** (draft = 480p, final = 1080p).
+- **Idempotency key** (`hf-sd-...`) covers model path, resolution, duration, image, end image and prompt hash.
+  The Kling key now also covers model path, end image and prompt hash.
+
+### Kling 3.0 Pro end frame
+Higgsfield's public Kling 3.0 docs (docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video) list the optional
+final frame as **`last_image_url`** (there is no `end_image_url` on Kling). The Kling provider accepts
+`end_image_url=` in Python and sends it as the documented `last_image_url` (estimate and submit). If Higgsfield
+removes that field, set the end image to None; no other code path sends end frames to Kling.
+
+### declined_preset_id (config-gated, unverified on REST)
+`declined_preset_id` is documented for Higgsfield's MCP tools (`retry_literal_with`), **not in the REST model docs
+reviewed**. It is therefore config-gated: set `HIGGSFIELD_DECLINED_PRESET_ID` (full UUID) and it is sent as a
+top-level body field on **every job request of every model** (stills, Kling, Seedance). Default: unset (field
+absent). If the REST API rejects the unknown field (422), unset the variable.
+
+### Explicit per-shot routing (`hfvg/routing.py`)
+Each shot carries `model: kling|seedance` and `tier: draft|final`. The planner refuses (fail closed,
+`RoutingError`) when a field is missing/unknown, a Seedance shot is tagged `wet`, or its duration is under 4 s.
+`submit_clip_job_enforced(..., model=, tags=, end_image_url=)` runs the planner in every mode.
+
+## Prompt lint gate (P3)
+`hfvg/prompt_lint.py::lint_prompt(prompt, shot_meta, kit)` runs before any estimate/reserve/provider call in
+`submit_still_job_enforced`, `submit_clip_job_enforced` and the canary route. Live: any violation, missing kit or
+missing `shot_meta` refuses (canary: HTTP 422). Dry: warning only. Rules: count clause with N == `shot_meta.count`;
+locked-camera clause on exterior/water shots; real-time/no-slow-motion clause; forbidden phrases ("nothing else
+moves", "realistic wild", bare "waves", carry/hold verbs with a moose, banned-decor words); antler clause when an
+antler character is present; duck clause when the duck is present. **Clause texts and word lists are not in the
+repo**: they come from the `lint` section of the per-episode `prompt_kit.json` (or the file at
+`PROMPT_LINT_KIT_PATH`). Kit fields: `count_template` (with `{n}`), `realtime_pattern` (regex),
+`locked_camera_clause`, `antler_clause`, `antler_characters`, `duck_clause`, `duck_characters`, `banned_decor`,
+optional `forbidden_phrases`, `moose_names`, `carry_verbs`. `shot_meta`: `count`, `exterior`, `water`, `characters`.

@@ -1377,6 +1377,7 @@ async def run_canary(
             
             first_shot_id, stored_prompt = shot_row
     
+    canary_shot_meta: dict | None = None  # prompt-lint metadata (set when the beatmap shot is found)
     # Load beatmap to get full shot data for prompt building
     beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
     episode_path = Path("./data/episodes") / episode_id
@@ -1428,6 +1429,16 @@ async def run_canary(
                 # In dry mode, allow it but warn
                 prompt = build_prompt_with_continuity(first_shot_data, continuity, prompt_kit=None)
             
+            # Lint metadata derived from the beatmap shot (count defaults to the character count)
+            _chars = list(first_shot_data.get("characters", []))
+            canary_shot_meta = {
+                "count": first_shot_data.get("count", len(_chars)),
+                "exterior": bool(first_shot_data.get("exterior", False)),
+                "water": bool(first_shot_data.get("water", False))
+                or "wet" in first_shot_data.get("tags", []),
+                "characters": _chars,
+            }
+            
             # Get aspect ratio from prompt_kit (default to 9:16)
             aspect_ratio = "9:16"
             if prompt_kit:
@@ -1468,10 +1479,20 @@ async def run_canary(
         refs = []
         aspect_ratio = "9:16"
     
+    # Prompt lint gate (live: refuse before any estimate/reserve/provider call; dry: warn)
+    from hfvg.prompt_lint import PromptLintError, enforce_prompt_lint
+    
+    lint_meta = canary_shot_meta
+    try:
+        enforce_prompt_lint(episode_id, prompt, lint_meta, live=not dry_run)
+    except PromptLintError as e:
+        raise HTTPException(status_code=422, detail=f"Canary prompt lint refused: {e}")
+    
     # Create canary shot with full prompt, refs, and aspect_ratio
     canary_shot = {
         "shot_id": first_shot_id,
         "prompt": prompt,
+        "shot_meta": lint_meta,
         "refs": refs,
         "params": {
             "duration": 5.0,

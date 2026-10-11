@@ -11,6 +11,7 @@ The documented API:
 """
 
 import pytest
+from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import respx
 import httpx
@@ -660,7 +661,7 @@ async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
 
     # 16:9 is deliberately NOT the 9:16 default, so a dropped kwarg cannot hide behind the default
     result = await submit_still_job_enforced(
-        "ep99", "A01", "Test prompt", 1, aspect_ratio="16:9"
+        "ep99", "A01", lint_ok("Test prompt"), 1, aspect_ratio="16:9", shot_meta=lint_meta()
     )
     assert result["job_id"] == "req-ar-1"
 

@@ -5,7 +5,9 @@ These tests are specifically designed for mutation testing with scripts/redgreen
 Each test exercises a critical safety mechanism and will fail if that mechanism is bypassed.
 """
 
+import hashlib
 import pytest
+from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 
@@ -112,7 +114,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
         episode_id="ep99",
         shot_id="A01",
         version=1,
-        prompt="Test prompt",
+        prompt=lint_ok("Test prompt"),
         refs=None,
         quality="medium",
         resolution="1k",
@@ -130,7 +132,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     )
     
     # Call activity
-    await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+    await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
     # Verify the EXACT deterministic key was sent (not a random UUID or None)
     assert mock_route.called, "Provider should be called"
@@ -344,7 +346,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     )
     
     # Should return dry job (not call provider)
-    result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+    result = await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
     assert result["job_id"].startswith("still-dry-"), "Should return dry job"
     assert result["reserved_amount"] == 60_000, "Should return the dry estimate (0.06 USD in usd_micros)"
@@ -434,7 +436,7 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     assert status_before["reserved"] == 0, "Should start with 0 reserved"
     
     # Call activity
-    result = await submit_still_job_enforced("ep99", "A01", "Test prompt", 1)
+    result = await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
     # Check reserved amount increased
     status_after = await ledger.get_line_status("ep99", "L2_drafts")
@@ -469,9 +471,14 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         episode_id="ep99",
         shot_id="A01",
         version=1,
-        prompt="clip:Test prompt",  # Activity prefixes with "clip:"
+        prompt=f"clip:{lint_ok('Test prompt')}",  # Activity prefixes with "clip:"
         start_image="https://example.com/still.jpg",
         duration=5.0,
+        # P2: the key also covers model, resolution, end image and the prompt hash
+        model="kling",
+        resolution=None,
+        end_image=None,
+        prompt_hash=hashlib.sha256(lint_ok("Test prompt").encode()).hexdigest(),
     )
     
     # Mock estimate endpoint
@@ -486,7 +493,8 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     
     # Call clip activity
     result = await submit_clip_job_enforced(
-        "ep99", "A01", "https://example.com/still.jpg", "Test prompt", 5.0, 1
+        "ep99", "A01", "https://example.com/still.jpg", lint_ok("Test prompt"), 5.0, 1,
+        shot_meta=lint_meta(),
     )
     
     # Verify idempotency key was sent

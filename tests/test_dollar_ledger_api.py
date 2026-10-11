@@ -8,6 +8,7 @@ import sys
 import aiosqlite
 import httpx
 import pytest
+from tests.lint_helpers import lint_ok, lint_meta
 
 from hfvg.budget import BudgetLedger
 from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
@@ -157,7 +158,7 @@ async def test_live_still_refused_without_manual_balance(db_path, monkeypatch, r
     submit = _mock_still(respx_mock)
 
     with pytest.raises(ValueError) as exc_info:
-        await submit_still_job_enforced("ep99", "A01", "Synthetic prompt", 1)
+        await submit_still_job_enforced("ep99", "A01", lint_ok("Synthetic prompt"), 1, shot_meta=lint_meta())
 
     assert "manual" in str(exc_info.value).lower()
     assert not submit.called, "provider must not be called without a balance"
@@ -174,7 +175,7 @@ async def test_live_still_refused_below_gc01_headroom(db_path, monkeypatch, resp
     submit = _mock_still(respx_mock)
 
     with pytest.raises(ValueError) as exc_info:
-        await submit_still_job_enforced("ep99", "A01", "Synthetic prompt", 1)
+        await submit_still_job_enforced("ep99", "A01", lint_ok("Synthetic prompt"), 1, shot_meta=lint_meta())
 
     assert "GC.01" in str(exc_info.value), str(exc_info.value)
     assert not submit.called
@@ -193,7 +194,7 @@ async def test_live_still_records_job_and_reserves_estimate_usd(db_path, monkeyp
     await set_balance(db_path, "100.00")
     submit = _mock_still(respx_mock, usd="0.06")
 
-    result = await submit_still_job_enforced("ep99", "A01", "Synthetic prompt", 1)
+    result = await submit_still_job_enforced("ep99", "A01", lint_ok("Synthetic prompt"), 1, shot_meta=lint_meta())
 
     assert submit.call_count == 1
     assert result["job_id"] == "req-live-1"
@@ -229,7 +230,7 @@ async def test_revision_tier_draws_on_revision_reserve(db_path, monkeypatch, res
     _mock_still(respx_mock, usd="0.06")
 
     result = await submit_still_job_enforced(
-        "ep99", "A01", "Synthetic prompt", 1, None, "1k", "medium", "9:16", "revision"
+        "ep99", "A01", lint_ok("Synthetic prompt"), 1, None, "1k", "medium", "9:16", "revision", lint_meta()
     )
 
     assert result["line_name"] == "L7_revision"
@@ -254,7 +255,7 @@ async def test_still_estimate_without_usd_is_refused(db_path, monkeypatch, respx
     )
 
     with pytest.raises(ValueError):
-        await submit_still_job_enforced("ep99", "A01", "Synthetic prompt", 1)
+        await submit_still_job_enforced("ep99", "A01", lint_ok("Synthetic prompt"), 1, shot_meta=lint_meta())
 
     assert not submit.called
     assert (await ledger.get_line_status("ep99", "L2_drafts"))["reserved"] == 0

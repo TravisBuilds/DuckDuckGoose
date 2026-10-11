@@ -266,6 +266,8 @@ class ShotWorkflow:
                         resolution,
                         quality,
                         aspect_ratio,
+                        None,  # tier (activity default)
+                        shot_plan.get("shot_meta"),  # prompt lint metadata
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -442,6 +444,11 @@ class ShotWorkflow:
                         shot_plan["prompt"],
                         duration,
                         self.version,
+                        None,  # tier (activity default)
+                        shot_plan.get("shot_meta"),  # prompt lint metadata
+                        params.get("model", "kling"),  # explicit routing
+                        shot_plan.get("tags", []),
+                        params.get("end_image_url"),
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
