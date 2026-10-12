@@ -302,7 +302,7 @@ async def test_live_still_over_ref_limit_is_refused_not_truncated(tmp_path, monk
         return_value=httpx.Response(200, json={"credits": "1", "usd": "0.06"}))
     sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "never"}))
-    refs = [f"https://example.com/r{i}.png" for i in range(4)]
+    refs = [f"https://example.com/r{i}.png" for i in range(9)]  # Grok cap is 8
     err = await acapture(ValueError, submit_still_job_enforced(
         "ep99", "A01", lint_ok("S"), 1, refs, "1k", "medium", "9:16", None, lint_meta(), []))
     assert err is not None and "silently dropping" in str(err), err
@@ -319,11 +319,11 @@ async def test_still_provider_refuses_instead_of_truncating_refs():
     provider = HiggsfieldStillProvider(api_key="test_id:test_secret", base_url="http://mock.api")
     try:
         err = await acapture(ValueError, provider.submit_image(
-            prompt="p", image_urls=[f"https://example.com/{i}.png" for i in range(4)]))
-        assert err is not None, "4 refs must be refused, not silently cut to 3"
+            prompt="p", image_urls=[f"https://example.com/{i}.png" for i in range(9)]))
+        assert err is not None, "9 refs must be refused on Grok (cap 8), not silently cut to 8"
         assert route.call_count == 0
-        await provider.submit_image(prompt="p", image_urls=[f"https://example.com/{i}.png" for i in range(3)])
-        assert len(json.loads(route.calls[0].request.content)["image_urls"]) == 3
+        await provider.submit_image(prompt="p", image_urls=[f"https://example.com/{i}.png" for i in range(8)])
+        assert len(json.loads(route.calls[0].request.content)["image_urls"]) == 8
     finally:
         await provider.close()
 

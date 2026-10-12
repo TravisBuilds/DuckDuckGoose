@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from hfvg.config import config
+from hfvg.config import config, max_refs_for
 from hfvg.pricing import estimate_from_response
 from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
@@ -250,10 +250,11 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         if image_urls:
             # Documented limit: never silently truncate a shot's ref list, refuse instead
-            if len(image_urls) > config.STILL_MAX_REFS:
+            max_refs = max_refs_for(self.model_path)
+            if len(image_urls) > max_refs:
                 raise ValueError(
-                    f"{len(image_urls)} reference images exceed the still limit of "
-                    f"{config.STILL_MAX_REFS}; refusing instead of dropping refs"
+                    f"{len(image_urls)} reference images exceed the {self.model_path} limit of "
+                    f"{max_refs}; refusing instead of dropping refs"
                 )
             payload["image_urls"] = list(image_urls)
         

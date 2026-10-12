@@ -962,13 +962,13 @@ test_mutation 82 "M-R4n Live clip held when planned refs are missing" \
 test_mutation 83 "M-R4o Still activity refuses refs over the limit" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_live_still_over_ref_limit_is_refused_not_truncated" \
-    sed -i 's/^    if refs and len(refs) > config.STILL_MAX_REFS:$/    if False:  # MUTATED/'
+    sed -i 's/^    if refs and len(refs) > still_cap:$/    if False:  # MUTATED/'
 
 # 84. M-R4p Still provider refuses instead of truncating refs
 test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
     "hfvg/providers/higgsfield_still.py" \
     "tests/test_round4_shot_data.py::test_still_provider_refuses_instead_of_truncating_refs" \
-    sed -i 's/^            if len(image_urls) > config.STILL_MAX_REFS:$/            if False:  # MUTATED/'
+    sed -i 's/^            if len(image_urls) > max_refs:$/            if False:  # MUTATED/'
 
 # 85. M-R4q Workflow passes the shot's refs to the still activity
 test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
@@ -1089,6 +1089,42 @@ test_mutation 104 "M-R4J Lint requires antler/duck clauses on shot_meta flags" \
     "hfvg/prompt_lint.py" \
     "tests/test_round4_shot_data.py::test_lint_flags_require_antler_and_duck_clauses_without_character_codes" \
     sed -i 's/^        if meta.get(flag) and not (present \& {c.lower() for c in codes}):$/        if False:  # MUTATED/'
+
+# 105. M-R5a Still provider cap follows its model (not a global 3)
+test_mutation 105 "M-R5a Still provider cap follows its model" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_model_ref_caps.py::test_qwen_still_provider_refuses_four_refs_but_grok_accepts_them" \
+    sed -i 's/^            max_refs = max_refs_for(self.model_path)$/            max_refs = 3  # MUTATED/'
+
+# 106. M-R5b Still activity cap follows MODEL_PATH_STILL
+test_mutation 106 "M-R5b Still activity cap follows the still model" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_model_ref_caps.py::test_live_still_activity_cap_follows_the_still_model" \
+    sed -i 's/^    still_cap = max_refs_for(still_model_path())$/    still_cap = 3  # MUTATED/'
+
+# 107. M-R5c Per-model table lookup is used
+test_mutation 107 "M-R5c Per-model table lookup is used" \
+    "hfvg/config.py" \
+    "tests/test_model_ref_caps.py::test_default_caps_match_documented_limits" \
+    sed -i 's/^    if model_path in table:$/    if False:  # MUTATED/'
+
+# 108. M-R5d MODEL_MAX_REFS_JSON override is honoured
+test_mutation 108 "M-R5d MODEL_MAX_REFS_JSON override is honoured" \
+    "hfvg/config.py" \
+    "tests/test_model_ref_caps.py::test_env_json_overrides_one_model_only" \
+    sed -i 's/^    override = os.getenv("MODEL_MAX_REFS_JSON")$/    override = None  # MUTATED/'
+
+# 109. M-R5e Negative per-model cap is rejected
+test_mutation 109 "M-R5e Negative per-model cap is rejected" \
+    "hfvg/config.py" \
+    "tests/test_model_ref_caps.py::test_env_json_negative_cap_is_rejected" \
+    sed -i 's/^            if cap < 0:$/            if False:  # MUTATED/'
+
+# 110. M-R5f Unknown models fall back to STILL_MAX_REFS
+test_mutation 110 "M-R5f Unknown models fall back to STILL_MAX_REFS" \
+    "hfvg/config.py" \
+    "tests/test_model_ref_caps.py::test_unknown_model_falls_back_to_still_max_refs" \
+    sed -i 's/^    return int(os.getenv("STILL_MAX_REFS", "3"))$/    return 3  # MUTATED/'
 
 # Print final summary
 print_summary

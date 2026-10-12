@@ -25,7 +25,7 @@ import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, REVISION_LINE
-from hfvg.config import config
+from hfvg.config import config, max_refs_for, still_model_path
 from hfvg.pricing import (
     DRY_STILL_USD_MICROS,
     clip_estimate_usd_micros,
@@ -179,9 +179,10 @@ async def submit_still_job_enforced(
         raise ValueError(
             f"Shot {shot_id} is held at G2.01: refs not on disk yet: {sorted(missing_refs)}"
         )
-    if refs and len(refs) > config.STILL_MAX_REFS:
+    still_cap = max_refs_for(still_model_path())
+    if refs and len(refs) > still_cap:
         raise ValueError(
-            f"Shot {shot_id} has {len(refs)} refs, over the still limit of {config.STILL_MAX_REFS}; "
+            f"Shot {shot_id} has {len(refs)} refs, over the {still_model_path()} limit of {still_cap}; "
             "refusing instead of silently dropping refs"
         )
     

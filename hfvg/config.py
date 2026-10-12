@@ -26,6 +26,50 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
     return table
 
 
+# Per-model max reference images (documented limits, harness default capped at 8). Sources:
+# - xai/grok-imagine-image-2.0: image_urls maxItems 10
+#   https://docs.higgsfield.ai/docs/models/grok-image-2/generate-and-edit  -> harness cap 8
+# - alibaba/qwen-image-3/edit: image_urls minItems 1, maxItems 3
+#   https://docs.higgsfield.ai/docs/models/qwen-image-3/edit  -> 3
+# - bytedance/seedance-2.5/reference-to-video: image_urls maxItems 30 (50 media total)
+#   https://docs.higgsfield.ai/docs/models/seedance-2-5/reference-to-video  -> harness cap 8
+# - kling-video/v3.0/pro/image-to-video: only image_url + last_image_url frames; "elements" has no
+#   documented maxItems (UNCONFIRMED)  https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video -> 3
+# Any model not in the table falls back to STILL_MAX_REFS (default 3).
+DEFAULT_MODEL_MAX_REFS: dict[str, int] = {
+    "xai/grok-imagine-image-2.0": 8,
+    "alibaba/qwen-image-3/edit": 3,
+    "bytedance/seedance-2.5/reference-to-video": 8,
+    "kling-video/v3.0/pro/image-to-video": 3,
+}
+
+
+def model_max_refs_table() -> dict[str, int]:
+    """Defaults merged with MODEL_MAX_REFS_JSON ('{"model/path": n}'), read at call time."""
+    table = dict(DEFAULT_MODEL_MAX_REFS)
+    override = os.getenv("MODEL_MAX_REFS_JSON")
+    if override:
+        for model, cap in json.loads(override).items():
+            cap = int(cap)
+            if cap < 0:
+                raise ValueError(f"MODEL_MAX_REFS_JSON: negative cap for {model}")
+            table[model] = cap
+    return table
+
+
+def max_refs_for(model_path: str) -> int:
+    """Max reference images for model_path; unknown models fall back to STILL_MAX_REFS (3)."""
+    table = model_max_refs_table()
+    if model_path in table:
+        return table[model_path]
+    return int(os.getenv("STILL_MAX_REFS", "3"))
+
+
+def still_model_path() -> str:
+    """The still model the provider will call (MODEL_PATH_STILL, default Grok Image 2.0)."""
+    return os.getenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0")
+
+
 class Config:
     """Global configuration."""
 
@@ -68,8 +112,8 @@ class Config:
     # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
     MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
 
-    # Max reference images the still request accepts (documented max 3). Over the limit the harness
-    # REFUSES (never silently truncates a shot's ref list).
+    # Fallback max refs for models missing from DEFAULT_MODEL_MAX_REFS (see max_refs_for). Over the
+    # limit the harness REFUSES (never silently truncates a shot's ref list).
     STILL_MAX_REFS: int = int(os.getenv("STILL_MAX_REFS", "3"))
 
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
