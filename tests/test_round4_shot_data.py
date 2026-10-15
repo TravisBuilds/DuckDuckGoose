@@ -436,12 +436,13 @@ async def test_shot_workflow_passes_real_model_duration_tags_to_clip():
 @pytest.mark.asyncio
 async def test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal():
     end_params = {"model": "kling", "duration": 5, "end_frame": True}
+    # After bug fix: end-frame stills are generated before Gate 2
+    # In dry mode, end still is generated and returns mock URL "https://x/still"
     dry = await _run_shot_workflow(_plan(params=end_params, dry_run=True))
-    assert dry["clip"][10] == "/fake/end.jpg"
-    live = await _run_shot_workflow(
-        _plan(params=end_params, dry_run=False), send_end_image="https://example.com/end.jpg",
-        expect_wait=True)
-    assert live["clip"][10] == "https://example.com/end.jpg"
+    assert dry["clip"][10] == "https://x/still", "End frame should be the generated still URL"
+    # In live mode, end still is also generated before Gate 2 (no longer waits for signal)
+    live = await _run_shot_workflow(_plan(params=end_params, dry_run=False))
+    assert live["clip"][10] == "https://x/still", "End frame should be the generated still URL"
 
 
 @pytest.mark.asyncio

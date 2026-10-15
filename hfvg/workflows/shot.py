@@ -42,6 +42,7 @@ class ShotWorkflow:
         self.shot_id: str = ""
         self.episode_id: str = ""
         self.still_asset: Asset | None = None
+        self.end_still_asset: Asset | None = None  # END frame still (for end_frame=true shots)
         self.clip_asset: Asset | None = None
         self.version = 1
         self.max_retries = 3
@@ -244,6 +245,73 @@ class ShotWorkflow:
             f"Reservation held, manual reconciliation required."
         )
 
+    async def _generate_end_still(
+        self,
+        shot_plan: dict,
+        refs: list[str],
+        resolution: str,
+        quality: str,
+        aspect_ratio: str,
+        retry_policy: RetryPolicy,
+    ) -> dict:
+        """
+        Generate end-frame still for shots with end_frame=true.
+        Called after start still passes QC, before Gate 2.
+        
+        Returns:
+            dict with url and cost
+        """
+        params = shot_plan.get("params", {})
+        end_prompt = params.get("end_prompt", shot_plan["prompt"])
+        
+        workflow.logger.info(f"Generating end still for {self.shot_id}")
+        
+        # Retry loop for credit cap raises
+        while True:
+            try:
+                job_info = await workflow.execute_activity(
+                    submit_still_job_enforced,
+                    args=[
+                        self.episode_id,
+                        f"{self.shot_id}_end",  # Distinct shot_id for end frame
+                        end_prompt,
+                        self.version,
+                        refs,
+                        resolution,
+                        quality,
+                        aspect_ratio,
+                        None,  # tier
+                        shot_plan.get("shot_meta"),
+                        shot_plan.get("missing_refs", []),
+                    ],
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=retry_policy,
+                )
+                break  # Success
+            except ActivityError as e:
+                if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                    workflow.logger.warning(f"Credit cap hit for end still {self.shot_id}, pausing")
+                    self.status = "paused_cap"
+                    await workflow.wait_condition(lambda: self.cap_raised)
+                    workflow.logger.info(f"Cap raised, retrying end still {self.shot_id}")
+                    self.status = "running"
+                    self.cap_raised = False
+                else:
+                    raise
+        
+        # Poll for completion
+        poll_result = await self._poll_job_to_completion(
+            job_id=job_info["job_id"],
+            job_type="still",
+            line_name=job_info["line_name"],
+            reserved_amount=job_info["reserved_amount"],
+        )
+        
+        return {
+            "url": poll_result["url"],
+            "cost": poll_result["cost"],
+        }
+    
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
@@ -379,6 +447,16 @@ class ShotWorkflow:
                         retry_policy=retry_policy,
                     )
                     
+                    # Generate end-frame still if required (before Gate 2)
+                    if params.get("end_frame"):
+                        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
+                        end_still_result = await self._generate_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )
+                        self.end_still_asset = end_still_result
+                        self.end_image_url = end_still_result["url"]
+                        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
+                    
                     break
                 elif review_result.get("escalate"):
                     # QC failed in live mode - escalate to human review, wait for approval
@@ -473,15 +551,8 @@ class ShotWorkflow:
                 # Extract duration from shot plan params
                 params = shot_plan.get("params", {})
                 duration = params.get("duration", 5.0)
-                end_image_url = params.get("end_image_url") or self.end_image_url
-                if params.get("end_frame") and not end_image_url:
-                    if shot_plan.get("dry_run"):
-                        end_image_url = "/fake/end.jpg"  # dry run: nothing is submitted
-                    else:
-                        # Live: never generate an END-frame shot as a start-only clip
-                        workflow.logger.info(f"{self.shot_id} needs an end frame: waiting for it")
-                        await workflow.wait_condition(lambda: self.end_image_url is not None)
-                        end_image_url = self.end_image_url
+                # Use the end_image_url that was generated before Gate 2
+                end_image_url = self.end_image_url if params.get("end_frame") else None
 
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
