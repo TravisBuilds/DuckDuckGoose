@@ -140,11 +140,13 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     # Call activity
     await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    # Verify the EXACT deterministic key was sent (not a random UUID or None)
+    # Verify the idempotency key was sent (now uses job_id format: still-{episode}-{shot}-v{version})
     assert mock_route.called, "Provider should be called"
     request = mock_route.calls[0].request
     actual_key = request.headers.get("Idempotency-Key")
-    assert actual_key == expected_key, f"Idempotency-Key must match expected deterministic key. Expected: {expected_key}, Got: {actual_key}"
+    # The key should now be in the format: still-ep99-A01-v1
+    expected_job_id = "still-ep99-A01-v1"
+    assert actual_key == expected_job_id, f"Idempotency-Key should be job_id. Expected: {expected_job_id}, Got: {actual_key}"
 
 
 @pytest.mark.asyncio  
