@@ -15,13 +15,28 @@ from hfvg import activities
 
 
 @pytest.mark.asyncio
-async def test_approval_signal_reaches_episode_workflow():
+async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
     """
     Test: Approval signal actually reaches running EpisodeWorkflowV2.
     
     This verifies the signal path from API → Temporal → Workflow.
     """
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
+    
+    # Set up database
+    db_path = str(tmp_path / "test_approval.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger with run_locks table
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    # Set environment variables
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Create worker
