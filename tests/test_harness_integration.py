@@ -23,7 +23,8 @@ os.environ["ADMIN_SECRET"] = "test-secret-32-chars-minimum-length-required"
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-from hfvg.activities import studio_generation
+from hfvg.workflows.shot import ShotWorkflow
+from hfvg.activities import studio_generation, workflow_support
 
 
 @pytest.mark.asyncio
@@ -91,12 +92,15 @@ async def test_api_to_g_final_cut_integration(tmp_path):
         async with Worker(
             env.client,
             task_queue="hfvg-tasks",
-            workflows=[EpisodeWorkflowV2],
+            workflows=[EpisodeWorkflowV2, ShotWorkflow],
             activities=[
                 studio_generation.submit_still_job_enforced,
                 studio_generation.submit_clip_job_enforced,
                 studio_generation.commit_job_credits,
                 studio_generation.release_job_credits,
+                workflow_support.load_gate_policy_activity,
+                workflow_support.parse_beatmap_activity,
+                workflow_support.recheck_refs_activity,
             ],
         ):
             # Start workflow directly via Temporal client (bypassing API for test)
