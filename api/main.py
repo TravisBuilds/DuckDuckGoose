@@ -273,7 +273,9 @@ def validate_episode_id(episode_id: str) -> str:
 class StartEpisodeRequest(BaseModel):
     episode_id: str = Field(..., pattern=r"^ep\d{2}$", description="Episode ID (e.g., ep04)")
     beatmap_content: str | None = Field(None, description="Beatmap markdown content (optional)")
-    dry_run: bool = Field(True, description="Run in dry-run mode (default: true)")
+    dry_run: bool = Field(True, description="Run in dry-run mode (default: true, live requires explicit false)")
+    shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
+    credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -659,7 +661,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )

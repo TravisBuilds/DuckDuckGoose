@@ -62,8 +62,14 @@ class EpisodeWorkflowV2:
         self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk
     
     @workflow.run
-    async def run(self, episode_id: str, beatmap_path: str | None = None, 
-                 dry_run: bool = True) -> dict:
+    async def run(
+        self, 
+        episode_id: str, 
+        beatmap_path: str | None = None, 
+        dry_run: bool = True,
+        shots_subset: list[str] | None = None,
+        credit_cap: int | None = None
+    ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
         
@@ -71,6 +77,8 @@ class EpisodeWorkflowV2:
             episode_id: Episode identifier (e.g., 'ep04')
             beatmap_path: Path to BEATMAP.md (optional, uses fixture if None)
             dry_run: If True, use DRY_RUN mode (default True for testing)
+            shots_subset: Optional list of shot IDs to run (e.g., ['A01', 'A02'] for canary)
+            credit_cap: Optional credit cap for this run (overrides episode line cap)
         
         Returns:
             dict with episode results
@@ -96,7 +104,7 @@ class EpisodeWorkflowV2:
         
         try:
             result = await self._run_with_lock(
-                episode_id, beatmap_path, dry_run, False, None, None
+                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap
             )
             return result
         finally:
