@@ -16,10 +16,10 @@ def sample_beatmap():
 
 @pytest.fixture
 def episode3_beatmap():
-    """Path to real episode 3 BEATMAP (optional local test only)."""
-    beatmap_path = Path("/home/ubuntu/.cursor/projects/workspace/uploads/BEATMAP_5586.md")
+    """Path to episode beatmap (using ep05 as representative test)."""
+    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
     if not beatmap_path.exists():
-        pytest.skip("BEATMAP_5586.md not available (local file only)")
+        pytest.skip("fixtures/ep05/BEATMAP.md not available")
     return beatmap_path
 
 
