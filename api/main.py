@@ -48,13 +48,25 @@ from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
-# Check ADMIN_SECRET early - FAIL CLOSED
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:
-    raise ValueError(
-        "ADMIN_SECRET environment variable is required and must be at least 32 characters. "
-        "NO DEFAULT SECRET. Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
-    )
+# Get ADMIN_SECRET - can be overridden in tests
+def get_admin_secret() -> str:
+    """Get admin secret from environment. Can be overridden in tests."""
+    secret = os.getenv("ADMIN_SECRET", "")
+    if not secret or len(secret) < 32:
+        raise ValueError(
+            "ADMIN_SECRET environment variable is required and must be at least 32 characters. "
+            "NO DEFAULT SECRET. Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        )
+    return secret
+
+# Check ADMIN_SECRET early - FAIL CLOSED (unless in test mode)
+try:
+    ADMIN_SECRET = get_admin_secret()
+except ValueError as e:
+    # Allow tests to set it later
+    if "pytest" not in sys.modules:
+        raise
+    ADMIN_SECRET = ""
 
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 TEMPORAL_NAMESPACE = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -190,8 +202,9 @@ def verify_admin_secret(authorization: str | None = Header(None)):
         )
     
     token = authorization[7:] if authorization else ""
+    current_secret = get_admin_secret()
     
-    if token != ADMIN_SECRET:
+    if not secrets.compare_digest(token, current_secret):
         raise HTTPException(
             status_code=403,
             detail="Invalid admin secret"

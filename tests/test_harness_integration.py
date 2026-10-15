@@ -18,12 +18,8 @@ from pathlib import Path
 
 import pytest
 
-# Set ADMIN_SECRET before importing api.main
+# Set ADMIN_SECRET before any imports
 os.environ["ADMIN_SECRET"] = "test-secret-32-chars-minimum-length-required"
-
-# Remove api.main from module cache if it was already imported with wrong ADMIN_SECRET
-if "api.main" in sys.modules:
-    del sys.modules["api.main"]
 
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
