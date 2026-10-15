@@ -245,8 +245,46 @@ class HiggsfieldProvider(GenerationProvider):
         """Not supported by Higgsfield (use ElevenLabs)."""
         raise NotImplementedError("Audio generation not supported by Higgsfield")
 
+    async def poll_job(
+        self,
+        job_id: str,
+        max_polls: int = 180,
+        initial_delay_secs: float = 5.0,
+        max_delay_secs: float = 10.0,
+    ) -> ProviderJob:
+        """
+        Poll job status until completion or failure.
+        
+        Args:
+            job_id: Job ID to poll
+            max_polls: Maximum number of polls (~30 min with default delays)
+            initial_delay_secs: Initial delay between polls
+            max_delay_secs: Maximum delay between polls (exponential backoff)
+        
+        Returns:
+            ProviderJob with final status (completed or failed)
+        
+        Raises:
+            RuntimeError: If polling exhausted or job failed
+        """
+        for poll_count in range(max_polls):
+            delay_secs = min(initial_delay_secs * (1.5 ** (poll_count // 10)), max_delay_secs)
+            
+            status = await self.get_job_status(job_id)
+            
+            if status.status == ProviderJobStatus.COMPLETED:
+                return status
+            elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED):
+                raise RuntimeError(f"Job {job_id} {status.status.value}: {status.error}")
+            
+            # Still processing, wait and retry
+            await asyncio.sleep(delay_secs)
+        
+        # Exhausted polls
+        raise RuntimeError(f"Job {job_id} polling exhausted after {max_polls} attempts (~30 min)")
+    
     async def get_job_status(self, job_id: str) -> ProviderJob:
-        """Poll job status."""
+        """Get current job status (single check, no polling)."""
         if self.dry_run:
             await asyncio.sleep(config.DRY_RUN_STILL_DELAY)
             return ProviderJob(

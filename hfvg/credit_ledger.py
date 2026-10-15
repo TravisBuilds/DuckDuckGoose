@@ -84,6 +84,15 @@ class CreditLedger:
             """)
             
             await db.execute("""
+                CREATE TABLE IF NOT EXISTS provider_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    provider_job_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS run_locks (
                     episode_id TEXT PRIMARY KEY,
                     workflow_id TEXT NOT NULL,
@@ -132,6 +141,42 @@ class CreditLedger:
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             await db.execute("DELETE FROM run_locks WHERE episode_id = ?", (episode_id,))
             await db.commit()
+    
+    async def persist_provider_job(self, job_id: str, provider_job_id: str, provider: str = "higgsfield") -> None:
+        """
+        Persist provider job ID for idempotent retry.
+        
+        Allows activity retry to resume polling existing provider job instead of
+        submitting a duplicate paid request.
+        
+        Args:
+            job_id: Our internal job ID (e.g., "ref-ep99-r_duck-v1")
+            provider_job_id: Provider's request/job ID
+            provider: Provider name
+        """
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute(
+                """INSERT OR IGNORE INTO provider_jobs 
+                   (job_id, provider_job_id, provider, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (job_id, provider_job_id, provider, _now_iso())
+            )
+            await db.commit()
+    
+    async def get_provider_job(self, job_id: str) -> str | None:
+        """
+        Get provider job ID for a given job ID.
+        
+        Returns:
+            provider_job_id if found, None otherwise
+        """
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute(
+                "SELECT provider_job_id FROM provider_jobs WHERE job_id = ?",
+                (job_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
     
     async def create_episode_line(self, episode_id: str, cap_credits: int | None = None):
         """Create credit line for episode."""

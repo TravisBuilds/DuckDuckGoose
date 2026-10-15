@@ -117,27 +117,41 @@ async def generate_ref_activity(
             provider_job_id = f"fake-{job_id}"
         else:
             # Live mode: call provider
-            provider = HiggsfieldProvider(dry_run=False)
-            provider_job_id = await provider.submit_image(
-                prompt=prompt,
-                model=model,
-                resolution=resolution,
-                idempotency_key=job_id,
-            )
+            # Check if we already submitted this job (activity retry)
+            existing_provider_job_id = await ledger.get_provider_job(job_id)
             
-            # Poll until complete
-            status = await provider.poll_job(provider_job_id)
-            if status.status != "completed":
-                raise ValueError(f"Ref generation failed: {status.error}")
+            if existing_provider_job_id:
+                # Activity retry: resume polling existing job
+                activity.logger.info(
+                    f"Resuming polling for {job_id} -> provider job {existing_provider_job_id}"
+                )
+                provider_job_id = existing_provider_job_id
+            else:
+                # First attempt: submit to provider
+                provider = HiggsfieldProvider(dry_run=False)
+                provider_job_id = await provider.submit_image(
+                    prompt=prompt,
+                    model=model,
+                    resolution=resolution,
+                    idempotency_key=job_id,
+                )
+                activity.logger.info(f"Submitted {job_id} -> provider job {provider_job_id}")
+                
+                # Persist provider job ID immediately (before polling)
+                await ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
+            
+            # Poll until complete (raises RuntimeError on failure)
+            provider = HiggsfieldProvider(dry_run=False)
+            job = await provider.poll_job(provider_job_id)
             
             # Download and save
-            if not status.output_urls:
-                raise ValueError("No output URLs in completed job")
+            if not job.output_url:
+                raise ValueError("No output URL in completed job")
             
-            # Download first image
+            # Download image
             import httpx
             async with httpx.AsyncClient() as client:
-                resp = await client.get(status.output_urls[0])
+                resp = await client.get(job.output_url)
                 resp.raise_for_status()
                 
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
