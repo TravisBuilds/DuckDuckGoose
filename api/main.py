@@ -614,7 +614,7 @@ async def start_episode(
     validate_episode_id(request.episode_id)
     
     # Initialize studio DB if not exists
-    await init_studio_db()
+    await init_studio_db(DATABASE_PATH)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
