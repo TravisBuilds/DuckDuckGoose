@@ -187,34 +187,17 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Use credit ledger for job tracking
-    credit_ledger = CreditLedger()
-    await credit_ledger.init_db()
-    
-    # Generate job_id for ledger (used as provider idempotency key)
-    job_id = f"still-{episode_id}-{shot_id}-v{version}"
-    
-    # Estimate credits for still (from shot metadata or default)
-    estimated_credits = shot_meta.get("still_credits", 9) if shot_meta else 9
-    
-    # Reserve credits in ledger
-    reserve_result = await credit_ledger.reserve_credits(
+    # Generate idempotency key including all parameters that affect generation
+    idempotency_key = generate_idempotency_key(
         episode_id=episode_id,
-        job_id=job_id,
-        amount_credits=estimated_credits,
-        notes=f"Still {shot_id} v{version}"
+        shot_id=shot_id,
+        version=version,
+        prompt=prompt,
+        refs=refs,
+        quality=quality,
+        resolution=resolution,
+        aspect_ratio=aspect_ratio,
     )
-    
-    if not reserve_result["reserved"]:
-        if reserve_result["over_cap"]:
-            raise ValueError(
-                f"Episode {episode_id} over credit cap. "
-                f"Available: {reserve_result['available']} credits"
-            )
-        raise ValueError(f"Failed to reserve {estimated_credits} credits")
-    
-    # Use job_id as provider idempotency key
-    idempotency_key = job_id
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -320,24 +303,6 @@ async def submit_still_job_enforced(
         
     finally:
         await provider.close()
-
-
-@activity.defn
-async def commit_job_credits(episode_id: str, job_id: str, actual_credits: int) -> dict:
-    """Commit reserved credits with actual cost."""
-    credit_ledger = CreditLedger()
-    await credit_ledger.init_db()
-    await credit_ledger.commit_credits(episode_id, job_id, actual_credits)
-    return {"success": True, "job_id": job_id, "credits": actual_credits}
-
-
-@activity.defn
-async def release_job_credits(episode_id: str, job_id: str) -> dict:
-    """Release reserved credits (job failed/canceled)."""
-    credit_ledger = CreditLedger()
-    await credit_ledger.init_db()
-    await credit_ledger.release_credits(episode_id, job_id)
-    return {"success": True, "job_id": job_id}
 
 
 @activity.defn
@@ -652,6 +617,24 @@ async def poll_job_status(
         }
     finally:
         await provider.close()
+
+
+@activity.defn
+async def commit_job_credits(episode_id: str, job_id: str, actual_credits: int) -> dict:
+    """Commit reserved credits with actual cost."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.commit_credits(episode_id, job_id, actual_credits)
+    return {"success": True, "job_id": job_id, "credits": actual_credits}
+
+
+@activity.defn
+async def release_job_credits(episode_id: str, job_id: str) -> dict:
+    """Release reserved credits (job failed/canceled)."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.release_credits(episode_id, job_id)
+    return {"success": True, "job_id": job_id}
 
 
 @activity.defn
