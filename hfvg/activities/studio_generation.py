@@ -25,6 +25,7 @@ import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, REVISION_LINE
+from hfvg.credit_ledger import CreditLedger
 from hfvg.config import config, max_refs_for, still_model_path
 from hfvg.pricing import (
     DRY_STILL_USD_MICROS,
@@ -186,17 +187,34 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Generate idempotency key including all parameters that affect generation
-    idempotency_key = generate_idempotency_key(
+    # Use credit ledger for job tracking
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    
+    # Generate job_id for ledger (used as provider idempotency key)
+    job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    
+    # Estimate credits for still (from shot metadata or default)
+    estimated_credits = shot_meta.get("still_credits", 9) if shot_meta else 9
+    
+    # Reserve credits in ledger
+    reserve_result = await credit_ledger.reserve_credits(
         episode_id=episode_id,
-        shot_id=shot_id,
-        version=version,
-        prompt=prompt,
-        refs=refs,
-        quality=quality,
-        resolution=resolution,
-        aspect_ratio=aspect_ratio,
+        job_id=job_id,
+        amount_credits=estimated_credits,
+        notes=f"Still {shot_id} v{version}"
     )
+    
+    if not reserve_result["reserved"]:
+        if reserve_result["over_cap"]:
+            raise ValueError(
+                f"Episode {episode_id} over credit cap. "
+                f"Available: {reserve_result['available']} credits"
+            )
+        raise ValueError(f"Failed to reserve {estimated_credits} credits")
+    
+    # Use job_id as provider idempotency key
+    idempotency_key = job_id
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
