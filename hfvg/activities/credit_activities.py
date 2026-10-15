@@ -1,6 +1,7 @@
 """Activities for credit reserve/commit/release operations."""
 
 import os
+import aiosqlite
 from temporalio import activity
 
 from hfvg.credit_ledger import CreditLedger
@@ -44,7 +45,7 @@ async def reserve_credits_activity(
 async def commit_credits_activity(
     episode_id: str,
     job_id: str,
-    actual_credits: int,
+    actual_credits: int | None = None,
 ) -> None:
     """
     Commit credits after successful job completion.
@@ -54,11 +55,26 @@ async def commit_credits_activity(
     Args:
         episode_id: Episode identifier
         job_id: Job identifier
-        actual_credits: Actual credits consumed (may differ from reserved)
+        actual_credits: Actual credits consumed (None = use reserved amount)
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = CreditLedger(db_path)
     await ledger.init_db()
+    
+    # If actual_credits not provided, use the reserved amount
+    if actual_credits is None:
+        line_id = f"episode_{episode_id}"
+        async with aiosqlite.connect(ledger.db_path, uri=True) as db:
+            async with db.execute(
+                """SELECT amount_credits FROM credit_transactions 
+                   WHERE line_id = ? AND job_id = ? AND txn_type = 'reserve'""",
+                (line_id, job_id)
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    actual_credits = row[0]
+                else:
+                    actual_credits = 0
     
     await ledger.commit_credits(episode_id, job_id, actual_credits)
     
