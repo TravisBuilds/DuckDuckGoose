@@ -150,3 +150,24 @@ async def release_credits_activity(
     await ledger.release_credits(episode_id, job_id, notes)
     
     activity.logger.info(f"Credits released for {job_id}: {notes}")
+
+
+@activity.defn
+async def update_credit_cap_activity(
+    episode_id: str,
+    new_cap_credits: int,
+) -> None:
+    """
+    Update the credit cap for an episode.
+    
+    Args:
+        episode_id: Episode identifier
+        new_cap_credits: New credit cap to set
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = CreditLedger(db_path)
+    await ledger.init_db()
+    
+    await ledger.update_credit_cap(episode_id, new_cap_credits)
+    
+    activity.logger.info(f"Credit cap updated for {episode_id}: {new_cap_credits} credits")

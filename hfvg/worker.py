@@ -12,6 +12,7 @@ from hfvg.activities.credit_activities import (
     reserve_credits_activity,
     commit_credits_activity,
     release_credits_activity,
+    update_credit_cap_activity,
 )
 from hfvg.activities.run_lock import (
     acquire_run_lock,
@@ -55,6 +56,7 @@ PRODUCTION_ACTIVITIES = [
     reserve_credits_activity,
     commit_credits_activity,
     release_credits_activity,
+    update_credit_cap_activity,
     acquire_run_lock,
     release_run_lock,
 ]

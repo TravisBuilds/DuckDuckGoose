@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
         render_edit,
         trim_clips,
     )
+    from hfvg.activities.credit_activities import update_credit_cap_activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
@@ -352,6 +353,21 @@ class EpisodeWorkflowV2:
         
         Used when the run pauses due to hitting the hard cap.
         """
+        # Update the ledger cap via activity
+        await workflow.execute_activity(
+            update_credit_cap_activity,
+            args=[self.episode_id, new_cap],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+        
+        # Forward signal to all child shot workflows
+        for shot_id, handle in self.shot_results.items():
+            try:
+                await handle.signal("resume_after_cap_raise")
+                workflow.logger.info(f"Signaled cap raise to shot {shot_id}")
+            except Exception as e:
+                workflow.logger.warning(f"Failed to signal shot {shot_id}: {e}")
+        
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
