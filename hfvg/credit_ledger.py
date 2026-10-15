@@ -310,7 +310,7 @@ class CreditLedger:
             
             await db.commit()
     
-    async def release_credits(self, episode_id: str, job_id: str):
+    async def release_credits(self, episode_id: str, job_id: str, notes: str = ""):
         """
         Release reserved credits without committing (idempotent).
         
