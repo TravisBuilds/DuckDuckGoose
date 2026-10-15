@@ -63,6 +63,8 @@ async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                activities.upsert_episode_activity,
+                activities.approve_g108_activity,
                 init_episode_credit_line_activity,
                 load_refs_to_generate_activity,
                 generate_ref_activity,

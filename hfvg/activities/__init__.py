@@ -20,6 +20,8 @@ from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
     parse_beatmap_activity,
     recheck_refs_activity,
+    upsert_episode_activity,
+    approve_g108_activity,
 )
 
 __all__ = [
@@ -49,4 +51,6 @@ __all__ = [
     "mark_job_pending_reconcile",
     "load_gate_policy_activity",
     "parse_beatmap_activity",
+    "upsert_episode_activity",
+    "approve_g108_activity",
 ]

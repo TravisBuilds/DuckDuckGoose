@@ -83,3 +83,52 @@ async def parse_beatmap_activity(
 async def recheck_refs_activity(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dict:
     """G2.01 re-check: which refs exist on disk NOW (files may have been produced since planning)."""
     return resolve_refs(episode_id, ref_keys_by_shot)
+
+
+@activity.defn
+async def upsert_episode_activity(
+    episode_id: str,
+    beatmap_path: str | None = None,
+    dry_run: bool = True,
+) -> None:
+    """
+    Upsert episode record at workflow start.
+    
+    Sets live_mode = not dry_run. This is the single source of truth for whether
+    an episode is in live mode (no separate manual "set live" step).
+    
+    Args:
+        episode_id: Episode identifier
+        beatmap_path: Path to beatmap file
+        dry_run: If False, sets live_mode=1
+    """
+    from hfvg.studio_db import upsert_episode
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    await upsert_episode(
+        db_path,
+        episode_id,
+        beatmap_path=beatmap_path,
+        live_mode=not dry_run,
+    )
+    activity.logger.info(
+        f"Upserted episode {episode_id} (live_mode={not dry_run}, beatmap={beatmap_path})"
+    )
+
+
+@activity.defn
+async def approve_g108_activity(episode_id: str) -> None:
+    """
+    Approve G1.08 credit plan when G1_SHOT_PLAN gate is approved.
+    
+    G1 approval implies credit plan approval (they're presented together),
+    so this is called automatically when G1 is approved.
+    
+    Args:
+        episode_id: Episode identifier
+    """
+    from hfvg.studio_db import approve_g108
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    await approve_g108(db_path, episode_id, user="workflow")
+    activity.logger.info(f"Approved G1.08 credit plan for {episode_id} via G1_SHOT_PLAN approval")

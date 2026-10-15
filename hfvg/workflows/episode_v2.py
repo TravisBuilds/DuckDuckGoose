@@ -145,6 +145,15 @@ class EpisodeWorkflowV2:
     ) -> dict:
         """Execute workflow with run lock held."""
         
+        # Upsert episode row (sets live_mode = not dry_run)
+        workflow.logger.info(f"Upserting episode {episode_id} (live_mode={not dry_run})")
+        await workflow.execute_activity(
+            "upsert_episode_activity",
+            args=[episode_id, beatmap_path, dry_run],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        
         # Initialize credit ledger line with credit_cap (lower of credit_cap and env cap)
         workflow.logger.info(f"Initializing credit ledger for {episode_id} with cap: {credit_cap}")
         await workflow.execute_activity(
@@ -212,6 +221,16 @@ class EpisodeWorkflowV2:
         await workflow.wait_condition(lambda: self.approved_g1_shot_plan)
         self.passed_gates.append("G1_SHOT_PLAN")
         workflow.logger.info(f"[APPROVED G1] Shot plan locked: {len(shots)} shots")
+        
+        # G1 approval implies G1.08 credit plan approval (single source of truth)
+        if not dry_run:
+            workflow.logger.info("Approving G1.08 credit plan (derived from G1_SHOT_PLAN approval)")
+            await workflow.execute_activity(
+                "approve_g108_activity",
+                args=[episode_id],
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
         
         # ================================================================
         # Generate Reference Images (Character Sheets, Lineup, etc.)

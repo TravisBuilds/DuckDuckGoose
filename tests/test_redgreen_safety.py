@@ -253,6 +253,8 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
+                activities.upsert_episode_activity,
+                activities.approve_g108_activity,
                 init_episode_credit_line_activity,
                 load_refs_to_generate_activity,
                 generate_ref_activity,

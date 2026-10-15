@@ -102,6 +102,37 @@ async def create_episode(
         await db.commit()
 
 
+async def upsert_episode(
+    db_path: str,
+    episode_id: str,
+    beatmap_path: str | None = None,
+    live_mode: bool = False,
+) -> None:
+    """
+    Upsert episode record (insert or update).
+    
+    Sets live_mode based on dry_run parameter. This is the single source of truth
+    for whether an episode is in live mode.
+    
+    Args:
+        db_path: Path to database
+        episode_id: Episode ID
+        beatmap_path: Path to beatmap file
+        live_mode: True if not dry_run (live paid generation)
+    """
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """INSERT INTO episodes (episode_id, beatmap_path, live_mode) 
+               VALUES (?, ?, ?)
+               ON CONFLICT(episode_id) DO UPDATE SET
+                   beatmap_path = COALESCE(excluded.beatmap_path, beatmap_path),
+                   live_mode = excluded.live_mode,
+                   updated_at = datetime('now')""",
+            (episode_id, beatmap_path, 1 if live_mode else 0)
+        )
+        await db.commit()
+
+
 async def set_live_mode(
     db_path: str,
     episode_id: str,
