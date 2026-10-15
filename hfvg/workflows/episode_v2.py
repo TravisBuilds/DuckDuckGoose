@@ -214,6 +214,48 @@ class EpisodeWorkflowV2:
         workflow.logger.info(f"[APPROVED G1] Shot plan locked: {len(shots)} shots")
         
         # ================================================================
+        # Generate Reference Images (Character Sheets, Lineup, etc.)
+        # ================================================================
+        workflow.logger.info("=== REFERENCE GENERATION ===")
+        
+        # Load refs to generate from refs.json, filtered by shots_subset
+        from hfvg.activities.ref_generation import load_refs_to_generate_activity
+        
+        refs_to_generate = await workflow.execute_activity(
+            load_refs_to_generate_activity,
+            args=[episode_id, shots_subset],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        
+        if refs_to_generate:
+            workflow.logger.info(f"Generating {len(refs_to_generate)} reference images...")
+            
+            from hfvg.activities.ref_generation import generate_ref_activity
+            
+            for ref_spec in refs_to_generate:
+                ref_key = ref_spec["key"]
+                prompt = ref_spec["prompt"]
+                output_path = ref_spec["output_path"]
+                version = ref_spec.get("version", 1)
+                
+                workflow.logger.info(f"Generating ref {ref_key} v{version}")
+                
+                ref_result = await workflow.execute_activity(
+                    generate_ref_activity,
+                    args=[episode_id, ref_key, prompt, output_path, version],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+                
+                workflow.logger.info(
+                    f"Ref {ref_key} completed: {ref_result['status']}, "
+                    f"credits: {ref_result['credits_used']}"
+                )
+        else:
+            workflow.logger.info("No refs to generate")
+        
+        # ================================================================
         # Generate Stills (before G2)
         # ================================================================
         workflow.logger.info("=== STILLS GENERATION ===")

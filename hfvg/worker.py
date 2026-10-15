@@ -20,6 +20,10 @@ from hfvg.activities.run_lock import (
     release_run_lock,
 )
 from hfvg.activities.studio_generation import verify_episode_files_activity
+from hfvg.activities.ref_generation import (
+    generate_ref_activity,
+    load_refs_to_generate_activity,
+)
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
@@ -55,6 +59,8 @@ PRODUCTION_ACTIVITIES = [
     activities.recheck_refs_activity,
     activities.check_live_mode_and_g108,
     verify_episode_files_activity,
+    generate_ref_activity,
+    load_refs_to_generate_activity,
     generate_run_report,
     reserve_credits_activity,
     commit_credits_activity,
