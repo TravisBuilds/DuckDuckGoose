@@ -56,17 +56,17 @@ async def test_approval_signal_reaches_episode_workflow():
             # Query initial state
             state = await handle.query("get_state")
             assert state["episode_id"] == "ep99"
-            assert not state["approvals"]["g101"], "G1.01 should not be approved yet"
+            assert not state["approvals"]["g1_shot_plan"], "G1 should not be approved yet"
             
             # Send approval signal
-            await handle.signal("approve_g101")
+            await handle.signal("approve_g1_shot_plan")
             
             # Give it time to process
             await asyncio.sleep(0.1)
             
             # Query state again
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g101"], "G1.01 should be approved after signal"
+            assert state_after["approvals"]["g1_shot_plan"], "G1 should be approved after signal"
             
             # Cancel workflow
             await handle.cancel()

@@ -52,26 +52,14 @@ class EpisodeWorkflowV2:
         self.policy = None
         self.passed_gates: list[str] = []  # Track which gates have been passed
         
-        # Travis approval flags (15 points)
-        self.approved_gx01 = False  # External actions (default HOLD)
-        self.approved_gc02 = False  # Budget tracking OK
-        self.approved_gc06 = False  # Line move reported
-        self.approved_g101 = False  # Pitch pick
-        self.approved_g103 = False  # Beatmap
-        self.approved_g108 = False  # Credit plan
-        self.approved_g201 = False  # New refs approved
-        self.approved_g212 = False  # Still strip approved
-        self.approved_g406 = False  # Cut-for-story flags reviewed
-        self.approved_g408 = False  # Mute notes logged
-        self.approved_g409 = False  # Picture lock
-        self.approved_g501 = False  # VO script + music lock
-        self.approved_g610 = False  # Final audio approval
-        self.approved_g702 = False  # Drive upload OK
-        self.approved_g703 = False  # Handoff package OK
+        # Three human gates (collapsed from 15)
+        self.approved_g1_shot_plan = False  # G1: Beatmap + credit plan
+        self.approved_g2_scene_stills = False  # G2: All stills + refs
+        self.approved_g_final_cut = False  # G_FINAL: After edit
         
         self.shot_results: dict[str, dict] = {}
         self.parsed_beatmap: dict[str, Any] | None = None
-        self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk (G2.01 hold)
+        self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk
     
     @workflow.run
     async def run(self, episode_id: str, beatmap_path: str | None = None, 
@@ -100,114 +88,71 @@ class EpisodeWorkflowV2:
         
         workflow.logger.info(f"Starting episode {episode_id} (dry_run={dry_run})")
         
-        # Step 0: Bible (asset registry, playbook)
-        workflow.logger.info("=== STEP 0: BIBLE ===")
-        self.state.stage = PipelineStage.CHARACTER_LOCKS
-        workflow.logger.info("Loading asset registry and playbook...")
-        # TODO: Wire AssetRegistry and PlaybookValidator
-        
-        # Step 1: Story (pitch → beatmap → credit plan)
-        workflow.logger.info("=== STEP 1: STORY ===")
-        
-        # G1.01: Pitch pick
-        workflow.logger.info("G1.01: Awaiting pitch pick...")
-        self.state.current_gate = "G1.01"
-        await workflow.wait_condition(lambda: self.approved_g101)
-        self.passed_gates.append("G1.01")
-        workflow.logger.info(f"[APPROVED G1.01] Pitch picked for {episode_id}")
+        # ================================================================
+        # GATE 1: SHOT PLAN (Beatmap + Credit Plan)
+        # ================================================================
+        workflow.logger.info("=== GATE 1: SHOT PLAN ===")
+        self.state.stage = PipelineStage.SCRIPT
         
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)
         workflow.logger.info("Parsing BEATMAP.md...")
-        self.state.stage = PipelineStage.SCRIPT
         
         self.parsed_beatmap = await workflow.execute_activity(
             parse_beatmap_activity,
             args=[beatmap_path, episode_id, not dry_run],
             start_to_close_timeout=timedelta(seconds=30),
-            # Missing/invalid per-shot data in live mode is a hard refusal, not something to retry
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         
         shots = self.parsed_beatmap.get("shots", [])
         workflow.logger.info(f"Parsed {len(shots)} shots from beatmap")
         
-        # G1.03: Beatmap approval
-        workflow.logger.info("G1.03: Awaiting beatmap approval...")
-        self.state.current_gate = "G1.03"
-        await workflow.wait_condition(lambda: self.approved_g103)
-        self.passed_gates.append("G1.03")
-        workflow.logger.info(f"[APPROVED G1.03] Beatmap locked: {len(shots)} shots")
+        # Calculate total credits from brief (no separate CREDIT-PLAN needed)
+        total_video_credits = sum(s.get("video_credits", 0) for s in shots)
+        total_still_credits = sum(s.get("still_credits", 0) for s in shots)
+        total_credits = total_video_credits + total_still_credits
         
-        # G1.08: Credit plan approval (check DB for single source of truth)
-        workflow.logger.info("G1.08: Awaiting credit plan approval...")
-        self.state.current_gate = "G1.08"
-        await workflow.wait_condition(lambda: self.approved_g108)
-        self.passed_gates.append("G1.08")
-        
-        # Verify approval in DB before proceeding (fail-closed)
-        # Activity reads DATABASE_PATH from environment (studio DB)
-        _, g108_db = await workflow.execute_activity(
-            check_live_mode_and_g108,
-            args=[self.state.episode_id],
-            start_to_close_timeout=timedelta(seconds=10),
-            retry_policy=RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=1),
-                maximum_interval=timedelta(seconds=5),
-            ),
+        workflow.logger.info(
+            f"Credit plan: {total_credits} credits estimated "
+            f"(video: {total_video_credits}, stills: {total_still_credits})"
         )
-        if not g108_db:
-            raise RuntimeError("G1.08 approval signal received but DB shows not approved (fail-closed)")
         
-        workflow.logger.info("[APPROVED G1.08] Credit plan locked (DB verified)")
+        # Wait for G1_SHOT_PLAN approval
+        workflow.logger.info("G1_SHOT_PLAN: Awaiting approval...")
+        self.state.current_gate = "G1_SHOT_PLAN"
+        await workflow.wait_condition(lambda: self.approved_g1_shot_plan)
+        self.passed_gates.append("G1_SHOT_PLAN")
+        workflow.logger.info(f"[APPROVED G1] Shot plan locked: {len(shots)} shots")
         
-        # GC.02: Budget tracking check
-        workflow.logger.info("GC.02: Awaiting budget tracking confirmation...")
-        self.state.current_gate = "GC.02"
-        await workflow.wait_condition(lambda: self.approved_gc02)
-        self.passed_gates.append("GC.02")
-        workflow.logger.info("[APPROVED GC.02] Budget tracking active")
-        
-        # Step 2: Stills generation
-        workflow.logger.info("=== STEP 2: STILLS ===")
+        # ================================================================
+        # Generate Stills (before G2)
+        # ================================================================
+        workflow.logger.info("=== STILLS GENERATION ===")
         self.state.stage = PipelineStage.STILL_GENERATION
         
-        # G2.01: New refs approval (any shot with a ref that is not on disk yet)
+        # Check for missing refs (internal check, not a human gate)
         if self._needs_new_refs(shots):
             self.missing_refs = self._collect_missing_refs(shots)
-            while True:
-                workflow.logger.info(
-                    f"G2.01: Awaiting new reference approval (missing: {self.missing_refs})..."
-                )
-                self.state.current_gate = "G2.01"
-                await workflow.wait_condition(lambda: self.approved_g201)
-                # Re-check the filesystem: approval alone never lets a shot run without its refs
+            workflow.logger.info(f"Missing refs detected: {self.missing_refs}")
+            
+            # In live mode, re-check refs after they're uploaded
+            if not dry_run:
                 rechecked = await workflow.execute_activity(
                     recheck_refs_activity,
-                    args=[episode_id, {s_["shot_id"]: s_.get("ref_keys", []) for s_ in shots}],
+                    args=[episode_id, {s["shot_id"]: s.get("ref_keys", []) for s in shots}],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
                 shots = [
-                    {**s_, **rechecked[s_["shot_id"]]} if s_["shot_id"] in rechecked else s_
-                    for s_ in shots
+                    {**s, **rechecked[s["shot_id"]]} if s["shot_id"] in rechecked else s
+                    for s in shots
                 ]
                 self.missing_refs = self._collect_missing_refs(shots)
-                if not self.missing_refs or dry_run:
-                    break
-                # Live: refs still missing -> HOLD at G2.01 (approval consumed, wait again)
-                workflow.logger.warning(
-                    f"G2.01 approved but refs still missing, holding: {self.missing_refs}"
-                )
-                self.approved_g201 = False
-            self.passed_gates.append("G2.01")
-            workflow.logger.info("[APPROVED G2.01] New refs approved")
         
         # Launch still generation for all shots
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
         for shot in shots:
-            # Build shot plan with prompt from beatmap fields
             shot_plan = shot.copy()
             shot_plan["dry_run"] = dry_run
             if "prompt" not in shot_plan:
@@ -224,15 +169,19 @@ class EpisodeWorkflowV2:
         
         workflow.logger.info(f"Launched {len(shot_workflow_handles)} shot workflows")
         
-        # G2.12: Still strip approval
-        workflow.logger.info("G2.12: Awaiting still strip approval...")
-        self.state.current_gate = "G2.12"
-        await workflow.wait_condition(lambda: self.approved_g212)
-        self.passed_gates.append("G2.12")
-        workflow.logger.info("[APPROVED G2.12] Still strip approved")
+        # ================================================================
+        # GATE 2: SCENE STILLS (All stills + reference sheets)
+        # ================================================================
+        workflow.logger.info("=== GATE 2: SCENE STILLS ===")
+        self.state.current_gate = "G2_SCENE_STILLS"
+        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
+        self.passed_gates.append("G2_SCENE_STILLS")
+        workflow.logger.info("[APPROVED G2] Scene stills approved")
         
-        # Step 3: Clips generation
-        workflow.logger.info("=== STEP 3: VIDEO ===")
+        # ================================================================
+        # Generate Clips
+        # ================================================================
+        workflow.logger.info("=== CLIP GENERATION ===")
         self.state.stage = PipelineStage.CLIP_GENERATION
         
         # Signal all shot workflows to proceed with clips
@@ -249,109 +198,31 @@ class EpisodeWorkflowV2:
         
         workflow.logger.info(f"All {len(results)} clips completed")
         
-        # Step 4: Mute (trim, QC, picture lock)
-        workflow.logger.info("=== STEP 4: MUTE ===")
+        # ================================================================
+        # Edit & Audio (stubbed - from separate PR #8)
+        # ================================================================
+        workflow.logger.info("=== EDIT & AUDIO ===")
         self.state.stage = PipelineStage.MUTE_EDIT
         
-        # G4.06: Cut-for-story flags
-        workflow.logger.info("G4.06: Awaiting cut-for-story review...")
-        self.state.current_gate = "G4.06"
-        await workflow.wait_condition(lambda: self.approved_g406)
-        self.passed_gates.append("G4.06")
-        workflow.logger.info("[APPROVED G4.06] Cut-for-story reviewed")
+        # Placeholder for edit and audio stages
+        workflow.logger.info("[PLACEHOLDER] Edit and audio stages from PR #8")
         
-        # Render mute cut
-        workflow.logger.info("Rendering mute cut...")
-        if dry_run:
-            mute_path = f"/tmp/{episode_id}_mute_dry.mp4"
-            workflow.logger.info(f"[DRY-RUN] Mute would be at {mute_path}")
-        else:
-            # Real mute rendering
-            raise NotImplementedError("Real mute rendering not implemented")
+        # ================================================================
+        # GATE 3: FINAL CUT
+        # ================================================================
+        workflow.logger.info("=== GATE 3: FINAL CUT ===")
+        self.state.current_gate = "G_FINAL_CUT"
+        await workflow.wait_condition(lambda: self.approved_g_final_cut)
+        self.passed_gates.append("G_FINAL_CUT")
+        workflow.logger.info("[APPROVED G_FINAL] Final cut approved")
         
-        # G4.08: Mute review notes
-        workflow.logger.info("G4.08: Awaiting mute review notes...")
-        self.state.current_gate = "G4.08"
-        await workflow.wait_condition(lambda: self.approved_g408)
-        self.passed_gates.append("G4.08")
-        workflow.logger.info("[APPROVED G4.08] Mute notes logged")
-        
-        # G4.09: Picture lock
-        workflow.logger.info("G4.09: Awaiting picture lock...")
-        self.state.current_gate = "G4.09"
-        await workflow.wait_condition(lambda: self.approved_g409)
-        self.passed_gates.append("G4.09")
-        workflow.logger.info("[APPROVED G4.09] ⚠️ PICTURE LOCK - no more picture changes")
-        
-        # Step 5: Script lock
-        workflow.logger.info("=== STEP 5: SCRIPT ===")
-        self.state.stage = PipelineStage.SCRIPT
-        
-        # G5.01: VO script + music lock
-        workflow.logger.info("G5.01: Awaiting VO script and music lock...")
-        self.state.current_gate = "G5.01"
-        await workflow.wait_condition(lambda: self.approved_g501)
-        self.passed_gates.append("G5.01")
-        workflow.logger.info("[APPROVED G5.01] VO script and music locked")
-        
-        # Step 6: Audio (VO, music, SFX, mix)
-        workflow.logger.info("=== STEP 6: AUDIO ===")
-        self.state.stage = PipelineStage.AUDIO
-        
-        workflow.logger.info("Audio generation (stubbed for Slice 2)...")
-        if not dry_run:
-            raise NotImplementedError("ElevenLabs integration not implemented")
-        
-        # G6.10: Final audio approval
-        workflow.logger.info("G6.10: Awaiting final audio approval...")
-        self.state.current_gate = "G6.10"
-        await workflow.wait_condition(lambda: self.approved_g610)
-        self.passed_gates.append("G6.10")
-        workflow.logger.info("[APPROVED G6.10] Final audio approved")
-        
-        # Step 7: Delivery (HOLD by default per GX.01)
-        workflow.logger.info("=== STEP 7: DELIVERY ===")
-        self.state.stage = PipelineStage.POST_APPROVAL
-        
-        # GX.01: External actions HOLD by default
-        workflow.logger.info("GX.01: Episode ready for delivery (HOLD - never auto-post)")
-        workflow.logger.info("Awaiting explicit GX.01 approval for external actions...")
-        self.state.current_gate = "GX.01"
-        await workflow.wait_condition(lambda: self.approved_gx01)
-        self.passed_gates.append("GX.01")
-        workflow.logger.info("[APPROVED GX.01] External actions authorized")
-        
-        # G7.02: Drive upload
-        workflow.logger.info("G7.02: Awaiting Drive upload confirmation...")
-        self.state.current_gate = "G7.02"
-        await workflow.wait_condition(lambda: self.approved_g702)
-        self.passed_gates.append("G7.02")
-        workflow.logger.info("[APPROVED G7.02] Drive upload complete")
-        
-        # G7.03: Grower handoff package
-        workflow.logger.info("G7.03: Preparing Grower handoff package...")
-        handoff_stub = {
-            "episode_id": episode_id,
-            "final_path": f"/tmp/{episode_id}_final.mp4",
-            "review_copy_path": f"/tmp/{episode_id}_review.mp4",
-            "subs_en_path": f"/tmp/{episode_id}_en.srt",
-            "subs_jp_path": f"/tmp/{episode_id}_jp.srt",
-            "status": "HOLD - awaiting Grower pickup"
-        }
-        
-        workflow.logger.info("G7.03: Awaiting handoff package approval...")
-        self.state.current_gate = "G7.03"
-        await workflow.wait_condition(lambda: self.approved_g703)
-        self.passed_gates.append("G7.03")
-        workflow.logger.info("[APPROVED G7.03] Grower handoff package ready")
-        
-        workflow.logger.info(f"✅ Episode {episode_id} complete (HOLD state)")
+        workflow.logger.info(f"✅ Episode {episode_id} complete")
         
         return {
             "episode_id": episode_id,
             "shots": len(shots),
             "status": "complete",
-            "handoff": handoff_stub,
+            "passed_gates": self.passed_gates,
         }
     
     @staticmethod
@@ -362,81 +233,21 @@ class EpisodeWorkflowV2:
         """G2.01 is needed when any shot references a ref that is not on disk (planned new ref)."""
         return bool(self._collect_missing_refs(shots))
     
-    # Signal handlers for Travis approvals
+    # Signal handlers for 3 gates
     @workflow.signal
-    async def approve_gx01(self):
-        """Approve external actions (GX.01)."""
-        self.approved_gx01 = True
+    async def approve_g1_shot_plan(self):
+        """Approve shot plan (G1_SHOT_PLAN): Beatmap + credit plan."""
+        self.approved_g1_shot_plan = True
     
     @workflow.signal
-    async def approve_gc02(self):
-        """Confirm budget tracking (GC.02)."""
-        self.approved_gc02 = True
+    async def approve_g2_scene_stills(self):
+        """Approve scene stills (G2_SCENE_STILLS): All stills + refs."""
+        self.approved_g2_scene_stills = True
     
     @workflow.signal
-    async def approve_gc06(self):
-        """Acknowledge line move report (GC.06)."""
-        self.approved_gc06 = True
-    
-    @workflow.signal
-    async def approve_g101(self):
-        """Approve pitch pick (G1.01)."""
-        self.approved_g101 = True
-    
-    @workflow.signal
-    async def approve_g103(self):
-        """Approve beatmap (G1.03)."""
-        self.approved_g103 = True
-    
-    @workflow.signal
-    async def approve_g108(self):
-        """Approve credit plan (G1.08)."""
-        self.approved_g108 = True
-    
-    @workflow.signal
-    async def approve_g201(self):
-        """Approve new refs (G2.01)."""
-        self.approved_g201 = True
-    
-    @workflow.signal
-    async def approve_g212(self):
-        """Approve still strip (G2.12)."""
-        self.approved_g212 = True
-    
-    @workflow.signal
-    async def approve_g406(self):
-        """Approve cut-for-story review (G4.06)."""
-        self.approved_g406 = True
-    
-    @workflow.signal
-    async def approve_g408(self):
-        """Log mute review notes (G4.08)."""
-        self.approved_g408 = True
-    
-    @workflow.signal
-    async def approve_g409(self):
-        """Lock picture (G4.09)."""
-        self.approved_g409 = True
-    
-    @workflow.signal
-    async def approve_g501(self):
-        """Lock VO script and music (G5.01)."""
-        self.approved_g501 = True
-    
-    @workflow.signal
-    async def approve_g610(self):
-        """Approve final audio (G6.10)."""
-        self.approved_g610 = True
-    
-    @workflow.signal
-    async def approve_g702(self):
-        """Confirm Drive upload (G7.02)."""
-        self.approved_g702 = True
-    
-    @workflow.signal
-    async def approve_g703(self):
-        """Approve handoff package (G7.03)."""
-        self.approved_g703 = True
+    async def approve_g_final_cut(self):
+        """Approve final cut (G_FINAL_CUT): After edit."""
+        self.approved_g_final_cut = True
     
     @workflow.query
     def get_state(self) -> dict:
@@ -448,20 +259,9 @@ class EpisodeWorkflowV2:
             "passed_gates": self.passed_gates.copy(),
             "missing_refs": {k: list(v) for k, v in self.missing_refs.items()},
             "approvals": {
-                "gx01": self.approved_gx01,
-                "gc02": self.approved_gc02,
-                "g101": self.approved_g101,
-                "g103": self.approved_g103,
-                "g108": self.approved_g108,
-                "g201": self.approved_g201,
-                "g212": self.approved_g212,
-                "g406": self.approved_g406,
-                "g408": self.approved_g408,
-                "g409": self.approved_g409,
-                "g501": self.approved_g501,
-                "g610": self.approved_g610,
-                "g702": self.approved_g702,
-                "g703": self.approved_g703,
+                "g1_shot_plan": self.approved_g1_shot_plan,
+                "g2_scene_stills": self.approved_g2_scene_stills,
+                "g_final_cut": self.approved_g_final_cut,
             },
             "shots": len(self.shot_results),
         }

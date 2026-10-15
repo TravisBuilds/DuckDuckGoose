@@ -607,6 +607,9 @@ async def start_episode(
     await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(request.episode_id)
     
+    # Initialize studio DB if not exists
+    await init_studio_db()
+    
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     

@@ -516,6 +516,7 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="G2.01 collapsed into G2_SCENE_STILLS in 3-gate system")
 async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeypatch, data_env):
     env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=True)
     async with env:
@@ -538,6 +539,7 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="G2.01 collapsed into G2_SCENE_STILLS in 3-gate system")
 async def test_g201_holds_live_while_refs_still_missing_then_releases(tmp_path, monkeypatch, data_env):
     env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=False)
     # live episodes require the shot sets to match: shots.json here has exactly A01 + B04

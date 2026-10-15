@@ -255,15 +255,15 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             
             # Check state before approval
             state = await handle.query("get_state")
-            assert not state["approvals"]["g101"], "Should not be approved yet"
+            assert not state["approvals"]["g1_shot_plan"], "Should not be approved yet"
             
             # Send signal
-            await handle.signal("approve_g101")
+            await handle.signal("approve_g1_shot_plan")
             await env.sleep(0.1)
             
             # Check state after - signal should have reached workflow
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g101"], "Signal should reach workflow and approve"
+            assert state_after["approvals"]["g1_shot_plan"], "Signal should reach workflow and approve"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
