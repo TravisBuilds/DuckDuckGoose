@@ -11,6 +11,7 @@ import pytest
 from tests.lint_helpers import lint_ok, lint_meta
 
 from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 from tests.ledger_helpers import set_balance
 
@@ -20,6 +21,9 @@ async def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "dollar_ledger.db")
     await init_studio_db(path)
     await BudgetLedger(path).init_db()
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(path)
+    await credit_ledger.init_db()
     monkeypatch.setenv("DATABASE_PATH", path)
     monkeypatch.setenv("DRY_RUN", "true")
     yield path
@@ -137,6 +141,10 @@ async def _live_episode(db_path, monkeypatch):
     ledger = BudgetLedger(db_path)
     await ledger.set_line("ep99", "L2_drafts", 10_000_000, 8_000_000)
     await ledger.set_line("ep99", "L7_revision", 10_000_000, 10_000_000)
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     return ledger
 
 
