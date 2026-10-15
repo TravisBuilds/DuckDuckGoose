@@ -180,12 +180,17 @@ async def test_api_to_g_final_cut_integration(tmp_path):
             
             # Step 6: Assert run report exists
             reports_dir = Path("./data/reports")
-            report_json = reports_dir / f"{episode_id}.json"
-            report_md = reports_dir / f"{episode_id}.md"
             
-            assert report_json.exists(), f"Run report JSON not found: {report_json}"
-            assert report_md.exists(), f"Run report MD not found: {report_md}"
-            print(f"✓ Run report files exist: {report_json}, {report_md}")
+            # Reports are saved with timestamp suffix (e.g. ep99_full_20261015_153921.json)
+            report_json_files = list(reports_dir.glob(f"{episode_id}_full_*.json"))
+            report_md_files = list(reports_dir.glob(f"{episode_id}_full_*.md"))
+            
+            assert len(report_json_files) >= 1, f"Run report JSON not found in {reports_dir}"
+            assert len(report_md_files) >= 1, f"Run report MD not found in {reports_dir}"
+            
+            report_json = report_json_files[0]
+            report_md = report_md_files[0]
+            print(f"✓ Run report files exist: {report_json.name}, {report_md.name}")
             
             # Verify report content
             report_data = json.loads(report_json.read_text())
