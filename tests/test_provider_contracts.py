@@ -643,6 +643,10 @@ async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     await set_live_mode(db_path, "ep99", True)
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
