@@ -270,6 +270,12 @@ class StartEpisodeResponse(BaseModel):
     message: str
 
 
+class StartCanaryRequest(BaseModel):
+    episode_id: str
+    shots_subset: list[str] | None = None
+    credit_cap: int = 100
+
+
 class ApprovalRequest(BaseModel):
     gate_id: str = Field(..., description="Gate ID to approve (e.g., g101, g103, g108, g212, g409)")
     note: str | None = Field(None, description="Optional approval note")
