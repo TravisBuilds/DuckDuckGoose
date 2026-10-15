@@ -28,6 +28,11 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import create_episode, init_studio_db
+    from hfvg.activities.credit_activities import (
+        reserve_credits_activity,
+        commit_credits_activity,
+        release_credits_activity,
+    )
     from hfvg.workflows.shot import ShotWorkflow
 
 
@@ -320,6 +325,9 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -462,6 +470,9 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -555,6 +566,9 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
