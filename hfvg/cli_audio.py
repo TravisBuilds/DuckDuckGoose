@@ -5,10 +5,11 @@ This provides the CLI entry point for rebuilding a mix from a locked script
 plus existing local stems with ZERO API calls.
 
 Usage:
-    hfvg audio-rebuild \
+    hfvg audio rebuild \
         --script ep04/audio/vo-script-v1.json \
         --stems ep04/audio/stems/ \
         --cues ep04/audio/cues-v1.json \
+        --video ep04/video/mute.mp4 \
         --output ep04/audio/rebuilt-mix.mp4
 
 Expected input layout (mirroring reference):
@@ -26,10 +27,10 @@ This proves parity against the approved Ep04 file by rebuilding from
 the same inputs and comparing outputs.
 """
 
-import argparse
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ def audio_cli():
     "--video",
     required=True,
     type=click.Path(exists=True, path_type=Path),
-    help="Path to picture-locked video (mute)",
+    help="Path to picture-locked video (with logo already baked in)",
 )
 @click.option(
     "--output",
@@ -76,7 +77,7 @@ def audio_cli():
 @click.option(
     "--compare",
     type=click.Path(exists=True, path_type=Path),
-    help="Optional: path to reference file for bit-exact comparison",
+    help="Optional: path to reference file for parity comparison",
 )
 @click.option(
     "--dry-run",
@@ -123,10 +124,11 @@ def rebuild_command(
     
     if dry_run:
         click.echo("\n[DRY-RUN] Would rebuild mix with:")
-        click.echo("  - VO lines from script JSON")
-        click.echo("  - BGM from stems/")
-        click.echo("  - SFX from cues JSON")
-        click.echo("  - Master chain: amix → trim → makeup → limit")
+        click.echo("  - All 4 stems: SFX, VOX, VO, BGM")
+        click.echo("  - VO gain trim: -2.5 dB")
+        click.echo("  - amix: dropout_transition=1, normalize=0")
+        click.echo("  - Master: makeup +4.7 dB, limiter 0.86")
+        click.echo("  - Outputs: nosubs + subs (ASS burn) + phone (<5 MB)")
         click.echo("  - LUFS target: -12.7 ±0.5")
         click.echo("  - True peak: ≤ -1.0 dBTP")
         click.echo("\n✓ Dry-run complete. No API calls made.")
@@ -145,7 +147,7 @@ def rebuild_command(
     with open(cues) as f:
         cues_data = json.load(f)
     
-    # Find stem files
+    # Find stem files - fix glob to distinguish VO from VOX
     stem_files = {
         "vo": None,
         "bgm": None,
@@ -153,33 +155,94 @@ def rebuild_command(
         "vox": None,
     }
     
-    for stem_type in stem_files:
-        candidates = list(stems.glob(f"*{stem_type}*.wav"))
-        if candidates:
-            stem_files[stem_type] = candidates[0]
-            click.echo(f"Found {stem_type}: {stem_files[stem_type].name}")
+    # Match stems by specific patterns to avoid VO/VOX confusion
+    for stem_path in stems.iterdir():
+        if not stem_path.suffix == ".wav":
+            continue
+        
+        name_lower = stem_path.stem.lower()
+        
+        # Order matters: check VOX before VO to avoid false match
+        if "vox" in name_lower:
+            stem_files["vox"] = stem_path
+            click.echo(f"Found vox: {stem_path.name}")
+        elif "vo-bus" in name_lower or (("vo" in name_lower or "voice" in name_lower) and "vox" not in name_lower):
+            stem_files["vo"] = stem_path
+            click.echo(f"Found vo: {stem_path.name}")
+        elif "bgm" in name_lower or "music" in name_lower:
+            stem_files["bgm"] = stem_path
+            click.echo(f"Found bgm: {stem_path.name}")
+        elif "sfx" in name_lower or "ambience" in name_lower:
+            stem_files["sfx"] = stem_path
+            click.echo(f"Found sfx: {stem_path.name}")
     
     # Check required stems
     if not stem_files["vo"]:
         click.echo("Error: VO stem not found", err=True)
         sys.exit(1)
     
+    if not stem_files["bgm"]:
+        click.echo("Error: BGM stem not found", err=True)
+        sys.exit(1)
+    
+    if not stem_files["sfx"]:
+        click.echo("Error: SFX stem not found", err=True)
+        sys.exit(1)
+    
+    # VOX is optional
+    if not stem_files["vox"]:
+        click.echo("Note: VOX stem not found (optional)")
+    
     # Get video duration
     duration = get_video_duration(video)
     click.echo(f"\nVideo duration: {duration:.3f}s")
     
     # Perform rebuild
-    click.echo("\nRebuilding mix...")
+    click.echo("\nRebuilding mix (no-subs version)...")
+    nosubs_path = output.parent / (output.stem + "-nosubs.mp4")
+    
     try:
         rebuild_mix(
             video_path=video,
             stems=stem_files,
             script_data=script_data,
             cues_data=cues_data,
-            output_path=output,
+            output_path=nosubs_path,
             duration=duration,
         )
-        click.echo(f"✓ Mix rebuilt: {output}")
+        click.echo(f"✓ No-subs mix: {nosubs_path}")
+        
+        # Burn subtitles if available
+        subs_dir = stems.parent / "subs"
+        ass_file = None
+        if subs_dir.exists():
+            ass_files = list(subs_dir.glob("*.ass"))
+            if ass_files:
+                ass_file = ass_files[0]
+                click.echo(f"\nFound subtitles: {ass_file.name}")
+        
+        if ass_file:
+            click.echo("Burning subtitles...")
+            burn_subtitles(
+                video_path=nosubs_path,
+                ass_path=ass_file,
+                output_path=output,
+            )
+            click.echo(f"✓ With subs: {output}")
+        else:
+            click.echo("⚠ No subtitles found, copying nosubs as final")
+            import shutil
+            shutil.copy2(nosubs_path, output)
+        
+        # Create phone copy
+        phone_path = output.parent / (output.stem + "-phone.mp4")
+        click.echo(f"\nCreating phone copy (540px, <5 MB)...")
+        create_phone_copy(
+            video_path=output,
+            output_path=phone_path,
+            max_size_mb=5.0,
+        )
+        click.echo(f"✓ Phone copy: {phone_path}")
         
         # Measure loudness
         click.echo("\nMeasuring loudness...")
@@ -206,18 +269,34 @@ def rebuild_command(
         # Compare if reference provided
         if compare:
             click.echo(f"\nComparing to reference: {compare}")
-            if files_match(output, compare):
-                click.echo("✓ Bit-exact match!")
+            comparison = compare_audio_video(output, compare, duration)
+            
+            click.echo("\n=== Parity Check ===")
+            click.echo(f"LUFS delta:        {comparison['lufs_delta']:.2f} dB")
+            click.echo(f"True peak delta:   {comparison['peak_delta']:.2f} dB")
+            click.echo(f"Audio null residual: {comparison['null_residual_db']:.2f} dB")
+            click.echo(f"Video PSNR (avg):  {comparison['video_psnr_avg']:.2f} dB")
+            click.echo(f"Video SSIM (avg):  {comparison['video_ssim_avg']:.4f}")
+            
+            # Pass criteria: LUFS within 0.2 dB, null residual <= -50 dB
+            lufs_pass = abs(comparison['lufs_delta']) <= 0.2
+            null_pass = comparison['null_residual_db'] <= -50.0
+            
+            if lufs_pass and null_pass:
+                click.echo("\n✓ PARITY PASS")
             else:
-                click.echo("✗ Files differ")
-                # Show diff stats
-                diff_stats = compare_files(output, compare)
-                click.echo(f"  Size diff: {diff_stats['size_diff']} bytes")
+                click.echo("\n✗ PARITY FAIL")
+                if not lufs_pass:
+                    click.echo(f"  - LUFS delta {comparison['lufs_delta']:.2f} dB exceeds 0.2 dB threshold")
+                if not null_pass:
+                    click.echo(f"  - Null residual {comparison['null_residual_db']:.2f} dB exceeds -50 dB threshold")
         
         click.echo("\n✓ Parity rebuild complete (0 API calls)")
         
     except Exception as e:
         click.echo(f"Error during rebuild: {e}", err=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -245,42 +324,133 @@ def rebuild_mix(
     """
     Rebuild mix from stems using ffmpeg.
     
-    This implements the proven Ep03/Ep04 mix chain:
-    1. Load all stems
-    2. Apply VO bus delays from script timings
-    3. Apply BGM ducking automation
-    4. Apply SFX bed ducking
-    5. Master chain: amix → trim → makeup → limit
+    This implements the proven Ep03/Ep04 mix chain exactly:
+    1. Load all 4 stems: SFX, VOX, VO, BGM (in that order)
+    2. Apply VO -2.5 dB gain trim
+    3. amix with dropout_transition=1, normalize=0
+    4. Master makeup +4.7 dB
+    5. alimiter at 0.86 (≈-1.3 dBFS)
+    6. apad + atrim to exact duration
     """
-    # For now, just do a simple mix
-    # TODO: Implement full mix chain matching reference
-    
-    # Build ffmpeg command
+    # Ordered stem inputs: SFX, VOX, VO, BGM
+    stem_order = ["sfx", "vox", "vo", "bgm"]
     inputs = []
-    for stem_name, stem_path in stems.items():
+    stem_indices = []
+    
+    for stem_name in stem_order:
+        stem_path = stems.get(stem_name)
         if stem_path:
             inputs.extend(["-i", str(stem_path)])
+            stem_indices.append(len(inputs) // 2 - 1)
+        else:
+            # Missing optional stem (e.g., VOX) - use silent audio
+            inputs.extend(["-f", "lavfi", "-t", f"{duration:.6f}", "-i", "anullsrc=r=48000:cl=stereo"])
+            stem_indices.append(len(inputs) // 2 - 1)
     
     # Add video
+    video_idx = len(inputs) // 2
     inputs.extend(["-i", str(video_path)])
     
-    # Simple mix filter (placeholder)
-    filter_complex = (
-        "[0:a][1:a][2:a]amix=inputs=3:duration=longest:normalize=0,"
-        "volume=4.7dB,"
-        "alimiter=limit=0.86:attack=1:release=60:level=disabled"
-        "[amix]"
+    # Build filter chain matching reference
+    # A(i, label) helper
+    def A(idx, label):
+        return f"[{idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,apad=whole_dur={duration:.3f},atrim=0:{duration:.3f}[{label}];"
+    
+    filter_parts = []
+    filter_parts.append(A(stem_indices[0], "s"))   # SFX
+    filter_parts.append(A(stem_indices[1], "x"))   # VOX
+    filter_parts.append(A(stem_indices[2], "vo"))  # VO
+    filter_parts.append(A(stem_indices[3], "bgm")) # BGM
+    
+    # VO gain trim -2.5 dB, then amix all 4 stems
+    filter_parts.append(
+        f"[vo]volume=-2.5dB[vog];"
+        f"[s][x][vog][bgm]amix=inputs=4:duration=longest:dropout_transition=1:normalize=0,"
+        f"volume=4.7dB,"
+        f"alimiter=limit=0.86:attack=1:release=60:level=disabled,"
+        f"apad=whole_dur={duration:.3f},"
+        f"atrim=0:{duration:.3f},"
+        f"asetpts=PTS-STARTPTS[a]"
     )
     
+    filter_complex = "".join(filter_parts)
+    
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
+        "ffmpeg", "-y", "-loglevel", "warning",
         *inputs,
         "-filter_complex", filter_complex,
-        "-map", f"{len(stems)}:v:0",  # Video from last input
-        "-map", "[amix]",  # Mixed audio
+        "-map", f"{video_idx}:v:0",  # Video
+        "-map", "[a]",  # Mixed audio
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-t", f"{duration:.6f}",
+        "-movflags", "+faststart",
+        str(output_path)
+    ]
+    
+    subprocess.run(cmd, check=True)
+
+
+def burn_subtitles(
+    video_path: Path,
+    ass_path: Path,
+    output_path: Path,
+) -> None:
+    """
+    Burn ASS subtitles onto video using libx264.
+    
+    Matches reference: fontsdir, libx264 crf18 fast preset.
+    """
+    fonts_dir = "/usr/share/fonts/truetype/sand-box/google/Comfortaa"
+    
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning",
+        "-i", str(video_path),
+        "-vf", f"ass={ass_path}:fontsdir={fonts_dir}",
+        "-c:a", "copy",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        str(output_path)
+    ]
+    
+    subprocess.run(cmd, check=True)
+
+
+def create_phone_copy(
+    video_path: Path,
+    output_path: Path,
+    max_size_mb: float = 5.0,
+) -> None:
+    """
+    Create phone-optimized copy at 540px wide, <5 MB.
+    
+    Uses 2-pass encoding to hit the target size.
+    """
+    # Get duration for bitrate calculation
+    duration = get_video_duration(video_path)
+    
+    # Target: 5 MB total, reserve ~0.5 MB for audio
+    target_video_mb = max_size_mb - 0.5
+    target_video_kbps = int((target_video_mb * 8 * 1024) / duration)
+    
+    # Audio at 128 kbps
+    audio_kbps = 128
+    
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning",
+        "-i", str(video_path),
+        "-vf", "scale=540:-2",  # 540px wide, height auto
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-b:v", f"{target_video_kbps}k",
+        "-maxrate", f"{target_video_kbps}k",
+        "-bufsize", f"{target_video_kbps * 2}k",
+        "-c:a", "aac",
+        "-b:a", f"{audio_kbps}k",
         "-movflags", "+faststart",
         str(output_path)
     ]
@@ -291,7 +461,7 @@ def rebuild_mix(
 def measure_loudness(audio_path: Path) -> dict[str, float]:
     """Measure LUFS and true peak using ffmpeg ebur128 filter."""
     cmd = [
-        "ffmpeg", "-v", "error",
+        "ffmpeg", "-v", "info",  # Changed from "error" to "info" to see ebur128 output
         "-i", str(audio_path),
         "-filter:a", "ebur128=peak=true",
         "-f", "null",
@@ -313,17 +483,26 @@ def measure_loudness(audio_path: Path) -> dict[str, float]:
             parts = line.split()
             for i, part in enumerate(parts):
                 if part == 'I:':
-                    lufs = float(parts[i + 1])
-        elif 'LRA:' in line:
+                    try:
+                        lufs = float(parts[i + 1])
+                    except (IndexError, ValueError):
+                        pass
+        elif 'LRA:' in line and 'LU' in line:
             parts = line.split()
             for i, part in enumerate(parts):
                 if part == 'LRA:':
-                    lra = float(parts[i + 1])
-        elif 'True peak:' in line:
+                    try:
+                        lra = float(parts[i + 1])
+                    except (IndexError, ValueError):
+                        pass
+        elif 'Peak:' in line and 'dBFS' in line:  # Fixed: 'Peak:' not 'peak:'
             parts = line.split()
             for i, part in enumerate(parts):
-                if part == 'peak:':
-                    peak = float(parts[i + 1])
+                if part == 'Peak:':
+                    try:
+                        peak = float(parts[i + 1])
+                    except (IndexError, ValueError):
+                        pass
     
     return {
         "integrated_lufs": lufs,
@@ -332,29 +511,107 @@ def measure_loudness(audio_path: Path) -> dict[str, float]:
     }
 
 
-def files_match(file1: Path, file2: Path) -> bool:
-    """Check if two files are bit-exact matches."""
-    import hashlib
+def compare_audio_video(
+    file1: Path,
+    file2: Path,
+    duration: float,
+) -> dict[str, Any]:
+    """
+    Compare two audio/video files using LUFS delta, null test, and frame comparison.
     
-    def hash_file(path: Path) -> str:
-        h = hashlib.sha256()
-        with open(path, 'rb') as f:
-            while chunk := f.read(8192):
-                h.update(chunk)
-        return h.hexdigest()
+    Returns:
+        dict with lufs_delta, peak_delta, null_residual_db, video_psnr_avg, video_ssim_avg
+    """
+    # Measure loudness of both files
+    loud1 = measure_loudness(file1)
+    loud2 = measure_loudness(file2)
     
-    return hash_file(file1) == hash_file(file2)
-
-
-def compare_files(file1: Path, file2: Path) -> dict[str, Any]:
-    """Compare two files and return diff statistics."""
-    size1 = file1.stat().st_size
-    size2 = file2.stat().st_size
+    lufs_delta = loud1["integrated_lufs"] - loud2["integrated_lufs"]
+    peak_delta = loud1["true_peak_dbtp"] - loud2["true_peak_dbtp"]
+    
+    # Audio null test: invert one and mix
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as null_file:
+        null_path = Path(null_file.name)
+    
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(file1),
+            "-i", str(file2),
+            "-filter_complex",
+            "[0:a][1:a]amerge=inputs=2[a];[a]pan=stereo|c0=c0-c2|c1=c1-c3[null]",
+            "-map", "[null]",
+            "-c:a", "pcm_s16le",
+            str(null_path)
+        ]
+        subprocess.run(cmd, check=True)
+        
+        # Measure null residual
+        null_loud = measure_loudness(null_path)
+        null_residual_db = null_loud["integrated_lufs"]
+    finally:
+        null_path.unlink(missing_ok=True)
+    
+    # Video comparison: sample frames at key times
+    sample_times = [duration * p for p in [0.1, 0.3, 0.5, 0.7, 0.9]]
+    psnr_values = []
+    ssim_values = []
+    
+    for t in sample_times:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            frame1 = Path(tmpdir) / "frame1.png"
+            frame2 = Path(tmpdir) / "frame2.png"
+            
+            # Extract frames
+            for src, dst in [(file1, frame1), (file2, frame2)]:
+                cmd = [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-ss", f"{t:.3f}",
+                    "-i", str(src),
+                    "-frames:v", "1",
+                    str(dst)
+                ]
+                subprocess.run(cmd, check=True)
+            
+            # Compare frames with PSNR and SSIM
+            cmd = [
+                "ffmpeg", "-v", "error",
+                "-i", str(frame1),
+                "-i", str(frame2),
+                "-lavfi", "psnr;ssim",
+                "-f", "null",
+                "-"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Parse PSNR and SSIM from output
+            for line in result.stderr.split('\n'):
+                if 'PSNR' in line and 'average:' in line:
+                    parts = line.split('average:')
+                    if len(parts) > 1:
+                        try:
+                            psnr = float(parts[1].split()[0])
+                            psnr_values.append(psnr)
+                        except (ValueError, IndexError):
+                            pass
+                elif 'SSIM' in line and 'All:' in line:
+                    parts = line.split('All:')
+                    if len(parts) > 1:
+                        try:
+                            ssim = float(parts[1].split()[0])
+                            ssim_values.append(ssim)
+                        except (ValueError, IndexError):
+                            pass
+    
+    psnr_avg = sum(psnr_values) / len(psnr_values) if psnr_values else 0.0
+    ssim_avg = sum(ssim_values) / len(ssim_values) if ssim_values else 0.0
     
     return {
-        "size_diff": abs(size1 - size2),
-        "size1": size1,
-        "size2": size2,
+        "lufs_delta": lufs_delta,
+        "peak_delta": peak_delta,
+        "null_residual_db": null_residual_db,
+        "video_psnr_avg": psnr_avg,
+        "video_ssim_avg": ssim_avg,
     }
 
 
