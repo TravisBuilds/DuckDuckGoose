@@ -74,7 +74,22 @@ async def commit_credits_activity(
                 if row:
                     actual_credits = row[0]
                 else:
-                    actual_credits = 0
+                    # No reservation found - likely DRY_RUN mode, skip silently
+                    activity.logger.info(f"No credit reservation found for {job_id}, skipping commit (likely DRY_RUN)")
+                    return
+    
+    # Check if reservation exists before committing
+    line_id = f"episode_{episode_id}"
+    async with aiosqlite.connect(ledger.db_path, uri=True) as db:
+        async with db.execute(
+            """SELECT amount_credits FROM credit_transactions 
+               WHERE line_id = ? AND job_id = ? AND txn_type = 'reserve'""",
+            (line_id, job_id)
+        ) as cur:
+            if not await cur.fetchone():
+                # No reservation found - likely DRY_RUN mode, skip silently
+                activity.logger.info(f"No credit reservation found for {job_id}, skipping commit (likely DRY_RUN)")
+                return
     
     await ledger.commit_credits(episode_id, job_id, actual_credits)
     
@@ -98,6 +113,19 @@ async def release_credits_activity(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = CreditLedger(db_path)
     await ledger.init_db()
+    
+    # Check if reservation exists before releasing
+    line_id = f"episode_{episode_id}"
+    async with aiosqlite.connect(ledger.db_path, uri=True) as db:
+        async with db.execute(
+            """SELECT amount_credits FROM credit_transactions 
+               WHERE line_id = ? AND job_id = ? AND txn_type = 'reserve'""",
+            (line_id, job_id)
+        ) as cur:
+            if not await cur.fetchone():
+                # No reservation found - likely DRY_RUN mode, skip silently
+                activity.logger.info(f"No credit reservation found for {job_id}, skipping release (likely DRY_RUN)")
+                return
     
     await ledger.release_credits(episode_id, job_id, notes)
     
