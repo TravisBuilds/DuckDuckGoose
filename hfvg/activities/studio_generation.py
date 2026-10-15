@@ -37,6 +37,30 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, Seedance
 from hfvg.routing import plan_route
 
 
+def _create_fake_still(output_path: str) -> str:
+    """Create a small real PNG file for dry-run mode."""
+    from PIL import Image
+    
+    # Create a 64x64 orange placeholder image
+    img = Image.new('RGB', (64, 64), color=(255, 165, 0))
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    img.save(output_path)
+    return output_path
+
+
+def _create_fake_clip(output_path: str) -> str:
+    """Create a small real MP4 file for dry-run mode using ffmpeg."""
+    import subprocess
+    
+    # Create a 1-second 64x64 orange video
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([
+        "ffmpeg", "-f", "lavfi", "-i", "color=c=orange:s=64x64:d=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", output_path
+    ], check=True, capture_output=True)
+    return output_path
+
+
 @activity.defn
 async def check_live_mode_and_g108(episode_id: str) -> tuple[bool, bool]:
     """
@@ -575,9 +599,21 @@ async def poll_job_status(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(0.1)
+        
+        # Create real placeholder file
+        output_dir = Path("./data/dry_run_outputs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if job_type == "still":
+            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.jpg"
+            output_path = _create_fake_still(str(output_file))
+        else:
+            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.mp4"
+            output_path = _create_fake_clip(str(output_file))
+        
         return {
             "status": "completed",
-            "output_url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
+            "output_url": str(output_path),
             "error": None,
             "cost": None,
         }
@@ -809,9 +845,21 @@ async def await_job_enforced(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(0.2)
+        
+        # Create real placeholder file
+        output_dir = Path("./data/dry_run_outputs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if job_type == "still":
+            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.jpg"
+            output_path = _create_fake_still(str(output_file))
+        else:
+            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.mp4"
+            output_path = _create_fake_clip(str(output_file))
+        
         result = {
             "status": "completed",
-            "url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
+            "url": str(output_path),
             "cost": reserved_amount,
         }
         activity.logger.info(
