@@ -268,12 +268,15 @@ class CreditLedger:
                 "new_cap": new_cap_credits
             }
     
-    async def reserve_credits(self, episode_id: str, job_id: str, amount_credits: int, notes: str = "") -> dict[str, Any]:
+    async def reserve_credits(self, episode_id: str, job_id: str, amount_credits: float, notes: str = "") -> dict[str, Any]:
         """
         Reserve credits for a job (idempotent).
         
+        If a reservation with the same job_id already exists, returns the existing reservation
+        without modifying the ledger (idempotent).
+        
         Returns:
-            {"reserved": bool, "available": int, "pause_needed": bool, "over_cap": bool}
+            {"reserved": bool, "available": int, "pause_needed": bool, "over_cap": bool, "existing_amount": float|None}
         """
         if amount_credits <= 0:
             raise ValueError(f"amount_credits must be > 0, got {amount_credits}")
@@ -289,12 +292,14 @@ class CreditLedger:
             ) as cur:
                 existing = await cur.fetchone()
                 if existing:
+                    existing_amount = existing[0]
                     return {
                         "reserved": True,
                         "available": 0,
                         "pause_needed": False,
                         "over_cap": False,
-                        "idempotent": True
+                        "idempotent": True,
+                        "existing_amount": existing_amount
                     }
             
             # Get current line state
