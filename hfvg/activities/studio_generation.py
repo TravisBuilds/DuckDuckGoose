@@ -379,12 +379,20 @@ async def submit_clip_job_enforced(
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
     use_live = not dry_run_env and live_mode and g108_approved
     
+    # Extract animal count from shot metadata (characters set)
+    characters = (shot_meta or {}).get("characters", set())
+    if isinstance(characters, (list, set)):
+        animal_count = len(characters)
+    else:
+        animal_count = 1
+    
     # Explicit routing plan (fail closed in every mode)
     route = plan_route({
         "model": model,
         "tier": "draft" if tier == "draft" else "final",
         "duration": duration,
         "tags": tags or [],
+        "count": animal_count,
     })
     if route.model == "seedance" and duration != int(duration):
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
