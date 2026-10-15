@@ -36,7 +36,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from temporalio.client import Client as TemporalClient
 
@@ -369,6 +369,15 @@ async def root():
     }
 
 
+@app.get("/gates")
+async def serve_gates_page():
+    """Serve the gates approval UI page."""
+    gates_path = Path(__file__).parent.parent / "web" / "gates.html"
+    if not gates_path.exists():
+        raise HTTPException(status_code=404, detail="Gates page not found")
+    return FileResponse(gates_path)
+
+
 @app.get("/api/health")
 async def health(_auth: str | None = Header(None, alias="Authorization", include_in_schema=False)):
     """
@@ -698,13 +707,14 @@ async def approve_gate(
     episode_id: str,
     request: ApprovalRequest,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Send approval signal to episode workflow.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     if not temporal_client:
