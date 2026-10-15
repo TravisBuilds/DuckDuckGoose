@@ -15,6 +15,7 @@ from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
 from hfvg.providers.kling_video import KlingVideoProvider
 from hfvg.providers.seedance_video import SeedanceVideoProvider
 from hfvg.routing import RoutingError, plan_route
+from hfvg.credit_ledger import CreditLedger
 from tests.ledger_helpers import insert_line, set_balance
 from tests.lint_helpers import acapture, capture, lint_meta, lint_ok
 
@@ -339,6 +340,9 @@ async def _live_env(tmp_path, monkeypatch):
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     await BudgetLedger(db_path).init_db()
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L4_video", 20_000_000, 16_000_000)
         await db.commit()
