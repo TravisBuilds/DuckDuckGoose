@@ -198,12 +198,17 @@ async def test_dry_clip_reservation_uses_model_and_duration(tmp_path, monkeypatc
 
 async def _live_env(tmp_path, monkeypatch):
     from hfvg.budget import BudgetLedger
+    from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 
     db_path = str(tmp_path / "r4.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     await BudgetLedger(db_path).init_db()
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L4_video", 20_000_000, 16_000_000)
         await insert_line(db, "ep99", "L2_drafts", 20_000_000, 16_000_000)
