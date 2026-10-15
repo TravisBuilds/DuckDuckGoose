@@ -96,7 +96,7 @@ class EpisodeWorkflowV2:
         
         try:
             result = await self._run_with_lock(
-                episode_id, beatmap_path, dry_run, is_canary, shots_subset, credit_cap
+                episode_id, beatmap_path, dry_run, False, None, None
             )
             return result
         finally:
