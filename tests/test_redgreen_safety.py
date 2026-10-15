@@ -280,13 +280,13 @@ async def test_api_auth_rejects_invalid_secret(monkeypatch):
     
     client = TestClient(app)
     
-    # Try with wrong secret (403 when secret doesn't match)
+    # Try with wrong secret (401 with unified auth when secret doesn't match)
     response = client.post(
         "/api/episodes",
         json={"episode_id": "ep99"},
         headers={"Authorization": "Bearer wrong_secret"}
     )
-    assert response.status_code == 403, "Should reject wrong secret"
+    assert response.status_code == 401, "Should reject wrong secret"
 
 
 @pytest.mark.asyncio

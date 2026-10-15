@@ -141,10 +141,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware for local development
+# CORS middleware (configurable origins)
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[origin.strip() for origin in CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -195,6 +196,39 @@ def verify_admin_secret(authorization: str | None = Header(None)):
             status_code=403,
             detail="Invalid admin secret"
         )
+
+
+async def verify_auth_unified(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Unified auth: accept either Bearer token OR session cookie.
+    
+    This allows both programmatic access (Bearer token) and browser access (cookie).
+    Fail closed: at least one must be valid.
+    """
+    # Try cookie first (browser access)
+    if studio_admin_token:
+        try:
+            await verify_admin_cookie(studio_admin_token)
+            return  # Cookie is valid
+        except HTTPException:
+            pass  # Fall through to try Bearer token
+    
+    # Try Bearer token (programmatic access)
+    if authorization:
+        try:
+            verify_admin_secret(authorization)
+            return  # Bearer token is valid
+        except HTTPException:
+            pass
+    
+    # Neither worked
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
+    )
 
 
 # Request/Response models
@@ -523,8 +557,22 @@ async def upload_shots(
     if refs_file:
         refs_bytes = await refs_file.read()
         try:
-            if not isinstance(json.loads(refs_bytes).get("per_shot"), dict):
+            refs_data = json.loads(refs_bytes)
+            if not isinstance(refs_data.get("per_shot"), dict):
                 raise ValueError("missing 'per_shot' object")
+            
+            # Validate that all shots in shots.json have entries in refs.json per_shot
+            per_shot = refs_data["per_shot"]
+            # parse_shots returns either a list or dict depending on format
+            if isinstance(plans, dict):
+                shot_ids = set(plans.keys())
+            else:
+                shot_ids = {plan["shot_id"] for plan in plans}
+            missing_shots = shot_ids - per_shot.keys()
+            if missing_shots:
+                raise ValueError(
+                    f"refs.json missing per_shot entries for shots present in shots.json: {sorted(missing_shots)}"
+                )
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
 
@@ -533,10 +581,14 @@ async def upload_shots(
     (episode_dir / "shots.json").write_bytes(shots_bytes)
     if refs_bytes is not None:
         (episode_dir / "refs.json").write_bytes(refs_bytes)
+    
+    # Count shots (plans can be dict or list)
+    shots_count = len(plans) if isinstance(plans, (list, dict)) else 0
+    
     return {
         "success": True,
         "episode_id": episode_id,
-        "shots_count": len(plans),
+        "shots_count": shots_count,
         "refs_uploaded": refs_bytes is not None,
     }
 
@@ -545,13 +597,14 @@ async def upload_shots(
 async def start_episode(
     request: StartEpisodeRequest,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(request.episode_id)
     
     if not temporal_client:
@@ -845,14 +898,15 @@ async def _audit_balance(entry: dict):
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     List all shots for an episode with their status.
     
-    Requires: Cookie auth
+    Requires: Authorization header OR session cookie.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -1047,14 +1101,15 @@ See verification doc § "Clip-approve semantics" for details.
 @app.get("/api/episodes/{episode_id}/gates")
 async def get_gates(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get gate status for episode.
     
-    Requires: Cookie auth
+    Requires: Authorization header OR session cookie.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     import aiosqlite
