@@ -28,10 +28,13 @@ from hfvg.budget import BudgetLedger, REVISION_LINE
 from hfvg.credit_ledger import CreditLedger
 from hfvg.config import config, max_refs_for, still_model_path
 from hfvg.pricing import (
+    DRY_CLIP_USD_PER_SECOND_MICROS,
     DRY_STILL_USD_MICROS,
     clip_estimate_usd_micros,
     micros_to_usd_str,
+    usd_to_micros,
 )
+from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.routing import plan_route
@@ -379,7 +382,6 @@ async def submit_clip_job_enforced(
     end_image_url: str | None = None,
     bitrate_mode: str | None = None,
     missing_refs: list[str] | None = None,
-    job_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
@@ -545,8 +547,7 @@ async def submit_clip_job_enforced(
         )
         
         # Generate job_id (will be used as provider idempotency key)
-        if not job_id:
-            job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+        job_id = f"clip-{episode_id}-{shot_id}-v{version}"
         
         # Estimate credits for credit ledger
         # Map tier to resolution for Seedance: draft->480p, else->1080p

@@ -12,6 +12,7 @@ from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 
 from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
 from hfvg.activities.studio_generation import (
     submit_still_job_enforced,
@@ -33,6 +34,11 @@ async def test_db(tmp_path):
         await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     yield db_path
 
@@ -419,6 +425,11 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
+    
+    # Ensure credit line exists
+    credit_ledger = CreditLedger(test_db)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
