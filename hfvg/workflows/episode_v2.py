@@ -219,10 +219,8 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== REFERENCE GENERATION ===")
         
         # Load refs to generate from refs.json, filtered by shots_subset
-        from hfvg.activities.ref_generation import load_refs_to_generate_activity
-        
         refs_to_generate = await workflow.execute_activity(
-            load_refs_to_generate_activity,
+            "load_refs_to_generate_activity",
             args=[episode_id, shots_subset],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=1),
@@ -230,8 +228,6 @@ class EpisodeWorkflowV2:
         
         if refs_to_generate:
             workflow.logger.info(f"Generating {len(refs_to_generate)} reference images...")
-            
-            from hfvg.activities.ref_generation import generate_ref_activity
             
             for ref_spec in refs_to_generate:
                 ref_key = ref_spec["key"]
@@ -242,7 +238,7 @@ class EpisodeWorkflowV2:
                 workflow.logger.info(f"Generating ref {ref_key} v{version}")
                 
                 ref_result = await workflow.execute_activity(
-                    generate_ref_activity,
+                    "generate_ref_activity",
                     args=[episode_id, ref_key, prompt, output_path, version],
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=2),

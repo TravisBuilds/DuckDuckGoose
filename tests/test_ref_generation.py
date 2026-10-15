@@ -43,6 +43,78 @@ async def test_load_refs_to_generate_empty_list(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_refs_validates_required_fields(tmp_path, monkeypatch):
+    """Test: load_refs_to_generate validates required fields and fails fast."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    
+    # Test missing 'key'
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "to_generate": [
+            {
+                "prompt": "Duck sheet",
+                "output_path": "/fake/duck.png",
+                "type": "character_sheet"
+            }
+        ]
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    with pytest.raises(ValueError, match="missing required field 'key'"):
+        await load_refs_to_generate_activity("ep99")
+    
+    # Test missing 'prompt'
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "to_generate": [
+            {
+                "key": "r_duck",
+                "output_path": "/fake/duck.png",
+                "type": "character_sheet"
+            }
+        ]
+    }))
+    
+    with pytest.raises(ValueError, match="missing required field 'prompt'"):
+        await load_refs_to_generate_activity("ep99")
+    
+    # Test missing 'output_path'
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "to_generate": [
+            {
+                "key": "r_duck",
+                "prompt": "Duck sheet",
+                "type": "character_sheet"
+            }
+        ]
+    }))
+    
+    with pytest.raises(ValueError, match="missing required field 'output_path'"):
+        await load_refs_to_generate_activity("ep99")
+    
+    # Test missing 'type'
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "to_generate": [
+            {
+                "key": "r_duck",
+                "prompt": "Duck sheet",
+                "output_path": "/fake/duck.png"
+            }
+        ]
+    }))
+    
+    with pytest.raises(ValueError, match="missing required field 'type'"):
+        await load_refs_to_generate_activity("ep99")
+
+
+@pytest.mark.asyncio
 async def test_load_refs_to_generate_with_refs(tmp_path, monkeypatch):
     """Test: load_refs_to_generate returns to_generate list."""
     from hfvg.activities.ref_generation import load_refs_to_generate_activity
@@ -101,17 +173,20 @@ async def test_load_refs_filters_by_shots_subset(tmp_path, monkeypatch):
             {
                 "key": "r_duck",
                 "prompt": "Duck character sheet",
-                "output_path": "/fake/duck.png"
+                "output_path": "/fake/duck.png",
+                "type": "character_sheet"
             },
             {
                 "key": "r_birch",
                 "prompt": "Birch character sheet",
-                "output_path": "/fake/birch.png"
+                "output_path": "/fake/birch.png",
+                "type": "character_sheet"
             },
             {
                 "key": "r_lineup",
                 "prompt": "Lineup shot",
-                "output_path": "/fake/lineup.png"
+                "output_path": "/fake/lineup.png",
+                "type": "lineup"
             }
         ]
     }))

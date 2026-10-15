@@ -162,12 +162,17 @@ async def load_refs_to_generate_activity(episode_id: str, shots_subset: list[str
     """
     Load refs.json and extract to_generate list, filtered by shots_subset.
     
+    Validates each entry has required fields: key, prompt, output_path, type.
+    
     Args:
         episode_id: Episode identifier
         shots_subset: Optional list of shot IDs to filter refs
     
     Returns:
         List of refs to generate, each with keys: key, prompt, output_path, type, version
+    
+    Raises:
+        ValueError: If any to_generate entry is missing required fields
     """
     from hfvg.shot_data import refs_json_path
     
@@ -182,6 +187,16 @@ async def load_refs_to_generate_activity(episode_id: str, shots_subset: list[str
     if not to_generate:
         activity.logger.info(f"No to_generate list in refs.json for {episode_id}")
         return []
+    
+    # Validate each entry has required fields
+    required_fields = ["key", "prompt", "output_path", "type"]
+    for i, ref_spec in enumerate(to_generate):
+        for field in required_fields:
+            if field not in ref_spec or not ref_spec[field]:
+                raise ValueError(
+                    f"refs.json to_generate[{i}] missing required field '{field}'. "
+                    f"Entry: {ref_spec}. Required fields: {required_fields}"
+                )
     
     # Filter by shots_subset if provided
     if shots_subset:

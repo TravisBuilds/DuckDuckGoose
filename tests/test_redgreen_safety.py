@@ -243,6 +243,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
     from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -253,6 +254,8 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
                 init_episode_credit_line_activity,
+                load_refs_to_generate_activity,
+                generate_ref_activity,
                 acquire_run_lock,
                 release_run_lock,
             ],

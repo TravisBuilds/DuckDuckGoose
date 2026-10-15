@@ -27,6 +27,7 @@ async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
     """
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
     from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
     from hfvg.studio_db import init_studio_db, create_episode
     from hfvg.credit_ledger import CreditLedger
     
@@ -63,6 +64,8 @@ async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
                 init_episode_credit_line_activity,
+                load_refs_to_generate_activity,
+                generate_ref_activity,
                 acquire_run_lock,
                 release_run_lock,
                 commit_credits_activity,
