@@ -77,6 +77,47 @@ class EpisodeWorkflowV2:
         """
         self.state.episode_id = episode_id
         
+        # Acquire account-level run lock
+        workflow.logger.info(f"Acquiring run lock for {episode_id}...")
+        try:
+            await workflow.execute_activity(
+                "acquire_run_lock",
+                args=[episode_id, workflow.info().workflow_id, "default"],
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            workflow.logger.error(f"Failed to acquire run lock: {e}")
+            return {
+                "episode_id": episode_id,
+                "status": "failed",
+                "error": f"Run lock acquisition failed: {str(e)}",
+            }
+        
+        try:
+            result = await self._run_with_lock(
+                episode_id, beatmap_path, dry_run, is_canary, shots_subset, credit_cap
+            )
+            return result
+        finally:
+            # Always release lock on exit
+            workflow.logger.info(f"Releasing run lock for {episode_id}...")
+            try:
+                await workflow.execute_activity(
+                    "release_run_lock",
+                    args=[episode_id],
+                    start_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception as e:
+                workflow.logger.error(f"Failed to release run lock: {e}")
+    
+    async def _run_with_lock(
+        self, episode_id: str, beatmap_path: str | None, dry_run: bool,
+        is_canary: bool, shots_subset: list[str] | None, credit_cap: int | None
+    ) -> dict:
+        """Execute workflow with run lock held."""
+        
         # Load gate policy via activity (not deterministic in workflow)
         policy_data = await workflow.execute_activity(
             load_gate_policy_activity,

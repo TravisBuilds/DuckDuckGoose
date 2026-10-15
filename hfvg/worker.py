@@ -13,6 +13,10 @@ from hfvg.activities.credit_activities import (
     commit_credits_activity,
     release_credits_activity,
 )
+from hfvg.activities.run_lock import (
+    acquire_run_lock,
+    release_run_lock,
+)
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
@@ -51,6 +55,8 @@ PRODUCTION_ACTIVITIES = [
     reserve_credits_activity,
     commit_credits_activity,
     release_credits_activity,
+    acquire_run_lock,
+    release_run_lock,
 ]
 
 
