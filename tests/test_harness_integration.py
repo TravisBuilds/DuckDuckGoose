@@ -31,11 +31,15 @@ from hfvg.worker import PRODUCTION_ACTIVITIES
 @pytest.mark.disable_socket
 async def test_api_to_g_final_cut_integration(tmp_path):
     """
-    Full integration: API start → Temporal workflow → 3 gates → G_FINAL_CUT.
+    Full integration: API → Temporal → Activities → G_FINAL_CUT via FastAPI TestClient.
     
-    Uses time-skipping test environment and fake providers that write placeholder files.
+    Tests the complete flow:
+    1. POST /api/episodes to start workflow
+    2. POST /api/episodes/{id}/approve for G1, G2, G_FINAL gates
+    3. Verify still and clip files exist on disk
+    4. Verify run report JSON + MD files are written
     """
-    # Setup test database with full schema
+    # Setup test database and environment
     db_path = tmp_path / "test_studio.db"
     os.environ["DATABASE_PATH"] = str(db_path)
     os.environ["DRY_RUN"] = "true"
@@ -44,6 +48,7 @@ async def test_api_to_g_final_cut_integration(tmp_path):
     from hfvg.studio_db import init_studio_db
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
+    from fastapi.testclient import TestClient
     
     # Initialize all database tables
     await init_studio_db(str(db_path))
@@ -62,14 +67,14 @@ async def test_api_to_g_final_cut_integration(tmp_path):
     beatmap_dir.mkdir(parents=True, exist_ok=True)
     beatmap_path = beatmap_dir / "BEATMAP.md"
     
-    # Write simple 2-shot beatmap (ep05 style)
+    # Write simple 2-shot beatmap
     beatmap_path.write_text("""
 # Episode 99 Test Beatmap
 
-| Shot | Prompt | Duration | Model | Tier | Refs |
-|------|--------|----------|-------|------|------|
-| A01  | Duck walks in park | 5.5s | K | draft | - |
-| A02  | Duck meets goose | 5.0s | K | draft | A01 |
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | A01 | 5.5 (6.0) | Park | Day | D | Duck walks in park | Intro | - | - | K |
+| 2 | A02 | 5.0 (6.0) | Park | Day | D G | Duck meets goose | Meeting | - | - | K |
 """)
     
     # Create time-skipping Temporal environment
@@ -82,60 +87,113 @@ async def test_api_to_g_final_cut_integration(tmp_path):
             workflows=[EpisodeWorkflowV2, ShotWorkflow],
             activities=PRODUCTION_ACTIVITIES,
         ):
-            # Start workflow with beatmap
-            workflow_id = episode_id
-            handle = await env.client.start_workflow(
-                EpisodeWorkflowV2.run,
-                args=[episode_id, str(beatmap_path), True],  # episode_id, beatmap_path, dry_run
-                id=workflow_id,
-                task_queue="hfvg-tasks",
+            # Import api.main after setting up environment
+            from api import main as api_main
+            
+            # Inject test Temporal client into API
+            api_main.temporal_client = env.client
+            
+            # Create TestClient
+            client = TestClient(api_main.app)
+            
+            # Step 1: Start episode via API
+            response = client.post(
+                f"/api/episodes",
+                json={
+                    "episode_id": episode_id,
+                    "beatmap_content": beatmap_path.read_text(),
+                    "dry_run": True,
+                },
+                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
             )
+            assert response.status_code == 200, f"Failed to start episode: {response.text}"
+            print(f"✓ Episode {episode_id} started")
             
             # Wait for G1 gate
-            await asyncio.sleep(0.5)
-            state = await handle.query("get_state")
-            print(f"State after start: {state}")
-            assert state.get("current_gate") == "G1_SHOT_PLAN", f"Expected G1_SHOT_PLAN, got {state.get('current_gate')}"
+            await asyncio.sleep(1.0)
             
-            # Approve G1
-            await handle.signal("approve_g1_shot_plan")
+            # Step 2: Approve G1_SHOT_PLAN
+            response = client.post(
+                f"/api/episodes/{episode_id}/approve",
+                json={"gate_id": "g1_shot_plan"},
+                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
+            )
+            assert response.status_code == 200, f"Failed to approve G1: {response.text}"
+            print(f"✓ G1_SHOT_PLAN approved")
             
-            # Wait for stills to be generated and G2 gate
+            # Wait for stills generation and G2 gate
             await asyncio.sleep(5.0)
-            state = await handle.query("get_state")
-            print(f"State after G1 approval: {state}")
             
-            # Approve G2  
-            await handle.signal("approve_g2_scene_stills")
+            # Step 3: Approve G2_SCENE_STILLS
+            response = client.post(
+                f"/api/episodes/{episode_id}/approve",
+                json={"gate_id": "g2_scene_stills"},
+                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
+            )
+            assert response.status_code == 200, f"Failed to approve G2: {response.text}"
+            print(f"✓ G2_SCENE_STILLS approved")
             
-            # Wait for clips and G_FINAL gate
+            # Wait for clips generation and G_FINAL gate
             await asyncio.sleep(5.0)
-            state = await handle.query("get_state")
-            print(f"State after G2 approval: {state}")
             
-            # Approve G_FINAL
-            await handle.signal("approve_g_final_cut")
+            # Step 4: Approve G_FINAL_CUT
+            response = client.post(
+                f"/api/episodes/{episode_id}/approve",
+                json={"gate_id": "g_final_cut"},
+                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
+            )
+            assert response.status_code == 200, f"Failed to approve G_FINAL: {response.text}"
+            print(f"✓ G_FINAL_CUT approved")
             
             # Wait for workflow completion
             await asyncio.sleep(2.0)
             
-            try:
-                result = await asyncio.wait_for(handle.result(), timeout=5.0)
-                print(f"Workflow result: {result}")
-                
-                # Verify result structure
-                assert result is not None, "Workflow result is None"
-                assert isinstance(result, dict), f"Result is not dict: {type(result)}"
-                
-                # Check approvals
-                approvals = result.get("approvals", {})
-                assert approvals.get("g1_shot_plan") is True
-                assert approvals.get("g2_scene_stills") is True
-                assert approvals.get("g_final_cut") is True
-                
-                print("✅ Integration test assertions passed!")
-            except asyncio.TimeoutError:
-                print(f"Workflow did not complete in time. Last state: {state}")
+            # Get workflow handle and result (FAIL on timeout - no catch)
+            handle = env.client.get_workflow_handle(episode_id)
+            result = await asyncio.wait_for(handle.result(), timeout=10.0)
+            
+            print(f"Workflow result: {result}")
+            
+            # Verify result structure
+            assert result is not None, "Workflow result is None"
+            assert isinstance(result, dict), f"Result is not dict: {type(result)}"
+            
+            # Check approvals
+            approvals = result.get("approvals", {})
+            assert approvals.get("g1_shot_plan") is True
+            assert approvals.get("g2_scene_stills") is True
+            assert approvals.get("g_final_cut") is True
+            
+            # Step 5: Assert files exist on disk
+            dry_run_dir = Path("./data/dry_run_outputs")
+            assert dry_run_dir.exists(), f"Dry-run output directory not found: {dry_run_dir}"
+            
+            # Check for still files (2 shots × 1 still each)
+            still_files = list(dry_run_dir.glob(f"{episode_id}_*_*.jpg"))
+            assert len(still_files) >= 2, f"Expected at least 2 still files, found {len(still_files)}: {still_files}"
+            print(f"✓ Found {len(still_files)} still files")
+            
+            # Check for clip files (2 shots × 1 clip each)
+            clip_files = list(dry_run_dir.glob(f"{episode_id}_*_*.mp4"))
+            assert len(clip_files) >= 2, f"Expected at least 2 clip files, found {len(clip_files)}: {clip_files}"
+            print(f"✓ Found {len(clip_files)} clip files")
+            
+            # Step 6: Assert run report exists
+            reports_dir = Path("./data/reports")
+            report_json = reports_dir / f"{episode_id}.json"
+            report_md = reports_dir / f"{episode_id}.md"
+            
+            assert report_json.exists(), f"Run report JSON not found: {report_json}"
+            assert report_md.exists(), f"Run report MD not found: {report_md}"
+            print(f"✓ Run report files exist: {report_json}, {report_md}")
+            
+            # Verify report content
+            report_data = json.loads(report_json.read_text())
+            assert report_data["episode_id"] == episode_id
+            assert report_data["status"] == "complete"
+            assert report_data["shots_count"] == 2
+            
+            print("✅ Integration test passed: All gates, files, and report verified!")
 
 
 @pytest.mark.asyncio
