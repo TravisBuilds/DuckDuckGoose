@@ -332,7 +332,7 @@ def test_planner_tier_resolution_and_explicit_fields_required():
 
 async def _live_env(tmp_path, monkeypatch):
     from hfvg.budget import BudgetLedger
-from hfvg.credit_ledger import CreditLedger
+    from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 
     db_path = str(tmp_path / "sd.db")
