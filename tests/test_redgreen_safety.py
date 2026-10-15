@@ -241,6 +241,8 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
+    from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -249,6 +251,8 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
+                acquire_run_lock,
+                release_run_lock,
             ],
         ):
             # Start workflow

@@ -21,6 +21,8 @@ async def test_approval_signal_reaches_episode_workflow():
     
     This verifies the signal path from API → Temporal → Workflow.
     """
+    from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Create worker
         async with Worker(
@@ -40,6 +42,8 @@ async def test_approval_signal_reaches_episode_workflow():
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                acquire_run_lock,
+                release_run_lock,
             ],
         ):
             # Start workflow (will pause at G1.01)
