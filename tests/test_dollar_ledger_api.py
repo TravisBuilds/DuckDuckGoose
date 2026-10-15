@@ -219,9 +219,9 @@ async def test_live_still_records_job_and_reserves_estimate_usd(db_path, monkeyp
     assert jobs[0]["tier"] == "draft" and jobs[0]["usd_micros"] == 60_000
     assert jobs[0]["status"] == "reserved"
 
-    # Commit twice (activity retry): spent exactly once
+    # Commit twice (activity retry): spent exactly once (idempotent)
     for _ in range(2):
-        await commit_job_budget("ep99", "A01", "req-live-1", "still", "L2_drafts", 60_000, None)
+        await commit_job_budget("ep99", "A01", "still-ep99-A01-v1", "still", "L2_drafts", 60_000, None)
     status = await ledger.get_line_status("ep99", "L2_drafts")
     assert status["spent"] == 60_000 and status["reserved"] == 0
     # A late release for a committed job changes nothing

@@ -21,6 +21,7 @@ from hfvg.activities.studio_generation import (
     await_job_enforced,
 )
 from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
 
 

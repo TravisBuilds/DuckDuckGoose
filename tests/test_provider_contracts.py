@@ -356,6 +356,7 @@ async def test_full_live_flow_with_strict_mock():
     import tempfile
     import os
     from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
     
     # Create temporary DB
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
@@ -632,6 +633,7 @@ async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
     import json
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
     import aiosqlite
 

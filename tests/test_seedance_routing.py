@@ -332,6 +332,7 @@ def test_planner_tier_resolution_and_explicit_fields_required():
 
 async def _live_env(tmp_path, monkeypatch):
     from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 
     db_path = str(tmp_path / "sd.db")
@@ -357,6 +358,7 @@ async def _live_env(tmp_path, monkeypatch):
 async def test_clip_activity_seedance_final_is_fresh_1080p_with_rate_table_estimate(tmp_path, monkeypatch):
     from hfvg.activities.studio_generation import submit_clip_job_enforced
     from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 
     db_path = await _live_env(tmp_path, monkeypatch)
     sub = respx.post("https://api.higgsfield.ai/bytedance/seedance-2.5/image-to-video").mock(
@@ -399,6 +401,7 @@ async def test_clip_activity_seedance_draft_is_480p(tmp_path, monkeypatch):
 async def test_clip_activity_refuses_wet_or_short_seedance_before_any_spend(tmp_path, monkeypatch):
     from hfvg.activities.studio_generation import submit_clip_job_enforced
     from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 
     db_path = await _live_env(tmp_path, monkeypatch)
     sub = respx.post("https://api.higgsfield.ai/bytedance/seedance-2.5/image-to-video").mock(
