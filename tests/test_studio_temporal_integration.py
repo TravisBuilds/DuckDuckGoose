@@ -106,10 +106,16 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_canary.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -185,10 +191,16 @@ async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_approval.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities
     monkeypatch.setenv("DATABASE_PATH", db_path)

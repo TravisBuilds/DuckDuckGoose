@@ -104,10 +104,16 @@ async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypat
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_live_shot.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities - DRY MODE (simulates workflow logic)
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -205,10 +211,16 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
     and all production paths that reach clip generation send the approval signal.
     """
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_approval_gate.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
