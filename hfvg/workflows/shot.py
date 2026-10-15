@@ -20,6 +20,10 @@ with workflow.unsafe.imports_passed_through():
         submit_clip_job_enforced,
         submit_still_job_enforced,
     )
+    from hfvg.activities.credit_activities import (
+        commit_credits_activity,
+        release_credits_activity,
+    )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
     
@@ -154,7 +158,15 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
                 
-                workflow.logger.info(f"Job {job_id} completed, budget committed")
+                # Commit credits
+                await workflow.execute_activity(
+                    commit_credits_activity,
+                    args=[self.episode_id, job_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.info(f"Job {job_id} completed, budget and credits committed")
                 
                 return {
                     "url": status_result["output_url"],
@@ -181,7 +193,15 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
                 
-                workflow.logger.error(f"Job {job_id} {status}, reservation released")
+                # Release credits
+                await workflow.execute_activity(
+                    release_credits_activity,
+                    args=[self.episode_id, job_id, reason],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.error(f"Job {job_id} {status}, reservation and credits released")
                 
                 # Raise appropriate error - these will NOT be caught by the except above
                 if status == "blocked":
