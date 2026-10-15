@@ -263,7 +263,7 @@ class EpisodeWorkflowV2:
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
-                        non_retryable_error_types=["ContentBlockError"],  # QC failures surface to gate
+                        non_retryable_error_types=["QCFailedError"],  # QC failures surface to gate
                     ),
                 )
                 

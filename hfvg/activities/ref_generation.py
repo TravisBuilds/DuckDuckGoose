@@ -171,12 +171,12 @@ async def generate_ref_activity(
             qc_result = await _check_ref_qc(str(staging_path))
             if not qc_result["passed"]:
                 # QC failed - keep staging file for review, don't write to final path
-                from hfvg.errors import ContentBlockError
-                raise ContentBlockError(
+                from hfvg.errors import QCFailedError
+                raise QCFailedError(
                     f"Ref QC failed for {ref_key}: {qc_result.get('reason', 'unknown')}. "
                     f"Staging file kept at {staging_path} for review. "
                     "Reroll with new version or accept at gate.",
-                    provider="qc"  # QC failure, not provider block
+                    staging_path=str(staging_path)
                 )
             
             # QC passed - move to final path atomically

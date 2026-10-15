@@ -18,6 +18,14 @@ class ContentBlockError(ApplicationError):
         self.provider = provider
 
 
+class QCFailedError(ApplicationError):
+    """Post-charge QC failure - non-retryable, asset delivered but doesn't meet quality standards."""
+
+    def __init__(self, message: str, staging_path: str, *args, **kwargs):
+        super().__init__(message, *args, non_retryable=True, **kwargs)
+        self.staging_path = staging_path
+
+
 class InsufficientCreditsError(ApplicationError):
     """Insufficient credits - non-retryable, pause and notify user."""
 

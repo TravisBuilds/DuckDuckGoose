@@ -10,7 +10,7 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
     from hfvg.activities.ref_generation import generate_ref_activity
     from hfvg.studio_db import init_studio_db
     from hfvg.credit_ledger import CreditLedger
-    from hfvg.errors import ContentBlockError
+    from hfvg.errors import QCFailedError
     import temporalio.activity
     import respx
     import httpx
@@ -49,8 +49,8 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
                 return_value=httpx.Response(200, content=b"tiny")  # Too small for QC
             )
             
-            # Should raise ContentBlockError due to QC failure
-            with pytest.raises(ContentBlockError) as exc_info:
+            # Should raise QCFailedError due to QC failure
+            with pytest.raises(QCFailedError) as exc_info:
                 await generate_ref_activity(
                     episode_id="ep99",
                     ref_key="r_duck",
@@ -89,7 +89,7 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
     from hfvg.activities.ref_generation import generate_ref_activity
     from hfvg.studio_db import init_studio_db
     from hfvg.credit_ledger import CreditLedger
-    from hfvg.errors import ContentBlockError
+    from hfvg.errors import QCFailedError
     import temporalio.activity
     import respx
     import httpx
@@ -129,8 +129,8 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
                 return_value=httpx.Response(200, content=b"bad")  # Fails QC
             )
             
-            # Should raise ContentBlockError
-            with pytest.raises(ContentBlockError):
+            # Should raise QCFailedError
+            with pytest.raises(QCFailedError):
                 await generate_ref_activity(
                     episode_id="ep99",
                     ref_key="r_duck",
@@ -227,7 +227,7 @@ async def test_ref_moves_to_final_path_when_qc_passes(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_provider_failure_releases_credits():
+async def test_provider_failure_releases_credits(tmp_path, monkeypatch):
     """Test: Provider failure (not QC) releases credits."""
     from hfvg.activities.ref_generation import generate_ref_activity
     from hfvg.studio_db import init_studio_db
@@ -236,17 +236,11 @@ async def test_provider_failure_releases_credits():
     import respx
     import httpx
     import pytest
-    from pathlib import Path
-    
-    tmp_path = Path("/tmp/test_provider_failure")
-    tmp_path.mkdir(exist_ok=True)
     
     db_path = str(tmp_path / "test.db")
-    
-    import os
-    os.environ["DATABASE_PATH"] = db_path
-    os.environ["DRY_RUN"] = "false"
-    os.environ["HIGGSFIELD_API_KEY"] = "test-id:test-secret"
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
     
