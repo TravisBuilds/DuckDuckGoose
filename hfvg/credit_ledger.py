@@ -148,33 +148,79 @@ class CreditLedger:
             )
             await db.commit()
     
-    async def acquire_run_lock(self, episode_id: str, workflow_id: str, account_identifier: str = "default") -> dict:
+    async def acquire_run_lock(
+        self, 
+        episode_id: str, 
+        workflow_id: str, 
+        account_identifier: str = "default",
+        stale_timeout_seconds: int = 3600  # 1 hour default
+    ) -> dict:
         """
         Acquire run lock for episode.
         
         Single-run lock: only one episode workflow can run at a time per Higgsfield account.
+        If an existing lock is stale (older than stale_timeout_seconds), it is reclaimed.
+        
+        Args:
+            episode_id: Episode identifier
+            workflow_id: Temporal workflow ID
+            account_identifier: Account key (configured, not literal "ACCOUNT")
+            stale_timeout_seconds: Time after which a lock is considered stale and can be reclaimed
         
         Returns:
-            dict with acquired (bool), existing_episode (str|None)
+            dict with acquired (bool), existing_episode (str|None), reclaimed (bool)
         """
+        from datetime import datetime, timezone, timedelta
+        
         async with aiosqlite.connect(self.db_path, uri=True, isolation_level="IMMEDIATE") as db:
             # Check if lock exists
             async with db.execute(
-                "SELECT episode_id FROM run_locks WHERE account_identifier = ?",
+                "SELECT episode_id, locked_at FROM run_locks WHERE account_identifier = ?",
                 (account_identifier,)
             ) as cur:
                 row = await cur.fetchone()
                 if row:
-                    return {"acquired": False, "existing_episode": row[0]}
+                    existing_episode, locked_at_str = row
+                    
+                    # Check if lock is stale
+                    locked_at = datetime.fromisoformat(locked_at_str.replace('Z', '+00:00'))
+                    now = datetime.now(timezone.utc)
+                    age_seconds = (now - locked_at).total_seconds()
+                    
+                    if age_seconds > stale_timeout_seconds:
+                        # Lock is stale, reclaim it
+                        await db.execute(
+                            "DELETE FROM run_locks WHERE account_identifier = ?",
+                            (account_identifier,)
+                        )
+                        # Acquire lock for new episode
+                        await db.execute(
+                            """INSERT INTO run_locks (episode_id, workflow_id, locked_at, account_identifier)
+                               VALUES (?, ?, ?, ?)""",
+                            (episode_id, workflow_id, _now_iso(), account_identifier)
+                        )
+                        await db.commit()
+                        return {
+                            "acquired": True, 
+                            "existing_episode": existing_episode,
+                            "reclaimed": True
+                        }
+                    else:
+                        # Lock is fresh, cannot acquire
+                        return {
+                            "acquired": False, 
+                            "existing_episode": existing_episode,
+                            "reclaimed": False
+                        }
             
-            # Acquire lock
+            # No existing lock, acquire it
             await db.execute(
                 """INSERT INTO run_locks (episode_id, workflow_id, locked_at, account_identifier)
                    VALUES (?, ?, ?, ?)""",
                 (episode_id, workflow_id, _now_iso(), account_identifier)
             )
             await db.commit()
-            return {"acquired": True, "existing_episode": None}
+            return {"acquired": True, "existing_episode": None, "reclaimed": False}
     
     async def release_run_lock(self, episode_id: str):
         """Release run lock for episode."""
