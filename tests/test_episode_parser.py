@@ -15,6 +15,54 @@ def sample_beatmap():
 
 
 @pytest.fixture
+def episode3_beatmap_synthetic():
+    """Synthetic ep03-format fixture matching parser's expected table structure."""
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False)
+    # Write proper markdown table matching the parser's expected columns
+    tmp.write("""# Episode 03 Test
+
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | O01 | 3.0 (4.0) | Pond | Dawn | – | Duck glides waterline wet | Cold open | – | – | K |
+| 2 | O02 | 2.5 (3.5) | Pond | Dawn | – | Underwater POV pool | Immersion | – | – | K |
+| 3 | O03 | 2.0 (3.0) | Pond | Dawn | – | Surface break | Transition | – | – | K |
+| 4 | A01 | 2.5 (3.5) | Lobby | Morning | D R | Duck enters lobby | Arrival | – | – | S |
+| 5 | A02 | 3.0 (4.0) | Lobby | Morning | – | Lobby wide | Establish | – | – | S |
+| 6 | A03 | 2.5 (3.5) | Lobby | Morning | D R | Duck at desk | Check-in | – | – | S |
+| 7 | A04 | 2.0 (3.0) | Lobby | Morning | D R | Duck receives key ★ | Hand-off | – | – | S |
+| 8 | A05 | 3.5 (5.0) ⇥ | Lobby | Morning | D L | Tuque steal ★ | Hero | – | – | S |
+| 9 | B01 | 2.0 (3.0) | Hall | Morning | D | Duck walks hallway | Navigate | – | – | S |
+| 10 | C01 | 2.5 (3.5) | Tea | Afternoon | D G | Tea service water | Hospitality | – | – | K |
+| 11 | C02 | 2.0 (3.0) | Tea | Afternoon | D G | Duck pours tea wet | Pouring | – | – | K |
+| 12 | C03 | 2.5 (3.5) | Tea | Afternoon | D G | Guest reacts | Satisfaction | – | – | K |
+| 13 | C04 | 3.0 (4.0) | Tea | Afternoon | D G | Tea cup ★ hand-off | Exchange | – | – | K |
+| 14 | F01 | 2.0 (3.0) | Entrance | Evening | D | Duck exit tipping hat | Departure | – | – | S |
+| 15 | F02 | 3.5 (5.0) | Entrance | Evening | D | Hero exit wide | Finale | – | – | S |
+| 16 | X01 | 2.0 (3.0) | Outside | Day | D | Duck walking path | Extra | – | – | S |
+| 17 | X02 | 2.0 (3.0) | Outside | Day | D | Duck on bench | Extra | – | – | S |
+| 18 | X03 | 2.0 (3.0) | Outside | Day | D | Duck feeding birds | Extra | – | – | S |
+| 19 | X04 | 2.0 (3.0) | Garden | Day | D | Duck in garden | Extra | – | – | S |
+| 20 | X05 | 2.0 (3.0) | Garden | Day | D | Duck smelling flowers | Extra | – | – | S |
+| 21 | Y01 | 2.0 (3.0) | Kitchen | Day | D | Duck cooking | Extra | – | – | S |
+| 22 | Y02 | 2.0 (3.0) | Kitchen | Day | D | Duck tasting | Extra | – | – | S |
+| 23 | Y03 | 2.0 (3.0) | Kitchen | Day | D | Duck plating | Extra | – | – | S |
+| 24 | Z01 | 2.0 (3.0) | Bedroom | Night | D | Duck reading | Extra | – | – | S |
+| 25 | Z02 | 2.0 (3.0) | Bedroom | Night | D | Duck sleeping | Extra | – | – | S |
+| 26 | Z03 | 2.0 (3.0) | Bedroom | Night | D | Duck dreaming | Extra | – | – | S |
+""")
+    tmp.close()
+    yield Path(tmp.name)
+    Path(tmp.name).unlink()
+
+
+@pytest.fixture
+def episode5_beatmap():
+    """Path to episode 5 beatmap."""
+    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
+    if not beatmap_path.exists():
+        pytest.skip("fixtures/ep05/BEATMAP.md not available")
+    return beatmap_path
 
 
 def test_parse_beatmap(sample_beatmap):
@@ -54,42 +102,46 @@ def test_parse_beatmap(sample_beatmap):
     assert a05["has_end_frame"]  # Marked with ⇥
 
 
-
-@pytest.fixture
-def episode3_beatmap_synthetic():
-    """Synthetic ep03-format fixture with 25+ shots."""
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False)
-    tmp.write("# Episode 03 Test\n\n| Shot | Prompt | Duration | Model |\n|------|--------|----------|-------|\n")
-    for i in range(1, 28):
-        scene = chr(64 + ((i-1) // 10 + 1))
-        shot_num = (i-1) % 10 + 1
-        tmp.write(f"| {scene}{shot_num:02d} | Duck action {i} | 5.0s | K |\n")
-    tmp.close()
-    yield Path(tmp.name)
-    Path(tmp.name).unlink()
-
-@pytest.fixture
-def episode5_beatmap():
-    """Path to episode 5 beatmap."""
-    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
-    if not beatmap_path.exists():
-        pytest.skip("fixtures/ep05/BEATMAP.md not available")
-    return beatmap_path
-
 def test_parse_beatmap_episode3(episode3_beatmap_synthetic):
-    """Test parsing episode 3 beatmap with 25+ shots (synthetic fixture)."""
+    """Test parsing episode 3 beatmap with original assertions (synthetic fixture)."""
     shots = parse_beatmap(episode3_beatmap_synthetic)
+    
+    # Should have at least 25 shots
     assert len(shots) >= 25, f"Expected at least 25 shots, got {len(shots)}"
+    
+    # Check first shot (O01) - original ep03 assertions
     first = shots[0]
-    assert "shot_id" in first and "model" in first
+    assert first["shot_id"] == "O01"
+    assert first["scene_id"] == "O"
+    assert first["screen_time"] == 3.0
+    assert first["gen_time"] == 4.0
+    assert first["model"] == "K"
+
 
 def test_parse_beatmap_episode5(episode5_beatmap):
     """Test parsing episode 5 beatmap (4 shots)."""
     shots = parse_beatmap(episode5_beatmap)
+    
+    # Ep05 has 4 shots
     assert len(shots) == 4, f"Expected 4 shots from ep05, got {len(shots)}"
+    
+    # Check field presence for first shot
     first = shots[0]
-    assert "shot_id" in first and first["shot_id"] == "A01"
+    assert "shot_id" in first
+    assert "scene_id" in first
+    assert "screen_time" in first
+    assert "gen_time" in first
+    assert "model" in first
+    assert first["shot_id"] == "A01"
+    
+    # Should have duck positions and roles
+    with_duck = [s for s in shots if s.get("duck_role") and s["duck_role"] != "absent"]
+    assert len(with_duck) > 0, "Episode must have shots with ducks"
+    
+    # Check that times are numeric
+    for shot in shots:
+        assert isinstance(shot["screen_time"], (int, float)), f"Bad screen_time: {shot}"
+        assert isinstance(shot["gen_time"], (int, float)), f"Bad gen_time: {shot}"
 
 
 def test_model_routing_kling(sample_beatmap):
@@ -106,44 +158,6 @@ def test_model_routing_kling(sample_beatmap):
     assert "Kling" in routing["reason"]
 
 
-
-@pytest.fixture
-def episode3_beatmap_synthetic():
-    """Synthetic ep03-format fixture with 25+ shots."""
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False)
-    tmp.write("# Episode 03 Test\n\n| Shot | Prompt | Duration | Model |\n|------|--------|----------|-------|\n")
-    for i in range(1, 28):
-        scene = chr(64 + ((i-1) // 10 + 1))
-        shot_num = (i-1) % 10 + 1
-        tmp.write(f"| {scene}{shot_num:02d} | Duck action {i} | 5.0s | K |\n")
-    tmp.close()
-    yield Path(tmp.name)
-    Path(tmp.name).unlink()
-
-@pytest.fixture
-def episode5_beatmap():
-    """Path to episode 5 beatmap."""
-    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
-    if not beatmap_path.exists():
-        pytest.skip("fixtures/ep05/BEATMAP.md not available")
-    return beatmap_path
-
-def test_parse_beatmap_episode3(episode3_beatmap_synthetic):
-    """Test parsing episode 3 beatmap with 25+ shots (synthetic fixture)."""
-    shots = parse_beatmap(episode3_beatmap_synthetic)
-    assert len(shots) >= 25, f"Expected at least 25 shots, got {len(shots)}"
-    first = shots[0]
-    assert "shot_id" in first and "model" in first
-
-def test_parse_beatmap_episode5(episode5_beatmap):
-    """Test parsing episode 5 beatmap (4 shots)."""
-    shots = parse_beatmap(episode5_beatmap)
-    assert len(shots) == 4, f"Expected 4 shots from ep05, got {len(shots)}"
-    first = shots[0]
-    assert "shot_id" in first and first["shot_id"] == "A01"
-
-
 def test_model_routing_seedance_draft(sample_beatmap):
     """Test model routing for Seedance non-hero shots."""
     shots = parse_beatmap(sample_beatmap)
@@ -156,44 +170,6 @@ def test_model_routing_seedance_draft(sample_beatmap):
     assert routing["resolution"] == "720p"  # Non-hero: 720p
     assert routing["draft"] is True
     assert "Seedance" in routing["reason"]
-
-
-
-@pytest.fixture
-def episode3_beatmap_synthetic():
-    """Synthetic ep03-format fixture with 25+ shots."""
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False)
-    tmp.write("# Episode 03 Test\n\n| Shot | Prompt | Duration | Model |\n|------|--------|----------|-------|\n")
-    for i in range(1, 28):
-        scene = chr(64 + ((i-1) // 10 + 1))
-        shot_num = (i-1) % 10 + 1
-        tmp.write(f"| {scene}{shot_num:02d} | Duck action {i} | 5.0s | K |\n")
-    tmp.close()
-    yield Path(tmp.name)
-    Path(tmp.name).unlink()
-
-@pytest.fixture
-def episode5_beatmap():
-    """Path to episode 5 beatmap."""
-    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
-    if not beatmap_path.exists():
-        pytest.skip("fixtures/ep05/BEATMAP.md not available")
-    return beatmap_path
-
-def test_parse_beatmap_episode3(episode3_beatmap_synthetic):
-    """Test parsing episode 3 beatmap with 25+ shots (synthetic fixture)."""
-    shots = parse_beatmap(episode3_beatmap_synthetic)
-    assert len(shots) >= 25, f"Expected at least 25 shots, got {len(shots)}"
-    first = shots[0]
-    assert "shot_id" in first and "model" in first
-
-def test_parse_beatmap_episode5(episode5_beatmap):
-    """Test parsing episode 5 beatmap (4 shots)."""
-    shots = parse_beatmap(episode5_beatmap)
-    assert len(shots) == 4, f"Expected 4 shots from ep05, got {len(shots)}"
-    first = shots[0]
-    assert "shot_id" in first and first["shot_id"] == "A01"
 
 
 def test_model_routing_seedance_hero(sample_beatmap):
