@@ -6,6 +6,7 @@ import json
 import click
 from temporalio.client import Client
 
+from hfvg.cli_audio import audio_cli
 from hfvg.config import config
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow
 
@@ -14,6 +15,10 @@ from hfvg.workflows import EpisodeWorkflow, PostingWorkflow
 def cli():
     """Hands-Free Video Generator CLI."""
     pass
+
+
+# Add audio commands as subgroup
+cli.add_command(audio_cli, name="audio")
 
 
 @cli.command()
