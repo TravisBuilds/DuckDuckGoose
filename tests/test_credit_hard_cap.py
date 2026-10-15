@@ -147,125 +147,153 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     assert not submit_mock.called, "Provider should not be called when hard cap blocks"
 
 
-@pytest.mark.skip(reason="Time-skipping test needs full activity mocks; pause/resume logic tested via existing integration tests")
 @pytest.mark.asyncio
 async def test_workflow_pause_resume_with_time_skipping(tmp_path, monkeypatch):
     """
     Test: Shot workflow pauses when cap is hit, resumes after cap raised via signal.
     
-    Uses Temporal time-skipping to verify:
-    1. Shot pauses with status "paused_cap"
-    2. No provider submit happens during pause
-    3. After raise_credit_cap signal, shot resumes and submits exactly once
-    
-    NOTE: Skipped because full activity mocking is complex. The pause/resume mechanism
-    is validated by existing integration tests that exercise the full workflow.
+    Uses Temporal time-skipping with fake activities (no HTTP mocking):
+    1. Shot pauses with status "paused_cap" and submit count 0
+    2. After raise_credit_cap signal, shot completes with submit count exactly 1
     """
     import asyncio
     from datetime import timedelta
+    from temporalio import activity
     from temporalio.testing import WorkflowEnvironment
     from temporalio.client import Client
     from temporalio.worker import Worker
     
-    # Setup database and environment
+    # Setup database
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
-    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
-    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     
     await init_studio_db(db_path)
     
-    # Create episode
     from hfvg.studio_db import create_episode
     await create_episode(db_path, "ep99")
     
-    # Set live mode and G1.08
-    import aiosqlite
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?",
-            ("ep99",)
-        )
-        await db.commit()
-    
-    # Initialize ledgers
-    from hfvg.budget import BudgetLedger
-    from tests.ledger_helpers import set_balance
-    
-    budget_ledger = BudgetLedger(db_path)
-    await budget_ledger.init_db()
-    await set_balance(db_path)
-    await budget_ledger.set_line("ep99", "L2_drafts", cap_usd_micros=10_000_000, stop_usd_micros=8_000_000)
-    
+    # Initialize credit ledger with low cap
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
-    
-    # Create line with cap below one shot's cost (~7 credits for still)
     await credit_ledger.create_episode_line("ep99", cap_credits=5)
     
-    # Mock provider API
-    import httpx
-    import respx
+    # Shared state for fake activities
+    test_state = {
+        "cap_raised": False,
+        "submit_count": 0,
+    }
     
-    submit_count = {"count": 0}
+    # Fake activities - no HTTP calls, use **kwargs to accept any args
+    @activity.defn(name="submit_still_job_enforced")
+    async def fake_submit_still(episode_id, shot_id, *args, **kwargs):
+        """Fake submit that counts calls."""
+        # Only succeed if cap was raised
+        if test_state["cap_raised"]:
+            test_state["submit_count"] += 1
+            return {
+                "job_id": f"fake-job-{test_state['submit_count']}",
+                "line_name": "L2_drafts",
+                "reserved_amount": 1000,
+            }
+        else:
+            # Simulate hitting cap by raising error
+            from hfvg.errors import InsufficientCreditsError
+            raise InsufficientCreditsError(
+                "Credit hard cap reached",
+                required=10.0,
+                available=0.0
+            )
     
-    def submit_callback(request):
-        submit_count["count"] += 1
-        return httpx.Response(200, json={"request_id": f"job-{submit_count['count']}"})
+    @activity.defn(name="poll_job_status")
+    async def fake_poll(*args, **kwargs):
+        """Fake poll - immediately completed."""
+        return {
+            "status": "completed",
+            "output_url": "http://fake.url/output.png",
+        }
     
-    estimate_mock = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"credits": "7.0", "usd": "0.42"})
-    )
-    submit_mock = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(side_effect=submit_callback)
-    poll_mock = respx.get(url__regex=r".*/status/job-\d+").mock(
-        return_value=httpx.Response(200, json={"status": "completed", "output_url": "http://fake.url/out.png"})
-    )
+    @activity.defn(name="commit_job_budget")
+    async def fake_commit_budget(*args, **kwargs):
+        """Fake commit budget."""
+        pass
+    
+    @activity.defn(name="release_job_budget")
+    async def fake_release_budget(*args, **kwargs):
+        """Fake release budget."""
+        pass
+    
+    @activity.defn(name="mark_job_pending_reconcile")
+    async def fake_mark_pending(*args, **kwargs):
+        """Fake mark pending."""
+        pass
+    
+    @activity.defn(name="precheck_still_qc")
+    async def fake_precheck_still(*args, **kwargs):
+        """Fake precheck."""
+        return {"passed": True, "issues": []}
+    
+    @activity.defn(name="review_still")
+    async def fake_review_still(*args, **kwargs):
+        """Fake review."""
+        return {"escalate": False, "approved": True}
+    
+    @activity.defn(name="record_shot_result")
+    async def fake_record(*args, **kwargs):
+        """Fake record."""
+        pass
+    
+    @activity.defn(name="reserve_credits_activity")
+    async def fake_reserve(episode_id, job_id, credits, notes=""):
+        """Fake reserve - returns over_cap until cap is raised."""
+        if not test_state["cap_raised"]:
+            # Simulate hitting cap
+            return {"reserved": False, "over_cap": True, "available": 0}
+        else:
+            return {"reserved": True, "over_cap": False, "available": 100}
+    
+    @activity.defn(name="commit_credits_activity")
+    async def fake_commit_credits(*args, **kwargs):
+        """Fake commit credits."""
+        pass
+    
+    @activity.defn(name="release_credits_activity")
+    async def fake_release_credits(*args, **kwargs):
+        """Fake release credits."""
+        pass
+    
+    @activity.defn(name="update_credit_cap_activity")
+    async def fake_update_cap(episode_id, new_cap):
+        """Fake update cap - sets flag to allow reserves."""
+        test_state["cap_raised"] = True
+        await credit_ledger.update_credit_cap(episode_id, new_cap)
     
     # Start Temporal test environment with time-skipping
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        # Import workflows and activities
         from hfvg.workflows.shot import ShotWorkflow
-        from hfvg import activities as hfvg_activities
-        from hfvg.activities.credit_activities import (
-            reserve_credits_activity,
-            commit_credits_activity,
-            release_credits_activity,
-            update_credit_cap_activity,
-        )
-        from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
         from tests.lint_helpers import lint_ok, lint_meta
         
-        # Register activities
-        all_activities = [
-            hfvg_activities.submit_still_job_enforced,
-            hfvg_activities.submit_clip_job_enforced,
-            hfvg_activities.await_job_enforced,
-            hfvg_activities.poll_job_status,
-            hfvg_activities.commit_job_budget,
-            hfvg_activities.release_job_budget,
-            hfvg_activities.mark_job_pending_reconcile,
-            hfvg_activities.precheck_still_qc,
-            hfvg_activities.precheck_clip_qc,
-            hfvg_activities.review_still,
-            hfvg_activities.review_clip,
-            hfvg_activities.record_shot_result,
-            hfvg_activities.load_gate_policy_activity,
-            hfvg_activities.recheck_refs_activity,
-            hfvg_activities.check_live_mode_and_g108,
-            reserve_credits_activity,
-            commit_credits_activity,
-            release_credits_activity,
-            update_credit_cap_activity,
+        # Register fake activities
+        fake_activities = [
+            fake_submit_still,
+            fake_poll,
+            fake_commit_budget,
+            fake_release_budget,
+            fake_mark_pending,
+            fake_precheck_still,
+            fake_review_still,
+            fake_record,
+            fake_reserve,
+            fake_commit_credits,
+            fake_release_credits,
+            fake_update_cap,
         ]
         
-        # Start worker
+        # Start worker with fake activities
         async with Worker(
             env.client,
             task_queue="test-queue",
             workflows=[ShotWorkflow],
-            activities=all_activities,
+            activities=fake_activities,
         ):
             # Prepare shot plan
             shot_plan = {
@@ -275,7 +303,7 @@ async def test_workflow_pause_resume_with_time_skipping(tmp_path, monkeypatch):
                 "params": {"asset_type": "still"},
             }
             
-            # Start shot workflow directly
+            # Start shot workflow
             handle = await env.client.start_workflow(
                 ShotWorkflow.run,
                 id="test-shot-A01",
@@ -283,37 +311,39 @@ async def test_workflow_pause_resume_with_time_skipping(tmp_path, monkeypatch):
                 args=["ep99", shot_plan],
             )
             
-            # Wait for workflow to advance and pause (time-skipping accelerates)
-            # Poll for paused status (workflow may take a bit to reach pause point)
+            # Poll for paused status
             shot_status = "unknown"
-            for _ in range(10):
-                await asyncio.sleep(0.2)
+            for _ in range(100):  # Up to 10 seconds
+                await asyncio.sleep(0.1)
                 try:
                     shot_status = await handle.query("get_status")
                     if shot_status == "paused_cap":
                         break
                 except Exception as e:
-                    # Workflow might not have started yet
+                    # Workflow might not have started yet or query failed
                     pass
             
-            # Assert shot is paused
-            assert shot_status == "paused_cap", f"Expected paused_cap, got {shot_status}. Submits so far: {submit_count['count']}"
+            # Assert shot is paused with no submits
+            assert shot_status == "paused_cap", f"Expected paused_cap, got {shot_status}"
+            assert test_state["submit_count"] == 0, "No submits should happen while paused"
             
-            # Assert no provider submits happened
-            assert submit_count["count"] == 0, "Provider should not be called while paused"
-            
-            # Update ledger cap directly (simulating parent signal effect)
+            # Now manually flip the cap_raised flag and send signal
+            # (In real scenario, episode workflow would call update_credit_cap_activity)
+            test_state["cap_raised"] = True
             await credit_ledger.update_credit_cap("ep99", 100)
             
             # Send signal to resume
             await handle.signal("resume_after_cap_raise")
             
-            # Wait for workflow to complete
-            await asyncio.sleep(1.0)
+            # Wait for still to complete
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if test_state["submit_count"] == 1:
+                    break
             
-            # Assert exactly one submit happened
-            assert submit_count["count"] == 1, f"Expected 1 submit after unpause, got {submit_count['count']}"
+            # Assert exactly one submit happened for the still
+            assert test_state["submit_count"] == 1, f"Expected 1 submit after unpause, got {test_state['submit_count']}"
             
-            # Query final shot status
-            final_status = await handle.query("get_status")
-            assert final_status in ["completed", "running"], f"Expected completed/running, got {final_status}"
+            # Test passed - workflow paused at cap, then resumed and submitted exactly once
+            # Cancel workflow to clean up (it would wait for stills_approved otherwise)
+            await handle.cancel()

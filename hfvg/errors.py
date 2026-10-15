@@ -22,6 +22,8 @@ class InsufficientCreditsError(ApplicationError):
     """Insufficient credits - non-retryable, pause and notify user."""
 
     def __init__(self, message: str, required: float, available: float, *args, **kwargs):
+        # Explicitly set type so it can be checked in workflow exception handlers
+        kwargs.setdefault('type', 'InsufficientCreditsError')
         super().__init__(message, *args, non_retryable=True, **kwargs)
         self.required = required
         self.available = available

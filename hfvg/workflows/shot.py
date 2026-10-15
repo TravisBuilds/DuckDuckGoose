@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
+    from temporalio.exceptions import ActivityError, ApplicationError
     
     import os
 
@@ -315,18 +316,23 @@ class ShotWorkflow:
                             retry_policy=retry_policy,
                         )
                         break  # Success, exit retry loop
-                    except InsufficientCreditsError as e:
-                        # Hard cap hit - pause and wait for cap raise
-                        workflow.logger.warning(f"Credit cap hit for {self.shot_id}: {e}")
-                        self.status = "paused_cap"
-                        
-                        # Wait for parent to raise cap and signal us
-                        await workflow.wait_condition(lambda: self.cap_raised)
-                        
-                        workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
-                        self.status = "running"
-                        self.cap_raised = False  # Reset for potential future pauses
-                        # Loop will retry with same job_id (idempotent)
+                    except ActivityError as e:
+                        # Check if wrapped error is InsufficientCreditsError
+                        if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                            # Hard cap hit - pause and wait for cap raise
+                            workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
+                            self.status = "paused_cap"
+                            
+                            # Wait for parent to raise cap and signal us
+                            await workflow.wait_condition(lambda: self.cap_raised)
+                            
+                            workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
+                            self.status = "running"
+                            self.cap_raised = False  # Reset for potential future pauses
+                            # Loop will retry with same job_id (idempotent)
+                        else:
+                            # Other activity error - re-raise
+                            raise
 
                 # Poll for completion using workflow-level polling loop (R1)
                 poll_result = await self._poll_job_to_completion(
@@ -447,9 +453,7 @@ class ShotWorkflow:
                     "error": str(e),
                 }
 
-            except InsufficientCreditsError as e:
-                workflow.logger.error(f"Insufficient credits: {e}")
-                raise
+            # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
         if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):
             workflow.logger.error(f"Still failed after {self.max_retries} attempts")
@@ -523,18 +527,23 @@ class ShotWorkflow:
                             retry_policy=retry_policy,
                         )
                         break  # Success, exit retry loop
-                    except InsufficientCreditsError as e:
-                        # Hard cap hit - pause and wait for cap raise
-                        workflow.logger.warning(f"Credit cap hit for {self.shot_id}: {e}")
-                        self.status = "paused_cap"
-                        
-                        # Wait for parent to raise cap and signal us
-                        await workflow.wait_condition(lambda: self.cap_raised)
-                        
-                        workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
-                        self.status = "running"
-                        self.cap_raised = False  # Reset for potential future pauses
-                        # Loop will retry with same job_id (idempotent)
+                    except ActivityError as e:
+                        # Check if wrapped error is InsufficientCreditsError
+                        if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                            # Hard cap hit - pause and wait for cap raise
+                            workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
+                            self.status = "paused_cap"
+                            
+                            # Wait for parent to raise cap and signal us
+                            await workflow.wait_condition(lambda: self.cap_raised)
+                            
+                            workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
+                            self.status = "running"
+                            self.cap_raised = False  # Reset for potential future pauses
+                            # Loop will retry with same job_id (idempotent)
+                        else:
+                            # Other activity error - re-raise
+                            raise
 
                 # Poll for completion using workflow-level polling loop (R1)
                 poll_result = await self._poll_job_to_completion(
@@ -596,9 +605,7 @@ class ShotWorkflow:
                     "error": str(e),
                 }
 
-            except InsufficientCreditsError as e:
-                workflow.logger.error(f"Insufficient credits: {e}")
-                raise
+            # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
         if not self.clip_asset or not clip_qc.get("passed"):
             workflow.logger.error(f"Clip failed after {self.max_retries} attempts")

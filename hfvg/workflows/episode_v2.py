@@ -243,6 +243,28 @@ class EpisodeWorkflowV2:
         workflow.logger.info("Awaiting all clip completions...")
         results = []
         for handle in shot_workflow_handles:
+            # Process credit cap raise before each handle check
+            while self.state.credit_cap_raised and self.state.new_credit_cap > 0:
+                workflow.logger.info(f"Processing credit cap raise to {self.state.new_credit_cap}")
+                
+                # Update the ledger cap via activity
+                await workflow.execute_activity(
+                    update_credit_cap_activity,
+                    args=[self.episode_id, self.state.new_credit_cap],
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
+                
+                # Forward signal to all shot workflows
+                for shot_id, shot_handle in self.shot_results.items():
+                    try:
+                        await shot_handle.signal("resume_after_cap_raise")
+                        workflow.logger.info(f"Signaled cap raise to shot {shot_id}")
+                    except Exception as e:
+                        workflow.logger.warning(f"Failed to signal shot {shot_id}: {e}")
+                
+                # Clear flag
+                self.state.new_credit_cap = 0
+            
             result = await handle
             results.append(result)
         
@@ -347,27 +369,12 @@ class EpisodeWorkflowV2:
         self.approved_g_final_cut = True
     
     @workflow.signal
-    async def raise_credit_cap(self, new_cap: int):
+    def raise_credit_cap(self, new_cap: int):
         """
         Raise credit cap and resume paused run.
         
-        Used when the run pauses due to hitting the hard cap.
+        Signal handler just sets flags - actual work done in main loop.
         """
-        # Update the ledger cap via activity
-        await workflow.execute_activity(
-            update_credit_cap_activity,
-            args=[self.episode_id, new_cap],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
-        
-        # Forward signal to all child shot workflows
-        for shot_id, handle in self.shot_results.items():
-            try:
-                await handle.signal("resume_after_cap_raise")
-                workflow.logger.info(f"Signaled cap raise to shot {shot_id}")
-            except Exception as e:
-                workflow.logger.warning(f"Failed to signal shot {shot_id}: {e}")
-        
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
