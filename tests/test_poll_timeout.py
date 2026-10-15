@@ -26,7 +26,7 @@ os.environ["DRY_RUN"] = "false"
 with workflow.unsafe.imports_passed_through():
     from hfvg import activities
     from hfvg.budget import BudgetLedger
-from hfvg.credit_ledger import CreditLedger
+    from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.workflows.shot import ShotWorkflow
 

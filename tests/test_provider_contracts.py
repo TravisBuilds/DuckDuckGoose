@@ -356,7 +356,7 @@ async def test_full_live_flow_with_strict_mock():
     import tempfile
     import os
     from hfvg.budget import BudgetLedger
-from hfvg.credit_ledger import CreditLedger
+    from hfvg.credit_ledger import CreditLedger
     
     # Create temporary DB
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
