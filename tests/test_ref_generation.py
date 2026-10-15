@@ -43,6 +43,168 @@ async def test_load_refs_to_generate_empty_list(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_mode_fails_without_refs_json(tmp_path, monkeypatch):
+    """Test: Live mode fails if refs.json is missing."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    # Should succeed in dry mode
+    result = await load_refs_to_generate_activity("ep99", is_live=False)
+    assert result == []
+    
+    # Should fail in live mode
+    with pytest.raises(FileNotFoundError, match="refs.json required in live mode"):
+        await load_refs_to_generate_activity("ep99", is_live=True)
+
+
+@pytest.mark.asyncio
+async def test_live_mode_fails_if_needed_ref_unavailable(tmp_path, monkeypatch):
+    """Test: Live mode fails if shot needs ref that's not on disk or in to_generate."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "per_shot": {
+            "A01": [
+                {"key": "r_duck", "path": "/nonexistent/duck.png", "exists": False},
+                {"key": "r_birch", "path": "/nonexistent/birch.png", "exists": False}
+            ]
+        },
+        "to_generate": {
+            "r_duck": "/fake/duck.png"
+        },
+        "prompts": {
+            "r_duck": "Duck sheet"
+        }
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    # r_birch is needed but not in to_generate and not on disk
+    with pytest.raises(ValueError, match="r_birch.*neither on disk nor in to_generate"):
+        await load_refs_to_generate_activity("ep99", is_live=True)
+
+
+@pytest.mark.asyncio
+async def test_to_generate_map_format(tmp_path, monkeypatch):
+    """Test: to_generate accepts map {key: path} format."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "per_shot": {},
+        "to_generate": {
+            "r_duck": "/fake/duck.png",
+            "r_birch": "/fake/birch.png"
+        },
+        "prompts": {
+            "r_duck": "Duck character sheet",
+            "r_birch": "Birch character sheet"
+        }
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    result = await load_refs_to_generate_activity("ep99")
+    assert len(result) == 2
+    
+    # Check defaults applied
+    duck = next(r for r in result if r["key"] == "r_duck")
+    assert duck["prompt"] == "Duck character sheet"
+    assert duck["output_path"] == "/fake/duck.png"
+    assert duck["type"] == "character_sheet"  # default
+    assert duck["version"] == 1  # default
+
+
+@pytest.mark.asyncio
+async def test_to_generate_map_without_prompts_fails(tmp_path, monkeypatch):
+    """Test: map format requires prompts map."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "per_shot": {},
+        "to_generate": {
+            "r_duck": "/fake/duck.png"
+        }
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    with pytest.raises(ValueError, match="r_duck.*has no prompt"):
+        await load_refs_to_generate_activity("ep99")
+
+
+@pytest.mark.asyncio
+async def test_to_generate_list_with_defaults(tmp_path, monkeypatch):
+    """Test: list format applies defaults for type and version."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "per_shot": {},
+        "to_generate": [
+            {
+                "key": "r_duck",
+                "prompt": "Duck sheet",
+                "output_path": "/fake/duck.png"
+                # type and version omitted - should get defaults
+            }
+        ]
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    result = await load_refs_to_generate_activity("ep99")
+    assert len(result) == 1
+    assert result[0]["type"] == "character_sheet"
+    assert result[0]["version"] == 1
+
+
+@pytest.mark.asyncio
+async def test_to_generate_list_can_use_prompts_map(tmp_path, monkeypatch):
+    """Test: list format can get prompts from prompts map."""
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    
+    ep_dir = tmp_path / "ep99"
+    ep_dir.mkdir()
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "episode_id": "ep99",
+        "per_shot": {},
+        "to_generate": [
+            {
+                "key": "r_duck",
+                "output_path": "/fake/duck.png",
+                "type": "character_sheet"
+            }
+        ],
+        "prompts": {
+            "r_duck": "Duck from prompts map"
+        }
+    }))
+    
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
+    
+    result = await load_refs_to_generate_activity("ep99")
+    assert len(result) == 1
+    assert result[0]["prompt"] == "Duck from prompts map"
+
+
+@pytest.mark.asyncio
 async def test_load_refs_validates_required_fields(tmp_path, monkeypatch):
     """Test: load_refs_to_generate validates required fields and fails fast."""
     from hfvg.activities.ref_generation import load_refs_to_generate_activity
@@ -98,20 +260,8 @@ async def test_load_refs_validates_required_fields(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="missing required field 'output_path'"):
         await load_refs_to_generate_activity("ep99")
     
-    # Test missing 'type'
-    refs_json.write_text(json.dumps({
-        "episode_id": "ep99",
-        "to_generate": [
-            {
-                "key": "r_duck",
-                "prompt": "Duck sheet",
-                "output_path": "/fake/duck.png"
-            }
-        ]
-    }))
-    
-    with pytest.raises(ValueError, match="missing required field 'type'"):
-        await load_refs_to_generate_activity("ep99")
+    # Note: 'type' is no longer required - it defaults to "character_sheet"
+    # This is a design decision to support the flexible format
 
 
 @pytest.mark.asyncio

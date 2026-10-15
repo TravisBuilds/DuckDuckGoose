@@ -126,15 +126,27 @@ class HiggsfieldProvider(GenerationProvider):
         else:
             model_path = model  # Use as-is if not a known alias
         
-        # Build request body
+        # Build request body with only documented SOUL V2 parameters
+        # Docs: https://docs.higgsfield.ai/docs/models/soul-2/generate
+        # Supported: prompt, resolution (720p/1080p), aspect_ratio, enhance_prompt,
+        #            custom_reference_id, custom_reference_strength, style_id,
+        #            style_strength, seed, batch_size
+        # Map our "2k" to "1080p", "1k" to "720p"
+        if resolution == "2k":
+            api_resolution = "1080p"
+        elif resolution == "1k":
+            api_resolution = "720p"
+        else:
+            api_resolution = resolution  # Use as-is if already in API format
+        
         body = {
             "prompt": prompt,
-            "resolution": resolution,
-            "quality": quality,
+            "resolution": api_resolution,
         }
         
-        if references:
-            body["references"] = references
+        # Note: "quality" parameter removed - not in SOUL V2 API schema
+        # References not supported in SOUL V2 text-to-image endpoint
+        # (character references use custom_reference_id parameter instead)
         
         # Generate idempotency key if not provided
         if not idempotency_key:

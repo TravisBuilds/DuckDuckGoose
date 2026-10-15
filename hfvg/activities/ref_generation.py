@@ -79,8 +79,10 @@ async def generate_ref_activity(
     
     # Estimate credits
     from hfvg.credit_pricing import estimate_still_credits
+    # SOUL V2 uses resolution tiers (720p/1080p), not quality levels
+    # Map to pricing tiers: 2k -> high cost, others -> standard cost
     quality = "high" if resolution == "2k" else "standard"
-    estimated_credits = estimate_still_credits(model, quality)
+    estimated_credits = estimate_still_credits("soul_v2", quality)
     
     # Reserve credits from credit ledger
     ledger = CreditLedger(db_path)
@@ -158,58 +160,163 @@ async def generate_ref_activity(
 
 
 @activity.defn
-async def load_refs_to_generate_activity(episode_id: str, shots_subset: list[str] | None = None) -> list[dict]:
+async def load_refs_to_generate_activity(
+    episode_id: str, 
+    shots_subset: list[str] | None = None,
+    is_live: bool = False
+) -> list[dict]:
     """
     Load refs.json and extract to_generate list, filtered by shots_subset.
     
     Validates each entry has required fields: key, prompt, output_path, type.
+    In live mode, fails if refs.json is missing.
     
     Args:
         episode_id: Episode identifier
         shots_subset: Optional list of shot IDs to filter refs
+        is_live: If True, fail if refs.json missing (live mode requirement)
     
     Returns:
         List of refs to generate, each with keys: key, prompt, output_path, type, version
     
     Raises:
+        FileNotFoundError: If refs.json missing in live mode
         ValueError: If any to_generate entry is missing required fields
     """
     from hfvg.shot_data import refs_json_path
     
     refs_path = refs_json_path(episode_id)
     if not refs_path.exists():
+        if is_live:
+            raise FileNotFoundError(
+                f"refs.json required in live mode but not found for {episode_id}. "
+                f"Expected at {refs_path}"
+            )
         activity.logger.warning(f"No refs.json for {episode_id}, no refs to generate")
         return []
     
     refs_data = json.loads(refs_path.read_text())
-    to_generate = refs_data.get("to_generate", [])
+    to_generate_raw = refs_data.get("to_generate", [])
+    prompts_map = refs_data.get("prompts", {})
     
-    if not to_generate:
-        activity.logger.info(f"No to_generate list in refs.json for {episode_id}")
+    if not to_generate_raw:
+        activity.logger.info(f"No to_generate in refs.json for {episode_id}")
         return []
     
-    # Validate each entry has required fields
+    # Normalize to_generate format
+    # Support both map {key: path} and list [{key, prompt, output_path, ...}]
+    to_generate = []
+    
+    if isinstance(to_generate_raw, dict):
+        # Map format: {key: path}
+        for key, path in to_generate_raw.items():
+            ref_spec = {
+                "key": key,
+                "output_path": path,
+                "type": "character_sheet",  # default
+                "version": 1,  # default
+            }
+            # Get prompt from prompts map if available
+            if key in prompts_map:
+                ref_spec["prompt"] = prompts_map[key]
+            else:
+                raise ValueError(
+                    f"refs.json to_generate map entry '{key}' has no prompt. "
+                    f"Add it to the prompts map: {{\"prompts\": {{\"{key}\": \"your prompt\"}}}} "
+                    f"or use list format with prompt inline."
+                )
+            to_generate.append(ref_spec)
+    elif isinstance(to_generate_raw, list):
+        # List format: [{key, prompt, output_path, type}, ...]
+        for i, ref_spec in enumerate(to_generate_raw):
+            if not isinstance(ref_spec, dict):
+                raise ValueError(
+                    f"refs.json to_generate[{i}] must be an object, got {type(ref_spec).__name__}"
+                )
+            
+            # Apply defaults
+            if "type" not in ref_spec:
+                ref_spec["type"] = "character_sheet"
+            if "version" not in ref_spec:
+                ref_spec["version"] = 1
+            
+            # Check for prompt in entry or prompts map
+            if "prompt" not in ref_spec or not ref_spec["prompt"]:
+                key = ref_spec.get("key")
+                if key and key in prompts_map:
+                    ref_spec["prompt"] = prompts_map[key]
+                else:
+                    raise ValueError(
+                        f"refs.json to_generate[{i}] missing required field 'prompt'. "
+                        f"Entry: {ref_spec}. Add prompt inline or in prompts map."
+                    )
+            
+            to_generate.append(ref_spec)
+    else:
+        raise ValueError(
+            f"refs.json to_generate must be a map {{key: path}} or list of objects, "
+            f"got {type(to_generate_raw).__name__}"
+        )
+    
+    # Validate all entries have required fields after normalization
     required_fields = ["key", "prompt", "output_path", "type"]
     for i, ref_spec in enumerate(to_generate):
         for field in required_fields:
             if field not in ref_spec or not ref_spec[field]:
                 raise ValueError(
-                    f"refs.json to_generate[{i}] missing required field '{field}'. "
-                    f"Entry: {ref_spec}. Required fields: {required_fields}"
+                    f"refs.json to_generate[{i}] missing required field '{field}' "
+                    f"after normalization. Entry: {ref_spec}"
                 )
     
-    # Filter by shots_subset if provided
+    # Check which refs are needed by shots
+    per_shot = refs_data.get("per_shot", {})
     if shots_subset:
-        # Load per_shot to see which refs are used by subset shots
-        per_shot = refs_data.get("per_shot", {})
+        # Filter to only refs needed by subset shots
         needed_keys = set()
         for shot_id in shots_subset:
             shot_refs = per_shot.get(shot_id, [])
             for ref_entry in shot_refs:
                 if isinstance(ref_entry, dict):
                     needed_keys.add(ref_entry.get("key"))
+    else:
+        # All shots - collect all ref keys
+        needed_keys = set()
+        for shot_id, shot_refs in per_shot.items():
+            for ref_entry in shot_refs:
+                if isinstance(ref_entry, dict):
+                    needed_keys.add(ref_entry.get("key"))
+    
+    # In live mode, verify all needed refs are either on disk or in to_generate
+    if is_live and needed_keys:
+        to_generate_keys = {ref.get("key") for ref in to_generate}
+        missing_refs = []
         
-        # Filter to_generate to only refs needed by subset
+        for ref_key in needed_keys:
+            # Check if ref exists on disk
+            ref_on_disk = False
+            for shot_refs in per_shot.values():
+                for ref_entry in shot_refs:
+                    if ref_entry.get("key") == ref_key:
+                        ref_path = ref_entry.get("path")
+                        if ref_path and Path(ref_path).exists():
+                            ref_on_disk = True
+                            break
+                if ref_on_disk:
+                    break
+            
+            # If not on disk, must be in to_generate
+            if not ref_on_disk and ref_key not in to_generate_keys:
+                missing_refs.append(ref_key)
+        
+        if missing_refs:
+            raise ValueError(
+                f"Live mode: shots need refs {missing_refs} but they are neither "
+                f"on disk nor in to_generate. Add them to refs.json to_generate or "
+                f"place the files at their specified paths."
+            )
+    
+    # Filter to_generate to only refs needed by shots_subset
+    if shots_subset:
         filtered = [ref for ref in to_generate if ref.get("key") in needed_keys]
         activity.logger.info(
             f"Filtered to_generate from {len(to_generate)} to {len(filtered)} "

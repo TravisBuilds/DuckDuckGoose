@@ -219,9 +219,10 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== REFERENCE GENERATION ===")
         
         # Load refs to generate from refs.json, filtered by shots_subset
+        # In live mode, this will fail if refs.json is missing or needed refs unavailable
         refs_to_generate = await workflow.execute_activity(
             "load_refs_to_generate_activity",
-            args=[episode_id, shots_subset],
+            args=[episode_id, shots_subset, not dry_run],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
