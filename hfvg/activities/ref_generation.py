@@ -88,11 +88,10 @@ async def generate_ref_activity(
     activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id}")
     
     # Estimate credits
-    from hfvg.credit_pricing import estimate_still_credits
-    # SOUL V2 uses resolution tiers (720p/1080p), not quality levels
-    # Map to pricing tiers: 2k -> high cost, others -> standard cost
-    quality = "high" if resolution == "2k" else "standard"
-    estimated_credits = estimate_still_credits("soul_v2", quality)
+    # Refs use SOUL V2: higgsfield-ai/soul/v2/standard
+    model_path = "higgsfield-ai/soul/v2/standard"
+    from hfvg.credit_pricing import estimate_ref_credits
+    estimated_credits = estimate_ref_credits(model_path)
     
     # Reserve credits from credit ledger
     ledger = CreditLedger(db_path)

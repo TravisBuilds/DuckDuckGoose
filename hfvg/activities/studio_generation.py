@@ -258,9 +258,13 @@ async def submit_still_job_enforced(
     job_id = f"still-{episode_id}-{shot_id}-v{version}"
     
     # Estimate credits for credit ledger
+    # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
     # Map quality to pricing: "high" -> "high", else "standard"
     pricing_quality = "high" if quality == "high" else "standard"
-    estimated_credits = estimate_still_credits("gpt_image_2", pricing_quality)
+    model_path = still_model_path()  # xai/grok-imagine-image-2.0
+    
+    # Use pricing table for credit estimation (provider will call /estimate separately for USD cost)
+    estimated_credits = estimate_still_credits(model_path, pricing_quality)
     
     # Reserve credits from credit ledger
     credit_ledger = CreditLedger(db_path)
