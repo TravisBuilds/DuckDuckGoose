@@ -100,6 +100,8 @@ class EpisodeState(BaseModel):
     final_approved: bool = False
     post_approved: bool = False
     current_gate: str = ""  # Tracks which gate workflow is waiting at
+    credit_cap_raised: bool = False  # Signal that credit cap was raised
+    new_credit_cap: int = 0  # New credit cap value
 
 
 class CreditTransaction(BaseModel):

@@ -345,6 +345,16 @@ class EpisodeWorkflowV2:
         """Approve final cut (G_FINAL_CUT): After edit."""
         self.approved_g_final_cut = True
     
+    @workflow.signal
+    async def raise_credit_cap(self, new_cap: int):
+        """
+        Raise credit cap and resume paused run.
+        
+        Used when the run pauses due to hitting the hard cap.
+        """
+        self.state.credit_cap_raised = True
+        self.state.new_credit_cap = new_cap
+    
     @workflow.query
     def get_state(self) -> dict:
         """Get current workflow state."""

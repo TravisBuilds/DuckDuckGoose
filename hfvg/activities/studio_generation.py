@@ -248,11 +248,24 @@ async def submit_still_job_enforced(
     
     if not credit_result.get("reserved"):
         available = credit_result.get("available", 0)
-        cap = credit_result.get("cap", 0)
-        raise ValueError(
-            f"Credit reserve failed for {job_id}. "
-            f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
-        )
+        over_cap = credit_result.get("over_cap", False)
+        
+        if over_cap:
+            # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
+            from hfvg.errors import InsufficientCreditsError
+            raise InsufficientCreditsError(
+                f"Credit hard cap reached for {job_id}. "
+                f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                "Raise cap via raise_credit_cap signal to resume.",
+                required=float(estimated_credits),
+                available=float(available)
+            )
+        else:
+            # Other reserve failure
+            raise ValueError(
+                f"Credit reserve failed for {job_id}. "
+                f"Available: {available} credits. Requested: {estimated_credits} credits."
+            )
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -568,15 +581,28 @@ async def submit_clip_job_enforced(
         
         if not credit_result.get("reserved"):
             available = credit_result.get("available", 0)
-            cap = credit_result.get("cap", 0)
+            over_cap = credit_result.get("over_cap", False)
+            
             # Release budget reservation
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
                 amount_usd_micros=estimated_cost,
-                reason=f"Credit reserve failed: {available}/{cap}"
+                reason=f"Credit reserve failed: available={available}"
             )
-            raise ValueError(
+            
+            if over_cap:
+                # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
+                from hfvg.errors import InsufficientCreditsError
+                raise InsufficientCreditsError(
+                    f"Credit hard cap reached for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                    "Raise cap via raise_credit_cap signal to resume.",
+                    required=float(estimated_credits),
+                    available=float(available)
+                )
+            else:
+                raise ValueError(
                 f"Credit reserve failed for {job_id}. "
                 f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
             )

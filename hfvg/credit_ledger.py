@@ -228,6 +228,46 @@ class CreditLedger:
             await db.execute("DELETE FROM run_locks WHERE episode_id = ?", (episode_id,))
             await db.commit()
     
+    async def update_credit_cap(self, episode_id: str, new_cap_credits: int) -> dict:
+        """
+        Update credit cap for an episode line.
+        
+        Used to raise the cap and resume a paused run.
+        
+        Args:
+            episode_id: Episode identifier
+            new_cap_credits: New credit cap (must be >= current cap)
+        
+        Returns:
+            dict with updated (bool), previous_cap (int), new_cap (int)
+        """
+        line_id = f"episode_{episode_id}"
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Get current cap
+            async with db.execute(
+                "SELECT cap_credits FROM credit_lines WHERE line_id = ?",
+                (line_id,)
+            ) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    raise ValueError(f"Credit line not found for episode {episode_id}")
+                
+                previous_cap = row[0]
+            
+            # Update cap
+            await db.execute(
+                "UPDATE credit_lines SET cap_credits = ? WHERE line_id = ?",
+                (new_cap_credits, line_id)
+            )
+            await db.commit()
+            
+            return {
+                "updated": True,
+                "previous_cap": previous_cap,
+                "new_cap": new_cap_credits
+            }
+    
     async def reserve_credits(self, episode_id: str, job_id: str, amount_credits: int, notes: str = "") -> dict[str, Any]:
         """
         Reserve credits for a job (idempotent).
