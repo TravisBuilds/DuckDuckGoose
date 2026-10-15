@@ -216,6 +216,48 @@ class EpisodeWorkflowV2:
         self.passed_gates.append("G_FINAL_CUT")
         workflow.logger.info("[APPROVED G_FINAL] Final cut approved")
         
+        # ================================================================
+        # Generate Run Report
+        # ================================================================
+        workflow.logger.info("=== GENERATING RUN REPORT ===")
+        end_time = workflow.now()
+        
+        # Calculate workflow duration
+        from datetime import datetime
+        start_time_dt = datetime.fromisoformat(workflow.info().start_time.isoformat())
+        end_time_dt = datetime.fromisoformat(end_time.isoformat())
+        
+        # Collect stage info
+        stages = [
+            {"stage": "SCRIPT", "status": "complete"},
+            {"stage": "STILL_GENERATION", "status": "complete"},
+            {"stage": "CLIP_GENERATION", "status": "complete"},
+            {"stage": "MUTE_EDIT", "status": "complete"},
+        ]
+        
+        try:
+            report_result = await workflow.execute_activity(
+                "generate_run_report",
+                args=[
+                    episode_id,
+                    False,  # is_canary
+                    start_time_dt.isoformat(),
+                    end_time_dt.isoformat(),
+                    total_credits,  # credits_spent
+                    total_credits * 2,  # credits_cap (placeholder)
+                    False,  # paused_for_cap
+                    len(shots),  # shots_count
+                    stages,
+                    "complete",  # status
+                    None,  # error
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            workflow.logger.info(f"Run report saved: {report_result}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to generate run report: {e}")
+        
         workflow.logger.info(f"✅ Episode {episode_id} complete")
         
         return {

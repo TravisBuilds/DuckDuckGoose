@@ -7,6 +7,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from hfvg import activities
+from hfvg.activities.run_report import generate_run_report
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
@@ -41,6 +42,7 @@ PRODUCTION_ACTIVITIES = [
     activities.parse_beatmap_activity,
     activities.recheck_refs_activity,
     activities.check_live_mode_and_g108,
+    generate_run_report,
 ]
 
 
