@@ -49,6 +49,10 @@ async def test_episode(tmp_path):
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
+    
     yield db_path
 
 
