@@ -44,6 +44,12 @@ async def test_api_to_g_final_cut_integration(tmp_path):
     3. Verify still and clip files exist on disk
     4. Verify run report JSON + MD files are written
     """
+    # Clean up any leftover data from previous test runs
+    import shutil
+    for dir_to_clean in ["./data/dry_run_outputs", "./data/reports", "./data/episodes/ep99"]:
+        if Path(dir_to_clean).exists():
+            shutil.rmtree(dir_to_clean)
+    
     # Setup test database and environment
     db_path = tmp_path / "test_studio.db"
     os.environ["DATABASE_PATH"] = str(db_path)
