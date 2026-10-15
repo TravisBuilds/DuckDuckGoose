@@ -482,21 +482,8 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         await insert_line(db, "ep99", "L4_video", 50_000_000, 40_000_000)
         await db.commit()
     
-    # Calculate expected key with all parameters
-    # submit_clip_job_enforced will be called with: episode_id, shot_id, start_image_url, prompt, duration, version
-    expected_key = generate_idempotency_key(
-        episode_id="ep99",
-        shot_id="A01",
-        version=1,
-        prompt=f"clip:{lint_ok('Test prompt')}",  # Activity prefixes with "clip:"
-        start_image="https://example.com/still.jpg",
-        duration=5.0,
-        # P2: the key also covers model, resolution, end image and the prompt hash
-        model="kling",
-        resolution=None,
-        end_image=None,
-        prompt_hash=hashlib.sha256(lint_ok("Test prompt").encode()).hexdigest(),
-    )
+    # Expected idempotency key is now the deterministic job_id
+    expected_key = "clip-ep99-A01-v1"
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
