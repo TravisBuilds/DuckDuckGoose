@@ -104,6 +104,31 @@ async def check_live_mode_and_g108(episode_id: str) -> tuple[bool, bool]:
             return bool(row[0]), bool(row[1])
 
 
+@activity.defn
+async def verify_episode_files_activity(episode_id: str) -> dict:
+    """
+    Verify required files exist for episode in live mode.
+    
+    Args:
+        episode_id: Episode identifier
+    
+    Returns:
+        dict with 'passed' (bool) and 'missing_files' (list)
+    
+    Raises:
+        FileNotFoundError: If shots.json is missing in live mode
+    """
+    shots_json_path = f"data/episodes/{episode_id}/shots.json"
+    
+    if not os.path.exists(shots_json_path):
+        raise FileNotFoundError(
+            f"shots.json missing for episode {episode_id} at {shots_json_path}. "
+            "Live mode requires shots.json to be present before workflow start."
+        )
+    
+    return {"passed": True, "missing_files": []}
+
+
 def generate_idempotency_key(episode_id: str = None, shot_id: str = None, version: int = None, prompt: str = None, **kwargs) -> str:
     """
     Generate deterministic idempotency key from request parameters.

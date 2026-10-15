@@ -171,3 +171,25 @@ async def update_credit_cap_activity(
     await ledger.update_credit_cap(episode_id, new_cap_credits)
     
     activity.logger.info(f"Credit cap updated for {episode_id}: {new_cap_credits} credits")
+
+
+@activity.defn
+async def init_episode_credit_line_activity(
+    episode_id: str,
+    cap_credits: int | None = None,
+) -> None:
+    """
+    Initialize credit line for episode with optional cap override.
+    
+    Args:
+        episode_id: Episode identifier
+        cap_credits: Optional credit cap (uses EPISODE_CAP_CREDITS env if None)
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = CreditLedger(db_path)
+    await ledger.init_db()
+    
+    await ledger.create_episode_line(episode_id, cap_credits)
+    
+    cap_used = cap_credits if cap_credits is not None else "default"
+    activity.logger.info(f"Credit line created for {episode_id} with cap: {cap_used}")

@@ -13,11 +13,13 @@ from hfvg.activities.credit_activities import (
     commit_credits_activity,
     release_credits_activity,
     update_credit_cap_activity,
+    init_episode_credit_line_activity,
 )
 from hfvg.activities.run_lock import (
     acquire_run_lock,
     release_run_lock,
 )
+from hfvg.activities.studio_generation import verify_episode_files_activity
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
@@ -52,11 +54,13 @@ PRODUCTION_ACTIVITIES = [
     activities.parse_beatmap_activity,
     activities.recheck_refs_activity,
     activities.check_live_mode_and_g108,
+    verify_episode_files_activity,
     generate_run_report,
     reserve_credits_activity,
     commit_credits_activity,
     release_credits_activity,
     update_credit_cap_activity,
+    init_episode_credit_line_activity,
     acquire_run_lock,
     release_run_lock,
 ]

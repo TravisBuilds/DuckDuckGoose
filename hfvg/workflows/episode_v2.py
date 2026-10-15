@@ -86,6 +86,24 @@ class EpisodeWorkflowV2:
         """
         self.state.episode_id = episode_id
         
+        # In live mode, check for required files before acquiring lock
+        if not dry_run:
+            workflow.logger.info(f"Verifying required files in live mode...")
+            try:
+                await workflow.execute_activity(
+                    "verify_episode_files_activity",
+                    args=[episode_id],
+                    start_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.error(f"File verification failed: {e}")
+                return {
+                    "episode_id": episode_id,
+                    "status": "failed",
+                    "error": f"Missing required files in live mode: {str(e)}",
+                }
+        
         # Acquire account-level run lock
         workflow.logger.info(f"Acquiring run lock for {episode_id}...")
         try:
@@ -127,6 +145,15 @@ class EpisodeWorkflowV2:
     ) -> dict:
         """Execute workflow with run lock held."""
         
+        # Initialize credit ledger line with credit_cap (lower of credit_cap and env cap)
+        workflow.logger.info(f"Initializing credit ledger for {episode_id} with cap: {credit_cap}")
+        await workflow.execute_activity(
+            "init_episode_credit_line_activity",
+            args=[episode_id, credit_cap],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        
         # Load gate policy via activity (not deterministic in workflow)
         policy_data = await workflow.execute_activity(
             load_gate_policy_activity,
@@ -156,6 +183,18 @@ class EpisodeWorkflowV2:
         
         shots = self.parsed_beatmap.get("shots", [])
         workflow.logger.info(f"Parsed {len(shots)} shots from beatmap")
+        
+        # Filter shots by shots_subset if provided
+        if shots_subset:
+            # Validate all subset IDs exist
+            shot_ids = {s["shot_id"] for s in shots}
+            unknown_ids = [sid for sid in shots_subset if sid not in shot_ids]
+            if unknown_ids:
+                raise ValueError(f"Unknown shot IDs in subset: {unknown_ids}")
+            
+            # Filter to subset
+            shots = [s for s in shots if s["shot_id"] in shots_subset]
+            workflow.logger.info(f"Filtered to shots_subset: {shots_subset} ({len(shots)} shots)")
         
         # Calculate total credits from brief (no separate CREDIT-PLAN needed)
         total_video_credits = sum(s.get("video_credits", 0) for s in shots)

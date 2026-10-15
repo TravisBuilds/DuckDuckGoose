@@ -121,6 +121,12 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     # Create line with very low cap
     await credit_ledger.create_episode_line("ep99", cap_credits=5)
     
+    # Create shots.json (required in live mode)
+    from pathlib import Path
+    shots_dir = Path(tmp_path) / "data" / "episodes" / "ep99"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    (shots_dir / "shots.json").write_text('[{"shot_id": "A01"}]')
+    
     # Reserve 4 credits (within cap)
     await credit_ledger.reserve_credits("ep99", "job-1", 4)
     
