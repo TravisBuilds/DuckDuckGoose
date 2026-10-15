@@ -323,6 +323,24 @@ async def submit_still_job_enforced(
 
 
 @activity.defn
+async def commit_job_credits(episode_id: str, job_id: str, actual_credits: int) -> dict:
+    """Commit reserved credits with actual cost."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.commit_credits(episode_id, job_id, actual_credits)
+    return {"success": True, "job_id": job_id, "credits": actual_credits}
+
+
+@activity.defn
+async def release_job_credits(episode_id: str, job_id: str) -> dict:
+    """Release reserved credits (job failed/canceled)."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.release_credits(episode_id, job_id)
+    return {"success": True, "job_id": job_id}
+
+
+@activity.defn
 async def submit_clip_job_enforced(
     episode_id: str,
     shot_id: str,
