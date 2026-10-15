@@ -356,6 +356,14 @@ async def _run_shot_workflow(shot_plan, *, send_end_image=None, expect_wait=Fals
     async def commit(*args):
         return None
 
+    @activity.defn(name="commit_credits_activity")
+    async def commit_credits(*args):
+        return None
+
+    @activity.defn(name="release_credits_activity")
+    async def release_credits(*args):
+        return None
+
     @activity.defn(name="precheck_still_qc")
     async def pre_still(*args):
         return {"passed": True, "issues": []}
@@ -381,7 +389,7 @@ async def _run_shot_workflow(shot_plan, *, send_end_image=None, expect_wait=Fals
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client, task_queue="r4-q", workflows=[ShotWorkflow],
-            activities=[still, clip, poll, commit, pre_still, pre_clip, rev_still, rev_clip, record,
+            activities=[still, clip, poll, commit, commit_credits, release_credits, pre_still, pre_clip, rev_still, rev_clip, record,
                         activities.release_job_budget, activities.mark_job_pending_reconcile],
         ):
             handle = await env.client.start_workflow(

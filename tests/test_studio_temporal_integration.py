@@ -12,6 +12,10 @@ from temporalio.worker import Worker
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 from hfvg.workflows.shot import ShotWorkflow
 from hfvg import activities
+from hfvg.activities.credit_activities import (
+    commit_credits_activity,
+    release_credits_activity,
+)
 
 
 @pytest.mark.asyncio
@@ -59,6 +63,8 @@ async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
                 activities.mark_job_pending_reconcile,
                 acquire_run_lock,
                 release_run_lock,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             # Start workflow (will pause at G1.01)
@@ -130,6 +136,8 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             # Start ShotWorkflow (like canary does)
@@ -206,6 +214,8 @@ async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {

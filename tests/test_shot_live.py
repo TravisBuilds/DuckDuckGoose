@@ -12,6 +12,10 @@ from temporalio.worker import Worker
 
 from hfvg.workflows.shot import ShotWorkflow
 from hfvg import activities
+from hfvg.activities.credit_activities import (
+    commit_credits_activity,
+    release_credits_activity,
+)
 
 
 @pytest.mark.asyncio
@@ -126,6 +130,8 @@ async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypat
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -224,6 +230,8 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
