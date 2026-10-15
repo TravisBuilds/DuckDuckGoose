@@ -560,9 +560,16 @@ class ShotWorkflow:
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
 
+                # Prepare rubric with expected clip parameters for motion QC
+                clip_rubric = {
+                    "duration": duration,
+                    "resolution": params.get("resolution", "1024x576"),
+                    "aspect_ratio": params.get("aspect_ratio", "16:9"),
+                }
+                
                 clip_qc = await workflow.execute_activity(
                     review_clip,
-                    args=[self.clip_asset["url"], {}, self.episode_id, self.shot_id],
+                    args=[self.clip_asset["url"], clip_rubric, self.episode_id, self.shot_id],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,

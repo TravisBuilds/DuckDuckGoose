@@ -333,17 +333,18 @@ async def test_review_clip_escalates_in_live_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     
     # Call review_clip with valid episode_id
+    # Note: With --disable-socket, the download will fail and escalate
     result = await review_clip(
         asset_url="https://example.com/some-clip.mp4",
-        rubric={},
+        rubric={"duration": 5.0},
         episode_id="ep99",
         shot_id="A01"
     )
     
-    # Should escalate in live mode
+    # Should escalate on download failure (sockets disabled)
     assert result["passed"] is False
     assert result.get("escalate") is True
-    assert "Real QC agent not implemented" in result["issues"][0]
+    assert "Failed to analyze clip" in result["issues"][0]
 
 
 @pytest.mark.asyncio
