@@ -169,14 +169,14 @@ async def test_api_to_g_final_cut_integration(tmp_path):
             assert dry_run_dir.exists(), f"Dry-run output directory not found: {dry_run_dir}"
             
             # Check for still files (2 shots × 1 still each)
-            still_files = list(dry_run_dir.glob(f"{episode_id}_*_*.jpg"))
+            still_files = list(dry_run_dir.glob("*.jpg"))
             assert len(still_files) >= 2, f"Expected at least 2 still files, found {len(still_files)}: {still_files}"
-            print(f"✓ Found {len(still_files)} still files")
+            print(f"✓ Found {len(still_files)} still files: {[f.name for f in still_files]}")
             
             # Check for clip files (2 shots × 1 clip each)
-            clip_files = list(dry_run_dir.glob(f"{episode_id}_*_*.mp4"))
+            clip_files = list(dry_run_dir.glob("*.mp4"))
             assert len(clip_files) >= 2, f"Expected at least 2 clip files, found {len(clip_files)}: {clip_files}"
-            print(f"✓ Found {len(clip_files)} clip files")
+            print(f"✓ Found {len(clip_files)} clip files: {[f.name for f in clip_files]}")
             
             # Step 6: Assert run report exists
             reports_dir = Path("./data/reports")

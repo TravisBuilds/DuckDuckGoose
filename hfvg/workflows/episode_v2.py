@@ -229,10 +229,10 @@ class EpisodeWorkflowV2:
         
         # Collect stage info
         stages = [
-            {"stage": "SCRIPT", "status": "complete"},
-            {"stage": "STILL_GENERATION", "status": "complete"},
-            {"stage": "CLIP_GENERATION", "status": "complete"},
-            {"stage": "MUTE_EDIT", "status": "complete"},
+            {"stage_name": "SCRIPT", "status": "complete"},
+            {"stage_name": "STILL_GENERATION", "status": "complete"},
+            {"stage_name": "CLIP_GENERATION", "status": "complete"},
+            {"stage_name": "MUTE_EDIT", "status": "complete"},
         ]
         
         try:
