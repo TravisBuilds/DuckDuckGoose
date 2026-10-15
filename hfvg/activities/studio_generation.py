@@ -227,8 +227,7 @@ async def submit_still_job_enforced(
         )
     
     # Generate job_id (will be used as provider idempotency key)
-    if not job_id:
-        job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    job_id = f"still-{episode_id}-{shot_id}-v{version}"
     
     # Estimate credits for credit ledger
     # Map quality to pricing: "high" -> "high", else "standard"

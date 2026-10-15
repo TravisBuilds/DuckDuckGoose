@@ -120,19 +120,21 @@ async def test_release_credits(credit_ledger):
 async def test_run_lock_acquisition(credit_ledger):
     """Test single-run lock prevents concurrent episodes."""
     # First episode acquires lock
-    acquired1 = await credit_ledger.acquire_run_lock("ep05", "wf1", "account1")
-    assert acquired1 is True
+    result1 = await credit_ledger.acquire_run_lock("ep05", "wf1", "account1")
+    assert result1["acquired"] is True
+    assert result1["existing_episode"] is None
     
     # Second episode cannot acquire lock
-    acquired2 = await credit_ledger.acquire_run_lock("ep06", "wf2", "account1")
-    assert acquired2 is False
+    result2 = await credit_ledger.acquire_run_lock("ep06", "wf2", "account1")
+    assert result2["acquired"] is False
+    assert result2["existing_episode"] == "ep05"
     
     # Release lock
     await credit_ledger.release_run_lock("ep05")
     
     # Now second episode can acquire
-    acquired3 = await credit_ledger.acquire_run_lock("ep06", "wf2", "account1")
-    assert acquired3 is True
+    result3 = await credit_ledger.acquire_run_lock("ep06", "wf2", "account1")
+    assert result3["acquired"] is True
 
 
 @pytest.mark.asyncio
