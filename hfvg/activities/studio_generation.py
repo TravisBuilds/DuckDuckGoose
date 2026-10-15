@@ -612,11 +612,12 @@ async def poll_job_status(
         output_dir = Path("./data/dry_run_outputs")
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Use job_id in filename (it already contains episode and shot info)
         if job_type == "still":
-            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.jpg"
+            output_file = output_dir / f"{job_id}.jpg"
             output_path = _create_fake_still(str(output_file))
         else:
-            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.mp4"
+            output_file = output_dir / f"{job_id}.mp4"
             output_path = _create_fake_clip(str(output_file))
         
         return {
@@ -858,11 +859,12 @@ async def await_job_enforced(
         output_dir = Path("./data/dry_run_outputs")
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Use job_id in filename (it already contains episode and shot info)
         if job_type == "still":
-            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.jpg"
+            output_file = output_dir / f"{job_id}.jpg"
             output_path = _create_fake_still(str(output_file))
         else:
-            output_file = output_dir / f"{episode_id}_{shot_id}_{job_id}.mp4"
+            output_file = output_dir / f"{job_id}.mp4"
             output_path = _create_fake_clip(str(output_file))
         
         result = {

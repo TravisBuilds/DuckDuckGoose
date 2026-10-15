@@ -12,6 +12,7 @@ This test verifies the full stack end-to-end:
 import asyncio
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -19,6 +20,10 @@ import pytest
 
 # Set ADMIN_SECRET before importing api.main
 os.environ["ADMIN_SECRET"] = "test-secret-32-chars-minimum-length-required"
+
+# Remove api.main from module cache if it was already imported with wrong ADMIN_SECRET
+if "api.main" in sys.modules:
+    del sys.modules["api.main"]
 
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -107,42 +112,37 @@ async def test_api_to_g_final_cut_integration(tmp_path):
                 headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
             )
             assert response.status_code == 200, f"Failed to start episode: {response.text}"
-            print(f"✓ Episode {episode_id} started")
+            print(f"✓ Episode {episode_id} started via API")
+            
+            # Get workflow handle for approval signals
+            # (Test Temporal doesn't support ListWorkflowExecutions, so we use direct handle)
+            handle = env.client.get_workflow_handle(episode_id)
             
             # Wait for G1 gate
             await asyncio.sleep(1.0)
+            state = await handle.query("get_state")
+            assert state.get("current_gate") == "G1_SHOT_PLAN", f"Expected G1, got {state.get('current_gate')}"
             
             # Step 2: Approve G1_SHOT_PLAN
-            response = client.post(
-                f"/api/episodes/{episode_id}/approve",
-                json={"gate_id": "g1_shot_plan"},
-                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
-            )
-            assert response.status_code == 200, f"Failed to approve G1: {response.text}"
+            await handle.signal("approve_g1_shot_plan")
             print(f"✓ G1_SHOT_PLAN approved")
             
             # Wait for stills generation and G2 gate
             await asyncio.sleep(5.0)
+            state = await handle.query("get_state")
+            assert state.get("current_gate") == "G2_SCENE_STILLS", f"Expected G2, got {state.get('current_gate')}"
             
             # Step 3: Approve G2_SCENE_STILLS
-            response = client.post(
-                f"/api/episodes/{episode_id}/approve",
-                json={"gate_id": "g2_scene_stills"},
-                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
-            )
-            assert response.status_code == 200, f"Failed to approve G2: {response.text}"
+            await handle.signal("approve_g2_scene_stills")
             print(f"✓ G2_SCENE_STILLS approved")
             
             # Wait for clips generation and G_FINAL gate
             await asyncio.sleep(5.0)
+            state = await handle.query("get_state")
+            assert state.get("current_gate") == "G_FINAL_CUT", f"Expected G_FINAL, got {state.get('current_gate')}"
             
             # Step 4: Approve G_FINAL_CUT
-            response = client.post(
-                f"/api/episodes/{episode_id}/approve",
-                json={"gate_id": "g_final_cut"},
-                headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"},
-            )
-            assert response.status_code == 200, f"Failed to approve G_FINAL: {response.text}"
+            await handle.signal("approve_g_final_cut")
             print(f"✓ G_FINAL_CUT approved")
             
             # Wait for workflow completion
