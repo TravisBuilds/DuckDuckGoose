@@ -394,7 +394,7 @@ class CreditLedger:
                 "over_cap": False
             }
     
-    async def commit_credits(self, episode_id: str, job_id: str, actual_credits: int):
+    async def commit_credits(self, episode_id: str, job_id: str, actual_credits: float):
         """
         Commit reserved credits with actual cost (idempotent).
         

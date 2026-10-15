@@ -115,6 +115,9 @@ async def generate_ref_activity(
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             Path(output_path).write_bytes(b"fake-ref-image")
             provider_job_id = f"fake-{job_id}"
+            
+            # Commit credits (dry mode completes instantly)
+            await ledger.commit_credits(episode_id, job_id, estimated_credits)
         else:
             # Live mode: call provider
             # Check if we already submitted this job (activity retry)
@@ -144,28 +147,41 @@ async def generate_ref_activity(
             provider = HiggsfieldProvider(dry_run=False)
             job = await provider.poll_job(provider_job_id)
             
-            # Download and save
+            # Provider completed - commit credits immediately (charged whether QC passes or not)
+            await ledger.commit_credits(episode_id, job_id, estimated_credits)
+            activity.logger.info(f"Committed credits for {job_id} (provider completed)")
+            
+            # Download and save to staging path (not final path yet)
             if not job.output_url:
                 raise ValueError("No output URL in completed job")
             
-            # Download image
+            staging_path = Path(output_path).parent / f".staging_{Path(output_path).name}"
+            staging_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Download image to staging
             import httpx
             async with httpx.AsyncClient() as client:
                 resp = await client.get(job.output_url)
                 resp.raise_for_status()
-                
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                Path(output_path).write_bytes(resp.content)
+                staging_path.write_bytes(resp.content)
             
-            activity.logger.info(f"Downloaded ref {ref_key} to {output_path}")
+            activity.logger.info(f"Downloaded ref {ref_key} to staging: {staging_path}")
             
-            # Run QC
-            qc_result = await _check_ref_qc(output_path)
+            # Run QC on staging file
+            qc_result = await _check_ref_qc(str(staging_path))
             if not qc_result["passed"]:
-                raise ValueError(f"Ref QC failed: {qc_result.get('reason', 'unknown')}")
-        
-        # Commit credits
-        await ledger.commit_credits(episode_id, job_id, estimated_credits)
+                # QC failed - keep staging file for review, don't write to final path
+                from hfvg.errors import ContentBlockError
+                raise ContentBlockError(
+                    f"Ref QC failed for {ref_key}: {qc_result.get('reason', 'unknown')}. "
+                    f"Staging file kept at {staging_path} for review. "
+                    "Reroll with new version or accept at gate.",
+                    provider="qc"  # QC failure, not provider block
+                )
+            
+            # QC passed - move to final path atomically
+            staging_path.rename(output_path)
+            activity.logger.info(f"QC passed, moved to final path: {output_path}")
         
         return {
             "status": "completed",
@@ -176,9 +192,26 @@ async def generate_ref_activity(
         }
         
     except Exception as e:
-        # Release reserved credits on failure
-        activity.logger.error(f"Ref generation failed for {job_id}: {e}")
-        await ledger.release_credits(episode_id, job_id)
+        # Only release credits if provider never completed
+        # Check if credits were already committed
+        import aiosqlite
+        committed = False
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM credit_transactions WHERE job_id = ? AND txn_type = 'commit'",
+                (job_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                committed = row[0] > 0
+        
+        if not committed:
+            # Provider failed before completing - release credits
+            activity.logger.info(f"Provider failed, releasing credits for {job_id}: {e}")
+            await ledger.release_credits(episode_id, job_id)
+        else:
+            # Provider completed (charged) but QC or download failed - credits already committed
+            activity.logger.info(f"Provider completed, credits already committed for {job_id}")
+        
         raise
 
 

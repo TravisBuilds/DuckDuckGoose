@@ -261,7 +261,10 @@ class EpisodeWorkflowV2:
                     "generate_ref_activity",
                     args=[episode_id, ref_key, prompt, output_path, version],
                     start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        non_retryable_error_types=["ContentBlockError"],  # QC failures surface to gate
+                    ),
                 )
                 
                 workflow.logger.info(
