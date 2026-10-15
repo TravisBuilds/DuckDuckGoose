@@ -226,17 +226,31 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Generate idempotency key including all parameters that affect generation
-    idempotency_key = generate_idempotency_key(
-        episode_id=episode_id,
-        shot_id=shot_id,
-        version=version,
-        prompt=prompt,
-        refs=refs,
-        quality=quality,
-        resolution=resolution,
-        aspect_ratio=aspect_ratio,
+    # Generate job_id (will be used as provider idempotency key)
+    if not job_id:
+        job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    
+    # Estimate credits for credit ledger
+    # Map quality to pricing: "high" -> "high", else "standard"
+    pricing_quality = "high" if quality == "high" else "standard"
+    estimated_credits = estimate_still_credits("gpt_image_2", pricing_quality)
+    
+    # Reserve credits from credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    credit_result = await credit_ledger.reserve_credits(
+        episode_id, job_id, estimated_credits,
+        notes=f"still {shot_id} {quality} {resolution}"
     )
+    
+    if not credit_result.get("reserved"):
+        available = credit_result.get("available", 0)
+        cap = credit_result.get("cap", 0)
+        raise ValueError(
+            f"Credit reserve failed for {job_id}. "
+            f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
+        )
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -292,16 +306,22 @@ async def submit_still_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
-        # Submit to provider - wrapped to release reservation on ANY error
+        # Submit to provider - wrapped to release reservations on ANY error
         try:
-            job_id = await provider.submit_image(
+            provider_job_id = await provider.submit_image(
                 prompt=prompt,
                 resolution=resolution,
                 quality=quality,
                 image_urls=refs,
-                idempotency_key=idempotency_key,
+                idempotency_key=job_id,  # Use job_id as provider idempotency key
                 aspect_ratio=aspect_ratio,
             )
+            
+            # Provider should return the same job_id due to idempotency
+            if provider_job_id != job_id:
+                activity.logger.warning(
+                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
+                )
             
             activity.logger.info(
                 f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
@@ -328,7 +348,7 @@ async def submit_still_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release reservation on submission failure
+            # Release both budget and credit reservations on submission failure
             activity.logger.error(
                 f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
@@ -338,6 +358,7 @@ async def submit_still_job_enforced(
                 amount_usd_micros=estimated_cost,
                 reason=f"Submit failed: {str(submit_error)[:100]}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
         
     finally:
@@ -359,6 +380,7 @@ async def submit_clip_job_enforced(
     end_image_url: str | None = None,
     bitrate_mode: str | None = None,
     missing_refs: list[str] | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
@@ -523,18 +545,55 @@ async def submit_clip_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
+        # Generate job_id (will be used as provider idempotency key)
+        if not job_id:
+            job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+        
+        # Estimate credits for credit ledger
+        # Map tier to resolution for Seedance: draft->480p, else->1080p
+        if model == "seedance":
+            resolution = "480p" if tier == "draft" else "1080p"
+            estimated_credits = estimate_clip_credits("seedance_2.5", duration, resolution)
+        else:  # kling
+            estimated_credits = estimate_clip_credits("kling_3.0", duration)
+        
+        # Reserve credits from credit ledger
+        credit_ledger = CreditLedger(db_path)
+        await credit_ledger.init_db()
+        
+        credit_result = await credit_ledger.reserve_credits(
+            episode_id, job_id, estimated_credits,
+            notes=f"clip {shot_id} {model} {duration}s"
+        )
+        
+        if not credit_result.get("reserved"):
+            available = credit_result.get("available", 0)
+            cap = credit_result.get("cap", 0)
+            # Release budget reservation
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount_usd_micros=estimated_cost,
+                reason=f"Credit reserve failed: {available}/{cap}"
+            )
+            raise ValueError(
+                f"Credit reserve failed for {job_id}. "
+                f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
+            )
+        
         # Validate start_image URL
         if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
-            # Release reservation on validation failure
+            # Release both budget and credit reservations on validation failure
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
                 amount_usd_micros=estimated_cost,
                 reason=f"Invalid start_image: {start_image_url}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"invalid start_image")
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
         
-        # Submit to provider - wrapped to release reservation on ANY error
+        # Submit to provider - wrapped to release reservations on ANY error
         try:
             if route.model == "seedance":
                 job_id = await provider.submit_video(
@@ -580,7 +639,7 @@ async def submit_clip_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release reservation on submission failure
+            # Release both budget and credit reservations on submission failure
             activity.logger.error(
                 f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
@@ -590,6 +649,7 @@ async def submit_clip_job_enforced(
                 amount_usd_micros=estimated_cost,
                 reason=f"Clip submit failed: {str(submit_error)[:100]}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
         
     finally:

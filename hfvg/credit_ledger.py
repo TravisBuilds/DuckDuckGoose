@@ -148,21 +148,24 @@ class CreditLedger:
             )
             await db.commit()
     
-    async def acquire_run_lock(self, episode_id: str, workflow_id: str, account_identifier: str = "default") -> bool:
+    async def acquire_run_lock(self, episode_id: str, workflow_id: str, account_identifier: str = "default") -> dict:
         """
-        Acquire run lock for episode. Returns True if acquired, False if already locked.
+        Acquire run lock for episode.
         
         Single-run lock: only one episode workflow can run at a time per Higgsfield account.
+        
+        Returns:
+            dict with acquired (bool), existing_episode (str|None)
         """
         async with aiosqlite.connect(self.db_path, uri=True, isolation_level="IMMEDIATE") as db:
             # Check if lock exists
             async with db.execute(
-                "SELECT workflow_id FROM run_locks WHERE account_identifier = ?",
+                "SELECT episode_id FROM run_locks WHERE account_identifier = ?",
                 (account_identifier,)
             ) as cur:
-                existing = await cur.fetchone()
-                if existing:
-                    return False
+                row = await cur.fetchone()
+                if row:
+                    return {"acquired": False, "existing_episode": row[0]}
             
             # Acquire lock
             await db.execute(
@@ -171,7 +174,7 @@ class CreditLedger:
                 (episode_id, workflow_id, _now_iso(), account_identifier)
             )
             await db.commit()
-            return True
+            return {"acquired": True, "existing_episode": None}
     
     async def release_run_lock(self, episode_id: str):
         """Release run lock for episode."""
