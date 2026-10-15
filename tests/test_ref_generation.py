@@ -351,9 +351,62 @@ async def test_load_refs_filters_by_shots_subset(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dry_run_writes_to_scratch_dir(tmp_path, monkeypatch):
+    """Test: Dry mode writes refs to scratch dir, not real output_path."""
+    from hfvg.activities.ref_generation import generate_ref_activity
+    from pathlib import Path
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
+    from hfvg.studio_db import init_studio_db, create_episode
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    ledger = CreditLedger(db_path)
+    await ledger.init_db()
+    await ledger.create_episode_line("ep99", cap_credits=100)
+    
+    # Real output path (should NOT be written to in dry mode)
+    real_path = str(tmp_path / "real_refs" / "duck.png")
+    
+    # Mock activity info to get workflow_id
+    import temporalio.activity
+    original_info = temporalio.activity.info
+    
+    class MockInfo:
+        def workflow_id(self):
+            return "test-workflow-123"
+    
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-workflow-123'})()
+        
+        result = await generate_ref_activity(
+            episode_id="ep99",
+            ref_key="r_duck",
+            prompt="Duck character sheet",
+            output_path=real_path,
+            version=1,
+        )
+        
+        # Real path should NOT exist
+        assert not Path(real_path).exists(), "Dry mode must not write to real output_path"
+        
+        # Output should be in scratch dir
+        scratch_path = Path("data/dry_run_outputs/test-workflow-123/refs/duck.png")
+        assert scratch_path.exists(), f"Expected output at {scratch_path}"
+        assert scratch_path.read_bytes() == b"fake-ref-image"
+        
+    finally:
+        temporalio.activity.info = original_info
+
+
+@pytest.mark.asyncio
 async def test_generate_ref_dry_run(tmp_path, monkeypatch):
     """Test: generate_ref creates fake output in dry mode."""
     from hfvg.activities.ref_generation import generate_ref_activity
+    import temporalio.activity
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -370,24 +423,33 @@ async def test_generate_ref_dry_run(tmp_path, monkeypatch):
     
     output_path = str(tmp_path / "refs" / "duck.png")
     
-    result = await generate_ref_activity(
-        episode_id="ep99",
-        ref_key="r_duck",
-        prompt="Duck character sheet",
-        output_path=output_path,
-        version=1,
-    )
-    
-    assert result["status"] == "completed"
-    assert result["job_id"] == "ref-ep99-r_duck-v1"
-    assert Path(output_path).exists()
-    assert Path(output_path).read_bytes() == b"fake-ref-image"
+    # Mock activity info
+    original_info = temporalio.activity.info
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
+        
+        result = await generate_ref_activity(
+            episode_id="ep99",
+            ref_key="r_duck",
+            prompt="Duck character sheet",
+            output_path=output_path,
+            version=1,
+        )
+        
+        assert result["status"] == "completed"
+        assert result["job_id"] == "ref-ep99-r_duck-v1"
+        # Check scratch dir, not original path
+        scratch_path = Path("data/dry_run_outputs/test-wf/refs/duck.png")
+        assert scratch_path.exists()
+    finally:
+        temporalio.activity.info = original_info
 
 
 @pytest.mark.asyncio
 async def test_generate_ref_idempotent_job_id(tmp_path, monkeypatch):
     """Test: generate_ref uses idempotent job_id with version."""
     from hfvg.activities.ref_generation import generate_ref_activity
+    import temporalio.activity
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -403,31 +465,39 @@ async def test_generate_ref_idempotent_job_id(tmp_path, monkeypatch):
     
     output_path = str(tmp_path / "refs" / "duck.png")
     
-    # Generate version 1
-    result1 = await generate_ref_activity(
-        episode_id="ep99",
-        ref_key="r_duck",
-        prompt="Duck v1",
-        output_path=output_path,
-        version=1,
-    )
-    assert result1["job_id"] == "ref-ep99-r_duck-v1"
-    
-    # Generate version 2 (reroll)
-    result2 = await generate_ref_activity(
-        episode_id="ep99",
-        ref_key="r_duck",
-        prompt="Duck v2",
-        output_path=output_path,
-        version=2,
-    )
-    assert result2["job_id"] == "ref-ep99-r_duck-v2"
+    # Mock activity info
+    original_info = temporalio.activity.info
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
+        
+        # Generate version 1
+        result1 = await generate_ref_activity(
+            episode_id="ep99",
+            ref_key="r_duck",
+            prompt="Duck v1",
+            output_path=output_path,
+            version=1,
+        )
+        assert result1["job_id"] == "ref-ep99-r_duck-v1"
+        
+        # Generate version 2 (reroll)
+        result2 = await generate_ref_activity(
+            episode_id="ep99",
+            ref_key="r_duck",
+            prompt="Duck v2",
+            output_path=output_path,
+            version=2,
+        )
+        assert result2["job_id"] == "ref-ep99-r_duck-v2"
+    finally:
+        temporalio.activity.info = original_info
 
 
 @pytest.mark.asyncio
 async def test_refs_counted_in_credit_cap(tmp_path, monkeypatch):
     """Test: ref generation reserves and commits credits from episode cap."""
     from hfvg.activities.ref_generation import generate_ref_activity
+    import temporalio.activity
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -454,23 +524,30 @@ async def test_refs_counted_in_credit_cap(tmp_path, monkeypatch):
             assert row[0] == 0  # reserved
             assert row[1] == 0  # spent
     
-    # Generate ref (will reserve and commit credits)
-    result = await generate_ref_activity(
-        episode_id="ep99",
-        ref_key="r_duck",
-        prompt="Duck character sheet",
-        output_path=output_path,
-        version=1,
-    )
-    
-    credits_used = result["credits_used"]
-    
-    # Check credits were spent (committed)
-    async with aiosqlite.connect(db_path) as db:
-        async with db.execute(
-            "SELECT reserved_credits, spent_credits FROM credit_lines WHERE episode_id = ?",
-            ("ep99",)
-        ) as cursor:
-            row = await cursor.fetchone()
-            assert row[0] == 0  # reserved (released after commit)
-            assert row[1] == credits_used  # spent (committed)
+    # Mock activity info
+    original_info = temporalio.activity.info
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
+        
+        # Generate ref (will reserve and commit credits)
+        result = await generate_ref_activity(
+            episode_id="ep99",
+            ref_key="r_duck",
+            prompt="Duck character sheet",
+            output_path=output_path,
+            version=1,
+        )
+        
+        credits_used = result["credits_used"]
+        
+        # Check credits were spent (committed)
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT reserved_credits, spent_credits FROM credit_lines WHERE episode_id = ?",
+                ("ep99",)
+            ) as cursor:
+                row = await cursor.fetchone()
+                assert row[0] == 0  # reserved (released after commit)
+                assert row[1] == credits_used  # spent (committed)
+    finally:
+        temporalio.activity.info = original_info

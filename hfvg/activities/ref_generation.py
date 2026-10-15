@@ -75,6 +75,16 @@ async def generate_ref_activity(
     # Idempotent job_id
     job_id = f"ref-{episode_id}-{ref_key}-v{version}"
     
+    # In dry mode, redirect output to scratch directory
+    if dry_run:
+        import temporalio.activity
+        workflow_id = temporalio.activity.info().workflow_id
+        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        # Use same basename but in scratch dir
+        output_path = str(scratch_dir / Path(output_path).name)
+        activity.logger.info(f"Dry mode: redirecting output to {output_path}")
+    
     activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id}")
     
     # Estimate credits
