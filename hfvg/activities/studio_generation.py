@@ -596,22 +596,28 @@ async def submit_clip_job_enforced(
         # Submit to provider - wrapped to release reservations on ANY error
         try:
             if route.model == "seedance":
-                job_id = await provider.submit_video(
+                provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),
                     resolution=route.resolution,
                     bitrate_mode=bitrate_mode,
                     end_image_url=end_image_url,
-                    idempotency_key=idempotency_key,
+                    idempotency_key=job_id,  # Use job_id as provider idempotency key
                 )
             else:
-                job_id = await provider.submit_video(
+                provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),  # Must be integer
-                    idempotency_key=idempotency_key,
+                    idempotency_key=job_id,  # Use job_id as provider idempotency key
                     end_image_url=end_image_url,
+                )
+            
+            # Provider should return the same job_id due to idempotency
+            if provider_job_id != job_id:
+                activity.logger.warning(
+                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
                 )
             
             activity.logger.info(
