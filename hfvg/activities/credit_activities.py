@@ -87,9 +87,19 @@ async def commit_credits_activity(
             (line_id, job_id)
         ) as cur:
             if not await cur.fetchone():
-                # No reservation found - likely DRY_RUN mode, skip silently
-                activity.logger.info(f"No credit reservation found for {job_id}, skipping commit (likely DRY_RUN)")
-                return
+                # Check if this is a DRY_RUN job (has -dry- in job_id)
+                is_dry_run = "-dry-" in job_id
+                if is_dry_run:
+                    # DRY_RUN mode: skip silently
+                    activity.logger.info(f"No credit reservation found for {job_id}, skipping commit (DRY_RUN)")
+                    return
+                else:
+                    # Live mode: missing reservation is an error - raise non-retryable
+                    from temporalio.exceptions import ApplicationError
+                    raise ApplicationError(
+                        f"No credit reservation found for live job {job_id}",
+                        non_retryable=True
+                    )
     
     await ledger.commit_credits(episode_id, job_id, actual_credits)
     
@@ -123,9 +133,19 @@ async def release_credits_activity(
             (line_id, job_id)
         ) as cur:
             if not await cur.fetchone():
-                # No reservation found - likely DRY_RUN mode, skip silently
-                activity.logger.info(f"No credit reservation found for {job_id}, skipping release (likely DRY_RUN)")
-                return
+                # Check if this is a DRY_RUN job (has -dry- in job_id)
+                is_dry_run = "-dry-" in job_id
+                if is_dry_run:
+                    # DRY_RUN mode: skip silently
+                    activity.logger.info(f"No credit reservation found for {job_id}, skipping release (DRY_RUN)")
+                    return
+                else:
+                    # Live mode: missing reservation is an error - raise non-retryable
+                    from temporalio.exceptions import ApplicationError
+                    raise ApplicationError(
+                        f"No credit reservation found for live job {job_id}",
+                        non_retryable=True
+                    )
     
     await ledger.release_credits(episode_id, job_id, notes)
     
