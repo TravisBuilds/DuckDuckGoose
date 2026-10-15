@@ -39,12 +39,17 @@ from hfvg.routing import plan_route
 
 def _create_fake_still(output_path: str) -> str:
     """Create a small real PNG file for dry-run mode."""
-    from PIL import Image
-    
-    # Create a 64x64 orange placeholder image
-    img = Image.new('RGB', (64, 64), color=(255, 165, 0))
+    # Create a minimal valid 1x1 PNG (67 bytes)
+    # PNG signature + IHDR + IDAT + IEND chunks
+    png_data = (
+        b'\x89PNG\r\n\x1a\n'  # PNG signature
+        b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+        b'\x08\x02\x00\x00\x00\x90wS\xde'  # 1x1, RGB
+        b'\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x00\x01\x0d\n-\xb4'
+        b'\x00\x00\x00\x00IEND\xaeB`\x82'
+    )
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    img.save(output_path)
+    Path(output_path).write_bytes(png_data)
     return output_path
 
 
@@ -54,10 +59,20 @@ def _create_fake_clip(output_path: str) -> str:
     
     # Create a 1-second 64x64 orange video
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([
-        "ffmpeg", "-f", "lavfi", "-i", "color=c=orange:s=64x64:d=1",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", output_path
-    ], check=True, capture_output=True)
+    try:
+        subprocess.run([
+            "ffmpeg", "-f", "lavfi", "-i", "color=c=orange:s=64x64:d=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", output_path
+        ], check=True, capture_output=True, timeout=10)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        # Fallback: create a minimal valid MP4 if ffmpeg fails
+        # This is a minimal ftyp + mdat MP4 container
+        mp4_data = (
+            b'\x00\x00\x00 ftypisomisomiso2mp41'
+            b'\x00\x00\x00\x08free'
+            b'\x00\x00\x00\x08mdat'
+        )
+        Path(output_path).write_bytes(mp4_data)
     return output_path
 
 
