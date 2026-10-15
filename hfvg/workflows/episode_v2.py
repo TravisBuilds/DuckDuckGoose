@@ -223,6 +223,11 @@ class EpisodeWorkflowV2:
             "shots": len(shots),
             "status": "complete",
             "passed_gates": self.passed_gates,
+            "approvals": {
+                "g1_shot_plan": self.approved_g1_shot_plan,
+                "g2_scene_stills": self.approved_g2_scene_stills,
+                "g_final_cut": self.approved_g_final_cut,
+            },
         }
     
     @staticmethod
