@@ -150,6 +150,7 @@ async def test_successful_still_submit_returns_dict_and_writes_rows(tmp_path, mo
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     db_path = str(tmp_path / "test.db")
     os.environ["DATABASE_PATH"] = db_path
     
@@ -236,6 +237,7 @@ async def test_422_error_releases_each_ledger_exactly_once(tmp_path, monkeypatch
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     db_path = str(tmp_path / "test.db")
     os.environ["DATABASE_PATH"] = db_path
     

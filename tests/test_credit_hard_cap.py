@@ -86,6 +86,7 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")

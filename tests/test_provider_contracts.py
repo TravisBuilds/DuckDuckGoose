@@ -653,6 +653,7 @@ async def test_still_activity_passes_aspect_ratio(tmp_path, monkeypatch):
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
 
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")

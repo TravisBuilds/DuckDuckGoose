@@ -263,6 +263,7 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
@@ -409,6 +410,7 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
@@ -521,6 +523,7 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")

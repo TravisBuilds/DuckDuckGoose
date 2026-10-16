@@ -97,7 +97,8 @@ async def test_canary_route_checks_g108(test_db_api, monkeypatch):
 @pytest.mark.asyncio
 async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
     """Test: Canary in non-dry mode requires live_mode in DB."""
-    monkeypatch.setenv("DRY_RUN", "false")  # Non-dry mode
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Non-dry mode
     
     # Create episode, approve G1.08, but do NOT enable live_mode
     await create_episode(test_db_api, "ep99")
@@ -790,6 +791,7 @@ async def test_approve_completed_canary_409(test_db_api, monkeypatch):
 async def _setup_live_canary(test_db_api, monkeypatch, tmp_path, style=None):
     """Live-mode canary fixtures: episode live + G1.08, one shot, L6 line, manual balance."""
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     await create_episode(test_db_api, "ep99")

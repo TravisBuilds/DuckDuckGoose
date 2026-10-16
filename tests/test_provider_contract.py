@@ -40,6 +40,7 @@ async def test_ref_generation_calls_real_provider_methods(tmp_path, monkeypatch)
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)

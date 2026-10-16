@@ -70,6 +70,7 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     
     # Initialize DB with episode in live mode
@@ -185,6 +186,7 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     
     # Initialize DB
@@ -269,6 +271,7 @@ async def test_failed_job_releases_reservations(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     
     # Initialize DB
@@ -334,6 +337,7 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -506,6 +510,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     
     # Initialize DB
@@ -648,6 +653,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DRY_RUN"] = "false"
+    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     
     # Initialize DB

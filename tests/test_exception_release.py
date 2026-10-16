@@ -62,6 +62,7 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     import httpx
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -101,6 +102,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     import httpx
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v1/videos/image2video")
@@ -138,6 +140,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
 async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     """Test: poll returns 502 → retries, then releases reservation."""
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     

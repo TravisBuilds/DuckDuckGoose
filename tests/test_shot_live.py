@@ -36,7 +36,8 @@ async def test_qc_fail_closed_without_episode_id(tmp_path, monkeypatch):
     await create_episode(db_path, "ep99")
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # Simulate live mode env
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Simulate live mode env
     
     # Call review_still without episode_id (simulates the old bug)
     result = await review_still(
@@ -77,7 +78,8 @@ async def test_qc_escalates_in_live_mode(tmp_path, monkeypatch):
         await db.commit()
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # Live mode env
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Live mode env
     
     # Call review_still with valid episode_id
     result = await review_still(
@@ -291,6 +293,7 @@ async def test_review_clip_fail_closed_without_episode_id(tmp_path, monkeypatch)
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Call review_clip without episode_id
     result = await review_clip(
@@ -331,6 +334,7 @@ async def test_review_clip_escalates_in_live_mode(tmp_path, monkeypatch):
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Call review_clip with valid episode_id
     # Note: With --disable-socket, the download will fail and escalate
@@ -371,7 +375,8 @@ async def test_review_clip_dry_run_false_live_off_escalates(tmp_path, monkeypatc
         await db.commit()
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # DRY_RUN=false but live requirements not met
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # DRY_RUN=false but live requirements not met
     
     # Call review_clip
     result = await review_clip(
@@ -411,7 +416,8 @@ async def test_review_still_dry_run_false_live_off_escalates(tmp_path, monkeypat
         await db.commit()
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # DRY_RUN=false but live requirements not met
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # DRY_RUN=false but live requirements not met
     
     # Call review_still
     result = await review_still(

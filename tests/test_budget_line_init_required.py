@@ -25,7 +25,8 @@ async def test_live_still_fails_without_budget_lines(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
-    monkeypatch.setenv("DRY_RUN", "false")  # Live mode
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Live mode
     
     await init_studio_db(db_path)
     
@@ -110,6 +111,7 @@ async def test_live_still_succeeds_with_budget_lines(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     await init_studio_db(db_path)
     

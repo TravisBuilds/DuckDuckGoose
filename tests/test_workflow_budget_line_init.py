@@ -34,6 +34,7 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     # Initialize DB
