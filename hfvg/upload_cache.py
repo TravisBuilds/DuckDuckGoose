@@ -2,8 +2,13 @@
 
 Caches public_url per (path, version, sha256) to avoid re-uploading the same file.
 Before reuse, HEAD-checks the URL and re-uploads if it returns non-200.
+
+Concurrent upload deduplication:
+- Uses DB unique constraint + retry loop to prevent parallel uploads of same file
+- Only one upload proceeds; others wait and reuse the result
 """
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -121,6 +126,68 @@ class UploadCache:
                 (file_path, version, sha256, public_url, created_at)
             )
             await db.commit()
+    
+    async def try_claim_upload_slot(self, file_path: str, version: int) -> tuple[bool, str]:
+        """
+        Try to claim an upload slot for concurrent deduplication.
+        
+        Returns:
+            (claimed, sha256): If claimed=True, caller should upload. If False, wait and retry get_cached_url.
+        """
+        sha256 = self._compute_sha256(file_path)
+        created_at = datetime.now(timezone.utc).isoformat()
+        
+        # Try to insert a placeholder with special "uploading://" URL
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO upload_cache 
+                    (file_path, file_version, file_sha256, public_url, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (file_path, version, sha256, "uploading://in-progress", created_at)
+                )
+                await db.commit()
+                return (True, sha256)  # Claimed! Caller must upload
+            except aiosqlite.IntegrityError:
+                # Another upload already claimed this slot
+                return (False, sha256)  # Wait for the other upload to complete
+    
+    async def wait_for_concurrent_upload(self, file_path: str, version: int, sha256: str, timeout: float = 30.0) -> str | None:
+        """
+        Wait for a concurrent upload to complete and return its URL.
+        
+        Args:
+            file_path: Path to file
+            version: Version number  
+            sha256: SHA256 hash
+            timeout: Max seconds to wait
+        
+        Returns:
+            public_url if upload completed, None if timeout or failed
+        """
+        start = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start) < timeout:
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute(
+                    "SELECT public_url FROM upload_cache WHERE file_path = ? AND file_version = ? AND file_sha256 = ?",
+                    (file_path, version, sha256)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        url = row[0]
+                        if url != "uploading://in-progress":
+                            # Upload completed!
+                            return url
+            
+            # Still uploading, wait a bit
+            await asyncio.sleep(0.2)
+        
+        # Timeout - clean up the placeholder and let caller retry
+        await self.remove_cached_url(file_path, version, sha256)
+        return None
     
     async def remove_cached_url(self, file_path: str, version: int, sha256: str):
         """

@@ -110,15 +110,33 @@ class HiggsfieldStillProvider(GenerationProvider):
         import mimetypes
         from hfvg.upload_cache import UploadCache
         
-        # Check upload cache first
+        # Initialize cache
         cache = UploadCache()
         await cache.init_db()
         
+        # Check cache first (quick path)
         cached_url = await cache.get_cached_url(str(image_path), version)
         if cached_url:
             return {"public_url": cached_url}
         
-        # Not in cache or HEAD check failed - upload the file
+        # Try to claim upload slot (concurrent deduplication)
+        claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+        
+        if not claimed:
+            # Another upload is in progress for this file - wait for it
+            waited_url = await cache.wait_for_concurrent_upload(str(image_path), version, sha256, timeout=30.0)
+            if waited_url:
+                return {"public_url": waited_url}
+            # Timeout or failed - fall through to retry upload ourselves
+            claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+            if not claimed:
+                # Still can't claim - return cached or fail
+                cached_url = await cache.get_cached_url(str(image_path), version)
+                if cached_url:
+                    return {"public_url": cached_url}
+                raise ValueError(f"Concurrent upload timeout for {image_path}")
+        
+        # We claimed the slot - proceed with upload
         
         # Determine content type from file extension
         content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"

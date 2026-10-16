@@ -6,6 +6,7 @@ Tests that the fixes for the critical bugs found during the live Ep05 canary are
 3. Provider 'failed' status releases reservations and surfaces the error
 """
 
+import asyncio
 import pytest
 import tempfile
 from pathlib import Path
@@ -818,3 +819,68 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     assert cached_version == 2, f"Cache must key on ref version 2, got {cached_version}"
     assert cached_url == "http://mock.cdn/family-v2.png"
     assert str(ref_path) in cached_path
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_concurrent_uploads_deduplicated(tmp_path):
+    """
+    Test Bug 2: Concurrent shots uploading the same ref must not upload twice.
+    
+    Two simultaneous uploads of the same (path, version, sha256) should result in:
+    - Only one actual upload to Higgsfield
+    - Both callers get the same public_url
+    """
+    # Create a ref
+    ref_path = tmp_path / "refs" / "r_shared.png"
+    ref_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_path.write_bytes(b"shared-ref-content")
+    
+    # Mock Higgsfield API - track how many times upload is called
+    upload_call_count = {"count": 0}
+    
+    def mock_generate_upload_url(request):
+        upload_call_count["count"] += 1
+        return httpx.Response(200, json={
+            "upload_url": "http://mock.upload/put-shared",
+            "public_url": "http://mock.cdn/shared-ref.png",
+            "upload_headers": {"Content-Type": "image/png"}
+        })
+    
+    respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
+    respx.put("http://mock.upload/put-shared").mock(return_value=httpx.Response(200, content=b""))
+    
+    # Setup environment
+    import os
+    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    
+    # Initialize cache
+    from hfvg.upload_cache import UploadCache
+    cache = UploadCache(os.environ["DATABASE_PATH"])
+    await cache.init_db()
+    
+    # Simulate two concurrent uploads of the same ref (same path, version, sha256)
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    provider = HiggsfieldStillProvider()
+    
+    async def upload_task():
+        result = await provider.upload_reference(str(ref_path), version=1)
+        return result["public_url"]
+    
+    # Launch two uploads concurrently
+    results = await asyncio.gather(upload_task(), upload_task())
+    
+    # Both should get the same URL
+    assert results[0] == results[1] == "http://mock.cdn/shared-ref.png"
+    
+    # CRITICAL: Only ONE actual upload should have occurred
+    assert upload_call_count["count"] == 1, f"Expected 1 upload, got {upload_call_count['count']}"
+    
+    # Cache should have exactly one entry
+    import aiosqlite
+    async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+        async with db.execute("SELECT COUNT(*) FROM upload_cache") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 1, "Should have exactly one cache entry"
