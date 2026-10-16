@@ -39,9 +39,9 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
         )
     )
     
-    # 2. Mock the actual upload
+    # 2. Mock the actual upload (returns the accessible URL)
     upload_route = respx.put("http://mock.upload/put-here").mock(
-        return_value=httpx.Response(200, json={})
+        return_value=httpx.Response(200, json={"url": "http://mock.api/media/media_abc123"})
     )
     
     # 3. Mock estimate endpoint
