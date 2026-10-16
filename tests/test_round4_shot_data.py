@@ -640,6 +640,10 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
             "reserved_amount": 50_000,
         }
     
+    @activity.defn(name="commit_job_budget")
+    async def stub_commit(*args, **kwargs):
+        pass
+    
     # Mock lint to avoid failures
     def mock_lint(episode_id, prompt, shot_meta, live):
         pass
@@ -678,6 +682,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
                 stub_poll,
                 stub_clip_qc,
                 stub_clip,
+                stub_commit,
             ],
         )
         async with worker:
@@ -839,8 +844,10 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     # Create data files - r_have exists, r_new missing
     beat = tmp_path / "BEATMAP_M9597.md"
     beat.write_text(BEAT.replace("ep98", "ep_m9597"))
+    data_dir = tmp_path / "m9597data"
+    data_dir.mkdir(exist_ok=True)
     shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
-    sp, rp, new = _write_data(tmp_path / "m9597data", shots, make_new=False)
+    sp, rp, new = _write_data(data_dir, shots, make_new=False)
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
