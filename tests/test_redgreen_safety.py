@@ -264,7 +264,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
-    from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -279,6 +279,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
                 activities.upsert_episode_activity,
                 activities.approve_g108_activity,
                 init_episode_credit_line_activity,
+                init_episode_budget_lines_activity,
                 load_refs_to_generate_activity,
                 generate_ref_activity,
                 acquire_run_lock,

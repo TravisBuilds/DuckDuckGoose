@@ -63,7 +63,8 @@ def _acts(fail_ids):
 
     async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
 
-    names = ["init_episode_credit_line_activity", "preflight_validate_episode_activity",
+    names = ["init_episode_credit_line_activity", "init_episode_budget_lines_activity",
+             "preflight_validate_episode_activity",
              "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
              "recheck_refs_activity", "update_credit_cap_activity"]
     def mk(n):
