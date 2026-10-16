@@ -418,7 +418,12 @@ async def login(request: LoginRequest, response: Response):
         Success message
     """
     # Validate secret server-side (fail closed)
-    if not request.admin_secret or request.admin_secret != ADMIN_SECRET:
+    # Read from env at request time to support test monkeypatching
+    admin_secret = os.getenv("ADMIN_SECRET", "")
+    if not admin_secret or len(admin_secret) < 32:
+        raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+    
+    if not request.admin_secret or request.admin_secret != admin_secret:
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
     # Create session and set httpOnly cookie with session token (NOT the secret)

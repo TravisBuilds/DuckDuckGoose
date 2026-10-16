@@ -85,7 +85,7 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     reserved_before = status_before["reserved"]
     
     # Submit should fail and release reservation
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ValueError, match="Provider 500"):
         await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
     # Check reservation was released
