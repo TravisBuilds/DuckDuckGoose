@@ -788,8 +788,10 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
             await handle.terminate()
             
             # Now run again with refs available (use different episode ID to avoid lock conflict)
+            ep99dir = tmp_path / "ep99data"
+            ep99dir.mkdir(exist_ok=True)
             shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
-            sp2, rp2, new2 = _write_data(tmp_path / "ep99data", shots, make_new=True)  # Both refs exist
+            sp2, rp2, new2 = _write_data(ep99dir, shots, make_new=True)  # Both refs exist
             monkeypatch.setenv("SHOTS_JSON_PATH", str(sp2))
             monkeypatch.setenv("REFS_JSON_PATH", str(rp2))
             
