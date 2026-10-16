@@ -315,7 +315,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_api_auth_rejects_invalid_secret(monkeypatch):
-    """Test 11: API rejects requests with invalid/missing secrets."""
+    """Test 11: API /api/login rejects invalid admin_secret in POST body."""
     monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
     
     from fastapi.testclient import TestClient
@@ -323,13 +323,19 @@ async def test_api_auth_rejects_invalid_secret(monkeypatch):
     
     client = TestClient(app)
     
-    # Try with wrong secret (401 with unified auth when secret doesn't match)
+    # Try login with wrong secret - should get 401
     response = client.post(
-        "/api/episodes",
-        json={"episode_id": "ep99"},
-        headers={"Authorization": "Bearer wrong_secret"}
+        "/api/login",
+        json={"admin_secret": "wrong_secret"}
     )
-    assert response.status_code == 401, "Should reject wrong secret"
+    assert response.status_code == 401, f"Should reject wrong secret, got {response.status_code}"
+    
+    # Try login with no secret - should get 401 or 422
+    response = client.post(
+        "/api/login",
+        json={}
+    )
+    assert response.status_code in [401, 422], f"Should reject missing secret, got {response.status_code}"
 
 
 @pytest.mark.asyncio

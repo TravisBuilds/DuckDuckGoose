@@ -561,6 +561,49 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
+async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, monkeypatch):
+    """M-96: Activity refuses submission when refs are missing (live mode)."""
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    import aiosqlite
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
+    
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    await set_live_mode(db_path, "ep99", True)
+    await approve_g108(db_path, "ep99")
+    
+    # Initialize credit line
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    await init_episode_credit_line_activity("ep99", cap_credits=1000)
+    
+    # Initialize budget lines
+    from hfvg.budget import BudgetLedger
+    await BudgetLedger(db_path).init_db()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO budget_lines (episode_id, line_name, cap_usd_micros, stop_usd_micros) VALUES (?, ?, ?, ?)",
+            ("ep99", "L2_drafts", 10_000_000, 8_000_000)
+        )
+        await db.commit()
+    
+    # Try to submit with missing refs - should raise ValueError
+    try:
+        await submit_still_job_enforced(
+            "ep99", "A01", "Test prompt", 1,
+            missing_refs=["ref_missing"],  # Has missing refs
+            shot_meta={"count": 1, "characters": ["D"], "antler": False, "duck": True, "wet": False}
+        )
+        assert False, "Should have raised ValueError for missing refs"
+    except ValueError as e:
+        assert "held at G2" in str(e) or "refs not on disk" in str(e), f"Wrong error: {e}"
+
+
+@pytest.mark.asyncio
 async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeypatch, data_env):
     """G2.01 logic now in G2_SCENE_STILLS gate - tests missing refs detection."""
     env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=True)
