@@ -25,29 +25,44 @@
 | 97 | M-R4C | G2_SCENE_STILLS recheck updates plans | ⚠ INVALID | No file change | Code refactored - needs locate |
 | 98 | M-R4D | Episode workflow loads per-shot data | ✅ FIXED | Stable anchor | Retargeted parse_beatmap |
 
-## Analysis
+## Completed Fixes (9 mutations)
 
-### Category 1: Code Moved/Deleted (needs retargeting)
-- **Count:** 11 mutations
-- **IDs:** 5, 11, 23, 24, 86, 88, 89, 91, 93, 94, 96, 97
-- **Issue:** Sed patterns no longer match - code moved or was refactored
-- **Solution:** Update mutation patterns to use stable function-scoped anchors
+1. **M-R4r, M-R4t, M-R4u:** Retargeted with stable comment anchors
+2. **M-R4x:** Retargeted from dead signal handler to actual end_image assignment (line 457)  
+3. **M-R4A, M-R4D:** Unskipped test, updated for 3-gate system (G2_SCENE_STILLS)
+4. **M-P3c:** Stable anchor with range pattern
+5. **M-11:** Retargeted ADMIN_SECRET check to line 421
+6. **M-5:** Updated idempotency script for job_id based keys
+7. **M-R4z:** Retargeted end_image_url calculation (line 555)
 
-### Category 2: Mutation Ineffective (test not catching)
-- **Count:** 4 mutations
-- **IDs:** M-R4x, M-R4A, M-R4D, plus 1 other
-- **Issue:** Mutation applies but test still passes
-- **Solution:** Fix or restore tests to properly validate these behaviors
+## Remaining Work (7 mutations)
 
-### Category 3: Test Failing Incorrectly
-- **Count:** 1 mutation  
-- **ID:** M-P3c
-- **Issue:** Test fails with non-AssertionError
-- **Solution:** Fix test to use proper assertion or fix mutation pattern
+### Mutations 23, 24: Gate Wait Conditions
+- **Issue:** Tests use old multi-gate system (G1.01, G1.03, G4.09, GX.01)
+- **Status:** Workflow refactored to 3 gates (G1_SHOT_PLAN, G2_SCENE_STILLS, G_FINAL_CUT)
+- **Action:** Tests `test_episode_v2_picture_lock_blocks_audio` and `test_episode_v2_gx01_hold` need updating for new architecture
+- **Complexity:** HIGH - requires understanding gate consolidation logic
 
-## Next Steps
+### Mutations 91, 93: End-Frame Architecture  
+- **M-R4w:** Dry placeholder logic removed (both dry/live now generate)
+- **M-R4y:** Wait for signal removed (synchronous generation before Gate 2)
+- **Action:** Update mutations to test current synchronous end-frame generation
+- **Complexity:** MEDIUM - architecture changed significantly
 
-1. Investigate each "No file change" mutation to find new code location
-2. Update mutation patterns to use stable anchors (function context + unique snippet)
-3. Fix tests for ineffective mutations
-4. Validate all fixes with full redgreen run
+### Mutations 96, 97: G2.01 Hold/Recheck
+- **M-R4B:** Related to skipped `test_g201_holds_live_while_refs_still_missing`
+- **M-R4C:** G2.01 recheck logic in 3-gate system
+- **Action:** Unskip and update tests, retarget mutations for G2_SCENE_STILLS
+- **Complexity:** MEDIUM - similar to M-R4A fix pattern
+
+## Implementation Notes
+
+**Stable Anchors Used:**
+- Comment anchors: `# planned refs not on disk`, `# explicit routing`
+- Context patterns: `/function_name/,/unique_string/{ pattern }`
+- Next-line: `/marker/{n; s/pattern/replacement/;}`
+
+**3-Gate Migration:**
+- Old: G1.01, G1.03, G1.08, G2.01, GC.02, G2.12, G4.06, G4.08, G4.09, GX.01
+- New: G1_SHOT_PLAN, G2_SCENE_STILLS, G_FINAL_CUT
+- Tests need signal name updates and gate flow changes
