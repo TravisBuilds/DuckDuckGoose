@@ -58,10 +58,13 @@ def episode3_beatmap_synthetic():
 
 @pytest.fixture
 def episode5_beatmap():
-    """Path to episode 5 beatmap."""
-    beatmap_path = Path("fixtures/ep05/BEATMAP.md")
+    """Path to episode 5 beatmap (from repo root, not CWD)."""
+    # Tests run in tmp_path via autouse fixture, so find repo root
+    test_file = Path(__file__)
+    repo_root = test_file.parent.parent  # /workspace
+    beatmap_path = repo_root / "fixtures" / "ep05" / "BEATMAP.md"
     if not beatmap_path.exists():
-        pytest.skip("fixtures/ep05/BEATMAP.md not available")
+        pytest.skip(f"fixtures/ep05/BEATMAP.md not available at {beatmap_path}")
     return beatmap_path
 
 
