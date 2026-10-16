@@ -173,6 +173,16 @@ class EpisodeWorkflowV2:
         )
         workflow.logger.info(f"Budget lines created: {budget_result.get('lines', [])}")
         
+        # Verify all required budget lines exist (fail clearly if missing)
+        from hfvg.budget import REQUIRED_BUDGET_LINES
+        created_lines = set(budget_result.get('lines', []))
+        missing_lines = [line for line in REQUIRED_BUDGET_LINES if line not in created_lines]
+        if missing_lines:
+            raise ValueError(
+                f"Budget initialization failed: missing required lines {missing_lines}. "
+                f"Created: {list(created_lines)}"
+            )
+        
         # Load gate policy via activity (not deterministic in workflow)
         policy_data = await workflow.execute_activity(
             load_gate_policy_activity,

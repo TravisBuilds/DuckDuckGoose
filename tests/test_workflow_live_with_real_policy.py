@@ -22,7 +22,7 @@ async def test_live_workflow_with_real_policy_succeeds(tmp_path, monkeypatch, re
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
-    from hfvg.activities import all_activities
+    from hfvg.worker import PRODUCTION_ACTIVITIES
     import httpx
     
     # Set up environment
@@ -134,7 +134,7 @@ Duck swimming.
             env.client,
             task_queue="test-harness",
             workflows=[EpisodeWorkflowV2],
-            activities=all_activities(),
+            activities=PRODUCTION_ACTIVITIES,
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,

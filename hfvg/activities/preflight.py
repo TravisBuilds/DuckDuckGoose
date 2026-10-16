@@ -230,23 +230,33 @@ async def preflight_validate_episode_activity(
         if not api_key:
             problems.append("Live mode requires HIGGSFIELD_API_KEY environment variable")
     
-    # 8. Verify required budget lines exist (single source of truth with code that reserves)
-    import aiosqlite
+    # 8. Validate budget configuration (preflight runs BEFORE budget init)
+    # Ensure schema exists and config is valid, but don't query lines that don't exist yet
+    from hfvg.budget import BudgetLedger, DEFAULT_LINE_CAPS_USD_MICROS
+    from hfvg.pricing import micros_to_usd_str
+    
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-    REQUIRED_BUDGET_LINES = ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", "L7_revision"]
+    ledger = BudgetLedger(db_path)
     
-    async with aiosqlite.connect(db_path, uri=True) as db:
-        async with db.execute(
-            "SELECT line_name FROM budget_lines WHERE episode_id = ?",
-            (episode_id,)
-        ) as cur:
-            existing_lines = {row[0] async for row in cur}
+    # Ensure budget schema exists (creates tables if needed)
+    await ledger.init_db()
     
-    missing_lines = [line for line in REQUIRED_BUDGET_LINES if line not in existing_lines]
-    if missing_lines:
+    # Validate that default line caps fit within episode cap and stop
+    settings = ledger.settings
+    default_total = sum(DEFAULT_LINE_CAPS_USD_MICROS.values())
+    
+    if default_total > settings.episode_cap_usd_micros:
         problems.append(
-            f"Missing required budget lines: {', '.join(missing_lines)}. "
-            "Budget lines must be initialized before preflight."
+            f"Invalid budget config: default line caps total "
+            f"{micros_to_usd_str(default_total)} USD exceeds episode cap "
+            f"{micros_to_usd_str(settings.episode_cap_usd_micros)} USD"
+        )
+    
+    if default_total > settings.episode_stop_usd_micros:
+        problems.append(
+            f"Invalid budget config: default line caps total "
+            f"{micros_to_usd_str(default_total)} USD exceeds episode stop "
+            f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
         )
     
     # Raise if any problems found
