@@ -1,10 +1,27 @@
 # Red-Green Mutation Test Status
 
 **Last Updated:** 2026-10-16  
-**Commit:** `7b0561f` → current  
-**Status:** ~111/112 passing (estimated), 1 obsolete, 2 blocked
+**Commit:** `b4a64ba` on `cursor/temporal-harness-end-to-end-b9be`  
+**Status:** 105/112 passing, 3 expected non-passing (2 blocked + 1 obsolete), 4 tests need improvement
 
-## Failing Mutations
+## Current Failing Mutations (4 ineffective)
+
+| # | ID | Description | Reason | Next Steps |
+|---|-----|-------------|--------|------------|
+| 85 | M-R4q | Workflow passes refs to still activity | Test calls activity directly, not workflow | Create test that runs shot workflow end-to-end |
+| 86 | M-R4r | Workflow passes missing_refs to still | Test calls activity directly, not workflow | Same - need workflow-level test |
+| 95 | M-R4A | G2_SCENE_STILLS triggers for missing refs | Test creates all refs before workflow runs | Mock recheck or test dry-run path |
+| 97 | M-R4C | Recheck updates shot plans with new data | Recheck merge not being validated properly | Add assertion that fails without merge |
+
+### Analysis
+
+**M-85, M-86**: These mutations change `hfvg/workflows/shot.py` to pass empty lists for refs instead of real data. The test `test_shot_workflow_passes_refs_to_still_provider_activity` directly calls `submit_still_job_enforced()` activity, bypassing the workflow. The workflow mutations don't affect the test. **Fix**: Create a test that actually starts a ShotWorkflow child workflow and verifies it passes correct refs to the activity.
+
+**M-95**: Mutation makes `_needs_new_refs()` return False, preventing missing refs detection. Test creates ref files before workflow starts, so there are no missing refs to detect. In time-skipping test env, can't create files mid-workflow. **Fix**: Either (a) mock recheck_refs_activity to control return values, or (b) test dry-run path where recheck doesn't run.
+
+**M-97**: Mutation prevents recheck merge (`{**s, **rechecked[...]}` → `s`). Test asserts `plan["refs"]` exists with 2 items, but may be populated from another source. **Fix**: Add more specific assertion that verifies the rechecked data (like checking exact file paths) to ensure merge actually happened.
+
+## Historical Failing Mutations (now fixed)
 
 | # | ID | Description | Status | Classification | Action Required |
 |---|-----|-------------|--------|----------------|-----------------|
