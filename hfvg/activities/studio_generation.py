@@ -308,7 +308,7 @@ async def submit_still_job_enforced(
                 if not ref_path.startswith(("http://", "https://")):
                     # Upload the local file and get the actual URL from provider
                     upload_result = await provider.upload_reference(ref_path)
-                    uploaded_url = upload_result["url"]
+                    uploaded_url = upload_result["public_url"]
                     uploaded_refs.append(uploaded_url)
                     activity.logger.info(
                         f"Uploaded reference {ref_path} -> {uploaded_url}"
@@ -660,7 +660,7 @@ async def submit_clip_job_enforced(
                 f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
             )
         
-        # Validate start_image URL
+        # Validate and upload start_image if it's a local path
         if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
             # Release both budget and credit reservations on validation failure
             await ledger.release(
@@ -671,6 +671,25 @@ async def submit_clip_job_enforced(
             )
             await credit_ledger.release_credits(episode_id, job_id, notes=f"invalid start_image")
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
+        
+        # Upload local paths to Higgsfield CDN
+        if start_image_url.startswith("/"):
+            activity.logger.info(f"Uploading local start image: {start_image_url}")
+            upload_result = await provider.upload_reference(start_image_url)
+            if isinstance(upload_result, dict):
+                start_image_url = upload_result["public_url"]
+            else:
+                start_image_url = upload_result
+            activity.logger.info(f"Uploaded start image -> {start_image_url}")
+        
+        if end_image_url and end_image_url.startswith("/"):
+            activity.logger.info(f"Uploading local end image: {end_image_url}")
+            upload_result = await provider.upload_reference(end_image_url)
+            if isinstance(upload_result, dict):
+                end_image_url = upload_result["public_url"]
+            else:
+                end_image_url = upload_result
+            activity.logger.info(f"Uploaded end image -> {end_image_url}")
         
         # Submit to provider - wrapped to release reservations on ANY error
         try:
@@ -699,6 +718,10 @@ async def submit_clip_job_enforced(
                 activity.logger.info(
                     f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
                 )
+            
+            # BUG 2 fix for clips: Persist the harness→provider job mapping
+            await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)
+            activity.logger.info(f"Persisted clip job mapping: {job_id} -> {provider_job_id}")
             
             activity.logger.info(
                 f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
@@ -772,10 +795,16 @@ async def poll_job_status(
     provider_job_id = await credit_ledger.get_provider_job(job_id)
     
     if not provider_job_id:
-        # If no mapping exists, assume job_id is already a provider ID (backward compat)
+        # In live mode, missing mapping is a hard error (Bug 2 fix)
+        if not dry_run_env:
+            raise ValueError(
+                f"No provider job mapping found for {job_id} in live mode. "
+                "This indicates a bug - provider job must be persisted after submission."
+            )
+        # Dry mode: assume job_id is already a provider ID (backward compat)
         provider_job_id = job_id
         activity.logger.warning(
-            f"No provider job mapping found for {job_id}, assuming it's a provider ID"
+            f"No provider job mapping found for {job_id} in dry mode, assuming it's a provider ID"
         )
     
     # DRY_RUN env forces dry mode (kill switch)
