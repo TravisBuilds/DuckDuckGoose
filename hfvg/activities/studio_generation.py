@@ -407,9 +407,10 @@ async def submit_still_job_enforced(
                     f"Reservation HELD."
                 )
             
-            # Return dict with provider job info for polling
+            # Return dict with job info for polling
             return {
-                "job_id": provider_job_id,  # Return provider job id for polling, not harness job_id
+                "job_id": job_id,  # Return harness job_id (not provider's job_id)
+                "provider_job_id": provider_job_id,  # Also return provider job_id for polling
                 "line_name": line_name,
                 "reserved_amount": estimated_cost,
             }
@@ -716,9 +717,10 @@ async def submit_clip_job_enforced(
                     f"Reservation HELD."
                 )
             
-            # Return dict with provider job info for polling
+            # Return dict with job info for polling
             return {
-                "job_id": provider_job_id,  # Return provider job id for polling, not harness job_id
+                "job_id": job_id,  # Return harness job_id (not provider's job_id)
+                "provider_job_id": provider_job_id,  # Also return provider job_id for polling
                 "line_name": line_name,
                 "reserved_amount": estimated_cost,
             }
