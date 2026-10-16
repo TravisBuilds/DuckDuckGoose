@@ -1209,7 +1209,7 @@ test_mutation 113 "Upload PUT includes upload_headers" \
 # 114. Clip submit persists provider_job mapping
 test_mutation 114 "Clip submit persists provider_job mapping" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_harness_canary_bugs.py::test_workflow_polls_with_provider_id_not_harness_id" \
+    "tests/test_harness_canary_bugs.py::test_clip_submit_persists_provider_job_mapping" \
     sed -i '/await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)/s/.*/            pass  # MUTATED - skip persist_provider_job/'
 
 # 115. Upload cache: cache is consulted before upload
