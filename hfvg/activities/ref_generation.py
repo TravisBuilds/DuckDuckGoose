@@ -144,14 +144,10 @@ async def generate_ref_activity(
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     
-    # Estimate USD cost for ref generation from provider
-    from hfvg.providers import HiggsfieldStillProvider
-    provider = HiggsfieldStillProvider()
-    estimated_usd_micros = await provider.estimate_usd_micros(
-        prompt=prompt,
-        resolution="1k",
-        quality="medium"
-    )
+    # Estimate USD cost for ref generation from pricing table (not hardcoded literal)
+    # SOUL V2: credits ≈ USD (both ~0.09), so convert credits to USD micros
+    from hfvg.pricing import usd_to_micros
+    estimated_usd_micros = usd_to_micros(str(estimated_credits))
     
     # Initialize USD ledger for live mode
     from hfvg.budget import BudgetLedger

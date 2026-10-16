@@ -44,6 +44,10 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
         
         # Mock HTTP responses - provider succeeds, returns tiny image that will fail QC
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-qc-fail-123"})
             )
@@ -132,6 +136,10 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
         
         # Mock HTTP responses - QC will fail
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-staging-123"})
             )
@@ -215,6 +223,10 @@ async def test_ref_moves_to_final_path_when_qc_passes(tmp_path, monkeypatch):
         
         # Mock HTTP responses
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-pass-123"})
             )
@@ -290,6 +302,10 @@ async def test_provider_failure_releases_credits(tmp_path, monkeypatch):
         
         # Mock HTTP responses - provider fails
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-fail-123"})
             )
