@@ -93,17 +93,32 @@ class HiggsfieldStillProvider(GenerationProvider):
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-still-{hash_digest}"
     
-    async def upload_reference(self, image_path: str | Path) -> dict:
+    async def upload_reference(self, image_path: str | Path, version: int = 1) -> dict:
         """
         Upload reference image and return upload result with URL.
         
+        Uses upload cache to avoid re-uploading the same file.
+        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
+        
         Args:
             image_path: Path to reference image
+            version: Version number for cache key (default: 1)
         
         Returns:
             dict with 'public_url' (the CDN URL for the uploaded file)
         """
         import mimetypes
+        from hfvg.upload_cache import UploadCache
+        
+        # Check upload cache first
+        cache = UploadCache()
+        await cache.init_db()
+        
+        cached_url = await cache.get_cached_url(str(image_path), version)
+        if cached_url:
+            return {"public_url": cached_url}
+        
+        # Not in cache or HEAD check failed - upload the file
         
         # Determine content type from file extension
         content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
@@ -132,6 +147,9 @@ class HiggsfieldStillProvider(GenerationProvider):
                 headers=upload_headers
             )
             upload_response.raise_for_status()
+        
+        # Cache the uploaded URL
+        await cache.cache_url(str(image_path), version, public_url)
         
         return {"public_url": public_url}
     

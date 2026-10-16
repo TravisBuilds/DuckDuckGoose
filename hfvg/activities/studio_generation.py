@@ -307,7 +307,7 @@ async def submit_still_job_enforced(
                 # Check if this is a local file path (not already a URL)
                 if not ref_path.startswith(("http://", "https://")):
                     # Upload the local file and get the actual URL from provider
-                    upload_result = await provider.upload_reference(ref_path)
+                    upload_result = await provider.upload_reference(ref_path, version)
                     uploaded_url = upload_result["public_url"]
                     uploaded_refs.append(uploaded_url)
                     activity.logger.info(
@@ -675,7 +675,7 @@ async def submit_clip_job_enforced(
         # Upload local paths to Higgsfield CDN
         if start_image_url.startswith("/"):
             activity.logger.info(f"Uploading local start image: {start_image_url}")
-            upload_result = await provider.upload_reference(start_image_url)
+            upload_result = await provider.upload_reference(start_image_url, version)
             if isinstance(upload_result, dict):
                 start_image_url = upload_result["public_url"]
             else:
@@ -684,7 +684,7 @@ async def submit_clip_job_enforced(
         
         if end_image_url and end_image_url.startswith("/"):
             activity.logger.info(f"Uploading local end image: {end_image_url}")
-            upload_result = await provider.upload_reference(end_image_url)
+            upload_result = await provider.upload_reference(end_image_url, version)
             if isinstance(upload_result, dict):
                 end_image_url = upload_result["public_url"]
             else:

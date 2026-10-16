@@ -231,9 +231,9 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     assert result["job_id"] == "still-ep05-A01-v1"  # Harness job ID
     assert result["provider_job_id"] == "provider_job_different_id"  # Provider job ID
     
-    # Now poll using the provider job id
+    # Now poll using the HARNESS job id (it will be resolved to provider job id internally)
     poll_result = await poll_job_status(
-        job_id=result["provider_job_id"],  # Use provider job id for polling
+        job_id=result["job_id"],  # Use harness job id (gets resolved to provider id internally)
         job_type="still",
         episode_id="ep05",
     )
@@ -427,9 +427,42 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
         }
     
     @activity.defn(name="release_job_budget")
-    async def fake_release_budget(episode_id, line_name, reserved_amount, reason):
+    async def fake_release_budget(episode_id, shot_id, job_id, job_type, line_name, reserved_amount, reason):
         """Fake budget release."""
         await budget_ledger.release(episode_id, line_name, reserved_amount, reason)
+        return {"released": True}
+    
+    @activity.defn(name="precheck_still_qc")
+    async def fake_precheck_still(episode_id, shot_id, prompt, params):
+        """Fake precheck - always pass."""
+        return {"passed": True, "issues": []}
+    
+    @activity.defn(name="review_still")
+    async def fake_review_still(url, rubric, episode_id, shot_id):
+        """Fake review - always pass."""
+        return {"passed": True, "issues": []}
+    
+    @activity.defn(name="record_shot_result")
+    async def fake_record_shot(db_path, episode_id, shot_id, status, still_url, clip_url=None, 
+                              qc_results=None, attempts=0, prompt=None, clear_clip=False):
+        """Fake record."""
+        return {"recorded": True}
+    
+    @activity.defn(name="commit_job_budget")
+    async def fake_commit_budget(episode_id, shot_id, job_id, job_type, line_name, 
+                                reserved_amount, actual_cost):
+        """Fake commit."""
+        return {"committed": True}
+    
+    @activity.defn(name="commit_credits_activity")
+    async def fake_commit_credits(episode_id, job_id):
+        """Fake commit credits."""
+        return {"committed": True}
+    
+    @activity.defn(name="release_credits_activity")
+    async def fake_release_credits(episode_id, job_id, notes):
+        """Fake release credits."""
+        await credit_ledger.release_credits(episode_id, job_id, notes=notes)
         return {"released": True}
     
     # Run workflow in test environment
@@ -438,26 +471,38 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
             env.client,
             task_queue="test",
             workflows=[ShotWorkflow],
-            activities=[fake_submit_still, fake_poll, fake_release_budget]
+            activities=[
+                fake_submit_still, fake_poll, fake_release_budget,
+                fake_precheck_still, fake_review_still, fake_record_shot,
+                fake_commit_budget, fake_commit_credits, fake_release_credits
+            ]
         ):
             shot_plan = {
                 "shot_id": "A01",
-                "start_prompt": "Test shot",
+                "prompt": "Test shot",
                 "version": 1,
                 "refs": [],
-                "resolution": "1k",
-                "quality": "medium",
-                "aspect_ratio": "9:16"
+                "params": {
+                    "resolution": "1k",
+                    "quality": "medium",
+                    "aspect_ratio": "9:16"
+                }
             }
             
+            # Start workflow
+            handle = await env.client.start_workflow(
+                ShotWorkflow.run,
+                args=["ep06", shot_plan],
+                id=f"test-shot-{tmp_path.name}",
+                task_queue="test",
+                execution_timeout=timedelta(minutes=2)
+            )
+            
+            # Send stills_approved signal so workflow doesn't hang
+            await handle.signal("stills_approved")
+            
             try:
-                result = await env.client.execute_workflow(
-                    ShotWorkflow.run,
-                    args=["ep06", shot_plan],
-                    id=f"test-shot-{tmp_path.name}",
-                    task_queue="test",
-                    execution_timeout=timedelta(minutes=2)
-                )
+                result = await handle.result()
                 
                 # Should fail
                 assert False, "Workflow should have failed"

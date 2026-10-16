@@ -1190,6 +1190,34 @@ test_mutation 111 "BUG 2: poll uses provider ID not harness ID" \
     "tests/test_harness_canary_bugs.py::test_workflow_polls_with_provider_id_not_harness_id" \
     sed -i 's/job_status = await provider.get_job_status(provider_job_id)/job_status = await provider.get_job_status(job_id)  # MUTATED - use harness ID/'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# UPLOAD CACHE MUTATIONS: PR #10 upload caching
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 112. Upload cache: drop content_type from upload POST
+test_mutation 112 "Upload POST includes content_type" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i 's/json={"content_type": content_type}/json={}  # MUTATED - no content_type/'
+
+# 113. Upload cache: drop upload_headers from PUT
+test_mutation 113 "Upload PUT includes upload_headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i 's/headers=upload_headers$/headers={}  # MUTATED - no upload_headers/'
+
+# 114. Clip submit persists provider_job mapping
+test_mutation 114 "Clip submit persists provider_job mapping" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_canary_bugs.py::test_workflow_polls_with_provider_id_not_harness_id" \
+    sed -i '/await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)/s/.*/            pass  # MUTATED - skip persist_provider_job/'
+
+# 115. Upload cache: cache is consulted before upload
+test_mutation 115 "Upload checks cache before uploading" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i '/cached_url = await cache.get_cached_url/s/.*/        cached_url = None  # MUTATED - bypass cache/'
+
 # Print final summary
 print_summary
 exit_code=$?
