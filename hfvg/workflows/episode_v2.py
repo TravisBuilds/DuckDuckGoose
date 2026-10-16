@@ -312,6 +312,7 @@ class EpisodeWorkflowV2:
         # Launch still generation for all shots
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
+        
         for shot in shots:
             shot_plan = shot.copy()
             shot_plan["dry_run"] = dry_run
@@ -335,46 +336,32 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Wait for approval (also exits if any shots fail)
-        await workflow.wait_condition(
-            lambda: self.approved_g2_scene_stills or any(
-                self.shot_results.get(shot["shot_id"]) and 
-                self.shot_results.get(shot["shot_id"]).describe().status in [
-                    "FAILED", "TERMINATED", "TIMED_OUT", "CANCELLED"
-                ]
-                for shot in shots
-            )
-        )
+        # Wait for approval at gate 2
+        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
-        # Check for failures before proceeding
+        # After approval, check if any shots failed by gathering results
+        import asyncio
+        shot_results_list = await asyncio.gather(*shot_workflow_handles, return_exceptions=True)
+        
         failed_shots = []
-        for shot in shots:
-            handle = self.shot_results.get(shot["shot_id"])
-            if handle:
-                status = handle.describe().status
-                if status in ["FAILED", "TERMINATED", "TIMED_OUT", "CANCELLED"]:
-                    try:
-                        # Try to get the failure reason
-                        await handle
-                    except Exception as e:
-                        failed_shots.append({
-                            "shot_id": shot["shot_id"],
-                            "status": status,
-                            "reason": str(e),
-                        })
+        for i, result in enumerate(shot_results_list):
+            if isinstance(result, Exception):
+                shot_id = shots[i]["shot_id"]
+                failed_shots.append({
+                    "shot_id": shot_id,
+                    "status": "failed",
+                    "reason": str(result),
+                })
         
         if failed_shots:
             # Surface failures at gate 2
             failure_msg = f"{len(failed_shots)} shot(s) failed:\n" + "\n".join(
-                f"  - {s['shot_id']}: {s['status']} - {s['reason']}" for s in failed_shots
+                f"  - {s['shot_id']}: {s['reason']}" for s in failed_shots
             )
             workflow.logger.error(failure_msg)
             self.state.failed_shots = failed_shots
-            # Note: Gate 2 decision is: reroll failed shots, abort, or proceed anyway
-            # For now, block at gate 2 with failures surfaced
+            # Note: For now, we log failures but continue (could add gate decision here)
         
-        # Wait for approval (required even if there are failures)
-        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
         
