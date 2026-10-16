@@ -38,18 +38,26 @@ async def test_live_still_uses_credit_ledger_only_no_budget_lines(tmp_path, monk
     # Initialize DB
     await init_studio_db(db_path)
     
-    # Set up credit ledger with sufficient credits (NO budget lines)
+    # Set up credit ledger with sufficient cap (NO budget lines)
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
-    await credit_ledger.add_credits(episode_id, 1000.0, notes="test credits")
-    await credit_ledger.set_cap(episode_id, 1000.0)
+    await credit_ledger.create_episode_line(episode_id, cap_credits=1000)
+    
+    # Initialize budget ledger tables (but don't create any lines)
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
     
     # Set episode to live mode with G1.08 approved
-    import aiosqlite
     async with aiosqlite.connect(db_path, uri=True) as db:
+        # First ensure episode exists
         await db.execute("""
-            INSERT OR REPLACE INTO episode_status (episode_id, live_mode, g108_approved)
-            VALUES (?, TRUE, TRUE)
+            INSERT OR IGNORE INTO episodes (episode_id, beatmap_path, live_mode, g108_approved)
+            VALUES (?, ?, 0, 0)
+        """, (episode_id, ""))
+        # Then update to live mode with g108 approved
+        await db.execute("""
+            UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?
         """, (episode_id,))
         await db.commit()
     
@@ -71,19 +79,21 @@ async def test_live_still_uses_credit_ledger_only_no_budget_lines(tmp_path, monk
     mock_provider.close = AsyncMock()
     
     try:
-        with patch('hfvg.activities.studio_generation.HiggsfieldStillProvider', return_value=mock_provider):
-            # This should NOT raise "Budget line not found" error
-            # It should use credit ledger only and succeed
-            result = await submit_still_job_enforced(
-                episode_id=episode_id,
-                shot_id=shot_id,
-                prompt="Test still",
-                quality="medium",
-                resolution="1k",
-                version=1,
-                shot_meta={"wet": False},
-                missing_refs=[],  # No refs, simplifies test
-            )
+        # Mock prompt lint to skip validation (test is about budget/credit ledgers)
+        with patch('hfvg.activities.studio_generation.enforce_prompt_lint', return_value=[]):
+            with patch('hfvg.activities.studio_generation.HiggsfieldStillProvider', return_value=mock_provider):
+                # This should NOT raise "Budget line not found" error
+                # It should use credit ledger only and succeed
+                result = await submit_still_job_enforced(
+                    episode_id=episode_id,
+                    shot_id=shot_id,
+                    prompt="Test still",
+                    quality="medium",
+                    resolution="1k",
+                    version=1,
+                    shot_meta={"wet": False},
+                    missing_refs=[],  # No refs, simplifies test
+                )
         
         # Verify result
         assert result["job_id"] == "still-ep99-A01-v1"
@@ -136,13 +146,20 @@ async def test_live_still_releases_credits_on_submit_failure(tmp_path, monkeypat
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
-    await credit_ledger.add_credits(episode_id, 1000.0, notes="test credits")
-    await credit_ledger.set_cap(episode_id, 1000.0)
+    await credit_ledger.create_episode_line(episode_id, cap_credits=1000)
+    
+    # Initialize budget ledger tables (but don't create any lines)
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
     
     async with aiosqlite.connect(db_path, uri=True) as db:
         await db.execute("""
-            INSERT OR REPLACE INTO episode_status (episode_id, live_mode, g108_approved)
-            VALUES (?, TRUE, TRUE)
+            INSERT OR IGNORE INTO episodes (episode_id, beatmap_path, live_mode, g108_approved)
+            VALUES (?, ?, 0, 0)
+        """, (episode_id, ""))
+        await db.execute("""
+            UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?
         """, (episode_id,))
         await db.commit()
     
@@ -157,19 +174,21 @@ async def test_live_still_releases_credits_on_submit_failure(tmp_path, monkeypat
     mock_provider.close = AsyncMock()
     
     try:
-        with patch('hfvg.activities.studio_generation.HiggsfieldStillProvider', return_value=mock_provider):
-            # Submit should fail
-            with pytest.raises(Exception, match="Network error"):
-                await submit_still_job_enforced(
-                    episode_id=episode_id,
-                    shot_id=shot_id,
-                    prompt="Test still",
-                    quality="medium",
-                    resolution="1k",
-                    version=1,
-                    shot_meta={"wet": False},
-                    missing_refs=[],
-                )
+        # Mock prompt lint to skip validation
+        with patch('hfvg.activities.studio_generation.enforce_prompt_lint', return_value=[]):
+            with patch('hfvg.activities.studio_generation.HiggsfieldStillProvider', return_value=mock_provider):
+                # Submit should fail
+                with pytest.raises(Exception, match="Network error"):
+                    await submit_still_job_enforced(
+                        episode_id=episode_id,
+                        shot_id=shot_id,
+                        prompt="Test still",
+                        quality="medium",
+                        resolution="1k",
+                        version=1,
+                        shot_meta={"wet": False},
+                        missing_refs=[],
+                    )
         
         # Verify credits were reserved then released (no leak)
         async with aiosqlite.connect(db_path, uri=True) as db:
@@ -185,10 +204,11 @@ async def test_live_still_releases_credits_on_submit_failure(tmp_path, monkeypat
         assert "reserve" in tx_types, "Should have reserved credits"
         assert "release" in tx_types, "Should have released credits on failure"
         
-        # Net effect: initial add, reserve (negative), release (positive) = back to initial
-        # Verify no credit leak
-        status = await credit_ledger.get_balance_status(episode_id)
-        assert status["available"] == 1000.0, "Credits should be fully released (no leak)"
+        # Net effect: reserve (negative), release (positive) = back to initial (cap - 0 = cap)
+        # Verify no credit leak (all credits available again)
+        status = await credit_ledger.get_episode_status(episode_id)
+        assert status["available_credits"] == 1000, "Credits should be fully released (no leak)"
+        assert status["reserved_credits"] == 0, "No credits should be reserved after release"
         
     finally:
         temporalio.activity.info = original_info
@@ -204,7 +224,7 @@ async def test_live_clip_uses_credit_ledger_only_no_budget_lines(tmp_path, monke
     from hfvg.activities.studio_generation import submit_clip_job_enforced
     from hfvg.studio_db import init_studio_db
     from hfvg.credit_ledger import CreditLedger
-    from hfvg.routing import Route
+    from hfvg.routing import ShotRoute
     import temporalio.activity
     
     episode_id = "ep99"
@@ -220,13 +240,20 @@ async def test_live_clip_uses_credit_ledger_only_no_budget_lines(tmp_path, monke
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
-    await credit_ledger.add_credits(episode_id, 1000.0, notes="test credits")
-    await credit_ledger.set_cap(episode_id, 1000.0)
+    await credit_ledger.create_episode_line(episode_id, cap_credits=1000)
+    
+    # Initialize budget ledger tables (but don't create any lines)
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
     
     async with aiosqlite.connect(db_path, uri=True) as db:
         await db.execute("""
-            INSERT OR REPLACE INTO episode_status (episode_id, live_mode, g108_approved)
-            VALUES (?, TRUE, TRUE)
+            INSERT OR IGNORE INTO episodes (episode_id, beatmap_path, live_mode, g108_approved)
+            VALUES (?, ?, 0, 0)
+        """, (episode_id, ""))
+        await db.execute("""
+            UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?
         """, (episode_id,))
         await db.commit()
     
@@ -246,22 +273,24 @@ async def test_live_clip_uses_credit_ledger_only_no_budget_lines(tmp_path, monke
     mock_provider.close = AsyncMock()
     
     # Mock routing
-    mock_route = Route(provider="kling", model="kling", reason="test")
+    mock_route = ShotRoute(model="kling", tier="final", resolution=None)
     
     try:
-        with patch('hfvg.activities.studio_generation.HiggsfieldClipProvider', return_value=mock_provider):
-            with patch('hfvg.activities.studio_generation.plan_route', return_value=mock_route):
-                result = await submit_clip_job_enforced(
-                    episode_id=episode_id,
-                    shot_id=shot_id,
-                    start_image_url="https://example.com/start.jpg",
-                    prompt="Test clip",
-                    duration=5.0,
-                    version=1,
-                    shot_meta={"wet": False, "tags": []},
-                    model="kling",
-                    missing_refs=[],
-                )
+        # Mock prompt lint to skip validation
+        with patch('hfvg.activities.studio_generation.enforce_prompt_lint', return_value=[]):
+            with patch('hfvg.providers.KlingVideoProvider', return_value=mock_provider):
+                with patch('hfvg.activities.studio_generation.plan_route', return_value=mock_route):
+                    result = await submit_clip_job_enforced(
+                        episode_id=episode_id,
+                        shot_id=shot_id,
+                        start_image_url="https://example.com/start.jpg",
+                        prompt="Test clip",
+                        duration=5.0,
+                        version=1,
+                        shot_meta={"wet": False, "tags": []},
+                        model="kling",
+                        missing_refs=[],
+                    )
         
         assert result["job_id"] == "clip-ep99-A01-v1"
         assert result["line_name"] == "L4_video"  # Tracked for logging only
