@@ -141,13 +141,17 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     # Call activity
     await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    # Verify the idempotency key was sent (now uses job_id format: still-{episode}-{shot}-v{version})
+    # Verify the idempotency key was sent in format: still-ep99-A01-v1-{hash}
     assert mock_route.called, "Provider should be called"
     request = mock_route.calls[0].request
     actual_key = request.headers.get("Idempotency-Key")
-    # The key should now be in the format: still-ep99-A01-v1
-    expected_job_id = "still-ep99-A01-v1"
-    assert actual_key == expected_job_id, f"Idempotency-Key should be job_id. Expected: {expected_job_id}, Got: {actual_key}"
+    expected_job_id_prefix = "still-ep99-A01-v1-"
+    assert actual_key is not None, "Idempotency-Key header must be present"
+    assert actual_key.startswith(expected_job_id_prefix), f"Idempotency-Key should start with {expected_job_id_prefix}, got: {actual_key}"
+    # Verify hash suffix is 16 hex chars
+    hash_suffix = actual_key[len(expected_job_id_prefix):]
+    assert len(hash_suffix) == 16, f"Hash suffix should be 16 chars, got {len(hash_suffix)}"
+    assert all(c in "0123456789abcdef" for c in hash_suffix), f"Hash suffix should be hex, got: {hash_suffix}"
 
 
 @pytest.mark.asyncio  
@@ -519,8 +523,9 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         await insert_line(db, "ep99", "L4_video", 50_000_000, 40_000_000)
         await db.commit()
     
-    # Expected idempotency key is now the deterministic job_id
-    expected_key = "clip-ep99-A01-v1"
+    # Idempotency key is now job_id + hash of request params
+    # Format: clip-ep99-A01-v1-{hash}
+    expected_key_prefix = "clip-ep99-A01-v1-"
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
@@ -538,8 +543,13 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         shot_meta=lint_meta(),
     )
     
-    # Verify idempotency key was sent
+    # Verify idempotency key was sent with correct format
     assert mock_route.called, "Provider should be called"
     request = mock_route.calls[0].request
     actual_key = request.headers.get("Idempotency-Key")
-    assert actual_key == expected_key, f"Idempotency-Key mismatch. Expected: {expected_key}, Got: {actual_key}"
+    assert actual_key is not None, "Idempotency-Key header must be present"
+    assert actual_key.startswith(expected_key_prefix), f"Idempotency-Key should start with {expected_key_prefix}, got: {actual_key}"
+    # Verify hash suffix is 16 hex chars
+    hash_suffix = actual_key[len(expected_key_prefix):]
+    assert len(hash_suffix) == 16, f"Hash suffix should be 16 chars, got {len(hash_suffix)}"
+    assert all(c in "0123456789abcdef" for c in hash_suffix), f"Hash suffix should be hex, got: {hash_suffix}"
