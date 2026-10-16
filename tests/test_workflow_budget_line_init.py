@@ -3,6 +3,8 @@
 This test MUST fail if init_episode_budget_lines_activity call is removed from workflow.
 """
 
+import asyncio
+import os
 import pytest
 import aiosqlite
 from temporalio.testing import WorkflowEnvironment
@@ -116,22 +118,47 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
                 task_queue="test-queue",
             )
             
-            # Wait for workflow to reach Gate 1 (budget lines created, preflight passed)
-            # Then approve G1 so it proceeds to stills
-            import asyncio
-            await asyncio.sleep(0.1)  # Let workflow initialize
+            # Poll until budget lines are created or workflow reaches G1 (with timeout)
+            # This handles race conditions under suite load
+            count = 0
+            deadline = asyncio.get_event_loop().time() + 5.0  # 5 second timeout
+            budget_lines_ready = False
             
-            # Check that budget lines were created (MUTATION TEST: fails if init call removed)
-            try:
-                async with aiosqlite.connect(db_path, uri=True) as db:
-                    async with db.execute(
-                        "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
-                        (episode_id,)
-                    ) as cur:
-                        count = (await cur.fetchone())[0]
-            except Exception as e:
-                # DEBUG: Print DATABASE_PATH resolution on failure
-                import os
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    async with aiosqlite.connect(db_path, uri=True) as db:
+                        async with db.execute(
+                            "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                            (episode_id,)
+                        ) as cur:
+                            count = (await cur.fetchone())[0]
+                            if count > 0:
+                                budget_lines_ready = True
+                                break
+                except Exception:
+                    # Table doesn't exist yet or DB not ready, keep polling
+                    pass
+                
+                # Also check if workflow reached G1 (means init ran)
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if state.get("current_gate") == "G1_SHOT_PLAN":
+                        budget_lines_ready = True
+                        # Re-query count after reaching gate
+                        async with aiosqlite.connect(db_path, uri=True) as db:
+                            async with db.execute(
+                                "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                                (episode_id,)
+                            ) as cur:
+                                count = (await cur.fetchone())[0]
+                        break
+                except Exception:
+                    pass
+                
+                await asyncio.sleep(0.05)  # Poll every 50ms
+            
+            # If we timed out, gather debug info
+            if not budget_lines_ready:
                 test_db = db_path
                 env_db = os.getenv("DATABASE_PATH", "NOT_SET")
                 
@@ -153,11 +180,11 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
                 env_has_table = check_table(env_db) if env_db != "NOT_SET" else False
                 
                 raise AssertionError(
-                    f"Failed to query budget_lines table. Database path mismatch?\n"
+                    f"Timed out waiting for budget_lines table (5s). Database path mismatch?\n"
                     f"  Test querying: {test_db} (table exists: {test_has_table})\n"
                     f"  DATABASE_PATH env: {env_db} (table exists: {env_has_table})\n"
-                    f"  Original error: {e}"
-                ) from e
+                    f"  Budget lines count: {count}"
+                )
             
             # ASSERTION 1: Budget lines must exist
             # If init_episode_budget_lines_activity call is removed from workflow, this FAILS
