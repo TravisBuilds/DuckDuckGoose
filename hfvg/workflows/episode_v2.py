@@ -361,27 +361,21 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Wait for approval OR any child failure (fail fast)
+        # Wait for approval OR any child failure (exit as soon as any shot fails)
         await workflow.wait_condition(
-            lambda: self.approved_g2_scene_stills or (
-                len(shot_completion_status) >= len(shots) and (
-                    all(status.get("done", False) for status in shot_completion_status.values()) or
-                    any(not status.get("success", True) for status in shot_completion_status.values() if status.get("done", False))
-                )
-            )
+            lambda: self.approved_g2_scene_stills or 
+            any(status.get("success") == False for status in shot_completion_status.values())
         )
         
         # If we exited because of failures (not approval), surface them
         if not self.approved_g2_scene_stills and len(self.state.failed_shots) > 0:
-            failure_msg = f"Gate 2 blocked: {len(self.state.failed_shots)} shot(s) failed:\n" + "\n".join(
+            failure_msg = f"Gate 2: {len(self.state.failed_shots)} shot(s) failed (approval still required):\n" + "\n".join(
                 f"  - {s['shot_id']}: {s['reason']}" for s in self.state.failed_shots
             )
             workflow.logger.error(failure_msg)
-            # Leave gate 2 unblocked but with failures visible in state for human decision
         
-        # Wait for approval if not already approved
-        if not self.approved_g2_scene_stills:
-            await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
+        # Always wait for approval (gate never skipped, even on failures or all-success)
+        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
