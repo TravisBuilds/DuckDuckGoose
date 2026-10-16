@@ -77,10 +77,13 @@ async def test_map_form_refs_with_versions_archives_and_regenerates(tmp_path, mo
         # In dry mode, output is redirected to scratch dir
         actual_output_v2 = Path(result_family["output_path"])
         
-        # Check v1 was archived (relative to original location)
+        # In dry mode, real files are NOT archived (don't touch real files)
+        # The real v1 file stays in place
+        assert family_v1_path.exists(), "v1 should still exist at original location in dry mode"
+        
+        # No archive created in dry mode
         family_v1_archive = refs_dir / "_v1" / "family.png"
-        assert family_v1_archive.exists(), f"v1 archive not found at {family_v1_archive}"
-        assert family_v1_archive.read_bytes() == family_v1_content, "v1 content mismatch"
+        assert not family_v1_archive.exists(), f"Dry mode should NOT archive, but found {family_v1_archive}"
         
         # Check new v2 file exists (at redirected path in dry mode)
         assert actual_output_v2.exists(), f"v2 file not created at {actual_output_v2}"
@@ -166,10 +169,13 @@ async def test_version_mismatch_archives_old_version(tmp_path, monkeypatch):
         # In dry mode, output is redirected
         actual_output_v3 = Path(result["output_path"])
         
-        # v1 should be in _v1/ directory (at original location)
+        # In dry mode, real files are NOT archived (don't touch real files)
+        # v1 stays at original location
+        assert pool_path.exists(), "v1 should still exist at original location in dry mode"
+        
+        # No archive in dry mode
         v1_archive = refs_dir / "_v1" / "pool.png"
-        assert v1_archive.exists(), f"v1 not archived to {v1_archive}"
-        assert v1_archive.read_bytes() == pool_v1_content
+        assert not v1_archive.exists(), f"Dry mode should NOT archive, but found {v1_archive}"
         
         # New file should exist (at redirected path)
         assert actual_output_v3.exists(), f"v3 file not created at {actual_output_v3}"

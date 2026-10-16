@@ -75,20 +75,22 @@ async def generate_ref_activity(
     # Idempotent job_id
     job_id = f"ref-{episode_id}-{ref_key}-v{version}"
     
-    # In dry mode, redirect output to scratch directory BEFORE any file operations
+    # In dry mode, redirect output to scratch directory but keep original path for checking
+    original_output_path = output_path
     if dry_run:
         import temporalio.activity
         workflow_id = temporalio.activity.info().workflow_id
         scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
         scratch_dir.mkdir(parents=True, exist_ok=True)
-        # Use same basename but in scratch dir
-        output_path = str(scratch_dir / Path(output_path).name)
+        # Check original location for existing files, but work in scratch
+        output_path = str(scratch_dir / Path(original_output_path).name)
         activity.logger.info(f"Dry mode: redirecting output to {output_path}")
     
-    # Check if ref already exists with matching version and passes QC
-    if Path(output_path).exists():
-        # Check version match (stored in sidecar file)
-        version_sidecar = Path(output_path).parent / ".versions" / f"{Path(output_path).stem}.json"
+    # Check if ref already exists at original location (even in dry mode, check original)
+    check_path = original_output_path if dry_run else output_path
+    if Path(check_path).exists():
+        # Check version match (stored in sidecar file at original location)
+        version_sidecar = Path(check_path).parent / ".versions" / f"{Path(check_path).stem}.json"
         existing_version = 1  # Default version
         
         if version_sidecar.exists():
@@ -99,27 +101,34 @@ async def generate_ref_activity(
                 activity.logger.warning(f"Failed to read version sidecar: {e}")
         
         if existing_version != version:
-            # Version mismatch - archive old version and regenerate
-            activity.logger.info(
-                f"Ref {ref_key} version mismatch (file: v{existing_version}, requested: v{version}). "
-                "Archiving old version and regenerating..."
-            )
-            archive_dir = Path(output_path).parent / f"_v{existing_version}"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            archive_path = archive_dir / Path(output_path).name
-            Path(output_path).rename(archive_path)
-            activity.logger.info(f"Archived v{existing_version} to {archive_path}")
+            # Version mismatch - archive old version at original location
+            # In dry mode, DON'T archive real files - skip archiving entirely
+            if not dry_run:
+                activity.logger.info(
+                    f"Ref {ref_key} version mismatch (file: v{existing_version}, requested: v{version}). "
+                    "Archiving old version and regenerating..."
+                )
+                archive_dir = Path(check_path).parent / f"_v{existing_version}"
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                archive_path = archive_dir / Path(check_path).name
+                Path(check_path).rename(archive_path)
+                activity.logger.info(f"Archived v{existing_version} to {archive_path}")
+            else:
+                activity.logger.info(
+                    f"Ref {ref_key} version mismatch (file: v{existing_version}, requested: v{version}). "
+                    f"[DRY MODE] Skipping archive of real file, will generate in scratch."
+                )
         else:
             # Version matches - check QC
             activity.logger.info(f"Ref {ref_key} v{version} already exists, checking QC...")
-            qc_result = await _check_ref_qc(output_path)
+            qc_result = await _check_ref_qc(check_path)
             if qc_result["passed"]:
                 activity.logger.info(f"Ref {ref_key} v{version} exists and passes QC - reusing (no spend)")
                 return {
                     "status": "reused",
                     "job_id": job_id,
                     "provider_job_id": None,
-                    "output_path": output_path,
+                    "output_path": output_path,  # Return scratch path in dry mode, original otherwise
                     "credits_used": 0,
                 }
             else:

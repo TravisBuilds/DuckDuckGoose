@@ -9,7 +9,8 @@ from pathlib import Path
 async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monkeypatch):
     """
     End-to-end: refs.json with versions {family:2} -> loader -> generate_ref_activity:
-    - family regenerated as v2, v1 moved to refs/_v1/
+    - Loader reads versions map and sets family version to 2
+    - family regenerated as v2 (in scratch, dry mode doesn't archive real files)
     - rowan (no versions entry) reused as v1
     Test MUST fail if loader ignores the versions map.
     """
@@ -116,12 +117,15 @@ async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monke
         assert result_family["status"] == "completed", \
             f"family should regenerate for v2, got {result_family['status']}"
         
-        # Verify v1 was archived (at original location, not scratch)
+        # In dry mode, real files are NOT archived (by design - don't touch real files)
+        # The real file stays in place
+        assert family_path.exists(), "family v1 should still exist at original location in dry mode"
+        assert family_path.read_bytes() == family_v1_content, "family v1 should be unchanged in dry mode"
+        
+        # No archive created in dry mode (real files untouched)
         family_v1_archive = refs_dir / "_v1" / "family.png"
-        assert family_v1_archive.exists(), \
-            f"family v1 not archived to {family_v1_archive}"
-        assert family_v1_archive.read_bytes() == family_v1_content, \
-            "family v1 archive content mismatch"
+        assert not family_v1_archive.exists(), \
+            f"Dry mode should NOT archive real files, but found {family_v1_archive}"
         
         # Verify new v2 file exists (at scratch location in dry mode)
         actual_v2_path = Path(result_family["output_path"])
