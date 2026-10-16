@@ -117,8 +117,11 @@ def test_models_doc_exists():
     """Test: MODELS.md documentation exists with model choices."""
     from pathlib import Path
     
-    models_doc = Path("docs/MODELS.md")
-    assert models_doc.exists()
+    # Find repo root (test runs in tmp_path via autouse fixture)
+    test_file = Path(__file__)
+    repo_root = test_file.parent.parent  # /workspace
+    models_doc = repo_root / "docs" / "MODELS.md"
+    assert models_doc.exists(), f"MODELS.md not found at {models_doc}"
     
     content = models_doc.read_text()
     
