@@ -5,6 +5,7 @@ All fixtures are SYNTHETIC (tmp dirs). No private episode content, no network (r
 
 import asyncio
 import json
+import os
 import sys
 
 import aiosqlite
@@ -783,15 +784,27 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
             # Create the missing ref NOW so recheck can find it on next attempt
             new.write_bytes(b"x")
             
-            # Terminate and restart workflow to trigger recheck with file present
+            # Terminate first workflow
             await handle.terminate()
             
-            # Now run again with refs available
+            # Now run again with refs available (use different episode ID to avoid lock conflict)
             shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
-            sp, rp, new = _write_data(data_env["tmp"], shots, make_new=True)  # Both refs exist
+            sp2, rp2, new2 = _write_data(tmp_path / "ep99data", shots, make_new=True)  # Both refs exist
+            monkeypatch.setenv("SHOTS_JSON_PATH", str(sp2))
+            monkeypatch.setenv("REFS_JSON_PATH", str(rp2))
+            
+            # Setup DB for ep99
+            from hfvg.studio_db import create_episode, set_live_mode, approve_g108
+            db_path = os.getenv("DATABASE_PATH")
+            await create_episode(db_path, "ep99")
+            await set_live_mode(db_path, "ep99", True)
+            await approve_g108(db_path, "ep99")
+            
+            beat2 = tmp_path / "BEATMAP2.md"
+            beat2.write_text(BEAT.replace("ep98", "ep99"))
             
             handle2 = await env.client.start_workflow(
-                W.run, args=["ep98", str(beat), False], id="r4-ep98-live-v2", task_queue="r4-ep")
+                W.run, args=["ep99", str(beat2), False], id="r4-ep99-live", task_queue="r4-ep")
             await handle2.signal(W.approve_g1_shot_plan)
             await asyncio.sleep(0.8)
             
