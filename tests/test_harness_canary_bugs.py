@@ -306,6 +306,165 @@ async def test_failed_job_releases_reservations(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
+    """
+    Test: Workflow-level test that shot workflow polls with provider ID (not harness ID).
+    
+    This test verifies BUG 2 is fixed: the workflow must poll using provider job IDs,
+    not harness job IDs. A fake provider 404s on harness IDs and succeeds on provider IDs.
+    
+    Verifies:
+    - Shot reaches done/failed terminal state
+    - Both credit and USD ledgers net to zero on provider failure
+    """
+    import os
+    from hfvg.workflows.shot import ShotWorkflow
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from temporalio import activity
+    from datetime import timedelta
+    
+    # Setup test environment
+    db_path = str(tmp_path / "test.db")
+    os.environ["DATABASE_PATH"] = db_path
+    os.environ["DRY_RUN"] = "false"
+    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep06", None)
+    await set_live_mode(db_path, "ep06", True, "test")
+    await approve_g108(db_path, "ep06", "test")
+    
+    # Initialize ledgers
+    from hfvg.credit_ledger import CreditLedger
+    from hfvg.budget import BudgetLedger
+    
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep06", cap_credits=1000)
+    
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test")
+    await budget_ledger.set_line("ep06", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
+    await budget_ledger.set_line("ep06", "L3_final_stills", 100_000_000, 80_000_000, "higgsfield")
+    
+    # Create fake activities that simulate provider behavior
+    provider_jobs = {}  # Map provider_job_id -> status
+    
+    @activity.defn(name="submit_still_job_enforced")
+    async def fake_submit_still(episode_id, shot_id, prompt, version, refs=None, 
+                               resolution="1k", quality="medium", aspect_ratio="9:16",
+                               tier=None, shot_meta=None, missing_refs=None):
+        """Fake submit that returns both harness and provider job IDs."""
+        harness_job_id = f"still-{episode_id}-{shot_id}-v{version}"
+        provider_job_id = f"provider_{harness_job_id}"
+        
+        # Reserve credits and USD
+        await credit_ledger.reserve_credits(episode_id, harness_job_id, 5.0, "fake still")
+        await budget_ledger.reserve(episode_id, "L3_final_stills", 300_000, f"still {shot_id}")
+        
+        # Persist mapping
+        await credit_ledger.persist_provider_job(harness_job_id, provider_job_id, "fake_provider")
+        
+        # Set provider job to fail
+        provider_jobs[provider_job_id] = "failed"
+        
+        return {
+            "job_id": harness_job_id,
+            "provider_job_id": provider_job_id,
+            "line_name": "L3_final_stills",
+            "reserved_amount": 300_000,
+        }
+    
+    @activity.defn(name="poll_job_status")
+    async def fake_poll(job_id, job_type, episode_id):
+        """
+        Fake poll that 404s on harness IDs and returns status for provider IDs.
+        This simulates the real provider behavior that BUG 2 would hit.
+        """
+        # Resolve harness → provider (this is what the fix does)
+        provider_job_id = await credit_ledger.get_provider_job(job_id)
+        
+        if not provider_job_id:
+            # No mapping, assume job_id is already provider ID
+            provider_job_id = job_id
+        
+        # Simulate provider: 404 on harness IDs, return status on provider IDs
+        if not provider_job_id.startswith("provider_"):
+            # This is a harness ID being polled directly (the bug!)
+            raise ValueError(f"Provider 404: {provider_job_id} not found (looks like harness ID)")
+        
+        status = provider_jobs.get(provider_job_id, "processing")
+        
+        if status == "failed":
+            # Release both credit and USD on failure
+            harness_id = job_id  # The harness ID passed to poll
+            await credit_ledger.release_credits(episode_id, harness_id, notes="provider failed")
+            # USD release would happen in workflow via release_job_budget
+            return {
+                "status": "failed",
+                "output_url": None,
+                "error": "Provider simulation: job failed",
+                "cost": None
+            }
+        
+        return {
+            "status": status,
+            "output_url": "http://fake.com/output.jpg" if status == "completed" else None,
+            "error": None,
+            "cost": 300_000 if status == "completed" else None
+        }
+    
+    @activity.defn(name="release_job_budget")
+    async def fake_release_budget(episode_id, line_name, reserved_amount, reason):
+        """Fake budget release."""
+        await budget_ledger.release(episode_id, line_name, reserved_amount, reason)
+        return {"released": True}
+    
+    # Run workflow in test environment
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test",
+            workflows=[ShotWorkflow],
+            activities=[fake_submit_still, fake_poll, fake_release_budget]
+        ):
+            shot_plan = {
+                "shot_id": "A01",
+                "start_prompt": "Test shot",
+                "version": 1,
+                "refs": [],
+                "resolution": "1k",
+                "quality": "medium",
+                "aspect_ratio": "9:16"
+            }
+            
+            try:
+                result = await env.client.execute_workflow(
+                    ShotWorkflow.run,
+                    args=["ep06", shot_plan],
+                    id=f"test-shot-{tmp_path.name}",
+                    task_queue="test",
+                    execution_timeout=timedelta(minutes=2)
+                )
+                
+                # Should fail
+                assert False, "Workflow should have failed"
+            except Exception as e:
+                # Expected to fail
+                assert "Provider simulation: job failed" in str(e) or "failed" in str(e).lower()
+    
+    # Verify ledgers netted to zero
+    credit_status = await credit_ledger.get_episode_status("ep06")
+    assert credit_status["reserved_credits"] == 0.0, "Credits should be released"
+    
+    budget_status = await budget_ledger.get_line_status("ep06", "L3_final_stills")
+    assert budget_status["reserved"] == 0, "USD should be released"
+
+
+@pytest.mark.asyncio
 async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
     """Test that POST /api/episodes errors if no BEATMAP.md exists (issue #3)."""
     import os

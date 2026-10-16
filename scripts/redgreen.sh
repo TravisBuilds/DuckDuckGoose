@@ -1180,6 +1180,16 @@ test_mutation 110 "M-R5f Unknown models fall back to STILL_MAX_REFS" \
     "tests/test_model_ref_caps.py::test_unknown_model_falls_back_to_still_max_refs" \
     sed -i 's/^    return int(os.getenv("STILL_MAX_REFS", "3"))$/    return 3  # MUTATED/'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG FIX MUTATIONS: Harness canary bugs (PR #10)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 111. BUG 2: poll_job_status resolves harness→provider ID
+test_mutation 111 "BUG 2: poll uses provider ID not harness ID" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_canary_bugs.py::test_workflow_polls_with_provider_id_not_harness_id" \
+    sed -i 's/job_status = await provider.get_job_status(provider_job_id)/job_status = await provider.get_job_status(job_id)  # MUTATED - use harness ID/'
+
 # Print final summary
 print_summary
 exit_code=$?
