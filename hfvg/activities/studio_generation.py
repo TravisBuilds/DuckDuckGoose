@@ -254,8 +254,17 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Generate job_id (will be used as provider idempotency key)
+    # Generate job_id (harness identifier)
     job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    
+    # Generate idempotency key from hash of actual request parameters
+    # This ensures identical requests dedupe but different requests don't collide
+    # Key = harness_job_id + hash of (model, prompt, resolution, quality, aspect_ratio, refs)
+    import hashlib
+    refs_str = ",".join(sorted(refs)) if refs else ""
+    key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}"
+    key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+    idempotency_key = f"{job_id}-{key_hash}"
     
     # Estimate credits for credit ledger
     # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
@@ -376,9 +385,22 @@ async def submit_still_job_enforced(
                 resolution=resolution,
                 quality=quality,
                 image_urls=uploaded_refs,
-                idempotency_key=job_id,  # Use job_id as provider idempotency key
+                idempotency_key=idempotency_key,
                 aspect_ratio=aspect_ratio,
             )
+        except httpx.HTTPStatusError as e:
+            # Capture provider error details (especially 422 idempotency conflicts)
+            error_detail = f"Provider {e.response.status_code}: {e.response.text}"
+            activity.logger.error(f"Provider error for {job_id}: {error_detail}")
+            # Release both reservations before re-raising
+            await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+            raise ValueError(error_detail) from e
+        except Exception as e:
+            # Release both reservations on any other error
+            await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+            raise
             
             # Store the provider job id for polling (not the harness job_id)
             # The provider may return a different job_id than our idempotency key
@@ -549,19 +571,15 @@ async def submit_clip_job_enforced(
             "Approve credit plan before generating."
         )
     
-    # Generate idempotency key including all parameters that affect generation
-    idempotency_key = generate_idempotency_key(
-        episode_id=episode_id,
-        shot_id=shot_id,
-        version=version,
-        prompt=f"clip:{prompt}",
-        start_image=start_image_url,
-        duration=duration,
-        model=route.model,
-        resolution=route.resolution,
-        end_image=end_image_url,
-        prompt_hash=hashlib.sha256(prompt.encode()).hexdigest(),
-    )
+    # Generate harness job_id
+    job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+    
+    # Generate idempotency key from hash of actual request parameters
+    # This ensures identical requests dedupe but different requests don't collide
+    import hashlib
+    key_input = f"{route.model}|{start_image_url}|{end_image_url or ''}|{prompt}|{duration}"
+    key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+    idempotency_key = f"{job_id}-{key_hash}"
     
     # Initialize provider
     provider = SeedanceVideoProvider() if route.model == "seedance" else KlingVideoProvider()
@@ -701,16 +719,29 @@ async def submit_clip_job_enforced(
                     resolution=route.resolution,
                     bitrate_mode=bitrate_mode,
                     end_image_url=end_image_url,
-                    idempotency_key=job_id,  # Use job_id as provider idempotency key
+                    idempotency_key=idempotency_key,
                 )
             else:
                 provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),  # Must be integer
-                    idempotency_key=job_id,  # Use job_id as provider idempotency key
+                    idempotency_key=idempotency_key,
                     end_image_url=end_image_url,
                 )
+        except httpx.HTTPStatusError as e:
+            # Capture provider error details (especially 422 idempotency conflicts)
+            error_detail = f"Provider {e.response.status_code}: {e.response.text}"
+            activity.logger.error(f"Provider error for {job_id}: {error_detail}")
+            # Release both reservations before re-raising
+            await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+            raise ValueError(error_detail) from e
+        except Exception as e:
+            # Release both reservations on any other error
+            await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+            raise
             
             # Store the provider job id for polling (not the harness job_id)
             # The provider may return a different job_id than our idempotency key

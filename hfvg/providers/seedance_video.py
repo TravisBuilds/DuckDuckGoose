@@ -19,6 +19,8 @@ Policy:
 
 import hashlib
 import os
+from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -57,6 +59,66 @@ class SeedanceVideoProvider(GenerationProvider):
 
     async def close(self):
         await self.client.aclose()
+
+    async def upload_reference(self, image_path: str | Path, version: int = 1) -> dict:
+        """
+        Upload reference image and return upload result with URL.
+        
+        Uses upload cache to avoid re-uploading the same file.
+        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
+        
+        Args:
+            image_path: Path to reference image
+            version: Version number for cache key (default: 1)
+        
+        Returns:
+            dict with 'public_url' (the CDN URL for the uploaded file)
+        """
+        import mimetypes
+        from hfvg.upload_cache import UploadCache
+        from pathlib import Path as PathLib
+        
+        # Check upload cache first
+        cache = UploadCache()
+        await cache.init_db()
+        
+        cached_url = await cache.get_cached_url(str(image_path), version)
+        if cached_url:
+            return {"public_url": cached_url}
+        
+        # Not in cache or HEAD check failed - upload the file
+        
+        # Determine content type from file extension
+        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        
+        # Get upload URL (REQUIRES content_type)
+        response = await self.client.post(
+            "/files/generate-upload-url",
+            json={"content_type": content_type}
+        )
+        response.raise_for_status()
+        data = response.json()
+        upload_url = data["upload_url"]
+        public_url = data["public_url"]
+        upload_headers = data["upload_headers"]
+        
+        # Upload file with exact headers from API (includes x-amz-tagging)
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        
+        # Use a plain httpx client for the PUT (no auth, just upload_headers)
+        async with httpx.AsyncClient() as plain_client:
+            upload_response = await plain_client.put(
+                upload_url,
+                content=image_bytes,
+                headers=upload_headers
+            )
+            upload_response.raise_for_status()
+        
+        # Cache the uploaded URL
+        await cache.cache_url(str(image_path), version, public_url)
+        
+        return {"public_url": public_url}
 
     @staticmethod
     def validate(duration: int, resolution: str, bitrate_mode: str | None = None) -> None:

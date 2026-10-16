@@ -92,17 +92,32 @@ class KlingVideoProvider(GenerationProvider):
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-clip-{hash_digest}"
     
-    async def upload_image(self, image_path: str | Path) -> str:
+    async def upload_reference(self, image_path: str | Path, version: int = 1) -> dict:
         """
-        Upload start image and return public URL.
+        Upload reference image and return upload result with URL.
+        
+        Uses upload cache to avoid re-uploading the same file.
+        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
         
         Args:
-            image_path: Path to start image
+            image_path: Path to reference image
+            version: Version number for cache key (default: 1)
         
         Returns:
-            public_url for use in generation
+            dict with 'public_url' (the CDN URL for the uploaded file)
         """
         import mimetypes
+        from hfvg.upload_cache import UploadCache
+        
+        # Check upload cache first
+        cache = UploadCache()
+        await cache.init_db()
+        
+        cached_url = await cache.get_cached_url(str(image_path), version)
+        if cached_url:
+            return {"public_url": cached_url}
+        
+        # Not in cache or HEAD check failed - upload the file
         
         # Determine content type from file extension
         content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
@@ -131,7 +146,23 @@ class KlingVideoProvider(GenerationProvider):
             )
             upload_response.raise_for_status()
         
-        return public_url
+        # Cache the uploaded URL
+        await cache.cache_url(str(image_path), version, public_url)
+        
+        return {"public_url": public_url}
+    
+    async def upload_image(self, image_path: str | Path) -> str:
+        """
+        Upload start image and return public URL (legacy method).
+        
+        Args:
+            image_path: Path to start image
+        
+        Returns:
+            public_url for use in generation
+        """
+        result = await self.upload_reference(image_path, version=1)
+        return result["public_url"]
     
     async def _estimate_response(
         self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None

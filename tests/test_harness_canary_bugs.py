@@ -361,6 +361,7 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
     
     # Create fake activities that simulate provider behavior
     provider_jobs = {}  # Map provider_job_id -> status
+    polled_job_ids = []  # Track which job IDs were polled
     
     @activity.defn(name="submit_still_job_enforced")
     async def fake_submit_still(episode_id, shot_id, prompt, version, refs=None, 
@@ -393,6 +394,9 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
         Fake poll that 404s on harness IDs and returns status for provider IDs.
         This simulates the real provider behavior that BUG 2 would hit.
         """
+        # Track which job_id was polled (for assertions)
+        polled_job_ids.append(job_id)
+        
         # Resolve harness → provider (this is what the fix does)
         provider_job_id = await credit_ledger.get_provider_job(job_id)
         
@@ -516,6 +520,13 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
     
     budget_status = await budget_ledger.get_line_status("ep06", "L3_final_stills")
     assert budget_status["reserved"] == 0, "USD should be released"
+    
+    # CRITICAL ASSERTION: Verify poll was called with HARNESS ID, not provider ID
+    # The poll activity receives the harness ID and must resolve it internally
+    assert len(polled_job_ids) > 0, "Poll should have been called"
+    for polled_id in polled_job_ids:
+        assert polled_id.startswith("still-"), f"Poll must be called with harness ID (still-...), got: {polled_id}"
+        assert not polled_id.startswith("provider_"), f"Poll must NOT be called with provider ID, got: {polled_id}"
 
 
 @pytest.mark.asyncio
@@ -607,3 +618,104 @@ async def test_balance_accepts_string_or_numeric(tmp_path):
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_clip_submit_persists_provider_job_mapping(tmp_path):
+    """Test that clip submit persists the provider job mapping for polling."""
+    
+    # Setup test environment
+    import os
+    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    os.environ["DRY_RUN"] = "false"
+    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    
+    # Initialize DB
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(os.environ["DATABASE_PATH"])
+    await create_episode(os.environ["DATABASE_PATH"], "ep05", None)
+    await set_live_mode(os.environ["DATABASE_PATH"], "ep05", True, "test")
+    await approve_g108(os.environ["DATABASE_PATH"], "ep05", "test")
+    
+    # Initialize budget with all necessary lines
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    await ledger.init_db()
+    await ledger.set_line("ep05", "L4_video", 100_000_000, 80_000_000, "higgsfield")
+    await ledger.set_manual_balance(100_000_000, "test", "test balance")
+    
+    # Initialize credit ledger
+    from hfvg.credit_ledger import CreditLedger
+    credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep05", cap_credits=10000)
+    
+    # Mock Kling API
+    # Mock estimate
+    estimate_route = respx.post("http://mock.api/estimate/kuaishou/kling-3.0/image-to-video").mock(
+        return_value=httpx.Response(
+            200,
+            json={"credits": "5.0", "usd": "5.0"}
+        )
+    )
+    
+    # Mock submit
+    submit_route = respx.post("http://mock.api/kuaishou/kling-3.0/image-to-video").mock(
+        return_value=httpx.Response(
+            200,
+            json={"request_id": "provider_clip_xyz789"}
+        )
+    )
+    
+    # Mock poll
+    poll_route = respx.get("http://mock.api/requests/provider_clip_xyz789/status").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "video": {"url": "http://example.com/clip.mp4"},
+                "cost": 5.0
+            }
+        )
+    )
+    
+    # Submit clip job
+    from hfvg.activities.studio_generation import submit_clip_job_enforced, poll_job_status
+    
+    result = await submit_clip_job_enforced(
+        episode_id="ep05",
+        shot_id="A01",
+        start_image_url="http://example.com/still.jpg",
+        prompt="A duck swimming",
+        duration=5.0,
+        version=1,
+        shot_meta={
+            "count": 1,
+            "exterior": True,
+            "water": True,
+            "characters": ["duck"]
+        },
+        model="kling"
+    )
+    
+    # Verify mapping was persisted
+    harness_job_id = result["job_id"]
+    assert harness_job_id == "clip-ep05-A01-v1"
+    
+    provider_job_id = await credit_ledger.get_provider_job(harness_job_id)
+    assert provider_job_id == "provider_clip_xyz789", "Provider job mapping must be persisted"
+    
+    # Now poll using the HARNESS job ID - it should resolve to provider ID internally
+    poll_result = await poll_job_status(
+        job_id=harness_job_id,
+        job_type="clip",
+        episode_id="ep05",
+    )
+    
+    # Verify poll succeeded and used the correct provider ID
+    assert poll_result["status"] == "completed"
+    assert poll_result["output_url"] == "http://example.com/clip.mp4"
+    assert poll_route.call_count == 1, "Poll should use the provider job ID"
+

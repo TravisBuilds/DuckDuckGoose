@@ -943,19 +943,26 @@ async def test_set_ref_versions_endpoint(test_db_api, tmp_path, monkeypatch):
     episode_dir.mkdir(parents=True, exist_ok=True)
     
     monkeypatch.setenv("DATABASE_PATH", str(test_db_api))
-    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     
     from hfvg.studio_db import init_studio_db, create_episode
     await init_studio_db(str(test_db_api))
     await create_episode(str(test_db_api), "ep99")
     
+    # Create async client
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
     
-    # Test setting ref versions
+    # Login first to get session cookie
+    login_response = await client.post("/api/login", json={"admin_secret": admin_secret})
+    assert login_response.status_code == 200
+    cookies = login_response.cookies
+    
+    # Test setting ref versions with authenticated session
     response = await client.post(
         "/api/episodes/ep99/set-ref-versions",
         json={"r_duck": 2, "r_bird": 1},
-        cookies={"admin_session": "a" * 32}
+        cookies=cookies
     )
     
     assert response.status_code == 200

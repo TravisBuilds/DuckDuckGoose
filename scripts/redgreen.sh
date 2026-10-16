@@ -1216,7 +1216,7 @@ test_mutation 114 "Clip submit persists provider_job mapping" \
 test_mutation 115 "Upload checks cache before uploading" \
     "hfvg/providers/higgsfield_still.py" \
     "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
-    sed -i '/cached_url = await cache.get_cached_url/s/.*/        cached_url = None  # MUTATED - bypass cache/'
+    sed -i '/cached_url = await cache.get_cached_url(str(image_path), version)/s/.*/        cached_url = None  # MUTATED - bypass cache/'
 
 # Print final summary
 print_summary
