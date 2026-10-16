@@ -29,8 +29,13 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
     # Mock Higgsfield API
     with respx.mock:
         # Mock upload URL generation (called only ONCE)
-        upload_url_route = respx.post("http://mock.api/files/generate-upload-url").mock(
-            return_value=httpx.Response(
+        # Verify content_type is sent in request
+        upload_url_calls = []
+        
+        def capture_upload_url_request(request):
+            import json
+            upload_url_calls.append(json.loads(request.content))
+            return httpx.Response(
                 200,
                 json={
                     "upload_url": "http://mock.upload/put-here",
@@ -41,11 +46,24 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
                     }
                 }
             )
+        
+        upload_url_route = respx.post("http://mock.api/files/generate-upload-url").mock(
+            side_effect=capture_upload_url_request
         )
         
         # Mock the actual upload (called only ONCE)
+        # Verify upload_headers are sent
+        upload_calls = []
+        
+        def capture_upload_request(request):
+            upload_calls.append({
+                "content": request.content,
+                "headers": dict(request.headers)
+            })
+            return httpx.Response(200, content=b"")
+        
         upload_route = respx.put("http://mock.upload/put-here").mock(
-            return_value=httpx.Response(200, content=b"")
+            side_effect=capture_upload_request
         )
         
         # Mock HEAD check for cached URL (called on second submit)
@@ -66,6 +84,16 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
         assert result1["public_url"] == "http://mock.cdn/abc123.jpg"
         assert upload_url_route.call_count == 1
         assert upload_route.call_count == 1
+        
+        # Verify content_type was sent in the POST request
+        assert len(upload_url_calls) == 1
+        assert "content_type" in upload_url_calls[0], "content_type must be included in upload URL request"
+        assert upload_url_calls[0]["content_type"] == "image/jpeg"
+        
+        # Verify upload_headers were sent in the PUT request
+        assert len(upload_calls) == 1
+        assert "content-type" in upload_calls[0]["headers"]
+        assert "x-amz-tagging" in upload_calls[0]["headers"]
         
         # Second upload with same file and version - should use cache
         result2 = await provider.upload_reference(str(ref_path), version=1)
