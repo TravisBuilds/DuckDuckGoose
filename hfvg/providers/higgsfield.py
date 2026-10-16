@@ -13,10 +13,16 @@ from hfvg.config import config
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 
-# Model cost estimates from PIPELINE-LESSONS.md §5.1
-# NOTE: These are client-side estimates. No cost estimation endpoint in Higgsfield Cloud API.
+# Model cost estimates
+# NOTE: These are client-side estimates. Use /estimate/{model_path} endpoint for exact costs.
+# Docs: https://docs.higgsfield.ai/docs/concepts/billing-and-retention
 MODEL_COSTS = {
-    # Images (gpt_image_2) - cost per image
+    # Images - SOUL V2 (higgsfield-ai/soul/v2/standard)
+    # https://docs.higgsfield.ai/docs/models/soul-2/generate
+    ("soul_v2", "720p", "standard"): 1.5,  # estimated
+    ("soul_v2", "1080p", "standard"): 2.5,  # estimated
+    ("soul_v2", "2k", "standard"): 4.0,     # estimated
+    # Legacy images (gpt_image_2) - use soul_v2 instead
     ("gpt_image_2", "1k", "low"): 0.5,
     ("gpt_image_2", "1k", "medium"): 1.0,
     ("gpt_image_2", "1k", "high"): 3.5,
@@ -60,12 +66,15 @@ class HiggsfieldProvider(GenerationProvider):
         self.mock_balance = 1500.0  # Mock balance for dry-run
         
         if not self.dry_run:
-            # Get credentials from config (handles multiple formats)
-            self.api_key = api_key or config.get_higgsfield_credentials()
+            # Get credentials from environment (HIGGSFIELD_API_KEY format: id:secret)
+            self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY", "")
             if not self.api_key:
                 raise ValueError(
-                    "Higgsfield credentials not found. Set HF_KEY, HF_API_KEY (with colon), "
-                    "or HF_API_KEY_ID + HF_API_KEY_SECRET environment variables."
+                    "HIGGSFIELD_API_KEY not set. Required for live mode."
+                )
+            if ":" not in self.api_key:
+                raise ValueError(
+                    "HIGGSFIELD_API_KEY must be in format 'id:secret'"
                 )
             
             # Import HTTP client for REST API calls with custom headers
@@ -78,7 +87,7 @@ class HiggsfieldProvider(GenerationProvider):
     async def submit_image(
         self,
         prompt: str,
-        model: str = "gpt_image_2",
+        model: str = "soul_v2",
         resolution: str = "2k",
         quality: str = "high",
         references: list[str] | None = None,
@@ -88,6 +97,7 @@ class HiggsfieldProvider(GenerationProvider):
         Submit image generation job.
         
         Args:
+            model: Model alias ("soul_v2", "gpt_image_2") or direct model path
             idempotency_key: Optional idempotency key for safe retries.
                             If not provided, a random UUID is generated.
         
@@ -98,27 +108,45 @@ class HiggsfieldProvider(GenerationProvider):
             return self._mock_job_id("img")
 
         # Real API call
-        # Model path from config (must be verified in cloud.higgsfield.ai)
-        if model == "gpt_image_2":
+        # Map model aliases to paths, with fallback to SOUL V2
+        # https://docs.higgsfield.ai/docs/models/soul-2/generate
+        if model == "soul_v2":
+            model_path = config.MODEL_PATH_SOUL_V2
+        elif model == "gpt_image_2":
+            # GPT Image 2 not in public API - fallback to SOUL V2
             model_path = config.MODEL_PATH_GPT_IMAGE_2
             if not model_path:
-                raise ValueError(
-                    "MODEL_PATH_GPT_IMAGE_2 not configured. "
-                    "Set environment variable to verified model path from cloud.higgsfield.ai. "
-                    "See docs/PROVIDERS.md for known paths."
+                import warnings
+                warnings.warn(
+                    "GPT Image 2 not available via API. Falling back to SOUL V2 "
+                    "(higgsfield-ai/soul/v2/standard). "
+                    "Set MODEL_PATH_GPT_IMAGE_2 to override, or use model='soul_v2'."
                 )
+                model_path = config.MODEL_PATH_SOUL_V2
         else:
             model_path = model  # Use as-is if not a known alias
         
-        # Build request body
+        # Build request body with only documented SOUL V2 parameters
+        # Docs: https://docs.higgsfield.ai/docs/models/soul-2/generate
+        # Supported: prompt, resolution (720p/1080p), aspect_ratio, enhance_prompt,
+        #            custom_reference_id, custom_reference_strength, style_id,
+        #            style_strength, seed, batch_size
+        # Map our "2k" to "1080p", "1k" to "720p"
+        if resolution == "2k":
+            api_resolution = "1080p"
+        elif resolution == "1k":
+            api_resolution = "720p"
+        else:
+            api_resolution = resolution  # Use as-is if already in API format
+        
         body = {
             "prompt": prompt,
-            "resolution": resolution,
-            "quality": quality,
+            "resolution": api_resolution,
         }
         
-        if references:
-            body["references"] = references
+        # Note: "quality" parameter removed - not in SOUL V2 API schema
+        # References not supported in SOUL V2 text-to-image endpoint
+        # (character references use custom_reference_id parameter instead)
         
         # Generate idempotency key if not provided
         if not idempotency_key:
@@ -217,8 +245,46 @@ class HiggsfieldProvider(GenerationProvider):
         """Not supported by Higgsfield (use ElevenLabs)."""
         raise NotImplementedError("Audio generation not supported by Higgsfield")
 
+    async def poll_job(
+        self,
+        job_id: str,
+        max_polls: int = 180,
+        initial_delay_secs: float = 5.0,
+        max_delay_secs: float = 10.0,
+    ) -> ProviderJob:
+        """
+        Poll job status until completion or failure.
+        
+        Args:
+            job_id: Job ID to poll
+            max_polls: Maximum number of polls (~30 min with default delays)
+            initial_delay_secs: Initial delay between polls
+            max_delay_secs: Maximum delay between polls (exponential backoff)
+        
+        Returns:
+            ProviderJob with final status (completed or failed)
+        
+        Raises:
+            RuntimeError: If polling exhausted or job failed
+        """
+        for poll_count in range(max_polls):
+            delay_secs = min(initial_delay_secs * (1.5 ** (poll_count // 10)), max_delay_secs)
+            
+            status = await self.get_job_status(job_id)
+            
+            if status.status == ProviderJobStatus.COMPLETED:
+                return status
+            elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED):
+                raise RuntimeError(f"Job {job_id} {status.status.value}: {status.error}")
+            
+            # Still processing, wait and retry
+            await asyncio.sleep(delay_secs)
+        
+        # Exhausted polls
+        raise RuntimeError(f"Job {job_id} polling exhausted after {max_polls} attempts (~30 min)")
+    
     async def get_job_status(self, job_id: str) -> ProviderJob:
-        """Poll job status."""
+        """Get current job status (single check, no polling)."""
         if self.dry_run:
             await asyncio.sleep(config.DRY_RUN_STILL_DELAY)
             return ProviderJob(
@@ -303,25 +369,34 @@ class HiggsfieldProvider(GenerationProvider):
         """
         Get current credit balance.
         
-        NOTE: No balance endpoint in SDK. Returns mock in both modes.
-        Travis must check balance via cloud.higgsfield.ai dashboard.
+        NOTE: Higgsfield API has no balance endpoint per official docs (2026-10).
+        Balance is view-only in Console dashboard at console.higgsfield.ai.
+        Docs: https://docs.higgsfield.ai/docs/help/faq
+        
+        Returns mock balance in dry-run; raises NotImplementedError in live mode.
         """
         if self.dry_run:
             return self.mock_balance
         
-        # No balance endpoint - return mock with warning
+        # No balance endpoint available - report error in live mode
+        raise NotImplementedError(
+            "Higgsfield API does not provide a balance endpoint. "
+            "Check your balance at console.higgsfield.ai. "
+            "See: https://docs.higgsfield.ai/docs/help/faq"
+        )
         return self.mock_balance
 
     async def estimate_cost(self, job_type: str, params: dict[str, Any]) -> float:
         """
         Estimate cost before submitting (0 credits).
 
-        Based on client-side model cost card from PIPELINE-LESSONS.md.
-        No cost estimation endpoint in Higgsfield Cloud API.
+        Uses client-side estimates. For exact costs, call /estimate/{model_path}
+        with the same parameters before submission.
+        Docs: https://docs.higgsfield.ai/docs/concepts/billing-and-retention
         """
-        model = params.get("model", "gpt_image_2")
+        model = params.get("model", "soul_v2")
         resolution = params.get("resolution", "2k")
-        quality = params.get("quality", "high")
+        quality = params.get("quality", "standard")
         duration = params.get("duration", 5.0)
 
         if model.startswith("gpt_image"):

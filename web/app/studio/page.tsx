@@ -15,24 +15,19 @@ export default function StudioHomePage() {
 
   const checkAPIHealth = async () => {
     try {
-      // Get admin secret from cookie
-      const secret = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('studio_admin_token='))
-        ?.split('=')[1];
-
-      if (!secret) {
-        router.push('/studio/login');
-        return;
-      }
-
+      // Session cookie is httpOnly - can't read it in JS
+      // Just make API call with credentials: 'include' - if unauthorized, redirect to login
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/health`, {
-        headers: {
-          'Authorization': `Bearer ${secret}`,
-        },
+        credentials: 'include',  // Send httpOnly cookie
       });
+
+      if (response.status === 401 || response.status === 403) {
+        // Not authenticated - redirect to login
+        router.push('/login?from=/studio');
+        return;
+      }
 
       if (!response.ok) {
         throw new Error('API health check failed');
@@ -48,8 +43,12 @@ export default function StudioHomePage() {
     }
   };
 
-  const handleLogout = () => {
-    document.cookie = 'studio_admin_token=; path=/; max-age=0';
+  const handleLogout = async () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    await fetch(`${apiUrl}/api/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    });
     router.push('/');
   };
 

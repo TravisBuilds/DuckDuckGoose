@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Episode Gates - Studio</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        h1 { color: #333; }
+        .gate-card { border: 2px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 6px; }
+        .gate-card.approved { border-color: #4CAF50; background: #f1f8f4; }
+        .gate-card.pending { border-color: #FF9800; background: #fff8f1; }
+        .gate-name { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; }
+        button.approve { background: #4CAF50; color: white; }
+        button.approve:hover { background: #45a049; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .status { display: inline-block; padding: 4px 12px; border-radius: 4px; font-weight: bold; }
+        .status.approved { background: #4CAF50; color: white; }
+        .status.pending { background: #FF9800; color: white; }
+        .error { color: red; margin: 10px 0; padding: 10px; background: #ffe6e6; border-radius: 4px; }
+        .info { color: #666; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Episode Gates</h1>
+        <div class="info">Episode ID: <span id="episode-id"></span></div>
+        <div id="error-message" class="error" style="display: none;"></div>
+        <div id="gates-container"></div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin + '/api';
+        const episodeId = new URLSearchParams(window.location.search).get('episode_id');
+        
+        if (!episodeId) {
+            document.getElementById('error-message').textContent = 'No episode_id provided';
+            document.getElementById('error-message').style.display = 'block';
+        } else {
+            document.getElementById('episode-id').textContent = episodeId;
+            loadGates();
+            setInterval(loadGates, 3000); // Refresh every 3s
+        }
+
+        async function loadGates() {
+            try {
+                const response = await fetch(`${API_BASE}/episodes/${episodeId}`, {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const approvals = data.approvals || {};
+                
+                const gatesContainer = document.getElementById('gates-container');
+                gatesContainer.innerHTML = '';
+                
+                const gates = [
+                    { id: 'g1_shot_plan', name: 'G1: Shot Plan', description: 'Review and approve shot plan' },
+                    { id: 'g2_scene_stills', name: 'G2: Scene Stills', description: 'Review and approve scene stills' },
+                    { id: 'g_final_cut', name: 'G-Final: Final Cut', description: 'Review and approve final cut' }
+                ];
+                
+                gates.forEach(gate => {
+                    const approved = approvals[gate.id] || false;
+                    const gateDiv = document.createElement('div');
+                    gateDiv.className = `gate-card ${approved ? 'approved' : 'pending'}`;
+                    gateDiv.innerHTML = `
+                        <div class="gate-name">${gate.name}</div>
+                        <div>${gate.description}</div>
+                        <div style="margin-top: 10px;">
+                            <span class="status ${approved ? 'approved' : 'pending'}">
+                                ${approved ? 'APPROVED' : 'PENDING'}
+                            </span>
+                            ${!approved ? `<button class="approve" onclick="approveGate('${gate.id}')">Approve</button>` : ''}
+                        </div>
+                    `;
+                    gatesContainer.appendChild(gateDiv);
+                });
+            } catch (error) {
+                document.getElementById('error-message').textContent = 'Failed to load gates: ' + error.message;
+                document.getElementById('error-message').style.display = 'block';
+            }
+        }
+
+        async function approveGate(gateId) {
+            try {
+                const response = await fetch(`${API_BASE}/episodes/${episodeId}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ gate_id: gateId })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                loadGates(); // Refresh immediately
+            } catch (error) {
+                alert('Failed to approve gate: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
