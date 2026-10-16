@@ -82,6 +82,7 @@ declare -a MUTATION_REASONS
 
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 
 log_header() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -271,7 +272,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("SKIP")
         MUTATION_REASONS+=("$skip_reason")
-        PASS_COUNT=$((PASS_COUNT + 1))  # Count skips as passes for overall success
+        SKIP_COUNT=$((SKIP_COUNT + 1))
         return
     fi
     
@@ -430,6 +431,7 @@ print_summary() {
     echo ""
     echo -e "${BLUE}Total tests: ${#MUTATION_NAMES[@]}${NC}"
     echo -e "${GREEN}Passed: $PASS_COUNT${NC}"
+    echo -e "${YELLOW}Skipped: $SKIP_COUNT${NC}"
     echo -e "${RED}Failed: $FAIL_COUNT${NC}"
     echo ""
     
@@ -630,7 +632,7 @@ test_mutation 20 "Still approve route sends signal" \
 test_mutation 23 "M-23 SKIP: Audio stages not implemented (PR #8)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio" \
-    sed -i '1s/^/# M-23: Audio stages stubbed (PR #8)\n/'  # Harmless comment to satisfy file-change check
+    true  # Expected skip - no mutation needed
 
 # 24. EXPECTED SKIP: Delivery stage not implemented (PR #8 stub)
 # Line 60 in episode_v2.py docstring: "Delivery (encode, Drive, Grower handoff - HOLD by default)"
@@ -640,7 +642,7 @@ test_mutation 23 "M-23 SKIP: Audio stages not implemented (PR #8)" \
 test_mutation 24 "M-24 SKIP: Delivery stage not implemented (PR #8)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
-    sed -i '1s/^/# M-24: Delivery stage stubbed (PR #8)\n/'  # Harmless comment to satisfy file-change check
+    true  # Expected skip - no mutation needed
 
 # 25. Stills approved wait (retargeted from human-approved check)
 test_mutation 25 "Workflow waits for parent stills_approved signal" \
@@ -1076,7 +1078,7 @@ test_mutation 92 "M-R4x End-image URL is stored from the end-frame still result"
 test_mutation 93 "M-R4y SKIP: Synchronous generation replaced async signal" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
-    sed -i '1s/^/# M-93: Async signal pattern obsolete (synchronous generation)\n/'  # Harmless comment
+    true  # Expected skip - no mutation needed
 
 # 94. M-R4z Workflow passes the end image to the clip activity
 test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
