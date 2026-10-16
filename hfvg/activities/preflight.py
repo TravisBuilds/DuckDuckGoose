@@ -43,10 +43,10 @@ async def preflight_validate_episode_activity(
     base_path = Path(f"data/episodes/{episode_id}")
     problems = []
     
-    # 1. Check beatmap exists and is parseable
-    beatmap_path = base_path / "beatmap.txt"
+    # 1. Check beatmap exists and is parseable (same path workflow uses)
+    beatmap_path = base_path / "BEATMAP.md"
     if not beatmap_path.exists():
-        problems.append(f"Missing required file: beatmap.txt")
+        problems.append(f"Missing required file: BEATMAP.md")
         beatmap_shots = set()
     else:
         try:
@@ -188,17 +188,18 @@ async def preflight_validate_episode_activity(
         if duration is not None and (not isinstance(duration, (int, float)) or duration <= 0):
             problems.append(f"Shot {shot_id}: invalid duration {duration}")
         
-        # Check if shot needs more refs than model allows
+        # Check if shot needs more refs than the STILL model allows
+        # (refs are for stills, not clips - clips only get start/end frames)
         ref_keys = shot_data.get("ref_keys", [])
-        if model and ref_keys:
+        if ref_keys:
             from hfvg.config import max_refs_for, still_model_path
-            # Map short codes to full model paths
-            model_map = {"kling": "kling-video/v3.0/pro/image-to-video", "higgsfield": still_model_path(), "seedance": "bytedance/seedance-2.5/reference-to-video"}
-            full_model = model_map.get(model, model)
-            ref_cap = max_refs_for(full_model)
+            # Stills always use the still model, regardless of clip model
+            still_model = still_model_path()
+            ref_cap = max_refs_for(still_model)
             if len(ref_keys) > ref_cap:
                 problems.append(
-                    f"Shot {shot_id}: needs {len(ref_keys)} refs but model '{model}' only allows {ref_cap}"
+                    f"Shot {shot_id}: needs {len(ref_keys)} refs but still model allows {ref_cap} "
+                    f"(still model: {still_model})"
                 )
     
     # 7. Live mode: check API key
