@@ -908,3 +908,56 @@ async def test_canary_live_prompt_lint_refuses_before_estimate_and_reserve(test_
     assert est_still.call_count == 0 and est_clip.call_count == 0
     status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
     assert status["reserved"] == 0
+
+
+@pytest.mark.asyncio
+async def test_lint_endpoint_returns_violations(test_db_api, monkeypatch):
+    """Test: POST /api/lint returns lint violations for invalid prompts."""
+    from api.main import app
+    from httpx import AsyncClient, ASGITransport
+    
+    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    
+    # Test with a prompt that has violations
+    response = await client.post("/api/lint", json={
+        "prompt": "Missing count clause here",
+        "live": False
+    })
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert "problems" in data
+    assert len(data["problems"]) > 0  # Should have violations
+
+
+@pytest.mark.asyncio
+async def test_set_ref_versions_endpoint(test_db_api, tmp_path, monkeypatch):
+    """Test: POST /api/episodes/{episode_id}/set-ref-versions updates versions."""
+    from api.main import app
+    from httpx import AsyncClient, ASGITransport
+    import json
+    from pathlib import Path
+    
+    # Setup episode directory
+    episode_dir = tmp_path / "data" / "episodes" / "ep99"
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    
+    monkeypatch.setenv("DATABASE_PATH", str(test_db_api))
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    
+    from hfvg.studio_db import init_studio_db, create_episode
+    await init_studio_db(str(test_db_api))
+    await create_episode(str(test_db_api), "ep99")
+    
+    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    
+    # Test setting ref versions
+    response = await client.post(
+        "/api/episodes/ep99/set-ref-versions",
+        json={"r_duck": 2, "r_bird": 1},
+        cookies={"admin_session": "a" * 32}
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["updated"] is True

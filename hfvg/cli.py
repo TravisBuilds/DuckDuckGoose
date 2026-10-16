@@ -27,7 +27,8 @@ def lint(episode_id: str):
     episode_dir = Path("./data/episodes") / episode_id
     if not episode_dir.exists():
         click.echo(f"❌ Episode directory not found: {episode_dir}", err=True)
-        return 1
+        import sys
+        sys.exit(1)
     
     issues = []
     warnings = []
@@ -98,9 +99,11 @@ def lint(episode_id: str):
     
     if not issues and not warnings:
         click.echo(f"\n✓ {episode_id}: All checks passed")
-        return 0
+        import sys
+        sys.exit(0)
     
-    return 1 if issues else 0
+    import sys
+    sys.exit(1 if issues else 0)
 
 
 @cli.command()
