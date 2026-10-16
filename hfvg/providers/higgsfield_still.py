@@ -103,7 +103,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         Returns:
             dict with 'media_id' and 'url' (the actual accessible URL for the uploaded file)
         """
-        # Get upload URL
+        # Get upload URL and metadata
         response = await self.client.post(
             "/files/generate-upload-url",
             json={"filename": Path(image_path).name}
@@ -113,27 +113,32 @@ class HiggsfieldStillProvider(GenerationProvider):
         upload_url = data["upload_url"]
         media_id = data["media_id"]
         
+        # Check if API returns file_url in the initial response
+        file_url = data.get("file_url") or data.get("url")
+        
         # Upload file
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         
-        # Use a plain httpx client for the PUT (no auth needed)
+        # Use a plain httpx client for the PUT (no auth needed for presigned URL)
         async with httpx.AsyncClient() as plain_client:
             upload_response = await plain_client.put(upload_url, content=image_bytes)
             upload_response.raise_for_status()
             
-            # Check if response contains the actual URL
-            try:
-                upload_data = upload_response.json()
-                # Provider returns the actual accessible URL in the response
-                if "url" in upload_data:
-                    return {"media_id": media_id, "url": upload_data["url"]}
-            except:
-                pass
+            # Presigned PUTs typically return empty body, but check anyway
+            if not file_url and upload_response.text:
+                try:
+                    upload_data = upload_response.json()
+                    file_url = upload_data.get("url") or upload_data.get("file_url")
+                except:
+                    pass
         
-        # Fallback: construct URL from media_id (this is what we were doing wrong before)
-        # The actual URL format should come from the API response
-        return {"media_id": media_id, "url": f"{self.base_url}/files/{media_id}"}
+        # If still no file_url, construct it from media_id
+        # Based on Higgsfield API pattern: /files/{media_id}
+        if not file_url:
+            file_url = f"{self.base_url}/files/{media_id}"
+        
+        return {"media_id": media_id, "url": file_url}
     
     async def _estimate_response(
         self,
