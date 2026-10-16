@@ -84,8 +84,13 @@ Duck swimming.
         ]
     }))
     
-    # refs.json (no refs needed)
-    (ep_dir / "refs.json").write_text(json.dumps({"available": [], "to_generate": []}))
+    # refs.json (per_shot format, no refs needed for these shots)
+    (ep_dir / "refs.json").write_text(json.dumps({
+        "per_shot": {
+            "A01": [],
+            "A02": []
+        }
+    }))
     
     # prompt_kit.json
     (ep_dir / "prompt_kit.json").write_text(json.dumps({}))
