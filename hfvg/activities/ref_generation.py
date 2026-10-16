@@ -149,24 +149,26 @@ async def generate_ref_activity(
     from hfvg.pricing import usd_to_micros
     estimated_usd_micros = usd_to_micros("0.09")  # ~90,000 usd_micros per ref
     
-    # Reserve USD budget from L1_refs line (must exist)
+    # Initialize USD ledger for live mode
     from hfvg.budget import BudgetLedger
     usd_ledger = BudgetLedger(db_path)
     await usd_ledger.init_db()
     
-    usd_reserved = await usd_ledger.reserve(
-        episode_id=episode_id,
-        line_name="L1_refs",
-        amount_usd_micros=estimated_usd_micros,
-        reason=f"Ref {ref_key} v{version}",
-        require_balance=not dry_run,
-    )
-    
-    if not usd_reserved:
-        raise ValueError(
-            f"USD budget reserve failed for L1_refs. "
-            f"At or over 80% stop threshold. Requested: {estimated_usd_micros} usd_micros."
+    # Reserve USD budget from L1_refs line (live mode only)
+    if not dry_run:
+        usd_reserved = await usd_ledger.reserve(
+            episode_id=episode_id,
+            line_name="L1_refs",
+            amount_usd_micros=estimated_usd_micros,
+            reason=f"Ref {ref_key} v{version}",
+            require_balance=True,  # Always require balance in live mode
         )
+        
+        if not usd_reserved:
+            raise ValueError(
+                f"USD budget reserve failed for L1_refs. "
+                f"At or over 80% stop threshold. Requested: {estimated_usd_micros} usd_micros."
+            )
     
     # Reserve credits from credit ledger
     ledger = CreditLedger(db_path)
@@ -197,16 +199,8 @@ async def generate_ref_activity(
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
             version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
             
-            # Commit credits and USD (dry mode completes instantly)
+            # Commit credits only (no USD reservation in dry mode)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
-            await usd_ledger.commit(
-                episode_id=episode_id,
-                line_name="L1_refs",
-                reserved_usd_micros=estimated_usd_micros,
-                actual_usd_micros=estimated_usd_micros,
-                job_id=job_id,
-                reason=f"Ref {ref_key} v{version} completed (dry)"
-            )
         else:
             # Live mode: call provider
             # Check if we already submitted this job (activity retry)
@@ -309,15 +303,16 @@ async def generate_ref_activity(
                 committed = row[0] > 0
         
         if not committed:
-            # Provider failed before completing - release credits and USD
+            # Provider failed before completing - release credits (and USD in live mode)
             activity.logger.info(f"Provider failed, releasing credits and USD for {job_id}: {e}")
             await ledger.release_credits(episode_id, job_id)
-            await usd_ledger.release(
-                episode_id=episode_id,
-                line_name="L1_refs",
-                amount_usd_micros=estimated_usd_micros,
-                reason=f"Ref {ref_key} failed: {str(e)[:100]}"
-            )
+            if not dry_run:
+                await usd_ledger.release(
+                    episode_id=episode_id,
+                    line_name="L1_refs",
+                    amount_usd_micros=estimated_usd_micros,
+                    reason=f"Ref {ref_key} failed: {str(e)[:100]}"
+                )
         else:
             # Provider completed (charged) but QC or download failed - credits and USD already committed
             activity.logger.info(f"Provider completed, credits and USD already committed for {job_id}")
