@@ -266,7 +266,7 @@ async def submit_still_job_enforced(
     # Use pricing table for credit estimation (provider will call /estimate separately for USD cost)
     estimated_credits = estimate_still_credits(model_path, pricing_quality)
     
-    # Reserve credits from credit ledger
+    # Reserve credits from credit ledger BEFORE any network calls
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
     
