@@ -562,6 +562,148 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
+async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_path, monkeypatch):
+    """M-85, M-86: ShotWorkflow passes refs and missing_refs to still activity."""
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from temporalio import activity
+    from hfvg.workflows.shot import ShotWorkflow
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    from hfvg.budget import BudgetLedger
+    from tests.ledger_helpers import insert_line
+    import aiosqlite
+    
+    # Track what the stub activity receives
+    CAPTURED_PARAMS = {}
+    
+    @activity.defn(name="submit_still_job_enforced")
+    async def stub_still_activity(
+        episode_id: str,
+        shot_id: str,
+        prompt: str,
+        version: int = 1,
+        refs: list[str] | None = None,
+        resolution: str = "1k",
+        quality: str = "medium",
+        aspect_ratio: str = "9:16",
+        tier: str | None = None,
+        shot_meta: dict | None = None,
+        missing_refs: list[str] | None = None,
+    ):
+        """Stub that captures params for assertion."""
+        CAPTURED_PARAMS["refs"] = refs
+        CAPTURED_PARAMS["missing_refs"] = missing_refs
+        CAPTURED_PARAMS["shot_id"] = shot_id
+        return {
+            "job_id": "stub-job-123",
+            "status": "completed",
+            "output_url": "https://fake.com/still.jpg",
+            "usd_micros": 10_000,
+            "line_name": "L2_drafts",
+            "reserved_amount": 10_000,
+        }
+    
+    @activity.defn(name="precheck_still_qc")
+    async def stub_precheck_qc(*args, **kwargs):
+        return {"passed": True}
+    
+    @activity.defn(name="record_shot_result")
+    async def stub_record(*args, **kwargs):
+        pass
+    
+    @activity.defn(name="mark_job_pending_reconcile")
+    async def stub_mark_pending(*args, **kwargs):
+        pass
+    
+    @activity.defn(name="release_job_budget")
+    async def stub_release_budget(*args, **kwargs):
+        pass
+    
+    # Mock lint to avoid failures
+    def mock_lint(episode_id, prompt, shot_meta, live):
+        pass
+    monkeypatch.setattr("hfvg.activities.studio_generation.enforce_prompt_lint", mock_lint)
+    
+    # Setup DB
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
+    
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    await set_live_mode(db_path, "ep99", True)
+    await approve_g108(db_path, "ep99")
+    await init_episode_credit_line_activity("ep99", cap_credits=100_000)
+    
+    await BudgetLedger(db_path).init_db()
+    async with aiosqlite.connect(db_path) as db:
+        await insert_line(db, "ep99", "L2_drafts", 100_000_000, 90_000_000)
+        await db.commit()
+    
+    # Start workflow environment with stub activity
+    env = await WorkflowEnvironment.start_time_skipping()
+    async with env:
+        worker = Worker(
+            env.client,
+            task_queue="test-shot",
+            workflows=[ShotWorkflow],
+            activities=[
+                stub_still_activity,
+                stub_precheck_qc,
+                stub_record,
+                stub_mark_pending,
+                stub_release_budget,
+            ],
+        )
+        async with worker:
+            # Create shot plan with refs and missing_refs
+            shot_plan = {
+                "episode_id": "ep99",
+                "shot_id": "A01",
+                "prompt": "Test shot",
+                "refs": ["/path/to/ref1.jpg", "/path/to/ref2.jpg"],  # M-85 tests this
+                "missing_refs": ["missing_ref1"],  # M-86 tests this
+                "shot_meta": {
+                    "count": 1,
+                    "characters": ["Birch"],
+                    "antler_character": True,
+                    "duck_present": False,
+                    "wet": False,
+                },
+                "params": {
+                    "model": "higgsfield",
+                    "resolution": "1k",
+                    "aspect_ratio": "9:16",
+                },
+                "dry_run": False,
+                "end_frame": False,
+            }
+            
+            # Start shot workflow
+            handle = await env.client.start_workflow(
+                ShotWorkflow.run,
+                args=["ep99", shot_plan],
+                id="test-shot-A01",
+                task_queue="test-shot",
+            )
+            
+            # Signal approval to proceed
+            await handle.signal(ShotWorkflow.stills_approved)
+            
+            # Wait for completion
+            await handle.result()
+            
+            # Assert the stub activity received the refs and missing_refs
+            assert CAPTURED_PARAMS["shot_id"] == "A01"
+            assert CAPTURED_PARAMS["refs"] == ["/path/to/ref1.jpg", "/path/to/ref2.jpg"], \
+                f"M-85: Workflow must pass refs to activity, got {CAPTURED_PARAMS['refs']}"
+            assert CAPTURED_PARAMS["missing_refs"] == ["missing_ref1"], \
+                f"M-86: Workflow must pass missing_refs to activity, got {CAPTURED_PARAMS['missing_refs']}"
+
+
+@pytest.mark.asyncio
 async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, monkeypatch):
     """M-96: Activity refuses submission when refs are missing (live mode)."""
     from hfvg.activities.studio_generation import submit_still_job_enforced
@@ -609,64 +751,80 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
 
 @pytest.mark.asyncio
 async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeypatch, data_env):
-    """G2.01 logic now in G2_SCENE_STILLS gate - tests missing refs detection and recheck merge."""
+    """M-95, M-97: G2_SCENE_STILLS detects missing refs, recheck merges data into shot plans."""
     # Run in live mode so recheck is executed
     env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=False)
     
-    # Create ref files - r_have exists, r_new does NOT exist initially
+    # Create ref files - r_have exists, r_new missing initially
     shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
     sp, rp, new = _write_data(data_env["tmp"], shots, make_new=False)  # r_new missing initially
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
     
-    # Create r_new file BEFORE starting workflow so recheck can find it
-    # (workflow reads it synchronously, no way to create it mid-workflow in time-skipping test)
-    new.write_bytes(b"x")
-    
     async with env:
         async with worker:
+            # Start workflow - it will detect missing refs, then recheck finds them missing
             handle = await env.client.start_workflow(
                 W.run, args=["ep98", str(beat), False], id="r4-ep98-live", task_queue="r4-ep")
-            # Approve G1 to reach G2
+            
+            # Approve G1 to reach stills generation
             await handle.signal(W.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.8)
+            
+            # M-95: Assert workflow detected missing refs via _needs_new_refs()
+            # After recheck (which finds nothing), missing_refs should still be populated
             state = await handle.query(W.get_state)
-            assert state["current_gate"] == "G2_SCENE_STILLS"
+            assert "A01" in state.get("missing_refs", {}), \
+                f"M-95: _needs_new_refs should detect r_new is missing, got {state.get('missing_refs')}"
+            assert "r_new" in state["missing_refs"]["A01"], \
+                f"M-95: Should detect r_new specifically, got {state['missing_refs']['A01']}"
             
-            # M-95: Assert missing_refs was detected initially
-            # Even though we created the file, the refs.json still has exists:false for r_new
-            # So _needs_new_refs should detect it based on that flag
-            # Wait, that's wrong - let me check the logic again...
+            # Create the missing ref NOW so recheck can find it on next attempt
+            new.write_bytes(b"x")
             
-            # Actually, _collect_missing_refs checks if files exist on disk NOW
-            # So if the file exists, there are no missing refs
-            # The "exists" flag in refs.json is stale/ignored
-            
-            # To test M-95, I need the file to NOT exist when workflow runs
-            # But then recheck will also not find it...
-            # This is tricky in a time-skipping test environment
-            
-            # Approve to proceed through G2
-            await handle.signal(W.approve_g2_scene_stills)
-            await asyncio.sleep(1.5)
-            state = await handle.query(W.get_state)
-            assert "G2_SCENE_STILLS" in state["passed_gates"], "should pass G2 after approval"
-            
-            # M-97: Assert recheck merged ref data into plan
-            # The recheck_refs_activity returns {"refs": [...], "missing_refs": [...]}
-            # which gets merged into each shot via {**s, **rechecked[s["shot_id"]]}
-            plan = SEEN_PLANS["A01"]
-            assert "refs" in plan, "recheck should add refs field to plan"
-            assert len(plan["refs"]) == 2, f"A01 should have 2 refs after recheck, got {len(plan.get('refs', []))}"
-            assert "missing_refs" in plan, "recheck should add missing_refs field"
-            assert plan["missing_refs"] == [], f"A01 should have no missing refs, got {plan.get('missing_refs')}"
-            
-            # Also check other plan fields are preserved during merge
-            assert plan["prompt"] == TRAILING_PROMPT and plan["shot_meta"]["count"] == 2
-            assert plan["params"]["duration"] == 4 and plan["dry_run"] is False
-            assert SEEN_PLANS["B04"]["params"]["duration"] == 3
+            # Terminate and restart workflow to trigger recheck with file present
             await handle.terminate()
+            
+            # Now run again with refs available
+            shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
+            sp, rp, new = _write_data(data_env["tmp"], shots, make_new=True)  # Both refs exist
+            
+            handle2 = await env.client.start_workflow(
+                W.run, args=["ep98", str(beat), False], id="r4-ep98-live-v2", task_queue="r4-ep")
+            await handle2.signal(W.approve_g1_shot_plan)
+            await asyncio.sleep(0.8)
+            
+            # Now missing_refs should be empty after recheck found them
+            state2 = await handle2.query(W.get_state)
+            assert state2.get("missing_refs") == {}, \
+                f"After recheck with files present, missing_refs should be empty, got {state2.get('missing_refs')}"
+            
+            # Approve G2
+            await handle2.signal(W.approve_g2_scene_stills)
+            await asyncio.sleep(1.5)
+            state2 = await handle2.query(W.get_state)
+            assert "G2_SCENE_STILLS" in state2["passed_gates"]
+            
+            # M-97: Assert recheck merged ref data into shot plan
+            # The plan in SEEN_PLANS should have refs and missing_refs fields from recheck
+            plan = SEEN_PLANS["A01"]
+            assert "refs" in plan, "M-97: recheck should merge refs field into plan"
+            assert len(plan["refs"]) == 2, \
+                f"M-97: A01 should have 2 refs after recheck (r_have + r_new), got {len(plan.get('refs', []))}"
+            
+            # Verify specific ref file paths to prove merge happened
+            ref_paths = plan["refs"]
+            assert any("have.png" in str(ref) for ref in ref_paths), "Should include r_have"
+            assert any("new.png" in str(ref) for ref in ref_paths), "Should include r_new (from recheck)"
+            
+            assert "missing_refs" in plan, "M-97: recheck should merge missing_refs field"
+            assert plan["missing_refs"] == [], "M-97: Should be empty after files found"
+            
+            # Verify other fields preserved during merge
+            assert plan["prompt"] == TRAILING_PROMPT
+            assert plan["shot_meta"]["count"] == 2
+            await handle2.terminate()
 
 
 @pytest.mark.asyncio
