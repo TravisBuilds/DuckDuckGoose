@@ -1908,15 +1908,27 @@ async def lint_episode(
             issues.append(f"shots.json parse error: {str(e)}")
     
     # Check budget configuration
+    # Only warn if episode has reached G1.08 approval but has no budget lines
     import aiosqlite
+    g108_approved = False
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+            "SELECT g108_approved FROM episodes WHERE episode_id = ?",
             (episode_id,)
         ) as cursor:
             row = await cursor.fetchone()
-            if row[0] == 0:
-                warnings.append("No budget lines configured")
+            if row:
+                g108_approved = bool(row[0])
+    
+    if g108_approved:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row[0] == 0:
+                    warnings.append("No budget lines configured (G1.08 approved but budget not initialized)")
     
     # Check refs.json and reference files
     refs_json = beatmap_dir / "refs.json"
