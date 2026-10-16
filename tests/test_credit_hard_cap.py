@@ -1,6 +1,7 @@
 """Tests for credit hard cap pause/resume mechanism."""
 
 import pytest
+import respx
 
 from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db
