@@ -229,10 +229,12 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path, all_production_activities, all_production_workflows):
+async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     """Test 10: Approval signal actually reaches running workflow."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg.workflows.shot import ShotWorkflow
     
     db_path = str(tmp_path / "test.db")
     await init_studio_db(db_path)
@@ -261,12 +263,15 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path, a
     monkeypatch.setenv("DRY_RUN", "true")
     monkeypatch.chdir(tmp_path)
     
+    # Import production activities to ensure worker registration matches production
+    from hfvg.worker import PRODUCTION_ACTIVITIES
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
-            workflows=all_production_workflows,
-            activities=all_production_activities,
+            workflows=[EpisodeWorkflowV2, ShotWorkflow],
+            activities=PRODUCTION_ACTIVITIES,
         ):
             # Start workflow
             handle = await env.client.start_workflow(
