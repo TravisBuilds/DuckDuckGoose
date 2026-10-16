@@ -59,7 +59,6 @@ class EpisodeWorkflowV2:
         self.approved_g_final_cut = False  # G_FINAL: After edit
         
         self.shot_results: dict[str, dict] = {}
-        self.shot_completions: dict[str, dict] = {}  # Track child workflow completion status
         self.parsed_beatmap: dict[str, Any] | None = None
         self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk
     
@@ -313,7 +312,6 @@ class EpisodeWorkflowV2:
         # Launch still generation for all shots
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
-        shot_completion_tasks = {}  # Track completion in background
         
         for shot in shots:
             shot_plan = shot.copy()
@@ -329,16 +327,6 @@ class EpisodeWorkflowV2:
             )
             shot_workflow_handles.append(handle)
             self.shot_results[shot["shot_id"]] = handle
-            
-            # Track completion in background (non-blocking)
-            async def track_shot_completion(shot_id: str, h: Any) -> None:
-                try:
-                    result = await h
-                    self.shot_completions[shot_id] = {"status": "completed", "result": result}
-                except Exception as e:
-                    self.shot_completions[shot_id] = {"status": "failed", "error": str(e)}
-            
-            workflow.create_task(track_shot_completion(shot["shot_id"], handle))
         
         workflow.logger.info(f"Launched {len(shot_workflow_handles)} shot workflows")
         
@@ -348,26 +336,21 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Check for any failed shots (tracked in background)
-        def any_shots_failed() -> bool:
-            return any(
-                comp.get("status") == "failed"
-                for comp in self.shot_completions.values()
-            )
+        # Wait for approval at gate 2
+        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
-        # Wait for approval or any shot failure
-        await workflow.wait_condition(
-            lambda: self.approved_g2_scene_stills or any_shots_failed()
-        )
+        # After approval, check if any shots failed by gathering results
+        import asyncio
+        shot_results_list = await asyncio.gather(*shot_workflow_handles, return_exceptions=True)
         
-        # Collect failed shots if any
         failed_shots = []
-        for shot_id, completion in self.shot_completions.items():
-            if completion.get("status") == "failed":
+        for i, result in enumerate(shot_results_list):
+            if isinstance(result, Exception):
+                shot_id = shots[i]["shot_id"]
                 failed_shots.append({
                     "shot_id": shot_id,
                     "status": "failed",
-                    "reason": completion.get("error", "unknown"),
+                    "reason": str(result),
                 })
         
         if failed_shots:
@@ -377,10 +360,8 @@ class EpisodeWorkflowV2:
             )
             workflow.logger.error(failure_msg)
             self.state.failed_shots = failed_shots
+            # Note: For now, we log failures but continue (could add gate decision here)
         
-        # Wait for approval (required even if there are failures)
-        if not self.approved_g2_scene_stills:
-            await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
         
