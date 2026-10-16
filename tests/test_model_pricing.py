@@ -19,10 +19,9 @@ def test_still_model_pricing_table():
     
     # Grok Image 2.0 should be in the table
     assert "xai/grok-imagine-image-2.0" in STILL_CREDITS
-    # High quality: ~6.5 credits
-    assert STILL_CREDITS["xai/grok-imagine-image-2.0"]["high"] == 6.5
-    # Standard quality: ~4.0 credits
-    assert STILL_CREDITS["xai/grok-imagine-image-2.0"]["standard"] == 4.0
+    # Real cost: ~1.12 credits
+    assert STILL_CREDITS["xai/grok-imagine-image-2.0"]["high"] == 1.12
+    assert STILL_CREDITS["xai/grok-imagine-image-2.0"]["standard"] == 1.12
 
 
 def test_estimate_ref_credits():
@@ -42,13 +41,12 @@ def test_estimate_still_credits():
     """Test: estimate_still_credits returns correct price for Grok Image 2.0."""
     from hfvg.credit_pricing import estimate_still_credits
     
-    # Grok Image 2.0 high quality
+    # Grok Image 2.0 (~1.12 credits, returns 1 as int)
     cost = estimate_still_credits("xai/grok-imagine-image-2.0", "high")
-    assert cost == 6
+    assert cost == 1
     
-    # Grok Image 2.0 standard quality
     cost = estimate_still_credits("xai/grok-imagine-image-2.0", "standard")
-    assert cost == 4
+    assert cost == 1
     
     # Unknown model falls back to default
     cost = estimate_still_credits("unknown/model")
