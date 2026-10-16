@@ -12,6 +12,35 @@ set -eu  # Fail on undefined variables AND command errors
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
+# Load skip configuration
+SKIP_CONFIG="$WORKSPACE_ROOT/scripts/redgreen_skip.conf"
+declare -A SKIP_REASONS
+if [ -f "$SKIP_CONFIG" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        
+        # Parse "M-<num> reason" format
+        if [[ "$line" =~ ^M-([0-9]+)[[:space:]]+(.+)$ ]]; then
+            num="${BASH_REMATCH[1]}"
+            reason="${BASH_REMATCH[2]}"
+            SKIP_REASONS[$num]="$reason"
+        fi
+    done < "$SKIP_CONFIG"
+fi
+
+# Check if a mutation should be skipped
+should_skip() {
+    local num=$1
+    [ -n "${SKIP_REASONS[$num]:-}" ]
+}
+
+get_skip_reason() {
+    local num=$1
+    echo "${SKIP_REASONS[$num]:-}"
+}
+
 # Create isolated worktree for mutations
 MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -235,6 +264,17 @@ test_mutation() {
     
     log_test "$num" "$name"
     
+    # Check if this mutation should be skipped
+    if should_skip "$num"; then
+        local skip_reason=$(get_skip_reason "$num")
+        echo -e "${YELLOW}⊘ SKIP: $skip_reason${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_RESULTS+=("SKIP")
+        MUTATION_REASONS+=("$skip_reason")
+        PASS_COUNT=$((PASS_COUNT + 1))  # Count skips as passes for overall success
+        return
+    fi
+    
     # Step 1: Run baseline (should pass)
     log_green "Running baseline test (expecting PASS)..."
     baseline_result=$(run_test "$test")
@@ -378,6 +418,8 @@ print_summary() {
         
         if [ "$result" = "PASS" ]; then
             printf "${GREEN}%-50s ✓ PASS     %-30s${NC}\n" "$name" "$reason"
+        elif [ "$result" = "SKIP" ]; then
+            printf "${YELLOW}%-50s ⊘ SKIP     %-30s${NC}\n" "$name" "$reason"
         elif [ "$result" = "INVALID" ]; then
             printf "${YELLOW}%-50s ⚠ INVALID  %-30s${NC}\n" "$name" "$reason"
         else

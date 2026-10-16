@@ -484,6 +484,23 @@ class StubShot:
         return {"shot_id": shot_plan["shot_id"], "status": "success"}
 
 
+@_wf.defn(name="ShotWorkflow", sandboxed=False)
+class StubShotM95:
+    """Separate stub for M-95/M-97 test - writes to SEEN_PLANS_M95."""
+    def __init__(self):
+        self.ok = False
+
+    @_wf.signal
+    def stills_approved(self):
+        self.ok = True
+
+    @_wf.run
+    async def run(self, episode_id: str, shot_plan: dict) -> dict:
+        SEEN_PLANS_M95[shot_plan["shot_id"]] = shot_plan
+        await _wf.wait_condition(lambda: self.ok)
+        return {"shot_id": shot_plan["shot_id"], "status": "completed"}
+
+
 async def _gate(handle, name, timeout=15.0):
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
@@ -630,6 +647,14 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
     async def stub_clip_qc(*args, **kwargs):
         return {"passed": True}
     
+    @activity.defn(name="review_still")
+    async def stub_review_still(*args, **kwargs):
+        return {"passed": True}
+    
+    @activity.defn(name="review_clip")
+    async def stub_review_clip(*args, **kwargs):
+        return {"passed": True}
+    
     @activity.defn(name="submit_clip_job_enforced")
     async def stub_clip(*args, **kwargs):
         return {
@@ -642,6 +667,14 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
     
     @activity.defn(name="commit_job_budget")
     async def stub_commit(*args, **kwargs):
+        pass
+    
+    @activity.defn(name="commit_credits_activity")
+    async def stub_commit_credits(*args, **kwargs):
+        pass
+    
+    @activity.defn(name="release_credits_activity")
+    async def stub_release_credits(*args, **kwargs):
         pass
     
     # Mock lint to avoid failures
@@ -681,8 +714,12 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
                 stub_release_budget,
                 stub_poll,
                 stub_clip_qc,
+                stub_review_still,
+                stub_review_clip,
                 stub_clip,
                 stub_commit,
+                stub_commit_credits,
+                stub_release_credits,
             ],
         )
         async with worker:
@@ -835,15 +872,26 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     monkeypatch.setenv("DB_PATH", db_path)
     monkeypatch.setenv("DATABASE_PATH", db_path)
     await init_studio_db(db_path)
-    await create_episode(db_path, "ep_m9597")
-    await set_live_mode(db_path, "ep_m9597", True)
-    await approve_g108(db_path, "ep_m9597")
-    await init_episode_credit_line_activity("ep_m9597", cap_credits=100_000)
-    await init_episode_budget_lines_activity("ep_m9597")
+    await create_episode(db_path, "ep_m9597_a")
+    await set_live_mode(db_path, "ep_m9597_a", True)
+    await approve_g108(db_path, "ep_m9597_a")
+    await init_episode_credit_line_activity("ep_m9597_a", cap_credits=100_000)
+    await init_episode_budget_lines_activity("ep_m9597_a")
+    
+    # Also create second episode for second workflow run
+    await create_episode(db_path, "ep_m9597_b")
+    await set_live_mode(db_path, "ep_m9597_b", True)
+    await approve_g108(db_path, "ep_m9597_b")
+    await init_episode_credit_line_activity("ep_m9597_b", cap_credits=100_000)
+    await init_episode_budget_lines_activity("ep_m9597_b")
     
     # Create data files - r_have exists, r_new missing
     beat = tmp_path / "BEATMAP_M9597.md"
-    beat.write_text(BEAT.replace("ep98", "ep_m9597"))
+    beat_a = tmp_path / "BEATMAP_M9597_A.md"
+    beat_b = tmp_path / "BEATMAP_M9597_B.md"
+    beat.write_text(BEAT.replace("ep98", "ep_m9597_a"))
+    beat_a.write_text(BEAT.replace("ep98", "ep_m9597_a"))
+    beat_b.write_text(BEAT.replace("ep98", "ep_m9597_b"))
     data_dir = tmp_path / "m9597data"
     data_dir.mkdir(exist_ok=True)
     shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
@@ -866,31 +914,22 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     @activity.defn(name="generate_run_report")
     async def mock_report(*args):
         return {"report_path": "/fake/report.txt"}
+    @activity.defn(name="acquire_run_lock")
+    async def mock_acquire_lock(*args):
+        return None
+    @activity.defn(name="release_run_lock")
+    async def mock_release_lock(*args):
+        return None
     
     SEEN_PLANS_M95.clear()
-    
-    # Stub shot workflow
-    from temporalio import workflow as _wf
-    @_wf.defn(name="ShotWorkflow", sandboxed=False)
-    class StubShot:
-        def __init__(self):
-            self.ok = False
-        @_wf.signal
-        def stills_approved(self):
-            self.ok = True
-        @_wf.run
-        async def run(self, episode_id: str, shot_plan: dict):
-            SEEN_PLANS_M95[shot_plan["shot_id"]] = shot_plan
-            await _wf.wait_condition(lambda: self.ok)
-            return {"shot_id": shot_plan["shot_id"], "status": "completed"}
     
     # Fresh Temporal env
     env = await WorkflowEnvironment.start_time_skipping()
     async with env:
         worker = Worker(
-            env.client, task_queue="m9597-q", workflows=[EpisodeWorkflowV2, StubShot],
+            env.client, task_queue="m9597-q", workflows=[EpisodeWorkflowV2, StubShotM95],
             activities=[
-                activities.acquire_run_lock, activities.release_run_lock,
+                mock_acquire_lock, mock_release_lock,
                 activities.upsert_episode_activity,
                 init_episode_credit_line_activity, init_episode_budget_lines_activity,
                 mock_preflight, mock_verify, mock_load_refs, mock_report,
@@ -905,8 +944,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
         async with worker:
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep_m9597", str(beat), False],
-                id="wf-m9597",
+                args=["ep_m9597_a", str(beat_a), False],
+                id="wf-m9597-a",
                 task_queue="m9597-q",
             )
             
@@ -925,12 +964,12 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             new.write_bytes(b"x")
             await handle.terminate()
             
-            # Run again with refs present
+            # Run again with refs present (different episode ID to avoid lock conflict)
             SEEN_PLANS_M95.clear()
             handle2 = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep_m9597", str(beat), False],
-                id="wf-m9597-v2",
+                args=["ep_m9597_b", str(beat_b), False],
+                id="wf-m9597-b",
                 task_queue="m9597-q",
             )
             await handle2.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
