@@ -366,7 +366,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "failed", f"Expected failed status, got {data}"
+            # Workflow completes successfully but returns failed shot result
+            assert data["status"] == "completed", f"Expected completed status, got {data}"
+            assert data["result"]["status"] == "failed", f"Expected failed shot, got {data['result']}"
             
             # Check that L6 reservation was released to exactly 0
             status_after = await ledger.get_line_status("ep99", "L6_reserve")
@@ -379,7 +381,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
                 cookies=cookies,
             )
             assert response.status_code == 200
-            assert response.json()["status"] == "failed"
+            data2 = response.json()
+            assert data2["status"] == "completed"
+            assert data2["result"]["status"] == "failed"
             
             status_after2 = await ledger.get_line_status("ep99", "L6_reserve")
             assert status_after2["reserved"] == 0, "L6 should still be 0 (idempotent)"
@@ -549,25 +553,24 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             except Exception:
                 pass
             
-            # Wait for workflow status to be recorded as failed (not just terminated)
-            # This prevents race where status API returns "running" before state is persisted
-            async def is_failed():
-                try:
-                    desc = await handle.describe()
-                    return desc.status.name == "FAILED"
-                except Exception:
-                    return False
+                # Wait for workflow to reach completed state
+                async def is_completed():
+                    try:
+                        desc = await handle.describe()
+                        return desc.status.name == "COMPLETED"
+                    except Exception:
+                        return False
             
-            # Wait up to 2 seconds for status to be "FAILED"
+            # Wait up to 2 seconds for status to be "COMPLETED"
             timeout = asyncio.get_event_loop().time() + 2.0
             while asyncio.get_event_loop().time() < timeout:
-                if await is_failed():
+                if await is_completed():
                     break
                 await asyncio.sleep(0.05)
             
-            # Verify it's actually failed before proceeding
+            # Verify it's actually completed before proceeding
             desc = await handle.describe()
-            assert desc.status.name == "FAILED", f"Workflow should be FAILED, got {desc.status.name}"
+            assert desc.status.name == "COMPLETED", f"Workflow should be COMPLETED, got {desc.status.name}"
             
             # Set up API
             admin_secret = "a" * 32
@@ -602,7 +605,9 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             # All should succeed
             for resp in results:
                 assert resp.status_code == 200
-                assert resp.json()["status"] == "failed"
+                data = resp.json()
+                assert data["status"] == "completed"
+                assert data["result"]["status"] == "failed"
             
             # Check that L6 is exactly 0 (not negative!)
             status_after = await ledger.get_line_status("ep99", "L6_reserve")

@@ -420,8 +420,16 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.still_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.still_error = error_message
+                            workflow.logger.error(f"Still submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
                 try:
@@ -665,8 +673,17 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.clip_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.clip_error = error_message
+                            workflow.logger.error(f"Clip submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "still_url": self.still_asset["url"],
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
                 try:
