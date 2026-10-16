@@ -6,11 +6,14 @@ from datetime import datetime, timedelta
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_smoke_gate_refuses_without_passing_test(tmp_path, monkeypatch):
     """Test that submit_still_job_enforced refuses when no smoke test has passed."""
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "false")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -31,6 +34,16 @@ async def test_smoke_gate_refuses_without_passing_test(tmp_path, monkeypatch):
     credit_ledger = CreditLedger(str(tmp_path / "test.db"))
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep01", cap_credits=1000)
+    
+    # Mock provider API (should never be called if gate works)
+    import respx
+    import httpx
+    respx.post("http://mock.api/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.12", "usd": "1.12"})
+    )
+    respx.post("http://mock.api/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "test_job"})
+    )
     
     # Try to submit without smoke test
     from hfvg.activities.studio_generation import submit_still_job_enforced
