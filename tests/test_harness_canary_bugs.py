@@ -719,3 +719,102 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     assert poll_result["output_url"] == "http://example.com/clip.mp4"
     assert poll_route.call_count == 1, "Poll should use the provider job ID"
 
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
+    """
+    Test Bug 1: Upload cache must key on ref's own version (from sidecar), not shot version.
+    
+    A Mochi v3 still (shot version=3) using a ref that's v2 should cache with ref_version=2.
+    If shot version were used, a v1 ref would be wrongly cached as v3 and reused for v1 shots.
+    """
+    # Create ref with version 2 sidecar
+    ref_path = tmp_path / "refs" / "r_family.png"
+    ref_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_path.write_bytes(b"family-image-v2")
+    
+    version_sidecar = ref_path.parent / ".versions" / "r_family.json"
+    version_sidecar.parent.mkdir(parents=True, exist_ok=True)
+    version_sidecar.write_text('{"version": 2, "ref_key": "r_family"}')
+    
+    # Mock Higgsfield API
+    respx.post("http://mock.api/files/generate-upload-url").mock(
+        return_value=httpx.Response(200, json={
+            "upload_url": "http://mock.upload/put-v2",
+            "public_url": "http://mock.cdn/family-v2.png",
+            "upload_headers": {"Content-Type": "image/png"}
+        })
+    )
+    respx.put("http://mock.upload/put-v2").mock(return_value=httpx.Response(200, content=b""))
+    respx.post("http://mock.api/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.12", "usd": "1.12"})
+    )
+    respx.post("http://mock.api/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "prov_still_v2"})
+    )
+    
+    # Setup environment
+    import os
+    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    os.environ["DRY_RUN"] = "false"
+    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    
+    # Initialize DB
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    await init_studio_db(os.environ["DATABASE_PATH"])
+    await create_episode(os.environ["DATABASE_PATH"], "ep99", None)
+    await set_live_mode(os.environ["DATABASE_PATH"], "ep99", True, "test")
+    await approve_g108(os.environ["DATABASE_PATH"], "ep99", "test")
+    
+    # Initialize budget
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    await ledger.init_db()
+    await ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
+    await ledger.set_manual_balance(100_000_000, "test", "test balance")
+    
+    # Initialize credit ledger
+    from hfvg.credit_ledger import CreditLedger
+    credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=10000)
+    
+    # Submit still with Mochi v3 (shot version=3) but ref is v2
+    result = await submit_still_job_enforced(
+        episode_id="ep99",
+        shot_id="A01",
+        prompt="A still locked-off tripod, no camera movement. Real-time speed, no slow motion. Exactly 1 animals in frame.",
+        refs=[str(ref_path)],
+        resolution="1k",
+        quality="high",
+        aspect_ratio="16:9",
+        version=3,  # Shot is using Mochi v3
+        tier="final",
+        shot_meta={"count": 1, "antler": False, "duck": False}
+    )
+    
+    # Extract job_id from result
+    job_id = result["job_id"]
+    assert "ep99" in job_id and "A01" in job_id
+    
+    # Check upload_cache: entry should be keyed with ref_version=2, NOT shot_version=3
+    from hfvg.upload_cache import UploadCache
+    cache = UploadCache(os.environ["DATABASE_PATH"])
+    
+    import aiosqlite
+    async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+        async with db.execute(
+            "SELECT file_path, file_version, public_url FROM upload_cache"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    
+    assert len(rows) == 1, "One cache entry expected"
+    cached_path, cached_version, cached_url = rows[0]
+    
+    # CRITICAL: version must be 2 (ref's version), not 3 (shot's version)
+    assert cached_version == 2, f"Cache must key on ref version 2, got {cached_version}"
+    assert cached_url == "http://mock.cdn/family-v2.png"
+    assert str(ref_path) in cached_path

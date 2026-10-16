@@ -40,6 +40,32 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, Seedance
 from hfvg.routing import plan_route
 
 
+def _get_ref_version_from_sidecar(ref_path: str) -> int:
+    """
+    Get ref version from sidecar file.
+    
+    Args:
+        ref_path: Path to the reference image
+    
+    Returns:
+        Version number from sidecar, or 1 if no sidecar exists
+    """
+    ref_path_obj = Path(ref_path)
+    version_sidecar = ref_path_obj.parent / ".versions" / f"{ref_path_obj.stem}.json"
+    
+    if version_sidecar.exists():
+        try:
+            import json as json_lib
+            sidecar_data = json_lib.loads(version_sidecar.read_text())
+            return sidecar_data.get("version", 1)
+        except (json_lib.JSONDecodeError, OSError):
+            # Fall back to v1 if sidecar is corrupted
+            return 1
+    
+    # No sidecar = version 1
+    return 1
+
+
 def _create_fake_still(output_path: str) -> str:
     """Create a small real PNG file for dry-run mode."""
     # Create a minimal valid 1x1 PNG (67 bytes)
@@ -308,12 +334,15 @@ async def submit_still_job_enforced(
             for ref_path in refs:
                 # Check if this is a local file path (not already a URL)
                 if not ref_path.startswith(("http://", "https://")):
+                    # Get ref version from sidecar (not shot version!)
+                    ref_version = _get_ref_version_from_sidecar(ref_path)
+                    
                     # Upload the local file and get the actual URL from provider
-                    upload_result = await provider.upload_reference(ref_path, version)
+                    upload_result = await provider.upload_reference(ref_path, ref_version)
                     uploaded_url = upload_result["public_url"]
                     uploaded_refs.append(uploaded_url)
                     activity.logger.info(
-                        f"Uploaded reference {ref_path} -> {uploaded_url}"
+                        f"Uploaded reference {ref_path} v{ref_version} -> {uploaded_url}"
                     )
                 else:
                     # Already a URL, use as-is
@@ -679,21 +708,25 @@ async def submit_clip_job_enforced(
         # Upload local paths to Higgsfield CDN
         if start_image_url.startswith("/"):
             activity.logger.info(f"Uploading local start image: {start_image_url}")
-            upload_result = await provider.upload_reference(start_image_url, version)
+            # Get ref version from sidecar (not shot version!)
+            ref_version = _get_ref_version_from_sidecar(start_image_url)
+            upload_result = await provider.upload_reference(start_image_url, ref_version)
             if isinstance(upload_result, dict):
                 start_image_url = upload_result["public_url"]
             else:
                 start_image_url = upload_result
-            activity.logger.info(f"Uploaded start image -> {start_image_url}")
+            activity.logger.info(f"Uploaded start image v{ref_version} -> {start_image_url}")
         
         if end_image_url and end_image_url.startswith("/"):
             activity.logger.info(f"Uploading local end image: {end_image_url}")
-            upload_result = await provider.upload_reference(end_image_url, version)
+            # Get ref version from sidecar (not shot version!)
+            ref_version = _get_ref_version_from_sidecar(end_image_url)
+            upload_result = await provider.upload_reference(end_image_url, ref_version)
             if isinstance(upload_result, dict):
                 end_image_url = upload_result["public_url"]
             else:
                 end_image_url = upload_result
-            activity.logger.info(f"Uploaded end image -> {end_image_url}")
+            activity.logger.info(f"Uploaded end image v{ref_version} -> {end_image_url}")
         
         # Generate idempotency key from hash of actual request with uploaded URLs
         import hashlib
