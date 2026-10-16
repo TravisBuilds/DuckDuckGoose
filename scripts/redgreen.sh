@@ -519,7 +519,7 @@ test_mutation 10 "Approval signal reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i '/Invalid admin secret/{ x; s/if not request\.admin_secret or request\.admin_secret != ADMIN_SECRET:/if False:  # MUTATED/; x; }'
+    sed -i '/if not request\.admin_secret or request\.admin_secret != ADMIN_SECRET:/s/.*/    if False:  # MUTATED/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -1047,11 +1047,11 @@ test_mutation 95 "M-R4A G2_SCENE_STILLS gate triggers when a shot has missing re
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
     sed -i '/_should_hold_at_g2_scene_stills/,/^$/{ /return bool(self\._collect_missing_refs(shots))/s/.*/        return False  # MUTATED/; }'
 
-# 96. M-R4B Live shot activity refuses when refs are missing
+# 96. M-R4B Live shot activity refuses when refs are missing  
 test_mutation 96 "M-R4B Live shot activity refuses when refs are missing" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_to_still_provider_activity" \
-    sed -i '/Shot.*is held at G2\.01: refs not on disk yet/{ x; /if missing_refs:/{ s/.*/    if False:  # MUTATED/; }; x; }'
+    sed -i '/# Refs gate.*shot never runs without its planned refs/{n; s/if missing_refs:/if False:  # MUTATED/; }'
 
 # 97. M-R4C Recheck updates shot plans with new ref data
 test_mutation 97 "M-R4C Recheck updates shot plans with new ref data" \

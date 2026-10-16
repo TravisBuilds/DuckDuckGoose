@@ -192,6 +192,7 @@ def test_enforce_live_fails_closed_without_kit(monkeypatch, tmp_path):
 # ---------------------------------------------------------------- activity wiring
 
 async def _live_db(tmp_path, monkeypatch, line="L2_drafts"):
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity
     from hfvg.budget import BudgetLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 
@@ -207,6 +208,8 @@ async def _live_db(tmp_path, monkeypatch, line="L2_drafts"):
     await set_balance(db_path)
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # Initialize credit line for episode (needed for lint bypass test)
+    await init_episode_credit_line_activity("ep99", cap_credits=1000)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
