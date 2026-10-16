@@ -17,6 +17,93 @@ def cli():
 
 
 @cli.command()
+@click.argument("episode_id")
+def lint(episode_id: str):
+    """Lint episode configuration and beatmap."""
+    import httpx
+    from pathlib import Path
+    
+    # Check if episode directory exists
+    episode_dir = Path("./data/episodes") / episode_id
+    if not episode_dir.exists():
+        click.echo(f"❌ Episode directory not found: {episode_dir}", err=True)
+        return 1
+    
+    issues = []
+    warnings = []
+    
+    # Check BEATMAP.md
+    beatmap_path = episode_dir / "BEATMAP.md"
+    if not beatmap_path.exists():
+        issues.append(f"BEATMAP.md missing at {beatmap_path}")
+    else:
+        try:
+            from hfvg.episode_parser import parse_beatmap
+            shots = parse_beatmap(str(beatmap_path))
+            if not shots:
+                warnings.append("BEATMAP.md contains no shots")
+            else:
+                click.echo(f"✓ BEATMAP.md: {len(shots)} shots")
+        except Exception as e:
+            issues.append(f"BEATMAP.md parse error: {str(e)}")
+    
+    # Check shots.json
+    shots_json = episode_dir / "shots.json"
+    if not shots_json.exists():
+        warnings.append("shots.json missing (required for live mode)")
+    else:
+        try:
+            import json
+            from hfvg.shot_data import parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text()))
+            click.echo(f"✓ shots.json: valid")
+        except Exception as e:
+            issues.append(f"shots.json parse error: {str(e)}")
+    
+    # Check refs.json
+    refs_json = episode_dir / "refs.json"
+    if refs_json.exists():
+        try:
+            import json
+            refs_data = json.loads(refs_json.read_text())
+            per_shot = refs_data.get("per_shot", {})
+            missing_refs = []
+            
+            for shot_id, shot_refs in per_shot.items():
+                for ref_entry in shot_refs:
+                    if isinstance(ref_entry, dict):
+                        ref_path = ref_entry.get("path")
+                        if ref_path and not Path(ref_path).exists():
+                            missing_refs.append(f"{shot_id}: {ref_path}")
+            
+            if missing_refs:
+                warnings.append(f"{len(missing_refs)} reference files not found")
+                for ref in missing_refs[:5]:
+                    warnings.append(f"  - {ref}")
+            else:
+                click.echo(f"✓ refs.json: all references exist")
+        except Exception as e:
+            issues.append(f"refs.json parse error: {str(e)}")
+    
+    # Summary
+    if issues:
+        click.echo(f"\n❌ {len(issues)} issue(s) found:", err=True)
+        for issue in issues:
+            click.echo(f"  - {issue}", err=True)
+    
+    if warnings:
+        click.echo(f"\n⚠  {len(warnings)} warning(s):")
+        for warning in warnings:
+            click.echo(f"  - {warning}")
+    
+    if not issues and not warnings:
+        click.echo(f"\n✓ {episode_id}: All checks passed")
+        return 0
+    
+    return 1 if issues else 0
+
+
+@cli.command()
 @click.option("--episode-id", required=True, help="Unique episode ID")
 @click.option("--idea", required=True, help="Video idea/concept")
 @click.option("--platforms", default="instagram", help="Comma-separated platforms")

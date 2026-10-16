@@ -23,14 +23,15 @@ REF_CREDITS = {
 
 # Still generation pricing (credits per image)
 # Using Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
+# CORRECTED: These values now reflect actual provider costs (~1.12 USD = ~1.12 credits)
 STILL_CREDITS = {
     "xai/grok-imagine-image-2.0": {
-        "high": 6.5,      # Grok Image 2.0 high quality (from /estimate)
-        "standard": 4.0,  # Grok Image 2.0 standard (from /estimate)
+        "high": 1.5,      # Grok Image 2.0 high quality (~1.5 credits)
+        "standard": 1.12,  # Grok Image 2.0 standard (~1.12 credits actual cost)
     },
     "gpt_image_2": {
-        "high": 6.5,      # GPT Image 2 high quality (deprecated, use Grok)
-        "standard": 4.0,  # GPT Image 2 standard (deprecated, use Grok)
+        "high": 1.5,      # GPT Image 2 high quality (deprecated, use Grok)
+        "standard": 1.12,  # GPT Image 2 standard (deprecated, use Grok)
     },
     "higgsfield_still": {
         "high": 5.0,      # Higgsfield high quality

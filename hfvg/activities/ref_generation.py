@@ -144,6 +144,30 @@ async def generate_ref_activity(
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     
+    # Estimate USD cost for ref generation
+    # SOUL V2 costs ~0.09 USD per image (from provider estimate)
+    from hfvg.pricing import usd_to_micros
+    estimated_usd_micros = usd_to_micros("0.09")  # ~90,000 usd_micros per ref
+    
+    # Reserve USD budget from L1_refs line
+    from hfvg.budget import BudgetLedger
+    usd_ledger = BudgetLedger(db_path)
+    await usd_ledger.init_db()
+    
+    usd_reserved = await usd_ledger.reserve(
+        episode_id=episode_id,
+        line_name="L1_refs",
+        amount_usd_micros=estimated_usd_micros,
+        reason=f"Ref {ref_key} v{version}",
+        require_balance=not dry_run,
+    )
+    
+    if not usd_reserved:
+        raise ValueError(
+            f"USD budget reserve failed for L1_refs. "
+            f"At or over 80% stop threshold. Requested: {estimated_usd_micros} usd_micros."
+        )
+    
     # Reserve credits from credit ledger
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -173,8 +197,16 @@ async def generate_ref_activity(
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
             version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
             
-            # Commit credits (dry mode completes instantly)
+            # Commit credits and USD (dry mode completes instantly)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
+            await usd_ledger.commit(
+                episode_id=episode_id,
+                line_name="L1_refs",
+                reserved_usd_micros=estimated_usd_micros,
+                actual_usd_micros=estimated_usd_micros,
+                job_id=job_id,
+                reason=f"Ref {ref_key} v{version} completed (dry)"
+            )
         else:
             # Live mode: call provider
             # Check if we already submitted this job (activity retry)
@@ -204,9 +236,17 @@ async def generate_ref_activity(
             provider = HiggsfieldProvider(dry_run=False)
             job = await provider.poll_job(provider_job_id)
             
-            # Provider completed - commit credits immediately (charged whether QC passes or not)
+            # Provider completed - commit credits and USD immediately (charged whether QC passes or not)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
-            activity.logger.info(f"Committed credits for {job_id} (provider completed)")
+            await usd_ledger.commit(
+                episode_id=episode_id,
+                line_name="L1_refs",
+                reserved_usd_micros=estimated_usd_micros,
+                actual_usd_micros=estimated_usd_micros,
+                job_id=job_id,
+                reason=f"Ref {ref_key} v{version} completed"
+            )
+            activity.logger.info(f"Committed credits and USD for {job_id} (provider completed)")
             
             # Download and save to staging path (not final path yet)
             if not job.output_url:
@@ -256,7 +296,7 @@ async def generate_ref_activity(
         }
         
     except Exception as e:
-        # Only release credits if provider never completed
+        # Only release credits and USD if provider never completed
         # Check if credits were already committed
         import aiosqlite
         committed = False
@@ -269,12 +309,18 @@ async def generate_ref_activity(
                 committed = row[0] > 0
         
         if not committed:
-            # Provider failed before completing - release credits
-            activity.logger.info(f"Provider failed, releasing credits for {job_id}: {e}")
+            # Provider failed before completing - release credits and USD
+            activity.logger.info(f"Provider failed, releasing credits and USD for {job_id}: {e}")
             await ledger.release_credits(episode_id, job_id)
+            await usd_ledger.release(
+                episode_id=episode_id,
+                line_name="L1_refs",
+                amount_usd_micros=estimated_usd_micros,
+                reason=f"Ref {ref_key} failed: {str(e)[:100]}"
+            )
         else:
-            # Provider completed (charged) but QC or download failed - credits already committed
-            activity.logger.info(f"Provider completed, credits already committed for {job_id}")
+            # Provider completed (charged) but QC or download failed - credits and USD already committed
+            activity.logger.info(f"Provider completed, credits and USD already committed for {job_id}")
         
         raise
 

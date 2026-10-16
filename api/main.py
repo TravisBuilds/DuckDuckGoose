@@ -350,7 +350,7 @@ class BudgetResponse(BaseModel):
 
 
 class ManualBalanceRequest(BaseModel):
-    balance_usd: str = Field(..., description="Current Higgsfield USD balance as a decimal string, e.g. '82.40'")
+    balance_usd: str | float | int = Field(..., description="Current Higgsfield USD balance as decimal string (e.g. '82.40') or numeric value")
     note: str = Field("", max_length=500)
 
 
@@ -656,6 +656,21 @@ async def start_episode(
         
         with open(beatmap_path, "w") as f:
             f.write(request.beatmap_content)
+    else:
+        # No beatmap_content provided - check if BEATMAP.md exists in the episode directory
+        beatmap_dir = Path("./data/episodes") / request.episode_id
+        potential_beatmap = beatmap_dir / "BEATMAP.md"
+        if potential_beatmap.exists():
+            beatmap_path = str(potential_beatmap)
+        else:
+            # No beatmap content and no uploaded BEATMAP.md - error clearly
+            # Never fall back to test fixtures in production code
+            raise HTTPException(
+                status_code=400,
+                detail=f"No beatmap found for episode {request.episode_id}. "
+                       f"Either provide beatmap_content in the request or upload BEATMAP.md via "
+                       f"POST /api/episodes/upload before starting the episode."
+            )
     
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -914,7 +929,9 @@ async def set_manual_balance(
     from hfvg.pricing import usd_to_micros
     
     try:
-        micros = usd_to_micros(request.balance_usd)
+        # Convert to string if numeric for consistent handling
+        balance_value = str(request.balance_usd) if isinstance(request.balance_usd, (int, float)) else request.balance_usd
+        micros = usd_to_micros(balance_value)
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=422, detail=f"Invalid balance_usd: {e}")
     
@@ -1833,6 +1850,170 @@ async def run_canary(
         "g108_approved": bool(g108_approved),
         "message": "Canary started (async). Poll workflow for status.",
         "budget_reserved": reserved,
+    }
+
+
+@app.post("/api/episodes/{episode_id}/lint")
+async def lint_episode(
+    episode_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Lint episode configuration and beatmap.
+    
+    Checks:
+    - BEATMAP.md exists and is valid
+    - shots.json exists (if required)
+    - Budget configuration is valid
+    - Reference images are accessible
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    issues = []
+    warnings = []
+    
+    # Check BEATMAP.md exists
+    beatmap_dir = Path("./data/episodes") / episode_id
+    beatmap_path = beatmap_dir / "BEATMAP.md"
+    if not beatmap_path.exists():
+        issues.append(f"BEATMAP.md missing at {beatmap_path}")
+    else:
+        # Try to parse beatmap
+        try:
+            from hfvg.episode_parser import parse_beatmap
+            shots = parse_beatmap(str(beatmap_path))
+            if not shots:
+                warnings.append("BEATMAP.md parsed but contains no shots")
+        except Exception as e:
+            issues.append(f"BEATMAP.md parse error: {str(e)}")
+    
+    # Check shots.json for live mode
+    shots_json = beatmap_dir / "shots.json"
+    if not shots_json.exists():
+        warnings.append("shots.json missing (required for live mode)")
+    else:
+        try:
+            import json
+            from hfvg.shot_data import parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text()))
+        except Exception as e:
+            issues.append(f"shots.json parse error: {str(e)}")
+    
+    # Check budget configuration
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                warnings.append("No budget lines configured")
+    
+    # Check refs.json and reference files
+    refs_json = beatmap_dir / "refs.json"
+    if refs_json.exists():
+        try:
+            import json
+            refs_data = json.loads(refs_json.read_text())
+            per_shot = refs_data.get("per_shot", {})
+            missing_refs = []
+            
+            for shot_id, shot_refs in per_shot.items():
+                for ref_entry in shot_refs:
+                    if isinstance(ref_entry, dict):
+                        ref_path = ref_entry.get("path")
+                        if ref_path and not Path(ref_path).exists():
+                            missing_refs.append(f"{shot_id}: {ref_path}")
+            
+            if missing_refs:
+                warnings.append(f"{len(missing_refs)} reference files not found: {missing_refs[:3]}")
+        except Exception as e:
+            issues.append(f"refs.json parse error: {str(e)}")
+    
+    return {
+        "episode_id": episode_id,
+        "status": "pass" if not issues else "fail",
+        "issues": issues,
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/episodes/{episode_id}/set-ref-versions")
+async def set_ref_versions(
+    episode_id: str,
+    versions: dict[str, int],
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Set or bump reference image versions in refs.json.
+    
+    Args:
+        versions: Map of ref keys to version numbers (e.g., {"r_duck_sheet": 2})
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Load refs.json
+    refs_json_path = Path("./data/episodes") / episode_id / "refs.json"
+    if not refs_json_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"refs.json not found for episode {episode_id}"
+        )
+    
+    import json
+    refs_data = json.loads(refs_json_path.read_text())
+    
+    # Update versions map
+    if "versions" not in refs_data:
+        refs_data["versions"] = {}
+    
+    for ref_key, version in versions.items():
+        if not isinstance(version, int) or version < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid version for {ref_key}: {version}. Must be positive integer."
+            )
+        refs_data["versions"][ref_key] = version
+    
+    # Write updated refs.json
+    refs_json_path.write_text(json.dumps(refs_data, indent=2))
+    
+    # Write version sidecars for any existing ref files
+    per_shot = refs_data.get("per_shot", {})
+    updated_sidecars = []
+    
+    for ref_key, version in versions.items():
+        # Find the ref path in per_shot
+        ref_path = None
+        for shot_refs in per_shot.values():
+            for ref_entry in shot_refs:
+                if isinstance(ref_entry, dict) and ref_entry.get("key") == ref_key:
+                    ref_path = ref_entry.get("path")
+                    break
+            if ref_path:
+                break
+        
+        if ref_path and Path(ref_path).exists():
+            # Write version sidecar
+            version_sidecar_dir = Path(ref_path).parent / ".versions"
+            version_sidecar_dir.mkdir(parents=True, exist_ok=True)
+            version_sidecar = version_sidecar_dir / f"{Path(ref_path).stem}.json"
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            updated_sidecars.append(str(version_sidecar))
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "versions_updated": versions,
+        "sidecars_written": len(updated_sidecars),
+        "refs_json_path": str(refs_json_path),
     }
 
 

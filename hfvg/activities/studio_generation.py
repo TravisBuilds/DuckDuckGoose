@@ -300,6 +300,24 @@ async def submit_still_job_enforced(
     provider = HiggsfieldStillProvider()
     
     try:
+        # Upload local reference images to Higgsfield and get URLs
+        uploaded_refs = []
+        if refs:
+            for ref_path in refs:
+                # Check if this is a local file path (not already a URL)
+                if not ref_path.startswith(("http://", "https://")):
+                    # Upload the local file and get URL
+                    media_id = await provider.upload_reference(ref_path)
+                    # Construct the Higgsfield media URL
+                    uploaded_url = f"{provider.base_url}/media/{media_id}"
+                    uploaded_refs.append(uploaded_url)
+                    activity.logger.info(
+                        f"Uploaded reference {ref_path} -> {uploaded_url}"
+                    )
+                else:
+                    # Already a URL, use as-is
+                    uploaded_refs.append(ref_path)
+        
         # Estimate cost in integer micro-dollars (provider estimate's USD value)
         estimated_cost = await provider.estimate_usd_micros(
             prompt=prompt,
@@ -358,37 +376,38 @@ async def submit_still_job_enforced(
                 prompt=prompt,
                 resolution=resolution,
                 quality=quality,
-                image_urls=refs,
+                image_urls=uploaded_refs,
                 idempotency_key=job_id,  # Use job_id as provider idempotency key
                 aspect_ratio=aspect_ratio,
             )
             
-            # Provider should return the same job_id due to idempotency
+            # Store the provider job id for polling (not the harness job_id)
+            # The provider may return a different job_id than our idempotency key
             if provider_job_id != job_id:
-                activity.logger.warning(
-                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
+                activity.logger.info(
+                    f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
                 )
             
             activity.logger.info(
-                f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
+                f"[LIVE] Submitted still {provider_job_id} for {episode_id}/{shot_id} "
                 f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
             )
             try:
                 await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                    episode_id, provider_job_id, shot_id, provider.model_path, tier, line_name,
                     estimated_cost,
                 )
             except aiosqlite.Error as ledger_err:
                 # The provider already accepted (and will charge) this job: NEVER release the hold
                 # because the bookkeeping row failed. The reservation stays held.
                 activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Job {provider_job_id} submitted but per-job ledger row failed: {ledger_err}. "
                     f"Reservation HELD."
                 )
             
-            # Return dict with job info for polling
+            # Return dict with provider job info for polling
             return {
-                "job_id": job_id,
+                "job_id": provider_job_id,  # Return provider job id for polling, not harness job_id
                 "line_name": line_name,
                 "reserved_amount": estimated_cost,
             }
@@ -671,32 +690,33 @@ async def submit_clip_job_enforced(
                     end_image_url=end_image_url,
                 )
             
-            # Provider should return the same job_id due to idempotency
+            # Store the provider job id for polling (not the harness job_id)
+            # The provider may return a different job_id than our idempotency key
             if provider_job_id != job_id:
-                activity.logger.warning(
-                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
+                activity.logger.info(
+                    f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
                 )
             
             activity.logger.info(
-                f"[LIVE] Submitted {route.model} clip {job_id} for {episode_id}/{shot_id} "
+                f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
                 f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
             )
             try:
                 await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                    episode_id, provider_job_id, shot_id, provider.model_path, tier, line_name,
                     estimated_cost,
                 )
             except aiosqlite.Error as ledger_err:
                 # The provider already accepted (and will charge) this job: NEVER release the hold
                 # because the bookkeeping row failed. The reservation stays held.
                 activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Job {provider_job_id} submitted but per-job ledger row failed: {ledger_err}. "
                     f"Reservation HELD."
                 )
             
-            # Return dict with job info for polling
+            # Return dict with provider job info for polling
             return {
-                "job_id": job_id,
+                "job_id": provider_job_id,  # Return provider job id for polling, not harness job_id
                 "line_name": line_name,
                 "reserved_amount": estimated_cost,
             }
@@ -789,7 +809,32 @@ async def poll_job_status(
     try:
         job_status = await provider.get_job_status(job_id)
         
-        # Return status without taking any budget actions
+        # Check for terminal failure statuses - fail fast and release reservations
+        if job_status.status.value in ("failed", "blocked", "canceled"):
+            # Provider job failed - must fail fast, release credit and USD reservations,
+            # and surface the error message
+            activity.logger.error(
+                f"Job {job_id} {job_status.status.value}: {job_status.error}"
+            )
+            
+            # Release credit reservation
+            credit_ledger = CreditLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
+            await credit_ledger.init_db()
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"{job_status.status.value}: {job_status.error}")
+            
+            # Release USD reservation
+            # Note: The workflow must also call release_job_budget when it sees this status
+            # This is just releasing the credit reservation here
+            
+            # Return terminal failure status immediately
+            return {
+                "status": job_status.status.value,  # "failed", "blocked", or "canceled"
+                "output_url": None,
+                "error": job_status.error or f"Job {job_status.status.value}",
+                "cost": None,
+            }
+        
+        # Return status without taking any budget actions for non-terminal states
         # The workflow will handle commit/release based on terminal status
         return {
             "status": job_status.status.value,  # "completed", "failed", "blocked", "canceled", "in_progress", "queued"
