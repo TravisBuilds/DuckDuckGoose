@@ -379,13 +379,9 @@ async def load_refs_to_generate_activity(
         
         # Check archived versions: refs/_v2, refs/_v3, etc.
         refs_dir = p.parent
-        max_version = 1  # Default
+        max_version = 0  # Start at 0
         
-        # If current file exists, it's at least v1
-        if p.exists():
-            max_version = 1
-        
-        # Scan for _vN directories
+        # Scan for _vN directories first
         for archive_dir in refs_dir.glob("_v*"):
             if archive_dir.is_dir():
                 try:
@@ -396,7 +392,17 @@ async def load_refs_to_generate_activity(
                 except (ValueError, OSError):
                     pass
         
-        return max_version
+        # If current file exists alongside archived versions, return max N + 1
+        if p.exists():
+            if max_version > 0:
+                # Current file exists with archived versions, so it's max N + 1
+                return max_version + 1
+            else:
+                # Current file exists but no archived versions
+                return 1
+        
+        # Current file doesn't exist
+        return max_version if max_version > 0 else 1
     
     refs_path = refs_json_path(episode_id)
     if not refs_path.exists():

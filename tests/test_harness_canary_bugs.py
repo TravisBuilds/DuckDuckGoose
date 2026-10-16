@@ -864,5 +864,5 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     refs = await load_refs_to_generate_activity("ep88", shots_subset=None, is_live=False)
     
     duck_ref = [r for r in refs if r["key"] == "r_duck"][0]
-    # Duck should be v2 (from archive scan), since current file exists and _v2 exists
-    assert duck_ref["version"] == 2, f"Expected version 2 from archive, got {duck_ref['version']}"
+    # Duck should be v3 (current file exists alongside _v2 archive, so max N + 1 = 2 + 1 = 3)
+    assert duck_ref["version"] == 3, f"Expected version 3 (max archived N + 1), got {duck_ref['version']}"
