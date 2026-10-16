@@ -50,6 +50,7 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     import httpx
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -107,6 +108,7 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     from hfvg.activities.studio_generation import generate_idempotency_key
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -465,6 +467,7 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     from hfvg.budget import BudgetLedger
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -509,6 +512,7 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     from hfvg.activities.studio_generation import generate_idempotency_key
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("KLING_MODEL_PATH", "kling-video/v3.0/pro/image-to-video")

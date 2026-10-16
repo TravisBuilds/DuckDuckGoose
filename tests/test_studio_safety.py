@@ -60,6 +60,7 @@ async def test_live_mode_required_for_generation(episode_with_budget, monkeypatc
     
     # Set DRY_RUN=false to trigger live mode checks
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
@@ -130,6 +131,7 @@ async def test_g108_required_for_generation(episode_with_budget, monkeypatch, re
     
     # Set DRY_RUN=false
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -196,6 +198,7 @@ async def test_budget_stop_enforcement(episode_with_budget, monkeypatch):
     
     # Set DRY_RUN=false
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
     
@@ -327,6 +330,7 @@ async def test_activity_level_enforcement(episode_with_budget, monkeypatch):
     # it still enforces checks (not bypassed)
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
     

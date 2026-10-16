@@ -228,6 +228,18 @@ async def submit_still_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
+    # Gate: Smoke test (live mode only, unless override)
+    if not dry_run_env:
+        from hfvg.studio_db import check_smoke_test_passed
+        smoke_override = os.getenv("SMOKE_TEST_OVERRIDE", "false").lower() == "true"
+        if not smoke_override:
+            max_age_hours = int(os.getenv("SMOKE_TEST_MAX_AGE_HOURS", "24"))
+            passed, reason = await check_smoke_test_passed(db_path, episode_id, max_age_hours)
+            if not passed:
+                raise RuntimeError(f"Smoke test gate failed: {reason}. Run smoke test or set SMOKE_TEST_OVERRIDE=true")
+        else:
+            activity.logger.warning(f"SMOKE_TEST_OVERRIDE enabled for {episode_id}, bypassing smoke test gate")
+    
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
@@ -1121,6 +1133,18 @@ async def await_job_enforced(
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Gate: Smoke test (live mode only, unless override)
+    if not dry_run_env:
+        from hfvg.studio_db import check_smoke_test_passed
+        smoke_override = os.getenv("SMOKE_TEST_OVERRIDE", "false").lower() == "true"
+        if not smoke_override:
+            max_age_hours = int(os.getenv("SMOKE_TEST_MAX_AGE_HOURS", "24"))
+            passed, reason = await check_smoke_test_passed(db_path, episode_id, max_age_hours)
+            if not passed:
+                raise RuntimeError(f"Smoke test gate failed: {reason}. Run smoke test or set SMOKE_TEST_OVERRIDE=true")
+        else:
+            activity.logger.warning(f"SMOKE_TEST_OVERRIDE enabled for {episode_id}, bypassing smoke test gate")
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:

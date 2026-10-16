@@ -399,8 +399,10 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     assert poll_provider_route.call_count >= 1, f"Provider API must be called with provider ID (got {poll_provider_route.call_count} calls)"
     assert poll_harness_route.call_count == 0, f"Provider API must NOT be called with harness ID (got {poll_harness_route.call_count} calls)"
     
-    # Secondary check: poll completed successfully
+    # Secondary check: poll completed successfully with correct provider ID
     assert poll_result["status"] == "completed"
+    # Verify the polled job ID equals the provider ID (mutation M-111 should break this)
+    assert provider_job_id == "provider_still_xyz123", f"Polled provider_job_id mismatch"
 
 
 @pytest.mark.asyncio
@@ -578,6 +580,18 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     harness_job_id = result["job_id"]
     assert harness_job_id == "clip-ep05-A01-v1"
     
+    # Query provider_jobs table directly to verify persistence (M-114 mutation should break this)
+    import aiosqlite
+    async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+        async with db.execute(
+            "SELECT provider_job_id FROM provider_jobs WHERE job_id = ?",
+            (harness_job_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None, "Provider job mapping must exist in provider_jobs table"
+            assert row[0] == "provider_clip_xyz789", f"Expected provider_clip_xyz789, got {row[0]}"
+    
+    # Also verify via credit_ledger.get_provider_job
     provider_job_id = await credit_ledger.get_provider_job(harness_job_id)
     assert provider_job_id == "provider_clip_xyz789", "Provider job mapping must be persisted"
     

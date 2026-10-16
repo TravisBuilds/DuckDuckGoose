@@ -144,6 +144,7 @@ async def test_parse_beatmap_activity_merges_and_live_requires(tmp_path, monkeyp
     assert by_id["A02"]["params"]["duration"] == 5 and by_id["A02"]["params"]["end_frame"] is True
     # live (DRY_RUN=false) + beatmap shots that differ from shots.json -> refuse
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     err = await acapture(ShotDataError, parse_beatmap_activity(str(beat), "ep98", False))
     assert err is not None and "differ" in str(err)
 
@@ -221,6 +222,7 @@ async def _live_env(tmp_path, monkeypatch):
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -707,6 +709,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
@@ -803,7 +806,8 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # Live mode to trigger refs check
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Live mode to trigger refs check
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
@@ -847,6 +851,7 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     async with env:
         async with worker:
@@ -909,6 +914,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Create activity mocks
     from temporalio import activity
@@ -1005,6 +1011,7 @@ async def test_g201_holds_live_while_refs_still_missing_then_releases(tmp_path, 
     shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
     sp, rp, new = _write_data(data_env["tmp"], shots)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     async with env:
         async with worker:
             handle = await env.client.start_workflow(

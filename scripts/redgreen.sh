@@ -1218,6 +1218,12 @@ test_mutation 115 "Upload checks cache before uploading" \
     "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
     sed -i 's/cached_url = await cache.get_cached_url(str(image_path), version)/cached_url = None  # MUTATED - bypass cache/'
 
+# 116. Smoke test gate: paid stages refuse without passing smoke test
+test_mutation 116 "Smoke test gate enforced on paid stages" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
+    sed -i '/if not passed:/s/.*/            pass  # MUTATED - disable smoke gate/'
+
 # Print final summary
 print_summary
 exit_code=$?
