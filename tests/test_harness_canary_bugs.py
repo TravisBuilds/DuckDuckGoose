@@ -27,21 +27,25 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     ref_path.parent.mkdir(parents=True, exist_ok=True)
     ref_path.write_bytes(b"fake-duck-image-data")
     
-    # Mock the Higgsfield API
-    # 1. Mock upload URL generation
+    # Mock the Higgsfield API (real shape per live probe)
+    # 1. Mock upload URL generation (requires content_type)
     upload_url_route = respx.post("http://mock.api/files/generate-upload-url").mock(
         return_value=httpx.Response(
             200,
             json={
                 "upload_url": "http://mock.upload/put-here",
-                "media_id": "media_abc123"
+                "public_url": "http://mock.cdn/abc123.png",
+                "upload_headers": {
+                    "Content-Type": "image/png",
+                    "x-amz-tagging": "retention=temporary"
+                }
             }
         )
     )
     
-    # 2. Mock the actual upload (returns the accessible URL)
+    # 2. Mock the actual upload (empty body per real API)
     upload_route = respx.put("http://mock.upload/put-here").mock(
-        return_value=httpx.Response(200, json={"url": "http://mock.api/media/media_abc123"})
+        return_value=httpx.Response(200, content=b"")
     )
     
     # 3. Mock estimate endpoint
@@ -120,15 +124,15 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     uploaded_data = upload_route.calls[0].request.content
     assert uploaded_data == b"fake-duck-image-data"
     
-    # 3. Submit was called with URL, not local path
+    # 3. Submit was called with public_url, not local path
     assert submit_route.call_count == 1
     submit_request = submit_route.calls[0].request
     import json
     submit_body = json.loads(submit_request.content)
     assert "image_urls" in submit_body
     assert len(submit_body["image_urls"]) == 1
-    # Should be the constructed Higgsfield URL, not the local path
-    assert submit_body["image_urls"][0] == "http://mock.api/media/media_abc123"
+    # Should be the public_url from CDN, not the local path
+    assert submit_body["image_urls"][0] == "http://mock.cdn/abc123.png"
     assert str(ref_path) not in submit_body["image_urls"][0]
     
     # 4. Result contains harness job_id and provider_job_id

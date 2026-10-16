@@ -274,12 +274,16 @@ async def test_live_still_with_missing_refs_is_held_before_spend(tmp_path, monke
     ref_file.parent.mkdir(parents=True, exist_ok=True)
     ref_file.write_bytes(b"fake-ref-data")
     
-    # Mock upload API
+    # Mock upload API (real shape per live probe)
     respx.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
-        return_value=httpx.Response(200, json={"upload_url": "http://upload/url", "media_id": "media123"})
+        return_value=httpx.Response(200, json={
+            "upload_url": "http://upload/url",
+            "public_url": "http://cdn.example.com/media123.png",
+            "upload_headers": {"Content-Type": "image/png", "x-amz-tagging": "retention=temporary"}
+        })
     )
     respx.put("http://upload/url").mock(
-        return_value=httpx.Response(200, json={"url": "http://mock.api/media/media123"})
+        return_value=httpx.Response(200, content=b"")
     )
     
     respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
