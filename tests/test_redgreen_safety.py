@@ -385,6 +385,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Even with live mode and G1.08 enabled in DB
     await set_live_mode(test_db, "ep99", True)
@@ -403,7 +404,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     # Should return dry job (not call provider)
     result = await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    assert result["job_id"].startswith("still-dry-"), "Should return dry job"
+    assert result["job_id"].startswith("still-dry-"), f"Should return dry job, got {result['job_id']}"
     assert result["reserved_amount"] == 60_000, "Should return the dry estimate (0.06 USD in usd_micros)"
     
     # Key assertion: provider endpoints should NOT be called when DRY_RUN=true
