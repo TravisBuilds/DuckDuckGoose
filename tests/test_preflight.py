@@ -202,3 +202,55 @@ async def test_preflight_catches_missing_api_key_in_live_mode(tmp_path, monkeypa
     
     finally:
         temporalio.activity.info = original_info
+
+
+@pytest.mark.asyncio
+async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
+    """Test: Preflight fails if shot needs more refs than model allows."""
+    from hfvg.activities.preflight import preflight_validate_episode_activity, PreflightError
+    from hfvg.studio_db import init_studio_db
+    import temporalio.activity
+    import json
+    
+    episode_id = "ep99"
+    base_path = tmp_path / "data" / "episodes" / episode_id
+    base_path.mkdir(parents=True, exist_ok=True)
+    
+    # Shot uses kling model (cap 3) but needs 6 refs
+    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    (base_path / "shots.json").write_text(json.dumps({
+        "shots": [{
+            "id": "A01",
+            "prompt": "Test shot with many characters",
+            "count": 6,
+            "characters": ["D", "F", "R", "H", "M", "P"],  # 6 characters
+            "wet": False,
+            "model": "kling",
+            "duration": 3,
+            "end_frame": False,
+            "ref_keys": ["r_duck", "r_family", "r_rowan", "r_hazel", "r_mochi", "r_pool"]  # 6 refs
+        }]
+    }))
+    (base_path / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))
+    (base_path / "prompt_kit.json").write_text('{}')
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.chdir(tmp_path)
+    
+    await init_studio_db(db_path)
+    
+    original_info = temporalio.activity.info
+    
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
+        
+        with pytest.raises(PreflightError) as exc_info:
+            await preflight_validate_episode_activity(episode_id, None, False)
+        
+        assert "6 refs" in str(exc_info.value)
+        assert "only allows 3" in str(exc_info.value)
+        assert "A01" in str(exc_info.value)
+    
+    finally:
+        temporalio.activity.info = original_info

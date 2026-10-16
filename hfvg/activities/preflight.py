@@ -165,6 +165,19 @@ async def preflight_validate_episode_activity(
         duration = shot_data.get("duration")
         if duration is not None and (not isinstance(duration, (int, float)) or duration <= 0):
             problems.append(f"Shot {shot_id}: invalid duration {duration}")
+        
+        # Check if shot needs more refs than model allows
+        ref_keys = shot_data.get("ref_keys", [])
+        if model and ref_keys:
+            from hfvg.config import max_refs_for, still_model_path
+            # Map short codes to full model paths
+            model_map = {"kling": "kling-video/v3.0/pro/image-to-video", "higgsfield": still_model_path(), "seedance": "bytedance/seedance-2.5/reference-to-video"}
+            full_model = model_map.get(model, model)
+            ref_cap = max_refs_for(full_model)
+            if len(ref_keys) > ref_cap:
+                problems.append(
+                    f"Shot {shot_id}: needs {len(ref_keys)} refs but model '{model}' only allows {ref_cap}"
+                )
     
     # 7. Live mode: check API key
     if is_live:
