@@ -158,8 +158,9 @@ async def test_smoke_gate_refuses_expired_test(tmp_path, monkeypatch):
     # Try to submit with expired smoke test
     from hfvg.activities.studio_generation import submit_still_job_enforced
     
-    with pytest.raises(RuntimeError) as exc_info:
-        await submit_still_job_enforced(
+    call_succeeded = False
+    try:
+        result = await submit_still_job_enforced(
             episode_id="ep01",
             shot_id="A01",
             prompt="Test, real-time, no slow motion. Exactly 0 animals in frame.",
@@ -167,9 +168,12 @@ async def test_smoke_gate_refuses_expired_test(tmp_path, monkeypatch):
             refs=[],
             shot_meta={"count": 0, "exterior": False, "water": False, "characters": []}
         )
+        call_succeeded = True
+    except RuntimeError as exc:
+        assert "Smoke test gate failed" in str(exc)
+        assert "too old" in str(exc)
     
-    assert "Smoke test gate failed" in str(exc_info.value)
-    assert "too old" in str(exc_info.value)
+    assert not call_succeeded, "Submit should fail with expired smoke test"
 
 
 @pytest.mark.asyncio
