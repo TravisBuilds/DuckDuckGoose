@@ -170,6 +170,11 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             reserved = await ledger.reserve("ep99", "L2_drafts", 4_000_000, "test reserve")
             assert reserved
             
+            # Create provider job mapping (simulating what submit would do)
+            credit_ledger = CreditLedger(test_episode)
+            await credit_ledger.init_db()
+            await credit_ledger.persist_provider_job("test-job", "provider-job-123", "higgsfield")
+            
             status_before = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_before = status_before["reserved"]
             assert reserved_before == 4_000_000, "Should have 4_000_000 usd_micros reserved"

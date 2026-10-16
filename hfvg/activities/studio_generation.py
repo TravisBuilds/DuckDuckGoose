@@ -1188,6 +1188,19 @@ async def await_job_enforced(
     else:
         provider = KlingVideoProvider()
     
+    # Resolve harness job_id to provider job_id
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    provider_job_id = await credit_ledger.get_provider_job(job_id)
+    if not provider_job_id:
+        raise ValueError(
+            f"No provider job mapping found for harness job {job_id}. "
+            f"Job may not have been submitted successfully."
+        )
+    
+    activity.logger.info(f"Polling provider job {provider_job_id} (harness: {job_id})")
+    
     released = False  # Track if we've already released to prevent double release
     
     try:
@@ -1198,10 +1211,10 @@ async def await_job_enforced(
         max_retries_5xx = 3
         
         for i in range(max_active_polls):
-            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "active"})
+            activity.heartbeat({"job_id": job_id, "provider_job_id": provider_job_id, "poll": i, "phase": "active"})
             
             try:
-                job_status = await provider.get_job_status(job_id)
+                job_status = await provider.get_job_status(provider_job_id)
                 retries_5xx = 0  # Reset counter on success
             except httpx.HTTPStatusError as http_err:
                 # Retry on 5xx errors instead of releasing (job may still be running)
@@ -1288,10 +1301,10 @@ async def await_job_enforced(
         reconciliation_interval = 10.0
         
         for i in range(max_reconciliation_polls):
-            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "reconciliation"})
+            activity.heartbeat({"job_id": job_id, "provider_job_id": provider_job_id, "poll": i, "phase": "reconciliation"})
             
             try:
-                job_status = await provider.get_job_status(job_id)
+                job_status = await provider.get_job_status(provider_job_id)
             except httpx.HTTPStatusError as http_err:
                 # In reconciliation phase, log but keep polling
                 activity.logger.warning(
