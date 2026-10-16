@@ -109,10 +109,17 @@ async def test_preflight_passes_with_all_valid_inputs(tmp_path, monkeypatch):
     # Create all valid inputs
     (base_path / "beatmap.txt").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
-        "A01": {
+        "shots": [{
+            "id": "A01",
             "prompt": "Show r_duck in the park",
-            "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}
-        }
+            "count": 1,
+            "characters": ["D"],
+            "wet": False,
+            "model": "kling",
+            "duration": 3,
+            "end_frame": False,
+            "ref_keys": ["r_duck"]
+        }]
     }))
     
     # Create a valid ref file
@@ -127,8 +134,9 @@ async def test_preflight_passes_with_all_valid_inputs(tmp_path, monkeypatch):
     )
     
     (base_path / "refs.json").write_text(json.dumps({
-        "available": [{"key": "r_duck", "output_path": str(ref_path), "type": "character"}],
-        "to_generate": []
+        "per_shot": {
+            "A01": [{"key": "r_duck", "path": str(ref_path)}]
+        }
     }))
     (base_path / "prompt_kit.json").write_text("{}")
     

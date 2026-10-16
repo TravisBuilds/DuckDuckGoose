@@ -64,9 +64,9 @@ async def preflight_validate_episode_activity(
     else:
         try:
             shots_raw = json.loads(shots_json_path.read_text())
-            # shots.json can be dict with shot_id keys or have a "shots" array
+            # shots.json has a "shots" array with "id" field
             if isinstance(shots_raw, dict) and "shots" in shots_raw:
-                shots_data = {s["shot_id"]: s for s in shots_raw["shots"] if "shot_id" in s}
+                shots_data = {s["id"]: s for s in shots_raw["shots"] if "id" in s}
             elif isinstance(shots_raw, dict):
                 shots_data = shots_raw
             else:
@@ -154,19 +154,15 @@ async def preflight_validate_episode_activity(
         if shots_subset and shot_id not in shots_subset:
             continue
         
-        params = shot_data.get("params", {})
-        model = params.get("model")
+        # shots.json schema has model, duration at top level (not under params)
+        model = shot_data.get("model")
         
         if not model:
-            problems.append(f"Shot {shot_id}: missing params.model")
+            problems.append(f"Shot {shot_id}: missing model")
         elif model not in supported_models:
             problems.append(f"Shot {shot_id}: unsupported model '{model}'")
         
-        aspect_ratio = params.get("aspect_ratio")
-        if aspect_ratio and aspect_ratio not in valid_aspect_ratios:
-            problems.append(f"Shot {shot_id}: invalid aspect_ratio '{aspect_ratio}'")
-        
-        duration = params.get("duration")
+        duration = shot_data.get("duration")
         if duration is not None and (not isinstance(duration, (int, float)) or duration <= 0):
             problems.append(f"Shot {shot_id}: invalid duration {duration}")
     
