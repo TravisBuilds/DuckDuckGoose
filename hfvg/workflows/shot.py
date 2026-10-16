@@ -418,12 +418,19 @@ class ShotWorkflow:
                             raise
 
                 # Poll for completion using workflow-level polling loop (R1)
-                poll_result = await self._poll_job_to_completion(
-                    job_id=job_info["job_id"],
-                    job_type="still",
-                    line_name=job_info["line_name"],
-                    reserved_amount=job_info["reserved_amount"],
-                )
+                try:
+                    poll_result = await self._poll_job_to_completion(
+                        job_id=job_info["job_id"],
+                        job_type="still",
+                        line_name=job_info["line_name"],
+                        reserved_amount=job_info["reserved_amount"],
+                    )
+                except RuntimeError as e:
+                    # Provider failure or polling exhaustion - update G2 status before failing
+                    self.still_status = "failed"
+                    self.still_error = str(e)
+                    workflow.logger.error(f"Still generation failed: {e}")
+                    raise  # Re-raise to fail workflow
                 
                 self.still_asset = {
                     "url": poll_result["url"],
