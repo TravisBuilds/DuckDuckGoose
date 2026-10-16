@@ -129,8 +129,8 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     shots_dir.mkdir(parents=True, exist_ok=True)
     (shots_dir / "shots.json").write_text('[{"shot_id": "A01"}]')
     
-    # Reserve 4 credits (within cap)
-    await credit_ledger.reserve_credits("ep99", "job-1", 4)
+    # Reserve 4.5 credits (within cap, leaves 0.5 available)
+    await credit_ledger.reserve_credits("ep99", "job-1", 4.5)
     
     # Mock provider endpoints (should NOT be called if cap blocks)
     estimate_mock = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
@@ -140,7 +140,7 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
         return_value=httpx.Response(200, json={"request_id": "job-123"})
     )
     
-    # Try to submit still (needs ~1.12 credits, but only 1 available after 4 reserved from 5 cap)
+    # Try to submit still (needs 1 credit from table, but only 0.5 available after 4.5 reserved from 5 cap)
     # Should raise InsufficientCreditsError BEFORE calling provider
     with pytest.raises(InsufficientCreditsError) as exc_info:
         await submit_still_job_enforced(
