@@ -361,17 +361,14 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Helper to check if all children are done with any failures
-        def all_children_done_with_any_failed() -> bool:
-            if len(shot_completion_status) < len(shots):
-                return False  # Not all started tracking yet
-            all_done = all(status.get("done", False) for status in shot_completion_status.values())
-            any_failed = any(not status.get("success", True) for status in shot_completion_status.values() if status.get("done", False))
-            return all_done or any_failed
-        
         # Wait for approval OR any child failure (fail fast)
         await workflow.wait_condition(
-            lambda: self.approved_g2_scene_stills or all_children_done_with_any_failed()
+            lambda: self.approved_g2_scene_stills or (
+                len(shot_completion_status) >= len(shots) and (
+                    all(status.get("done", False) for status in shot_completion_status.values()) or
+                    any(not status.get("success", True) for status in shot_completion_status.values() if status.get("done", False))
+                )
+            )
         )
         
         # If we exited because of failures (not approval), surface them
