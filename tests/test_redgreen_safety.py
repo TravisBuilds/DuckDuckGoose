@@ -242,7 +242,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     # Create minimal episode files for preflight validation
     episode_dir = tmp_path / "data" / "episodes" / "ep99"
     episode_dir.mkdir(parents=True, exist_ok=True)
-    (episode_dir / "beatmap.txt").write_text("A01 (2.5s)")
+    (episode_dir / "BEATMAP.md").write_text("A01 (2.5s)")
     (episode_dir / "shots.json").write_text(json.dumps({
         "shots": [{
             "id": "A01",

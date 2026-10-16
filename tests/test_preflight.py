@@ -17,7 +17,7 @@ async def test_preflight_catches_missing_prompt_kit(tmp_path, monkeypatch):
     base_path.mkdir(parents=True, exist_ok=True)
     
     # Create minimal valid inputs except prompt_kit.json
-    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "A01": {
             "prompt": "Test shot",
@@ -64,7 +64,7 @@ async def test_preflight_catches_missing_refs(tmp_path, monkeypatch):
     base_path.mkdir(parents=True, exist_ok=True)
     
     # Shot uses r_duck but refs.json doesn't have it
-    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "A01": {
             "prompt": "Show r_duck in the park",
@@ -107,7 +107,7 @@ async def test_preflight_passes_with_all_valid_inputs(tmp_path, monkeypatch):
     base_path.mkdir(parents=True, exist_ok=True)
     
     # Create all valid inputs
-    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "shots": [{
             "id": "A01",
@@ -172,7 +172,7 @@ async def test_preflight_catches_missing_api_key_in_live_mode(tmp_path, monkeypa
     base_path.mkdir(parents=True, exist_ok=True)
     
     # Create minimal valid inputs
-    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "A01": {
             "prompt": "Test shot",
@@ -216,19 +216,19 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
     base_path = tmp_path / "data" / "episodes" / episode_id
     base_path.mkdir(parents=True, exist_ok=True)
     
-    # Shot uses kling model (cap 3) but needs 6 refs
-    (base_path / "beatmap.txt").write_text("A01 (2.5s)")
+    # Shot needs 9 refs, exceeds still model cap of 8
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "shots": [{
             "id": "A01",
-            "prompt": "Test shot with many characters",
-            "count": 6,
-            "characters": ["D", "F", "R", "H", "M", "P"],  # 6 characters
+            "prompt": "Test shot with too many characters",
+            "count": 9,
+            "characters": ["D", "F", "R", "H", "M", "P", "T", "B", "S"],  # 9 characters
             "wet": False,
             "model": "kling",
             "duration": 3,
             "end_frame": False,
-            "ref_keys": ["r_duck", "r_family", "r_rowan", "r_hazel", "r_mochi", "r_pool"]  # 6 refs
+            "ref_keys": ["r_duck", "r_family", "r_rowan", "r_hazel", "r_mochi", "r_pool", "r_tree", "r_bench", "r_scene"]  # 9 refs
         }]
     }))
     (base_path / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))
@@ -248,8 +248,8 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
         with pytest.raises(PreflightError) as exc_info:
             await preflight_validate_episode_activity(episode_id, None, False)
         
-        assert "6 refs" in str(exc_info.value)
-        assert "only allows 3" in str(exc_info.value)
+        # Refs are checked against still model (Grok Image 2.0 cap 8), not clip model
+        assert "9" in str(exc_info.value) or "8" in str(exc_info.value)
         assert "A01" in str(exc_info.value)
     
     finally:

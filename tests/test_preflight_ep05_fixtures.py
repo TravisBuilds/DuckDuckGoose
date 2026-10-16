@@ -90,6 +90,15 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
         }
     }))
     
+    # 4. Create actual ref files (preflight checks they exist)
+    refs_dir = ep_dir / "refs"
+    refs_dir.mkdir(exist_ok=True)
+    for ref_name in ["duck", "rowan", "hazel", "mochi", "family", "pool"]:
+        # Create minimal valid PNG
+        from PIL import Image
+        img = Image.new('RGB', (64, 64), color='blue')
+        img.save(refs_dir / f"{ref_name}.png")
+    
     # 4. prompt_kit.json (required for live mode)
     (ep_dir / "prompt_kit.json").write_text(json.dumps({
         "count_template": "Exactly {n} animals in frame",
@@ -110,13 +119,8 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
         )
         
         # Should pass all checks
-        assert result["valid"] is True, \
-            f"Preflight should pass with ep05 fixtures, got errors: {result.get('errors', [])}"
-        assert result["ok"] is True
-        assert len(result.get("errors", [])) == 0, \
-            f"Expected no errors, got {result['errors']}"
-        
-        # May have warnings (e.g. about lint patterns) but no errors
+        assert result["status"] == "passed", \
+            f"Preflight should pass with ep05 fixtures, got: {result}"
         
     finally:
         temporalio.activity.info = original_info
@@ -187,6 +191,14 @@ Shot with too many refs (9 > 8 cap).
         }
     }))
     
+    # Create actual ref files
+    refs_dir = ep_dir / "refs"
+    refs_dir.mkdir(exist_ok=True)
+    from PIL import Image
+    for ref_name in ["duck", "rowan", "hazel", "mochi", "family", "pool", "tree", "bench", "fence"]:
+        img = Image.new('RGB', (64, 64), color='blue')
+        img.save(refs_dir / f"{ref_name}.png")
+    
     # prompt_kit.json
     (ep_dir / "prompt_kit.json").write_text('{}')
     
@@ -194,33 +206,27 @@ Shot with too many refs (9 > 8 cap).
     original_info = temporalio.activity.info
     
     try:
+        from hfvg.activities.preflight import PreflightError
+        
         temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-preflight-fail'})()
         
-        # Run preflight in live mode (should fail)
-        result = await preflight_validate_episode_activity(
-            episode_id="ep05",
-            shots_subset=None,
-            is_live=True
-        )
-        
-        # Should fail validation
-        assert result["valid"] is False, \
-            "Preflight should fail when refs exceed still model cap"
-        assert result["ok"] is False
+        # Run preflight in live mode (should raise PreflightError)
+        with pytest.raises(PreflightError) as exc_info:
+            await preflight_validate_episode_activity(
+                episode_id="ep05",
+                shots_subset=None,
+                is_live=True
+            )
         
         # Should have error about A01 refs exceeding cap
-        errors = result.get("errors", [])
-        assert len(errors) > 0, "Expected at least one error"
-        
-        # Check error message mentions A01 and the cap
-        error_text = " ".join(errors).lower()
-        assert "a01" in error_text, f"Error should mention A01, got: {errors}"
+        error_text = str(exc_info.value).lower()
+        assert "a01" in error_text, f"Error should mention A01, got: {exc_info.value}"
         assert "9" in error_text or "8" in error_text, \
-            f"Error should mention ref count (9) or cap (8), got: {errors}"
+            f"Error should mention ref count (9) or cap (8), got: {exc_info.value}"
         
         # Should mention it's checking against still model, not clip model
         assert "still" in error_text or "grok" in error_text or "allows 8" in error_text, \
-            f"Error should indicate still model cap, got: {errors}"
+            f"Error should indicate still model cap, got: {exc_info.value}"
         
     finally:
         temporalio.activity.info = original_info
@@ -269,14 +275,8 @@ async def test_preflight_accepts_beatmap_md_not_txt(tmp_path, monkeypatch):
             is_live=True
         )
         
-        assert result["valid"] is True, \
-            f"Preflight should accept BEATMAP.md, got errors: {result.get('errors', [])}"
-        
-        # Should NOT complain about missing beatmap.txt
-        errors = result.get("errors", [])
-        error_text = " ".join(errors).lower()
-        assert "beatmap.txt" not in error_text, \
-            f"Should not mention beatmap.txt, got: {errors}"
+        assert result["status"] == "passed", \
+            f"Preflight should accept BEATMAP.md, got: {result}"
         
     finally:
         temporalio.activity.info = original_info

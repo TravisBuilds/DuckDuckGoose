@@ -87,8 +87,8 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
     # Create required episode files for preflight validation  
     episode_data_dir = tmp_path / "data" / "episodes" / episode_id
     episode_data_dir.mkdir(parents=True, exist_ok=True)
-    # Preflight expects beatmap.txt (copy from BEATMAP.md)
-    (episode_data_dir / "beatmap.txt").write_text(beatmap_path.read_text())
+    # Preflight expects BEATMAP.md (same as workflow)
+    (episode_data_dir / "BEATMAP.md").write_text(beatmap_path.read_text())
     (episode_data_dir / "shots.json").write_text(json.dumps({
         "shots": [
             {
