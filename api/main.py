@@ -2025,21 +2025,22 @@ if __name__ == "__main__":
 
 
 @app.post("/api/lint")
-async def lint_prompt(request: dict):
+async def lint_prompt_endpoint(request: dict):
     """
     Lint a prompt for violations.
     
     Args:
-        request: dict with "prompt" (str) and optional "live" (bool)
+        request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool)
     
     Returns:
         dict with "problems" list
     """
-    from hfvg.prompt_lint import lint_prompt_text
+    from hfvg.prompt_lint import lint_violations, load_lint_kit
     
     prompt = request.get("prompt", "")
-    live = request.get("live", False)
+    shot_meta = request.get("shot_meta", {})
     
-    problems = lint_prompt_text(prompt, live=live)
+    kit = load_lint_kit()
+    problems = lint_violations(prompt, shot_meta, kit)
     
     return {"problems": problems}
