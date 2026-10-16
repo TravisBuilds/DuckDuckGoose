@@ -93,15 +93,15 @@ class HiggsfieldStillProvider(GenerationProvider):
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-still-{hash_digest}"
     
-    async def upload_reference(self, image_path: str | Path) -> str:
+    async def upload_reference(self, image_path: str | Path) -> dict:
         """
-        Upload reference image and return media ID.
+        Upload reference image and return upload result with URL.
         
         Args:
             image_path: Path to reference image
         
         Returns:
-            media_id for use in generation
+            dict with 'media_id' and 'url' (the actual accessible URL for the uploaded file)
         """
         # Get upload URL
         response = await self.client.post(
@@ -121,8 +121,19 @@ class HiggsfieldStillProvider(GenerationProvider):
         async with httpx.AsyncClient() as plain_client:
             upload_response = await plain_client.put(upload_url, content=image_bytes)
             upload_response.raise_for_status()
+            
+            # Check if response contains the actual URL
+            try:
+                upload_data = upload_response.json()
+                # Provider returns the actual accessible URL in the response
+                if "url" in upload_data:
+                    return {"media_id": media_id, "url": upload_data["url"]}
+            except:
+                pass
         
-        return media_id
+        # Fallback: construct URL from media_id (this is what we were doing wrong before)
+        # The actual URL format should come from the API response
+        return {"media_id": media_id, "url": f"{self.base_url}/files/{media_id}"}
     
     async def _estimate_response(
         self,

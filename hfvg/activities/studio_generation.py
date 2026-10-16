@@ -306,10 +306,9 @@ async def submit_still_job_enforced(
             for ref_path in refs:
                 # Check if this is a local file path (not already a URL)
                 if not ref_path.startswith(("http://", "https://")):
-                    # Upload the local file and get URL
-                    media_id = await provider.upload_reference(ref_path)
-                    # Construct the Higgsfield media URL
-                    uploaded_url = f"{provider.base_url}/media/{media_id}"
+                    # Upload the local file and get the actual URL from provider
+                    upload_result = await provider.upload_reference(ref_path)
+                    uploaded_url = upload_result["url"]
                     uploaded_refs.append(uploaded_url)
                     activity.logger.info(
                         f"Uploaded reference {ref_path} -> {uploaded_url}"
@@ -387,6 +386,9 @@ async def submit_still_job_enforced(
                 activity.logger.info(
                     f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
                 )
+            
+            # Store mapping from harness job_id to provider_job_id for credit ledger lookups
+            await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
             
             activity.logger.info(
                 f"[LIVE] Submitted still {provider_job_id} for {episode_id}/{shot_id} "
@@ -811,20 +813,21 @@ async def poll_job_status(
         
         # Check for terminal failure statuses - fail fast and release reservations
         if job_status.status.value in ("failed", "blocked", "canceled"):
-            # Provider job failed - must fail fast, release credit and USD reservations,
+            # Provider job failed - must fail fast, release BOTH credit and USD reservations,
             # and surface the error message
             activity.logger.error(
                 f"Job {job_id} {job_status.status.value}: {job_status.error}"
             )
             
-            # Release credit reservation
+            # Release credit reservation (job_id here is provider_job_id, need to look up harness job_id)
             credit_ledger = CreditLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
             await credit_ledger.init_db()
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"{job_status.status.value}: {job_status.error}")
+            await credit_ledger.release_credits_by_provider_job(
+                episode_id, job_id, notes=f"{job_status.status.value}: {job_status.error}"
+            )
             
-            # Release USD reservation
-            # Note: The workflow must also call release_job_budget when it sees this status
-            # This is just releasing the credit reservation here
+            # Note: USD reservation release is handled by the workflow when it sees this status
+            # The workflow calls release_job_budget with the job info it stored from submit
             
             # Return terminal failure status immediately
             return {

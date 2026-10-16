@@ -272,16 +272,22 @@ async def test_failed_job_releases_reservations(tmp_path):
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep05", cap_credits=10000)
     
-    # Reserve credits for this job
-    await credit_ledger.reserve_credits("ep05", "job_that_fails", 4.0, "test still")
+    # Reserve credits for this job (using harness job ID)
+    harness_job_id = "still-ep05-A01-v1"
+    provider_job_id = "job_that_fails"
+    await credit_ledger.reserve_credits("ep05", harness_job_id, 4.0, "test still")
+    
+    # Store the mapping from harness to provider job ID
+    await credit_ledger.persist_provider_job(harness_job_id, provider_job_id, "higgsfield")
     
     # Check initial state
     balance_before = await credit_ledger.get_episode_status("ep05")
     assert balance_before["reserved_credits"] == 4.0
     
-    # Poll the failed job
+    # Poll the failed job (using provider job ID)
+    from hfvg.activities.studio_generation import poll_job_status
     poll_result = await poll_job_status(
-        job_id="job_that_fails",
+        job_id=provider_job_id,  # Provider job ID
         job_type="still",
         episode_id="ep05",
     )
@@ -291,9 +297,9 @@ async def test_failed_job_releases_reservations(tmp_path):
     assert poll_result["status"] == "failed"
     assert "duck too cute" in poll_result["error"]
     
-    # 2. Credit reservation was released
+    # 2. Credit reservation was released (should look up harness job ID and release)
     balance_after = await credit_ledger.get_episode_status("ep05")
-    assert balance_after["reserved_credits"] == 0.0
+    assert balance_after["reserved_credits"] == 0.0, "Credit reservation should be released"
     assert balance_after["available_credits"] == 10000.0
 
 

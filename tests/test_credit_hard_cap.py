@@ -72,6 +72,7 @@ async def test_raise_cap_and_resume(tmp_path):
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     """
     Test: When hard cap is hit, no job is submitted (pause happens before provider call).
