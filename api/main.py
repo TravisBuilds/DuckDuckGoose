@@ -2022,3 +2022,24 @@ if __name__ == "__main__":
     
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+@app.post("/api/lint")
+async def lint_prompt(request: dict):
+    """
+    Lint a prompt for violations.
+    
+    Args:
+        request: dict with "prompt" (str) and optional "live" (bool)
+    
+    Returns:
+        dict with "problems" list
+    """
+    from hfvg.prompt_lint import lint_prompt_text
+    
+    prompt = request.get("prompt", "")
+    live = request.get("live", False)
+    
+    problems = lint_prompt_text(prompt, live=live)
+    
+    return {"problems": problems}
