@@ -215,21 +215,21 @@ class EpisodeWorkflow:
 
         vo_url = await workflow.execute_activity(
             generate_voiceover,
-            args=["Episode voiceover script", "voice-default"],
+            args=[self.episode_id, "Episode voiceover script", "voice-default"],
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(minutes=1),
         )
 
         sfx_url = await workflow.execute_activity(
             generate_sfx,
-            args=["Ambient kitchen sounds"],
+            args=[self.episode_id, "Ambient kitchen sounds"],
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(minutes=1),
         )
 
         music_url = await workflow.execute_activity(
             generate_music,
-            args=["upbeat acoustic", 60.0],
+            args=[self.episode_id, "upbeat acoustic", 60.0],
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(minutes=1),
         )

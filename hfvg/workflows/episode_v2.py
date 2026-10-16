@@ -346,42 +346,18 @@ class EpisodeWorkflowV2:
                 if isinstance(result, dict) and result.get("status") == "failed":
                     error_detail = result.get("error", "Unknown error")
                     shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
-                    self.failed_shots[shot_id] = error_detail
+                    self.state.failed_shots.append({
+                        "shot_id": shot_id,
+                        "status": "failed",
+                        "reason": error_detail
+                    })
                     workflow.logger.error(f"Shot {shot_id} failed: {error_detail}")
                 else:
-                    # Also check child state for still_status/clip_status == 'failed'
-                    try:
-                        child_state = await handle.query("get_state")
-                        if child_state.get("still_status") == "failed" or child_state.get("clip_status") == "failed":
-                            error_detail = (
-                                child_state.get("still_error") or 
-                                child_state.get("clip_error") or
-                                "Shot failed (status marked failed)"
-                            )
-                            shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
-                            self.failed_shots[shot_id] = error_detail
-                            workflow.logger.error(f"Shot {shot_id} failed per child state: {error_detail}")
-                        else:
-                            shot_completion_status[shot_id] = {"done": True, "success": True, "result": result}
-                            workflow.logger.info(f"Shot {shot_id} completed successfully")
-                    except Exception as query_err:
-                        # If query fails, assume success based on result
-                        workflow.logger.warning(f"Failed to query child state for {shot_id}: {query_err}")
-                        shot_completion_status[shot_id] = {"done": True, "success": True, "result": result}
+                    shot_completion_status[shot_id] = {"done": True, "success": True, "result": result}
+                    workflow.logger.info(f"Shot {shot_id} completed successfully")
             except Exception as e:
-                # Query child workflow state to get the real error (not "Child Workflow execution failed")
-                try:
-                    child_state = await handle.query("get_state")
-                    error_detail = (
-                        child_state.get("still_error") or 
-                        child_state.get("clip_error") or 
-                        child_state.get("end_still_error") or 
-                        str(e)
-                    )
-                except Exception as query_err:
-                    # If query fails, fallback to exception message
-                    workflow.logger.warning(f"Failed to query child state: {query_err}")
-                    error_detail = str(e)
+                # Child raised an exception
+                error_detail = str(e)
                 
                 shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
                 workflow.logger.error(f"Shot {shot_id} failed: {error_detail}")

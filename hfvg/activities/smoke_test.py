@@ -85,10 +85,19 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
     
     budget_reserved = False
     credits_reserved = False
+    provider_job_id = None
     
     try:
         # Get real estimate (SOUL V2 API: prompt, resolution, aspect_ratio - no quality field)
+        # Estimate returns 'usd' and 'credits' as strings
         estimated_cost_micros = await provider.estimate_usd_micros(
+            prompt=prompt,
+            resolution="720p",
+            aspect_ratio="1:1"
+        )
+        
+        # Get credits estimate (same call, different parsing)
+        estimated_credits = await provider.estimate_cost(
             prompt=prompt,
             resolution="720p",
             aspect_ratio="1:1"
@@ -111,16 +120,12 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             return {
                 "passed": False,
                 "provider_job_id": None,
-                "cost": None,
                 "error": "Budget reserve failed"
             }
         
         budget_reserved = True
         
-        # Reserve credits (using estimate in credits, not USD)
-        from hfvg.credit_pricing import estimate_still_credits
-        estimated_credits = estimate_still_credits(provider.model_path, "standard")
-        
+        # Reserve credits
         credit_ledger = CreditLedger(db_path)
         await credit_ledger.init_db()
         
@@ -135,7 +140,6 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             return {
                 "passed": False,
                 "provider_job_id": None,
-                "cost": None,
                 "error": "Credit reserve failed"
             }
         
@@ -165,12 +169,6 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             
             # Terminal statuses
             if status.status == "completed":
-                # Get actual cost (status.cost is in USD float, convert to micros)
-                if status.cost:
-                    actual_cost_micros = int(status.cost * 1_000_000)
-                else:
-                    actual_cost_micros = estimated_cost_micros
-                
                 # Download output and verify it decodes
                 import httpx
                 from PIL import Image
@@ -192,16 +190,15 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                     return {
                         "passed": False,
                         "provider_job_id": provider_job_id,
-                        "cost": None,
                         "error": f"Output download/decode failed: {download_err}"
                     }
                 
-                # Commit reservations
+                # Commit reservations using the estimate (status response has no cost)
                 await ledger.commit(episode_id, "L2_drafts", estimated_cost_micros, 
-                                   actual_usd_micros=actual_cost_micros,
+                                   actual_usd_micros=estimated_cost_micros,
                                    job_id=job_id)
                 await credit_ledger.commit_credits(episode_id, job_id, 
-                                                  actual_credits=status.cost if status.cost else estimated_credits)
+                                                  actual_credits=estimated_credits)
                 
                 budget_reserved = False
                 credits_reserved = False
@@ -209,7 +206,6 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                 return {
                     "passed": True,
                     "provider_job_id": provider_job_id,
-                    "cost": status.cost if status.cost else estimated_credits,
                     "error": None
                 }
             elif status.status in ("failed", "nsfw", "canceled"):
@@ -221,40 +217,60 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                 return {
                     "passed": False,
                     "provider_job_id": provider_job_id,
-                    "cost": None,
                     "error": status.error or f"Generation {status.status}"
                 }
             
             await asyncio.sleep(1)
         
-        # Timeout - release
-        await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test timeout")
-        await credit_ledger.release_credits(episode_id, job_id, notes="Smoke test timeout")
+        # Timeout - mark pending_reconcile (don't release since job exists)
+        from hfvg.activities.studio_generation import mark_job_pending_reconcile
+        await mark_job_pending_reconcile(
+            episode_id=episode_id,
+            job_id=job_id,
+            line_name="L2_drafts",
+            reserved_amount=estimated_cost_micros,
+            reason="Smoke test timeout"
+        )
         budget_reserved = False
         credits_reserved = False
         return {
             "passed": False,
             "provider_job_id": provider_job_id,
-            "cost": None,
-            "error": "Timeout after 60s"
+            "error": "Timeout after 60s (marked pending_reconcile)"
         }
         
     except Exception as e:
-        # Release budget and credits if still held
-        if budget_reserved:
+        # If provider job was submitted, mark pending_reconcile; otherwise release
+        if provider_job_id:
+            # Job exists - mark pending_reconcile
             try:
-                await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test exception: {e}")
+                from hfvg.activities.studio_generation import mark_job_pending_reconcile
+                await mark_job_pending_reconcile(
+                    episode_id=episode_id,
+                    job_id=job_id,
+                    line_name="L2_drafts",
+                    reserved_amount=estimated_cost_micros,
+                    reason=f"Smoke test exception: {e}"
+                )
+                budget_reserved = False
+                credits_reserved = False
             except Exception:
                 pass
-        if credits_reserved:
-            try:
-                await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test exception: {e}")
-            except Exception:
-                pass
+        else:
+            # Job not submitted yet - release holds
+            if budget_reserved:
+                try:
+                    await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test exception: {e}")
+                except Exception:
+                    pass
+            if credits_reserved:
+                try:
+                    await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test exception: {e}")
+                except Exception:
+                    pass
         return {
             "passed": False,
-            "provider_job_id": None,
-            "cost": None,
+            "provider_job_id": provider_job_id,
             "error": str(e)
         }
 
