@@ -1023,13 +1023,13 @@ test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
 test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_to_still_activity" \
-    sed -i '/submit_still_job_enforced/,/shot_meta=shot_meta,/{ s/refs=refs,/refs=[],  # MUTATED/; }'
+    sed -i '/submit_still_job_enforced/,/shot_plan\.get("missing_refs"/{ /^[[:space:]]*refs,$/s/.*/                                [],  # MUTATED - no refs/; }'
 
 # 86. M-R4r Workflow passes missing refs to the still activity
 test_mutation 86 "M-R4r Workflow passes missing refs to the still activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_to_still_activity" \
-    sed -i '/submit_still_job_enforced/,/shot_meta=shot_meta,/{ s/missing_refs=shot_plan\.get("missing_refs", \[\]),/missing_refs=[],  # MUTATED/; }'
+    sed -i '/submit_still_job_enforced/,/shot_plan\.get("missing_refs"/{ s/shot_plan\.get("missing_refs", \[\]),$/[],  # MUTATED - no missing_refs/; }'
 
 # 87. M-R4s Workflow uses the shot's real clip duration
 test_mutation 87 "M-R4s Workflow uses the shot's real clip duration" \
