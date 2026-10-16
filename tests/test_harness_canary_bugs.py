@@ -82,6 +82,8 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     await ledger.set_line("ep05", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L3_final_stills", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L4_video", 100_000_000, 80_000_000, "higgsfield")
+    # Set manual balance for GC.01 headroom check
+    await ledger.set_manual_balance(100_000_000, "test", "test balance")
     
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
@@ -189,6 +191,8 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     await ledger.set_line("ep05", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L3_final_stills", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L4_video", 100_000_000, 80_000_000, "higgsfield")
+    # Set manual balance for GC.01 headroom check
+    await ledger.set_manual_balance(100_000_000, "test", "test balance")
     
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
@@ -297,15 +301,11 @@ async def test_failed_job_releases_reservations(tmp_path):
 async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
     """Test that POST /api/episodes errors if no BEATMAP.md exists (issue #3)."""
     import os
-    import sys
     
     # Setup test environment
     os.environ["ADMIN_SECRET"] = "a" * 32
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
     os.environ["DRY_RUN"] = "true"
-    
-    # Patch temporal_client to None to avoid connection attempts
-    sys.modules['api.main'].temporal_client = None
     
     # Create episode directory without BEATMAP.md
     episode_dir = tmp_path / "data" / "episodes" / "ep99"
@@ -318,6 +318,10 @@ async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
     # Import app after env setup
     from api.main import app
     from fastapi.testclient import TestClient
+    
+    # Patch temporal_client to None to avoid connection attempts
+    import api.main as api_main
+    api_main.temporal_client = None
     
     client = TestClient(app)
     
