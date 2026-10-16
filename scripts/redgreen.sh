@@ -521,7 +521,7 @@ test_mutation 4 "Activity-level enforcement (not just API)" \
 test_mutation 5 "Idempotent retry (no double-charge)" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
-    python3 scripts/mutate_idempotency.py
+    sed -i 's/existing_provider_job_id = await ledger.get_provider_job(job_id)/existing_provider_job_id = None  # MUTATED - always resubmit/'
 
 # 6. Auth fail-closed
 test_mutation 6 "Auth fail-closed (no default secret)" \
@@ -561,7 +561,7 @@ test_mutation 10 "Approval signal reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i '/if not request\.admin_secret or request\.admin_secret != ADMIN_SECRET:/s/.*/    if False:  # MUTATED/'
+    sed -i 's/if not request.admin_secret or request.admin_secret != admin_secret:/if False:  # MUTATED/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -1053,7 +1053,7 @@ test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
 test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i '595s/shot_plan.get("missing_refs", \[\]),$/[],  # MUTATED/'
+    sed -i '/submit_clip_job_enforced/,/start_to_close_timeout=timedelta/{ /shot_plan.get("missing_refs", \[\]),/s/.*/                                [],  # MUTATED - no missing_refs/; }'
 
 # 91. M-R4w End-frame generation succeeds in both dry and live modes
 test_mutation 91 "M-R4w End-frame generation succeeds in both dry and live modes" \
@@ -1216,7 +1216,7 @@ test_mutation 114 "Clip submit persists provider_job mapping" \
 test_mutation 115 "Upload checks cache before uploading" \
     "hfvg/providers/higgsfield_still.py" \
     "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
-    sed -i '/cached_url = await cache.get_cached_url(str(image_path), version)/s/.*/        cached_url = None  # MUTATED - bypass cache/'
+    sed -i 's/cached_url = await cache.get_cached_url(str(image_path), version)/cached_url = None  # MUTATED - bypass cache/'
 
 # Print final summary
 print_summary

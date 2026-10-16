@@ -345,13 +345,27 @@ class EpisodeWorkflowV2:
                 shot_completion_status[shot_id] = {"done": True, "success": True, "result": result}
                 workflow.logger.info(f"Shot {shot_id} completed successfully")
             except Exception as e:
-                shot_completion_status[shot_id] = {"done": True, "success": False, "error": str(e)}
-                workflow.logger.error(f"Shot {shot_id} failed: {e}")
+                # Query child workflow state to get the real error (not "Child Workflow execution failed")
+                try:
+                    child_state = await handle.query("get_state")
+                    error_detail = (
+                        child_state.get("still_error") or 
+                        child_state.get("clip_error") or 
+                        child_state.get("end_still_error") or 
+                        str(e)
+                    )
+                except Exception as query_err:
+                    # If query fails, fallback to exception message
+                    workflow.logger.warning(f"Failed to query child state: {query_err}")
+                    error_detail = str(e)
+                
+                shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
+                workflow.logger.error(f"Shot {shot_id} failed: {error_detail}")
                 # Record in state for API/query exposure
                 self.state.failed_shots.append({
                     "shot_id": shot_id,
                     "status": "failed",
-                    "reason": str(e),
+                    "reason": error_detail,
                 })
         
         for shot in shots:

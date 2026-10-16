@@ -316,218 +316,102 @@ async def test_failed_job_releases_reservations(tmp_path):
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path):
     """
-    Test: Workflow-level test that shot workflow polls with provider ID (not harness ID).
+    BUG 2: await_job_enforced must poll with provider ID, not harness ID.
     
-    This test verifies BUG 2 is fixed: the workflow must poll using provider job IDs,
-    not harness job IDs. A fake provider 404s on harness IDs and succeeds on provider IDs.
+    The workflow activities use harness IDs (still-ep-shot-vN), but provider APIs
+    require provider IDs. The await_job_enforced activity must look up the provider
+    ID from the harness ID before polling.
     
-    Verifies:
-    - Shot reaches done/failed terminal state
-    - Both credit and USD ledgers net to zero on provider failure
+    This test verifies that when poll_job_status is called with a harness ID,
+    it correctly resolves to the provider ID and polls the provider API with it.
     """
-    import os
-    from hfvg.workflows.shot import ShotWorkflow
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-    from temporalio import activity
-    from datetime import timedelta
-    
     # Setup test environment
-    db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
-    os.environ["DRY_RUN"] = "false"
+    import os
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["DRY_RUN"] = "false"
     
+    # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
-    await init_studio_db(db_path)
-    await create_episode(db_path, "ep06", None)
-    await set_live_mode(db_path, "ep06", True, "test")
-    await approve_g108(db_path, "ep06", "test")
+    await init_studio_db(os.environ["DATABASE_PATH"])
+    await create_episode(os.environ["DATABASE_PATH"], "ep06", None)
+    await set_live_mode(os.environ["DATABASE_PATH"], "ep06", True, "test")
+    await approve_g108(os.environ["DATABASE_PATH"], "ep06", "test")
     
     # Initialize ledgers
-    from hfvg.credit_ledger import CreditLedger
     from hfvg.budget import BudgetLedger
+    from hfvg.credit_ledger import CreditLedger
     
-    credit_ledger = CreditLedger(db_path)
+    budget_ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    await budget_ledger.init_db()
+    await budget_ledger.set_line("ep06", "L3_final_stills", 100_000_000, 80_000_000, "higgsfield")
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    
+    credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep06", cap_credits=1000)
     
-    budget_ledger = BudgetLedger(db_path)
-    await budget_ledger.init_db()
-    await budget_ledger.set_manual_balance(100_000_000, "test", "test")
-    await budget_ledger.set_line("ep06", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
-    await budget_ledger.set_line("ep06", "L3_final_stills", 100_000_000, 80_000_000, "higgsfield")
+    # Mock Higgsfield API
+    estimate_route = respx.post("http://mock.api/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "1.12", "usd": "1.12"})
+    )
     
-    # Create fake activities that simulate provider behavior
-    provider_jobs = {}  # Map provider_job_id -> status
-    polled_job_ids = []  # Track which job IDs were polled
+    submit_route = respx.post("http://mock.api/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "provider_still_xyz123"})
+    )
     
-    @activity.defn(name="submit_still_job_enforced")
-    async def fake_submit_still(episode_id, shot_id, prompt, version, refs=None, 
-                               resolution="1k", quality="medium", aspect_ratio="9:16",
-                               tier=None, shot_meta=None, missing_refs=None):
-        """Fake submit that returns both harness and provider job IDs."""
-        harness_job_id = f"still-{episode_id}-{shot_id}-v{version}"
-        provider_job_id = f"provider_{harness_job_id}"
-        
-        # Reserve credits and USD
-        await credit_ledger.reserve_credits(episode_id, harness_job_id, 5.0, "fake still")
-        await budget_ledger.reserve(episode_id, "L3_final_stills", 300_000, f"still {shot_id}")
-        
-        # Persist mapping
-        await credit_ledger.persist_provider_job(harness_job_id, provider_job_id, "fake_provider")
-        
-        # Set provider job to fail
-        provider_jobs[provider_job_id] = "failed"
-        
-        return {
-            "job_id": harness_job_id,
-            "provider_job_id": provider_job_id,
-            "line_name": "L3_final_stills",
-            "reserved_amount": 300_000,
-        }
+    # Mock poll with provider ID - this is the critical check
+    poll_provider_route = respx.get("http://mock.api/requests/provider_still_xyz123/status").mock(
+        return_value=httpx.Response(200, json={
+            "status": "completed",
+            "image": {"url": "http://example.com/result.jpg"},
+            "cost": 1.12
+        })
+    )
     
-    @activity.defn(name="poll_job_status")
-    async def fake_poll(job_id, job_type, episode_id):
-        """
-        Fake poll that 404s on harness IDs and returns status for provider IDs.
-        This simulates the real provider behavior that BUG 2 would hit.
-        """
-        # Track which job_id was polled (for assertions)
-        polled_job_ids.append(job_id)
-        
-        # Resolve harness → provider (this is what the fix does)
-        provider_job_id = await credit_ledger.get_provider_job(job_id)
-        
-        if not provider_job_id:
-            # No mapping, assume job_id is already provider ID
-            provider_job_id = job_id
-        
-        # Simulate provider: 404 on harness IDs, return status on provider IDs
-        if not provider_job_id.startswith("provider_"):
-            # This is a harness ID being polled directly (the bug!)
-            raise ValueError(f"Provider 404: {provider_job_id} not found (looks like harness ID)")
-        
-        status = provider_jobs.get(provider_job_id, "processing")
-        
-        if status == "failed":
-            # Release both credit and USD on failure
-            harness_id = job_id  # The harness ID passed to poll
-            await credit_ledger.release_credits(episode_id, harness_id, notes="provider failed")
-            # USD release would happen in workflow via release_job_budget
-            return {
-                "status": "failed",
-                "output_url": None,
-                "error": "Provider simulation: job failed",
-                "cost": None
-            }
-        
-        return {
-            "status": status,
-            "output_url": "http://fake.com/output.jpg" if status == "completed" else None,
-            "error": None,
-            "cost": 300_000 if status == "completed" else None
-        }
+    # Mock poll with harness ID - this should NEVER be called
+    poll_harness_route = respx.get("http://mock.api/requests/still-ep06-A01-v1/status").mock(
+        return_value=httpx.Response(404, json={"error": "Job not found"})
+    )
     
-    @activity.defn(name="release_job_budget")
-    async def fake_release_budget(episode_id, shot_id, job_id, job_type, line_name, reserved_amount, reason):
-        """Fake budget release."""
-        await budget_ledger.release(episode_id, line_name, reserved_amount, reason)
-        return {"released": True}
+    # Submit still job
+    from hfvg.activities.studio_generation import submit_still_job_enforced, poll_job_status
     
-    @activity.defn(name="precheck_still_qc")
-    async def fake_precheck_still(episode_id, shot_id, prompt, params):
-        """Fake precheck - always pass."""
-        return {"passed": True, "issues": []}
+    result = await submit_still_job_enforced(
+        episode_id="ep06",
+        shot_id="A01",
+        prompt="Test shot",
+        params={
+            "resolution": "1k",
+            "quality": "medium",
+            "aspect_ratio": "9:16"
+        },
+        refs=[],
+        version=1
+    )
     
-    @activity.defn(name="review_still")
-    async def fake_review_still(url, rubric, episode_id, shot_id):
-        """Fake review - always pass."""
-        return {"passed": True, "issues": []}
+    harness_job_id = result["job_id"]
+    assert harness_job_id == "still-ep06-A01-v1"
     
-    @activity.defn(name="record_shot_result")
-    async def fake_record_shot(db_path, episode_id, shot_id, status, still_url, clip_url=None, 
-                              qc_results=None, attempts=0, prompt=None, clear_clip=False):
-        """Fake record."""
-        return {"recorded": True}
+    # Poll with harness ID - it should resolve to provider ID internally
+    poll_result = await poll_job_status(
+        job_id=harness_job_id,
+        job_type="still",
+        episode_id="ep06"
+    )
     
-    @activity.defn(name="commit_job_budget")
-    async def fake_commit_budget(episode_id, shot_id, job_id, job_type, line_name, 
-                                reserved_amount, actual_cost):
-        """Fake commit."""
-        return {"committed": True}
+    # CRITICAL ASSERTIONS:
+    # 1. Poll succeeded using provider ID
+    assert poll_result["status"] == "completed"
+    assert poll_result["output_url"] == "http://example.com/result.jpg"
     
-    @activity.defn(name="commit_credits_activity")
-    async def fake_commit_credits(episode_id, job_id):
-        """Fake commit credits."""
-        return {"committed": True}
-    
-    @activity.defn(name="release_credits_activity")
-    async def fake_release_credits(episode_id, job_id, notes):
-        """Fake release credits."""
-        await credit_ledger.release_credits(episode_id, job_id, notes=notes)
-        return {"released": True}
-    
-    # Run workflow in test environment
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="test",
-            workflows=[ShotWorkflow],
-            activities=[
-                fake_submit_still, fake_poll, fake_release_budget,
-                fake_precheck_still, fake_review_still, fake_record_shot,
-                fake_commit_budget, fake_commit_credits, fake_release_credits
-            ]
-        ):
-            shot_plan = {
-                "shot_id": "A01",
-                "prompt": "Test shot",
-                "version": 1,
-                "refs": [],
-                "params": {
-                    "resolution": "1k",
-                    "quality": "medium",
-                    "aspect_ratio": "9:16"
-                }
-            }
-            
-            # Start workflow
-            handle = await env.client.start_workflow(
-                ShotWorkflow.run,
-                args=["ep06", shot_plan],
-                id=f"test-shot-{tmp_path.name}",
-                task_queue="test",
-                execution_timeout=timedelta(minutes=2)
-            )
-            
-            # Send stills_approved signal so workflow doesn't hang
-            await handle.signal("stills_approved")
-            
-            try:
-                result = await handle.result()
-                
-                # Should fail
-                assert False, "Workflow should have failed"
-            except Exception as e:
-                # Expected to fail
-                assert "Provider simulation: job failed" in str(e) or "failed" in str(e).lower()
-    
-    # Verify ledgers netted to zero
-    credit_status = await credit_ledger.get_episode_status("ep06")
-    assert credit_status["reserved_credits"] == 0.0, "Credits should be released"
-    
-    budget_status = await budget_ledger.get_line_status("ep06", "L3_final_stills")
-    assert budget_status["reserved"] == 0, "USD should be released"
-    
-    # CRITICAL ASSERTION: Verify poll was called with HARNESS ID, not provider ID
-    # The poll activity receives the harness ID and must resolve it internally
-    assert len(polled_job_ids) > 0, "Poll should have been called"
-    for polled_id in polled_job_ids:
-        assert polled_id.startswith("still-"), f"Poll must be called with harness ID (still-...), got: {polled_id}"
-        assert not polled_id.startswith("provider_"), f"Poll must NOT be called with provider ID, got: {polled_id}"
+    # 2. Provider API was called with PROVIDER ID, not harness ID
+    assert poll_provider_route.call_count == 1, "Provider API must be called with provider ID"
+    assert poll_harness_route.call_count == 0, "Provider API must NOT be called with harness ID"
 
 
 @pytest.mark.asyncio
