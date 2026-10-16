@@ -46,13 +46,13 @@ REVISION_LINE = "L7_revision"
 # Required budget lines (single source of truth: derived from code that reserves)
 REQUIRED_BUDGET_LINES = ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", REVISION_LINE]
 
-# Default line caps when policy lacks values (must sum to < episode cap)
-# These total $55, leaving $5 buffer under $60 episode cap
+# Default line caps when policy lacks values (must sum to < episode stop threshold)
+# These total $44, under $48 stop (80% of $60 cap) with $4 buffer
 DEFAULT_LINE_CAPS_USD_MICROS = {
-    "L1_refs": 5_000_000,          # $5.00 - reference generation
-    "L2_drafts": 10_000_000,        # $10.00 - draft stills
-    "L3_final_stills": 20_000_000,  # $20.00 - final stills
-    "L4_video": 20_000_000,         # $20.00 - video clips
+    "L1_refs": 4_000_000,           # $4.00 - reference generation
+    "L2_drafts": 8_000_000,          # $8.00 - draft stills
+    "L3_final_stills": 16_000_000,   # $16.00 - final stills
+    "L4_video": 16_000_000,          # $16.00 - video clips
 }
 
 # Legacy plan import only: 1 Higgsfield app credit = 0.0475 USD (HARNESS-GATES.json usd.basis)
@@ -220,7 +220,7 @@ class BudgetLedger:
         
         Always creates standard lines that code reserves against (see REQUIRED_BUDGET_LINES).
         Uses policy values when available, otherwise defaults (see DEFAULT_LINE_CAPS_USD_MICROS).
-        Default caps total $55, leaving $5 buffer under $60 episode cap.
+        Default caps total $44, under $48 stop threshold (80% of $60 cap) with $4 buffer.
         """
         await self.init_db()
         settings = get_budget_settings()
