@@ -268,12 +268,26 @@ async def test_live_still_with_missing_refs_is_held_before_spend(tmp_path, monke
     from hfvg.budget import BudgetLedger
 
     db_path = await _live_env(tmp_path, monkeypatch)
+    
+    # Create the ref file that exists (so mutation doesn't fail with FileNotFoundError)
+    ref_file = tmp_path / "a" / "have.png"
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    ref_file.write_bytes(b"fake-ref-data")
+    
+    # Mock upload API
+    respx.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
+        return_value=httpx.Response(200, json={"upload_url": "http://upload/url", "media_id": "media123"})
+    )
+    respx.put("http://upload/url").mock(
+        return_value=httpx.Response(200, json={"url": "http://mock.api/media/media123"})
+    )
+    
     respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "1", "usd": "0.06"}))
     sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "never"}))
     err = await acapture(ValueError, submit_still_job_enforced(
-        "ep99", "A01", lint_ok("S"), 1, ["/a/have.png"], "1k", "medium", "9:16", None,
+        "ep99", "A01", lint_ok("S"), 1, [str(ref_file)], "1k", "medium", "9:16", None,
         lint_meta(), ["r_new"]))
     assert err is not None and "G2.01" in str(err) and "r_new" in str(err)
     assert sub.call_count == 0
