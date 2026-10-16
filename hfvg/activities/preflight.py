@@ -102,17 +102,39 @@ async def preflight_validate_episode_activity(
                 # per_shot schema: extract all ref keys from all shots
                 per_shot_refs = refs_raw["per_shot"]
                 available_refs = set()
+                to_generate_refs = set()
+                
+                # Check for version bumps: refs.json "versions" section
+                versions_map = refs_raw.get("versions", {})
+                
                 for shot_refs in per_shot_refs.values():
                     for ref in shot_refs:
                         if isinstance(ref, dict) and "key" in ref:
-                            available_refs.add(ref["key"])
+                            ref_key = ref["key"]
+                            available_refs.add(ref_key)
                             # Check if ref file exists
                             ref_path = ref.get("path")
                             if ref_path and not Path(ref_path).exists():
                                 problems.append(
-                                    f"Ref '{ref['key']}' listed in per_shot but file missing: {ref_path}"
+                                    f"Ref '{ref_key}' listed in per_shot but file missing: {ref_path}"
                                 )
-                to_generate_refs = set()
+                            
+                            # Check version sidecar: if version bumped, count as to_generate
+                            if versions_map.get(ref_key):
+                                target_version = versions_map[ref_key]
+                                version_sidecar = base_path / ".versions" / f"{ref_key}.json"
+                                if version_sidecar.exists():
+                                    try:
+                                        sidecar_data = json.loads(version_sidecar.read_text())
+                                        current_version = sidecar_data.get("version", 1)
+                                        if current_version != target_version:
+                                            to_generate_refs.add(ref_key)
+                                    except Exception:
+                                        # Can't read sidecar, assume needs generation
+                                        to_generate_refs.add(ref_key)
+                                else:
+                                    # No sidecar yet, needs generation
+                                    to_generate_refs.add(ref_key)
             else:
                 # available/to_generate schema
                 per_shot_refs = {}

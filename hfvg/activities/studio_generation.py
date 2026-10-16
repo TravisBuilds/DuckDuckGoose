@@ -312,7 +312,7 @@ async def submit_still_job_enforced(
             f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD"
         )
         
-        # Determine budget line based on quality
+        # Determine line name and tier (for logging/tracking only in live mode)
         if quality == "high" and resolution == "2k":
             line_name = "L3_final_stills"
             default_tier = "final"
@@ -323,31 +323,11 @@ async def submit_still_job_enforced(
             line_name = "L2_drafts"
             default_tier = "draft"
         tier = tier or default_tier
-        revision = tier == "revision"
-        if revision:
-            line_name = REVISION_LINE
         
-        # Reserve budget
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
-        reserved = await ledger.reserve(
-            episode_id=episode_id,
-            line_name=line_name,
-            amount_usd_micros=estimated_cost,
-            reason=f"Still {shot_id} v{version}",
-            revision=revision,
-            require_balance=True,
-        )
-        
-        if not reserved:
-            raise ValueError(
-                f"Budget reserve failed for {line_name}. "
-                f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
-            )
-        
+        # Live mode: credit ledger only (budget lines not required)
+        # Budget ledger is skipped entirely in live mode
         activity.logger.info(
-            f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
+            f"[LIVE MODE] Skipping budget ledger (using credit ledger only) for {shot_id}"
         )
         
         # Submit to provider - wrapped to release reservations on ANY error
@@ -369,20 +349,9 @@ async def submit_still_job_enforced(
             
             activity.logger.info(
                 f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
+                f"(cost: {micros_to_usd_str(estimated_cost)} USD, credits: {estimated_credits})"
             )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
+            # Live mode: credit ledger tracking only (budget ledger not used)
             
             # Return dict with job info for polling
             return {
@@ -392,15 +361,9 @@ async def submit_still_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
+            # Release credit reservation on submission failure (live mode: credit ledger only)
             activity.logger.error(
-                f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
-            )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Submit failed: {str(submit_error)[:100]}"
+                f"Submit failed, releasing credit reservation for {job_id}: {submit_error}"
             )
             await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
@@ -561,31 +524,14 @@ async def submit_clip_job_enforced(
             f"{micros_to_usd_str(estimated_cost)} USD ({duration}s)"
         )
         
-        # Reserve budget from L4_video (revision tier draws on the revision reserve)
+        # Determine tier and line name (for logging/tracking only in live mode)
         tier = tier or "final"
-        revision = tier == "revision"
-        line_name = REVISION_LINE if revision else "L4_video"
+        line_name = "L4_video"
         
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
-        reserved = await ledger.reserve(
-            episode_id=episode_id,
-            line_name=line_name,
-            amount_usd_micros=estimated_cost,
-            reason=f"Clip {shot_id} v{version} ({duration}s)",
-            revision=revision,
-            require_balance=True,
-        )
-        
-        if not reserved:
-            raise ValueError(
-                f"Budget reserve failed for {line_name}. "
-                f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
-            )
-        
+        # Live mode: credit ledger only (budget lines not required)
+        # Budget ledger is skipped entirely in live mode
         activity.logger.info(
-            f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
+            f"[LIVE MODE] Skipping budget ledger (using credit ledger only) for {shot_id}"
         )
         
         # Generate job_id (will be used as provider idempotency key)
@@ -612,13 +558,7 @@ async def submit_clip_job_enforced(
             available = credit_result.get("available", 0)
             over_cap = credit_result.get("over_cap", False)
             
-            # Release budget reservation
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Credit reserve failed: available={available}"
-            )
+            # Live mode: no budget reservation to release (credit ledger only)
             
             if over_cap:
                 # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
@@ -677,20 +617,9 @@ async def submit_clip_job_enforced(
             
             activity.logger.info(
                 f"[LIVE] Submitted {route.model} clip {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
+                f"(cost: {micros_to_usd_str(estimated_cost)} USD, credits: {estimated_credits}, {duration}s)"
             )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
+            # Live mode: credit ledger tracking only (budget ledger not used)
             
             # Return dict with job info for polling
             return {
@@ -700,15 +629,9 @@ async def submit_clip_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
+            # Release credit reservation on submission failure (live mode: credit ledger only)
             activity.logger.error(
-                f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
-            )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Clip submit failed: {str(submit_error)[:100]}"
+                f"Clip submit failed, releasing credit reservation for {job_id}: {submit_error}"
             )
             await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
