@@ -672,7 +672,7 @@ test_mutation 28 "5xx poll retries before releasing budget" \
 test_mutation 29 "Canary reconciles L6 on workflow failure" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
-    sed -i '/Workflow failed: release/,+1 s/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
+    sed -i 's/await _reconcile_canary_l6/pass  # MUTATED; await _reconcile_canary_l6/'
 
 # 30. QC fail-closed without episode_id
 test_mutation 30 "QC fails closed when episode_id is missing" \
@@ -1222,9 +1222,9 @@ test_mutation 115 "Upload checks cache before uploading" \
 
 # 116. Smoke test gate: paid stages refuse without passing smoke test
 test_mutation 116 "Smoke test gate enforced on paid stages" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/studio_db.py" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
-    sed -i 's/raise RuntimeError(f"Smoke test gate failed:/pass  # MUTATED - disable gate; raise RuntimeError(f"Smoke test gate failed:/'
+    sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
 
 # Print final summary
 print_summary
