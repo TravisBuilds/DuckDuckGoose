@@ -114,15 +114,20 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     )
     
     # Verify:
-    # 1. Upload URL was requested
+    # 1. Upload URL was requested with content_type
     assert upload_url_route.call_count == 1
     upload_request = upload_url_route.calls[0].request
-    assert "r_duck_sheet.jpg" in str(upload_request.content)
+    assert b"content_type" in upload_request.content
+    assert b"image/jpeg" in upload_request.content
     
-    # 2. File was uploaded
+    # 2. File was uploaded with upload_headers
     assert upload_route.call_count == 1
     uploaded_data = upload_route.calls[0].request.content
     assert uploaded_data == b"fake-duck-image-data"
+    # Verify upload_headers were sent
+    upload_put_headers = upload_route.calls[0].request.headers
+    assert upload_put_headers.get("content-type") == "image/png"
+    assert "x-amz-tagging" in upload_put_headers
     
     # 3. Submit was called with public_url, not local path
     assert submit_route.call_count == 1
