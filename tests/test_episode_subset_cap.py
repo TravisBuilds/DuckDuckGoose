@@ -139,11 +139,7 @@ async def test_verify_files_passes_with_shots_json(tmp_path, monkeypatch):
         # Should succeed
         result = await verify_episode_files_activity("ep99")
         assert result["passed"] is True
-    finally:
-        # Cleanup
-        import shutil
-        if Path("data").exists():
-            shutil.rmtree("data")
+    # Cleanup: test runs in tmp_path (autouse fixture), no manual cleanup needed
 
 
 # Note: Full workflow integration test omitted due to complexity of mocking all workflow stages.
