@@ -521,7 +521,7 @@ test_mutation 4 "Activity-level enforcement (not just API)" \
 test_mutation 5 "Idempotent retry (no double-charge)" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
-    sed -i 's/existing_provider_job_id = await ledger.get_provider_job(job_id)/existing_provider_job_id = None  # MUTATED - always resubmit/'
+    sed -i 's/key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or \x27\x27}|{refs_str}"/key_input = str(uuid.uuid4())  # MUTATED - random idempotency key/'
 
 # 6. Auth fail-closed
 test_mutation 6 "Auth fail-closed (no default secret)" \

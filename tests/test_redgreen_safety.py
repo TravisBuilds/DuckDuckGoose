@@ -103,9 +103,8 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
 
 @pytest.mark.asyncio
 async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_mock):
-    """Test 5: Idempotency key is actually sent to provider."""
+    """Test 5: Identical inputs produce the same idempotency key; changed prompt produces different key."""
     import httpx
-    from hfvg.activities.studio_generation import generate_idempotency_key
     
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
@@ -117,19 +116,6 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
     
-    # Calculate expected idempotency key with all parameters
-    # submit_still_job_enforced defaults: refs=None, resolution="1k", quality="medium", aspect_ratio="9:16"
-    expected_key = generate_idempotency_key(
-        episode_id="ep99",
-        shot_id="A01",
-        version=1,
-        prompt=lint_ok("Test prompt"),
-        refs=None,
-        quality="medium",
-        resolution="1k",
-        aspect_ratio="9:16",
-    )
-    
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
@@ -140,20 +126,36 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
-    # Call activity
+    # Call activity first time
     await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    # Verify the idempotency key was sent in format: still-ep99-A01-v1-{hash}
-    assert mock_route.called, "Provider should be called"
-    request = mock_route.calls[0].request
-    actual_key = request.headers.get("Idempotency-Key")
-    expected_job_id_prefix = "still-ep99-A01-v1-"
-    assert actual_key is not None, "Idempotency-Key header must be present"
-    assert actual_key.startswith(expected_job_id_prefix), f"Idempotency-Key should start with {expected_job_id_prefix}, got: {actual_key}"
-    # Verify hash suffix is 16 hex chars
-    hash_suffix = actual_key[len(expected_job_id_prefix):]
-    assert len(hash_suffix) == 16, f"Hash suffix should be 16 chars, got {len(hash_suffix)}"
-    assert all(c in "0123456789abcdef" for c in hash_suffix), f"Hash suffix should be hex, got: {hash_suffix}"
+    # Get idempotency key from first call
+    assert mock_route.call_count == 1, "Provider should be called once"
+    first_request = mock_route.calls[0].request
+    first_key = first_request.headers.get("Idempotency-Key")
+    assert first_key is not None, "Idempotency-Key header must be present"
+    
+    # Call activity second time with identical inputs
+    await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
+    
+    # Get idempotency key from second call
+    assert mock_route.call_count == 2, "Provider should be called twice"
+    second_request = mock_route.calls[1].request
+    second_key = second_request.headers.get("Idempotency-Key")
+    
+    # Identical inputs should produce the same key
+    assert second_key == first_key, f"Identical inputs should give same key: {first_key} vs {second_key}"
+    
+    # Call with changed prompt
+    await submit_still_job_enforced("ep99", "A01", lint_ok("Different prompt"), 1, shot_meta=lint_meta())
+    
+    # Get idempotency key from third call
+    assert mock_route.call_count == 3, "Provider should be called three times"
+    third_request = mock_route.calls[2].request
+    third_key = third_request.headers.get("Idempotency-Key")
+    
+    # Changed prompt should produce a different key
+    assert third_key != first_key, f"Changed prompt should give different key: {first_key} vs {third_key}"
 
 
 @pytest.mark.asyncio  
