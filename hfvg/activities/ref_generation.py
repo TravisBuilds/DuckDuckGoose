@@ -149,18 +149,40 @@ async def generate_ref_activity(
     from hfvg.pricing import usd_to_micros
     estimated_usd_micros = usd_to_micros("0.09")  # ~90,000 usd_micros per ref
     
-    # Reserve USD budget from L1_refs line
+    # Reserve USD budget from L1_refs line (create if missing)
     from hfvg.budget import BudgetLedger
     usd_ledger = BudgetLedger(db_path)
     await usd_ledger.init_db()
     
-    usd_reserved = await usd_ledger.reserve(
-        episode_id=episode_id,
-        line_name="L1_refs",
-        amount_usd_micros=estimated_usd_micros,
-        reason=f"Ref {ref_key} v{version}",
-        require_balance=not dry_run,
-    )
+    # Ensure L1_refs line exists (create with default cap if missing)
+    try:
+        usd_reserved = await usd_ledger.reserve(
+            episode_id=episode_id,
+            line_name="L1_refs",
+            amount_usd_micros=estimated_usd_micros,
+            reason=f"Ref {ref_key} v{version}",
+            require_balance=not dry_run,
+        )
+    except ValueError as e:
+        if "Budget line" in str(e) and "not found" in str(e):
+            # L1_refs line doesn't exist, create it with generous defaults
+            # Default: $100 cap, $80 stop threshold
+            await usd_ledger.set_line(
+                episode_id, "L1_refs",
+                cap_usd_micros=100_000_000,  # $100
+                stop_usd_micros=80_000_000,   # $80
+                provider="higgsfield"
+            )
+            # Retry reservation
+            usd_reserved = await usd_ledger.reserve(
+                episode_id=episode_id,
+                line_name="L1_refs",
+                amount_usd_micros=estimated_usd_micros,
+                reason=f"Ref {ref_key} v{version}",
+                require_balance=not dry_run,
+            )
+        else:
+            raise
     
     if not usd_reserved:
         raise ValueError(
