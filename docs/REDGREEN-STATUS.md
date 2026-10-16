@@ -13,9 +13,9 @@
 | 23 | - | G4.09 picture lock blocks audio | ⚠ INVALID | No file change | Code moved or deleted - needs retargeting |
 | 24 | - | GX.01 HOLD prevents auto-post | ⚠ INVALID | No file change | Code moved or deleted - needs retargeting |
 | 66 | M-P3c | Lint is enforced in live mode | ✗ Non-AssertionError | Test failing incorrectly | Fix test or mutation pattern |
-| 86 | M-R4r | Workflow passes missing refs to still | ⚠ INVALID | No file change | Code moved - needs retargeting |
-| 88 | M-R4t | Workflow uses the shot's model | ⚠ INVALID | No file change | Code moved - needs retargeting |
-| 89 | M-R4u | Workflow passes shot tags (wet) to clip | ⚠ INVALID | No file change | Code moved - needs retargeting |
+| 86 | M-R4r | Workflow passes missing refs to still | ✅ FIXED | Used stable anchor | Retargeted with comment anchor |
+| 88 | M-R4t | Workflow uses the shot's model | ✅ FIXED | Used stable anchor | Retargeted with comment anchor |
+| 89 | M-R4u | Workflow passes shot tags (wet) to clip | ✅ FIXED | Used stable anchor | Retargeted with line+context |
 | 91 | M-R4w | Dry end-frame shot gets placeholder | ⚠ INVALID | No file change | Code moved - needs retargeting |
 | 92 | M-R4x | End-image signal stores the URL | ✗ Mutation ineffective | Test not catching | Fix or restore test |
 | 93 | M-R4y | Live end-frame shot waits for end image | ⚠ INVALID | No file change | Code moved - needs retargeting |

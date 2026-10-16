@@ -980,7 +980,7 @@ test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
 test_mutation 86 "M-R4r Workflow passes missing refs to the still activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_to_still_provider_activity" \
-    sed -i 's/^                        shot_plan.get("missing_refs", \[\]),  # planned refs not on disk: live refuses$/                        [],  # MUTATED/'
+    sed -i '/planned refs not on disk: live refuses/s/shot_plan\.get("missing_refs", \[\]),/[],  # MUTATED/'
 
 # 87. M-R4s Workflow uses the shot's real clip duration
 test_mutation 87 "M-R4s Workflow uses the shot's real clip duration" \
@@ -992,13 +992,13 @@ test_mutation 87 "M-R4s Workflow uses the shot's real clip duration" \
 test_mutation 88 "M-R4t Workflow uses the shot's model" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i 's/^                        params.get("model", "kling"),  # explicit routing$/                        "kling",  # MUTATED/'
+    sed -i '/# explicit routing/s/params\.get("model", "kling"),/"kling",  # MUTATED/'
 
 # 89. M-R4u Workflow passes shot tags (wet) to the clip activity
 test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i 's/^                        shot_plan.get("tags", \[\]),$/                        [],  # MUTATED/'
+    sed -i '/params\.get("model",.*# explicit routing/{ n; s/shot_plan\.get("tags", \[\]),/[],  # MUTATED/; }'
 
 # 90. M-R4v Workflow passes missing refs to the clip activity
 test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
