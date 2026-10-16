@@ -131,8 +131,9 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     assert submit_body["image_urls"][0] == "http://mock.api/media/media_abc123"
     assert str(ref_path) not in submit_body["image_urls"][0]
     
-    # 4. Result contains provider job id
-    assert result["job_id"] == "provider_job_xyz789"
+    # 4. Result contains harness job_id and provider_job_id
+    assert result["job_id"] == "still-ep05-A01-v1"  # Harness job ID
+    assert result["provider_job_id"] == "provider_job_xyz789"  # Provider job ID
 
 
 @pytest.mark.asyncio
@@ -217,12 +218,13 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
         }
     )
     
-    # Verify submit returned provider job id
-    assert result["job_id"] == "provider_job_different_id"
+    # Verify submit returned both harness and provider job ids
+    assert result["job_id"] == "still-ep05-A01-v1"  # Harness job ID
+    assert result["provider_job_id"] == "provider_job_different_id"  # Provider job ID
     
-    # Now poll using the returned job id
+    # Now poll using the provider job id
     poll_result = await poll_job_status(
-        job_id=result["job_id"],  # This should be the provider job id
+        job_id=result["provider_job_id"],  # Use provider job id for polling
         job_type="still",
         episode_id="ep05",
     )
