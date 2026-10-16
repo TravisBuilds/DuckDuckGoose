@@ -27,6 +27,8 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
     budget_ledger = BudgetLedger(db_path)
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -112,6 +114,8 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
     budget_ledger = BudgetLedger(db_path)
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -184,6 +188,8 @@ async def test_ref_moves_to_final_path_when_qc_passes(tmp_path, monkeypatch):
     budget_ledger = BudgetLedger(db_path)
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -267,6 +273,8 @@ async def test_provider_failure_releases_credits(tmp_path, monkeypatch):
     budget_ledger = BudgetLedger(db_path)
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()

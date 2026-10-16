@@ -49,6 +49,8 @@ async def test_ref_generation_calls_real_provider_methods(tmp_path, monkeypatch)
     budget_ledger = BudgetLedger(db_path)
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()

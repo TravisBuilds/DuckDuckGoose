@@ -286,10 +286,10 @@ async def test_failed_job_releases_reservations(tmp_path):
     balance_before = await credit_ledger.get_episode_status("ep05")
     assert balance_before["reserved_credits"] == 4.0
     
-    # Poll the failed job (using provider job ID)
+    # Poll the failed job (using harness job ID, which gets resolved to provider ID)
     from hfvg.activities.studio_generation import poll_job_status
     poll_result = await poll_job_status(
-        job_id=provider_job_id,  # Provider job ID
+        job_id=harness_job_id,  # Harness job ID (gets resolved to provider ID internally)
         job_type="still",
         episode_id="ep05",
     )

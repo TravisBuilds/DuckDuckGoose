@@ -133,8 +133,7 @@ def test_models_doc_exists():
     
     # Should have pricing info
     assert "0.09" in content  # SOUL V2 price
-    assert "6.5" in content   # Grok high quality
-    assert "4.0" in content   # Grok standard
+    assert "1.12" in content  # Grok price
     
     # Should have API doc links
     assert "https://docs.higgsfield.ai" in content
