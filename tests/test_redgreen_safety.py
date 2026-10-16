@@ -238,8 +238,17 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     db_path = str(tmp_path / "test.db")
     await init_studio_db(db_path)
     
+    # Create minimal episode files for preflight validation
+    episode_dir = tmp_path / "data" / "episodes" / "ep99"
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    (episode_dir / "beatmap.txt").write_text("A01 (2.5s)")
+    (episode_dir / "shots.json").write_text('{"shots": [{"shot_id": "A01", "prompt": "Test", "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}}]}')
+    (episode_dir / "refs.json").write_text('{"available": [], "to_generate": []}')
+    (episode_dir / "prompt_kit.json").write_text('{}')
+    
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.chdir(tmp_path)
     
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
     from hfvg.activities.credit_activities import init_episode_credit_line_activity
@@ -253,6 +262,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
+                activities.preflight_validate_episode_activity,
                 activities.upsert_episode_activity,
                 activities.approve_g108_activity,
                 init_episode_credit_line_activity,

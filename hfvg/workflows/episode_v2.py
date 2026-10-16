@@ -205,6 +205,16 @@ class EpisodeWorkflowV2:
             shots = [s for s in shots if s["shot_id"] in shots_subset]
             workflow.logger.info(f"Filtered to shots_subset: {shots_subset} ({len(shots)} shots)")
         
+        # Preflight validation: check ALL inputs before any spend
+        workflow.logger.info("Running preflight validation (all inputs)...")
+        await workflow.execute_activity(
+            "preflight_validate_episode_activity",
+            args=[episode_id, shots_subset, not dry_run],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        workflow.logger.info("Preflight validation passed")
+        
         # Calculate total credits from brief (no separate CREDIT-PLAN needed)
         total_video_credits = sum(s.get("video_credits", 0) for s in shots)
         total_still_credits = sum(s.get("still_credits", 0) for s in shots)
@@ -324,6 +334,46 @@ class EpisodeWorkflowV2:
         # ================================================================
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
+        
+        # Wait for approval (also exits if any shots fail)
+        await workflow.wait_condition(
+            lambda: self.approved_g2_scene_stills or any(
+                self.shot_results.get(shot["shot_id"]) and 
+                self.shot_results.get(shot["shot_id"]).describe().status in [
+                    "FAILED", "TERMINATED", "TIMED_OUT", "CANCELLED"
+                ]
+                for shot in shots
+            )
+        )
+        
+        # Check for failures before proceeding
+        failed_shots = []
+        for shot in shots:
+            handle = self.shot_results.get(shot["shot_id"])
+            if handle:
+                status = handle.describe().status
+                if status in ["FAILED", "TERMINATED", "TIMED_OUT", "CANCELLED"]:
+                    try:
+                        # Try to get the failure reason
+                        await handle
+                    except Exception as e:
+                        failed_shots.append({
+                            "shot_id": shot["shot_id"],
+                            "status": status,
+                            "reason": str(e),
+                        })
+        
+        if failed_shots:
+            # Surface failures at gate 2
+            failure_msg = f"{len(failed_shots)} shot(s) failed:\n" + "\n".join(
+                f"  - {s['shot_id']}: {s['status']} - {s['reason']}" for s in failed_shots
+            )
+            workflow.logger.error(failure_msg)
+            self.state.failed_shots = failed_shots
+            # Note: Gate 2 decision is: reroll failed shots, abort, or proceed anyway
+            # For now, block at gate 2 with failures surfaced
+        
+        # Wait for approval (required even if there are failures)
         await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")

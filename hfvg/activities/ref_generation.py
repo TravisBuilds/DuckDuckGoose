@@ -75,6 +75,24 @@ async def generate_ref_activity(
     # Idempotent job_id
     job_id = f"ref-{episode_id}-{ref_key}-v{version}"
     
+    # Check if ref already exists and passes QC - skip if so (force regen with version bump)
+    if Path(output_path).exists():
+        activity.logger.info(f"Ref {ref_key} already exists at {output_path}, checking QC...")
+        qc_result = await _check_ref_qc(output_path)
+        if qc_result["passed"]:
+            activity.logger.info(f"Ref {ref_key} exists and passes QC - reusing (no spend)")
+            return {
+                "status": "reused",
+                "job_id": job_id,
+                "provider_job_id": None,
+                "output_path": output_path,
+                "credits_used": 0,
+            }
+        else:
+            activity.logger.warning(
+                f"Ref {ref_key} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
+            )
+    
     # In dry mode, redirect output to scratch directory
     if dry_run:
         import temporalio.activity

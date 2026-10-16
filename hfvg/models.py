@@ -102,6 +102,7 @@ class EpisodeState(BaseModel):
     current_gate: str = ""  # Tracks which gate workflow is waiting at
     credit_cap_raised: bool = False  # Signal that credit cap was raised
     new_credit_cap: int = 0  # New credit cap value
+    failed_shots: list[dict] = Field(default_factory=list)  # Failed shot workflows at gate 2
 
 
 class CreditTransaction(BaseModel):

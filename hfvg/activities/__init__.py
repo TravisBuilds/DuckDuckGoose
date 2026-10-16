@@ -23,6 +23,7 @@ from hfvg.activities.workflow_support import (
     upsert_episode_activity,
     approve_g108_activity,
 )
+from hfvg.activities.preflight import preflight_validate_episode_activity
 
 __all__ = [
     "recheck_refs_activity",
@@ -53,4 +54,5 @@ __all__ = [
     "parse_beatmap_activity",
     "upsert_episode_activity",
     "approve_g108_activity",
+    "preflight_validate_episode_activity",
 ]

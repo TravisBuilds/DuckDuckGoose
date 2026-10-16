@@ -56,6 +56,7 @@ PRODUCTION_ACTIVITIES = [
     activities.record_shot_result,
     activities.load_gate_policy_activity,
     activities.parse_beatmap_activity,
+    activities.preflight_validate_episode_activity,
     activities.recheck_refs_activity,
     activities.upsert_episode_activity,
     activities.approve_g108_activity,
