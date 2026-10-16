@@ -475,6 +475,12 @@ class ShotWorkflow:
                         )
                         self.end_still_asset = end_still_result
                         self.end_image_url = end_still_result["url"]
+                        
+                        # Update G2 end_still status
+                        self.end_still_status = "done"
+                        self.end_still_url = end_still_result["url"]
+                        self.end_still_error = None
+                        
                         workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
                     
                     break
@@ -545,6 +551,9 @@ class ShotWorkflow:
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on still: {e}, routing to recovery")
+                # Update G2 status
+                self.still_status = "failed"
+                self.still_error = f"Content blocked: {str(e)}"
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
