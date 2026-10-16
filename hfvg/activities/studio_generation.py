@@ -756,7 +756,7 @@ async def poll_job_status(
     It does NOT release reservations on timeout - the workflow handles reconciliation.
     
     Args:
-        job_id: Provider job ID
+        job_id: Harness job ID (will be resolved to provider job ID for polling)
         job_type: "still" or "clip"
         episode_id: Episode ID
     
@@ -765,6 +765,18 @@ async def poll_job_status(
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Resolve harness job_id to provider job_id for polling
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    provider_job_id = await credit_ledger.get_provider_job(job_id)
+    
+    if not provider_job_id:
+        # If no mapping exists, assume job_id is already a provider ID (backward compat)
+        provider_job_id = job_id
+        activity.logger.warning(
+            f"No provider job mapping found for {job_id}, assuming it's a provider ID"
+        )
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
@@ -811,20 +823,20 @@ async def poll_job_status(
         provider = KlingVideoProvider()
     
     try:
-        job_status = await provider.get_job_status(job_id)
+        job_status = await provider.get_job_status(provider_job_id)  # Use provider ID for polling
         
         # Check for terminal failure statuses - fail fast and release reservations
         if job_status.status.value in ("failed", "blocked", "canceled"):
             # Provider job failed - must fail fast, release BOTH credit and USD reservations,
             # and surface the error message
             activity.logger.error(
-                f"Job {job_id} {job_status.status.value}: {job_status.error}"
+                f"Job {provider_job_id} (harness {job_id}) {job_status.status.value}: {job_status.error}"
             )
             
-            # Release credit reservation (job_id here is provider_job_id, need to look up harness job_id)
+            # Release credit reservation using harness job_id
             credit_ledger = CreditLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
             await credit_ledger.init_db()
-            await credit_ledger.release_credits_by_provider_job(
+            await credit_ledger.release_credits(
                 episode_id, job_id, notes=f"{job_status.status.value}: {job_status.error}"
             )
             
