@@ -1858,6 +1858,43 @@ async def run_canary(
     }
 
 
+@app.post("/api/episodes/{episode_id}/smoke-test")
+async def run_smoke_test_api(
+    episode_id: str,
+    live: bool = False,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Run smoke test: upload probe + SOUL V2 generation probe (~0.09 credits).
+    
+    Must pass live=true query param to actually run (safety).
+    Gated stages check for recent passing smoke test before spending.
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not live:
+        raise HTTPException(
+            status_code=400,
+            detail="Smoke test requires live=true query param (spends ~0.09 credits)"
+        )
+    
+    from hfvg.activities.smoke_test import run_smoke_test
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    try:
+        result = await run_smoke_test(episode_id, db_path)
+        
+        # Store result in episode metadata
+        from hfvg.studio_db import store_smoke_test_result
+        await store_smoke_test_result(db_path, episode_id, result)
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Smoke test failed: {e}")
+
+
 @app.post("/api/episodes/{episode_id}/lint")
 async def lint_episode(
     episode_id: str,

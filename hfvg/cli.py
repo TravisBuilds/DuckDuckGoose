@@ -377,5 +377,49 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
     asyncio.run(_canary())
 
 
+@cli.command()
+@click.argument("episode_id")
+@click.option("--live", is_flag=True, help="Run live smoke test (spends real credits)")
+def smoke_test(episode_id: str, live: bool):
+    """Run smoke test to validate Higgsfield API connectivity and billing."""
+    if not live:
+        click.echo("❌ Smoke test requires --live flag (spends ~0.09 credits)", err=True)
+        click.echo("   Usage: hfvg smoke-test <episode-id> --live", err=True)
+        import sys
+        sys.exit(1)
+    
+    import os
+    from hfvg.activities.smoke_test import run_smoke_test
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    click.echo(f"🧪 Running live smoke test for {episode_id}...")
+    click.echo("   Upload probe + SOUL V2 generation (~0.09 credits)")
+    
+    result = asyncio.run(run_smoke_test(episode_id, db_path))
+    
+    click.echo()
+    click.echo(f"Upload probe:      {'✅ PASSED' if result['upload_probe']['passed'] else '❌ FAILED'}")
+    if result['upload_probe']['error']:
+        click.echo(f"  Error: {result['upload_probe']['error']}")
+    else:
+        click.echo(f"  Public URL: {result['upload_probe']['public_url']}")
+    
+    click.echo()
+    click.echo(f"Generation probe:  {'✅ PASSED' if result['generation_probe']['passed'] else '❌ FAILED'}")
+    if result['generation_probe']['error']:
+        click.echo(f"  Error: {result['generation_probe']['error']}")
+    else:
+        click.echo(f"  Provider ID: {result['generation_probe']['provider_job_id']}")
+        click.echo(f"  Cost: {result['generation_probe']['cost']} credits")
+    
+    click.echo()
+    click.echo(f"Overall:           {'✅ PASSED' if result['passed'] else '❌ FAILED'}")
+    click.echo(f"Timestamp:         {result['timestamp']}")
+    
+    import sys
+    sys.exit(0 if result['passed'] else 1)
+
+
 if __name__ == "__main__":
     cli()

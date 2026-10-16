@@ -34,6 +34,12 @@ async def init_studio_db(db_path: str = "./data/studio.db"):
             )
         """)
         
+        # Add smoke_test_result column if it doesn't exist (migration)
+        try:
+            await db.execute("ALTER TABLE episodes ADD COLUMN smoke_test_result TEXT")
+        except:
+            pass  # Column already exists
+        
         # Shots table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS shots (
@@ -225,3 +231,59 @@ async def insert_shots_from_beatmap(
             )
         
         await db.commit()
+
+
+async def store_smoke_test_result(db_path: str, episode_id: str, result: dict):
+    """Store smoke test result in episode metadata."""
+    import json
+    async with aiosqlite.connect(db_path) as db:
+        # Store in episodes table smoke_test_result column (JSON)
+        await db.execute(
+            "UPDATE episodes SET smoke_test_result = ? WHERE episode_id = ?",
+            (json.dumps(result), episode_id)
+        )
+        await db.commit()
+
+
+async def get_smoke_test_result(db_path: str, episode_id: str) -> dict | None:
+    """Retrieve latest smoke test result for episode."""
+    import json
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT smoke_test_result FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
+
+
+async def check_smoke_test_passed(db_path: str, episode_id: str, max_age_hours: int = 24) -> tuple[bool, str]:
+    """
+    Check if episode has a recent passing smoke test.
+    
+    Returns:
+        (passed, reason) tuple
+    """
+    from datetime import datetime, timedelta
+    result = await get_smoke_test_result(db_path, episode_id)
+    
+    if not result:
+        return (False, "No smoke test result found")
+    
+    if not result.get("passed"):
+        return (False, f"Smoke test failed: {result.get('upload_probe', {}).get('error') or result.get('generation_probe', {}).get('error')}")
+    
+    # Check timestamp age
+    timestamp_str = result.get("timestamp")
+    if not timestamp_str:
+        return (False, "Smoke test missing timestamp")
+    
+    timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    age = datetime.now(timestamp.tzinfo) - timestamp
+    
+    if age > timedelta(hours=max_age_hours):
+        return (False, f"Smoke test too old: {age.total_seconds() / 3600:.1f} hours (max {max_age_hours}h)")
+    
+    return (True, "Smoke test passed")
