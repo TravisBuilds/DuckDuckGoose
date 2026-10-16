@@ -135,10 +135,9 @@ async def test_verify_files_passes_with_shots_json(tmp_path, monkeypatch):
     shots_dir.mkdir(parents=True, exist_ok=True)
     (shots_dir / "shots.json").write_text('[{"shot_id": "A01"}]')
     
-    try:
-        # Should succeed
-        result = await verify_episode_files_activity("ep99")
-        assert result["passed"] is True
+    # Should succeed
+    result = await verify_episode_files_activity("ep99")
+    assert result["passed"] is True
     # Cleanup: test runs in tmp_path (autouse fixture), no manual cleanup needed
 
 
