@@ -133,6 +133,9 @@ async def test_live_still_succeeds_with_budget_lines(tmp_path, monkeypatch):
         ledger = BudgetLedger(db_path)
         await ledger.set_line(episode_id, "L2_drafts", cap_usd_micros=10_000_000, stop_usd_micros=8_000_000)
         
+        # Set manual balance for GC.01 (required for live mode budget reserves)
+        await ledger.set_manual_balance(100_000_000, set_by="test", note="test balance")
+        
         # Verify L2_drafts exists
         async with aiosqlite.connect(db_path, uri=True) as db:
             async with db.execute(
