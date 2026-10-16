@@ -376,9 +376,13 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
         })
     )
     
-    # Mock poll with harness ID - this should NEVER be called
+    # Mock poll with harness ID - this should NEVER be called (but return success so test assertions run)
     poll_harness_route = respx.get("http://mock.api/requests/still-ep06-A01-v1/status").mock(
-        return_value=httpx.Response(404, json={"error": "Job not found"})
+        return_value=httpx.Response(200, json={
+            "status": "completed",
+            "image": {"url": "http://example.com/wrong.jpg"},
+            "cost": 1.12
+        })
     )
     
     # Submit and poll - bypass submit by directly persisting the mapping
@@ -400,13 +404,12 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     
     # CRITICAL ASSERTIONS:
     # The key assertion: Provider API was called with PROVIDER ID, not harness ID
-    assert poll_provider_route.call_count >= 1, f"Provider API must be called with provider ID (got {poll_provider_route.call_count} calls)"
+    # (mutation M-111 will call harness route instead, causing this assertion to fail)
     assert poll_harness_route.call_count == 0, f"Provider API must NOT be called with harness ID (got {poll_harness_route.call_count} calls)"
+    assert poll_provider_route.call_count >= 1, f"Provider API must be called with provider ID (got {poll_provider_route.call_count} calls)"
     
-    # Secondary check: poll completed successfully with correct provider ID
+    # Secondary check: poll completed successfully
     assert poll_result["status"] == "completed"
-    # Verify the polled job ID equals the provider ID (mutation M-111 should break this)
-    assert provider_job_id == "provider_still_xyz123", f"Polled provider_job_id mismatch"
 
 
 @pytest.mark.asyncio
