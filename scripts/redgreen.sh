@@ -1045,7 +1045,7 @@ test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
 # 95. M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs
 test_mutation 95 "M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
+    "tests/test_round4_shot_data.py::test_g2_detects_missing_refs_and_recheck_merges_data" \
     sed -i '/def _needs_new_refs/,/^    def/{ /return bool(self\._collect_missing_refs(shots))/s/.*/        return False  # MUTATED/; }'
 
 # 96. M-R4B Live shot activity refuses when refs are missing  
@@ -1057,7 +1057,7 @@ test_mutation 96 "M-R4B Live shot activity refuses when refs are missing" \
 # 97. M-R4C Recheck updates shot plans with new ref data
 test_mutation 97 "M-R4C Recheck updates shot plans with new ref data" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
+    "tests/test_round4_shot_data.py::test_g2_detects_missing_refs_and_recheck_merges_data" \
     sed -i '/rechecked = await workflow\.execute_activity/,/self\.missing_refs = self\._collect_missing_refs/{ /{\*\*s, \*\*rechecked\[s\["shot_id"\]\]}/s/.*/                    s  # MUTATED/; }'
 
 # 98. M-R4D Episode workflow loads per-shot data for its episode
