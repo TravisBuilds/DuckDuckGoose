@@ -2030,7 +2030,7 @@ async def lint_prompt_endpoint(request: dict):
     Lint a prompt for violations.
     
     Args:
-        request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool)
+        request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool), optional "episode_id" (str)
     
     Returns:
         dict with "problems" list
@@ -2039,8 +2039,9 @@ async def lint_prompt_endpoint(request: dict):
     
     prompt = request.get("prompt", "")
     shot_meta = request.get("shot_meta", {})
+    episode_id = request.get("episode_id", "default")  # Default episode if not specified
     
-    kit = load_lint_kit()
+    kit = load_lint_kit(episode_id)
     problems = lint_violations(prompt, shot_meta, kit)
     
     return {"problems": problems}
