@@ -14,6 +14,7 @@ from hfvg.activities.credit_activities import (
     release_credits_activity,
     update_credit_cap_activity,
     init_episode_credit_line_activity,
+    init_episode_budget_lines_activity,
 )
 from hfvg.activities.run_lock import (
     acquire_run_lock,
@@ -70,6 +71,7 @@ PRODUCTION_ACTIVITIES = [
     release_credits_activity,
     update_credit_cap_activity,
     init_episode_credit_line_activity,
+    init_episode_budget_lines_activity,
     acquire_run_lock,
     release_run_lock,
 ]

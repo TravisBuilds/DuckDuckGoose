@@ -163,6 +163,16 @@ class EpisodeWorkflowV2:
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         
+        # Initialize budget ledger lines (L1/L2/L3/L4/L7) from gate policy
+        workflow.logger.info(f"Initializing budget lines for {episode_id}")
+        budget_result = await workflow.execute_activity(
+            "init_episode_budget_lines_activity",
+            args=[episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        workflow.logger.info(f"Budget lines created: {budget_result.get('lines', [])}")
+        
         # Load gate policy via activity (not deterministic in workflow)
         policy_data = await workflow.execute_activity(
             load_gate_policy_activity,

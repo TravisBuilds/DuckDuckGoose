@@ -193,3 +193,43 @@ async def init_episode_credit_line_activity(
     
     cap_used = cap_credits if cap_credits is not None else "default"
     activity.logger.info(f"Credit line created for {episode_id} with cap: {cap_used}")
+
+
+@activity.defn
+async def init_episode_budget_lines_activity(
+    episode_id: str,
+) -> dict[str, Any]:
+    """
+    Initialize budget lines (L1_refs, L2_drafts, L3_final_stills, L4_video, L7_revision) for episode.
+    
+    Idempotent: if lines already exist, this is a no-op.
+    Uses gate policy for line caps/stops.
+    
+    Args:
+        episode_id: Episode identifier
+    
+    Returns:
+        dict with line_count (int) and lines (list of line names created)
+    """
+    from hfvg.budget import BudgetLedger
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = BudgetLedger(db_path)
+    
+    await ledger.init_episode_budget(episode_id)
+    
+    # Query created lines to return summary
+    import aiosqlite
+    async with aiosqlite.connect(db_path, uri=True) as db:
+        async with db.execute(
+            "SELECT line_name FROM budget_lines WHERE episode_id = ? ORDER BY line_name",
+            (episode_id,)
+        ) as cur:
+            lines = [row[0] async for row in cur]
+    
+    activity.logger.info(f"Budget lines initialized for {episode_id}: {lines}")
+    
+    return {
+        "line_count": len(lines),
+        "lines": lines,
+    }
