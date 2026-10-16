@@ -131,10 +131,14 @@ async def verify_session_token(token: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize Temporal client on startup."""
+    """Initialize database and Temporal client on startup."""
     global temporal_client
     
     try:
+        # Initialize database tables
+        await init_studio_db(DATABASE_PATH)
+        
+        # Connect to Temporal
         temporal_client = await TemporalClient.connect(
             TEMPORAL_ADDRESS,
             namespace=TEMPORAL_NAMESPACE,
@@ -893,14 +897,18 @@ async def get_manual_balance(
 @app.post("/api/budget/balance")
 async def set_manual_balance(
     request: ManualBalanceRequest,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Record the manually entered Higgsfield USD balance (no balance endpoint exists).
     GC.01 refuses new paid jobs when balance - spend since entry - reserved < headroom.
-    Requires: Cookie auth (admin).
+    Requires: Cookie auth (admin) or Bearer token.
     """
-    await verify_admin_cookie(studio_admin_token)
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
     
     from hfvg.budget import BudgetLedger
     from hfvg.pricing import usd_to_micros

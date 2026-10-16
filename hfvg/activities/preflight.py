@@ -120,9 +120,9 @@ async def preflight_validate_episode_activity(
                                 )
                             
                             # Check version sidecar: if version bumped, count as to_generate
-                            if versions_map.get(ref_key):
+                            if versions_map.get(ref_key) and ref_path:
                                 target_version = versions_map[ref_key]
-                                version_sidecar = base_path / ".versions" / f"{ref_key}.json"
+                                version_sidecar = Path(ref_path).parent / ".versions" / f"{ref_key}.json"
                                 if version_sidecar.exists():
                                     try:
                                         sidecar_data = json.loads(version_sidecar.read_text())
@@ -229,6 +229,25 @@ async def preflight_validate_episode_activity(
         api_key = os.getenv("HIGGSFIELD_API_KEY")
         if not api_key:
             problems.append("Live mode requires HIGGSFIELD_API_KEY environment variable")
+    
+    # 8. Verify required budget lines exist (single source of truth with code that reserves)
+    import aiosqlite
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    REQUIRED_BUDGET_LINES = ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", "L7_revision"]
+    
+    async with aiosqlite.connect(db_path, uri=True) as db:
+        async with db.execute(
+            "SELECT line_name FROM budget_lines WHERE episode_id = ?",
+            (episode_id,)
+        ) as cur:
+            existing_lines = {row[0] async for row in cur}
+    
+    missing_lines = [line for line in REQUIRED_BUDGET_LINES if line not in existing_lines]
+    if missing_lines:
+        problems.append(
+            f"Missing required budget lines: {', '.join(missing_lines)}. "
+            "Budget lines must be initialized before preflight."
+        )
     
     # Raise if any problems found
     if problems:

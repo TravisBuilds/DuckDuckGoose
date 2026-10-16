@@ -341,6 +341,8 @@ async def submit_still_job_enforced(
         )
         
         if not reserved:
+            # Release credit reservation before failing
+            await credit_ledger.release_credits(episode_id, job_id)
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
                 f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."

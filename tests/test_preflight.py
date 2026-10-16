@@ -254,3 +254,79 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
     
     finally:
         temporalio.activity.info = original_info
+
+
+@pytest.mark.asyncio
+async def test_preflight_detects_version_bump_external_refs(tmp_path, monkeypatch):
+    """Test: Preflight detects version bumps when refs are in external directory."""
+    from hfvg.activities.preflight import preflight_validate_episode_activity
+    from hfvg.studio_db import init_studio_db
+    import temporalio.activity
+    import json
+    
+    episode_id = "ep99"
+    base_path = tmp_path / "data" / "episodes" / episode_id
+    base_path.mkdir(parents=True, exist_ok=True)
+    
+    # External refs directory
+    external_refs = tmp_path / "external_refs"
+    external_refs.mkdir(parents=True, exist_ok=True)
+    
+    # Create ref file in external directory
+    ref_file = external_refs / "duck.png"
+    ref_file.write_text("fake image")
+    
+    # Create version sidecar next to ref file (v1)
+    sidecar_dir = external_refs / ".versions"
+    sidecar_dir.mkdir(exist_ok=True)
+    (sidecar_dir / "r_duck.json").write_text(json.dumps({"version": 1}))
+    
+    # BEATMAP and shots
+    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
+    (base_path / "shots.json").write_text(json.dumps({
+        "shots": [{
+            "id": "A01",
+            "prompt": "Duck scene",
+            "count": 1,
+            "characters": ["D"],
+            "wet": False,
+            "model": "kling",
+            "duration": 3,
+            "end_frame": False,
+            "ref_keys": ["r_duck"]
+        }]
+    }))
+    
+    # refs.json with version bump to v2
+    (base_path / "refs.json").write_text(json.dumps({
+        "per_shot": {
+            "A01": [{
+                "key": "r_duck",
+                "path": str(ref_file)
+            }]
+        },
+        "versions": {
+            "r_duck": 2  # Version bumped from 1 to 2
+        }
+    }))
+    (base_path / "prompt_kit.json").write_text('{}')
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.chdir(tmp_path)
+    
+    await init_studio_db(db_path)
+    
+    original_info = temporalio.activity.info
+    
+    try:
+        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
+        
+        result = await preflight_validate_episode_activity(episode_id, None, False)
+        
+        # Preflight should detect version bump and count ref as to_generate
+        assert result["to_generate_refs"] == 1, f"Expected 1 to_generate_ref (version bump), got {result['to_generate_refs']}"
+        assert result["available_refs"] == 1, "Should still count as available"
+    
+    finally:
+        temporalio.activity.info = original_info

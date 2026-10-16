@@ -104,6 +104,39 @@ async def test_manual_balance_route_admin_only_and_audited(db_path, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_manual_balance_post_accepts_bearer_token(db_path, monkeypatch):
+    """POST /api/budget/balance should accept Bearer token auth like GET does."""
+    import os
+    from fastapi.testclient import TestClient
+    from api.main import app
+    
+    await create_episode(db_path, "ep99")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret-123456789012345678901234567890")
+    
+    client = TestClient(app)
+    
+    # POST with Bearer token should work
+    response = client.post(
+        "/api/budget/balance",
+        json={"balance_usd": "75.50", "note": "bearer token test"},
+        headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["balance_usd_micros"] == 75_500_000
+    assert body["set_at"]
+    
+    # GET with Bearer token should also work
+    response = client.get(
+        "/api/budget/balance",
+        headers={"Authorization": f"Bearer {os.environ['ADMIN_SECRET']}"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["manual_balance_usd_micros"] == 75_500_000
+
+
+@pytest.mark.asyncio
 async def test_job_ledger_route_and_verdict(db_path, monkeypatch):
     await create_episode(db_path, "ep99")
     ledger = BudgetLedger(db_path)
