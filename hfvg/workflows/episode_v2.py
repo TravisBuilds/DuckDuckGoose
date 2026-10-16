@@ -312,6 +312,27 @@ class EpisodeWorkflowV2:
         # Launch still generation for all shots
         workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
         shot_workflow_handles = []
+        shot_completion_status = {}  # Track completion: {shot_id: {"done": bool, "success": bool, "error": str?}}
+        
+        # Track background tasks that monitor child completion
+        import asyncio
+        background_tasks = []
+        
+        async def track_child_completion(shot_id: str, handle):
+            """Background task to await child and record result in state."""
+            try:
+                result = await handle
+                shot_completion_status[shot_id] = {"done": True, "success": True, "result": result}
+                workflow.logger.info(f"Shot {shot_id} completed successfully")
+            except Exception as e:
+                shot_completion_status[shot_id] = {"done": True, "success": False, "error": str(e)}
+                workflow.logger.error(f"Shot {shot_id} failed: {e}")
+                # Record in state for API/query exposure
+                self.state.failed_shots.append({
+                    "shot_id": shot_id,
+                    "status": "failed",
+                    "reason": str(e),
+                })
         
         for shot in shots:
             shot_plan = shot.copy()
@@ -327,8 +348,12 @@ class EpisodeWorkflowV2:
             )
             shot_workflow_handles.append(handle)
             self.shot_results[shot["shot_id"]] = handle
+            
+            # Start background task to track completion
+            task = asyncio.create_task(track_child_completion(shot["shot_id"], handle))
+            background_tasks.append(task)
         
-        workflow.logger.info(f"Launched {len(shot_workflow_handles)} shot workflows")
+        workflow.logger.info(f"Launched {len(shot_workflow_handles)} shot workflows with background tracking")
         
         # ================================================================
         # GATE 2: SCENE STILLS (All stills + reference sheets)
@@ -336,31 +361,30 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Wait for approval at gate 2
-        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
+        # Helper to check if all children are done with any failures
+        def all_children_done_with_any_failed() -> bool:
+            if len(shot_completion_status) < len(shots):
+                return False  # Not all started tracking yet
+            all_done = all(status.get("done", False) for status in shot_completion_status.values())
+            any_failed = any(not status.get("success", True) for status in shot_completion_status.values() if status.get("done", False))
+            return all_done or any_failed
         
-        # After approval, check if any shots failed by gathering results
-        import asyncio
-        shot_results_list = await asyncio.gather(*shot_workflow_handles, return_exceptions=True)
+        # Wait for approval OR any child failure (fail fast)
+        await workflow.wait_condition(
+            lambda: self.approved_g2_scene_stills or all_children_done_with_any_failed()
+        )
         
-        failed_shots = []
-        for i, result in enumerate(shot_results_list):
-            if isinstance(result, Exception):
-                shot_id = shots[i]["shot_id"]
-                failed_shots.append({
-                    "shot_id": shot_id,
-                    "status": "failed",
-                    "reason": str(result),
-                })
-        
-        if failed_shots:
-            # Surface failures at gate 2
-            failure_msg = f"{len(failed_shots)} shot(s) failed:\n" + "\n".join(
-                f"  - {s['shot_id']}: {s['reason']}" for s in failed_shots
+        # If we exited because of failures (not approval), surface them
+        if not self.approved_g2_scene_stills and len(self.state.failed_shots) > 0:
+            failure_msg = f"Gate 2 blocked: {len(self.state.failed_shots)} shot(s) failed:\n" + "\n".join(
+                f"  - {s['shot_id']}: {s['reason']}" for s in self.state.failed_shots
             )
             workflow.logger.error(failure_msg)
-            self.state.failed_shots = failed_shots
-            # Note: For now, we log failures but continue (could add gate decision here)
+            # Leave gate 2 unblocked but with failures visible in state for human decision
+        
+        # Wait for approval if not already approved
+        if not self.approved_g2_scene_stills:
+            await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
@@ -524,6 +548,7 @@ class EpisodeWorkflowV2:
             "current_gate": self.state.current_gate,
             "passed_gates": self.passed_gates.copy(),
             "missing_refs": {k: list(v) for k, v in self.missing_refs.items()},
+            "failed_shots": self.state.failed_shots.copy(),
             "approvals": {
                 "g1_shot_plan": self.approved_g1_shot_plan,
                 "g2_scene_stills": self.approved_g2_scene_stills,
