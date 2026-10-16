@@ -127,6 +127,9 @@ def test_shots_json_validation_rejects_bad_entries():
 async def test_parse_beatmap_activity_merges_and_live_requires(tmp_path, monkeypatch, data_env):
     from hfvg.activities.workflow_support import parse_beatmap_activity
 
+    # Reset DRY_RUN to default state (test isolation)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     beat = tmp_path / "BEATMAP.md"
     beat.write_text(
         "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
