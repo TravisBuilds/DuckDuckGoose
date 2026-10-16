@@ -20,6 +20,7 @@ dependencies = [
     "higgsfield-client>=0.2.0",
     "elevenlabs>=2.70.0",
     "uvicorn>=0.20.0",
+    "pillow>=10.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

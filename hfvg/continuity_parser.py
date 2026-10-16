@@ -245,6 +245,7 @@ def get_character_refs(
     shot: dict[str, Any],
     prompt_kit: dict[str, Any],
     episode_path: str | Path,
+    model_path: str | None = None,
 ) -> list[str]:
     """
     Get character reference file paths from prompt_kit.
@@ -253,14 +254,22 @@ def get_character_refs(
         shot: Shot dict with characters list
         prompt_kit: prompt_kit.json dict
         episode_path: Path to episode directory
+        model_path: Model path for ref cap lookup (defaults to still_model_path())
     
     Returns:
-        List of absolute paths to character reference images (max 3)
+        List of absolute paths to character reference images (up to model's ref cap)
     """
+    from hfvg.config import max_refs_for, still_model_path
+    
     refs = []
     characters = shot.get("characters", [])
     
-    for char_code in characters[:3]:  # Limit to 3 refs
+    # Use model-specific ref cap instead of hardcoded 3
+    if model_path is None:
+        model_path = still_model_path()
+    ref_cap = max_refs_for(model_path)
+    
+    for char_code in characters[:ref_cap]:  # Limit to model's ref cap
         char_info = prompt_kit.get("characters", {}).get(char_code)
         if char_info and "ref" in char_info:
             ref_filename = char_info["ref"]

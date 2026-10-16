@@ -26,7 +26,13 @@ os.environ["DRY_RUN"] = "false"
 with workflow.unsafe.imports_passed_through():
     from hfvg import activities
     from hfvg.budget import BudgetLedger
+    from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import create_episode, init_studio_db
+    from hfvg.activities.credit_activities import (
+        reserve_credits_activity,
+        commit_credits_activity,
+        release_credits_activity,
+    )
     from hfvg.workflows.shot import ShotWorkflow
 
 
@@ -287,6 +293,11 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
         stop_usd_micros=8_000_000,
     )
     
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("test-ep", cap_credits=500)
+    
     # Monkeypatch the provider to always return in_progress
     # Need to patch the imported reference in the activity module
     from hfvg.activities import studio_generation
@@ -314,6 +325,9 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -424,6 +438,11 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
         stop_usd_micros=8_000_000,
     )
     
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("test-ep", cap_credits=500)
+    
     # Monkeypatch the provider to return failed
     # Need to patch the imported reference in the activity module
     from hfvg.activities import studio_generation
@@ -451,6 +470,9 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -515,6 +537,11 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
     await ledger.set_line(episode_id="test-ep", line_name="L2_drafts", cap_usd_micros=10_000_000, stop_usd_micros=8_000_000)
 
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("test-ep", cap_credits=500)
+
     from hfvg.activities import studio_generation
     monkeypatch.setattr(studio_generation, "HiggsfieldStillProvider", FakeFlakyThenStuckProvider)
 
@@ -539,6 +566,9 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
                 activities.precheck_still_qc,
                 activities.review_still,
                 activities.record_shot_result,
+                reserve_credits_activity,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {

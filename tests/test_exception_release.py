@@ -21,6 +21,7 @@ from hfvg.activities.studio_generation import (
     await_job_enforced,
 )
 from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
 
 
@@ -47,6 +48,10 @@ async def test_episode(tmp_path):
     await set_live_mode(db_path, "ep99", True)
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
+    
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     yield db_path
 

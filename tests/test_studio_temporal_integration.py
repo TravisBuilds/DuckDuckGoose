@@ -12,15 +12,38 @@ from temporalio.worker import Worker
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 from hfvg.workflows.shot import ShotWorkflow
 from hfvg import activities
+from hfvg.activities.credit_activities import (
+    commit_credits_activity,
+    release_credits_activity,
+)
 
 
 @pytest.mark.asyncio
-async def test_approval_signal_reaches_episode_workflow():
+async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
     """
     Test: Approval signal actually reaches running EpisodeWorkflowV2.
     
     This verifies the signal path from API → Temporal → Workflow.
     """
+    from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
+    from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
+    from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
+    
+    # Set up database
+    db_path = str(tmp_path / "test_approval.db")
+    await init_studio_db(db_path)
+    await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger with run_locks table
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    # Set environment variables
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         # Create worker
         async with Worker(
@@ -40,6 +63,16 @@ async def test_approval_signal_reaches_episode_workflow():
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                activities.upsert_episode_activity,
+                activities.approve_g108_activity,
+                init_episode_credit_line_activity,
+                init_episode_budget_lines_activity,
+                load_refs_to_generate_activity,
+                generate_ref_activity,
+                acquire_run_lock,
+                release_run_lock,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             # Start workflow (will pause at G1.01)
@@ -56,17 +89,17 @@ async def test_approval_signal_reaches_episode_workflow():
             # Query initial state
             state = await handle.query("get_state")
             assert state["episode_id"] == "ep99"
-            assert not state["approvals"]["g101"], "G1.01 should not be approved yet"
+            assert not state["approvals"]["g1_shot_plan"], "G1 should not be approved yet"
             
             # Send approval signal
-            await handle.signal("approve_g101")
+            await handle.signal("approve_g1_shot_plan")
             
             # Give it time to process
             await asyncio.sleep(0.1)
             
             # Query state again
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g101"], "G1.01 should be approved after signal"
+            assert state_after["approvals"]["g1_shot_plan"], "G1 should be approved after signal"
             
             # Cancel workflow
             await handle.cancel()
@@ -81,10 +114,16 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_canary.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -111,6 +150,8 @@ async def test_canary_starts_shot_workflow(tmp_path, monkeypatch):
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             # Start ShotWorkflow (like canary does)
@@ -158,10 +199,16 @@ async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_approval.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -187,6 +234,8 @@ async def test_shot_workflow_waits_for_still_approval(tmp_path, monkeypatch):
                 activities.commit_job_budget,
                 activities.release_job_budget,
                 activities.mark_job_pending_reconcile,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {

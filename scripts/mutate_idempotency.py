@@ -6,9 +6,9 @@ file_path = sys.argv[1]
 with open(file_path) as f:
     content = f.read()
 
-# Remove the idempotency key parameter passing - this will cause it to use random UUID fallback
+# Replace idempotency_key=job_id with None to break deterministic idempotency
 content = content.replace(
-    'idempotency_key=idempotency_key,',
+    'idempotency_key=job_id,  # Use job_id as provider idempotency key',
     'idempotency_key=None,  # MUTATED'
 )
 

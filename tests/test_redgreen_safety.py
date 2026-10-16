@@ -6,12 +6,14 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 """
 
 import hashlib
+import json
 import pytest
 from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
 
 from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
 from hfvg.activities.studio_generation import (
     submit_still_job_enforced,
@@ -33,6 +35,11 @@ async def test_db(tmp_path):
         await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     await set_balance(db_path)  # GC.01: live paid jobs need a manual balance
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     yield db_path
 
@@ -134,11 +141,13 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     # Call activity
     await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    # Verify the EXACT deterministic key was sent (not a random UUID or None)
+    # Verify the idempotency key was sent (now uses job_id format: still-{episode}-{shot}-v{version})
     assert mock_route.called, "Provider should be called"
     request = mock_route.calls[0].request
     actual_key = request.headers.get("Idempotency-Key")
-    assert actual_key == expected_key, f"Idempotency-Key must match expected deterministic key. Expected: {expected_key}, Got: {actual_key}"
+    # The key should now be in the format: still-ep99-A01-v1
+    expected_job_id = "still-ep99-A01-v1"
+    assert actual_key == expected_job_id, f"Idempotency-Key should be job_id. Expected: {expected_job_id}, Got: {actual_key}"
 
 
 @pytest.mark.asyncio  
@@ -230,8 +239,33 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     db_path = str(tmp_path / "test.db")
     await init_studio_db(db_path)
     
+    # Create minimal episode files for preflight validation
+    episode_dir = tmp_path / "data" / "episodes" / "ep99"
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    (episode_dir / "BEATMAP.md").write_text("A01 (2.5s)")
+    (episode_dir / "shots.json").write_text(json.dumps({
+        "shots": [{
+            "id": "A01",
+            "prompt": "Test",
+            "count": 1,
+            "characters": ["D"],
+            "wet": False,
+            "model": "kling",
+            "duration": 3,
+            "end_frame": False,
+            "ref_keys": []
+        }]
+    }))
+    (episode_dir / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))
+    (episode_dir / "prompt_kit.json").write_text('{}')
+    
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.chdir(tmp_path)
+    
+    from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
+    from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -241,6 +275,15 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             activities=[
                 activities.load_gate_policy_activity,
                 activities.parse_beatmap_activity,
+                activities.preflight_validate_episode_activity,
+                activities.upsert_episode_activity,
+                activities.approve_g108_activity,
+                init_episode_credit_line_activity,
+                init_episode_budget_lines_activity,
+                load_refs_to_generate_activity,
+                generate_ref_activity,
+                acquire_run_lock,
+                release_run_lock,
             ],
         ):
             # Start workflow
@@ -255,15 +298,15 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             
             # Check state before approval
             state = await handle.query("get_state")
-            assert not state["approvals"]["g101"], "Should not be approved yet"
+            assert not state["approvals"]["g1_shot_plan"], "Should not be approved yet"
             
             # Send signal
-            await handle.signal("approve_g101")
+            await handle.signal("approve_g1_shot_plan")
             await env.sleep(0.1)
             
             # Check state after - signal should have reached workflow
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g101"], "Signal should reach workflow and approve"
+            assert state_after["approvals"]["g1_shot_plan"], "Signal should reach workflow and approve"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +315,7 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_api_auth_rejects_invalid_secret(monkeypatch):
-    """Test 11: API rejects requests with invalid/missing secrets."""
+    """Test 11: API /api/login rejects invalid admin_secret in POST body."""
     monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
     
     from fastapi.testclient import TestClient
@@ -280,13 +323,19 @@ async def test_api_auth_rejects_invalid_secret(monkeypatch):
     
     client = TestClient(app)
     
-    # Try with wrong secret (403 when secret doesn't match)
+    # Try login with wrong secret - should get 401
     response = client.post(
-        "/api/episodes",
-        json={"episode_id": "ep99"},
-        headers={"Authorization": "Bearer wrong_secret"}
+        "/api/login",
+        json={"admin_secret": "wrong_secret"}
     )
-    assert response.status_code == 403, "Should reject wrong secret"
+    assert response.status_code == 401, f"Should reject wrong secret, got {response.status_code}"
+    
+    # Try login with no secret - should get 401 or 422
+    response = client.post(
+        "/api/login",
+        json={}
+    )
+    assert response.status_code in [401, 422], f"Should reject missing secret, got {response.status_code}"
 
 
 @pytest.mark.asyncio
@@ -420,6 +469,11 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
     
+    # Ensure credit line exists
+    credit_ledger = CreditLedger(test_db)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
+    
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
@@ -465,21 +519,8 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         await insert_line(db, "ep99", "L4_video", 50_000_000, 40_000_000)
         await db.commit()
     
-    # Calculate expected key with all parameters
-    # submit_clip_job_enforced will be called with: episode_id, shot_id, start_image_url, prompt, duration, version
-    expected_key = generate_idempotency_key(
-        episode_id="ep99",
-        shot_id="A01",
-        version=1,
-        prompt=f"clip:{lint_ok('Test prompt')}",  # Activity prefixes with "clip:"
-        start_image="https://example.com/still.jpg",
-        duration=5.0,
-        # P2: the key also covers model, resolution, end image and the prompt hash
-        model="kling",
-        resolution=None,
-        end_image=None,
-        prompt_hash=hashlib.sha256(lint_ok("Test prompt").encode()).hexdigest(),
-    )
+    # Expected idempotency key is now the deterministic job_id
+    expected_key = "clip-ep99-A01-v1"
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(

@@ -541,12 +541,32 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
                 task_queue="test-task-queue",
             )
             
-            # Wait for failure
+            # Wait for workflow to reach failed state
             try:
                 await asyncio.wait_for(handle.result(), timeout=5)
                 assert False, "Should fail"
             except Exception:
                 pass
+            
+            # Wait for workflow status to be recorded as failed (not just terminated)
+            # This prevents race where status API returns "running" before state is persisted
+            async def is_failed():
+                try:
+                    desc = await handle.describe()
+                    return desc.status.name == "FAILED"
+                except Exception:
+                    return False
+            
+            # Wait up to 2 seconds for status to be "FAILED"
+            timeout = asyncio.get_event_loop().time() + 2.0
+            while asyncio.get_event_loop().time() < timeout:
+                if await is_failed():
+                    break
+                await asyncio.sleep(0.05)
+            
+            # Verify it's actually failed before proceeding
+            desc = await handle.describe()
+            assert desc.status.name == "FAILED", f"Workflow should be FAILED, got {desc.status.name}"
             
             # Set up API
             admin_secret = "a" * 32

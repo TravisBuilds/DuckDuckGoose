@@ -43,6 +43,18 @@ EPISODE_CAP_USD_MICROS = usd_to_micros(DEFAULT_EPISODE_CAP_USD)
 
 REVISION_LINE = "L7_revision"
 
+# Required budget lines (single source of truth: derived from code that reserves)
+REQUIRED_BUDGET_LINES = ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", REVISION_LINE]
+
+# Default line caps when policy lacks values (must sum to < episode stop threshold)
+# These total $44, under $48 stop (80% of $60 cap) with $4 buffer
+DEFAULT_LINE_CAPS_USD_MICROS = {
+    "L1_refs": 4_000_000,           # $4.00 - reference generation
+    "L2_drafts": 8_000_000,          # $8.00 - draft stills
+    "L3_final_stills": 16_000_000,   # $16.00 - final stills
+    "L4_video": 16_000_000,          # $16.00 - video clips
+}
+
 # Legacy plan import only: 1 Higgsfield app credit = 0.0475 USD (HARNESS-GATES.json usd.basis)
 LEGACY_APP_CREDIT_USD_MICROS = 47_500
 # ElevenLabs credits ~ 0.0002 USD each (HARNESS-GATES.json usd.basis)
@@ -203,22 +215,45 @@ class BudgetLedger:
         await self._insert_line(db, episode_id, "higgsfield", REVISION_LINE, cap, cap)
 
     async def init_episode_budget(self, episode_id: str):
-        """Initialize per-line dollar budgets for an episode from the gate policy."""
+        """
+        Initialize per-line dollar budgets for an episode from the gate policy.
+        
+        Always creates standard lines that code reserves against (see REQUIRED_BUDGET_LINES).
+        Uses policy values when available, otherwise defaults (see DEFAULT_LINE_CAPS_USD_MICROS).
+        Default caps total $44, under $48 stop threshold (80% of $60 cap) with $4 buffer.
+        """
         await self.init_db()
         settings = get_budget_settings()
 
         hf_budget = self.policy.get_higgsfield_budget(episode_id)
-        lines = hf_budget.get("lines", {})
+        policy_lines = hf_budget.get("lines", {})
         usd_caps = self.policy.get_usd_line_caps(episode_id)
 
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            for line_name, cap_app_credits in lines.items():
-                if line_name in usd_caps:
-                    cap = usd_to_micros(str(usd_caps[line_name]))
+            # Create standard lines (using shared constant)
+            for line_name, default_cap_micros in DEFAULT_LINE_CAPS_USD_MICROS.items():
+                if line_name in policy_lines:
+                    # Use policy value
+                    if line_name in usd_caps:
+                        cap = usd_to_micros(str(usd_caps[line_name]))
+                    else:
+                        cap = app_credits_to_usd_micros(policy_lines[line_name])
                 else:
-                    cap = app_credits_to_usd_micros(cap_app_credits)
+                    # Use default
+                    cap = default_cap_micros
+                
                 stop = compute_stop_usd_micros(cap, settings.stop_percent)
                 await self._insert_line(db, episode_id, "higgsfield", line_name, cap, stop)
+            
+            # Create any additional policy lines not in defaults
+            for line_name, cap_app_credits in policy_lines.items():
+                if line_name not in DEFAULT_LINE_CAPS_USD_MICROS:
+                    if line_name in usd_caps:
+                        cap = usd_to_micros(str(usd_caps[line_name]))
+                    else:
+                        cap = app_credits_to_usd_micros(cap_app_credits)
+                    stop = compute_stop_usd_micros(cap, settings.stop_percent)
+                    await self._insert_line(db, episode_id, "higgsfield", line_name, cap, stop)
 
             await self._insert_revision_line(db, episode_id)
 

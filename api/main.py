@@ -36,7 +36,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from temporalio.client import Client as TemporalClient
 
@@ -48,13 +48,25 @@ from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 
-# Check ADMIN_SECRET early - FAIL CLOSED
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-if not ADMIN_SECRET or len(ADMIN_SECRET) < 32:
-    raise ValueError(
-        "ADMIN_SECRET environment variable is required and must be at least 32 characters. "
-        "NO DEFAULT SECRET. Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
-    )
+# Get ADMIN_SECRET - can be overridden in tests
+def get_admin_secret() -> str:
+    """Get admin secret from environment. Can be overridden in tests."""
+    secret = os.getenv("ADMIN_SECRET", "")
+    if not secret or len(secret) < 32:
+        raise ValueError(
+            "ADMIN_SECRET environment variable is required and must be at least 32 characters. "
+            "NO DEFAULT SECRET. Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        )
+    return secret
+
+# Check ADMIN_SECRET early - FAIL CLOSED (unless in test mode)
+try:
+    ADMIN_SECRET = get_admin_secret()
+except ValueError as e:
+    # Allow tests to set it later
+    if "pytest" not in sys.modules:
+        raise
+    ADMIN_SECRET = ""
 
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 TEMPORAL_NAMESPACE = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -119,10 +131,14 @@ async def verify_session_token(token: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize Temporal client on startup."""
+    """Initialize database and Temporal client on startup."""
     global temporal_client
     
     try:
+        # Initialize database tables
+        await init_studio_db(DATABASE_PATH)
+        
+        # Connect to Temporal
         temporal_client = await TemporalClient.connect(
             TEMPORAL_ADDRESS,
             namespace=TEMPORAL_NAMESPACE,
@@ -141,10 +157,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware for local development
+# CORS middleware (configurable origins)
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[origin.strip() for origin in CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -189,12 +206,46 @@ def verify_admin_secret(authorization: str | None = Header(None)):
         )
     
     token = authorization[7:] if authorization else ""
+    current_secret = get_admin_secret()
     
-    if token != ADMIN_SECRET:
+    if not secrets.compare_digest(token, current_secret):
         raise HTTPException(
             status_code=403,
             detail="Invalid admin secret"
         )
+
+
+async def verify_auth_unified(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Unified auth: accept either Bearer token OR session cookie.
+    
+    This allows both programmatic access (Bearer token) and browser access (cookie).
+    Fail closed: at least one must be valid.
+    """
+    # Try cookie first (browser access)
+    if studio_admin_token:
+        try:
+            await verify_admin_cookie(studio_admin_token)
+            return  # Cookie is valid
+        except HTTPException:
+            pass  # Fall through to try Bearer token
+    
+    # Try Bearer token (programmatic access)
+    if authorization:
+        try:
+            verify_admin_secret(authorization)
+            return  # Bearer token is valid
+        except HTTPException:
+            pass
+    
+    # Neither worked
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
+    )
 
 
 # Request/Response models
@@ -226,7 +277,9 @@ def validate_episode_id(episode_id: str) -> str:
 class StartEpisodeRequest(BaseModel):
     episode_id: str = Field(..., pattern=r"^ep\d{2}$", description="Episode ID (e.g., ep04)")
     beatmap_content: str | None = Field(None, description="Beatmap markdown content (optional)")
-    dry_run: bool = Field(True, description="Run in dry-run mode (default: true)")
+    dry_run: bool = Field(True, description="Run in dry-run mode (default: true, live requires explicit false)")
+    shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
+    credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -234,6 +287,12 @@ class StartEpisodeResponse(BaseModel):
     run_id: str
     episode_id: str
     message: str
+
+
+class StartCanaryRequest(BaseModel):
+    episode_id: str
+    shots_subset: list[str] | None = None
+    credit_cap: int = 100
 
 
 class ApprovalRequest(BaseModel):
@@ -327,6 +386,15 @@ async def root():
         "status": "running",
         "temporal_connected": temporal_client is not None,
     }
+
+
+@app.get("/gates")
+async def serve_gates_page():
+    """Serve the gates approval UI page."""
+    gates_path = Path(__file__).parent.parent / "web" / "gates.html"
+    if not gates_path.exists():
+        raise HTTPException(status_code=404, detail="Gates page not found")
+    return FileResponse(gates_path)
 
 
 @app.get("/api/health")
@@ -523,8 +591,22 @@ async def upload_shots(
     if refs_file:
         refs_bytes = await refs_file.read()
         try:
-            if not isinstance(json.loads(refs_bytes).get("per_shot"), dict):
+            refs_data = json.loads(refs_bytes)
+            if not isinstance(refs_data.get("per_shot"), dict):
                 raise ValueError("missing 'per_shot' object")
+            
+            # Validate that all shots in shots.json have entries in refs.json per_shot
+            per_shot = refs_data["per_shot"]
+            # parse_shots returns either a list or dict depending on format
+            if isinstance(plans, dict):
+                shot_ids = set(plans.keys())
+            else:
+                shot_ids = {plan["shot_id"] for plan in plans}
+            missing_shots = shot_ids - per_shot.keys()
+            if missing_shots:
+                raise ValueError(
+                    f"refs.json missing per_shot entries for shots present in shots.json: {sorted(missing_shots)}"
+                )
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
 
@@ -533,10 +615,14 @@ async def upload_shots(
     (episode_dir / "shots.json").write_bytes(shots_bytes)
     if refs_bytes is not None:
         (episode_dir / "refs.json").write_bytes(refs_bytes)
+    
+    # Count shots (plans can be dict or list)
+    shots_count = len(plans) if isinstance(plans, (list, dict)) else 0
+    
     return {
         "success": True,
         "episode_id": episode_id,
-        "shots_count": len(plans),
+        "shots_count": shots_count,
         "refs_uploaded": refs_bytes is not None,
     }
 
@@ -545,14 +631,18 @@ async def upload_shots(
 async def start_episode(
     request: StartEpisodeRequest,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(request.episode_id)
+    
+    # Initialize studio DB if not exists
+    await init_studio_db(DATABASE_PATH)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -575,7 +665,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
@@ -636,13 +726,14 @@ async def approve_gate(
     episode_id: str,
     request: ApprovalRequest,
     authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Send approval signal to episode workflow.
     
-    Requires: Authorization header with admin secret.
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    verify_admin_secret(authorization)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -806,14 +897,18 @@ async def get_manual_balance(
 @app.post("/api/budget/balance")
 async def set_manual_balance(
     request: ManualBalanceRequest,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Record the manually entered Higgsfield USD balance (no balance endpoint exists).
     GC.01 refuses new paid jobs when balance - spend since entry - reserved < headroom.
-    Requires: Cookie auth (admin).
+    Requires: Cookie auth (admin) or Bearer token.
     """
-    await verify_admin_cookie(studio_admin_token)
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
     
     from hfvg.budget import BudgetLedger
     from hfvg.pricing import usd_to_micros
@@ -845,14 +940,15 @@ async def _audit_balance(entry: dict):
 @app.get("/api/episodes/{episode_id}/shots")
 async def get_shots(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     List all shots for an episode with their status.
     
-    Requires: Cookie auth
+    Requires: Authorization header OR session cookie.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -1047,14 +1143,15 @@ See verification doc § "Clip-approve semantics" for details.
 @app.get("/api/episodes/{episode_id}/gates")
 async def get_gates(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Get gate status for episode.
     
-    Requires: Cookie auth
+    Requires: Authorization header OR session cookie.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     import aiosqlite

@@ -332,12 +332,16 @@ def test_planner_tier_resolution_and_explicit_fields_required():
 
 async def _live_env(tmp_path, monkeypatch):
     from hfvg.budget import BudgetLedger
+    from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
 
     db_path = str(tmp_path / "sd.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     await BudgetLedger(db_path).init_db()
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L4_video", 20_000_000, 16_000_000)
         await db.commit()

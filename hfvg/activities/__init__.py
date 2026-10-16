@@ -20,9 +20,15 @@ from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
     parse_beatmap_activity,
     recheck_refs_activity,
+    upsert_episode_activity,
+    approve_g108_activity,
 )
+from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+from hfvg.activities.preflight import preflight_validate_episode_activity
 
 __all__ = [
+    "acquire_run_lock",
+    "release_run_lock",
     "recheck_refs_activity",
     "submit_still_job",
     "submit_clip_job",
@@ -49,4 +55,7 @@ __all__ = [
     "mark_job_pending_reconcile",
     "load_gate_policy_activity",
     "parse_beatmap_activity",
+    "upsert_episode_activity",
+    "approve_g108_activity",
+    "preflight_validate_episode_activity",
 ]

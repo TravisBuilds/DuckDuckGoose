@@ -7,6 +7,24 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from hfvg import activities
+from hfvg.activities.run_report import generate_run_report
+from hfvg.activities.credit_activities import (
+    reserve_credits_activity,
+    commit_credits_activity,
+    release_credits_activity,
+    update_credit_cap_activity,
+    init_episode_credit_line_activity,
+    init_episode_budget_lines_activity,
+)
+from hfvg.activities.run_lock import (
+    acquire_run_lock,
+    release_run_lock,
+)
+from hfvg.activities.studio_generation import verify_episode_files_activity
+from hfvg.activities.ref_generation import (
+    generate_ref_activity,
+    load_refs_to_generate_activity,
+)
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
@@ -39,8 +57,23 @@ PRODUCTION_ACTIVITIES = [
     activities.record_shot_result,
     activities.load_gate_policy_activity,
     activities.parse_beatmap_activity,
+    activities.preflight_validate_episode_activity,
     activities.recheck_refs_activity,
+    activities.upsert_episode_activity,
+    activities.approve_g108_activity,
     activities.check_live_mode_and_g108,
+    verify_episode_files_activity,
+    generate_ref_activity,
+    load_refs_to_generate_activity,
+    generate_run_report,
+    reserve_credits_activity,
+    commit_credits_activity,
+    release_credits_activity,
+    update_credit_cap_activity,
+    init_episode_credit_line_activity,
+    init_episode_budget_lines_activity,
+    acquire_run_lock,
+    release_run_lock,
 ]
 
 

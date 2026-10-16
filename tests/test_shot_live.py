@@ -12,6 +12,10 @@ from temporalio.worker import Worker
 
 from hfvg.workflows.shot import ShotWorkflow
 from hfvg import activities
+from hfvg.activities.credit_activities import (
+    commit_credits_activity,
+    release_credits_activity,
+)
 
 
 @pytest.mark.asyncio
@@ -100,10 +104,16 @@ async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypat
     """
     # Set up database for this test
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_live_shot.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     # Set environment variables for activities - DRY MODE (simulates workflow logic)
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -126,6 +136,8 @@ async def test_shot_workflow_human_approval_proceeds_to_clip(tmp_path, monkeypat
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -199,10 +211,16 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
     and all production paths that reach clip generation send the approval signal.
     """
     from hfvg.studio_db import init_studio_db, create_episode
+    from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test_approval_gate.db")
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
+    
+    # Initialize credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=500)
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
@@ -224,6 +242,8 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
                 activities.review_still,
                 activities.review_clip,
                 activities.record_shot_result,
+                commit_credits_activity,
+                release_credits_activity,
             ],
         ):
             shot_plan = {
@@ -313,17 +333,18 @@ async def test_review_clip_escalates_in_live_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     
     # Call review_clip with valid episode_id
+    # Note: With --disable-socket, the download will fail and escalate
     result = await review_clip(
         asset_url="https://example.com/some-clip.mp4",
-        rubric={},
+        rubric={"duration": 5.0},
         episode_id="ep99",
         shot_id="A01"
     )
     
-    # Should escalate in live mode
+    # Should escalate on download failure (sockets disabled)
     assert result["passed"] is False
     assert result.get("escalate") is True
-    assert "Real QC agent not implemented" in result["issues"][0]
+    assert "Failed to analyze clip" in result["issues"][0]
 
 
 @pytest.mark.asyncio

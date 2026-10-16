@@ -20,8 +20,13 @@ with workflow.unsafe.imports_passed_through():
         submit_clip_job_enforced,
         submit_still_job_enforced,
     )
+    from hfvg.activities.credit_activities import (
+        commit_credits_activity,
+        release_credits_activity,
+    )
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
+    from temporalio.exceptions import ActivityError, ApplicationError
     
     import os
 
@@ -37,12 +42,15 @@ class ShotWorkflow:
         self.shot_id: str = ""
         self.episode_id: str = ""
         self.still_asset: Asset | None = None
+        self.end_still_asset: Asset | None = None  # END frame still (for end_frame=true shots)
         self.clip_asset: Asset | None = None
         self.version = 1
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
+        self.cap_raised = False  # Signal that credit cap was raised
+        self.status = "running"  # Status: running, paused_cap, completed, failed
 
     @workflow.signal
     def stills_approved(self):
@@ -53,6 +61,16 @@ class ShotWorkflow:
     def set_end_image(self, url: str):
         """Signal: the END-frame image URL for a start+end clip (Kling last_image_url)."""
         self.end_image_url = url
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        """Signal from parent that credit cap was raised, resume paused shot."""
+        self.cap_raised = True
+    
+    @workflow.query
+    def get_status(self) -> str:
+        """Query current status (running, paused_cap, completed, failed)."""
+        return self.status
 
     @workflow.signal
     def clip_approved(self):
@@ -154,7 +172,15 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
                 
-                workflow.logger.info(f"Job {job_id} completed, budget committed")
+                # Commit credits
+                await workflow.execute_activity(
+                    commit_credits_activity,
+                    args=[self.episode_id, job_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.info(f"Job {job_id} completed, budget and credits committed")
                 
                 return {
                     "url": status_result["output_url"],
@@ -181,7 +207,15 @@ class ShotWorkflow:
                     retry_policy=retry_policy,
                 )
                 
-                workflow.logger.error(f"Job {job_id} {status}, reservation released")
+                # Release credits
+                await workflow.execute_activity(
+                    release_credits_activity,
+                    args=[self.episode_id, job_id, reason],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=retry_policy,
+                )
+                
+                workflow.logger.error(f"Job {job_id} {status}, reservation and credits released")
                 
                 # Raise appropriate error - these will NOT be caught by the except above
                 if status == "blocked":
@@ -211,6 +245,73 @@ class ShotWorkflow:
             f"Reservation held, manual reconciliation required."
         )
 
+    async def _generate_end_still(
+        self,
+        shot_plan: dict,
+        refs: list[str],
+        resolution: str,
+        quality: str,
+        aspect_ratio: str,
+        retry_policy: RetryPolicy,
+    ) -> dict:
+        """
+        Generate end-frame still for shots with end_frame=true.
+        Called after start still passes QC, before Gate 2.
+        
+        Returns:
+            dict with url and cost
+        """
+        params = shot_plan.get("params", {})
+        end_prompt = params.get("end_prompt", shot_plan["prompt"])
+        
+        workflow.logger.info(f"Generating end still for {self.shot_id}")
+        
+        # Retry loop for credit cap raises
+        while True:
+            try:
+                job_info = await workflow.execute_activity(
+                    submit_still_job_enforced,
+                    args=[
+                        self.episode_id,
+                        f"{self.shot_id}_end",  # Distinct shot_id for end frame
+                        end_prompt,
+                        self.version,
+                        refs,
+                        resolution,
+                        quality,
+                        aspect_ratio,
+                        None,  # tier
+                        shot_plan.get("shot_meta"),
+                        shot_plan.get("missing_refs", []),
+                    ],
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=retry_policy,
+                )
+                break  # Success
+            except ActivityError as e:
+                if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                    workflow.logger.warning(f"Credit cap hit for end still {self.shot_id}, pausing")
+                    self.status = "paused_cap"
+                    await workflow.wait_condition(lambda: self.cap_raised)
+                    workflow.logger.info(f"Cap raised, retrying end still {self.shot_id}")
+                    self.status = "running"
+                    self.cap_raised = False
+                else:
+                    raise
+        
+        # Poll for completion
+        poll_result = await self._poll_job_to_completion(
+            job_id=job_info["job_id"],
+            job_type="still",
+            line_name=job_info["line_name"],
+            reserved_amount=job_info["reserved_amount"],
+        )
+        
+        return {
+            "url": poll_result["url"],
+            "cost": poll_result["cost"],
+        }
+    
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
@@ -225,10 +326,10 @@ class ShotWorkflow:
 
         # NO RETRY after reserve: each retry would resubmit a paid call and leak reservations
         # Provider idempotency-key should dedupe, but we must not rely on that
+        # InsufficientCreditsError is now handled with explicit pause/resume, not in retry policy
         retry_policy = RetryPolicy(
             maximum_attempts=1,  # No automatic retries on paid activities
             non_retryable_error_types=[
-                "InsufficientCreditsError",
                 "ContentBlockError",
             ],
         )
@@ -261,24 +362,45 @@ class ShotWorkflow:
                     }
 
                 # Call enforced activity with individual parameters - returns dict with job info
-                job_info = await workflow.execute_activity(
-                    submit_still_job_enforced,
-                    args=[
-                        self.episode_id,
-                        self.shot_id,
-                        shot_plan["prompt"],
-                        self.version,
-                        refs,
-                        resolution,
-                        quality,
-                        aspect_ratio,
-                        None,  # tier (activity default)
-                        shot_plan.get("shot_meta"),  # prompt lint metadata
-                        shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
-                    ],
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=retry_policy,
-                )
+                # Retry loop for credit cap raises
+                while True:
+                    try:
+                        job_info = await workflow.execute_activity(
+                            submit_still_job_enforced,
+                            args=[
+                                self.episode_id,
+                                self.shot_id,
+                                shot_plan["prompt"],
+                                self.version,
+                                refs,
+                                resolution,
+                                quality,
+                                aspect_ratio,
+                                None,  # tier (activity default)
+                                shot_plan.get("shot_meta"),  # prompt lint metadata
+                                shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
+                            ],
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=retry_policy,
+                        )
+                        break  # Success, exit retry loop
+                    except ActivityError as e:
+                        # Check if wrapped error is InsufficientCreditsError
+                        if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                            # Hard cap hit - pause and wait for cap raise
+                            workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
+                            self.status = "paused_cap"
+                            
+                            # Wait for parent to raise cap and signal us
+                            await workflow.wait_condition(lambda: self.cap_raised)
+                            
+                            workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
+                            self.status = "running"
+                            self.cap_raised = False  # Reset for potential future pauses
+                            # Loop will retry with same job_id (idempotent)
+                        else:
+                            # Other activity error - re-raise
+                            raise
 
                 # Poll for completion using workflow-level polling loop (R1)
                 poll_result = await self._poll_job_to_completion(
@@ -324,6 +446,16 @@ class ShotWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=retry_policy,
                     )
+                    
+                    # Generate end-frame still if required (before Gate 2)
+                    if params.get("end_frame"):
+                        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
+                        end_still_result = await self._generate_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )
+                        self.end_still_asset = end_still_result
+                        self.end_image_url = end_still_result["url"]
+                        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
                     
                     break
                 elif review_result.get("escalate"):
@@ -399,9 +531,7 @@ class ShotWorkflow:
                     "error": str(e),
                 }
 
-            except InsufficientCreditsError as e:
-                workflow.logger.error(f"Insufficient credits: {e}")
-                raise
+            # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
         if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):
             workflow.logger.error(f"Still failed after {self.max_retries} attempts")
@@ -421,15 +551,8 @@ class ShotWorkflow:
                 # Extract duration from shot plan params
                 params = shot_plan.get("params", {})
                 duration = params.get("duration", 5.0)
-                end_image_url = params.get("end_image_url") or self.end_image_url
-                if params.get("end_frame") and not end_image_url:
-                    if shot_plan.get("dry_run"):
-                        end_image_url = "/fake/end.jpg"  # dry run: nothing is submitted
-                    else:
-                        # Live: never generate an END-frame shot as a start-only clip
-                        workflow.logger.info(f"{self.shot_id} needs an end frame: waiting for it")
-                        await workflow.wait_condition(lambda: self.end_image_url is not None)
-                        end_image_url = self.end_image_url
+                # Use the end_image_url that was generated before Gate 2
+                end_image_url = self.end_image_url if params.get("end_frame") else None
 
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
@@ -451,26 +574,47 @@ class ShotWorkflow:
                     }
 
                 # Call enforced activity with individual parameters - returns dict with job info
-                job_info = await workflow.execute_activity(
-                    submit_clip_job_enforced,
-                    args=[
-                        self.episode_id,
-                        self.shot_id,
-                        self.still_asset["url"],  # start_image_url
-                        shot_plan["prompt"],
-                        duration,
-                        self.version,
-                        None,  # tier (activity default)
-                        shot_plan.get("shot_meta"),  # prompt lint metadata
-                        params.get("model", "kling"),  # explicit routing
-                        shot_plan.get("tags", []),
-                        end_image_url,
-                        None,  # bitrate_mode (activity default)
-                        shot_plan.get("missing_refs", []),
-                    ],
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=retry_policy,
-                )
+                # Retry loop for credit cap raises
+                while True:
+                    try:
+                        job_info = await workflow.execute_activity(
+                            submit_clip_job_enforced,
+                            args=[
+                                self.episode_id,
+                                self.shot_id,
+                                self.still_asset["url"],  # start_image_url
+                                shot_plan["prompt"],
+                                duration,
+                                self.version,
+                                None,  # tier (activity default)
+                                shot_plan.get("shot_meta"),  # prompt lint metadata
+                                params.get("model", "kling"),  # explicit routing
+                                shot_plan.get("tags", []),
+                                end_image_url,
+                                None,  # bitrate_mode (activity default)
+                                shot_plan.get("missing_refs", []),
+                            ],
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=retry_policy,
+                        )
+                        break  # Success, exit retry loop
+                    except ActivityError as e:
+                        # Check if wrapped error is InsufficientCreditsError
+                        if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                            # Hard cap hit - pause and wait for cap raise
+                            workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
+                            self.status = "paused_cap"
+                            
+                            # Wait for parent to raise cap and signal us
+                            await workflow.wait_condition(lambda: self.cap_raised)
+                            
+                            workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
+                            self.status = "running"
+                            self.cap_raised = False  # Reset for potential future pauses
+                            # Loop will retry with same job_id (idempotent)
+                        else:
+                            # Other activity error - re-raise
+                            raise
 
                 # Poll for completion using workflow-level polling loop (R1)
                 poll_result = await self._poll_job_to_completion(
@@ -487,9 +631,16 @@ class ShotWorkflow:
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
 
+                # Prepare rubric with expected clip parameters for motion QC
+                clip_rubric = {
+                    "duration": duration,
+                    "resolution": params.get("resolution", "1024x576"),
+                    "aspect_ratio": params.get("aspect_ratio", "16:9"),
+                }
+                
                 clip_qc = await workflow.execute_activity(
                     review_clip,
-                    args=[self.clip_asset["url"], {}, self.episode_id, self.shot_id],
+                    args=[self.clip_asset["url"], clip_rubric, self.episode_id, self.shot_id],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
@@ -532,9 +683,7 @@ class ShotWorkflow:
                     "error": str(e),
                 }
 
-            except InsufficientCreditsError as e:
-                workflow.logger.error(f"Insufficient credits: {e}")
-                raise
+            # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
         if not self.clip_asset or not clip_qc.get("passed"):
             workflow.logger.error(f"Clip failed after {self.max_retries} attempts")

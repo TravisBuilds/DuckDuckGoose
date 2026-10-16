@@ -25,15 +25,58 @@ import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, REVISION_LINE
+from hfvg.credit_ledger import CreditLedger
 from hfvg.config import config, max_refs_for, still_model_path
 from hfvg.pricing import (
+    DRY_CLIP_USD_PER_SECOND_MICROS,
     DRY_STILL_USD_MICROS,
     clip_estimate_usd_micros,
     micros_to_usd_str,
+    usd_to_micros,
 )
+from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.routing import plan_route
+
+
+def _create_fake_still(output_path: str) -> str:
+    """Create a small real PNG file for dry-run mode."""
+    # Create a minimal valid 1x1 PNG (67 bytes)
+    # PNG signature + IHDR + IDAT + IEND chunks
+    png_data = (
+        b'\x89PNG\r\n\x1a\n'  # PNG signature
+        b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+        b'\x08\x02\x00\x00\x00\x90wS\xde'  # 1x1, RGB
+        b'\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x00\x01\x0d\n-\xb4'
+        b'\x00\x00\x00\x00IEND\xaeB`\x82'
+    )
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_path).write_bytes(png_data)
+    return output_path
+
+
+def _create_fake_clip(output_path: str) -> str:
+    """Create a small real MP4 file for dry-run mode using ffmpeg."""
+    import subprocess
+    
+    # Create a 1-second 64x64 orange video
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run([
+            "ffmpeg", "-f", "lavfi", "-i", "color=c=orange:s=64x64:d=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", output_path
+        ], check=True, capture_output=True, timeout=10)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        # Fallback: create a minimal valid MP4 if ffmpeg fails
+        # This is a minimal ftyp + mdat MP4 container
+        mp4_data = (
+            b'\x00\x00\x00 ftypisomisomiso2mp41'
+            b'\x00\x00\x00\x08free'
+            b'\x00\x00\x00\x08mdat'
+        )
+        Path(output_path).write_bytes(mp4_data)
+    return output_path
 
 
 @activity.defn
@@ -59,6 +102,31 @@ async def check_live_mode_and_g108(episode_id: str) -> tuple[bool, bool]:
             if not row:
                 return False, False
             return bool(row[0]), bool(row[1])
+
+
+@activity.defn
+async def verify_episode_files_activity(episode_id: str) -> dict:
+    """
+    Verify required files exist for episode in live mode.
+    
+    Args:
+        episode_id: Episode identifier
+    
+    Returns:
+        dict with 'passed' (bool) and 'missing_files' (list)
+    
+    Raises:
+        FileNotFoundError: If shots.json is missing in live mode
+    """
+    shots_json_path = f"data/episodes/{episode_id}/shots.json"
+    
+    if not os.path.exists(shots_json_path):
+        raise FileNotFoundError(
+            f"shots.json missing for episode {episode_id} at {shots_json_path}. "
+            "Live mode requires shots.json to be present before workflow start."
+        )
+    
+    return {"passed": True, "missing_files": []}
 
 
 def generate_idempotency_key(episode_id: str = None, shot_id: str = None, version: int = None, prompt: str = None, **kwargs) -> str:
@@ -186,17 +254,47 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Generate idempotency key including all parameters that affect generation
-    idempotency_key = generate_idempotency_key(
-        episode_id=episode_id,
-        shot_id=shot_id,
-        version=version,
-        prompt=prompt,
-        refs=refs,
-        quality=quality,
-        resolution=resolution,
-        aspect_ratio=aspect_ratio,
+    # Generate job_id (will be used as provider idempotency key)
+    job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    
+    # Estimate credits for credit ledger
+    # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
+    # Map quality to pricing: "high" -> "high", else "standard"
+    pricing_quality = "high" if quality == "high" else "standard"
+    model_path = still_model_path()  # xai/grok-imagine-image-2.0
+    
+    # Use pricing table for credit estimation (provider will call /estimate separately for USD cost)
+    estimated_credits = estimate_still_credits(model_path, pricing_quality)
+    
+    # Reserve credits from credit ledger
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    credit_result = await credit_ledger.reserve_credits(
+        episode_id, job_id, estimated_credits,
+        notes=f"still {shot_id} {quality} {resolution}"
     )
+    
+    if not credit_result.get("reserved"):
+        available = credit_result.get("available", 0)
+        over_cap = credit_result.get("over_cap", False)
+        
+        if over_cap:
+            # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
+            from hfvg.errors import InsufficientCreditsError
+            raise InsufficientCreditsError(
+                f"Credit hard cap reached for {job_id}. "
+                f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                "Raise cap via raise_credit_cap signal to resume.",
+                required=float(estimated_credits),
+                available=float(available)
+            )
+        else:
+            # Other reserve failure
+            raise ValueError(
+                f"Credit reserve failed for {job_id}. "
+                f"Available: {available} credits. Requested: {estimated_credits} credits."
+            )
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -243,6 +341,8 @@ async def submit_still_job_enforced(
         )
         
         if not reserved:
+            # Release credit reservation before failing
+            await credit_ledger.release_credits(episode_id, job_id)
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
                 f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
@@ -252,16 +352,22 @@ async def submit_still_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
-        # Submit to provider - wrapped to release reservation on ANY error
+        # Submit to provider - wrapped to release reservations on ANY error
         try:
-            job_id = await provider.submit_image(
+            provider_job_id = await provider.submit_image(
                 prompt=prompt,
                 resolution=resolution,
                 quality=quality,
                 image_urls=refs,
-                idempotency_key=idempotency_key,
+                idempotency_key=job_id,  # Use job_id as provider idempotency key
                 aspect_ratio=aspect_ratio,
             )
+            
+            # Provider should return the same job_id due to idempotency
+            if provider_job_id != job_id:
+                activity.logger.warning(
+                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
+                )
             
             activity.logger.info(
                 f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
@@ -288,7 +394,7 @@ async def submit_still_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release reservation on submission failure
+            # Release both budget and credit reservations on submission failure
             activity.logger.error(
                 f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
@@ -298,6 +404,7 @@ async def submit_still_job_enforced(
                 amount_usd_micros=estimated_cost,
                 reason=f"Submit failed: {str(submit_error)[:100]}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
         
     finally:
@@ -354,12 +461,20 @@ async def submit_clip_job_enforced(
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
     use_live = not dry_run_env and live_mode and g108_approved
     
+    # Extract animal count from shot metadata (characters set)
+    characters = (shot_meta or {}).get("characters", set())
+    if isinstance(characters, (list, set)):
+        animal_count = len(characters)
+    else:
+        animal_count = 1
+    
     # Explicit routing plan (fail closed in every mode)
     route = plan_route({
         "model": model,
         "tier": "draft" if tier == "draft" else "final",
         "duration": duration,
         "tags": tags or [],
+        "count": animal_count,
     })
     if route.model == "seedance" and duration != int(duration):
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
@@ -475,36 +590,91 @@ async def submit_clip_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
+        # Generate job_id (will be used as provider idempotency key)
+        job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+        
+        # Estimate credits for credit ledger
+        # Map tier to resolution for Seedance: draft->480p, else->1080p
+        if model == "seedance":
+            resolution = "480p" if tier == "draft" else "1080p"
+            estimated_credits = estimate_clip_credits("seedance_2.5", duration, resolution)
+        else:  # kling
+            estimated_credits = estimate_clip_credits("kling_3.0", duration)
+        
+        # Reserve credits from credit ledger
+        credit_ledger = CreditLedger(db_path)
+        await credit_ledger.init_db()
+        
+        credit_result = await credit_ledger.reserve_credits(
+            episode_id, job_id, estimated_credits,
+            notes=f"clip {shot_id} {model} {duration}s"
+        )
+        
+        if not credit_result.get("reserved"):
+            available = credit_result.get("available", 0)
+            over_cap = credit_result.get("over_cap", False)
+            
+            # Release budget reservation
+            await ledger.release(
+                episode_id=episode_id,
+                line_name=line_name,
+                amount_usd_micros=estimated_cost,
+                reason=f"Credit reserve failed: available={available}"
+            )
+            
+            if over_cap:
+                # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
+                from hfvg.errors import InsufficientCreditsError
+                raise InsufficientCreditsError(
+                    f"Credit hard cap reached for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                    "Raise cap via raise_credit_cap signal to resume.",
+                    required=float(estimated_credits),
+                    available=float(available)
+                )
+            else:
+                raise ValueError(
+                f"Credit reserve failed for {job_id}. "
+                f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
+            )
+        
         # Validate start_image URL
         if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
-            # Release reservation on validation failure
+            # Release both budget and credit reservations on validation failure
             await ledger.release(
                 episode_id=episode_id,
                 line_name=line_name,
                 amount_usd_micros=estimated_cost,
                 reason=f"Invalid start_image: {start_image_url}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"invalid start_image")
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
         
-        # Submit to provider - wrapped to release reservation on ANY error
+        # Submit to provider - wrapped to release reservations on ANY error
         try:
             if route.model == "seedance":
-                job_id = await provider.submit_video(
+                provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),
                     resolution=route.resolution,
                     bitrate_mode=bitrate_mode,
                     end_image_url=end_image_url,
-                    idempotency_key=idempotency_key,
+                    idempotency_key=job_id,  # Use job_id as provider idempotency key
                 )
             else:
-                job_id = await provider.submit_video(
+                provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),  # Must be integer
-                    idempotency_key=idempotency_key,
+                    idempotency_key=job_id,  # Use job_id as provider idempotency key
                     end_image_url=end_image_url,
+                )
+            
+            # Provider should return the same job_id due to idempotency
+            if provider_job_id != job_id:
+                activity.logger.warning(
+                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
                 )
             
             activity.logger.info(
@@ -532,7 +702,7 @@ async def submit_clip_job_enforced(
             }
         
         except Exception as submit_error:
-            # Release reservation on submission failure
+            # Release both budget and credit reservations on submission failure
             activity.logger.error(
                 f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
             )
@@ -542,6 +712,7 @@ async def submit_clip_job_enforced(
                 amount_usd_micros=estimated_cost,
                 reason=f"Clip submit failed: {str(submit_error)[:100]}"
             )
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
             raise
         
     finally:
@@ -574,9 +745,22 @@ async def poll_job_status(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(0.1)
+        
+        # Create real placeholder file
+        output_dir = Path("./data/dry_run_outputs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use job_id in filename (it already contains episode and shot info)
+        if job_type == "still":
+            output_file = output_dir / f"{job_id}.jpg"
+            output_path = _create_fake_still(str(output_file))
+        else:
+            output_file = output_dir / f"{job_id}.mp4"
+            output_path = _create_fake_clip(str(output_file))
+        
         return {
             "status": "completed",
-            "output_url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
+            "output_url": str(output_path),
             "error": None,
             "cost": None,
         }
@@ -616,6 +800,24 @@ async def poll_job_status(
         }
     finally:
         await provider.close()
+
+
+@activity.defn
+async def commit_job_credits(episode_id: str, job_id: str, actual_credits: int) -> dict:
+    """Commit reserved credits with actual cost."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.commit_credits(episode_id, job_id, actual_credits)
+    return {"success": True, "job_id": job_id, "credits": actual_credits}
+
+
+@activity.defn
+async def release_job_credits(episode_id: str, job_id: str) -> dict:
+    """Release reserved credits (job failed/canceled)."""
+    credit_ledger = CreditLedger()
+    await credit_ledger.init_db()
+    await credit_ledger.release_credits(episode_id, job_id)
+    return {"success": True, "job_id": job_id}
 
 
 @activity.defn
@@ -790,9 +992,22 @@ async def await_job_enforced(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(0.2)
+        
+        # Create real placeholder file
+        output_dir = Path("./data/dry_run_outputs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use job_id in filename (it already contains episode and shot info)
+        if job_type == "still":
+            output_file = output_dir / f"{job_id}.jpg"
+            output_path = _create_fake_still(str(output_file))
+        else:
+            output_file = output_dir / f"{job_id}.mp4"
+            output_path = _create_fake_clip(str(output_file))
+        
         result = {
             "status": "completed",
-            "url": f"/fake/{job_type}.{'jpg' if job_type == 'still' else 'mp4'}",
+            "url": str(output_path),
             "cost": reserved_amount,
         }
         activity.logger.info(

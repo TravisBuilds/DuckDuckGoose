@@ -94,7 +94,10 @@ class Config:
     EPISODE_PATH: str = os.getenv("EPISODE_PATH", "./episode")
 
     # Model paths (from docs.higgsfield.ai)
-    # GPT Image 2 not in public API: must be configured from cloud.higgsfield.ai console
+    # SOUL V2 is the default image model (documented, available via API)
+    # https://docs.higgsfield.ai/docs/models/soul-2/generate
+    MODEL_PATH_SOUL_V2: str = os.getenv("MODEL_PATH_SOUL_V2", "higgsfield-ai/soul/v2/standard")
+    # Legacy GPT Image 2 not in public API: use SOUL V2 instead
     MODEL_PATH_GPT_IMAGE_2: str = os.getenv("MODEL_PATH_GPT_IMAGE_2", "")
     # Seedance 2.5 image-to-video (documented)
     MODEL_PATH_SEEDANCE: str = os.getenv(
