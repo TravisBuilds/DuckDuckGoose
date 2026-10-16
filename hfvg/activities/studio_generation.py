@@ -257,14 +257,7 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     job_id = f"still-{episode_id}-{shot_id}-v{version}"
     
-    # Generate idempotency key from hash of actual request parameters
-    # This ensures identical requests dedupe but different requests don't collide
-    # Key = harness_job_id + hash of (model, prompt, resolution, quality, aspect_ratio, refs)
-    import hashlib
-    refs_str = ",".join(sorted(refs)) if refs else ""
-    key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}"
-    key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
-    idempotency_key = f"{job_id}-{key_hash}"
+    # Note: idempotency key will be generated after refs are uploaded to use actual URLs
     
     # Estimate credits for credit ledger
     # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
@@ -378,6 +371,14 @@ async def submit_still_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
+        # Generate idempotency key from hash of actual request with uploaded URLs
+        # This ensures identical requests dedupe but different requests don't collide
+        import hashlib
+        refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
+        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}"
+        key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        idempotency_key = f"{job_id}-{key_hash}"
+        
         # Submit to provider - wrapped to release reservations on ANY error
         try:
             provider_job_id = await provider.submit_image(
@@ -401,56 +402,41 @@ async def submit_still_job_enforced(
             await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
             raise
-            
-            # Store the provider job id for polling (not the harness job_id)
-            # The provider may return a different job_id than our idempotency key
-            if provider_job_id != job_id:
-                activity.logger.info(
-                    f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
-                )
-            
-            # Store mapping from harness job_id to provider_job_id for credit ledger lookups
-            await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
-            
+        
+        # Post-submit success handling (provider accepted and will charge)
+        # Store the provider job id for polling (not the harness job_id)
+        if provider_job_id != job_id:
             activity.logger.info(
-                f"[LIVE] Submitted still {provider_job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
+                f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
             )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
-            
-            # Return dict with job info for polling
-            return {
-                "job_id": job_id,  # Return harness job_id (not provider's job_id)
-                "provider_job_id": provider_job_id,  # Also return provider job_id for polling
-                "line_name": line_name,
-                "reserved_amount": estimated_cost,
-            }
         
-        except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
+        # Store mapping from harness job_id to provider_job_id for credit ledger lookups
+        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
+        
+        activity.logger.info(
+            f"[LIVE] Submitted still {provider_job_id} for {episode_id}/{shot_id} "
+            f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
+        )
+        try:
+            await ledger.record_job(
+                episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                estimated_cost,
+            )
+        except aiosqlite.Error as ledger_err:
+            # The provider already accepted (and will charge) this job: NEVER release the hold
+            # because the bookkeeping row failed. The reservation stays held.
             activity.logger.error(
-                f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
+                f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
+                f"Reservation HELD."
             )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Submit failed: {str(submit_error)[:100]}"
-            )
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
-            raise
         
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,  # Return harness job_id (not provider's job_id)
+            "provider_job_id": provider_job_id,  # Also return provider job_id for polling
+            "line_name": line_name,
+            "reserved_amount": estimated_cost,
+        }
     finally:
         await provider.close()
 
@@ -630,7 +616,7 @@ async def submit_clip_job_enforced(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
-        # Generate job_id (will be used as provider idempotency key)
+        # Generate job_id (harness identifier)
         job_id = f"clip-{episode_id}-{shot_id}-v{version}"
         
         # Estimate credits for credit ledger
@@ -674,9 +660,9 @@ async def submit_clip_job_enforced(
                 )
             else:
                 raise ValueError(
-                f"Credit reserve failed for {job_id}. "
-                f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
-            )
+                    f"Credit reserve failed for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits."
+                )
         
         # Validate and upload start_image if it's a local path
         if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
@@ -708,6 +694,12 @@ async def submit_clip_job_enforced(
             else:
                 end_image_url = upload_result
             activity.logger.info(f"Uploaded end image -> {end_image_url}")
+        
+        # Generate idempotency key from hash of actual request with uploaded URLs
+        import hashlib
+        key_input = f"{route.model}|{start_image_url}|{end_image_url or ''}|{prompt}|{duration}"
+        key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        idempotency_key = f"{job_id}-{key_hash}"
         
         # Submit to provider - wrapped to release reservations on ANY error
         try:
@@ -742,56 +734,42 @@ async def submit_clip_job_enforced(
             await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
             raise
-            
-            # Store the provider job id for polling (not the harness job_id)
-            # The provider may return a different job_id than our idempotency key
-            if provider_job_id != job_id:
-                activity.logger.info(
-                    f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
-                )
-            
-            # BUG 2 fix for clips: Persist the harness→provider job mapping
-            await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)
-            activity.logger.info(f"Persisted clip job mapping: {job_id} -> {provider_job_id}")
-            
-            activity.logger.info(
-                f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
-            )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
-            
-            # Return dict with job info for polling
-            return {
-                "job_id": job_id,  # Return harness job_id (not provider's job_id)
-                "provider_job_id": provider_job_id,  # Also return provider job_id for polling
-                "line_name": line_name,
-                "reserved_amount": estimated_cost,
-            }
         
-        except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
+        # Post-submit success handling (provider accepted and will charge)
+        # Store the provider job id for polling (not the harness job_id)
+        if provider_job_id != job_id:
+            activity.logger.info(
+                f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
+            )
+        
+        # BUG 2 fix for clips: Persist the harness→provider job mapping
+        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)
+        activity.logger.info(f"Persisted clip job mapping: {job_id} -> {provider_job_id}")
+        
+        activity.logger.info(
+            f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
+            f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
+        )
+        try:
+            await ledger.record_job(
+                episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                estimated_cost,
+            )
+        except aiosqlite.Error as ledger_err:
+            # The provider already accepted (and will charge) this job: NEVER release the hold
+            # because the bookkeeping row failed. The reservation stays held.
             activity.logger.error(
-                f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
+                f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
+                f"Reservation HELD."
             )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Clip submit failed: {str(submit_error)[:100]}"
-            )
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
-            raise
+        
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,  # Return harness job_id (not provider's job_id)
+            "provider_job_id": provider_job_id,  # Also return provider job_id for polling
+            "line_name": line_name,
+            "reserved_amount": estimated_cost,
+        }
         
     finally:
         await provider.close()

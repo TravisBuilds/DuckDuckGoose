@@ -654,7 +654,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     
     # Mock Kling API
     # Mock estimate
-    estimate_route = respx.post("http://mock.api/estimate/kuaishou/kling-3.0/image-to-video").mock(
+    estimate_route = respx.post("http://mock.api/estimate/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(
             200,
             json={"credits": "5.0", "usd": "5.0"}
@@ -662,7 +662,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     )
     
     # Mock submit
-    submit_route = respx.post("http://mock.api/kuaishou/kling-3.0/image-to-video").mock(
+    submit_route = respx.post("http://mock.api/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(
             200,
             json={"request_id": "provider_clip_xyz789"}
@@ -688,7 +688,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
         episode_id="ep05",
         shot_id="A01",
         start_image_url="http://example.com/still.jpg",
-        prompt="A duck swimming",
+        prompt="A duck swimming, locked-off tripod, no camera movement, real-time, no slow motion. Exactly 1 animals in frame. synthetic duck clause: one duck on the water",
         duration=5.0,
         version=1,
         shot_meta={
