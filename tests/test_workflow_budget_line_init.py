@@ -122,18 +122,50 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
             await asyncio.sleep(0.1)  # Let workflow initialize
             
             # Check that budget lines were created (MUTATION TEST: fails if init call removed)
-            async with aiosqlite.connect(db_path, uri=True) as db:
-                async with db.execute(
-                    "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
-                    (episode_id,)
-                ) as cur:
-                    count = (await cur.fetchone())[0]
+            try:
+                async with aiosqlite.connect(db_path, uri=True) as db:
+                    async with db.execute(
+                        "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                        (episode_id,)
+                    ) as cur:
+                        count = (await cur.fetchone())[0]
+            except Exception as e:
+                # DEBUG: Print DATABASE_PATH resolution on failure
+                import os
+                test_db = db_path
+                env_db = os.getenv("DATABASE_PATH", "NOT_SET")
+                
+                # Check if table exists in either location
+                def check_table(path):
+                    import sqlite3
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name='budget_lines'"
+                        )
+                        has_table = cursor.fetchone() is not None
+                        conn.close()
+                        return has_table
+                    except Exception:
+                        return False
+                
+                test_has_table = check_table(test_db)
+                env_has_table = check_table(env_db) if env_db != "NOT_SET" else False
+                
+                raise AssertionError(
+                    f"Failed to query budget_lines table. Database path mismatch?\n"
+                    f"  Test querying: {test_db} (table exists: {test_has_table})\n"
+                    f"  DATABASE_PATH env: {env_db} (table exists: {env_has_table})\n"
+                    f"  Original error: {e}"
+                ) from e
             
             # ASSERTION 1: Budget lines must exist
             # If init_episode_budget_lines_activity call is removed from workflow, this FAILS
             assert count > 0, (
                 f"Budget lines not created! Expected >0, got {count}. "
-                f"Workflow must call init_episode_budget_lines_activity before generation."
+                f"Workflow must call init_episode_budget_lines_activity before generation.\n"
+                f"  DATABASE_PATH: {os.getenv('DATABASE_PATH', 'NOT_SET')}\n"
+                f"  Test db_path: {db_path}"
             )
             
             # ASSERTION 2: At least L7_revision should be created (always created by policy)

@@ -1,11 +1,31 @@
 """Tests for motion QC with real ffmpeg checks."""
 
+import os
 import pytest
 import tempfile
 from pathlib import Path
 import subprocess
+import shutil
 
 from hfvg.activities.qc import check_motion_qc
+
+
+# Check ffmpeg availability
+def _has_ffmpeg():
+    """Check if ffmpeg is available."""
+    return shutil.which("ffmpeg") is not None
+
+
+# In CI (REQUIRE_FFMPEG=1), fail if ffmpeg is missing
+# Locally, skip tests if ffmpeg is not available
+if os.getenv("REQUIRE_FFMPEG") == "1" and not _has_ffmpeg():
+    pytest.exit("ffmpeg is required in CI but not found", returncode=1)
+
+# Marker for local development: skip if ffmpeg is missing
+pytestmark = pytest.mark.skipif(
+    not _has_ffmpeg() and os.getenv("REQUIRE_FFMPEG") != "1",
+    reason="ffmpeg not available (install with: apt-get install ffmpeg)"
+)
 
 
 @pytest.fixture
