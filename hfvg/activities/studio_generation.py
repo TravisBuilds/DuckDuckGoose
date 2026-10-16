@@ -295,49 +295,20 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     job_id = f"still-{episode_id}-{shot_id}-v{version}"
     
-    # Note: idempotency key will be generated after refs are uploaded to use actual URLs
-    
-    # Estimate credits for credit ledger
-    # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
-    # Map quality to pricing: "high" -> "high", else "standard"
-    pricing_quality = "high" if quality == "high" else "standard"
-    model_path = still_model_path()  # xai/grok-imagine-image-2.0
-    
-    # Use pricing table for credit estimation (provider will call /estimate separately for USD cost)
-    estimated_credits = estimate_still_credits(model_path, pricing_quality)
-    
-    # Reserve credits from credit ledger BEFORE any network calls
-    credit_ledger = CreditLedger(db_path)
-    await credit_ledger.init_db()
-    
-    credit_result = await credit_ledger.reserve_credits(
-        episode_id, job_id, estimated_credits,
-        notes=f"still {shot_id} {quality} {resolution}"
-    )
-    
-    if not credit_result.get("reserved"):
-        available = credit_result.get("available", 0)
-        over_cap = credit_result.get("over_cap", False)
-        
-        if over_cap:
-            # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
-            from hfvg.errors import InsufficientCreditsError
-            raise InsufficientCreditsError(
-                f"Credit hard cap reached for {job_id}. "
-                f"Available: {available} credits. Requested: {estimated_credits} credits. "
-                "Raise cap via raise_credit_cap signal to resume.",
-                required=float(estimated_credits),
-                available=float(available)
-            )
-        else:
-            # Other reserve failure
-            raise ValueError(
-                f"Credit reserve failed for {job_id}. "
-                f"Available: {available} credits. Requested: {estimated_credits} credits."
-            )
-    
     # Initialize provider
     provider = HiggsfieldStillProvider()
+    
+    # Initialize ledgers (but don't reserve yet)
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    # Track what we've reserved for cleanup
+    credits_reserved = False
+    budget_reserved = False
+    budget_line_name = None
+    budget_amount = 0
     
     try:
         # Upload local reference images to Higgsfield and get URLs
@@ -372,6 +343,38 @@ async def submit_still_job_enforced(
             f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD"
         )
         
+        # Estimate credits for credit ledger
+        pricing_quality = "high" if quality == "high" else "standard"
+        model_path = still_model_path()
+        estimated_credits = estimate_still_credits(model_path, pricing_quality)
+        
+        # Reserve credits AFTER upload/estimate succeed
+        credit_result = await credit_ledger.reserve_credits(
+            episode_id, job_id, estimated_credits,
+            notes=f"still {shot_id} {quality} {resolution}"
+        )
+        
+        if not credit_result.get("reserved"):
+            available = credit_result.get("available", 0)
+            over_cap = credit_result.get("over_cap", False)
+            
+            if over_cap:
+                from hfvg.errors import InsufficientCreditsError
+                raise InsufficientCreditsError(
+                    f"Credit hard cap reached for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                    "Raise cap via raise_credit_cap signal to resume.",
+                    required=float(estimated_credits),
+                    available=float(available)
+                )
+            else:
+                raise ValueError(
+                    f"Credit reserve failed for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits."
+                )
+        
+        credits_reserved = True
+        
         # Determine budget line based on quality
         if quality == "high" and resolution == "2k":
             line_name = "L3_final_stills"
@@ -388,9 +391,6 @@ async def submit_still_job_enforced(
             line_name = REVISION_LINE
         
         # Reserve budget
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
         reserved = await ledger.reserve(
             episode_id=episode_id,
             line_name=line_name,
@@ -401,36 +401,52 @@ async def submit_still_job_enforced(
         )
         
         if not reserved:
-            # Release credit reservation before failing
-            await credit_ledger.release_credits(episode_id, job_id)
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
                 f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
             )
+        
+        budget_reserved = True
+        budget_line_name = line_name
+        budget_amount = estimated_cost
         
         activity.logger.info(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
         # Generate idempotency key from hash of actual request with uploaded URLs
-        # This ensures identical requests dedupe but different requests don't collide
         import hashlib
         refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
         key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
-        # Submit to provider - wrapped to release reservations on ANY error
-        try:
-            provider_job_id = await provider.submit_image(
-                prompt=prompt,
-                resolution=resolution,
-                quality=quality,
-                image_urls=uploaded_refs,
-                idempotency_key=idempotency_key,
-                aspect_ratio=aspect_ratio,
-            )
-        except httpx.HTTPStatusError as e:
+        # Submit to provider
+        provider_job_id = await provider.submit_image(
+            prompt=prompt,
+            resolution=resolution,
+            quality=quality,
+            image_urls=uploaded_refs,
+            idempotency_key=idempotency_key,
+            aspect_ratio=aspect_ratio,
+        )
+        
+        activity.logger.info(
+            f"Submitted still {job_id} to provider (provider_job_id={provider_job_id})"
+        )
+        
+        # Persist the harness→provider mapping
+        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
+        
+        # Return success
+        return {
+            "job_id": job_id,
+            "provider_job_id": provider_job_id,
+            "line_name": budget_line_name,
+            "reserved_amount": budget_amount,
+        }
+    
+    except httpx.HTTPStatusError as e:
             # Capture provider error details (especially 422 idempotency conflicts)
             error_detail = f"Provider {e.response.status_code}: {e.response.text}"
             activity.logger.error(f"Provider error for {job_id}: {error_detail}")
