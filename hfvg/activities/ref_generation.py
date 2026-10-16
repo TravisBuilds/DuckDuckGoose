@@ -144,10 +144,14 @@ async def generate_ref_activity(
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     
-    # Estimate USD cost for ref generation
-    # SOUL V2 costs ~0.09 USD per image (from provider estimate)
-    from hfvg.pricing import usd_to_micros
-    estimated_usd_micros = usd_to_micros("0.09")  # ~90,000 usd_micros per ref
+    # Estimate USD cost for ref generation from provider
+    from hfvg.providers import HiggsfieldStillProvider
+    provider = HiggsfieldStillProvider()
+    estimated_usd_micros = await provider.estimate_usd_micros(
+        prompt=prompt,
+        resolution="1k",
+        quality="medium"
+    )
     
     # Initialize USD ledger for live mode
     from hfvg.budget import BudgetLedger
@@ -165,6 +169,8 @@ async def generate_ref_activity(
         )
         
         if not usd_reserved:
+            # Release credit reservation since USD reserve failed
+            await ledger.release_credits(episode_id, job_id, notes="USD reserve failed")
             raise ValueError(
                 f"USD budget reserve failed for L1_refs. "
                 f"At or over 80% stop threshold. Requested: {estimated_usd_micros} usd_micros."
