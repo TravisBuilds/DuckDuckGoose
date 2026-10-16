@@ -75,6 +75,16 @@ async def generate_ref_activity(
     # Idempotent job_id
     job_id = f"ref-{episode_id}-{ref_key}-v{version}"
     
+    # In dry mode, redirect output to scratch directory BEFORE any file operations
+    if dry_run:
+        import temporalio.activity
+        workflow_id = temporalio.activity.info().workflow_id
+        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        # Use same basename but in scratch dir
+        output_path = str(scratch_dir / Path(output_path).name)
+        activity.logger.info(f"Dry mode: redirecting output to {output_path}")
+    
     # Check if ref already exists with matching version and passes QC
     if Path(output_path).exists():
         # Check version match (stored in sidecar file)
@@ -116,16 +126,6 @@ async def generate_ref_activity(
                 activity.logger.warning(
                     f"Ref {ref_key} v{version} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
                 )
-    
-    # In dry mode, redirect output to scratch directory
-    if dry_run:
-        import temporalio.activity
-        workflow_id = temporalio.activity.info().workflow_id
-        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-        # Use same basename but in scratch dir
-        output_path = str(scratch_dir / Path(output_path).name)
-        activity.logger.info(f"Dry mode: redirecting output to {output_path}")
     
     activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id}")
     
@@ -309,6 +309,7 @@ async def load_refs_to_generate_activity(
     refs_data = json.loads(refs_path.read_text())
     to_generate_raw = refs_data.get("to_generate", [])
     prompts_map = refs_data.get("prompts", {})
+    versions_map = refs_data.get("versions", {})  # Map of {key: version}
     
     if not to_generate_raw:
         activity.logger.info(f"No to_generate in refs.json for {episode_id}")
@@ -325,7 +326,7 @@ async def load_refs_to_generate_activity(
                 "key": key,
                 "output_path": path,
                 "type": "character_sheet",  # default
-                "version": 1,  # default
+                "version": versions_map.get(key, 1),  # Read from versions map, default 1
             }
             # Get prompt from prompts map if available
             if key in prompts_map:
@@ -349,7 +350,9 @@ async def load_refs_to_generate_activity(
             if "type" not in ref_spec:
                 ref_spec["type"] = "character_sheet"
             if "version" not in ref_spec:
-                ref_spec["version"] = 1
+                # Check versions map first, then default to 1
+                key = ref_spec.get("key")
+                ref_spec["version"] = versions_map.get(key, 1) if key else 1
             
             # Check for prompt in entry or prompts map
             if "prompt" not in ref_spec or not ref_spec["prompt"]:
