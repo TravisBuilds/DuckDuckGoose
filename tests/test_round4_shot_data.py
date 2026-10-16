@@ -530,21 +530,24 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="G2.01 collapsed into G2_SCENE_STILLS in 3-gate system")
 async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeypatch, data_env):
+    """G2.01 logic now in G2_SCENE_STILLS gate - tests missing refs detection."""
     env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=True)
     async with env:
         async with worker:
             handle = await env.client.start_workflow(
                 W.run, args=["ep98", str(beat), True], id="r4-ep98", task_queue="r4-ep")
-            state = await _approve_to_g201(handle, W)
-            assert state["current_gate"] == "G2.01"
-            assert state["missing_refs"] == {"A01": ["r_new"]}
-            assert "G2.01" not in state["passed_gates"]
-            await handle.signal(W.approve_g201)
+            # Approve G1 to reach G2
+            await handle.signal(W.approve_g1_shot_plan)
             await asyncio.sleep(0.5)
             state = await handle.query(W.get_state)
-            assert "G2.01" in state["passed_gates"]  # dry: proceeds after approval
+            assert state["current_gate"] == "G2_SCENE_STILLS"
+            assert state["missing_refs"] == {"A01": ["r_new"]}
+            assert "G2_SCENE_STILLS" not in state["passed_gates"]
+            await handle.signal(W.approve_g2_scene_stills)
+            await asyncio.sleep(0.5)
+            state = await handle.query(W.get_state)
+            assert "G2_SCENE_STILLS" in state["passed_gates"]  # dry: proceeds after approval
             plan = SEEN_PLANS["A01"]
             assert plan["prompt"] == TRAILING_PROMPT and plan["shot_meta"]["count"] == 2
             assert plan["params"]["duration"] == 4 and plan["dry_run"] is True

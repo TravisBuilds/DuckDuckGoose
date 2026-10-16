@@ -519,7 +519,7 @@ test_mutation 10 "Approval signal reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i 's/if token != ADMIN_SECRET:/if False and token != ADMIN_SECRET:/'
+    sed -i '/Invalid admin secret/{ x; s/if not request\.admin_secret or request\.admin_secret != ADMIN_SECRET:/if False:  # MUTATED/; x; }'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -856,11 +856,11 @@ test_mutation 65 "M-P3b Lint forbids 'nothing else moves'" \
     "tests/test_prompt_lint.py::test_nothing_else_moves_is_forbidden" \
     sed -i 's/^DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")/DEFAULT_FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
 
-# 66. M-P3c Lint is enforced in live mode
+# 66. M-P3c Lint is enforced in live mode  
 test_mutation 66 "M-P3c Lint is enforced in live mode" \
     "hfvg/prompt_lint.py" \
     "tests/test_prompt_lint.py::test_live_still_lint_failure_refuses_before_estimate_reserve_and_submit" \
-    sed -i '198s/if problems and live:/if problems and False:  # MUTATED/'
+    sed -i '/^    if problems and live:$/,/^    for problem in problems:$/{ /^    if problems and live:$/s/.*/    if problems and False:  # MUTATED/; }'
 
 # 67. M-P3d Lint applies the banned-decor list
 test_mutation 67 "M-P3d Lint applies the banned-decor list" \
@@ -998,7 +998,7 @@ test_mutation 88 "M-R4t Workflow uses the shot's model" \
 test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i '/params\.get("model",.*# explicit routing/{ n; s/shot_plan\.get("tags", \[\]),/[],  # MUTATED/; }'
+    sed -i '/# explicit routing/{n; s/shot_plan\.get("tags", \[\]),/[],  # MUTATED/; }'
 
 # 90. M-R4v Workflow passes missing refs to the clip activity
 test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
@@ -1012,11 +1012,11 @@ test_mutation 91 "M-R4w Dry end-frame shot gets a placeholder end image" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
     sed -i 's|^                        end_image_url = "/fake/end.jpg"  # dry run: nothing is submitted$|                        end_image_url = None  # MUTATED|'
 
-# 92. M-R4x End-image signal stores the URL
-test_mutation 92 "M-R4x End-image signal stores the URL" \
+# 92. M-R4x End-image URL is stored from the end-frame still result
+test_mutation 92 "M-R4x End-image URL is stored from the end-frame still result" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
-    sed -i 's/^        self.end_image_url = url$/        self.end_image_url = "MUTATED-url"/'
+    sed -i '/self\.end_still_asset = end_still_result/{ n; s/self\.end_image_url = end_still_result\["url"\]/self.end_image_url = "MUTATED-url"/; }'
 
 # 93. M-R4y Live end-frame shot waits for its end image
 test_mutation 93 "M-R4y Live end-frame shot waits for its end image" \
@@ -1030,11 +1030,11 @@ test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
     sed -i 's/^                        end_image_url,$/                        None,  # MUTATED/'
 
-# 95. M-R4A G2.01 triggers when a shot has missing refs
-test_mutation 95 "M-R4A G2.01 triggers when a shot has missing refs" \
+# 95. M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs
+test_mutation 95 "M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i '539s/return bool(self._collect_missing_refs(shots))$/return False  # MUTATED/'
+    sed -i '/_should_hold_at_g2_scene_stills/,/^$/{ /return bool(self\._collect_missing_refs(shots))/s/.*/        return False  # MUTATED/; }'
 
 # 96. M-R4B Live G2.01 holds while refs are still missing
 test_mutation 96 "M-R4B Live G2.01 holds while refs are still missing" \
@@ -1052,7 +1052,7 @@ test_mutation 97 "M-R4C G2.01 recheck updates the shot plans" \
 test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i '208s/args=\[beatmap_path, episode_id, not dry_run\],$/args=[beatmap_path, None, not dry_run],  # MUTATED/'
+    sed -i '/parse_beatmap_activity/,/start_to_close_timeout/{ /args=\[beatmap_path, episode_id, not dry_run\]/s/episode_id/None  # MUTATED/; }'
 
 # 99. M-R4E GET episode looks up the id the workflow was started with
 test_mutation 99 "M-R4E GET episode looks up the id the workflow was started with" \
