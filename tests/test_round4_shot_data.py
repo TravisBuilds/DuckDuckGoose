@@ -514,6 +514,8 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
         env_cm.client, task_queue="r4-ep", workflows=[EpisodeWorkflowV2, stub],
         activities=[
             activities.acquire_run_lock,
+            activities.release_run_lock,
+            activities.upsert_episode_activity,
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
