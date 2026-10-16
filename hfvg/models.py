@@ -103,6 +103,7 @@ class EpisodeState(BaseModel):
     credit_cap_raised: bool = False  # Signal that credit cap was raised
     new_credit_cap: int = 0  # New credit cap value
     failed_shots: list[dict] = Field(default_factory=list)  # Failed shot workflows at gate 2
+    shots_on_hold: list[str] = Field(default_factory=list)  # Shots waiting on hold at gate 2 for approval
 
 
 class CreditTransaction(BaseModel):

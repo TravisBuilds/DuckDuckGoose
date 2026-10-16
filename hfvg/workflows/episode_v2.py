@@ -374,11 +374,25 @@ class EpisodeWorkflowV2:
             )
             workflow.logger.error(failure_msg)
         
+        # Track shots waiting on hold (succeeded stills but waiting for G2 approval before clips)
+        shots_on_hold = []
+        for shot in shots:
+            shot_id = shot["shot_id"]
+            completion = shot_completion_status.get(shot_id)
+            if completion and completion.get("done") and completion.get("success"):
+                shots_on_hold.append(shot_id)
+        
+        self.state.shots_on_hold = shots_on_hold
+        workflow.logger.info(f"Gate 2: {len(shots_on_hold)} shot(s) waiting on hold for approval")
+        
         # Always wait for approval (gate never skipped, even on failures or all-success)
         await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
+        
+        # Clear hold state after approval (shots will be released to clips)
+        self.state.shots_on_hold = []
         
         # ================================================================
         # Generate Clips
@@ -540,6 +554,7 @@ class EpisodeWorkflowV2:
             "passed_gates": self.passed_gates.copy(),
             "missing_refs": {k: list(v) for k, v in self.missing_refs.items()},
             "failed_shots": self.state.failed_shots.copy(),
+            "shots_on_hold": self.state.shots_on_hold.copy(),
             "approvals": {
                 "g1_shot_plan": self.approved_g1_shot_plan,
                 "g2_scene_stills": self.approved_g2_scene_stills,

@@ -75,23 +75,47 @@ async def generate_ref_activity(
     # Idempotent job_id
     job_id = f"ref-{episode_id}-{ref_key}-v{version}"
     
-    # Check if ref already exists and passes QC - skip if so (force regen with version bump)
+    # Check if ref already exists with matching version and passes QC
     if Path(output_path).exists():
-        activity.logger.info(f"Ref {ref_key} already exists at {output_path}, checking QC...")
-        qc_result = await _check_ref_qc(output_path)
-        if qc_result["passed"]:
-            activity.logger.info(f"Ref {ref_key} exists and passes QC - reusing (no spend)")
-            return {
-                "status": "reused",
-                "job_id": job_id,
-                "provider_job_id": None,
-                "output_path": output_path,
-                "credits_used": 0,
-            }
-        else:
-            activity.logger.warning(
-                f"Ref {ref_key} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
+        # Check version match (stored in sidecar file)
+        version_sidecar = Path(output_path).parent / ".versions" / f"{Path(output_path).stem}.json"
+        existing_version = 1  # Default version
+        
+        if version_sidecar.exists():
+            try:
+                version_data = json.loads(version_sidecar.read_text())
+                existing_version = version_data.get("version", 1)
+            except Exception as e:
+                activity.logger.warning(f"Failed to read version sidecar: {e}")
+        
+        if existing_version != version:
+            # Version mismatch - archive old version and regenerate
+            activity.logger.info(
+                f"Ref {ref_key} version mismatch (file: v{existing_version}, requested: v{version}). "
+                "Archiving old version and regenerating..."
             )
+            archive_dir = Path(output_path).parent / f"_v{existing_version}"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = archive_dir / Path(output_path).name
+            Path(output_path).rename(archive_path)
+            activity.logger.info(f"Archived v{existing_version} to {archive_path}")
+        else:
+            # Version matches - check QC
+            activity.logger.info(f"Ref {ref_key} v{version} already exists, checking QC...")
+            qc_result = await _check_ref_qc(output_path)
+            if qc_result["passed"]:
+                activity.logger.info(f"Ref {ref_key} v{version} exists and passes QC - reusing (no spend)")
+                return {
+                    "status": "reused",
+                    "job_id": job_id,
+                    "provider_job_id": None,
+                    "output_path": output_path,
+                    "credits_used": 0,
+                }
+            else:
+                activity.logger.warning(
+                    f"Ref {ref_key} v{version} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
+                )
     
     # In dry mode, redirect output to scratch directory
     if dry_run:
@@ -133,6 +157,12 @@ async def generate_ref_activity(
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             Path(output_path).write_bytes(b"fake-ref-image")
             provider_job_id = f"fake-{job_id}"
+            
+            # Write version sidecar (dry mode)
+            version_sidecar_dir = Path(output_path).parent / ".versions"
+            version_sidecar_dir.mkdir(parents=True, exist_ok=True)
+            version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
             
             # Commit credits (dry mode completes instantly)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
@@ -200,6 +230,13 @@ async def generate_ref_activity(
             # QC passed - move to final path atomically
             staging_path.rename(output_path)
             activity.logger.info(f"QC passed, moved to final path: {output_path}")
+            
+            # Write version sidecar
+            version_sidecar_dir = Path(output_path).parent / ".versions"
+            version_sidecar_dir.mkdir(parents=True, exist_ok=True)
+            version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            activity.logger.info(f"Wrote version sidecar: v{version}")
         
         return {
             "status": "completed",
