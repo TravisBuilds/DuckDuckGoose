@@ -92,28 +92,50 @@ async def preflight_validate_episode_activity(
         problems.append(f"Missing required file: refs.json")
         available_refs = set()
         to_generate_refs = set()
+        per_shot_refs = {}
     else:
         try:
             refs_raw = json.loads(refs_json_path.read_text())
-            available_refs = {ref["key"] for ref in refs_raw.get("available", [])}
-            to_generate_refs = {ref["key"] for ref in refs_raw.get("to_generate", [])}
             
-            # Check that available refs have existing files
-            for ref in refs_raw.get("available", []):
-                ref_path = Path(ref["output_path"])
-                if not ref_path.exists():
-                    problems.append(
-                        f"Ref '{ref['key']}' listed as available but file missing: {ref['output_path']}"
-                    )
-            
-            # Check that to_generate refs have prompts
-            for ref in refs_raw.get("to_generate", []):
-                if not ref.get("prompt"):
-                    problems.append(f"Ref '{ref['key']}' in to_generate missing prompt")
+            # Handle both schemas: "available"/"to_generate" OR "per_shot"
+            if "per_shot" in refs_raw:
+                # per_shot schema: extract all ref keys from all shots
+                per_shot_refs = refs_raw["per_shot"]
+                available_refs = set()
+                for shot_refs in per_shot_refs.values():
+                    for ref in shot_refs:
+                        if isinstance(ref, dict) and "key" in ref:
+                            available_refs.add(ref["key"])
+                            # Check if ref file exists
+                            ref_path = ref.get("path")
+                            if ref_path and not Path(ref_path).exists():
+                                problems.append(
+                                    f"Ref '{ref['key']}' listed in per_shot but file missing: {ref_path}"
+                                )
+                to_generate_refs = set()
+            else:
+                # available/to_generate schema
+                per_shot_refs = {}
+                available_refs = {ref["key"] for ref in refs_raw.get("available", [])}
+                to_generate_refs = {ref["key"] for ref in refs_raw.get("to_generate", [])}
+                
+                # Check that available refs have existing files
+                for ref in refs_raw.get("available", []):
+                    ref_path = Path(ref["output_path"])
+                    if not ref_path.exists():
+                        problems.append(
+                            f"Ref '{ref['key']}' listed as available but file missing: {ref['output_path']}"
+                        )
+                
+                # Check that to_generate refs have prompts
+                for ref in refs_raw.get("to_generate", []):
+                    if not ref.get("prompt"):
+                        problems.append(f"Ref '{ref['key']}' in to_generate missing prompt")
         except Exception as e:
             problems.append(f"Invalid refs.json: {e}")
             available_refs = set()
             to_generate_refs = set()
+            per_shot_refs = {}
     
     # 4. Check prompt_kit.json exists and is valid JSON
     prompt_kit_path = base_path / "prompt_kit.json"
