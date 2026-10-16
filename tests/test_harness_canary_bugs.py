@@ -884,3 +884,89 @@ async def test_concurrent_uploads_deduplicated(tmp_path):
         async with db.execute("SELECT COUNT(*) FROM upload_cache") as cursor:
             row = await cursor.fetchone()
             assert row[0] == 1, "Should have exactly one cache entry"
+
+
+@pytest.mark.asyncio
+async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
+    """
+    Test Bug 3: refs.json without versions map should default to latest version on disk.
+    
+    If a ref exists as v3 (from sidecar or archive), but refs.json has no versions map,
+    loading should default to v3, not v1. This prevents regenerating existing v2/v3 refs.
+    """
+    from hfvg.activities.ref_generation import load_refs_to_generate_activity
+    import os
+    import json
+    
+    # Create episode structure
+    ep_dir = tmp_path / "data" / "episodes" / "ep88"
+    refs_dir = ep_dir / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create a v3 ref on disk with sidecar
+    ref_file = refs_dir / "r_mochi.png"
+    ref_file.write_bytes(b"mochi-v3-content")
+    
+    version_sidecar = refs_dir / ".versions" / "r_mochi.json"
+    version_sidecar.parent.mkdir(parents=True, exist_ok=True)
+    version_sidecar.write_text('{"version": 3, "ref_key": "r_mochi"}')
+    
+    # Also create archived v1 and v2
+    v1_dir = refs_dir / "_v1"
+    v1_dir.mkdir(parents=True, exist_ok=True)
+    (v1_dir / "r_mochi.png").write_bytes(b"mochi-v1")
+    
+    v2_dir = refs_dir / "_v2"
+    v2_dir.mkdir(parents=True, exist_ok=True)
+    (v2_dir / "r_mochi.png").write_bytes(b"mochi-v2")
+    
+    # Create refs.json WITHOUT a versions map
+    refs_json = ep_dir / "refs.json"
+    refs_json.write_text(json.dumps({
+        "to_generate": {
+            "r_mochi": str(ref_file)
+        },
+        "prompts": {
+            "r_mochi": "A mochi character"
+        }
+        # NO "versions" key!
+    }))
+    
+    # Set environment
+    os.environ["EPISODES_DIR"] = str(tmp_path / "data" / "episodes")
+    
+    # Load refs
+    refs = await load_refs_to_generate_activity("ep88", shots_subset=None, is_live=False)
+    
+    # Should have one ref
+    assert len(refs) == 1
+    ref = refs[0]
+    
+    # CRITICAL: version should be 3 (from sidecar), not 1
+    assert ref["version"] == 3, f"Expected version 3 from sidecar, got {ref['version']}"
+    assert ref["key"] == "r_mochi"
+    assert ref["output_path"] == str(ref_file)
+    
+    # Test case 2: No sidecar but archived version exists
+    ref2_file = refs_dir / "r_duck.png"
+    ref2_file.write_bytes(b"duck-v2-content")
+    
+    # No sidecar, but v2 archive exists
+    (v2_dir / "r_duck.png").write_bytes(b"duck-v1-archived")
+    
+    refs_json.write_text(json.dumps({
+        "to_generate": {
+            "r_mochi": str(ref_file),
+            "r_duck": str(ref2_file)
+        },
+        "prompts": {
+            "r_mochi": "A mochi character",
+            "r_duck": "A duck character"
+        }
+    }))
+    
+    refs = await load_refs_to_generate_activity("ep88", shots_subset=None, is_live=False)
+    
+    duck_ref = [r for r in refs if r["key"] == "r_duck"][0]
+    # Duck should be v2 (from archive scan), since current file exists and _v2 exists
+    assert duck_ref["version"] == 2, f"Expected version 2 from archive, got {duck_ref['version']}"

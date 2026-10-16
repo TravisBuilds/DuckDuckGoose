@@ -332,6 +332,9 @@ async def load_refs_to_generate_activity(
     Validates each entry has required fields: key, prompt, output_path, type.
     In live mode, fails if refs.json is missing.
     
+    When refs.json has no versions map or no version for a ref, defaults to the
+    latest version present on disk (from sidecars or _vN archives), not v1.
+    
     Args:
         episode_id: Episode identifier
         shots_subset: Optional list of shot IDs to filter refs
@@ -345,6 +348,49 @@ async def load_refs_to_generate_activity(
         ValueError: If any to_generate entry is missing required fields
     """
     from hfvg.shot_data import refs_json_path
+    
+    def _get_latest_version_on_disk(ref_path: str) -> int:
+        """
+        Determine latest version present on disk for a ref.
+        
+        Checks:
+        1. Version sidecar at .versions/{stem}.json
+        2. Archived versions at refs/_vN/{filename}
+        
+        Returns:
+            Latest version number found, or 1 if none found
+        """
+        p = Path(ref_path)
+        
+        # Check version sidecar first
+        sidecar = p.parent / ".versions" / f"{p.stem}.json"
+        if sidecar.exists():
+            try:
+                data = json.loads(sidecar.read_text())
+                return data.get("version", 1)
+            except (json.JSONDecodeError, OSError):
+                pass
+        
+        # Check archived versions: refs/_v2, refs/_v3, etc.
+        refs_dir = p.parent
+        max_version = 1  # Default
+        
+        # If current file exists, it's at least v1
+        if p.exists():
+            max_version = 1
+        
+        # Scan for _vN directories
+        for archive_dir in refs_dir.glob("_v*"):
+            if archive_dir.is_dir():
+                try:
+                    version_num = int(archive_dir.name[2:])  # Extract N from "_vN"
+                    archived_file = archive_dir / p.name
+                    if archived_file.exists() and version_num > max_version:
+                        max_version = version_num
+                except (ValueError, OSError):
+                    pass
+        
+        return max_version
     
     refs_path = refs_json_path(episode_id)
     if not refs_path.exists():
@@ -372,11 +418,17 @@ async def load_refs_to_generate_activity(
     if isinstance(to_generate_raw, dict):
         # Map format: {key: path}
         for key, path in to_generate_raw.items():
+            # Determine version: versions map, then latest on disk, then 1
+            if key in versions_map:
+                version = versions_map[key]
+            else:
+                version = _get_latest_version_on_disk(path)
+            
             ref_spec = {
                 "key": key,
                 "output_path": path,
                 "type": "character_sheet",  # default
-                "version": versions_map.get(key, 1),  # Read from versions map, default 1
+                "version": version,
             }
             # Get prompt from prompts map if available
             if key in prompts_map:
@@ -400,9 +452,16 @@ async def load_refs_to_generate_activity(
             if "type" not in ref_spec:
                 ref_spec["type"] = "character_sheet"
             if "version" not in ref_spec:
-                # Check versions map first, then default to 1
+                # Determine version: versions map, then latest on disk, then 1
                 key = ref_spec.get("key")
-                ref_spec["version"] = versions_map.get(key, 1) if key else 1
+                output_path = ref_spec.get("output_path")
+                
+                if key and key in versions_map:
+                    ref_spec["version"] = versions_map[key]
+                elif output_path:
+                    ref_spec["version"] = _get_latest_version_on_disk(output_path)
+                else:
+                    ref_spec["version"] = 1
             
             # Check for prompt in entry or prompts map
             if "prompt" not in ref_spec or not ref_spec["prompt"]:
