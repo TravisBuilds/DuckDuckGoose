@@ -230,15 +230,8 @@ async def submit_still_job_enforced(
     
     # Gate: Smoke test (live mode only, unless override)
     if not dry_run_env:
-        from hfvg.studio_db import check_smoke_test_passed
-        smoke_override = os.getenv("SMOKE_TEST_OVERRIDE", "false").lower() == "true"
-        if not smoke_override:
-            max_age_hours = int(os.getenv("SMOKE_TEST_MAX_AGE_HOURS", "24"))
-            passed, reason = await check_smoke_test_passed(db_path, episode_id, max_age_hours)
-            if not passed:
-                raise RuntimeError(f"Smoke test gate failed: {reason}. Run smoke test or set SMOKE_TEST_OVERRIDE=true")
-        else:
-            activity.logger.warning(f"SMOKE_TEST_OVERRIDE enabled for {episode_id}, bypassing smoke test gate")
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "submit_still_job_enforced")
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
@@ -589,6 +582,10 @@ async def submit_clip_job_enforced(
     activity.logger.info(
         f"[LIVE MODE] Submitting paid clip generation for {episode_id}/{shot_id}"
     )
+    
+    # Gate: Smoke test (live mode only)
+    from hfvg.studio_db import enforce_smoke_test_gate
+    await enforce_smoke_test_gate(db_path, episode_id, "submit_clip_job_enforced")
     
     # Double-check: these should never happen due to use_live logic, but fail-safe
     if not live_mode:
@@ -1141,15 +1138,8 @@ async def await_job_enforced(
     
     # Gate: Smoke test (live mode only, unless override)
     if not dry_run_env:
-        from hfvg.studio_db import check_smoke_test_passed
-        smoke_override = os.getenv("SMOKE_TEST_OVERRIDE", "false").lower() == "true"
-        if not smoke_override:
-            max_age_hours = int(os.getenv("SMOKE_TEST_MAX_AGE_HOURS", "24"))
-            passed, reason = await check_smoke_test_passed(db_path, episode_id, max_age_hours)
-            if not passed:
-                raise RuntimeError(f"Smoke test gate failed: {reason}. Run smoke test or set SMOKE_TEST_OVERRIDE=true")
-        else:
-            activity.logger.warning(f"SMOKE_TEST_OVERRIDE enabled for {episode_id}, bypassing smoke test gate")
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "await_job_enforced")
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:

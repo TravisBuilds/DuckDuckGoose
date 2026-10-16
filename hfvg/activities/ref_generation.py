@@ -156,6 +156,10 @@ async def generate_ref_activity(
     
     # Reserve USD budget from L1_refs line (live mode only)
     if not dry_run:
+        # Gate: Smoke test (live mode only)
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "generate_ref_activity")
+        
         usd_reserved = await usd_ledger.reserve(
             episode_id=episode_id,
             line_name="L1_refs",

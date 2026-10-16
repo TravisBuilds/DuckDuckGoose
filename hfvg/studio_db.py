@@ -82,6 +82,18 @@ async def init_studio_db(db_path: str = "./data/studio.db"):
             ON audit_log(episode_id)
         """)
         
+        # Smoke gate overrides table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS smoke_gate_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                episode_id TEXT NOT NULL,
+                activity TEXT NOT NULL,
+                override_by TEXT NOT NULL,
+                override_time TEXT NOT NULL,
+                FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
+            )
+        """)
+        
         await db.commit()
 
 
@@ -287,3 +299,61 @@ async def check_smoke_test_passed(db_path: str, episode_id: str, max_age_hours: 
         return (False, f"Smoke test too old: {age.total_seconds() / 3600:.1f} hours (max {max_age_hours}h)")
     
     return (True, "Smoke test passed")
+
+
+async def enforce_smoke_test_gate(db_path: str, episode_id: str, activity_name: str) -> None:
+    """
+    Enforce smoke test gate for live operations.
+    
+    Checks SMOKE_TEST_OVERRIDE env var. If set, persists override to DB and allows.
+    Otherwise checks for recent passing smoke test.
+    
+    Args:
+        db_path: Path to studio DB
+        episode_id: Episode being operated on
+        activity_name: Name of activity for audit trail
+        
+    Raises:
+        RuntimeError: If smoke test gate fails
+    """
+    import os
+    from temporalio import activity
+    
+    # Check if we're in dry run (no gate in dry run)
+    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    if dry_run:
+        return  # No gate in dry run
+    
+    # Check for override
+    smoke_override = os.getenv("SMOKE_TEST_OVERRIDE", "false").lower() == "true"
+    
+    if smoke_override:
+        # Persist override to DB
+        import aiosqlite
+        from datetime import datetime
+        
+        override_by = os.getenv("USER", "system")
+        override_time = datetime.utcnow().isoformat() + "Z"
+        
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                """INSERT INTO smoke_gate_overrides (episode_id, activity, override_by, override_time)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, activity_name, override_by, override_time)
+            )
+            await db.commit()
+        
+        activity.logger.warning(
+            f"SMOKE_TEST_OVERRIDE enabled for {episode_id} in {activity_name} by {override_by}"
+        )
+        return
+    
+    # Check smoke test
+    max_age_hours = int(os.getenv("SMOKE_TEST_MAX_AGE_HOURS", "24"))
+    passed, reason = await check_smoke_test_passed(db_path, episode_id, max_age_hours)
+    
+    if not passed:
+        raise RuntimeError(
+            f"Smoke test gate failed: {reason}. "
+            f"Run smoke test or set SMOKE_TEST_OVERRIDE=true"
+        )
