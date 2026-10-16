@@ -284,3 +284,116 @@ async def test_idempotent_release_safe(test_episode):
     assert status_idempotent["reserved"] == 0, "Reserved should remain 0 (idempotent)"
     # Verify we don't go negative
     assert status_idempotent["reserved"] >= 0, "Reserved should never go negative"
+
+
+@pytest.mark.asyncio
+async def test_still_upload_failure_releases_both_ledgers(test_episode, monkeypatch, respx_mock, tmp_path):
+    """Test: upload failure → both credit and USD ledgers release."""
+    import httpx
+    
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
+    monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    # Create a temporary PNG file
+    test_png = tmp_path / "test.png"
+    png_bytes = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080200000090775"
+        "3de0000000c49444154789c6260010000000200010e0d0000000049454e44ae426082"
+    )
+    test_png.write_bytes(png_bytes)
+    
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "4.0", "usd": "0.04"})
+    )
+    
+    # Mock upload to fail
+    respx_mock.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
+        return_value=httpx.Response(500, json={"error": "Upload service unavailable"})
+    )
+    
+    ledger = BudgetLedger(test_episode)
+    await ledger.init_db()
+    credit_ledger = CreditLedger(test_episode)
+    await credit_ledger.init_db()
+    
+    # Get initial state
+    budget_before = await ledger.get_line_status("ep99", "L2_drafts")
+    credit_before = await credit_ledger.get_episode_status("ep99")
+    
+    # Submit with local ref should fail during upload
+    with pytest.raises(ValueError, match="Provider 500"):
+        await submit_still_job_enforced(
+            "ep99", "A01", lint_ok("Test prompt"), 1,
+            refs=[str(test_png)],
+            shot_meta=lint_meta()
+        )
+    
+    # Check both ledgers released
+    budget_after = await ledger.get_line_status("ep99", "L2_drafts")
+    credit_after = await credit_ledger.get_episode_status("ep99")
+    
+    assert budget_after["reserved"] == budget_before["reserved"], \
+        f"Budget reserved should be unchanged: was {budget_before['reserved']}, now {budget_after['reserved']}"
+    assert credit_after["reserved_credits"] == credit_before["reserved_credits"], \
+        f"Credit reserved should be unchanged: was {credit_before['reserved_credits']}, now {credit_after['reserved_credits']}"
+
+
+@pytest.mark.asyncio
+async def test_clip_upload_failure_releases_both_ledgers(test_episode, monkeypatch, respx_mock, tmp_path):
+    """Test: clip frame upload failure → both credit and USD ledgers release."""
+    import httpx
+    
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
+    monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v3.0/pro/image-to-video")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    
+    # Create a temporary PNG file
+    test_png = tmp_path / "start.png"
+    png_bytes = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080200000090775"
+        "3de0000000c49444154789c6260010000000200010e0d0000000049454e44ae426082"
+    )
+    test_png.write_bytes(png_bytes)
+    
+    # Mock estimate endpoint
+    respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
+        return_value=httpx.Response(200, json={"credits": "7.5", "usd": "0.075"})
+    )
+    
+    # Mock upload to fail
+    respx_mock.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
+        return_value=httpx.Response(500, json={"error": "Upload service unavailable"})
+    )
+    
+    ledger = BudgetLedger(test_episode)
+    await ledger.init_db()
+    credit_ledger = CreditLedger(test_episode)
+    await credit_ledger.init_db()
+    
+    # Get initial state
+    budget_before = await ledger.get_line_status("ep99", "L4_video")
+    credit_before = await credit_ledger.get_episode_status("ep99")
+    
+    # Submit with local start_image should fail during upload
+    with pytest.raises(Exception):  # Upload failure could be httpx.HTTPStatusError or ValueError
+        await submit_clip_job_enforced(
+            "ep99", "A01", str(test_png), lint_ok("Test prompt"), 5.0, 1,
+            shot_meta=lint_meta()
+        )
+    
+    # Check both ledgers released
+    budget_after = await ledger.get_line_status("ep99", "L4_video")
+    credit_after = await credit_ledger.get_episode_status("ep99")
+    
+    assert budget_after["reserved"] == budget_before["reserved"], \
+        f"Budget reserved should be unchanged: was {budget_before['reserved']}, now {budget_after['reserved']}"
+    assert credit_after["reserved_credits"] == credit_before["reserved_credits"], \
+        f"Credit reserved should be unchanged: was {credit_before['reserved_credits']}, now {credit_after['reserved_credits']}"

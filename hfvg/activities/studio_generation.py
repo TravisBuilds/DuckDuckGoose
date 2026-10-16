@@ -716,28 +716,34 @@ async def submit_clip_job_enforced(
             await credit_ledger.release_credits(episode_id, job_id, notes=f"invalid start_image")
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
         
-        # Upload local paths to Higgsfield CDN
-        if start_image_url.startswith("/"):
-            activity.logger.info(f"Uploading local start image: {start_image_url}")
-            # Get ref version from sidecar (not shot version!)
-            ref_version = _get_ref_version_from_sidecar(start_image_url)
-            upload_result = await provider.upload_reference(start_image_url, ref_version)
-            if isinstance(upload_result, dict):
-                start_image_url = upload_result["public_url"]
-            else:
-                start_image_url = upload_result
-            activity.logger.info(f"Uploaded start image v{ref_version} -> {start_image_url}")
-        
-        if end_image_url and end_image_url.startswith("/"):
-            activity.logger.info(f"Uploading local end image: {end_image_url}")
-            # Get ref version from sidecar (not shot version!)
-            ref_version = _get_ref_version_from_sidecar(end_image_url)
-            upload_result = await provider.upload_reference(end_image_url, ref_version)
-            if isinstance(upload_result, dict):
-                end_image_url = upload_result["public_url"]
-            else:
-                end_image_url = upload_result
-            activity.logger.info(f"Uploaded end image v{ref_version} -> {end_image_url}")
+        # Upload local paths to Higgsfield CDN (wrap in try/except to release on upload failure)
+        try:
+            if start_image_url.startswith("/"):
+                activity.logger.info(f"Uploading local start image: {start_image_url}")
+                # Get ref version from sidecar (not shot version!)
+                ref_version = _get_ref_version_from_sidecar(start_image_url)
+                upload_result = await provider.upload_reference(start_image_url, ref_version)
+                if isinstance(upload_result, dict):
+                    start_image_url = upload_result["public_url"]
+                else:
+                    start_image_url = upload_result
+                activity.logger.info(f"Uploaded start image v{ref_version} -> {start_image_url}")
+            
+            if end_image_url and end_image_url.startswith("/"):
+                activity.logger.info(f"Uploading local end image: {end_image_url}")
+                # Get ref version from sidecar (not shot version!)
+                ref_version = _get_ref_version_from_sidecar(end_image_url)
+                upload_result = await provider.upload_reference(end_image_url, ref_version)
+                if isinstance(upload_result, dict):
+                    end_image_url = upload_result["public_url"]
+                else:
+                    end_image_url = upload_result
+                activity.logger.info(f"Uploaded end image v{ref_version} -> {end_image_url}")
+        except Exception as e:
+            # Release both reservations on upload failure
+            await ledger.release(episode_id, line_name, estimated_cost, f"Upload failed: {str(e)}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Upload failed: {str(e)}")
+            raise
         
         # Generate idempotency key from hash of actual request with uploaded URLs
         import hashlib
