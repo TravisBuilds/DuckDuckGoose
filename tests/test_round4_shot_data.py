@@ -608,12 +608,21 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
 
 @pytest.mark.asyncio
 async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeypatch, data_env):
-    """G2.01 logic now in G2_SCENE_STILLS gate - tests missing refs detection."""
-    env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=True)
+    """G2.01 logic now in G2_SCENE_STILLS gate - tests missing refs detection and recheck merge."""
+    # Run in live mode so recheck is executed
+    env, worker, beat, W = await _episode_to_g201(tmp_path, monkeypatch, dry_run=False)
+    
+    # Create ref files - r_have exists, r_new will be created during test
+    shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
+    sp, rp, new = _write_data(data_env["tmp"], shots)
+    monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
+    monkeypatch.setenv("REFS_JSON_PATH", str(rp))
+    monkeypatch.setenv("DRY_RUN", "false")
+    
     async with env:
         async with worker:
             handle = await env.client.start_workflow(
-                W.run, args=["ep98", str(beat), True], id="r4-ep98", task_queue="r4-ep")
+                W.run, args=["ep98", str(beat), False], id="r4-ep98-live", task_queue="r4-ep")
             # Approve G1 to reach G2
             await handle.signal(W.approve_g1_shot_plan)
             await asyncio.sleep(0.5)
@@ -621,13 +630,33 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
             assert state["current_gate"] == "G2_SCENE_STILLS"
             assert state["missing_refs"] == {"A01": ["r_new"]}
             assert "G2_SCENE_STILLS" not in state["passed_gates"]
+            
+            # In live mode, workflow holds until refs are ready
             await handle.signal(W.approve_g2_scene_stills)
             await asyncio.sleep(0.5)
             state = await handle.query(W.get_state)
-            assert "G2_SCENE_STILLS" in state["passed_gates"]  # dry: proceeds after approval
+            assert state["current_gate"] == "G2_SCENE_STILLS", "must HOLD at G2 while refs missing"
+            
+            # Create the missing ref file
+            new.write_bytes(b"x")
+            
+            # Approve again - now recheck should find the ref
+            await handle.signal(W.approve_g2_scene_stills)
+            await asyncio.sleep(1.0)
+            state = await handle.query(W.get_state)
+            assert "G2_SCENE_STILLS" in state["passed_gates"], "should pass G2 after refs available"
+            assert state["missing_refs"] == {}, "missing_refs should be empty after recheck"
+            
+            # M-97: Assert recheck merged ref data into plan
             plan = SEEN_PLANS["A01"]
+            assert "refs" in plan, "recheck should add refs field to plan"
+            assert len(plan["refs"]) == 2, "A01 should have 2 refs after recheck"
+            assert "missing_refs" in plan, "recheck should add missing_refs field"
+            assert plan["missing_refs"] == [], "A01 should have no missing refs after file created"
+            
+            # Also check other plan fields are preserved
             assert plan["prompt"] == TRAILING_PROMPT and plan["shot_meta"]["count"] == 2
-            assert plan["params"]["duration"] == 4 and plan["dry_run"] is True
+            assert plan["params"]["duration"] == 4 and plan["dry_run"] is False
             assert SEEN_PLANS["B04"]["params"]["duration"] == 3
             await handle.terminate()
 

@@ -1045,7 +1045,7 @@ test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
 test_mutation 95 "M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i '/_should_hold_at_g2_scene_stills/,/^$/{ /return bool(self\._collect_missing_refs(shots))/s/.*/        return False  # MUTATED/; }'
+    sed -i '/def _needs_new_refs/,/^    def/{ /return bool(self\._collect_missing_refs(shots))/s/.*/        return False  # MUTATED/; }'
 
 # 96. M-R4B Live shot activity refuses when refs are missing  
 test_mutation 96 "M-R4B Live shot activity refuses when refs are missing" \
@@ -1063,7 +1063,7 @@ test_mutation 97 "M-R4C Recheck updates shot plans with new ref data" \
 test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i '/parse_beatmap_activity/,/start_to_close_timeout/{ /args=\[beatmap_path, episode_id, not dry_run\]/s/episode_id/None  # MUTATED/; }'
+    sed -i '/parse_beatmap_activity/,/start_to_close_timeout/{ /args=\[beatmap_path, episode_id, not dry_run\]/s/episode_id/None/; }'
 
 # 99. M-R4E GET episode looks up the id the workflow was started with
 test_mutation 99 "M-R4E GET episode looks up the id the workflow was started with" \
