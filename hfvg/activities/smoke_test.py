@@ -22,22 +22,21 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
     import tempfile
     import httpx
     from pathlib import Path
+    from PIL import Image
     
-    # Create a minimal 1x1 PNG (not text/plain)
-    png_bytes = bytes.fromhex(
-        "89504e470d0a1a0a"  # PNG signature
-        "0000000d49484452"  # IHDR chunk
-        "00000001000000010802000000907753de"
-        "0000000c49444154"  # IDAT chunk
-        "789c6260010000000200010e0d"
-        "0000000049454e44ae426082"  # IEND
-    )
-    
+    # Generate a minimal 1x1 PNG with PIL
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp.write(png_bytes)
         tmp_path = tmp.name
     
     try:
+        # Create and save 1x1 red PNG
+        img = Image.new('RGB', (1, 1), color='red')
+        img.save(tmp_path, 'PNG')
+        
+        # Read back the bytes for verification
+        with open(tmp_path, 'rb') as f:
+            png_bytes = f.read()
+        
         # Upload using provider's real method
         upload_result = await provider.upload_reference(tmp_path, version=1)
         public_url = upload_result["public_url"]
@@ -53,6 +52,18 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
                 "passed": False,
                 "public_url": public_url,
                 "error": f"Downloaded bytes mismatch: expected {len(png_bytes)}, got {len(downloaded)}"
+            }
+        
+        # Verify downloaded bytes decode as PNG
+        try:
+            from io import BytesIO
+            img_check = Image.open(BytesIO(downloaded))
+            img_check.verify()
+        except Exception as decode_err:
+            return {
+                "passed": False,
+                "public_url": public_url,
+                "error": f"Downloaded bytes don't decode as PNG: {decode_err}"
             }
         
         return {
@@ -72,12 +83,14 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
     run_id = uuid.uuid4().hex[:8]
     job_id = f"smoke-{episode_id}-{run_id}"
     
+    budget_reserved = False
+    credits_reserved = False
+    
     try:
-        # Get real estimate
+        # Get real estimate (SOUL V2 API: prompt, resolution, aspect_ratio - no quality field)
         estimated_cost_micros = await provider.estimate_usd_micros(
             prompt=prompt,
-            resolution="1k",
-            quality="standard",
+            resolution="720p",
             aspect_ratio="1:1"
         )
         
@@ -102,6 +115,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                 "error": "Budget reserve failed"
             }
         
+        budget_reserved = True
+        
         # Reserve credits (using estimate in credits, not USD)
         from hfvg.credit_pricing import estimate_still_credits
         estimated_credits = estimate_still_credits(provider.model_path, "standard")
@@ -116,6 +131,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         
         if not credit_result.get("reserved"):
             await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test credit reserve failed")
+            budget_reserved = False
             return {
                 "passed": False,
                 "provider_job_id": None,
@@ -123,17 +139,18 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                 "error": "Credit reserve failed"
             }
         
+        credits_reserved = True
+        
         # Generate idempotency key
         import hashlib
         key_input = f"{provider.model_path}|{prompt}|smoke-{run_id}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
-        # Submit using provider's real method
+        # Submit using provider's real method (SOUL V2 schema: prompt, resolution, aspect_ratio)
         provider_job_id = await provider.submit_image(
             prompt=prompt,
-            resolution="1k",
-            quality="standard",
+            resolution="720p",
             image_urls=[],
             idempotency_key=idempotency_key,
             aspect_ratio="1:1"
@@ -145,32 +162,67 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # Poll until complete (max 60s)
         for _ in range(60):
             status = await provider.get_job_status(provider_job_id)
+            
+            # Terminal statuses
             if status.status == "completed":
-                # Get actual cost
-                actual_cost = status.cost
+                # Get actual cost (status.cost is in USD float, convert to micros)
+                if status.cost:
+                    actual_cost_micros = int(status.cost * 1_000_000)
+                else:
+                    actual_cost_micros = estimated_cost_micros
+                
+                # Download output and verify it decodes
+                import httpx
+                from PIL import Image
+                from io import BytesIO
+                
+                try:
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(status.output_url)
+                        resp.raise_for_status()
+                        img_bytes = resp.content
+                        
+                        # Verify it decodes as image
+                        img = Image.open(BytesIO(img_bytes))
+                        img.verify()
+                except Exception as download_err:
+                    # Release on download failure
+                    await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test download failed: {download_err}")
+                    await credit_ledger.release_credits(episode_id, job_id, notes=f"Download failed: {download_err}")
+                    return {
+                        "passed": False,
+                        "provider_job_id": provider_job_id,
+                        "cost": None,
+                        "error": f"Output download/decode failed: {download_err}"
+                    }
                 
                 # Commit reservations
                 await ledger.commit(episode_id, "L2_drafts", estimated_cost_micros, 
-                                   actual_usd_micros=int(actual_cost * 1_000_000) if actual_cost else estimated_cost_micros,
+                                   actual_usd_micros=actual_cost_micros,
                                    job_id=job_id)
                 await credit_ledger.commit_credits(episode_id, job_id, 
-                                                  actual_credits=actual_cost if actual_cost else estimated_credits)
+                                                  actual_credits=status.cost if status.cost else estimated_credits)
+                
+                budget_reserved = False
+                credits_reserved = False
                 
                 return {
                     "passed": True,
                     "provider_job_id": provider_job_id,
-                    "cost": actual_cost if actual_cost else estimated_credits,
+                    "cost": status.cost if status.cost else estimated_credits,
                     "error": None
                 }
-            elif status.status == "failed":
-                # Release on failure
-                await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test failed")
-                await credit_ledger.release_credits(episode_id, job_id, notes="Smoke test failed")
+            elif status.status in ("failed", "nsfw", "canceled"):
+                # Release on failure/nsfw/canceled
+                await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test {status.status}")
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test {status.status}")
+                budget_reserved = False
+                credits_reserved = False
                 return {
                     "passed": False,
                     "provider_job_id": provider_job_id,
                     "cost": None,
-                    "error": status.error or "Generation failed"
+                    "error": status.error or f"Generation {status.status}"
                 }
             
             await asyncio.sleep(1)
@@ -178,6 +230,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # Timeout - release
         await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test timeout")
         await credit_ledger.release_credits(episode_id, job_id, notes="Smoke test timeout")
+        budget_reserved = False
+        credits_reserved = False
         return {
             "passed": False,
             "provider_job_id": provider_job_id,
@@ -186,6 +240,17 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         }
         
     except Exception as e:
+        # Release budget and credits if still held
+        if budget_reserved:
+            try:
+                await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test exception: {e}")
+            except Exception:
+                pass
+        if credits_reserved:
+            try:
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test exception: {e}")
+            except Exception:
+                pass
         return {
             "passed": False,
             "provider_job_id": None,

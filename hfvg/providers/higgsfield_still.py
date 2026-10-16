@@ -175,19 +175,22 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str,
-        quality: str,
+        quality: str | None,
         aspect_ratio: str | None,
     ) -> dict:
         """POST /estimate/{model_path}; returns the parsed JSON (fail closed on any error)."""
-        # Map quality to allowed values (low, medium)
-        if quality not in ("low", "medium"):
-            quality = "medium"
-
         payload = {
             "prompt": prompt,
             "resolution": resolution,
-            "quality": quality,
         }
+        
+        # Only include quality if provided (SOUL V2 doesn't use quality field)
+        if quality is not None:
+            # Map quality to allowed values (low, medium)
+            if quality not in ("low", "medium"):
+                quality = "medium"
+            payload["quality"] = quality
+        
         if aspect_ratio:
             payload["aspect_ratio"] = aspect_ratio
 
@@ -206,7 +209,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         aspect_ratio: str | None = None,
     ) -> float:
         """
@@ -233,7 +236,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         aspect_ratio: str | None = None,
     ) -> int:
         """
@@ -254,7 +257,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         image_urls: list[str] | None = None,
         idempotency_key: str | None = None,
         aspect_ratio: str | None = None,
@@ -269,8 +272,8 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         Args:
             prompt: Generation prompt
-            resolution: Resolution (1k, 2k)
-            quality: Quality (low, medium only - no high)
+            resolution: Resolution (1k, 2k, 720p, 1080p)
+            quality: Quality (low, medium only - no high). Omit for SOUL V2.
             image_urls: List of public reference image URLs (max 3)
             idempotency_key: Idempotency key (default: deterministic based on params)
             aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
@@ -278,22 +281,24 @@ class HiggsfieldStillProvider(GenerationProvider):
         Returns:
             request_id for polling
         """
-        # Map quality to allowed values (low, medium)
-        if quality not in ("low", "medium"):
-            quality = "medium"
-        
         # Generate deterministic idempotency key if not provided
         if not idempotency_key:
             idempotency_key = self._generate_idempotency_key(
-                prompt, resolution, quality, image_urls
+                prompt, resolution, quality or "medium", image_urls
             )
         
         # Submit generation with documented API format
         payload = {
             "prompt": prompt,
             "resolution": resolution,
-            "quality": quality,
         }
+        
+        # Only include quality if provided (SOUL V2 doesn't use quality field)
+        if quality is not None:
+            # Map quality to allowed values (low, medium)
+            if quality not in ("low", "medium"):
+                quality = "medium"
+            payload["quality"] = quality
         
         if image_urls:
             # Documented limit: never silently truncate a shot's ref list, refuse instead
