@@ -62,8 +62,14 @@ def _acts(fail_ids):
     async def report(*a): return {}
 
     async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
+    
+    @activity.defn(name="init_episode_budget_lines_activity")
+    async def budget_init(*a):
+        # Return proper structure expected by workflow
+        from hfvg.budget import REQUIRED_BUDGET_LINES
+        return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
 
-    names = ["init_episode_credit_line_activity", "init_episode_budget_lines_activity",
+    names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",
              "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
              "recheck_refs_activity", "update_credit_cap_activity"]
@@ -72,7 +78,7 @@ def _acts(fail_ids):
             return await noop(*a)
         return activity.defn(name=n)(f)
     extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, *extra]
+    return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
 
 
 async def _state(h):
