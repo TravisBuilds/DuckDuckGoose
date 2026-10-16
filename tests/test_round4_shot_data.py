@@ -1036,7 +1036,13 @@ AUTH = {"Authorization": "Bearer " + "a" * 32}
 STATE = {"episode_id": "ep04", "stage": "script", "approvals": {"g101": True}, "shots": 31}
 
 
-def test_get_episode_looks_up_the_started_workflow_id(monkeypatch):
+def test_get_episode_looks_up_the_started_workflow_id(monkeypatch, tmp_path):
+    # Create minimal beatmap for ep04
+    beatmap_dir = tmp_path / "data/episodes/ep04"
+    beatmap_dir.mkdir(parents=True, exist_ok=True)
+    (beatmap_dir / "BEATMAP.md").write_text("# Episode 04\n\n## A01\nTest shot")
+    monkeypatch.chdir(tmp_path)
+    
     temporal = _temporal_mock(STATE)
     client, _ = _client(monkeypatch, temporal)
     start = client.post("/api/episodes", headers=AUTH, json={"episode_id": "ep04", "dry_run": True})
