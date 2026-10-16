@@ -860,7 +860,7 @@ test_mutation 65 "M-P3b Lint forbids 'nothing else moves'" \
 test_mutation 66 "M-P3c Lint is enforced in live mode" \
     "hfvg/prompt_lint.py" \
     "tests/test_prompt_lint.py::test_live_still_lint_failure_refuses_before_estimate_reserve_and_submit" \
-    sed -i 's/^    if problems and live:/    if problems and False:  # MUTATED/'
+    sed -i '198s/if problems and live:/if problems and False:  # MUTATED/'
 
 # 67. M-P3d Lint applies the banned-decor list
 test_mutation 67 "M-P3d Lint applies the banned-decor list" \
@@ -974,7 +974,7 @@ test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
 test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_to_still_provider_activity" \
-    sed -i 's/^                        refs,$/                        [],  # MUTATED/'
+    sed -i '375s/refs,$/[],  # MUTATED/'
 
 # 86. M-R4r Workflow passes missing refs to the still activity
 test_mutation 86 "M-R4r Workflow passes missing refs to the still activity" \
@@ -1004,7 +1004,7 @@ test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
 test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i 's/^                        shot_plan.get("missing_refs", \[\]),$/                        [],  # MUTATED/'
+    sed -i '595s/shot_plan.get("missing_refs", \[\]),$/[],  # MUTATED/'
 
 # 91. M-R4w Dry end-frame shot gets a placeholder end image
 test_mutation 91 "M-R4w Dry end-frame shot gets a placeholder end image" \
@@ -1034,7 +1034,7 @@ test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
 test_mutation 95 "M-R4A G2.01 triggers when a shot has missing refs" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i 's/^        return bool(self._collect_missing_refs(shots))$/        return False  # MUTATED/'
+    sed -i '539s/return bool(self._collect_missing_refs(shots))$/return False  # MUTATED/'
 
 # 96. M-R4B Live G2.01 holds while refs are still missing
 test_mutation 96 "M-R4B Live G2.01 holds while refs are still missing" \
@@ -1052,7 +1052,7 @@ test_mutation 97 "M-R4C G2.01 recheck updates the shot plans" \
 test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g201_triggers_for_new_refs_and_plans_carry_data" \
-    sed -i 's/^            args=\[beatmap_path, episode_id, not dry_run\],$/            args=[beatmap_path, None, not dry_run],  # MUTATED/'
+    sed -i '208s/args=\[beatmap_path, episode_id, not dry_run\],$/args=[beatmap_path, None, not dry_run],  # MUTATED/'
 
 # 99. M-R4E GET episode looks up the id the workflow was started with
 test_mutation 99 "M-R4E GET episode looks up the id the workflow was started with" \
