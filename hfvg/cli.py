@@ -390,6 +390,7 @@ def smoke_test(episode_id: str, live: bool):
     
     import os
     from hfvg.activities.smoke_test import run_smoke_test
+    from hfvg.studio_db import store_smoke_test_result
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     
@@ -397,6 +398,9 @@ def smoke_test(episode_id: str, live: bool):
     click.echo("   Upload probe + SOUL V2 generation (~0.09 credits)")
     
     result = asyncio.run(run_smoke_test(episode_id, db_path))
+    
+    # Store result in DB
+    asyncio.run(store_smoke_test_result(db_path, episode_id, result))
     
     click.echo()
     click.echo(f"Upload probe:      {'✅ PASSED' if result['upload_probe']['passed'] else '❌ FAILED'}")
