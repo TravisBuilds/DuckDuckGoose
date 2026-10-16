@@ -438,46 +438,11 @@ async def submit_still_job_enforced(
         # Persist the harness→provider mapping
         await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
         
-        # Return success
-        return {
-            "job_id": job_id,
-            "provider_job_id": provider_job_id,
-            "line_name": budget_line_name,
-            "reserved_amount": budget_amount,
-        }
-    
-    except httpx.HTTPStatusError as e:
-            # Capture provider error details (especially 422 idempotency conflicts)
-            error_detail = f"Provider {e.response.status_code}: {e.response.text}"
-            activity.logger.error(f"Provider error for {job_id}: {error_detail}")
-            # Release both reservations before re-raising
-            await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
-            raise ValueError(error_detail) from e
-        except Exception as e:
-            # Release both reservations on any other error
-            await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
-            raise
-        
-        # Post-submit success handling (provider accepted and will charge)
-        # Store the provider job id for polling (not the harness job_id)
-        if provider_job_id != job_id:
-            activity.logger.info(
-                f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
-            )
-        
-        # Store mapping from harness job_id to provider_job_id for credit ledger lookups
-        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
-        
-        activity.logger.info(
-            f"[LIVE] Submitted still {provider_job_id} for {episode_id}/{shot_id} "
-            f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
-        )
+        # Record job in ledger
         try:
             await ledger.record_job(
-                episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                estimated_cost,
+                episode_id, job_id, shot_id, provider.model_path, tier, budget_line_name,
+                budget_amount,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold
@@ -487,13 +452,31 @@ async def submit_still_job_enforced(
                 f"Reservation HELD."
             )
         
-        # Return dict with job info for polling
+        # Return success
         return {
-            "job_id": job_id,  # Return harness job_id (not provider's job_id)
-            "provider_job_id": provider_job_id,  # Also return provider job_id for polling
-            "line_name": line_name,
-            "reserved_amount": estimated_cost,
+            "job_id": job_id,
+            "provider_job_id": provider_job_id,
+            "line_name": budget_line_name,
+            "reserved_amount": budget_amount,
         }
+    
+    except httpx.HTTPStatusError as e:
+        # Capture provider error details (especially 422 idempotency conflicts)
+        error_detail = f"Provider {e.response.status_code}: {e.response.text}"
+        activity.logger.error(f"Provider error for {job_id}: {error_detail}")
+        # Release whatever has been reserved
+        if budget_reserved:
+            await ledger.release(episode_id, budget_line_name, budget_amount, f"Provider error: {error_detail}")
+        if credits_reserved:
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+        raise ValueError(error_detail) from e
+    except Exception as e:
+        # Release whatever has been reserved on any other error
+        if budget_reserved:
+            await ledger.release(episode_id, budget_line_name, budget_amount, f"Submit failed: {str(e)}")
+        if credits_reserved:
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+        raise
     finally:
         await provider.close()
 

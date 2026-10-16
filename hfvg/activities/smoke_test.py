@@ -66,8 +66,6 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
 
 async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldStillProvider) -> dict:
     """Test generation with cheap SOUL V2 ref."""
-    # Use cheapest model for smoke test: SOUL V2 standard (~0.09 credits)
-    model_path = "higgsfield-ai/soul/v2/standard"
     prompt = "smoke test"
     
     # Unique job ID per smoke test run
@@ -106,7 +104,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         
         # Reserve credits (using estimate in credits, not USD)
         from hfvg.credit_pricing import estimate_still_credits
-        estimated_credits = estimate_still_credits(model_path, "standard")
+        estimated_credits = estimate_still_credits(provider.model_path, "standard")
         
         credit_ledger = CreditLedger(db_path)
         await credit_ledger.init_db()
@@ -127,7 +125,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         
         # Generate idempotency key
         import hashlib
-        key_input = f"{model_path}|{prompt}|smoke-{run_id}"
+        key_input = f"{provider.model_path}|{prompt}|smoke-{run_id}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
@@ -147,16 +145,16 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # Poll until complete (max 60s)
         for _ in range(60):
             status = await provider.get_job_status(provider_job_id)
-            if status["status"] == "completed":
+            if status.status == "completed":
                 # Get actual cost
-                actual_cost = status.get("cost")
+                actual_cost = status.cost
                 
                 # Commit reservations
                 await ledger.commit(episode_id, "L2_drafts", estimated_cost_micros, 
-                                   actual_cost_usd_micros=int(actual_cost * 1_000_000) if actual_cost else estimated_cost_micros,
+                                   actual_usd_micros=int(actual_cost * 1_000_000) if actual_cost else estimated_cost_micros,
                                    job_id=job_id)
                 await credit_ledger.commit_credits(episode_id, job_id, 
-                                                  cost_credits=actual_cost if actual_cost else estimated_credits)
+                                                  actual_credits=actual_cost if actual_cost else estimated_credits)
                 
                 return {
                     "passed": True,
@@ -164,7 +162,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                     "cost": actual_cost if actual_cost else estimated_credits,
                     "error": None
                 }
-            elif status["status"] == "failed":
+            elif status.status == "failed":
                 # Release on failure
                 await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test failed")
                 await credit_ledger.release_credits(episode_id, job_id, notes="Smoke test failed")
@@ -172,7 +170,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                     "passed": False,
                     "provider_job_id": provider_job_id,
                     "cost": None,
-                    "error": status.get("error", "Generation failed")
+                    "error": status.error or "Generation failed"
                 }
             
             await asyncio.sleep(1)
@@ -199,7 +197,9 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
 @activity.defn
 async def run_smoke_test(episode_id: str, db_path: str) -> dict:
     """Run smoke test probes and return results."""
-    provider = HiggsfieldStillProvider()
+    # Use cheapest model: SOUL V2 standard (~0.09 credits)
+    model_path = "higgsfield-ai/soul/v2/standard"
+    provider = HiggsfieldStillProvider(model_path=model_path)
     
     try:
         upload_result = await _probe_upload(provider)
