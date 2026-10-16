@@ -1028,7 +1028,7 @@ test_mutation 93 "M-R4y Live end-frame shot waits for its end image" \
 test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
-    sed -i 's/^                        end_image_url,$/                        None,  # MUTATED/'
+    sed -i '/Use the end_image_url that was generated before Gate 2/{ n; s/end_image_url = self\.end_image_url if params\.get("end_frame") else None/end_image_url = None  # MUTATED/; }'
 
 # 95. M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs
 test_mutation 95 "M-R4A G2_SCENE_STILLS gate triggers when a shot has missing refs" \
