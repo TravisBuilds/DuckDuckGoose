@@ -165,5 +165,5 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
             
             for line_name in lines:
                 status = await ledger.get_line_status(episode_id, line_name)
-                assert status["cap"] > 0, f"Line {line_name} has no cap (not initialized properly)"
-                assert status["stop"] > 0, f"Line {line_name} has no stop (not initialized properly)"
+                assert status["budget_cap"] > 0, f"Line {line_name} has no cap (not initialized properly)"
+                assert status["stop_threshold"] > 0, f"Line {line_name} has no stop (not initialized properly)"
