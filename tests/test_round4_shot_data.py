@@ -510,12 +510,40 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
     SEEN_PLANS.clear()
     stub = StubShot
     env_cm = await WorkflowEnvironment.start_time_skipping()
+    from hfvg.activities.credit_activities import (
+        init_episode_credit_line_activity,
+        init_episode_budget_lines_activity,
+    )
+    from temporalio import activity
+    
+    @activity.defn(name="preflight_validate_episode_activity")
+    async def mock_preflight(*args):
+        return {"validated": True, "warnings": []}
+    
+    @activity.defn(name="verify_episode_files_activity")
+    async def mock_verify(*args):
+        return True
+    
+    @activity.defn(name="load_refs_to_generate_activity")
+    async def mock_load_refs(*args):
+        return []  # No refs to generate
+    
+    @activity.defn(name="generate_run_report")
+    async def mock_report(*args):
+        return {"report_path": "/fake/report.txt"}
+    
     worker_cm = Worker(
         env_cm.client, task_queue="r4-ep", workflows=[EpisodeWorkflowV2, stub],
         activities=[
             activities.acquire_run_lock,
             activities.release_run_lock,
             activities.upsert_episode_activity,
+            init_episode_credit_line_activity,
+            init_episode_budget_lines_activity,
+            mock_preflight,
+            mock_verify,
+            mock_load_refs,
+            mock_report,
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
