@@ -94,34 +94,44 @@ class KlingVideoProvider(GenerationProvider):
     
     async def upload_image(self, image_path: str | Path) -> str:
         """
-        Upload start image and return media ID.
+        Upload start image and return public URL.
         
         Args:
             image_path: Path to start image
         
         Returns:
-            media_id for use in generation
+            public_url for use in generation
         """
-        # Get upload URL
+        import mimetypes
+        
+        # Determine content type from file extension
+        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        
+        # Get upload URL (REQUIRES content_type)
         response = await self.client.post(
             "/files/generate-upload-url",
-            json={"filename": Path(image_path).name}
+            json={"content_type": content_type}
         )
         response.raise_for_status()
         data = response.json()
         upload_url = data["upload_url"]
-        media_id = data["media_id"]
+        public_url = data["public_url"]
+        upload_headers = data["upload_headers"]
         
-        # Upload file
+        # Upload file with exact headers from API (includes x-amz-tagging)
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         
-        # Use a plain httpx client for the PUT (no auth needed)
+        # Use a plain httpx client for the PUT (no auth, just upload_headers)
         async with httpx.AsyncClient() as plain_client:
-            upload_response = await plain_client.put(upload_url, content=image_bytes)
+            upload_response = await plain_client.put(
+                upload_url,
+                content=image_bytes,
+                headers=upload_headers
+            )
             upload_response.raise_for_status()
         
-        return media_id
+        return public_url
     
     async def _estimate_response(
         self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None

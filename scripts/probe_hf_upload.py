@@ -8,9 +8,9 @@ Usage:
 
 This script:
 1. Generates a small test image
-2. Calls /files/generate-upload-url
-3. PUTs the file to the returned upload_url
-4. Reports what URL format should be used for generation endpoints
+2. Calls /files/generate-upload-url with content_type
+3. PUTs the file to the returned upload_url with upload_headers
+4. Reports the public_url for use in generation endpoints
 """
 
 import asyncio
@@ -47,76 +47,66 @@ async def probe_upload():
     )
     
     try:
-        # Step 1: Get upload URL
-        print("Step 1: POST /files/generate-upload-url")
+        # Step 1: Get upload URL (REQUIRES content_type)
+        print("Step 1: POST /files/generate-upload-url with content_type")
         response = await client.post(
             "/files/generate-upload-url",
-            json={"filename": "probe_test.png"}
+            json={"content_type": "image/png"}
         )
         response.raise_for_status()
         upload_data = response.json()
         
-        print(f"  Response: {upload_data}")
+        print(f"  Response keys: {list(upload_data.keys())}")
+        print(f"  public_url: {upload_data.get('public_url', 'N/A')}")
         print()
         
         upload_url = upload_data.get("upload_url")
-        media_id = upload_data.get("media_id")
-        file_url = upload_data.get("file_url") or upload_data.get("url")
+        public_url = upload_data.get("public_url")
+        upload_headers = upload_data.get("upload_headers", {})
         
-        if not upload_url:
-            print("ERROR: No upload_url in response")
+        if not upload_url or not public_url:
+            print("ERROR: Missing upload_url or public_url in response")
             sys.exit(1)
         
-        # Step 2: PUT file to upload URL
-        print(f"Step 2: PUT to upload_url")
-        print(f"  URL: {upload_url[:80]}...")
+        # Step 2: PUT file to upload URL with exact headers
+        print(f"Step 2: PUT to upload_url with upload_headers")
+        print(f"  upload_headers: {upload_headers}")
         
         async with httpx.AsyncClient() as plain_client:
             put_response = await plain_client.put(
                 upload_url,
                 content=test_image,
-                headers={"Content-Type": "image/png"}
+                headers=upload_headers
             )
             put_response.raise_for_status()
             
             print(f"  Status: {put_response.status_code}")
             print(f"  Response body: {put_response.text if put_response.text else '(empty)'}")
-            
-            # Check if PUT response contains URL
-            if put_response.text:
-                try:
-                    put_data = put_response.json()
-                    print(f"  JSON response: {put_data}")
-                    if "url" in put_data:
-                        file_url = put_data["url"]
-                except:
-                    pass
+        
+        # Step 3: Verify public_url is accessible
+        print()
+        print(f"Step 3: GET {public_url}")
+        async with httpx.AsyncClient() as plain_client:
+            get_response = await plain_client.get(public_url)
+            get_response.raise_for_status()
+            print(f"  Status: {get_response.status_code}")
+            print(f"  Content-Type: {get_response.headers.get('content-type')}")
+            print(f"  Content-Length: {len(get_response.content)} bytes")
+            print(f"  Bytes match: {get_response.content == test_image}")
         
         print()
         print("=" * 80)
         print("RESULTS:")
         print("=" * 80)
-        print(f"media_id: {media_id}")
-        print(f"file_url from initial response: {file_url}")
+        print(f"✓ Upload successful")
+        print(f"✓ public_url: {public_url}")
+        print(f"✓ Use public_url in generation requests (image_urls list)")
         print()
-        
-        if file_url:
-            print("✓ File URL available from API response")
-            print(f"  Use this URL in generation requests: {file_url}")
-        elif media_id:
-            print("✓ Media ID available")
-            print(f"  Constructed URL format: {base_url}/files/{media_id}")
-            print(f"  OR pass media_id directly if API supports it")
-        else:
-            print("✗ No clear URL format found")
-        
-        print()
-        print("Recommendation for code:")
-        if file_url:
-            print("  1. Use 'file_url' or 'url' field from generate-upload-url response")
-            print("  2. If not present in initial response, check PUT response")
-        else:
-            print("  1. Construct URL as: {base_url}/files/{media_id}")
+        print("API Contract:")
+        print("  1. POST /files/generate-upload-url requires {content_type}")
+        print("  2. Response has {public_url, upload_url, upload_headers}")
+        print("  3. PUT upload_url with exact upload_headers (includes x-amz-tagging)")
+        print("  4. Use public_url in generation payloads")
         
     except httpx.HTTPStatusError as e:
         print(f"HTTP Error: {e.response.status_code}")
@@ -124,6 +114,8 @@ async def probe_upload():
         sys.exit(1)
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     finally:
         await client.aclose()

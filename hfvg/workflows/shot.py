@@ -51,6 +51,14 @@ class ShotWorkflow:
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
         self.status = "running"  # Status: running, paused_cap, completed, failed
+        
+        # Per-shot G2 status tracking (Item 4)
+        self.still_status = "pending"  # pending/done/failed
+        self.still_url: str | None = None
+        self.still_error: str | None = None
+        self.end_still_status = "pending"  # For end-frame shots
+        self.end_still_url: str | None = None
+        self.end_still_error: str | None = None
 
     @workflow.signal
     def stills_approved(self):
@@ -87,6 +95,13 @@ class ShotWorkflow:
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
             "human_approved_still": self.human_approved_still,
+            # Per-shot G2 status (Item 4)
+            "still_status": self.still_status,
+            "still_url": self.still_url,
+            "still_error": self.still_error,
+            "end_still_status": self.end_still_status,
+            "end_still_url": self.end_still_url,
+            "end_still_error": self.end_still_error,
         }
     
     async def _poll_job_to_completion(
@@ -414,6 +429,11 @@ class ShotWorkflow:
                     "url": poll_result["url"],
                     "cost": poll_result["cost"],
                 }
+                
+                # Update G2 status (Item 4)
+                self.still_status = "done"
+                self.still_url = poll_result["url"]
+                self.still_error = None
 
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
 

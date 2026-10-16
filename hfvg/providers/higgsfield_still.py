@@ -101,44 +101,39 @@ class HiggsfieldStillProvider(GenerationProvider):
             image_path: Path to reference image
         
         Returns:
-            dict with 'media_id' and 'url' (the actual accessible URL for the uploaded file)
+            dict with 'public_url' (the CDN URL for the uploaded file)
         """
-        # Get upload URL and metadata
+        import mimetypes
+        
+        # Determine content type from file extension
+        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        
+        # Get upload URL and metadata (REQUIRES content_type)
         response = await self.client.post(
             "/files/generate-upload-url",
-            json={"filename": Path(image_path).name}
+            json={"content_type": content_type}
         )
         response.raise_for_status()
         data = response.json()
+        
         upload_url = data["upload_url"]
-        media_id = data["media_id"]
+        public_url = data["public_url"]
+        upload_headers = data["upload_headers"]
         
-        # Check if API returns file_url in the initial response
-        file_url = data.get("file_url") or data.get("url")
-        
-        # Upload file
+        # Upload file with exact headers from API (includes x-amz-tagging)
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         
-        # Use a plain httpx client for the PUT (no auth needed for presigned URL)
+        # Use a plain httpx client for the PUT (no auth, just upload_headers)
         async with httpx.AsyncClient() as plain_client:
-            upload_response = await plain_client.put(upload_url, content=image_bytes)
+            upload_response = await plain_client.put(
+                upload_url, 
+                content=image_bytes,
+                headers=upload_headers
+            )
             upload_response.raise_for_status()
-            
-            # Presigned PUTs typically return empty body, but check anyway
-            if not file_url and upload_response.text:
-                try:
-                    upload_data = upload_response.json()
-                    file_url = upload_data.get("url") or upload_data.get("file_url")
-                except:
-                    pass
         
-        # If still no file_url, construct it from media_id
-        # Based on Higgsfield API pattern: /files/{media_id}
-        if not file_url:
-            file_url = f"{self.base_url}/files/{media_id}"
-        
-        return {"media_id": media_id, "url": file_url}
+        return {"public_url": public_url}
     
     async def _estimate_response(
         self,
