@@ -396,14 +396,14 @@ async def submit_still_job_enforced(
             )
             try:
                 await ledger.record_job(
-                    episode_id, provider_job_id, shot_id, provider.model_path, tier, line_name,
+                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
                     estimated_cost,
                 )
             except aiosqlite.Error as ledger_err:
                 # The provider already accepted (and will charge) this job: NEVER release the hold
                 # because the bookkeeping row failed. The reservation stays held.
                 activity.logger.error(
-                    f"Job {provider_job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
                     f"Reservation HELD."
                 )
             
@@ -706,14 +706,14 @@ async def submit_clip_job_enforced(
             )
             try:
                 await ledger.record_job(
-                    episode_id, provider_job_id, shot_id, provider.model_path, tier, line_name,
+                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
                     estimated_cost,
                 )
             except aiosqlite.Error as ledger_err:
                 # The provider already accepted (and will charge) this job: NEVER release the hold
                 # because the bookkeeping row failed. The reservation stays held.
                 activity.logger.error(
-                    f"Job {provider_job_id} submitted but per-job ledger row failed: {ledger_err}. "
+                    f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
                     f"Reservation HELD."
                 )
             

@@ -44,6 +44,12 @@ async def test_ref_generation_calls_real_provider_methods(tmp_path, monkeypatch)
     
     await init_studio_db(db_path)
     
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    
     ledger = CreditLedger(db_path)
     await ledger.init_db()
     await ledger.create_episode_line("ep99", cap_credits=10)
