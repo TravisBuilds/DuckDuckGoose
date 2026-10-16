@@ -1222,7 +1222,7 @@ test_mutation 115 "Upload checks cache before uploading" \
 test_mutation 116 "Smoke test gate enforced on paid stages" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
-    sed -i '/if not passed:/s/.*/            pass  # MUTATED - disable smoke gate/'
+    sed -i 's/raise RuntimeError(f"Smoke test gate failed:/pass  # MUTATED - disable gate; raise RuntimeError(f"Smoke test gate failed:/'
 
 # Print final summary
 print_summary
