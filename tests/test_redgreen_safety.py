@@ -6,6 +6,7 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 """
 
 import hashlib
+import json
 import pytest
 from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
@@ -242,8 +243,20 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     episode_dir = tmp_path / "data" / "episodes" / "ep99"
     episode_dir.mkdir(parents=True, exist_ok=True)
     (episode_dir / "beatmap.txt").write_text("A01 (2.5s)")
-    (episode_dir / "shots.json").write_text('{"shots": [{"shot_id": "A01", "prompt": "Test", "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}}]}')
-    (episode_dir / "refs.json").write_text('{"available": [], "to_generate": []}')
+    (episode_dir / "shots.json").write_text(json.dumps({
+        "shots": [{
+            "id": "A01",
+            "prompt": "Test",
+            "count": 1,
+            "characters": ["D"],
+            "wet": False,
+            "model": "kling",
+            "duration": 3,
+            "end_frame": False,
+            "ref_keys": []
+        }]
+    }))
+    (episode_dir / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))
     (episode_dir / "prompt_kit.json").write_text('{}')
     
     monkeypatch.setenv("DATABASE_PATH", db_path)

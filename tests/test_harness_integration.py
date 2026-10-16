@@ -30,7 +30,7 @@ from hfvg.worker import PRODUCTION_ACTIVITIES
 
 @pytest.mark.asyncio
 @pytest.mark.disable_socket
-async def test_api_to_g_final_cut_integration(tmp_path):
+async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
     """
     Full integration: API → Temporal → Activities → G_FINAL_CUT via FastAPI TestClient.
     
@@ -68,7 +68,7 @@ async def test_api_to_g_final_cut_integration(tmp_path):
     credit_ledger = CreditLedger(str(db_path))
     await credit_ledger.init_db()
     
-    # Create beatmap file for test
+    # Create episode files for test
     episode_id = "ep99"
     beatmap_dir = tmp_path / "episodes" / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
@@ -83,6 +83,48 @@ async def test_api_to_g_final_cut_integration(tmp_path):
 | 1 | A01 | 5.5 (6.0) | Park | Day | D | Duck walks in park | Intro | - | - | K |
 | 2 | A02 | 5.0 (6.0) | Park | Day | D G | Duck meets goose | Meeting | - | - | K |
 """)
+    
+    # Create required episode files for preflight validation  
+    episode_data_dir = tmp_path / "data" / "episodes" / episode_id
+    episode_data_dir.mkdir(parents=True, exist_ok=True)
+    # Preflight expects beatmap.txt (copy from BEATMAP.md)
+    (episode_data_dir / "beatmap.txt").write_text(beatmap_path.read_text())
+    (episode_data_dir / "shots.json").write_text(json.dumps({
+        "shots": [
+            {
+                "id": "A01",
+                "prompt": "Duck walks in park",
+                "count": 1,
+                "characters": ["D"],
+                "wet": False,
+                "model": "kling",
+                "duration": 6,
+                "end_frame": False,
+                "ref_keys": []
+            },
+            {
+                "id": "A02",
+                "prompt": "Duck meets goose",
+                "count": 2,
+                "characters": ["D", "G"],
+                "wet": False,
+                "model": "kling",
+                "duration": 6,
+                "end_frame": False,
+                "ref_keys": []
+            }
+        ]
+    }))
+    (episode_data_dir / "refs.json").write_text(json.dumps({
+        "per_shot": {
+            "A01": [],
+            "A02": []
+        }
+    }))
+    (episode_data_dir / "prompt_kit.json").write_text('{}')
+    
+    # Change to tmp_path so preflight can find data/episodes/ep99
+    monkeypatch.chdir(tmp_path)
     
     # Create time-skipping Temporal environment
     async with await WorkflowEnvironment.start_time_skipping() as env:
