@@ -233,8 +233,8 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     """Test 10: Approval signal actually reaches running workflow."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
+    from hfvg import activities
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    from hfvg.workflows.shot import ShotWorkflow
     
     db_path = str(tmp_path / "test.db")
     await init_studio_db(db_path)
@@ -263,15 +263,27 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     monkeypatch.setenv("DRY_RUN", "true")
     monkeypatch.chdir(tmp_path)
     
-    # Import production activities to ensure worker registration matches production
-    from hfvg.worker import PRODUCTION_ACTIVITIES
+    from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity
+    from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
-            workflows=[EpisodeWorkflowV2, ShotWorkflow],
-            activities=PRODUCTION_ACTIVITIES,
+            workflows=[EpisodeWorkflowV2],
+            activities=[
+                activities.load_gate_policy_activity,
+                activities.parse_beatmap_activity,
+                activities.preflight_validate_episode_activity,
+                activities.upsert_episode_activity,
+                activities.approve_g108_activity,
+                init_episode_credit_line_activity,
+                load_refs_to_generate_activity,
+                generate_ref_activity,
+                acquire_run_lock,
+                release_run_lock,
+            ],
         ):
             # Start workflow
             handle = await env.client.start_workflow(
