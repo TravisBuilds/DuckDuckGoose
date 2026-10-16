@@ -2,6 +2,7 @@
 
 import os
 import aiosqlite
+from typing import Any
 from temporalio import activity
 
 from hfvg.credit_ledger import CreditLedger
