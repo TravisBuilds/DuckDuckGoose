@@ -96,8 +96,6 @@ class EpisodeWorkflowV2:
         if attempt_overrides:
             for shot_id, attempt in attempt_overrides.items():
                 self.state.shot_attempt_overrides[shot_id] = attempt
-                # Also initialize shot_attempts so queries reflect the correct attempt count
-                self.state.shot_attempts[shot_id] = attempt
         
         # In live mode, check for required files before acquiring lock
         if not dry_run:
