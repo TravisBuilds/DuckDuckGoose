@@ -13,6 +13,7 @@ from datetime import datetime
 from temporalio import activity
 
 from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+from hfvg.providers.base import ProviderJobStatus
 from hfvg.budget import BudgetLedger
 from hfvg.credit_ledger import CreditLedger
 
@@ -209,8 +210,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                     "provider_job_id": provider_job_id,
                     "error": None
                 }
-            elif status.status in ("failed", "nsfw", "canceled"):
-                # Release on failure/nsfw/canceled
+            elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED):
+                # Release on failure/nsfw/canceled/blocked
                 await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test {status.status}")
                 await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test {status.status}")
                 budget_reserved = False
