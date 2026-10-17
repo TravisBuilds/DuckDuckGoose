@@ -612,23 +612,32 @@ async def test_normal_retry_gives_r1_suffix(tmp_path):
             )
             
             # Wait for G1 and approve
-            await workflow.wait_condition(
-                lambda: handle.query(EpisodeWorkflowV2.get_state).get("current_gate") == "G1_SHOT_PLAN",
-                timeout=timedelta(seconds=10)
-            )
+            for _ in range(100):
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if state.get("current_gate") == "G1_SHOT_PLAN":
+                        break
+                except:
+                    pass
+                await asyncio.sleep(0.05)
+            
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for shot to fail
-            await workflow.wait_condition(
-                lambda: len(handle.query(EpisodeWorkflowV2.get_state).get("failed_shots", [])) > 0,
-                timeout=timedelta(seconds=5)
-            )
+            for _ in range(100):
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if len(state.get("failed_shots", [])) > 0:
+                        break
+                except:
+                    pass
+                await asyncio.sleep(0.05)
             
             # Retry the failed shot
             retry_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
             assert retry_result["status"] == "queued"
             
-            # Check that shot_attempts was incremented to 2
+            # Check that shot_attempts was incremented immediately upon retry
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 2, f"Expected attempt 2, got {state['shot_attempts']['A01']}"
             
