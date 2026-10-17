@@ -844,7 +844,9 @@ class EpisodeWorkflowV2:
         
         # Launch new still child with NEW idempotency key (include attempt number)
         # Original = attempt 1, first retry = attempt 2 (-r1), second retry = attempt 3 (-r2)
-        workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts[shot_id]}"
+        # Workflow ID uses retry number (attempts - 1): retry1, retry2, etc.
+        retry_num = self.state.shot_attempts[shot_id] - 1
+        workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{retry_num}"
         
         try:
             handle = await workflow.start_child_workflow(
