@@ -41,6 +41,37 @@ class FailingShotWorkflowForRetryTests:
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
+class BlockingAfterStillsApprovalWorkflow:
+    """Shot workflow that completes stills then blocks forever after stills_approved signal."""
+    def __init__(self):
+        self.approved = False
+        self.block_forever = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+        self.block_forever = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        # Complete stills immediately
+        await asyncio.sleep(0.1)
+        
+        # Wait for stills approval, then block forever
+        await workflow.wait_condition(lambda: self.approved, timeout=timedelta(seconds=10))
+        
+        # Block forever after stills approval (keeps episode workflow alive after G2)
+        if self.block_forever:
+            await workflow.wait_condition(lambda: False, timeout=timedelta(hours=1))
+        
+        return {"status": "completed", "shot_id": shot_dict["shot_id"]}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
 class SlowRetryWorkflowForPendingTest:
     """Shot workflow that waits forever on retry (simulates pending)."""
     def __init__(self):
@@ -79,6 +110,10 @@ class CaptureVersionWorkflow:
     @workflow.signal
     def resume_after_cap_raise(self):
         pass
+    
+    @workflow.query
+    def get_version(self) -> int:
+        return self.captured_version
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
@@ -119,6 +154,7 @@ class TrackRetryWorkflowForClipLoop:
     def __init__(self):
         self.approved = False
         self.clip_started = False
+        self.version_that_got_signal = None
     
     @workflow.signal
     def stills_approved(self):
@@ -129,6 +165,10 @@ class TrackRetryWorkflowForClipLoop:
     def resume_after_cap_raise(self):
         pass
     
+    @workflow.query
+    def get_signaled_version(self) -> int:
+        return self.version_that_got_signal
+    
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
@@ -137,6 +177,7 @@ class TrackRetryWorkflowForClipLoop:
             return {"status": "failed", "error": "First attempt", "version": version}
         # Retry succeeds after approval
         await workflow.wait_condition(lambda: self.approved)
+        self.version_that_got_signal = version  # Record which version got the signal
         return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version, "clip_started": self.clip_started}
 
 
@@ -415,11 +456,12 @@ async def test_retry_refused_after_g2_approved(tmp_path):
     """
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
+    # Use a shot workflow that blocks after stills approval to keep episode workflow alive
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-after-g2",
-            workflows=[EpisodeWorkflowV2, FailingShotWorkflowForRetryTests],
+            workflows=[EpisodeWorkflowV2, BlockingAfterStillsApprovalWorkflow],
             activities=_make_activities(),
         ):
             handle = await env.client.start_workflow(
@@ -441,35 +483,30 @@ async def test_retry_refused_after_g2_approved(tmp_path):
             
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
-            # Wait for shot to fail
+            # Wait for shot to complete stills
             await asyncio.sleep(1.0)
             
-            # Approve G2 (passes the gate)
+            # Approve G2 (passes the gate and signals stills_approved)
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
             
             # Wait for G2 to be recorded in passed_gates
+            # Shot workflow is now waiting indefinitely, so episode workflow stays alive
             await asyncio.sleep(0.5)
             
-            # Now try to retry - should be refused because G2 is approved
-            # If workflow has completed, that's also acceptable (G2 passed, clips started/finished)
-            try:
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                # Workflow still running - try retry
-                try:
-                    await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-                    assert False, "Expected retry to be refused after G2 approval"
-                except WorkflowUpdateFailedError as e:
-                    # Expected: G2 already approved
-                    assert "G2 already approved" in str(e.cause) or "too late" in str(e.cause)
-            except Exception as e:
-                # Workflow completed after G2 - that's acceptable, means clips finished
-                if "workflow execution already completed" not in str(e).lower():
-                    raise
+            # Verify workflow is still running and G2 is approved
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert "G2_SCENE_STILLS" in state["passed_gates"], "G2 should be approved"
             
+            # Now try to retry - should be refused because G2 is approved
             try:
-                await handle.terminate("test done")
-            except:
-                pass  # Workflow may have already completed
+                await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+                assert False, "Expected retry to be refused after G2 approval"
+            except WorkflowUpdateFailedError as e:
+                # Expected: G2 already approved
+                assert "G2 already approved" in str(e.cause) or "too late" in str(e.cause), \
+                    f"Expected 'G2 already approved' error, got: {e.cause}"
+            
+            await handle.terminate("test done")  # Workflow may have already completed
 
 
 # ============================================================================
@@ -598,10 +635,16 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             override = state.get("shot_attempt_overrides", {}).get("A01", 0)
             assert override == 2, f"Expected override 2, got {override}"
             
-            try:
-                await handle.terminate("test done")
-            except:
-                pass
+            # Assert that shot_plan["version"] = shot_attempts["A01"] = 2
+            shot_attempts = state.get("shot_attempts", {}).get("A01", 0)
+            assert shot_attempts == 2, f"Expected shot_attempts 2, got {shot_attempts}"
+            
+            # Query the shot workflow to get the version it received
+            shot_handle = env.client.get_workflow_handle("ep_test-shot-A01")
+            shot_version = await shot_handle.query("get_version")
+            assert shot_version == 2, f"Expected shot_plan version 2, got {shot_version}"
+            
+            await handle.terminate("test done")
 
 
 @pytest.mark.asyncio
@@ -827,17 +870,20 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             # Approve G2 - this signals stills_approved to shot workflows
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
             
-            # The clip loop should signal the RETRY handle (version 2), not the original (version 1)
-            # If it uses the wrong handle, the retry workflow won't complete properly
+            # Wait for clip to complete
             await asyncio.sleep(1.0)
             
-            # Check that the workflow is using shot_results (latest handle)
-            # This is verified by the test completing without hanging
+            # Assert the clip loop used the RETRY handle (version 2), not the original (version 1)
+            # Get the shot workflow handle to query which version received the signal
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            shot_handle_id = f"ep_test-shot-A01"
+            shot_handle = env.client.get_workflow_handle(shot_handle_id)
+            signaled_version = await shot_handle.query("get_signaled_version")
             
-            try:
-                await handle.terminate("test done")
-            except:
-                pass
+            assert signaled_version == 2, \
+                f"Expected clip loop to signal retry handle (version 2), but it signaled version {signaled_version}"
+            
+            await handle.terminate("test done")
 
 
 # ============================================================================

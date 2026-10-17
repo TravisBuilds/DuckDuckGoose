@@ -16,19 +16,36 @@ import asyncio
 @pytest.mark.asyncio
 @pytest.mark.timeout(15)
 async def test_g2_approved_jpeg_anchor_glob(tmp_path):
-    """Test that after G2 approval, anchor stills use .jpeg glob pattern."""
-    # Create dummy episode files
+    """Test that after G2 approval, anchor stills use all glob patterns including .jpeg."""
+    from pathlib import Path
+    import os
+    
+    # Create episode output directory
     ep_dir = tmp_path / "episodes" / "ep_test"
-    ep_dir.mkdir(parents=True)
+    output_dir = ep_dir / "output" / "A01"
+    output_dir.mkdir(parents=True)
     
-    # Create anchor still as .jpeg
-    anchor_file = ep_dir / "ep_test-A01.jpeg"
-    anchor_file.write_text("fake jpeg")
+    # Create anchor stills with different extensions (simulating what might be on disk)
+    (output_dir / "still_v1.png").write_text("fake png")
+    (output_dir / "still_v2.jpg").write_text("fake jpg")  
+    (output_dir / "still_v3.jpeg").write_text("fake jpeg")
+    (output_dir / "still_v4.webp").write_text("fake webp")
     
-    # Verify the glob pattern finds it
-    import glob
-    results = glob.glob(str(ep_dir / "ep_test-A01.jpeg"))
-    assert len(results) == 1, f"Should find anchor .jpeg file, got {results}"
+    # Test the glob pattern that api/main.py uses
+    still_files = (
+        list(output_dir.glob("still_v*.png")) +
+        list(output_dir.glob("still_v*.jpg")) +
+        list(output_dir.glob("still_v*.jpeg")) +
+        list(output_dir.glob("still_v*.webp"))
+    )
+    
+    # Verify all 4 files are found
+    assert len(still_files) == 4, f"Should find all 4 still files (.png, .jpg, .jpeg, .webp), got {len(still_files)}"
+    
+    # Verify .jpeg specifically is found
+    jpeg_files = list(output_dir.glob("still_v*.jpeg"))
+    assert len(jpeg_files) == 1, f"Should find .jpeg file, got {jpeg_files}"
+    assert jpeg_files[0].name == "still_v3.jpeg", f"Should find still_v3.jpeg, got {jpeg_files[0].name}"
     
 
 # 3g: EPISODES_DIR in verify_episode_files_activity test
@@ -50,14 +67,34 @@ async def test_verify_episode_files_honors_episodes_dir():
 @pytest.mark.timeout(20)
 async def test_cli_retry_shot_execute_update_and_exit_code():
     """Test that CLI retry-shot uses execute_update (not signal) and exits nonzero on refusal."""
-    # This test verifies the CLI behavior by checking the implementation
+    from unittest.mock import AsyncMock, MagicMock, patch
     from hfvg import cli
-    import inspect
+    from click.testing import CliRunner
     
-    # Check that retry_shot command exists and uses execute_update
-    source = inspect.getsource(cli)
-    assert "retry-shot" in source or "retry_shot" in source, "CLI should have retry-shot command"
-    assert "execute_update" in source, "CLI retry-shot should use execute_update"
+    # Mock the Temporal client and workflow handle
+    mock_handle = AsyncMock()
+    mock_handle.execute_update = AsyncMock(return_value={"status": "retry_queued"})
+    mock_handle.signal = AsyncMock()
+    
+    mock_client = AsyncMock()
+    mock_client.get_workflow_handle = MagicMock(return_value=mock_handle)
+    
+    # Mock Client.connect to return our mock client
+    with patch('hfvg.cli.Client.connect', new=AsyncMock(return_value=mock_client)):
+        runner = CliRunner()
+        result = runner.invoke(cli.retry_shot, ['ep_test', 'A01'])
+        
+        # Verify execute_update was called (not signal)
+        mock_handle.execute_update.assert_called_once()
+        call_args = mock_handle.execute_update.call_args
+        assert call_args[0][0] == "retry_shot", "Should call retry_shot update"
+        assert call_args[0][1] == "A01", "Should pass shot_id"
+        
+        # Verify signal was NOT called
+        mock_handle.signal.assert_not_called()
+        
+        # Verify command succeeded
+        assert result.exit_code == 0, f"Command should succeed, got exit code {result.exit_code}"
     
 
 # 9: create_episode_line updates cap when credit_cap is passed
