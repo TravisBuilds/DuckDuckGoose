@@ -379,7 +379,7 @@ async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeyp
     # Check budget ledger has a reservation
     async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
         cursor = await conn.execute(
-            "SELECT SUM(reserved_micros) FROM budget_lines WHERE episode_id = ?",
+            "SELECT SUM(reserved_usd_micros) FROM budget_lines WHERE episode_id = ?",
             ("ep01",)
         )
         total_reserved = (await cursor.fetchone())[0] or 0
