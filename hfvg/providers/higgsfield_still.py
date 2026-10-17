@@ -253,6 +253,38 @@ class HiggsfieldStillProvider(GenerationProvider):
         except (ValueError, TypeError) as e:
             raise ValueError(f"Failed to get USD estimate for still generation: {e}") from e
 
+    async def estimate_usd_and_credits(
+        self,
+        prompt: str,
+        resolution: str = "1k",
+        quality: str | None = None,
+        aspect_ratio: str | None = None,
+    ) -> tuple[int, float]:
+        """
+        Estimate cost in both USD micro-dollars and credits from the provider's estimate.
+
+        Returns:
+            (usd_micros, credits) tuple
+        """
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None or usd_micros <= 0:
+                raise ValueError(f"Estimate response has no positive 'usd' value: {data}")
+            
+            # Extract credits from estimate response
+            credits_str = data.get("credits")
+            if credits_str is None:
+                raise ValueError(f"Estimate response has no 'credits' value: {data}")
+            credits = float(credits_str)
+            if credits <= 0:
+                raise ValueError(f"Estimate response has non-positive credits: {data}")
+            
+            return (usd_micros, credits)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD/credits estimate for still generation: {e}") from e
+
+
     async def submit_image(
         self,
         prompt: str,

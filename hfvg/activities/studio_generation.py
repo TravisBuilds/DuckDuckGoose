@@ -324,8 +324,8 @@ async def submit_still_job_enforced(
                     # Already a URL, use as-is
                     uploaded_refs.append(ref_path)
         
-        # Estimate cost in integer micro-dollars (provider estimate's USD value)
-        estimated_cost = await provider.estimate_usd_micros(
+        # Estimate cost in integer micro-dollars and credits (provider estimate's values)
+        estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(
             prompt=prompt,
             resolution=resolution,
             quality=quality,
@@ -333,13 +333,8 @@ async def submit_still_job_enforced(
         )
         
         activity.logger.info(
-            f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD"
+            f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits"
         )
-        
-        # Estimate credits for credit ledger
-        pricing_quality = "high" if quality == "high" else "standard"
-        model_path = still_model_path()
-        estimated_credits = estimate_still_credits(model_path, pricing_quality)
         
         # Reserve credits AFTER upload/estimate succeed
         credit_result = await credit_ledger.reserve_credits(
@@ -389,6 +384,7 @@ async def submit_still_job_enforced(
             line_name=line_name,
             amount_usd_micros=estimated_cost,
             reason=f"Still {shot_id} v{version}",
+            job_id=job_id,
             revision=revision,
             require_balance=True,
         )
@@ -608,13 +604,13 @@ async def submit_clip_job_enforced(
     provider = SeedanceVideoProvider() if route.model == "seedance" else KlingVideoProvider()
     
     try:
-        # Estimate cost in micro-dollars
+        # Estimate cost in micro-dollars and credits
         if route.model == "seedance":
             # Seedance: configurable per-second USD rate table (list price before discount)
-            estimated_cost = await provider.estimate_usd_micros(int(duration), route.resolution)
+            estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(int(duration), route.resolution)
         else:
-            # Kling 3.0 Pro: estimate's USD, else rate table
-            estimated_cost = await provider.estimate_usd_micros(
+            # Kling 3.0 Pro: estimate's USD and credits, with fallback to rate table
+            estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(
                 image_url=start_image_url,
                 prompt=prompt,
                 duration=int(duration),
@@ -623,7 +619,7 @@ async def submit_clip_job_enforced(
         
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id} clip: "
-            f"{micros_to_usd_str(estimated_cost)} USD ({duration}s)"
+            f"{micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits ({duration}s)"
         )
         
         # Reserve budget from L4_video (revision tier draws on the revision reserve)
@@ -639,6 +635,7 @@ async def submit_clip_job_enforced(
             line_name=line_name,
             amount_usd_micros=estimated_cost,
             reason=f"Clip {shot_id} v{version} ({duration}s)",
+            job_id=job_id,
             revision=revision,
             require_balance=True,
         )
@@ -652,17 +649,6 @@ async def submit_clip_job_enforced(
         activity.logger.info(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
-        
-        # Generate job_id (harness identifier)
-        job_id = f"clip-{episode_id}-{shot_id}-v{version}"
-        
-        # Estimate credits for credit ledger
-        # Map tier to resolution for Seedance: draft->480p, else->1080p
-        if model == "seedance":
-            resolution = "480p" if tier == "draft" else "1080p"
-            estimated_credits = estimate_clip_credits("seedance_2.5", duration, resolution)
-        else:  # kling
-            estimated_credits = estimate_clip_credits("kling_3.0", duration)
         
         # Reserve credits from credit ledger
         credit_ledger = CreditLedger(db_path)

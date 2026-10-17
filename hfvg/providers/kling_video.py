@@ -231,6 +231,40 @@ class KlingVideoProvider(GenerationProvider):
         except (ValueError, TypeError) as e:
             raise ValueError(f"Failed to get USD estimate for video generation: {e}") from e
 
+    async def estimate_usd_and_credits(
+        self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None
+    ) -> tuple[int, float]:
+        """
+        Estimate cost in both USD micro-dollars and credits from the provider's estimate.
+
+        Returns:
+            (usd_micros, credits) tuple
+        """
+        data = await self._estimate_response(image_url, prompt, duration, end_image_url)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None:
+                usd_micros = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+            if usd_micros <= 0:
+                raise ValueError(f"Non-positive USD estimate: {data}")
+            
+            # Extract credits from estimate response, or use table
+            credits_str = data.get("credits")
+            if credits_str is not None:
+                credits = float(credits_str)
+            else:
+                # Fall back to table: ~1.5 credits/second for kling pro
+                from hfvg.credit_pricing import estimate_clip_credits
+                credits = estimate_clip_credits("kling_3.0", duration)
+            
+            if credits <= 0:
+                raise ValueError(f"Non-positive credits estimate: {data}")
+            
+            return (usd_micros, credits)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD/credits estimate for video generation: {e}") from e
+
+
     async def submit_video(
         self,
         image_url: str,

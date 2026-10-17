@@ -163,6 +163,25 @@ class SeedanceVideoProvider(GenerationProvider):
             raise ValueError("Non-positive Seedance USD estimate")
         return estimate.usd_micros
 
+    async def estimate_usd_and_credits(self, duration: int, resolution: str) -> tuple[int, float]:
+        """
+        Estimate cost in both USD micro-dollars and credits from the rate table.
+
+        Returns:
+            (usd_micros, credits) tuple
+        """
+        self.validate(duration, resolution)
+        estimate = rate_table_estimate(SEEDANCE_RATE_KEY, resolution, duration)
+        if estimate.usd_micros <= 0:
+            raise ValueError("Non-positive Seedance USD estimate")
+        
+        # Calculate credits from rate table
+        from hfvg.credit_pricing import estimate_clip_credits
+        credits = estimate_clip_credits("seedance_2.5", duration, resolution)
+        
+        return (estimate.usd_micros, credits)
+
+
     def build_payload(
         self,
         image_url: str,

@@ -427,7 +427,6 @@ def smoke_test(episode_id: str, live: bool):
         click.echo(f"  Error: {result['generation_probe']['error']}")
     else:
         click.echo(f"  Provider ID: {result['generation_probe']['provider_job_id']}")
-        click.echo(f"  Cost: {result['generation_probe']['cost']} credits")
     
     click.echo()
     click.echo(f"Overall:           {'✅ PASSED' if result['passed'] else '❌ FAILED'}")
