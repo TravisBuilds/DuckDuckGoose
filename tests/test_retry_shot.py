@@ -148,11 +148,12 @@ async def test_retry_shot_succeeds_on_second_attempt():
             assert state["failed_shots"][0]["shot_id"] == "A01"
             assert "Generation failed" in state["failed_shots"][0]["reason"]
             
-            # Retry the shot
-            await handle.signal("retry_shot", args=["A01"])
-            
-            # Wait a bit for retry to start
-            await asyncio.sleep(1.0)
+            # Retry the shot (using execute_update for @workflow.update)
+            retry_result = await handle.execute_update(
+                EpisodeWorkflowV2.retry_shot,
+                args=["A01"]
+            )
+            assert retry_result["status"] == "queued"
             
             # Check that attempt count increased
             state = await handle.query(EpisodeWorkflowV2.get_state)
@@ -197,7 +198,18 @@ async def test_retry_shot_refuses_when_not_at_gate():
             
             # Before reaching G1, try to retry (should be refused)
             await asyncio.sleep(0.5)
-            await handle.signal("retry_shot", args=["A01"])
+            
+            # Try retry (should raise ApplicationError)
+            from temporalio.exceptions import ApplicationError
+            try:
+                await handle.execute_update(
+                    EpisodeWorkflowV2.retry_shot,
+                    args=["A01"]
+                )
+                pytest.fail("Expected ApplicationError for retry before G1")
+            except ApplicationError as e:
+                # Expected - retry refused
+                assert "not at G1 or G2" in str(e)
             
             # Wait for G1
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
@@ -236,7 +248,14 @@ async def test_retry_shot_refuses_when_shot_not_failed():
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             
             # Try to retry A02 (which isn't failed)
-            await handle.signal("retry_shot", args=["A02"])
+            try:
+                await handle.execute_update(
+                    EpisodeWorkflowV2.retry_shot,
+                    args=["A02"]
+                )
+                pytest.fail("Expected ApplicationError for retry of non-failed shot")
+            except ApplicationError as e:
+                assert "not in failed_shots" in str(e)
             
             await asyncio.sleep(0.5)
             
@@ -277,8 +296,11 @@ async def test_retry_shot_respects_max_retries():
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
             # Retry once (attempt 1 -> attempt 2, max_retries=1)
-            await handle.signal("retry_shot", args=["A01"])
-            await asyncio.sleep(1.0)
+            retry_result = await handle.execute_update(
+                EpisodeWorkflowV2.retry_shot,
+                args=["A01"]
+            )
+            assert retry_result["status"] == "queued"
             
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 1
@@ -341,8 +363,11 @@ async def test_retry_shot_uses_different_idempotency_key():
                 pytest.fail("Original workflow should exist, but describe() raised RPCError")
             
             # Retry the shot
-            await handle.signal("retry_shot", args=["A01"])  # Max retries from config
-            await asyncio.sleep(0.5)
+            retry_result = await handle.execute_update(
+                EpisodeWorkflowV2.retry_shot,
+                args=["A01"]
+            )
+            assert retry_result["status"] == "queued"
             
             # Check that retry workflow has different ID (includes retry1)
             retry_wf = env.client.get_workflow_handle("ep_retry5-shot-A01-retry1")
