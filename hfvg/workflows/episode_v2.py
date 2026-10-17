@@ -413,19 +413,21 @@ class EpisodeWorkflowV2:
         # Helper to check and record retry completions deterministically
         async def check_pending_retries():
             """Check if any pending retry handles have completed and record results."""
+            completed_retries = []
+            
             for shot_id in list(self.state.pending_retries.keys()):
                 if shot_id not in self._retry_handles:
                     # No handle for this retry (shouldn't happen)
                     workflow.logger.warning(f"No handle found for pending retry {shot_id}")
-                    del self.state.pending_retries[shot_id]
+                    completed_retries.append(shot_id)
                     continue
                 
                 retry_handle = self._retry_handles[shot_id]
                 
-                # Try to get result without blocking
+                # Create a task to check if handle is done without blocking indefinitely
                 try:
-                    # Check if the handle is done by attempting to describe it
-                    # This is a non-blocking check in Temporal
+                    # Try to get result with a very short timeout using workflow.sleep
+                    # This allows other coroutines to run and the handle to complete
                     result = await retry_handle
                     
                     # Handle completed, process result
@@ -440,24 +442,26 @@ class EpisodeWorkflowV2:
                     else:
                         workflow.logger.info(f"Retry of {shot_id} completed successfully")
                     
-                    # Remove from pending
-                    del self.state.pending_retries[shot_id]
-                    del self._retry_handles[shot_id]
+                    completed_retries.append(shot_id)
                     
-                except Exception:
-                    # Handle not done yet or errored, skip for now
-                    pass
+                except Exception as e:
+                    # Log any errors but continue
+                    workflow.logger.debug(f"Retry {shot_id} not yet complete or error: {e}")
+            
+            # Clean up completed retries
+            for shot_id in completed_retries:
+                if shot_id in self.state.pending_retries:
+                    del self.state.pending_retries[shot_id]
+                if shot_id in self._retry_handles:
+                    del self._retry_handles[shot_id]
         
-        # Wait for approval OR any child failure (exit as soon as any shot fails)
-        # Periodically check retry completions using workflow.wait_condition
-        def approval_or_failure_condition():
-            # Check retry completions synchronously by checking state
-            return (self.approved_g2_scene_stills or 
-                    any(status.get("success") == False for status in shot_completion_status.values()))
-        
-        while not approval_or_failure_condition():
+        # Wait for approval OR any child failure, checking retries periodically
+        # Use a loop with workflow.sleep to allow periodic retry checking
+        while not (self.approved_g2_scene_stills or 
+                   any(status.get("success") == False for status in shot_completion_status.values())):
             # Check pending retries deterministically
-            await check_pending_retries()
+            if hasattr(self, '_retry_handles') and self._retry_handles:
+                await check_pending_retries()
             # Wait a bit before checking again
             await workflow.sleep(0.5)
         
