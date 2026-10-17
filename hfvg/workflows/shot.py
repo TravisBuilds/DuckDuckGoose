@@ -305,6 +305,7 @@ class ShotWorkflow:
                         None,  # tier
                         shot_plan.get("shot_meta"),
                         shot_plan.get("missing_refs", []),
+                        self.version,  # attempt
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -405,6 +406,7 @@ class ShotWorkflow:
                                 None,  # tier (activity default)
                                 shot_plan.get("shot_meta"),  # prompt lint metadata
                                 shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
+                                self.version,  # attempt
                             ],
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,

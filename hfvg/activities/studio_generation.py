@@ -203,6 +203,7 @@ async def submit_still_job_enforced(
     tier: str | None = None,
     shot_meta: dict[str, Any] | None = None,
     missing_refs: list[str] | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
@@ -321,8 +322,10 @@ async def submit_still_job_enforced(
         )
     
     # Generate job_id (harness identifier) - include anchor in idempotency
+    # Use r{attempt} format for retries (attempt > 1), v{version} for originals
+    attempt_suffix = f"-r{attempt}" if attempt > 1 else ""
     anchor_suffix = f"-anchor{anchor['version']}" if anchor else ""
-    job_id = f"still-{episode_id}-{shot_id}-v{version}{anchor_suffix}"
+    job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -445,7 +448,7 @@ async def submit_still_job_enforced(
         import hashlib
         refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
         anchor_str = f"anchor:{anchor['sha256']}" if anchor else ""
-        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}|{anchor_str}"
+        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}|{anchor_str}|attempt:{attempt}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
