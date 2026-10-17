@@ -345,7 +345,7 @@ async def test_api_rejects_self_anchoring(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
@@ -564,7 +564,7 @@ async def test_anchor_path_supports_webp(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
@@ -614,7 +614,7 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
