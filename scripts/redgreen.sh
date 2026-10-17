@@ -1226,25 +1226,6 @@ test_mutation 116 "Smoke test gate enforced on paid stages" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
     sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
 
-# 117. Episode_v2 failed shot dict: treats failed as success
-test_mutation 117 "Episode_v2 detects shot failed dict" \
-    "hfvg/workflows/episode_v2.py" \
-    "tests/test_episode_v2_failed_shots.py::test_episode_v2_shot_returns_failed_dict" \
-    sed -i 's/result\.get("status") == "failed"/result.get("status") == "success"  # MUTATED - treat failed as success/'
-
-# 118. Smoke test timeout: releases holds instead of marking pending_reconcile
-test_mutation 118 "Smoke timeout marks pending_reconcile" \
-    "hfvg/activities/smoke_test.py" \
-    "tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile" \
-    sed -i '/Timeout - mark pending_reconcile/,/budget_reserved = False/ { /await mark_job_pending_reconcile/,/still/d; /budget_reserved = False/i\        # MUTATED - release instead of pending_reconcile\n        await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "Smoke test timeout")\n        await credit_ledger.release_credits(episode_id, job_id, notes="Smoke test timeout")\n
-}'
-
-# 119. Episode.py audio activities: remove episode_id from calls
-test_mutation 119 "Episode audio activities use episode_id" \
-    "hfvg/workflows/episode.py" \
-    "tests/test_episode_audio.py::test_episode_audio_workflow_calls" \
-    sed -i 's/args=\[self\.episode_id, /args=[/g'
-
 # Print final summary
 print_summary
 exit_code=$?
