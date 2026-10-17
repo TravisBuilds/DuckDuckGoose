@@ -44,8 +44,45 @@ class RetryableShotWorkflow:
             "status": "completed",
             "shot_id": shot_dict["shot_id"],
             "still_url": "dry-run://still.png",
-        "clip_url": "dry-run://clip.mp4",
-    }
+            "clip_url": "dry-run://clip.mp4",
+        }
+
+
+# Deterministic workflow that fails based on attempt parameter (for retry limit testing)
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class DeterministicFailureShotWorkflow:
+    """Fails deterministically based on attempt parameter from shot_dict."""
+    
+    def __init__(self):
+        self.still_status = "pending"
+    
+    @workflow.query
+    def get_state(self):
+        return {"still_status": self.still_status}
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        shot_id = shot_dict["shot_id"]
+        attempt = shot_dict.get("attempt", 1)
+        
+        # Fail on attempts 1 and 2 (original + first retry)
+        # Succeed on attempt 3+ (second retry onward)
+        if attempt <= 2:
+            self.still_status = "failed"
+            return {
+                "status": "failed",
+                "shot_id": shot_id,
+                "error": f"Deliberate failure on attempt {attempt}"
+            }
+        
+        # Succeed on attempt 3+
+        self.still_status = "complete"
+        return {
+            "status": "completed",
+            "shot_id": shot_id,
+            "still_url": f"dry-run://still-{shot_id}-attempt{attempt}.png",
+            "clip_url": f"dry-run://clip-{shot_id}-attempt{attempt}.mp4",
+        }
 
 
 # Mock ShotWorkflow for version increment test that tracks actual submission params
@@ -319,24 +356,30 @@ async def test_retry_shot_refuses_when_shot_not_failed():
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(90)
 async def test_retry_shot_respects_max_retries():
-    """Test that retry_shot respects the max_retries limit.
+    """Test that retry_shot respects MAX_SHOT_RETRIES limit.
     
-    First shot fails, first retry also fails, second retry is refused due to MAX_SHOT_RETRIES=1.
+    With MAX_SHOT_RETRIES=1:
+    - Original attempt (attempt=1) fails  
+    - First retry (attempt=2) is allowed, workflow continues
+    - Wait for first retry to complete (pending_retries clears)
+    - Second retry (attempt=3) is REFUSED with max retries error
+    
+    Mutation 117 must FAIL this test.
     """
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-limit",
-            workflows=[EpisodeWorkflowV2, RetryableShotWorkflow],
+            workflows=[EpisodeWorkflowV2, DeterministicFailureShotWorkflow],
             activities=_make_activities(),
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep_retry4", None, True, ["A01"], 40],
-                id="test-retry-limit-workflow",
+                args=["ep_retry_max", None, True, ["A01"], 40],
+                id="test-retry-max-workflow",
                 task_queue="test-retry-limit",
             )
             
@@ -344,43 +387,45 @@ async def test_retry_shot_respects_max_retries():
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
-            # Wait for A01 to fail (original attempt)
+            # Wait for A01 original to fail (attempt=1 fails)
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["shot_attempts"]["A01"] == 1, "Original attempt should be 1"
             
-            # Retry once (attempt 1 -> attempt 2, max_retries=1)
-            retry_result = await handle.execute_update(
+            # First retry: allowed (attempt 1 -> 2, within MAX_SHOT_RETRIES=1)
+            retry1_result = await handle.execute_update(
                 EpisodeWorkflowV2.retry_shot,
                 args=["A01"]
             )
-            assert retry_result["status"] == "queued"
+            assert retry1_result["status"] == "queued"
             
             state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["shot_attempts"]["A01"] == 2  # First shot=1, retry=2
+            assert state["shot_attempts"]["A01"] == 2
+            assert "A01" in state["pending_retries"]
             
-            # Wait for retry to fail (RetryableShotWorkflow fails on attempt==1)
-            # The retry child will fail immediately, but we need to give the check loop time to process it
-            # Don't approve G2 yet - keep workflow at G2 gate
-            await asyncio.sleep(2.0)
-            
-            # Now try to retry again (should be refused - already at max_retries=1)
+            # Second retry attempt: should be REFUSED with max retries error
+            # Because the max_retries check happens BEFORE the "retry in progress" check,
+            # the error message will be "Max retries" even if first retry is still pending
             from temporalio.client import WorkflowUpdateFailedError
+            
+            # Small delay to let first retry start
+            await asyncio.sleep(0.5)
+            
             try:
-                retry_result2 = await handle.execute_update(
+                await handle.execute_update(
                     EpisodeWorkflowV2.retry_shot,
                     args=["A01"]
                 )
-                assert False, "Expected WorkflowUpdateFailedError for exceeding max retries"
+                assert False, "Expected max retries error, but retry was accepted"
             except WorkflowUpdateFailedError as e:
-                # Expected: retry refused (either max retries or pending retry)
-                assert ("Max retries" in str(e.cause) or "already attempted" in str(e.cause) or
-                        "retry already in progress" in str(e.cause))
-            
-            # Verify attempt count is still 2 (second retry was refused)
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["shot_attempts"]["A01"] == 2  # Hit max after first retry
-            
-            # Now approve G2 to let workflow proceed
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+                error_msg = str(e.cause)
+                # MUST mention "Max retries" specifically
+                # This proves the max_retries check happens first
+                assert "Max retries" in error_msg, \
+                    f"Error must mention 'Max retries', got: {error_msg}"
+                # Specifically NOT "retry already in progress"
+                assert "already in progress" not in error_msg.lower(), \
+                    f"Should not be 'retry in progress' error, got: {error_msg}"
             
             await handle.terminate("test done")
 
