@@ -1321,20 +1321,3 @@ else
 fi
 
 exit $exit_code
-
-
-# Return to main workspace and verify it's clean
-cd "$WORKSPACE_ROOT"
-
-echo ""
-log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
-if [ -n "$(git status --porcelain -- hfvg api)" ]; then
-    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
-    echo -e "${RED}Mutations leaked into the working tree!${NC}"
-    git status --porcelain -- hfvg api
-    exit 1
-else
-    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
-fi
-
-exit $exit_code
