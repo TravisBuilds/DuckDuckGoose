@@ -416,6 +416,12 @@ class EpisodeWorkflowV2:
             shot_id = shot["shot_id"]
             override = self.state.shot_attempt_overrides.get(shot_id, 0)
             actual_attempts = self.state.shot_attempts.get(shot_id, 0)
+            
+            # Initialize shot_attempts for first-time shots
+            if shot_id not in self.state.shot_attempts and override == 0:
+                self.state.shot_attempts[shot_id] = 1
+                actual_attempts = 1
+            
             # Total attempt number = override + actual attempts
             # Override doesn't count against budget, only actual_attempts do
             total_attempt = override + actual_attempts
