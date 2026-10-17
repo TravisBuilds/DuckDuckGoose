@@ -71,7 +71,7 @@ async def test_set_anchor_still_with_approved_by(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_anchor_still_injected_into_refs(tmp_path):
+async def test_anchor_still_injected_into_refs(tmp_path, monkeypatch):
     """Test that anchor still is injected into refs at submit time (live path with fake provider)."""
     import os
     from unittest.mock import AsyncMock, patch
@@ -104,10 +104,10 @@ async def test_anchor_still_injected_into_refs(tmp_path):
             return {"public_url": f"fake://ref/{path}"}
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
-    os.environ["DRY_RUN"] = "false"
-    os.environ["STILL_MAX_REFS"] = "3"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("STILL_MAX_REFS", "3")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
@@ -164,7 +164,7 @@ async def test_anchor_still_injected_into_refs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_anchor_still_enforces_ref_cap(tmp_path):
+async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
     """Test that anchor still + refs respects model ref cap (live path with fake provider)."""
     import os
     from unittest.mock import AsyncMock, patch
@@ -192,11 +192,11 @@ async def test_anchor_still_enforces_ref_cap(tmp_path):
             return {"public_url": f"fake://ref/{path}"}
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
-    os.environ["DRY_RUN"] = "false"
-    os.environ["MODEL_PATH_STILL"] = "unknown/model"  # Use unknown model
-    os.environ["STILL_MAX_REFS"] = "3"  # Cap at 3 refs for unknown models
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("MODEL_PATH_STILL", "unknown/model")  # Use unknown model
+    monkeypatch.setenv("STILL_MAX_REFS", "3")  # Cap at 3 refs for unknown models
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
@@ -253,15 +253,15 @@ async def test_anchor_still_enforces_ref_cap(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_anchor_still_included_in_job_id(tmp_path):
+async def test_anchor_still_included_in_job_id(tmp_path, monkeypatch):
     """Test that anchor version is included in job_id for idempotency."""
     import os
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, set_anchor_still
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
-    os.environ["DRY_RUN"] = "true"
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=False)

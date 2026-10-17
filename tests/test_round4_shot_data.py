@@ -633,6 +633,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
         tier: str | None = None,
         shot_meta: dict | None = None,
         missing_refs: list[str] | None = None,
+        attempt: int = 1,
     ):
         """Stub that captures params for assertion."""
         CAPTURED_PARAMS["refs"] = refs

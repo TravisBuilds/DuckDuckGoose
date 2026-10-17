@@ -388,7 +388,7 @@ async def test_retry_shot_uses_different_idempotency_key():
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(120)
-async def test_retry_shot_distinct_job_id_and_idempotency_key():
+async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
     """
     Test that retry uses distinct ledger job_id AND Idempotency-Key on live path.
     
@@ -446,10 +446,10 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key():
     
     with tempfile.TemporaryDirectory() as tmp_dir:
         db_path = os.path.join(tmp_dir, "test.db")
-        os.environ["DATABASE_PATH"] = db_path
-        os.environ["DRY_RUN"] = "false"
-        os.environ["STILL_MAX_REFS"] = "3"
-        os.environ["SMOKE_TEST_OVERRIDE"] = "true"
+        monkeypatch.setenv("DATABASE_PATH", db_path)
+        monkeypatch.setenv("DRY_RUN", "false")
+        monkeypatch.setenv("STILL_MAX_REFS", "3")
+        monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
         
         # Initialize DB and episode
         from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108

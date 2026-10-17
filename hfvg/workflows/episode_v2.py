@@ -1,5 +1,6 @@
 """EpisodeWorkflow V2: Handbook-compliant workflow with steps 0-7 and Travis approval points."""
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 
@@ -410,60 +411,11 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
-        # Helper to check and record retry completions deterministically
-        async def check_pending_retries():
-            """Check if any pending retry handles have completed and record results."""
-            completed_retries = []
-            
-            for shot_id in list(self.state.pending_retries.keys()):
-                if shot_id not in self._retry_handles:
-                    # No handle for this retry (shouldn't happen)
-                    workflow.logger.warning(f"No handle found for pending retry {shot_id}")
-                    completed_retries.append(shot_id)
-                    continue
-                
-                retry_handle = self._retry_handles[shot_id]
-                
-                # Create a task to check if handle is done without blocking indefinitely
-                try:
-                    # Try to get result with a very short timeout using workflow.sleep
-                    # This allows other coroutines to run and the handle to complete
-                    result = await retry_handle
-                    
-                    # Handle completed, process result
-                    if isinstance(result, dict) and result.get("status") == "failed":
-                        error_detail = result.get("error", "Unknown error")
-                        workflow.logger.error(f"Retry of {shot_id} failed: {error_detail}")
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "status": "failed",
-                            "reason": error_detail
-                        })
-                    else:
-                        workflow.logger.info(f"Retry of {shot_id} completed successfully")
-                    
-                    completed_retries.append(shot_id)
-                    
-                except Exception as e:
-                    # Log any errors but continue
-                    workflow.logger.debug(f"Retry {shot_id} not yet complete or error: {e}")
-            
-            # Clean up completed retries
-            for shot_id in completed_retries:
-                if shot_id in self.state.pending_retries:
-                    del self.state.pending_retries[shot_id]
-                if shot_id in self._retry_handles:
-                    del self._retry_handles[shot_id]
-        
-        # Wait for approval OR any child failure, checking retries periodically
-        # Use a loop with workflow.sleep to allow periodic retry checking
-        while not (self.approved_g2_scene_stills or 
-                   any(status.get("success") == False for status in shot_completion_status.values())):
-            # Check pending retries deterministically
-            if hasattr(self, '_retry_handles') and self._retry_handles:
-                await check_pending_retries()
-            # Wait a bit before checking again
-            await workflow.sleep(0.5)
+        # Wait for approval OR any child failure (exit as soon as any shot fails)
+        await workflow.wait_condition(
+            lambda: self.approved_g2_scene_stills or
+            any(status.get("success") == False for status in shot_completion_status.values())
+        )
         
         # If we exited because of failures (not approval), surface them
         if not self.approved_g2_scene_stills and len(self.state.failed_shots) > 0:
@@ -492,19 +444,17 @@ class EpisodeWorkflowV2:
         # Clear hold state after approval (shots will be released to clips)
         self.state.shots_on_hold = []
         
-        # Wait for any pending retries to complete before moving to clips
-        if hasattr(self, '_retry_handles') and self._retry_handles:
-            workflow.logger.info(f"Waiting for {len(self._retry_handles)} pending retries to complete...")
-            max_wait = 30  # Maximum seconds to wait
-            waited = 0
-            while self._retry_handles and waited < max_wait:
-                await check_pending_retries()
-                if self._retry_handles:
-                    await workflow.sleep(0.5)
-                    waited += 0.5
-            
-            if self._retry_handles:
-                workflow.logger.warning(f"Timed out waiting for {len(self._retry_handles)} retries")
+        # Wait (bounded) for any pending retry children to finish before clips
+        if self.state.pending_retries:
+            try:
+                await workflow.wait_condition(
+                    lambda: not self.state.pending_retries,
+                    timeout=timedelta(seconds=30),
+                )
+            except asyncio.TimeoutError:
+                workflow.logger.warning(
+                    f"Timed out waiting for {len(self.state.pending_retries)} retries"
+                )
         
         # ================================================================
         # Generate Clips
@@ -656,6 +606,20 @@ class EpisodeWorkflowV2:
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
+    async def _track_retry_completion(self, shot_id: str, handle) -> None:
+        """Await a retry child and record its outcome; clears pending_retries when done."""
+        try:
+            result = await handle
+            if isinstance(result, dict) and result.get("status") == "failed":
+                self.state.failed_shots.append({
+                    "shot_id": shot_id, "status": "failed",
+                    "reason": result.get("error", "Unknown error"),
+                })
+        except Exception as e:
+            self.state.failed_shots.append({"shot_id": shot_id, "status": "failed", "reason": str(e)})
+        finally:
+            self.state.pending_retries.pop(shot_id, None)
+    
     @workflow.update
     async def retry_shot(self, shot_id: str) -> dict:
         """
@@ -751,11 +715,8 @@ class EpisodeWorkflowV2:
                 task_queue=workflow.info().task_queue,
             )
             
-            # Track the retry child handle deterministically (not with asyncio tasks)
-            # Store in a separate dict for retries to avoid conflicts with original handles
-            if not hasattr(self, '_retry_handles'):
-                self._retry_handles = {}
-            self._retry_handles[shot_id] = handle
+            # Track the retry child with a workflow task (deterministic in Temporal's event loop)
+            asyncio.create_task(self._track_retry_completion(shot_id, handle))
             # Also update shot_results to track latest handle
             self.shot_results[shot_id] = handle
             
