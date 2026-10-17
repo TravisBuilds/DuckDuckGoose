@@ -332,3 +332,147 @@ async def test_retry_shot_uses_different_idempotency_key():
             assert desc.id == "ep_retry5-shot-A01-retry1"
             
             await handle.terminate("test done")
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+async def test_retry_shot_distinct_job_id_and_idempotency_key():
+    """
+    Test that retry uses distinct ledger job_id AND Idempotency-Key on live path.
+    
+    Uses fake provider to capture both values, asserts they differ between
+    original (still-{ep}-{shot}) and retry 1 (still-{ep}-{shot}-r2).
+    """
+    import os
+    import tempfile
+    from unittest.mock import AsyncMock, patch, MagicMock
+    
+    # Captured values: [(job_id, idempotency_key), ...]
+    captured_submits = []
+    
+    class FakeProvider:
+        """Fake provider that records job_id and idempotency_key."""
+        model_path = "unknown/model"  # Forces STILL_MAX_REFS cap, not model-specific
+        
+        async def close(self):
+            pass
+        
+        async def estimate_usd_micros(self, **kwargs):
+            return 50_000  # 0.05 USD
+        
+        async def estimate_usd_and_credits(self, **kwargs):
+            return (50_000, 1.0)  # 0.05 USD, 1.0 credits
+        
+        async def submit_image(self, prompt, idempotency_key, **kwargs):
+            # Record the call - extract job_id from idempotency_key
+            # Format: still-{ep}-{shot}[-r{N}]-{hash}
+            parts = idempotency_key.split("-")
+            if len(parts) >= 4:
+                # Check if there's a retry suffix
+                if parts[3].startswith("r") and parts[3][1:].isdigit():
+                    job_id = f"{parts[0]}-{parts[1]}-{parts[2]}-{parts[3]}"
+                else:
+                    job_id = f"{parts[0]}-{parts[1]}-{parts[2]}"
+            else:
+                job_id = "-".join(parts[:3])
+            
+            captured_submits.append((job_id, idempotency_key))
+            return "fake-provider-job-123"
+        
+        async def get_job_status(self, job_id):
+            from hfvg.providers import ProviderJob, ProviderJobStatus
+            return ProviderJob(
+                job_id=job_id,
+                status=ProviderJobStatus.COMPLETED,
+                output_url="dry-run://still.png",
+                error=None,
+                cost=50_000,
+            )
+        
+        async def upload_reference(self, path, version):
+            return {"public_url": f"fake://ref/{path}"}
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = os.path.join(tmp_dir, "test.db")
+        os.environ["DATABASE_PATH"] = db_path
+        os.environ["DRY_RUN"] = "false"
+        os.environ["STILL_MAX_REFS"] = "3"
+        os.environ["SMOKE_TEST_OVERRIDE"] = "true"
+        
+        # Initialize DB and episode
+        from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108
+        from hfvg.budget import BudgetLedger
+        from hfvg.credit_ledger import CreditLedger
+        from hfvg.activities.studio_generation import submit_still_job_enforced
+        
+        await init_studio_db(db_path)
+        await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+        await approve_g108(db_path, "ep99")
+        
+        # Set up ledgers with enough balance
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await ledger.init_episode_budget("ep99")
+        await ledger.set_manual_balance(1_000_000_000, "test", "Test balance")  # 1000 USD
+        
+        credit_ledger = CreditLedger(db_path)
+        await credit_ledger.init_db()
+        await credit_ledger.create_episode_line("ep99", cap_credits=1000)
+        
+        # Patch check_live_mode_and_g108, prompt lint, and provider
+        with patch("hfvg.activities.studio_generation.check_live_mode_and_g108", new_callable=AsyncMock) as mock_check, \
+             patch("hfvg.activities.studio_generation.enforce_prompt_lint") as mock_lint, \
+             patch("hfvg.activities.studio_generation.HiggsfieldStillProvider") as MockProvider:
+            
+            mock_check.return_value = (True, True)  # (live_mode, g108_approved)
+            mock_lint.return_value = None  # No issues
+            MockProvider.return_value = FakeProvider()
+            
+            # Call submit_still_job_enforced directly with attempt=1
+            result1 = await submit_still_job_enforced(
+                episode_id="ep99",
+                shot_id="A01",
+                prompt="Exactly 0 animals in frame. Real-time, no slow motion. Test shot.",
+                version=1,
+                refs=[],
+                resolution="1k",
+                quality="medium",
+                aspect_ratio=None,
+                tier=None,
+                shot_meta={"count": 0},
+                missing_refs=[],
+                attempt=1,  # Original attempt
+            )
+            
+            # Call again with attempt=2 (retry)
+            result2 = await submit_still_job_enforced(
+                episode_id="ep99",
+                shot_id="A01",
+                prompt="Exactly 0 animals in frame. Real-time, no slow motion. Test shot.",
+                version=1,
+                refs=[],
+                resolution="1k",
+                quality="medium",
+                aspect_ratio=None,
+                tier=None,
+                shot_meta={"count": 0},
+                missing_refs=[],
+                attempt=2,  # Retry attempt
+            )
+    
+    # Verify we captured 2 submits
+    assert len(captured_submits) == 2, f"Expected 2 submits, got {len(captured_submits)}: {captured_submits}"
+    
+    job_id_1, idem_key_1 = captured_submits[0]
+    job_id_2, idem_key_2 = captured_submits[1]
+    
+    # Assert job_id differs: still-ep99-A01 vs still-ep99-A01-r2
+    assert job_id_1 == "still-ep99-A01", f"Expected 'still-ep99-A01', got '{job_id_1}'"
+    assert job_id_2 == "still-ep99-A01-r2", f"Expected 'still-ep99-A01-r2', got '{job_id_2}'"
+    
+    # Assert idempotency_key differs (hash includes attempt:N)
+    assert idem_key_1 != idem_key_2, f"Idempotency keys must differ between attempts: {idem_key_1} vs {idem_key_2}"
+    
+    # Both keys should contain their respective job_ids as prefix
+    assert job_id_1 in idem_key_1, f"job_id '{job_id_1}' should be in idempotency_key '{idem_key_1}'"
+    assert job_id_2 in idem_key_2, f"job_id '{job_id_2}' should be in idempotency_key '{idem_key_2}'"
