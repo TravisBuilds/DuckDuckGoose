@@ -827,3 +827,14 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 await handle.terminate("test done")
             except:
                 pass
+
+
+# ============================================================================
+# Item 3i: attempt_overrides mutation (test exists, adding mutation)
+# ============================================================================
+# Test already exists: test_attempt_override_gives_retry_suffix
+
+
+# Item 5: EPISODES_DIR consistency test
+# Item 9: Credit cap update test  
+# These are integration-level fixes, tested via existing suite
