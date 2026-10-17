@@ -463,20 +463,28 @@ async def test_attempt_overrides_start_shot_as_retry():
                 task_queue="test-overrides",
             )
             
-            # Wait for G1 and approve
-            import asyncio
-            for _ in range(50):
+            # Wait for G1 gate with state polling
+            async def at_g1_gate():
                 state = await handle.query(EpisodeWorkflowV2.get_state)
-                if state["current_gate"] == "G1_SHOT_PLAN":
+                return state["current_gate"] == "G1_SHOT_PLAN"
+            
+            import asyncio
+            for _ in range(100):
+                if await at_g1_gate():
                     break
                 await asyncio.sleep(0.1)
             
+            # Approve G1
             await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
             
-            # Approve stills
+            # Wait for still submissions
+            for _ in range(100):
+                if len(still_calls) >= 2:
+                    break
+                await asyncio.sleep(0.1)
+            
+            # Approve G2
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            await asyncio.sleep(1.0)
             
             # Verify submissions
             assert len(still_calls) == 2, f"Expected 2 submissions, got {len(still_calls)}"
@@ -487,12 +495,12 @@ async def test_attempt_overrides_start_shot_as_retry():
             assert a01["version"] == 1, f"A01 version should be 1, got {a01['version']}"
             assert a01["job_id"] == "still-ep99-A01-v1", f"A01 job_id should be -v1, got {a01['job_id']}"
             
-            # A02 should be retry (attempt=3, version=3, job_id with -r2)
-            # Because we set attempt_overrides to 2, which means 2 previous attempts,
-            # so version = 2+1 = 3, and attempt param = version = 3, giving -r{3-1} = -r2
+            # A02 should be retry (attempt=2, version=2, job_id with -r1)
+            # attempt_overrides: {'A02': 2} means start at attempt 2 (first retry)
+            # This is override=2, actual_attempts=0, so total_attempt=2, giving -r{2-1} = -r1
             a02 = next(c for c in still_calls if c["shot_id"] == "A02")
-            assert a02["attempt"] == 3, f"A02 attempt should be 3 (override 2 + 1), got {a02['attempt']}"
-            assert a02["version"] == 3, f"A02 version should be 3 (override 2 + 1), got {a02['version']}"
-            assert a02["job_id"] == "still-ep99-A02-r2", f"A02 job_id should be -r2, got {a02['job_id']}"
+            assert a02["attempt"] == 2, f"A02 attempt should be 2, got {a02['attempt']}"
+            assert a02["version"] == 2, f"A02 version should be 2, got {a02['version']}"
+            assert a02["job_id"] == "still-ep99-A02-r1", f"A02 job_id should be -r1, got {a02['job_id']}"
             
             await handle.terminate("test done")

@@ -92,10 +92,10 @@ class EpisodeWorkflowV2:
         """
         self.state.episode_id = episode_id
         
-        # Store attempt overrides in state for shot generation
+        # Store attempt overrides in state (these don't count against retry budget)
         if attempt_overrides:
             for shot_id, attempt in attempt_overrides.items():
-                self.state.shot_attempts[shot_id] = attempt
+                self.state.shot_attempt_overrides[shot_id] = attempt
         
         # In live mode, check for required files before acquiring lock
         if not dry_run:
@@ -414,11 +414,17 @@ class EpisodeWorkflowV2:
             
             # Apply attempt override if provided (for testing retry behavior)
             shot_id = shot["shot_id"]
-            if shot_id in self.state.shot_attempts:
-                attempt = self.state.shot_attempts[shot_id]
-                shot_plan["attempt"] = attempt
-                shot_plan["version"] = attempt + 1
-                workflow.logger.info(f"Starting {shot_id} with attempt override: attempt={attempt}, version={attempt + 1}")
+            override = self.state.shot_attempt_overrides.get(shot_id, 0)
+            actual_attempts = self.state.shot_attempts.get(shot_id, 0)
+            # Total attempt number = override + actual attempts
+            # Override doesn't count against budget, only actual_attempts do
+            total_attempt = override + actual_attempts
+            if total_attempt > 0:
+                shot_plan["attempt"] = total_attempt
+                shot_plan["version"] = total_attempt
+                workflow.logger.info(
+                    f"Starting {shot_id} with attempt={total_attempt} (override={override}, actual={actual_attempts})"
+                )
             
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
@@ -781,11 +787,12 @@ class EpisodeWorkflowV2:
             )
         
         # Pass attempt number and version into shot_plan
-        # Original shot: attempt=0, version=1
-        # First retry: attempt=1, version=2
-        # Second retry: attempt=2, version=3, etc.
-        shot_plan["attempt"] = self.state.shot_attempts[shot_id]
-        shot_plan["version"] = self.state.shot_attempts[shot_id] + 1
+        # Override doesn't count against retry budget
+        override = self.state.shot_attempt_overrides.get(shot_id, 0)
+        actual_attempts = self.state.shot_attempts[shot_id]
+        total_attempt = override + actual_attempts
+        shot_plan["attempt"] = total_attempt
+        shot_plan["version"] = total_attempt
         
         # Build prompt if missing
         if "prompt" not in shot_plan:
