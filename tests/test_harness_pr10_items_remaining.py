@@ -70,3 +70,23 @@ def test_create_episode_line_updates_cap_logic():
     source = inspect.getsource(CreditLedger.create_episode_line)
     assert "UPDATE" in source, "create_episode_line should UPDATE existing episode cap"
     assert "cap_credits" in source, "create_episode_line should handle cap_credits parameter"
+
+
+# Item 5: Files use EPISODES_DIR/DATA_DIR env vars
+def test_episodes_dir_used_in_api_and_cli():
+    """Test that api/main.py and cli.py use EPISODES_DIR env var instead of hardcoded paths."""
+    import inspect
+    from hfvg import cli
+    import api.main as api_main
+    
+    # Check CLI lint command uses EPISODES_DIR
+    cli_source = inspect.getsource(cli)
+    assert 'os.getenv("EPISODES_DIR"' in cli_source or 'EPISODES_DIR' in cli_source, \
+        "CLI should use EPISODES_DIR env var"
+    
+    # Check API routes use EPISODES_DIR
+    api_source = inspect.getsource(api_main)
+    # Count occurrences of EPISODES_DIR usage
+    episodes_dir_count = api_source.count('os.getenv("EPISODES_DIR"')
+    assert episodes_dir_count >= 5, \
+        f"API should use EPISODES_DIR in multiple routes, found {episodes_dir_count} uses"

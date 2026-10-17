@@ -465,7 +465,7 @@ async def upload_beatmap(
     validate_episode_id(episode_id)
     
     # Create episode directory
-    beatmap_dir = Path("./data/episodes") / episode_id
+    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
     
     # Save beatmap file
@@ -544,7 +544,7 @@ async def upload_prompt_kit(
     validate_episode_id(episode_id)
     
     # Create episode directory
-    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     episode_dir.mkdir(parents=True, exist_ok=True)
     
     # Save prompt_kit.json
@@ -620,7 +620,7 @@ async def upload_shots(
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
 
-    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     episode_dir.mkdir(parents=True, exist_ok=True)
     (episode_dir / "shots.json").write_bytes(shots_bytes)
     if refs_bytes is not None:
@@ -1646,8 +1646,9 @@ async def run_canary(
     
     canary_shot_meta: dict | None = None  # prompt-lint metadata (set when the beatmap shot is found)
     # Load beatmap to get full shot data for prompt building
-    beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
-    episode_path = Path("./data/episodes") / episode_id
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    beatmap_path = episodes_dir / episode_id / "BEATMAP.md"
+    episode_path = episodes_dir / episode_id
     
     if beatmap_path.exists():
         # Load prompt_kit.json (required for live mode, optional for dry mode)
@@ -2020,7 +2021,7 @@ async def lint_episode(
     warnings = []
     
     # Check BEATMAP.md exists
-    beatmap_dir = Path("./data/episodes") / episode_id
+    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     beatmap_path = beatmap_dir / "BEATMAP.md"
     if not beatmap_path.exists():
         issues.append(f"BEATMAP.md missing at {beatmap_path}")
@@ -2116,7 +2117,7 @@ async def set_ref_versions(
     validate_episode_id(episode_id)
     
     # Load refs.json
-    refs_json_path = Path("./data/episodes") / episode_id / "refs.json"
+    refs_json_path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs.json"
     if not refs_json_path.exists():
         raise HTTPException(
             status_code=404,

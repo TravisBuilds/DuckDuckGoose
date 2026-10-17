@@ -24,7 +24,7 @@ def lint(episode_id: str):
     from pathlib import Path
     
     # Check if episode directory exists
-    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     if not episode_dir.exists():
         click.echo(f"❌ Episode directory not found: {episode_dir}", err=True)
         import sys
