@@ -65,12 +65,33 @@ async def test_cli_retry_shot_execute_update_and_exit_code():
 async def test_create_episode_line_updates_cap():
     """Test that create_episode_line updates existing episode's cap when credit_cap is passed."""
     from hfvg.credit_ledger import CreditLedger
-    from hfvg.models import EpisodeLedger
-    from sqlalchemy import select
-    from unittest.mock import AsyncMock, MagicMock, patch
+    import tempfile
+    import os
     
-    # Create a real test to verify the logic
-    # This tests the implementation detail that cap is updated
-    import inspect
-    source = inspect.getsource(CreditLedger.create_episode_line)
-    assert "credit_cap" in source.lower(), "create_episode_line should handle credit_cap"
+    # Create temporary database
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    
+    try:
+        # Initialize credit ledger
+        ledger = CreditLedger(db_path)
+        await ledger.initialize()
+        
+        # Create episode with initial cap
+        await ledger.create_episode_line("ep_test", cap_credits=100)
+        
+        # Update with new cap
+        await ledger.create_episode_line("ep_test", cap_credits=200)
+        
+        # Verify cap was updated
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute(
+                "SELECT cap_credits FROM credit_lines WHERE episode_id = ?",
+                ("ep_test",)
+            )
+            row = await cursor.fetchone()
+            assert row is not None, "Episode should exist"
+            assert row[0] == 200, f"Cap should be updated to 200, got {row[0]}"
+    finally:
+        os.unlink(db_path)
