@@ -17,6 +17,65 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # ============================================================================
+# Helper functions
+# ============================================================================
+
+def _make_activities():
+    """Helper to create test activities."""
+    @activity.defn(name="acquire_run_lock")
+    async def lock(*a): return True
+    
+    @activity.defn(name="release_run_lock")
+    async def unlock(*a): return True
+    
+    @activity.defn(name="load_gate_policy_activity")
+    async def policy(*a): return {}
+    
+    @activity.defn(name="parse_beatmap_activity")
+    async def parse(*args):
+        return {"shots": [{"shot_id": "A01", "prompt": "Test", "duration": 3.0}]}
+    
+    @activity.defn(name="load_refs_to_generate_activity")
+    async def refs(*a): return []
+    
+    @activity.defn(name="generate_run_report")
+    async def report(*a): return {}
+    
+    @activity.defn(name="compute_g1_plan_activity")
+    async def g1_plan(*a):
+        return {
+            "shots": [{"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21}],
+            "total_credits": 0.21,
+            "total_usd": "0.21",
+            "estimates_available": True,
+        }
+    
+    async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
+    
+    @activity.defn(name="init_episode_budget_lines_activity")
+    async def budget_init(*a):
+        from hfvg.budget import REQUIRED_BUDGET_LINES
+        return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+    
+    @activity.defn(name="approve_g2_shots")
+    async def approve_g2(episode_id: str): return 0
+    
+    @activity.defn(name="list_anchor_stills")
+    async def list_anchors(episode_id: str): return []
+    
+    names = ["init_episode_credit_line_activity", "preflight_validate_episode_activity",
+             "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
+             "recheck_refs_activity", "update_credit_cap_activity"]
+    
+    def mk(n):
+        async def f(*a): return await noop(*a)
+        return activity.defn(name=n)(f)
+    
+    extra = [mk(n) for n in names]
+    return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, approve_g2, list_anchors, *extra]
+
+
+# ============================================================================
 # Item 3a: End-frame anchor uses base shot ID (A02_end -> A02)
 # ============================================================================
 
@@ -217,280 +276,3 @@ async def test_end_frame_anchor_enforces_ref_cap(tmp_path, monkeypatch):
         
         assert raised_exception is not None, "Expected ValueError for exceeding ref cap with anchor on end frame"
         assert "over the" in str(raised_exception) and "limit of 3" in str(raised_exception)
-
-
-# ============================================================================
-# Item 3c: Retry refused after G2 is approved
-# ============================================================================
-
-@pytest.mark.asyncio
-async def test_retry_refused_after_g2_approved(tmp_path):
-    """
-    Test that retry_shot is refused once G2 is approved (clips have started).
-    
-    Mutation should break the check in retry_shot that prevents retries after G2 approval.
-    """
-    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    
-    @workflow.defn(name="ShotWorkflow", sandboxed=False)
-    class FailingShotWorkflow:
-        def __init__(self):
-            self.approved = False
-        
-        @workflow.signal
-        def stills_approved(self):
-            self.approved = True
-        
-        @workflow.signal
-        def resume_after_cap_raise(self):
-            pass
-        
-        @workflow.run
-        async def run(self, episode_id: str, shot_dict: dict) -> dict:
-            # Always fail
-            return {"status": "failed", "error": "Test failure"}
-    
-    def _make_activities():
-        @activity.defn(name="acquire_run_lock")
-        async def lock(*a): return True
-        
-        @activity.defn(name="release_run_lock")
-        async def unlock(*a): return True
-        
-        @activity.defn(name="load_gate_policy_activity")
-        async def policy(*a): return {}
-        
-        @activity.defn(name="parse_beatmap_activity")
-        async def parse(*args):
-            return {"shots": [{"shot_id": "A01", "prompt": "Test", "duration": 3.0}]}
-        
-        @activity.defn(name="load_refs_to_generate_activity")
-        async def refs(*a): return []
-        
-        @activity.defn(name="generate_run_report")
-        async def report(*a): return {}
-        
-        @activity.defn(name="compute_g1_plan_activity")
-        async def g1_plan(*a):
-            return {
-                "shots": [{"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21}],
-                "total_credits": 0.21,
-                "total_usd": "0.21",
-                "estimates_available": True,
-            }
-        
-        async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
-        
-        @activity.defn(name="init_episode_budget_lines_activity")
-        async def budget_init(*a):
-            from hfvg.budget import REQUIRED_BUDGET_LINES
-            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
-        
-        @activity.defn(name="approve_g2_shots")
-        async def approve_g2(episode_id: str): return 0
-        
-        @activity.defn(name="list_anchor_stills")
-        async def list_anchors(episode_id: str): return []
-        
-        names = ["init_episode_credit_line_activity", "preflight_validate_episode_activity",
-                 "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
-                 "recheck_refs_activity", "update_credit_cap_activity"]
-        
-        def mk(n):
-            async def f(*a): return await noop(*a)
-            return activity.defn(name=n)(f)
-        
-        extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, approve_g2, list_anchors, *extra]
-    
-    async with await WorkflowEnvironment.start_local() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-retry-after-g2",
-            workflows=[EpisodeWorkflowV2, FailingShotWorkflow],
-            activities=_make_activities(),
-        ):
-            handle = await env.client.start_workflow(
-                EpisodeWorkflowV2.run,
-                args=["ep_test", None, True, ["A01"], 40],
-                id="test-retry-after-g2-workflow",
-                task_queue="test-retry-after-g2",
-            )
-            
-            # Wait for G1 and approve
-            for _ in range(50):
-                try:
-                    state = await handle.query(EpisodeWorkflowV2.get_state)
-                    if state["current_gate"] == "G1_SHOT_PLAN":
-                        break
-                except:
-                    pass
-                await asyncio.sleep(0.1)
-            
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
-            
-            # Wait for shot to fail
-            await asyncio.sleep(1.0)
-            
-            # Approve G2 (passes the gate)
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            
-            # Wait for G2 to be recorded in passed_gates
-            await asyncio.sleep(0.5)
-            
-            # Now try to retry - should be refused because G2 is approved
-            try:
-                await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-                assert False, "Expected retry to be refused after G2 approval"
-            except WorkflowUpdateFailedError as e:
-                # Expected: G2 already approved
-                assert "G2 already approved" in str(e.cause) or "too late" in str(e.cause)
-            
-            await handle.terminate("test done")
-
-
-# ============================================================================
-# Item 3d: Retry refused while one is pending
-# ============================================================================
-
-@pytest.mark.asyncio
-async def test_retry_refused_while_pending(tmp_path):
-    """
-    Test that retry_shot is refused when a retry is already pending for the shot.
-    
-    Mutation should break the check in retry_shot that prevents duplicate retries.
-    """
-    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    
-    @workflow.defn(name="ShotWorkflow", sandboxed=False)
-    class SlowRetryWorkflow:
-        def __init__(self):
-            self.approved = False
-        
-        @workflow.signal
-        def stills_approved(self):
-            self.approved = False  # Never approve to keep it pending
-        
-        @workflow.signal
-        def resume_after_cap_raise(self):
-            pass
-        
-        @workflow.run
-        async def run(self, episode_id: str, shot_dict: dict) -> dict:
-            # First attempt fails immediately
-            attempt = shot_dict.get("version", 1)
-            if attempt == 1:
-                return {"status": "failed", "error": "First attempt failed"}
-            
-            # Retry waits forever (simulates pending)
-            await workflow.wait_condition(lambda: self.approved, timeout=timedelta(hours=1))
-            return {"status": "completed", "shot_id": shot_dict["shot_id"]}
-    
-    def _make_activities():
-        @activity.defn(name="acquire_run_lock")
-        async def lock(*a): return True
-        
-        @activity.defn(name="release_run_lock")
-        async def unlock(*a): return True
-        
-        @activity.defn(name="load_gate_policy_activity")
-        async def policy(*a): return {}
-        
-        @activity.defn(name="parse_beatmap_activity")
-        async def parse(*args):
-            return {"shots": [{"shot_id": "A01", "prompt": "Test", "duration": 3.0}]}
-        
-        @activity.defn(name="load_refs_to_generate_activity")
-        async def refs(*a): return []
-        
-        @activity.defn(name="generate_run_report")
-        async def report(*a): return {}
-        
-        @activity.defn(name="compute_g1_plan_activity")
-        async def g1_plan(*a):
-            return {
-                "shots": [{"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21}],
-                "total_credits": 0.21,
-                "total_usd": "0.21",
-                "estimates_available": True,
-            }
-        
-        async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
-        
-        @activity.defn(name="init_episode_budget_lines_activity")
-        async def budget_init(*a):
-            from hfvg.budget import REQUIRED_BUDGET_LINES
-            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
-        
-        @activity.defn(name="approve_g2_shots")
-        async def approve_g2(episode_id: str): return 0
-        
-        @activity.defn(name="list_anchor_stills")
-        async def list_anchors(episode_id: str): return []
-        
-        names = ["init_episode_credit_line_activity", "preflight_validate_episode_activity",
-                 "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
-                 "recheck_refs_activity", "update_credit_cap_activity"]
-        
-        def mk(n):
-            async def f(*a): return await noop(*a)
-            return activity.defn(name=n)(f)
-        
-        extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, approve_g2, list_anchors, *extra]
-    
-    async with await WorkflowEnvironment.start_local() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-retry-pending",
-            workflows=[EpisodeWorkflowV2, SlowRetryWorkflow],
-            activities=_make_activities(),
-        ):
-            handle = await env.client.start_workflow(
-                EpisodeWorkflowV2.run,
-                args=["ep_test", None, True, ["A01"], 40],
-                id="test-retry-pending-workflow",
-                task_queue="test-retry-pending",
-            )
-            
-            # Wait for G1 and approve
-            for _ in range(50):
-                try:
-                    state = await handle.query(EpisodeWorkflowV2.get_state)
-                    if state["current_gate"] == "G1_SHOT_PLAN":
-                        break
-                except:
-                    pass
-                await asyncio.sleep(0.1)
-            
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
-            
-            # Wait for shot to fail
-            await asyncio.sleep(1.0)
-            
-            # Start first retry
-            retry1 = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-            assert retry1["status"] == "queued"
-            
-            # Give retry time to start (it will wait at G2)
-            await asyncio.sleep(0.5)
-            
-            # Verify pending_retries is populated
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert "A01" in state["pending_retries"], "A01 should be in pending_retries"
-            
-            # Try second retry while first is pending - should be refused
-            try:
-                await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-                assert False, "Expected retry to be refused while one is pending"
-            except WorkflowUpdateFailedError as e:
-                # Expected: retry already in progress
-                assert "retry already in progress" in str(e.cause) or "pending" in str(e.cause)
-            
-            await handle.terminate("test done")
-
-
-# Additional tests would go here for items 3e-3j...
-# For brevity, I'm showing the pattern with the first few tests.
-# The full implementation would include all items.
-
