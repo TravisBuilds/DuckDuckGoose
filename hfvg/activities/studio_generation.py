@@ -321,9 +321,16 @@ async def submit_still_job_enforced(
             "refusing instead of silently dropping refs"
         )
     
-    # Generate job_id (harness identifier) - include anchor in idempotency
-    # Use r{attempt-1} format for retries (attempt > 1), no suffix for original (attempt=1)
-    attempt_suffix = f"-r{attempt - 1}" if attempt > 1 else ""
+    # Generate job_id (harness identifier)
+    # Original shots: still-{ep}-{shot}-v{version}
+    # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
+    if attempt > 1:
+        # Retry: use -r{N} where N is retry number (attempt-1)
+        attempt_suffix = f"-r{attempt - 1}"
+    else:
+        # Original: use -v{version}
+        attempt_suffix = f"-v{version}"
+    
     anchor_suffix = f"-anchor{anchor['version']}" if anchor else ""
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
     
