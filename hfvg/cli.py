@@ -560,3 +560,88 @@ def set_anchor(episode_id: str, anchor_shot_id: str, target_shots: str, file_pat
         click.echo(f"❌ Error: {str(e)}", err=True)
         import sys
         sys.exit(1)
+
+
+@cli.command("start-v2")
+@click.argument("episode_id")
+@click.option("--beatmap", help="Path to BEATMAP.md file")
+@click.option("--dry-run/--live", default=True, help="Run in dry-run mode (default: true)")
+@click.option("--shots", help="Comma-separated shot IDs subset (e.g., A01,A02)")
+@click.option("--credit-cap", type=int, help="Credit cap for this run")
+@click.option("--attempt-overrides", help="JSON shot_id->attempt mapping (e.g., '{\"A02\": 2}')")
+def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | None, credit_cap: int | None, attempt_overrides: str | None):
+    """Start episode using EpisodeWorkflowV2 via API.
+    
+    Examples:
+        # Start with default settings
+        hfvg start-v2 ep05
+        
+        # Start specific shots as retries
+        hfvg start-v2 ep05 --shots A01,A02 --attempt-overrides '{"A02": 2}'
+    """
+    import httpx
+    import os
+    
+    api_base = os.getenv("HFVG_API_BASE", "http://localhost:8000")
+    admin_secret = os.getenv("ADMIN_SECRET")
+    if not admin_secret:
+        click.echo("❌ Error: ADMIN_SECRET environment variable not set", err=True)
+        import sys
+        sys.exit(1)
+    
+    headers = {"Authorization": f"Bearer {admin_secret}"}
+    payload = {
+        "episode_id": episode_id,
+        "dry_run": dry_run,
+    }
+    
+    if beatmap:
+        from pathlib import Path
+        beatmap_path = Path(beatmap)
+        if not beatmap_path.exists():
+            click.echo(f"❌ Error: Beatmap file not found: {beatmap}", err=True)
+            import sys
+            sys.exit(1)
+        payload["beatmap_content"] = beatmap_path.read_text()
+    
+    if shots:
+        payload["shots_subset"] = [s.strip() for s in shots.split(",")]
+    
+    if credit_cap:
+        payload["credit_cap"] = credit_cap
+    
+    if attempt_overrides:
+        try:
+            payload["attempt_overrides"] = json.loads(attempt_overrides)
+        except json.JSONDecodeError as e:
+            click.echo(f"❌ Error: Invalid JSON in --attempt-overrides: {e}", err=True)
+            import sys
+            sys.exit(1)
+    
+    try:
+        response = httpx.post(
+            f"{api_base}/api/episodes",
+            json=payload,
+            headers=headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        click.echo(f"✓ Episode {episode_id} started")
+        click.echo(f"  Workflow ID: {result['workflow_id']}")
+        click.echo(f"  Run ID: {result['run_id']}")
+        click.echo(f"  Mode: {'DRY-RUN' if dry_run else 'LIVE'}")
+        if payload.get("shots_subset"):
+            click.echo(f"  Shots: {', '.join(payload['shots_subset'])}")
+        if payload.get("attempt_overrides"):
+            click.echo(f"  Attempt overrides: {payload['attempt_overrides']}")
+        
+    except httpx.HTTPStatusError as e:
+        click.echo(f"❌ HTTP {e.response.status_code}: {e.response.text}", err=True)
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error: {str(e)}", err=True)
+        import sys
+        sys.exit(1)

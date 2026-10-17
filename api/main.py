@@ -280,6 +280,7 @@ class StartEpisodeRequest(BaseModel):
     dry_run: bool = Field(True, description="Run in dry-run mode (default: true, live requires explicit false)")
     shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
+    attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -685,7 +686,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )

@@ -73,7 +73,8 @@ class EpisodeWorkflowV2:
         beatmap_path: str | None = None, 
         dry_run: bool = True,
         shots_subset: list[str] | None = None,
-        credit_cap: int | None = None
+        credit_cap: int | None = None,
+        attempt_overrides: dict[str, int] | None = None
     ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
@@ -84,11 +85,17 @@ class EpisodeWorkflowV2:
             dry_run: If True, use DRY_RUN mode (default True for testing)
             shots_subset: Optional list of shot IDs to run (e.g., ['A01', 'A02'] for canary)
             credit_cap: Optional credit cap for this run (overrides episode line cap)
+            attempt_overrides: Optional shot_id -> attempt number mapping for testing retries (e.g., {'A02': 2})
         
         Returns:
             dict with episode results
         """
         self.state.episode_id = episode_id
+        
+        # Store attempt overrides in state for shot generation
+        if attempt_overrides:
+            for shot_id, attempt in attempt_overrides.items():
+                self.state.shot_attempts[shot_id] = attempt
         
         # In live mode, check for required files before acquiring lock
         if not dry_run:
@@ -404,6 +411,14 @@ class EpisodeWorkflowV2:
             shot_plan["dry_run"] = dry_run
             if "prompt" not in shot_plan:
                 shot_plan["prompt"] = build_prompt_from_shot(shot)
+            
+            # Apply attempt override if provided (for testing retry behavior)
+            shot_id = shot["shot_id"]
+            if shot_id in self.state.shot_attempts:
+                attempt = self.state.shot_attempts[shot_id]
+                shot_plan["attempt"] = attempt
+                shot_plan["version"] = attempt + 1
+                workflow.logger.info(f"Starting {shot_id} with attempt override: attempt={attempt}, version={attempt + 1}")
             
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
