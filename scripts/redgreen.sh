@@ -1302,6 +1302,24 @@ mutate 128 \
     "tests/test_harness_pr10_mutations.py::test_attempt_override_gives_retry_suffix" \
     sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\]/shot_plan["version"] = 1  # MUTATED/'
 
+# 129: 3f - .jpeg glob when resolving G2-approved anchor still
+mutate 129 \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
+    sed -i 's/\.jpeg/.png  # MUTATED - wrong extension/'
+
+# 130: 3g - verify_episode_files_activity honours EPISODES_DIR  
+mutate 130 \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_verify_episode_files_honors_episodes_dir" \
+    sed -i 's/os\.getenv("EPISODES_DIR",/"."  # MUTATED - ignore EPISODES_DIR/'
+
+# 131: 3h - CLI retry-shot uses execute_update
+mutate 131 \
+    "hfvg/cli.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_cli_retry_shot_execute_update_and_exit_code" \
+    sed -i 's/execute_update/signal  # MUTATED - use signal instead/'
+
 # Print final summary
 print_summary
 exit_code=$?
