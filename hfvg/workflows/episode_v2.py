@@ -667,11 +667,27 @@ class EpisodeWorkflowV2:
         Raises:
             ApplicationError: If retry is refused (validation failed)
         """
-        # Validate: must be parked at G1 or G2
+        # Validate: must be parked at G1 or G2, and G2 must not be approved yet
         if self.state.current_gate not in ("G1_SHOT_PLAN", "G2_SCENE_STILLS"):
             workflow.logger.error(f"Cannot retry {shot_id}: not at G1/G2 gate (current: {self.state.current_gate})")
             raise ApplicationError(
                 f"Cannot retry {shot_id}: not at G1 or G2 gate (current: {self.state.current_gate})",
+                non_retryable=True
+            )
+        
+        # Block retries once G2 is approved (clips have started)
+        if "G2_SCENE_STILLS" in self.state.passed_gates:
+            workflow.logger.error(f"Cannot retry {shot_id}: G2 already approved, clips in progress")
+            raise ApplicationError(
+                f"Cannot retry {shot_id}: G2 already approved, too late to retry stills",
+                non_retryable=True
+            )
+        
+        # Block retries while a retry is already pending for this shot
+        if shot_id in self.state.pending_retries:
+            workflow.logger.error(f"Cannot retry {shot_id}: retry already pending")
+            raise ApplicationError(
+                f"Cannot retry {shot_id}: retry already in progress",
                 non_retryable=True
             )
         
@@ -761,8 +777,9 @@ class EpisodeWorkflowV2:
             
         except Exception as e:
             workflow.logger.error(f"Failed to start retry child for {shot_id}: {e}")
-            # Re-add to failed_shots
-            self.state.failed_shots.append(failed_shot)
+            # Re-add to failed_shots if it was there before
+            if failed_shot:
+                self.state.failed_shots.append(failed_shot)
             raise ApplicationError(
                 f"Failed to start retry for {shot_id}: {str(e)}",
                 non_retryable=True
