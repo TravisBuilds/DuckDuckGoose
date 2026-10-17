@@ -345,8 +345,23 @@ class EpisodeWorkflowV2:
                 ]
                 self.missing_refs = self._collect_missing_refs(shots)
         
-        # Launch still generation for all shots
-        workflow.logger.info(f"Launching still generation for {len(shots)} shots...")
+        # Get list of anchor shots to skip (they're already approved)
+        from hfvg.studio_db import list_anchor_stills
+        anchor_stills = await workflow.execute_activity(
+            list_anchor_stills,
+            args=[config.database_path(), episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        anchor_shot_ids = {a["anchor_shot_id"] for a in anchor_stills}
+        if anchor_shot_ids:
+            workflow.logger.info(f"Skipping anchor shots (already approved): {sorted(anchor_shot_ids)}")
+        
+        # Filter out anchor shots
+        shots_to_generate = [s for s in shots if s["shot_id"] not in anchor_shot_ids]
+        
+        # Launch still generation for all shots (except anchors)
+        workflow.logger.info(f"Launching still generation for {len(shots_to_generate)} shots (skipped {len(anchor_shot_ids)} anchors)...")
         shot_workflow_handles = []
         shot_completion_status = {}  # Track completion: {shot_id: {"done": bool, "success": bool, "error": str?}}
         
@@ -384,7 +399,7 @@ class EpisodeWorkflowV2:
                     "reason": error_detail,
                 })
         
-        for shot in shots:
+        for shot in shots_to_generate:
             shot_plan = shot.copy()
             shot_plan["dry_run"] = dry_run
             if "prompt" not in shot_plan:

@@ -492,6 +492,12 @@ def set_anchor(episode_id: str, anchor_shot_id: str, target_shots: str, file_pat
         import sys
         sys.exit(1)
     
+    # Reject self-anchoring
+    if anchor_shot_id in target_shot_ids:
+        click.echo(f"❌ Error: Cannot anchor shot {anchor_shot_id} to itself", err=True)
+        import sys
+        sys.exit(1)
+    
     # External file requires approved_by
     if file_path and not approved_by:
         click.echo("❌ Error: External file requires --approved-by note", err=True)

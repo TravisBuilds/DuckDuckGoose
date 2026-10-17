@@ -2198,6 +2198,13 @@ async def set_anchor_still(
     if not target_shot_ids:
         raise HTTPException(status_code=400, detail="target_shot_ids cannot be empty")
     
+    # Reject self-anchoring: anchor_shot_id must not be in target_shot_ids
+    if anchor_shot_id in target_shot_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot anchor shot {anchor_shot_id} to itself"
+        )
+    
     import hashlib
     import aiosqlite
     from pathlib import Path

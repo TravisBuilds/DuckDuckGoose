@@ -253,39 +253,267 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_anchor_still_included_in_job_id(tmp_path, monkeypatch):
-    """Test that anchor version is included in job_id for idempotency."""
+async def test_anchor_still_job_id_uses_sha256_prefix(tmp_path, monkeypatch):
+    """Test that anchor job_id suffix uses sha256 prefix, not just version."""
     import os
+    from unittest.mock import AsyncMock, patch
     from hfvg.activities.studio_generation import submit_still_job_enforced
-    from hfvg.studio_db import init_studio_db, upsert_episode, set_anchor_still
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
+    from hfvg.budget import BudgetLedger
+    from hfvg.credit_ledger import CreditLedger
+    
+    class FakeProvider:
+        model_path = "unknown/model"
+        
+        async def close(self):
+            pass
+        
+        async def estimate_usd_micros(self, **kwargs):
+            return 50_000
+        
+        async def estimate_usd_and_credits(self, **kwargs):
+            return (50_000, 1.0)
+        
+        async def submit_image(self, **kwargs):
+            return "fake-job-id"
+        
+        async def upload_reference(self, path, version):
+            return {"public_url": f"fake://ref/{path}"}
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     
     await init_studio_db(db_path)
-    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=False)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+    await approve_g108(db_path, "ep99")
     
-    # Create anchor
+    # Set up ledgers
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    await ledger.init_episode_budget("ep99")
+    await ledger.set_manual_balance(1_000_000_000, "test", "Test balance")
+    
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    await credit_ledger.create_episode_line("ep99", cap_credits=1000)
+    
+    # Create anchor with known SHA256
     anchor_file = tmp_path / "anchor.png"
     anchor_file.write_bytes(b"anchor v1")
     
     import hashlib
     sha256 = hashlib.sha256(b"anchor v1").hexdigest()
+    sha256_prefix = sha256[:8]  # First 8 chars
     
     await set_anchor_still(
         db_path, "ep99", "A01", ["A02"],
         str(anchor_file), 1, sha256, None
     )
     
-    # Submit (DRY_RUN doesn't include anchor in job_id, but live mode would)
-    result = await submit_still_job_enforced(
-        episode_id="ep99",
-        shot_id="A02",
-        prompt="Test",
-        version=1,
+    # Submit with anchor
+    with patch("hfvg.activities.studio_generation.check_live_mode_and_g108", new_callable=AsyncMock) as mock_check, \
+         patch("hfvg.activities.studio_generation.enforce_prompt_lint") as mock_lint, \
+         patch("hfvg.activities.studio_generation.HiggsfieldStillProvider") as MockProvider:
+        
+        mock_check.return_value = (True, True)
+        mock_lint.return_value = None
+        MockProvider.return_value = FakeProvider()
+        
+        result = await submit_still_job_enforced(
+            episode_id="ep99",
+            shot_id="A02",
+            prompt="Exactly 0 animals in frame. Real-time, no slow motion. Test shot.",
+            version=1,
+            refs=[],
+            shot_meta={"count": 0},
+        )
+    
+    # Verify job_id includes sha256 prefix (not just version)
+    job_id = result["job_id"]
+    assert f"-anchor{sha256_prefix}" in job_id, f"Expected job_id to contain '-anchor{sha256_prefix}', got {job_id}"
+
+
+@pytest.mark.asyncio
+async def test_api_rejects_self_anchoring(tmp_path, monkeypatch):
+    """Test that API rejects anchor_shot_id == target_shot_id."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, upsert_shot
+    import os
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    
+    await init_studio_db(db_path)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+    await approve_g108(db_path, "ep99")
+    
+    # Create a shot and mark it as approved
+    await upsert_shot(
+        db_path, "ep99", "A01", "Test shot", status="approved",
+        still_url="fake://still.png"
     )
     
-    # Verify we get a job_id back
-    assert "job_id" in result
+    # Try to anchor A01 to itself
+    client = TestClient(app)
+    response = client.post(
+        "/api/episodes/ep99/anchor",
+        json={
+            "anchor_shot_id": "A01",
+            "target_shot_ids": ["A01", "A02"],  # A01 trying to anchor to itself
+        },
+        headers={"Authorization": "Bearer test-secret"}
+    )
+    
+    assert response.status_code == 400
+    assert "Cannot anchor shot A01 to itself" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_cli_rejects_self_anchoring(tmp_path, monkeypatch, capsys):
+    """Test that CLI rejects anchor_shot_id in target_shot_ids."""
+    from click.testing import CliRunner
+    from hfvg.cli import set_anchor
+    import sys
+    
+    runner = CliRunner()
+    result = runner.invoke(set_anchor, ["ep99", "A01", "--for", "A01,A02,A03"])
+    
+    # CLI should exit with nonzero code
+    assert result.exit_code == 1
+    assert "Cannot anchor shot A01 to itself" in result.output
+
+
+@pytest.mark.asyncio
+async def test_episode_workflow_skips_anchor_shots(tmp_path, monkeypatch):
+    """Test that episode workflow skips regenerating shots used as anchors."""
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
+    from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
+    import hfvg.activities as activities
+    from temporalio import activity
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DB_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
+    await init_studio_db(db_path)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=False)
+    await approve_g108(db_path, "ep99")
+    await init_episode_credit_line_activity("ep99", cap_credits=10_000)
+    await init_episode_budget_lines_activity("ep99")
+    
+    # Create anchor: A01 is the anchor for A02
+    anchor_file = tmp_path / "anchor.png"
+    anchor_file.write_bytes(b"anchor")
+    
+    import hashlib
+    sha256 = hashlib.sha256(b"anchor").hexdigest()
+    
+    await set_anchor_still(
+        db_path, "ep99", "A01", ["A02"],
+        str(anchor_file), 1, sha256, None
+    )
+    
+    # Create beatmap
+    beatmap = tmp_path / "beat.md"
+    beatmap.write_text("""
+# Episode 99
+
+## A01
+A first shot.
+
+## A02
+A second shot (uses A01 as anchor).
+""")
+    
+    # Track which shot workflows were started
+    started_shots = []
+    
+    @activity.defn(name="parse_beatmap_activity")
+    async def mock_parse_beatmap(*args):
+        return [
+            {"shot_id": "A01", "prompt": "A first shot."},
+            {"shot_id": "A02", "prompt": "A second shot."},
+        ]
+    
+    @activity.defn(name="compute_g1_plan_activity")
+    async def mock_g1_plan(*args):
+        return {
+            "shots": [],
+            "total_still_credits": 0.0,
+            "total_clip_credits": 0.0,
+            "total_credits": 0.0,
+            "total_still_usd": "0.00",
+            "total_clip_usd": "0.00",
+            "total_usd": "0.00",
+        }
+    
+    @activity.defn(name="preflight_validate_episode_activity")
+    async def mock_preflight(*args):
+        return {"validated": True, "warnings": []}
+    
+    @activity.defn(name="load_gate_policy_activity")
+    async def mock_load_gate(*args):
+        return []
+    
+    @activity.defn(name="load_refs_to_generate_activity")
+    async def mock_load_refs(*args):
+        return []
+    
+    @activity.defn(name="recheck_refs_activity")
+    async def mock_recheck(*args):
+        return {}
+    
+    # Stub shot workflow that records which shots were started
+    from temporalio import workflow as wf_module
+    
+    @wf_module.defn
+    class StubShotWorkflow:
+        @wf_module.run
+        async def run(self, episode_id: str, shot_plan: dict):
+            started_shots.append(shot_plan["shot_id"])
+            return {"status": "completed"}
+    
+    env = await WorkflowEnvironment.start_time_skipping()
+    async with env:
+        worker = Worker(
+            env.client,
+            task_queue="test-q",
+            workflows=[EpisodeWorkflowV2, StubShotWorkflow],
+            activities=[
+                mock_parse_beatmap, mock_g1_plan, mock_preflight, mock_load_gate,
+                mock_load_refs, mock_recheck,
+                activities.list_anchor_stills,
+                activities.check_live_mode_and_g108,
+                activities.upsert_episode_activity,
+                init_episode_credit_line_activity,
+                init_episode_budget_lines_activity,
+            ],
+        )
+        async with worker:
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep99", str(beatmap), True],  # dry_run=True
+                id="ep99-workflow",
+                task_queue="test-q",
+            )
+            
+            # Workflow should skip A01 (it's an anchor shot)
+            # Let the workflow start shots (before G2 gate)
+            import asyncio
+            await asyncio.sleep(0.2)
+            
+            # Terminate before gates
+            await handle.terminate()
+    
+    # Verify: A02 should have been started, but NOT A01 (it's the anchor)
+    assert "A02" in started_shots, "A02 should be generated"
+    assert "A01" not in started_shots, "A01 should be skipped (it's an anchor shot)"
 

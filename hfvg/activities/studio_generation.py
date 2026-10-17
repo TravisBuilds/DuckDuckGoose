@@ -331,7 +331,8 @@ async def submit_still_job_enforced(
         # Original: use -v{version}
         attempt_suffix = f"-v{version}"
     
-    anchor_suffix = f"-anchor{anchor['version']}" if anchor else ""
+    # Use sha256 prefix (first 8 chars) for anchor suffix for uniqueness
+    anchor_suffix = f"-anchor{anchor['sha256'][:8]}" if anchor else ""
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
     
     # Initialize provider
