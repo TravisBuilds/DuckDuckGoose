@@ -169,7 +169,11 @@ async def test_retry_shot_succeeds_on_second_attempt():
             # (In reality it takes time for the child to complete, so we just check attempts)
             assert state["shot_attempts"]["A01"] == 1
             
-            await handle.terminate("test done")
+            try:
+                await handle.terminate("test done")
+            except Exception:
+                # Workflow may have already completed
+                pass
 
 
 @pytest.mark.asyncio
