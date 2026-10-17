@@ -599,6 +599,7 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
             "total_still_usd": "0.00",
             "total_clip_usd": "0.00",
             "total_usd": "0.00",
+            "estimates_available": True,
         }
     
     worker_cm = Worker(
@@ -617,8 +618,8 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.approve_g108_activity,
-            activities.list_anchor_stills,
-            activities.approve_g2_shots,
+            list_anchor_stills,
+            approve_g2_shots,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
             activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
             activities.post_to_platform,
@@ -918,7 +919,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108, list_anchor_stills, approve_g2_shots
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     import hfvg.activities as activities
     
@@ -988,6 +989,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             "total_still_usd": "0.00",
             "total_clip_usd": "0.00",
             "total_usd": "0.00",
+            "estimates_available": True,
         }
     
     SEEN_PLANS_M95.clear()
@@ -1005,8 +1007,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 activities.load_gate_policy_activity, activities.parse_beatmap_activity,
                 activities.check_live_mode_and_g108,
                 activities.approve_g108_activity,
-                activities.list_anchor_stills,
-                activities.approve_g2_shots,
+                list_anchor_stills,
+                approve_g2_shots,
                 activities.trim_clips, activities.render_edit, activities.mix_audio,
                 activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
                 activities.post_to_platform,

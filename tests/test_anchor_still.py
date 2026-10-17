@@ -450,10 +450,12 @@ A second shot (uses A01 as anchor).
     
     @activity.defn(name="parse_beatmap_activity")
     async def mock_parse_beatmap(*args):
-        return [
-            {"shot_id": "A01", "prompt": "A first shot."},
-            {"shot_id": "A02", "prompt": "A second shot."},
-        ]
+        return {
+            "shots": [
+                {"shot_id": "A01", "prompt": "A first shot."},
+                {"shot_id": "A02", "prompt": "A second shot."},
+            ]
+        }
     
     @activity.defn(name="compute_g1_plan_activity")
     async def mock_g1_plan(*args):
