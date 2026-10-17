@@ -15,7 +15,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     Args:
         episode_id: Episode ID
         shots: List of shot plans from beatmap
-        dry_run: If True, use dry-run mode estimates (ignored for provider construction)
+        dry_run: If True, return placeholder estimates without real API calls
         
     Returns:
         dict with:
@@ -26,10 +26,37 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             - total_still_usd: sum of all still USD
             - total_clip_usd: sum of all clip USD
             - total_usd: sum of all USD
+            - estimates_available: False if any estimate failed
     """
     shot_estimates = []
     
-    # Providers don't take dry_run parameter
+    # In dry run, return placeholder estimates without real API calls
+    if dry_run:
+        for shot in shots:
+            shot_estimates.append({
+                "shot_id": shot["shot_id"],
+                "still_credits": 1.0,
+                "still_usd": "0.05",
+                "still_estimate_available": True,
+                "clip_credits": 5.0,
+                "clip_usd": "0.25",
+                "clip_estimate_available": True,
+                "total_credits": 6.0,
+                "total_usd": "0.30",
+            })
+        
+        return {
+            "shots": shot_estimates,
+            "total_still_credits": float(len(shots)),
+            "total_clip_credits": float(len(shots) * 5),
+            "total_credits": float(len(shots) * 6),
+            "total_still_usd": f"{len(shots) * 0.05:.2f}",
+            "total_clip_usd": f"{len(shots) * 0.25:.2f}",
+            "total_usd": f"{len(shots) * 0.30:.2f}",
+            "estimates_available": True,
+        }
+    
+    # Live mode: make real provider calls
     still_provider = HiggsfieldStillProvider()
     
     try:
@@ -74,8 +101,10 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             clip_credits = 0.0
             clip_usd = 0.0
             try:
+                # Clip estimate doesn't require a real image URL (it's based on duration/model)
+                # Pass None or empty string instead of a fake placeholder
                 usd_micros, credits = await clip_provider.estimate_usd_and_credits(
-                    image_url="https://example.com/placeholder.jpg",  # Placeholder, estimate doesn't need real URL
+                    image_url=None,  # No placeholder URL needed for estimate
                     prompt=prompt,
                     duration=duration,
                 )
@@ -102,6 +131,12 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     finally:
         await still_provider.close()
     
+    # Check if any estimates are unavailable
+    any_unavailable = any(
+        not s["still_estimate_available"] or not s["clip_estimate_available"]
+        for s in shot_estimates
+    )
+    
     # Calculate totals
     total_still_credits = sum(s["still_credits"] for s in shot_estimates)
     total_clip_credits = sum(s["clip_credits"] for s in shot_estimates)
@@ -118,4 +153,5 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
         "total_still_usd": f"{total_still_usd:.2f}",
         "total_clip_usd": f"{total_clip_usd:.2f}",
         "total_usd": f"{total_usd:.2f}",
+        "estimates_available": not any_unavailable,  # False if any estimate failed
     }
