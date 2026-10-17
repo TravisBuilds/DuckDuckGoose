@@ -9,6 +9,7 @@ Tables:
 
 import aiosqlite
 from pathlib import Path
+from temporalio import activity
 
 
 async def init_studio_db(db_path: str = "./data/studio.db"):
@@ -264,6 +265,7 @@ async def upsert_shot(
         await db.commit()
 
 
+@activity.defn
 async def approve_g2_shots(
     db_path: str,
     episode_id: str,
@@ -508,6 +510,7 @@ async def get_anchor_still(
             return None
 
 
+@activity.defn
 async def list_anchor_stills(
     db_path: str,
     episode_id: str,
