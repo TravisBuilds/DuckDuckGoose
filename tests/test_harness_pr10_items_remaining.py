@@ -75,18 +75,18 @@ def test_create_episode_line_updates_cap_logic():
 # Item 5: Files use EPISODES_DIR/DATA_DIR env vars
 def test_episodes_dir_used_in_api_and_cli():
     """Test that api/main.py and cli.py use EPISODES_DIR env var instead of hardcoded paths."""
-    import inspect
-    from hfvg import cli
-    import api.main as api_main
+    from pathlib import Path
     
     # Check CLI lint command uses EPISODES_DIR
-    cli_source = inspect.getsource(cli)
-    assert 'os.getenv("EPISODES_DIR"' in cli_source or 'EPISODES_DIR' in cli_source, \
+    cli_path = Path(__file__).parent.parent / "hfvg" / "cli.py"
+    cli_source = cli_path.read_text()
+    assert 'os.getenv("EPISODES_DIR"' in cli_source, \
         "CLI should use EPISODES_DIR env var"
     
     # Check API routes use EPISODES_DIR
-    api_source = inspect.getsource(api_main)
-    # Count occurrences of EPISODES_DIR usage
+    api_path = Path(__file__).parent.parent / "api" / "main.py"
+    api_source = api_path.read_text()
+    # Count occurrences of EPISODES_DIR usage in api routes
     episodes_dir_count = api_source.count('os.getenv("EPISODES_DIR"')
     assert episodes_dir_count >= 5, \
-        f"API should use EPISODES_DIR in multiple routes, found {episodes_dir_count} uses"
+        f"API should use EPISODES_DIR in multiple routes (upload, canary, smoke, set-ref-versions), found {episodes_dir_count} uses"
