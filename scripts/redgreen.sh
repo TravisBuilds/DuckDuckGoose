@@ -549,11 +549,11 @@ test_mutation 9 "Canary starts real ShotWorkflow" \
     "tests/test_redgreen_safety.py::test_canary_starts_shot_workflow" \
     sed -i 's/@workflow.defn/#@workflow.defn  # MUTATED/'
 
-# 10. Approval signal reaches workflow
-test_mutation 10 "Approval signal reaches workflow" \
+# 10. Approval update reaches workflow (retargeted to @workflow.update)
+test_mutation 10 "Approval update reaches workflow" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
-    sed -i 's/@workflow.signal/# @workflow.signal  # MUTATED/' 
+    sed -i '/def approve_g1_shot_plan/,/@workflow.update/{s/@workflow.update/# @workflow.update  # MUTATED/}' 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW MUTATIONS (Task #2): Additional safety protections
@@ -1304,21 +1304,21 @@ test_mutation 128 "shot_plan version = shot_attempts" \
 
 # 129: 3f - .jpeg glob when resolving G2-approved anchor still  
 test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
-    "hfvg/activities/studio_generation.py" \
+    "api/main.py" \
     "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
-    sed -i 's/\.jpeg/.png  # MUTATED - wrong extension/'
+    sed -i 's/list(output_dir\.glob("still_v\*\.jpeg"))/[]  # MUTATED/'
 
 # 130: 3g - verify_episode_files_activity honours EPISODES_DIR
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_harness_pr10_items_remaining.py::test_verify_episode_files_honors_episodes_dir" \
-    sed -i 's/os\.getenv("EPISODES_DIR",/"."  # MUTATED - ignore EPISODES_DIR/'
+    sed -i 's|episodes_dir = Path(os\.getenv("EPISODES_DIR", "\./data/episodes"))|episodes_dir = Path(".")  # MUTATED|'
 
 # 131: 3h - CLI retry-shot uses execute_update
 test_mutation 131 "3h: CLI retry-shot uses execute_update" \
     "hfvg/cli.py" \
     "tests/test_harness_pr10_items_remaining.py::test_cli_retry_shot_execute_update_and_exit_code" \
-    sed -i 's/execute_update/signal  # MUTATED - use signal instead/'
+    sed -i 's/result = await handle\.execute_update("retry_shot", shot_id)/result = await handle.signal("retry_shot", shot_id)  # MUTATED/'
 
 # Print final summary
 print_summary
