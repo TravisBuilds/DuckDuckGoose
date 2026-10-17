@@ -686,10 +686,45 @@ class EpisodeWorkflowV2:
                 task_queue=workflow.info().task_queue,
             )
             
-            # Track the retry child handle for later result collection
-            if shot_id not in self.shot_results:
-                self.shot_results[shot_id] = {}
-            self.shot_results[shot_id]["retry_handle"] = handle
+            # Track the retry child handle in shot_results and background tasks
+            self.shot_results[shot_id] = handle
+            
+            # Start background task to track retry completion
+            import asyncio
+            
+            async def track_retry_completion():
+                """Background task to await retry child and record result."""
+                try:
+                    result = await handle
+                    # Check if result indicates failure
+                    if isinstance(result, dict) and result.get("status") == "failed":
+                        error_detail = result.get("error", "Unknown error")
+                        workflow.logger.error(f"Retry of {shot_id} failed: {error_detail}")
+                        # Put back into failed_shots on failure
+                        self.state.failed_shots.append({
+                            "shot_id": shot_id,
+                            "status": "failed",
+                            "reason": error_detail
+                        })
+                    else:
+                        workflow.logger.info(f"Retry of {shot_id} completed successfully")
+                except Exception as e:
+                    # Child raised an exception
+                    error_detail = str(e)
+                    workflow.logger.error(f"Retry of {shot_id} failed with exception: {error_detail}")
+                    # Put back into failed_shots on failure
+                    self.state.failed_shots.append({
+                        "shot_id": shot_id,
+                        "status": "failed",
+                        "reason": error_detail,
+                    })
+            
+            # Create and track the background task
+            task = asyncio.create_task(track_retry_completion())
+            # Store task reference to keep it alive (prevents garbage collection)
+            if not hasattr(self, '_retry_tasks'):
+                self._retry_tasks = []
+            self._retry_tasks.append(task)
             
             return {"status": "queued", "workflow_id": workflow_id}
             
