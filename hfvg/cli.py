@@ -464,3 +464,84 @@ def retry_shot(episode_id: str, shot_id: str, max_retries: int):
 
 if __name__ == "__main__":
     cli()
+
+
+@cli.command("set-anchor")
+@click.argument("episode_id")
+@click.argument("anchor_shot_id")
+@click.option("--for", "target_shots", required=True, help="Comma-separated list of target shot IDs (e.g., A02,A03,A04)")
+@click.option("--file", "file_path", help="External file path (requires --approved-by)")
+@click.option("--approved-by", help="Approval note (required for external files)")
+def set_anchor(episode_id: str, anchor_shot_id: str, target_shots: str, file_path: str | None, approved_by: str | None):
+    """
+    Set an anchor still as a reference for target shots.
+    
+    Examples:
+        # Use G2-approved still as anchor
+        hfvg set-anchor ep05 A01 --for A02,A03,A04
+        
+        # Use external file as anchor
+        hfvg set-anchor ep05 A01 --for A02,A03,A04 --file /path/to/still.png --approved-by "Travis approved via Studio"
+    """
+    import httpx
+    import os
+    
+    target_shot_ids = [s.strip() for s in target_shots.split(",") if s.strip()]
+    if not target_shot_ids:
+        click.echo("❌ Error: --for must specify at least one target shot", err=True)
+        import sys
+        sys.exit(1)
+    
+    # External file requires approved_by
+    if file_path and not approved_by:
+        click.echo("❌ Error: External file requires --approved-by note", err=True)
+        import sys
+        sys.exit(1)
+    
+    # Call API endpoint
+    api_base = os.getenv("HFVG_API_BASE", "http://localhost:8000")
+    admin_secret = os.getenv("ADMIN_SECRET")
+    if not admin_secret:
+        click.echo("❌ Error: ADMIN_SECRET environment variable not set", err=True)
+        import sys
+        sys.exit(1)
+    
+    headers = {"Authorization": f"Bearer {admin_secret}"}
+    payload = {
+        "anchor_shot_id": anchor_shot_id,
+        "target_shot_ids": target_shot_ids,
+    }
+    
+    if file_path:
+        payload["file_path"] = file_path
+    if approved_by:
+        payload["approved_by"] = approved_by
+    
+    try:
+        response = httpx.post(
+            f"{api_base}/api/episodes/{episode_id}/anchor",
+            json=payload,
+            headers=headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        click.echo(f"✓ Anchor still set successfully")
+        click.echo(f"  Episode: {result['episode_id']}")
+        click.echo(f"  Anchor: {result['anchor_shot_id']}")
+        click.echo(f"  Target shots: {', '.join(result['target_shot_ids'])}")
+        click.echo(f"  Local path: {result['local_path']}")
+        click.echo(f"  Version: {result['version']}")
+        click.echo(f"  SHA256: {result['sha256']}")
+        if result.get('approved_by'):
+            click.echo(f"  Approved by: {result['approved_by']}")
+        
+    except httpx.HTTPStatusError as e:
+        click.echo(f"❌ HTTP {e.response.status_code}: {e.response.text}", err=True)
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error: {str(e)}", err=True)
+        import sys
+        sys.exit(1)

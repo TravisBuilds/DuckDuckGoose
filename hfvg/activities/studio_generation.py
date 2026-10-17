@@ -278,15 +278,51 @@ async def submit_still_job_enforced(
         raise ValueError(
             f"Shot {shot_id} is held at G2.01: refs not on disk yet: {sorted(missing_refs)}"
         )
+    
+    # Load anchor still if configured for this shot
+    refs_with_anchor = list(refs or [])
+    from hfvg.studio_db import get_anchor_still
+    anchor = await get_anchor_still(db_path, episode_id, shot_id)
+    if anchor:
+        anchor_path = anchor["local_path"]
+        # Verify anchor still file exists and SHA256 matches
+        from pathlib import Path
+        import hashlib
+        anchor_file = Path(anchor_path)
+        if not anchor_file.exists():
+            raise ValueError(
+                f"Anchor still file not found: {anchor_path}"
+            )
+        
+        # Verify SHA256
+        sha256_hash = hashlib.sha256()
+        with open(anchor_file, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        computed_sha256 = sha256_hash.hexdigest()
+        
+        if computed_sha256 != anchor["sha256"]:
+            raise ValueError(
+                f"Anchor still SHA256 mismatch: expected {anchor['sha256']}, got {computed_sha256}"
+            )
+        
+        # Add anchor to refs (prepend so it's first)
+        refs_with_anchor.insert(0, anchor_path)
+        activity.logger.info(
+            f"Added anchor still from {anchor['anchor_shot_id']} (v{anchor['version']}) to {shot_id} refs"
+        )
+    
+    # Check ref cap after adding anchor
     still_cap = max_refs_for(still_model_path())
-    if refs and len(refs) > still_cap:
+    if refs_with_anchor and len(refs_with_anchor) > still_cap:
         raise ValueError(
-            f"Shot {shot_id} has {len(refs)} refs, over the {still_model_path()} limit of {still_cap}; "
+            f"Shot {shot_id} has {len(refs_with_anchor)} refs (including anchor), over the {still_model_path()} limit of {still_cap}; "
             "refusing instead of silently dropping refs"
         )
     
-    # Generate job_id (harness identifier)
-    job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    # Generate job_id (harness identifier) - include anchor in idempotency
+    anchor_suffix = f"-anchor{anchor['version']}" if anchor else ""
+    job_id = f"still-{episode_id}-{shot_id}-v{version}{anchor_suffix}"
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -306,8 +342,8 @@ async def submit_still_job_enforced(
     try:
         # Upload local reference images to Higgsfield and get URLs
         uploaded_refs = []
-        if refs:
-            for ref_path in refs:
+        if refs_with_anchor:
+            for ref_path in refs_with_anchor:
                 # Check if this is a local file path (not already a URL)
                 if not ref_path.startswith(("http://", "https://")):
                     # Get ref version from sidecar (not shot version!)
@@ -408,7 +444,8 @@ async def submit_still_job_enforced(
         # Generate idempotency key from hash of actual request with uploaded URLs
         import hashlib
         refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
-        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}"
+        anchor_str = f"anchor:{anchor['sha256']}" if anchor else ""
+        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}|{anchor_str}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         

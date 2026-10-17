@@ -2154,3 +2154,165 @@ async def lint_prompt_endpoint(request: dict):
     problems = lint_violations(prompt, shot_meta, kit)
     
     return {"problems": problems}
+
+
+@app.post("/api/episodes/{episode_id}/anchor")
+async def set_anchor_still(
+    episode_id: str,
+    anchor_shot_id: str = Body(...),
+    target_shot_ids: list[str] = Body(...),
+    file_path: str | None = Body(None),
+    approved_by: str | None = Body(None),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Set an anchor still as a reference for target shots.
+    
+    Accepts either:
+    1. A G2-approved still (anchor_shot_id with approved status)
+    2. An externally supplied file (file_path with explicit approved_by note)
+    
+    Args:
+        episode_id: Episode ID
+        anchor_shot_id: Shot ID of the anchor still
+        target_shot_ids: List of shot IDs that will use this anchor as ref
+        file_path: Optional external file path (requires approved_by)
+        approved_by: Required if using external file, optional for G2-approved still
+        
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not target_shot_ids:
+        raise HTTPException(status_code=400, detail="target_shot_ids cannot be empty")
+    
+    import hashlib
+    import aiosqlite
+    from pathlib import Path
+    
+    # Determine the anchor still path and validate approval
+    if file_path:
+        # External file mode - requires explicit approved_by note
+        if not approved_by:
+            raise HTTPException(
+                status_code=400, 
+                detail="External file requires explicit --approved-by note"
+            )
+        
+        local_path = Path(file_path)
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        # Compute SHA256
+        sha256_hash = hashlib.sha256()
+        with open(local_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        sha256 = sha256_hash.hexdigest()
+        
+        # Use version 0 for external files
+        version = 0
+        
+    else:
+        # G2-approved still mode
+        # Check that the anchor shot is G2-approved
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            async with db.execute(
+                "SELECT status, still_url FROM shots WHERE episode_id = ? AND shot_id = ?",
+                (episode_id, anchor_shot_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Anchor shot {anchor_shot_id} not found"
+            )
+        
+        status, still_url = row
+        if status != "approved":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Anchor shot {anchor_shot_id} must be G2-approved (current status: {status})"
+            )
+        
+        if not still_url:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Anchor shot {anchor_shot_id} has no still_url"
+            )
+        
+        # Find the local file for this still
+        # Pattern: data/episodes/{episode_id}/outputs/{shot_id}/still_v{version}.{ext}
+        output_dir = Path(f"data/episodes/{episode_id}/outputs/{anchor_shot_id}")
+        if not output_dir.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Output directory not found for {anchor_shot_id}"
+            )
+        
+        # Find the latest still version
+        still_files = list(output_dir.glob("still_v*.png")) + list(output_dir.glob("still_v*.jpg"))
+        if not still_files:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No still files found for {anchor_shot_id}"
+            )
+        
+        # Sort by version number and take the latest
+        def extract_version(p):
+            import re
+            m = re.search(r'still_v(\d+)', p.name)
+            return int(m.group(1)) if m else 0
+        
+        still_files.sort(key=extract_version, reverse=True)
+        local_path = still_files[0]
+        version = extract_version(local_path)
+        
+        # Compute SHA256
+        sha256_hash = hashlib.sha256()
+        with open(local_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        sha256 = sha256_hash.hexdigest()
+    
+    # Store anchor still metadata
+    from hfvg.studio_db import set_anchor_still
+    await set_anchor_still(
+        DATABASE_PATH,
+        episode_id,
+        anchor_shot_id,
+        target_shot_ids,
+        str(local_path),
+        version,
+        sha256,
+        approved_by,
+    )
+    
+    # Audit log
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (
+                episode_id,
+                "set_anchor",
+                f"Anchor {anchor_shot_id} set for {', '.join(target_shot_ids)} (approved_by: {approved_by or 'G2'})",
+                "admin"
+            )
+        )
+        await db.commit()
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "anchor_shot_id": anchor_shot_id,
+        "target_shot_ids": target_shot_ids,
+        "local_path": str(local_path),
+        "version": version,
+        "sha256": sha256,
+        "approved_by": approved_by,
+        "message": f"Anchor still set for {len(target_shot_ids)} shot(s)",
+    }

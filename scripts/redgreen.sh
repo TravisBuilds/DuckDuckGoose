@@ -1278,3 +1278,35 @@ else
 fi
 
 exit $exit_code
+
+# 119. M-anchor: Anchor still is injected as ref
+test_mutation 119 "Anchor still is injected into refs" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_still_injected_into_refs" \
+    sed -i 's/refs_with_anchor\.insert(0, anchor_path)/pass  # MUTATED - skip anchor injection/'
+
+# 120. M-anchor-cap: Anchor + refs enforces ref cap
+test_mutation 120 "Anchor + refs respects model ref cap" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check original refs, not with anchor/'
+
+# Print final summary
+print_summary
+exit_code=$?
+
+# Return to main workspace and verify it's clean
+cd "$WORKSPACE_ROOT"
+
+echo ""
+log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
+if [ -n "$(git status --porcelain -- hfvg api)" ]; then
+    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
+    echo -e "${RED}Mutations leaked into the working tree!${NC}"
+    git status --porcelain -- hfvg api
+    exit 1
+else
+    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
+fi
+
+exit $exit_code
