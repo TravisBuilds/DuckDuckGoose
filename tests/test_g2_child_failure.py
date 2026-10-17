@@ -63,6 +63,17 @@ def _acts(fail_ids):
 
     async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def compute_g1_plan(*a):
+        return {
+            "shots": [
+                {"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21},
+                {"shot_id": "A02", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21},
+            ],
+            "total_credits": 0.42,
+            "total_usd": "0.42",
+        }
+    
     @activity.defn(name="init_episode_budget_lines_activity")
     async def budget_init(*a):
         # Return proper structure expected by workflow
@@ -72,13 +83,13 @@ def _acts(fail_ids):
     names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",
              "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
-             "recheck_refs_activity", "update_credit_cap_activity", "compute_g1_plan_activity"]
+             "recheck_refs_activity", "update_credit_cap_activity"]
     def mk(n):
         async def f(*a):
             return await noop(*a)
         return activity.defn(name=n)(f)
     extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+    return [lock, unlock, policy, parse, refs, report, compute_g1_plan, budget_init, *extra]
 
 
 async def _state(h):
