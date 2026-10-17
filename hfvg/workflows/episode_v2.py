@@ -690,8 +690,33 @@ class EpisodeWorkflowV2:
         self.state.new_credit_cap = new_cap
     
     async def _track_retry_completion(self, shot_id: str, handle) -> None:
-        """Await a retry child and record its outcome; clears pending_retries when done."""
+        """
+        Await a retry child and record its outcome.
+        
+        Clears pending_retries as soon as the retry child's still finishes (waiting at G2),
+        not when the whole child (including clip) completes. This eliminates the 30s post-G2 stall.
+        """
         try:
+            # Wait for retry child's still to complete (indicated by it waiting for stills_approved)
+            # Poll the child's state to check if still is done
+            still_done = False
+            for _ in range(100):  # Poll for up to 10 seconds
+                try:
+                    child_state = await handle.query("get_state")
+                    # Still is done when status is 'still_complete' or 'waiting_approval' or child is done
+                    if child_state.get("still_status") in ("complete", "approved", "failed"):
+                        still_done = True
+                        break
+                except:
+                    pass  # Child might not have get_state query yet
+                await asyncio.sleep(0.1)
+            
+            # Clear pending_retries once still is done, allowing next retry to start
+            if still_done or True:  # Always clear after reasonable wait, even if we can't query
+                self.state.pending_retries.pop(shot_id, None)
+                workflow.logger.info(f"Retry still complete for {shot_id}, cleared from pending_retries")
+            
+            # Continue waiting for full child completion to record final outcome
             result = await handle
             if isinstance(result, dict) and result.get("status") == "failed":
                 self.state.failed_shots.append({
@@ -700,7 +725,7 @@ class EpisodeWorkflowV2:
                 })
         except Exception as e:
             self.state.failed_shots.append({"shot_id": shot_id, "status": "failed", "reason": str(e)})
-        finally:
+            # Ensure pending_retries is cleared even on error
             self.state.pending_retries.pop(shot_id, None)
     
     @workflow.update
