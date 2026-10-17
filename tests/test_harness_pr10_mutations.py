@@ -155,6 +155,7 @@ class TrackRetryWorkflowForClipLoop:
         self.approved = False
         self.clip_started = False
         self.version_that_got_signal = None
+        self.block_after_signal = False
     
     @workflow.signal
     def stills_approved(self):
@@ -175,9 +176,11 @@ class TrackRetryWorkflowForClipLoop:
         # First attempt fails
         if version == 1:
             return {"status": "failed", "error": "First attempt", "version": version}
-        # Retry succeeds after approval
+        # Retry waits for approval then blocks to allow query
         await workflow.wait_condition(lambda: self.approved)
         self.version_that_got_signal = version  # Record which version got the signal
+        # Block for a bit to allow the test to query
+        await asyncio.sleep(0.5)
         return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version, "clip_started": self.clip_started}
 
 

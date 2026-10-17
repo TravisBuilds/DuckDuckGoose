@@ -68,8 +68,9 @@ def test_cli_retry_shot_execute_update_and_exit_code():
     from hfvg import cli
     import inspect
     
-    # Get the retry_shot function source
-    source = inspect.getsource(cli.retry_shot)
+    # Get the retry_shot function source (it's a Click command, get the callback)
+    retry_shot_func = cli.retry_shot.callback if hasattr(cli.retry_shot, 'callback') else cli.retry_shot
+    source = inspect.getsource(retry_shot_func)
     
     # Verify it uses execute_update
     assert "execute_update" in source, "CLI retry-shot should use execute_update"
