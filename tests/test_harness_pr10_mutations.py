@@ -113,6 +113,33 @@ class FailOnceThenSucceedWorkflow:
             return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
 
 
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class TrackRetryWorkflowForClipLoop:
+    """Tracks which workflow instance is awaited for clips."""
+    def __init__(self):
+        self.approved = False
+        self.clip_started = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+        self.clip_started = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        version = shot_dict.get("version", 1)
+        # First attempt fails
+        if version == 1:
+            return {"status": "failed", "error": "First attempt", "version": version}
+        # Retry succeeds after approval
+        await workflow.wait_condition(lambda: self.approved)
+        return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version, "clip_started": self.clip_started}
+
+
 # ============================================================================
 # Helper functions
 # ============================================================================
