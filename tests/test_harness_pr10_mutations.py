@@ -630,3 +630,113 @@ async def test_normal_retry_gives_r1_suffix(tmp_path):
 # For brevity, I'm showing the pattern with the first few tests.
 # The full implementation would include all items.
 
+
+# ============================================================================
+# Item 3j: G1 approval refused in live mode when estimates_available is False
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_g1_approval_refused_without_estimates(tmp_path):
+    """
+    Test that G1 approval is refused in live mode when estimates_available=False.
+    
+    Mutation should break the validation that checks estimates_available.
+    """
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    
+    def _make_activities_no_estimates():
+        """Activities that return estimates_available=False."""
+        @activity.defn(name="acquire_run_lock")
+        async def lock(*a): return True
+        
+        @activity.defn(name="release_run_lock")
+        async def unlock(*a): return True
+        
+        @activity.defn(name="load_gate_policy_activity")
+        async def policy(*a): return {}
+        
+        @activity.defn(name="parse_beatmap_activity")
+        async def parse(*args):
+            return {"shots": [{"shot_id": "A01", "prompt": "Test", "duration": 3.0}]}
+        
+        @activity.defn(name="load_refs_to_generate_activity")
+        async def refs(*a): return []
+        
+        @activity.defn(name="generate_run_report")
+        async def report(*a): return {}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def g1_plan(*a):
+            # Estimates unavailable
+            return {
+                "shots": [{"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21}],
+                "total_credits": 0.21,
+                "total_usd": "0.21",
+                "estimates_available": False,  # KEY: estimates unavailable
+                "dry_run": False,  # Live mode
+            }
+        
+        async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
+        
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def budget_init(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+        
+        @activity.defn(name="approve_g2_shots")
+        async def approve_g2(episode_id: str): return 0
+        
+        @activity.defn(name="list_anchor_stills")
+        async def list_anchors(episode_id: str): return []
+        
+        names = ["init_episode_credit_line_activity", "preflight_validate_episode_activity",
+                 "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
+                 "recheck_refs_activity", "update_credit_cap_activity"]
+        
+        def mk(n):
+            async def f(*a): return await noop(*a)
+            return activity.defn(name=n)(f)
+        
+        extra = [mk(n) for n in names]
+        return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, approve_g2, list_anchors, *extra]
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-g1-no-estimates",
+            workflows=[EpisodeWorkflowV2, FailingShotWorkflowForRetryTests],
+            activities=_make_activities_no_estimates(),
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep_test", None, False, ["A01"], 40],  # live_mode=False initially (dry run)
+                id="test-g1-no-estimates-workflow",
+                task_queue="test-g1-no-estimates",
+            )
+            
+            # Wait for G1
+            for _ in range(50):
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if state["current_gate"] == "G1_SHOT_PLAN" and state.get("g1_plan"):
+                        break
+                except:
+                    pass
+                await asyncio.sleep(0.1)
+            
+            # In dry run mode, approval should be refused without estimates
+            # Actually, looking at the code, it only checks in live mode (not dry_run)
+            # The g1_plan has dry_run=False, so it's actually live mode
+            # Let me verify the refusal
+            try:
+                await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+                assert False, "Expected G1 approval to be refused when estimates unavailable in live mode"
+            except WorkflowUpdateFailedError as e:
+                # Expected: estimates unavailable error
+                assert "estimates are unavailable" in str(e.cause).lower() or "estimate" in str(e.cause).lower()
+            
+            try:
+                await handle.terminate("test done")
+            except:
+                pass
+

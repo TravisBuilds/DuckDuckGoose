@@ -1260,8 +1260,35 @@ test_mutation 120 "Anchor + refs respects model ref cap" \
     "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
     sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check original refs, not with anchor/'
 
-# 122-123: Mutations for anchor end-frame support removed - complex to test effectively
-# The feature is tested via existing anchor tests and manual verification
+# 122: End-frame anchor: strip '_end' suffix to find anchor
+mutate 122 \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix" \
+    sed -i 's/base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id/base_shot_id = shot_id  # MUTATED - do not strip _end suffix/'
+
+# 123: Ref cap on end frames includes the anchor
+mutate 123 \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_mutations.py::test_end_frame_anchor_enforces_ref_cap" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check refs without anchor on end frame/'
+
+# 124: Retry refused after G2 is approved
+mutate 124 \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_retry_refused_after_g2_approved" \
+    sed -i 's/if "G2_SCENE_STILLS" in self.passed_gates:/if False:  # MUTATED - allow retry after G2/'
+
+# 125: Retry refused while one is already pending
+mutate 125 \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_retry_refused_while_pending" \
+    sed -i 's/if shot_id in self.state.pending_retries:/if False:  # MUTATED - allow duplicate retry/'
+
+# 126: G1 approval refused in live mode when estimates unavailable
+mutate 126 \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g1_approval_refused_without_estimates" \
+    sed -i 's/if not dry_run and not estimates_available and not override_unavailable_estimates:/if False:  # MUTATED - allow G1 without estimates/'
 
 # Print final summary
 print_summary
