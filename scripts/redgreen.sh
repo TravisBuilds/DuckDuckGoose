@@ -113,7 +113,7 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="--disable-socket -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for collection errors or syntax errors (INVALID mutation)
@@ -523,7 +523,7 @@ test_mutation 4 "Activity-level enforcement (not just API)" \
 test_mutation 5 "Idempotent retry (no double-charge)" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
-    sed -i 's/key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or \x27\x27}|{refs_str}"/key_input = str(uuid.uuid4())  # MUTATED - random idempotency key/'
+    sed -i 's/key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or \x27\x27}|{refs_str}|{anchor_str}|attempt:{attempt}"/key_input = str(uuid.uuid4())  # MUTATED - random idempotency key/'
 
 # 6. Auth fail-closed
 test_mutation 6 "Auth fail-closed (no default secret)" \
@@ -1013,7 +1013,7 @@ test_mutation 82 "M-R4n Live clip held when planned refs are missing" \
 test_mutation 83 "M-R4o Still activity refuses refs over the limit" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_live_still_over_ref_limit_is_refused_not_truncated" \
-    sed -i 's/^    if refs and len(refs) > still_cap:$/    if False:  # MUTATED/'
+    sed -i 's/^    if refs_with_anchor and len(refs_with_anchor) > still_cap:$/    if False:  # MUTATED/'
 
 # 84. M-R4p Still provider refuses instead of truncating refs
 test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
