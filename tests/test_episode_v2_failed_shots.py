@@ -109,6 +109,18 @@ async def test_episode_v2_shot_returns_failed_dict():
         async def budget_init(*a):
             from hfvg.budget import REQUIRED_BUDGET_LINES
             return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def g1_plan(*a):
+            return {
+                "shots": [],
+                "total_still_credits": 0,
+                "total_clip_credits": 0,
+                "total_credits": 0,
+                "total_still_usd": "0.00",
+                "total_clip_usd": "0.00",
+                "total_usd": "0.00",
+            }
 
         names = ["init_episode_credit_line_activity",
                  "preflight_validate_episode_activity",
@@ -119,7 +131,7 @@ async def test_episode_v2_shot_returns_failed_dict():
                 return await noop(*a)
             return activity.defn(name=n)(f)
         extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, *extra]
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
@@ -196,6 +208,18 @@ async def test_episode_v2_shot_success_path():
         async def budget_init(*a):
             from hfvg.budget import REQUIRED_BUDGET_LINES
             return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def g1_plan(*a):
+            return {
+                "shots": [],
+                "total_still_credits": 0,
+                "total_clip_credits": 0,
+                "total_credits": 0,
+                "total_still_usd": "0.00",
+                "total_clip_usd": "0.00",
+                "total_usd": "0.00",
+            }
 
         names = ["init_episode_credit_line_activity",
                  "preflight_validate_episode_activity",
@@ -206,7 +230,7 @@ async def test_episode_v2_shot_success_path():
                 return await noop(*a)
             return activity.defn(name=n)(f)
         extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, *extra]
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
