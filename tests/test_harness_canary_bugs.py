@@ -970,13 +970,13 @@ async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
     # Reserve with job_id
     job_id = "still-ep99-A01-v1"
     reserved = await ledger.reserve_credits("ep99", job_id, 5.0, "test still")
-    assert reserved is True
+    assert reserved["reserved"] is True
     
     # Check that job_id was recorded
     import aiosqlite
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT job_id, amount_credits FROM credit_reserves WHERE job_id = ?",
+            "SELECT job_id, amount_credits FROM credit_transactions WHERE job_id = ? AND txn_type = 'reserve'",
             (job_id,)
         ) as cursor:
             row = await cursor.fetchone()
@@ -1017,7 +1017,7 @@ async def test_estimate_usd_and_credits_called_before_submit(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     
-    provider = HiggsfieldStillProvider(dry_run=False)
+    provider = HiggsfieldStillProvider()
     
     try:
         # Call estimate

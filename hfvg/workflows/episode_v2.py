@@ -705,34 +705,6 @@ class EpisodeWorkflowV2:
             # Re-add to failed_shots
             self.state.failed_shots.append(failed_shot)
             return {"status": "refused", "reason": f"Failed to start retry: {str(e)}"}
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "status": "failed",
-                            "reason": result.get("error", "Unknown error"),
-                            "attempt": self.state.shot_attempts[shot_id],
-                        })
-                        workflow.logger.error(f"Retry {shot_id} failed: {result.get('error')}")
-                    else:
-                        workflow.logger.info(f"Retry {shot_id} completed successfully")
-                        # Move to shots_on_hold if at G2
-                        if self.state.current_gate == "G2_SCENE_STILLS":
-                            if shot_id not in self.state.shots_on_hold:
-                                self.state.shots_on_hold.append(shot_id)
-                except Exception as e:
-                    self.state.failed_shots.append({
-                        "shot_id": shot_id,
-                        "status": "failed",
-                        "reason": str(e),
-                        "attempt": self.state.shot_attempts[shot_id],
-                    })
-                    workflow.logger.error(f"Retry {shot_id} raised exception: {e}")
-            
-            asyncio.create_task(track_retry_completion())
-            self.shot_results[shot_id] = handle
-            
-        except Exception as e:
-            workflow.logger.error(f"Failed to start retry for {shot_id}: {e}")
-            self.state.failed_shots.append(failed_shot)  # Restore to failed_shots
     
     @workflow.query
     def get_state(self) -> dict:
