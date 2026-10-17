@@ -1015,7 +1015,12 @@ async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypat
                  "load_gate_policy_activity", "load_refs_to_generate_activity",
                  "recheck_refs_activity", "acquire_run_lock", "release_run_lock",
                  "list_anchor_stills", "approve_g2_shots"]
-        activities = [mock_parse, mock_g1] + [activity.defn(name=n)(lambda *a: noop(*a)) for n in names]
+        def make_activity(name):
+            @activity.defn(name=name)
+            async def act(*a):
+                return {}
+            return act
+        activities = [mock_parse, mock_g1] + [make_activity(n) for n in names]
         
         async with Worker(env.client, task_queue="test-retry-api", workflows=[EpisodeWorkflowV2], activities=activities):
             handle = await env.client.start_workflow(
