@@ -167,8 +167,8 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
             state = await handle.query("get_state")
             assert state.get("current_gate") == "G1_SHOT_PLAN", f"Expected G1, got {state.get('current_gate')}"
             
-            # Step 2: Approve G1_SHOT_PLAN
-            await handle.signal("approve_g1_shot_plan")
+            # Step 2: Approve G1_SHOT_PLAN (use execute_update for @workflow.update)
+            await handle.execute_update("approve_g1_shot_plan")
             print(f"✓ G1_SHOT_PLAN approved")
             
             # Wait for stills generation and G2 gate
