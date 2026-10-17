@@ -829,6 +829,7 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
     """M-96: Activity refuses submission when refs are missing (live mode)."""
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    from unittest.mock import AsyncMock, patch
     import aiosqlite
     
     # Mock lint to always pass so we reach refs check
@@ -859,16 +860,31 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
         await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     
+    # Mock provider to avoid real network calls when mutation disables refs check
+    class MockProvider:
+        model_path = "test/model"
+        async def close(self): pass
+        async def estimate_usd_micros(self, **kwargs): return 50_000
+        async def estimate_usd_and_credits(self, **kwargs): return (50_000, 1.0)
+        async def submit_image(self, **kwargs): return "fake-job-id"
+        async def upload_reference(self, path, version): return {"public_url": f"fake://ref/{path}"}
+    
     # Try to submit with missing refs - lint is mocked, should hit refs check
-    try:
-        await submit_still_job_enforced(
-            "ep99", "A01", "Test prompt", 1,
-            missing_refs=["ref_missing"],  # Has missing refs
-            shot_meta={"count": 1, "characters": ["D"], "antler": False, "duck": False, "wet": False}
-        )
-        assert False, "Should have raised ValueError for missing refs"
-    except ValueError as e:
-        assert "G2" in str(e) and "refs not on disk" in str(e), f"Expected G2 refs error, got: {e}"
+    with patch("hfvg.activities.studio_generation.HiggsfieldStillProvider", return_value=MockProvider()), \
+         patch("hfvg.activities.studio_generation.check_live_mode_and_g108", new_callable=AsyncMock, return_value=(True, True)):
+        raised_error = None
+        try:
+            await submit_still_job_enforced(
+                "ep99", "A01", "Test prompt", 1,
+                missing_refs=["ref_missing"],  # Has missing refs
+                shot_meta={"count": 1, "characters": ["D"], "antler": False, "duck": False, "wet": False}
+            )
+        except ValueError as e:
+            raised_error = e
+        
+        assert raised_error is not None, "Should have raised ValueError for missing refs"
+        assert "G2" in str(raised_error) and "refs not on disk" in str(raised_error), \
+            f"Expected G2 refs error, got: {raised_error}"
 
 
 @pytest.mark.asyncio
