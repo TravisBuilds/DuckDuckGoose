@@ -112,6 +112,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             line_name="L2_drafts",
             amount_usd_micros=estimated_cost_micros,
             reason=f"Smoke test {run_id}",
+            job_id=job_id,  # Pass job_id so row exists for pending_reconcile
             revision=False,
             require_balance=False  # Don't block smoke test on balance
         )
@@ -225,11 +226,10 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # Timeout - mark pending_reconcile (don't release since job exists)
         from hfvg.activities.studio_generation import mark_job_pending_reconcile
         await mark_job_pending_reconcile(
-            episode_id=episode_id,
-            job_id=job_id,
-            line_name="L2_drafts",
-            reserved_amount=estimated_cost_micros,
-            reason="Smoke test timeout"
+            episode_id,
+            "smoke_test",  # shot_id (use a sentinel for smoke tests)
+            job_id,
+            "still"  # job_type
         )
         budget_reserved = False
         credits_reserved = False
@@ -243,19 +243,15 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # If provider job was submitted, mark pending_reconcile; otherwise release
         if provider_job_id:
             # Job exists - mark pending_reconcile
-            try:
-                from hfvg.activities.studio_generation import mark_job_pending_reconcile
-                await mark_job_pending_reconcile(
-                    episode_id=episode_id,
-                    job_id=job_id,
-                    line_name="L2_drafts",
-                    reserved_amount=estimated_cost_micros,
-                    reason=f"Smoke test exception: {e}"
-                )
-                budget_reserved = False
-                credits_reserved = False
-            except Exception:
-                pass
+            from hfvg.activities.studio_generation import mark_job_pending_reconcile
+            await mark_job_pending_reconcile(
+                episode_id,
+                "smoke_test",  # shot_id
+                job_id,
+                "still"  # job_type
+            )
+            budget_reserved = False
+            credits_reserved = False
         else:
             # Job not submitted yet - release holds
             if budget_reserved:
