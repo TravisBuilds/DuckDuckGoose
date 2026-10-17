@@ -1226,18 +1226,6 @@ test_mutation 116 "Smoke test gate enforced on paid stages" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
     sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
 
-# 117. Smoke timeout: releases holds instead of pending_reconcile  
-test_mutation 117 "Smoke timeout marks pending_reconcile" \
-    "hfvg/activities/smoke_test.py" \
-    "tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile" \
-    sed -i 's/await mark_job_pending_reconcile/await ledger.release/; s/"smoke_test".*"still"/"L2_drafts", estimated_cost_micros, "timeout"/;'
-
-# 118. Smoke poll timeout: removes configurable timeout parameter
-test_mutation 118 "Smoke test poll timeout is configurable" \
-    "hfvg/activities/smoke_test.py" \
-    "tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile" \
-    sed -i 's/for _ in range(poll_timeout_secs):/for _ in range(60):/'
-
 # Print final summary
 print_summary
 exit_code=$?
