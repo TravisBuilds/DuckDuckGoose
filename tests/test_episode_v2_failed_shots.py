@@ -120,7 +120,14 @@ async def test_episode_v2_shot_returns_failed_dict():
                 "total_still_usd": "0.00",
                 "total_clip_usd": "0.00",
                 "total_usd": "0.00",
+                "estimates_available": True,
             }
+        
+        @activity.defn(name="approve_g2_shots")
+        async def approve_g2(*a): return 0
+        
+        @activity.defn(name="list_anchor_stills")
+        async def list_anchors(*a): return []
 
         names = ["init_episode_credit_line_activity",
                  "preflight_validate_episode_activity",
@@ -131,7 +138,7 @@ async def test_episode_v2_shot_returns_failed_dict():
                 return await noop(*a)
             return activity.defn(name=n)(f)
         extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, *extra]
+        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, approve_g2, list_anchors, *extra]
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
@@ -219,7 +226,14 @@ async def test_episode_v2_shot_success_path():
                 "total_still_usd": "0.00",
                 "total_clip_usd": "0.00",
                 "total_usd": "0.00",
+                "estimates_available": True,
             }
+        
+        @activity.defn(name="approve_g2_shots")
+        async def approve_g2(*a): return 0
+        
+        @activity.defn(name="list_anchor_stills")
+        async def list_anchors(*a): return []
 
         names = ["init_episode_credit_line_activity",
                  "preflight_validate_episode_activity",
@@ -230,7 +244,7 @@ async def test_episode_v2_shot_success_path():
                 return await noop(*a)
             return activity.defn(name=n)(f)
         extra = [mk(n) for n in names]
-        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, *extra]
+        return [lock, unlock, policy, parse, refs, report, budget_init, g1_plan, approve_g2, list_anchors, *extra]
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(

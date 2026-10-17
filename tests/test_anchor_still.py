@@ -484,6 +484,14 @@ A second shot (uses A01 as anchor).
     async def mock_recheck(*args):
         return {}
     
+    @activity.defn(name="acquire_run_lock")
+    async def mock_acquire_lock(*args):
+        return True
+    
+    @activity.defn(name="release_run_lock")
+    async def mock_release_lock(*args):
+        return True
+    
     env = await WorkflowEnvironment.start_time_skipping()
     async with env:
         worker = Worker(
@@ -492,7 +500,7 @@ A second shot (uses A01 as anchor).
             workflows=[EpisodeWorkflowV2, StubShotWorkflowForAnchorTest],
             activities=[
                 mock_parse_beatmap, mock_g1_plan, mock_preflight, mock_load_gate,
-                mock_load_refs, mock_recheck,
+                mock_load_refs, mock_recheck, mock_acquire_lock, mock_release_lock,
                 list_anchor_stills,
                 approve_g2_shots,
                 activities.check_live_mode_and_g108,

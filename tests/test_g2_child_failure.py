@@ -72,6 +72,7 @@ def _acts(fail_ids):
             ],
             "total_credits": 0.42,
             "total_usd": "0.42",
+            "estimates_available": True,
         }
     
     @activity.defn(name="init_episode_budget_lines_activity")
@@ -79,6 +80,12 @@ def _acts(fail_ids):
         # Return proper structure expected by workflow
         from hfvg.budget import REQUIRED_BUDGET_LINES
         return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+    
+    @activity.defn(name="approve_g2_shots")
+    async def approve_g2(*a): return 0
+    
+    @activity.defn(name="list_anchor_stills")
+    async def list_anchors(*a): return []
 
     names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",
@@ -89,7 +96,7 @@ def _acts(fail_ids):
             return await noop(*a)
         return activity.defn(name=n)(f)
     extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, compute_g1_plan, budget_init, *extra]
+    return [lock, unlock, policy, parse, refs, report, compute_g1_plan, budget_init, approve_g2, list_anchors, *extra]
 
 
 async def _state(h):
