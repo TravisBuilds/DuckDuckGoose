@@ -676,7 +676,7 @@ class EpisodeWorkflowV2:
             )
         
         # Block retries once G2 is approved (clips have started)
-        if "G2_SCENE_STILLS" in self.state.passed_gates:
+        if "G2_SCENE_STILLS" in self.passed_gates:
             workflow.logger.error(f"Cannot retry {shot_id}: G2 already approved, clips in progress")
             raise ApplicationError(
                 f"Cannot retry {shot_id}: G2 already approved, too late to retry stills",
