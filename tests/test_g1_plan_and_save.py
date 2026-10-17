@@ -59,8 +59,8 @@ async def test_g1_plan_computes_per_shot_and_total_estimates():
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_falls_back_to_default_on_estimate_failure():
-    """Test that G1 plan uses default estimates when provider estimates fail."""
+async def test_g1_plan_marks_estimate_unavailable_on_failure():
+    """Test that G1 plan marks estimates as unavailable when provider estimates fail (no silent defaults)."""
     
     # Mock estimate endpoints to fail
     with respx.mock:
@@ -81,10 +81,13 @@ async def test_g1_plan_falls_back_to_default_on_estimate_failure():
         
         plan = await compute_g1_plan_activity("ep99", shots, dry_run=False)
         
-        # Should fall back to defaults
-        assert plan["shots"][0]["still_credits"] == 0.06  # Default
-        assert plan["shots"][0]["clip_credits"] == 0.25   # 5s * 0.05 default rate
-        assert plan["total_credits"] == 0.31
+        # Should NOT fall back to defaults (as per user requirement)
+        # Mark estimates as unavailable instead
+        assert plan["shots"][0]["still_credits"] == 0.0
+        assert plan["shots"][0]["still_estimate_available"] is False
+        assert plan["shots"][0]["clip_credits"] == 0.0
+        assert plan["shots"][0]["clip_estimate_available"] is False
+        assert plan["total_credits"] == 0.0
 
 
 @pytest.mark.asyncio
