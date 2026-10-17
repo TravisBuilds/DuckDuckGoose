@@ -626,7 +626,7 @@ class EpisodeWorkflowV2:
         
         # Check retry limit (server-side enforcement via config)
         attempt_count = self.state.shot_attempts.get(shot_id, 0)
-        max_retries = config.config.MAX_SHOT_RETRIES
+        max_retries = config.MAX_SHOT_RETRIES
         if attempt_count >= max_retries:
             workflow.logger.error(
                 f"Cannot retry {shot_id}: already attempted {attempt_count} times (max {max_retries})"
@@ -671,34 +671,10 @@ class EpisodeWorkflowV2:
                 task_queue=workflow.info().task_queue,
             )
             
-            # Track completion in background
-            import asyncio
+            # The child workflow will complete asynchronously
+            # Its result will be captured when we query shot results later
             
-            async def track_retry_completion():
-                try:
-                    result = await handle
-                    if isinstance(result, dict) and result.get("status") == "failed":
-                        # Move back to failed_shots
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "error": result.get("error", "Unknown"),
-                        })
-                        workflow.logger.error(f"Retry of {shot_id} failed: {result.get('error')}")
-                    elif isinstance(result, dict) and result.get("status") == "completed":
-                        # Move to done_shots
-                        self.shot_results[shot_id] = result
-                        workflow.logger.info(f"Retry of {shot_id} succeeded")
-                except Exception as e:
-                    # Child workflow failed
-                    self.state.failed_shots.append({
-                        "shot_id": shot_id,
-                        "error": str(e),
-                    })
-                    workflow.logger.error(f"Retry child workflow failed for {shot_id}: {e}")
-            
-            workflow.create_task(track_retry_completion())
-            
-            return {"status": "queued"}
+            return {"status": "queued", "workflow_id": workflow_id}
             
         except Exception as e:
             workflow.logger.error(f"Failed to start retry child for {shot_id}: {e}")
