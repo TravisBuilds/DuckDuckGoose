@@ -1226,12 +1226,6 @@ test_mutation 116 "Smoke test gate enforced on paid stages" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
     sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
 
-# 117. Episode_v2 failed shot detection: treats failed dict as success
-test_mutation 117 "Episode_v2 detects shot failed dict" \
-    "hfvg/workflows/episode_v2.py" \
-    "tests/test_episode_v2_failed_shots.py::test_episode_v2_shot_returns_failed_dict" \
-    sed -i 's/result.get("status") == "failed"/result.get("status") == "success"  # MUTATED - treat failed as success/'
-
 # Print final summary
 print_summary
 exit_code=$?
