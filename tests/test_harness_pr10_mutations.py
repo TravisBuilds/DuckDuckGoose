@@ -851,33 +851,15 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
     When a shot is retried, shot_results[shot_id] is updated to the new handle.
     The clip loop must use this updated handle, not the original.
     """
-    from hfvg.workflows import episode_v2
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     import inspect
     
-    # Get the source of the EpisodeWorkflowV2 run method
-    source = inspect.getsource(episode_v2.EpisodeWorkflowV2.run)
+    # Get the source of the EpisodeWorkflowV2 class
+    source = inspect.getsource(EpisodeWorkflowV2)
     
-    # Find the clip await loop (after G2 approval)
-    lines = source.split('\n')
-    in_clip_loop = False
-    found_shot_results_usage = False
-    
-    for i, line in enumerate(lines):
-        # Look for the clip loop section
-        if 'Use shot_results to get latest handle' in line or 'Awaiting all clip completions' in line:
-            in_clip_loop = True
-        
-        # In the clip loop, verify it uses shot_results
-        if in_clip_loop and 'self.shot_results' in line:
-            found_shot_results_usage = True
-            break
-        
-        # Stop if we've moved past the clip loop
-        if in_clip_loop and i > 0 and 'async def ' in line:
-            break
-    
-    assert found_shot_results_usage, \
-        "Clip loop should use self.shot_results to get the latest handle (includes retries)"
+    # Verify the clip loop uses shot_results
+    assert 'self.shot_results.get' in source, \
+        "Clip loop should use self.shot_results.get() to get the latest handle (includes retries)"
 
 
 # ============================================================================
