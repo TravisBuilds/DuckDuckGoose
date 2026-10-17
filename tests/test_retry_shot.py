@@ -206,9 +206,9 @@ async def test_retry_shot_succeeds_on_second_attempt():
             )
             assert retry_result["status"] == "queued"
             
-                # Check that attempt count increased
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                assert state["shot_attempts"].get("A01", 0) == 2  # First shot=1, first retry=2
+            # Check that attempt count increased
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["shot_attempts"].get("A01", 0) == 2  # First shot=1, first retry=2
             
             # Approve G2 (which will approve the retry)
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
