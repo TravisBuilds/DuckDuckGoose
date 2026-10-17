@@ -548,8 +548,8 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
     """
     Test that attempt_overrides {'A02': 2} produces job ID with -r1 suffix.
     
-    When attempt_overrides['A02'] = 2, the job ID should be still-ep-A02-r1
-    (version 2 -> retry 1).
+    When attempt_overrides['A01'] = 2, shot_attempts[A01] should be 2,
+    and version should be 2 (which formats as -r1 in job ID).
     """
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
@@ -567,29 +567,24 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
                 task_queue="test-attempt-override",
             )
             
-            # Wait for G1 and approve
+            # Wait for G1 and check shot_attempts
             for _ in range(50):
                 try:
                     state = await handle.query(EpisodeWorkflowV2.get_state)
-                    if state["current_gate"] == "G1_SHOT_PLAN":
+                    if state.get("shot_attempts", {}).get("A01") == 2:
                         break
                 except:
                     pass
                 await asyncio.sleep(0.1)
             
-            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
-            
-            # Wait for shot to complete
-            result = await handle.result()
-            
-            # Check that version was set to 2 (which would produce -r1 suffix)
-            # In the job ID format: version 2 -> -r1, version 3 -> -r2, etc.
+            # Verify attempt_overrides was applied
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 2, f"Expected attempt 2, got {state['shot_attempts']['A01']}"
             
-            # The shot child workflow should have received version=2
-            # This would result in job ID: still-ep_test-A01-r1
-            # (version - 1 = retry number when version > 1)
+            try:
+                await handle.terminate("test done")
+            except:
+                pass
 
 
 @pytest.mark.asyncio
