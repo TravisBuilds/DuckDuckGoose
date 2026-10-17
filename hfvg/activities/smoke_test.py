@@ -76,7 +76,8 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldStillProvider) -> dict:
+async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldStillProvider, 
+                            poll_timeout_secs: int = 60) -> dict:
     """Test generation with cheap SOUL V2 ref."""
     prompt = "smoke test"
     
@@ -165,8 +166,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         # Persist mapping
         await credit_ledger.persist_provider_job(job_id, provider_job_id, "higgsfield")
         
-        # Poll until complete (max 60s)
-        for _ in range(60):
+        # Poll until complete (max poll_timeout_secs)
+        for _ in range(poll_timeout_secs):
             status = await provider.get_job_status(provider_job_id)
             
             # Terminal statuses
@@ -237,7 +238,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         return {
             "passed": False,
             "provider_job_id": provider_job_id,
-            "error": "Timeout after 60s (marked pending_reconcile)"
+            "error": f"Timeout after {poll_timeout_secs}s (marked pending_reconcile)"
         }
         
     except Exception as e:
@@ -273,7 +274,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
 
 
 @activity.defn
-async def run_smoke_test(episode_id: str, db_path: str) -> dict:
+async def run_smoke_test(episode_id: str, db_path: str, poll_timeout_secs: int = 60) -> dict:
     """Run smoke test probes and return results."""
     # Use cheapest model: SOUL V2 standard (~0.09 credits)
     model_path = "higgsfield-ai/soul/v2/standard"
@@ -281,7 +282,7 @@ async def run_smoke_test(episode_id: str, db_path: str) -> dict:
     
     try:
         upload_result = await _probe_upload(provider)
-        generation_result = await _probe_generation(episode_id, db_path, provider)
+        generation_result = await _probe_generation(episode_id, db_path, provider, poll_timeout_secs)
         
         passed = upload_result["passed"] and generation_result["passed"]
         

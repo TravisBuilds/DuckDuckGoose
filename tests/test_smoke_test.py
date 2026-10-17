@@ -313,13 +313,11 @@ async def test_smoke_test_presubmit_exception_released(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 @respx.mock
-@pytest.mark.skip(reason="Timeout test takes 60s; smoke_test.py needs configurable poll timeout")
 async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeypatch):
     """Test run_smoke_test when timeout after submit (pending_reconcile, holds NOT released)."""
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
-    monkeypatch.setenv("SMOKE_TEST_POLL_TIMEOUT_SECS", "1")  # Short timeout
     
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
     from hfvg.budget import BudgetLedger
@@ -370,8 +368,39 @@ async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeyp
     )
     
     from hfvg.activities.smoke_test import run_smoke_test
-    result = await run_smoke_test("ep01", str(tmp_path / "test.db"))
+    result = await run_smoke_test("ep01", str(tmp_path / "test.db"), poll_timeout_secs=2)
     
     # Test should fail due to timeout
     assert result["passed"] is False
     assert "timeout" in result["generation_probe"]["error"].lower()
+    
+    # Verify pending_reconcile marker exists
+    import aiosqlite
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT job_id, job_type FROM pending_reconcile WHERE episode_id = ?",
+            ("ep01",)
+        )
+        row = await cursor.fetchone()
+        assert row is not None, "Should mark pending_reconcile when job_id exists after timeout"
+        assert row[0].startswith("smoke-ep01-"), f"Should mark correct job_id, got {row[0]}"
+        assert row[1] == "still", "Should mark correct job_type"
+    
+    # Verify holds were NOT released (still reserved in ledger)
+    # Check budget ledger has a reservation
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_micros) FROM budget_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_reserved = (await cursor.fetchone())[0] or 0
+        assert total_reserved > 0, "Budget holds should NOT be released after post-submit timeout"
+    
+    # Check credit ledger has a reservation  
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_credits) FROM credit_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_credit_reserved = (await cursor.fetchone())[0] or 0
+        assert total_credit_reserved > 0, "Credit holds should NOT be released after post-submit timeout"
