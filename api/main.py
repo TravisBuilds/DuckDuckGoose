@@ -657,8 +657,9 @@ async def start_episode(
     
     # Save beatmap content if provided
     beatmap_path: str | None = None
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
     if request.beatmap_content:
-        beatmap_dir = Path("./data/episodes") / request.episode_id
+        beatmap_dir = episodes_dir / request.episode_id
         beatmap_dir.mkdir(parents=True, exist_ok=True)
         beatmap_path = str(beatmap_dir / "BEATMAP.md")
         
@@ -666,7 +667,7 @@ async def start_episode(
             f.write(request.beatmap_content)
     else:
         # No beatmap_content provided - check if BEATMAP.md exists in the episode directory
-        beatmap_dir = Path("./data/episodes") / request.episode_id
+        beatmap_dir = episodes_dir / request.episode_id
         potential_beatmap = beatmap_dir / "BEATMAP.md"
         if potential_beatmap.exists():
             beatmap_path = str(potential_beatmap)
@@ -2289,10 +2290,11 @@ async def set_anchor_still(
                 detail=f"Output directory not found for {anchor_shot_id}"
             )
         
-        # Find the latest still version (support .png, .jpg, .webp)
+        # Find the latest still version (support .png, .jpg, .jpeg, .webp)
         still_files = (
             list(output_dir.glob("still_v*.png")) +
             list(output_dir.glob("still_v*.jpg")) +
+            list(output_dir.glob("still_v*.jpeg")) +
             list(output_dir.glob("still_v*.webp"))
         )
         if not still_files:

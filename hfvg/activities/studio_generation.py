@@ -144,9 +144,11 @@ async def verify_episode_files_activity(episode_id: str) -> dict:
     Raises:
         FileNotFoundError: If shots.json is missing in live mode
     """
-    shots_json_path = f"data/episodes/{episode_id}/shots.json"
+    from pathlib import Path
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    shots_json_path = episodes_dir / episode_id / "shots.json"
     
-    if not os.path.exists(shots_json_path):
+    if not shots_json_path.exists():
         raise FileNotFoundError(
             f"shots.json missing for episode {episode_id} at {shots_json_path}. "
             "Live mode requires shots.json to be present before workflow start."
