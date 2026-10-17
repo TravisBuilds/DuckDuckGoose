@@ -123,7 +123,7 @@ async def _run(fail_ids):
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             s = await _wait_for(h, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             return env, h, s
 
@@ -140,7 +140,7 @@ async def test_a_failed_shot_recorded_no_hang_and_g2_still_needs_approval(caplog
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             # failure is recorded while A02 still waits for stills approval
             s = await _wait_for(h, lambda s: any(f["shot_id"] == "A01" for f in s["failed_shots"]))
             assert s["current_gate"] == "G2_SCENE_STILLS"
@@ -170,7 +170,7 @@ async def test_b_all_shots_ok_g2_still_needs_approval():
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             await _wait_for(h, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             await asyncio.sleep(2.0)
             s = await _state(h)

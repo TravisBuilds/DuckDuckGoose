@@ -8,6 +8,7 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 import hashlib
 import json
 import pytest
+from temporalio import activity
 from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
@@ -274,6 +275,17 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
+    from hfvg.activities.g1_plan import compute_g1_plan_activity
+    from hfvg.studio_db import list_anchor_stills, approve_g2_shots
+    
+    @activity.defn(name="recheck_refs_activity")
+    async def noop_recheck(*a): return {}
+    
+    @activity.defn(name="verify_episode_files_activity")
+    async def noop_verify(*a): return {}
+    
+    @activity.defn(name="update_credit_cap_activity")
+    async def noop_update_cap(*a): return {}
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -292,6 +304,12 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
                 generate_ref_activity,
                 acquire_run_lock,
                 release_run_lock,
+                compute_g1_plan_activity,
+                list_anchor_stills,
+                approve_g2_shots,
+                noop_recheck,
+                noop_verify,
+                noop_update_cap,
             ],
         ):
             # Start workflow
@@ -308,13 +326,13 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             state = await handle.query("get_state")
             assert not state["approvals"]["g1_shot_plan"], "Should not be approved yet"
             
-            # Send signal
-            await handle.signal("approve_g1_shot_plan")
+            # Send update (was signal, now update)
+            await handle.execute_update("approve_g1_shot_plan")
             await env.sleep(0.1)
             
-            # Check state after - signal should have reached workflow
+            # Check state after - update should have reached workflow
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g1_shot_plan"], "Signal should reach workflow and approve"
+            assert state_after["approvals"]["g1_shot_plan"], "Update should reach workflow and approve"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

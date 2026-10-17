@@ -906,7 +906,7 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
             handle = await env.client.start_workflow(
                 W.run, args=["ep98", str(beat), False], id="r4-ep98-live", task_queue="r4-ep")
             # Approve G1 to reach G2
-            await handle.signal(W.approve_g1_shot_plan)
+            await handle.execute_update(W.approve_g1_shot_plan)
             state = await _gate(handle, "G2_SCENE_STILLS")
             assert state["current_gate"] == "G2_SCENE_STILLS"
             
