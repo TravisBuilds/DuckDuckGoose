@@ -81,6 +81,7 @@ declare -a MUTATION_REASONS
 PASS_COUNT=0
 FAIL_COUNT=0
 SKIP_COUNT=0
+INVALID_COUNT=0
 
 log_header() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

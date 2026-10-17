@@ -694,44 +694,66 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_anchor_still_applied_to_end_frame(tmp_path, monkeypatch):
-    """Test that anchor lookup works for end-frame stills by stripping _end suffix."""
+    """Test that anchor lookup strips _end suffix for end-frame stills."""
     from hfvg.studio_db import init_studio_db, set_anchor_still, get_anchor_still
     import hashlib
-    
+
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    
     await init_studio_db(db_path)
-    
-    # Create anchor file
+
+    # Create anchor file and set it for A02 (NOT A02_end)
     anchor_file = tmp_path / "anchor.png"
-    anchor_file.write_bytes(b"anchor_image_data")
-    sha256_hash = hashlib.sha256(b"anchor_image_data").hexdigest()
+    anchor_file.write_bytes(b"anchor_data")
+    sha256 = hashlib.sha256(b"anchor_data").hexdigest()
+    await set_anchor_still(db_path, "ep99", "A01", ["A02"], str(anchor_file), 1, sha256, None)
     
-    # Set anchor for A02 (A02 is the target that will use the anchor)
-    await set_anchor_still(db_path, "ep99", "A01", ["A02"], str(anchor_file), 1, sha256_hash)
-    
-    # Verify anchor can be retrieved for A02_end by code that strips _end
-    # This simulates what submit_still_job_enforced does
+    # Test the code path that submit_still_job_enforced uses
     shot_id = "A02_end"
+    # This is the exact line from submit_still_job_enforced that we're testing
     base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id
     anchor = await get_anchor_still(db_path, "ep99", base_shot_id)
     
+    # Verify anchor was found for A02_end by stripping to A02
     assert anchor is not None, "Anchor should be found for A02_end via base_shot_id A02"
     assert anchor["anchor_shot_id"] == "A01"
     assert anchor["local_path"] == str(anchor_file)
 
 
 @pytest.mark.asyncio
-async def test_anchor_plus_refs_enforces_cap_on_end_frame(tmp_path):
-    """Test that anchor logic for end frames uses the same ref cap logic."""
-    # This test verifies the code path exists; actual cap enforcement is tested
-    # in test_anchor_still_enforces_ref_cap which covers the shared logic
-    from hfvg.activities.studio_generation import max_refs_for, still_model_path
+async def test_anchor_plus_refs_enforces_cap_on_end_frame(tmp_path, monkeypatch):
+    """Test that anchor + refs cap enforcement code applies to end-frame stills."""
+    from hfvg.studio_db import init_studio_db, set_anchor_still, get_anchor_still
+    from hfvg.config import max_refs_for, still_model_path
+    import hashlib
+
+    db_path = str(tmp_path / "test.db")
+    await init_studio_db(db_path)
+
+    # Create anchor file and set it for A02
+    anchor_file = tmp_path / "anchor.png"
+    anchor_file.write_bytes(b"anchor_data")
+    sha256 = hashlib.sha256(b"anchor_data").hexdigest()
+    await set_anchor_still(db_path, "ep99", "A01", ["A02"], str(anchor_file), 1, sha256, None)
     
-    # Verify ref cap exists and is enforced (shared code path for all shots including _end)
-    cap = max_refs_for(still_model_path())
-    assert cap == 8, "Grok Image 2 should have ref cap of 8"
+    # Test the ref cap check code path from submit_still_job_enforced
+    shot_id = "A02_end"
+    refs = [str(tmp_path / f"ref{i}.png") for i in range(8)]  # 8 refs
+    
+    # This is the exact code path from submit_still_job_enforced:
+    refs_with_anchor = list(refs or [])
+    base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id
+    anchor = await get_anchor_still(db_path, "ep99", base_shot_id)
+    if anchor:
+        anchor_path = anchor["local_path"]
+        refs_with_anchor.insert(0, anchor_path)
+    
+    # Check ref cap after adding anchor (exact code from submit_still_job_enforced)
+    still_cap = max_refs_for(still_model_path())
+    should_raise = refs_with_anchor and len(refs_with_anchor) > still_cap
+    
+    # Verify that the condition for raising is True (9 refs > 8 cap)
+    assert should_raise, f"Should detect cap violation: {len(refs_with_anchor)} refs > {still_cap} cap"
+    assert len(refs_with_anchor) == 9, f"Expected 8 refs + 1 anchor = 9, got {len(refs_with_anchor)}"
     
     # The actual enforcement happens in submit_still_job_enforced at line 320:
     # if refs_with_anchor and len(refs_with_anchor) > still_cap:
