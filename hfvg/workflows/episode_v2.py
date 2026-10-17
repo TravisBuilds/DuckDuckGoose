@@ -676,6 +676,7 @@ class EpisodeWorkflowV2:
             shot_plan["prompt"] = build_prompt_from_shot(shot_plan)
         
         # Launch new still child with NEW idempotency key (include attempt number)
+        # Original = attempt 1, first retry = attempt 2 (-r1), second retry = attempt 3 (-r2)
         workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts[shot_id]}"
         
         try:
@@ -686,45 +687,15 @@ class EpisodeWorkflowV2:
                 task_queue=workflow.info().task_queue,
             )
             
-            # Track the retry child handle in shot_results and background tasks
+            # Track the retry child handle deterministically (not with asyncio tasks)
+            # Store in a separate dict for retries to avoid conflicts with original handles
+            if not hasattr(self, '_retry_handles'):
+                self._retry_handles = {}
+            self._retry_handles[shot_id] = handle
+            # Also update shot_results to track latest handle
             self.shot_results[shot_id] = handle
             
-            # Start background task to track retry completion
-            import asyncio
-            
-            async def track_retry_completion():
-                """Background task to await retry child and record result."""
-                try:
-                    result = await handle
-                    # Check if result indicates failure
-                    if isinstance(result, dict) and result.get("status") == "failed":
-                        error_detail = result.get("error", "Unknown error")
-                        workflow.logger.error(f"Retry of {shot_id} failed: {error_detail}")
-                        # Put back into failed_shots on failure
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "status": "failed",
-                            "reason": error_detail
-                        })
-                    else:
-                        workflow.logger.info(f"Retry of {shot_id} completed successfully")
-                except Exception as e:
-                    # Child raised an exception
-                    error_detail = str(e)
-                    workflow.logger.error(f"Retry of {shot_id} failed with exception: {error_detail}")
-                    # Put back into failed_shots on failure
-                    self.state.failed_shots.append({
-                        "shot_id": shot_id,
-                        "status": "failed",
-                        "reason": error_detail,
-                    })
-            
-            # Create and track the background task
-            task = asyncio.create_task(track_retry_completion())
-            # Store task reference to keep it alive (prevents garbage collection)
-            if not hasattr(self, '_retry_tasks'):
-                self._retry_tasks = []
-            self._retry_tasks.append(task)
+            workflow.logger.info(f"Retry child started for {shot_id}: {workflow_id}")
             
             return {"status": "queued", "workflow_id": workflow_id}
             

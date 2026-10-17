@@ -322,8 +322,8 @@ async def submit_still_job_enforced(
         )
     
     # Generate job_id (harness identifier) - include anchor in idempotency
-    # Use r{attempt} format for retries (attempt > 1), v{version} for originals
-    attempt_suffix = f"-r{attempt}" if attempt > 1 else ""
+    # Use r{attempt-1} format for retries (attempt > 1), no suffix for original (attempt=1)
+    attempt_suffix = f"-r{attempt - 1}" if attempt > 1 else ""
     anchor_suffix = f"-anchor{anchor['version']}" if anchor else ""
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
     

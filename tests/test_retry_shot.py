@@ -465,7 +465,7 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key():
                 attempt=1,  # Original attempt
             )
             
-            # Call again with attempt=2 (retry)
+            # Call again with attempt=2 (first retry, should be -r1)
             result2 = await submit_still_job_enforced(
                 episode_id="ep99",
                 shot_id="A01",
@@ -478,7 +478,7 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key():
                 tier=None,
                 shot_meta={"count": 0},
                 missing_refs=[],
-                attempt=2,  # Retry attempt
+                attempt=2,  # First retry
             )
     
     # Verify we captured 2 submits
@@ -487,9 +487,9 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key():
     job_id_1, idem_key_1 = captured_submits[0]
     job_id_2, idem_key_2 = captured_submits[1]
     
-    # Assert job_id differs: still-ep99-A01 vs still-ep99-A01-r2
+    # Assert job_id differs: still-ep99-A01 vs still-ep99-A01-r1 (not -r2!)
     assert job_id_1 == "still-ep99-A01", f"Expected 'still-ep99-A01', got '{job_id_1}'"
-    assert job_id_2 == "still-ep99-A01-r2", f"Expected 'still-ep99-A01-r2', got '{job_id_2}'"
+    assert job_id_2 == "still-ep99-A01-r1", f"Expected 'still-ep99-A01-r1', got '{job_id_2}'"
     
     # Assert idempotency_key differs (hash includes attempt:N)
     assert idem_key_1 != idem_key_2, f"Idempotency keys must differ between attempts: {idem_key_1} vs {idem_key_2}"
