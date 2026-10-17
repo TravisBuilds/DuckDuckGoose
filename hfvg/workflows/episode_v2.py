@@ -854,6 +854,7 @@ class EpisodeWorkflowV2:
             "failed_shots": self.state.failed_shots.copy(),
             "shots_on_hold": self.state.shots_on_hold.copy(),
             "shot_attempts": self.state.shot_attempts.copy(),
+            "pending_retries": list(self.state.pending_retries),
             "g1_plan": self.state.g1_plan.copy(),
             "output_paths": {k: v.copy() for k, v in self.state.output_paths.items()},
             "approvals": {
