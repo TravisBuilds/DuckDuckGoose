@@ -1242,43 +1242,6 @@ test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
     "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
     sed -i 's/workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.state.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
 
-# Print final summary
-print_summary
-exit_code=$?
-
-# Return to main workspace and verify it's clean
-cd "$WORKSPACE_ROOT"
-
-echo ""
-log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
-if [ -n "$(git status --porcelain -- hfvg api)" ]; then
-    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
-    echo -e "${RED}Mutations leaked into the working tree!${NC}"
-    git status --porcelain -- hfvg api
-    exit 1
-else
-    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
-fi
-
-exit $exit_code
-
-
-# Return to main workspace and verify it's clean
-cd "$WORKSPACE_ROOT"
-
-echo ""
-log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
-if [ -n "$(git status --porcelain -- hfvg api)" ]; then
-    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
-    echo -e "${RED}Mutations leaked into the working tree!${NC}"
-    git status --porcelain -- hfvg api
-    exit 1
-else
-    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
-fi
-
-exit $exit_code
-
 # 119. M-anchor: Anchor still is injected as ref
 test_mutation 119 "Anchor still is injected into refs" \
     "hfvg/activities/studio_generation.py" \
@@ -1294,6 +1257,23 @@ test_mutation 120 "Anchor + refs respects model ref cap" \
 # Print final summary
 print_summary
 exit_code=$?
+
+# Return to main workspace and verify it's clean
+cd "$WORKSPACE_ROOT"
+
+echo ""
+log_header "VERIFYING MAIN WORKSPACE IS CLEAN"
+if [ -n "$(git status --porcelain -- hfvg api)" ]; then
+    echo -e "${RED}✗✗✗ CRITICAL: Main workspace has uncommitted changes in hfvg/ or api/${NC}"
+    echo -e "${RED}Mutations leaked into the working tree!${NC}"
+    git status --porcelain -- hfvg api
+    exit 1
+else
+    echo -e "${GREEN}✓ Main workspace is clean (no mutations leaked)${NC}"
+fi
+
+exit $exit_code
+
 
 # Return to main workspace and verify it's clean
 cd "$WORKSPACE_ROOT"
