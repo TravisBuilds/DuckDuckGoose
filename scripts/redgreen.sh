@@ -1246,7 +1246,7 @@ test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
 test_mutation 121 "Retry increments version for unique job_id" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_retry_shot.py::test_retry_shot_increments_version_for_unique_job_id" \
-    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\]/shot_plan["version"] = 1  # MUTATED - always v1/'
+    sed -i '/# Pass attempt number and version into shot_plan/,/shot_plan\["version"\] = actual_attempts/{s/shot_plan\["version"\] = actual_attempts/shot_plan["version"] = 1  # MUTATED - always v1/}'
 
 # 119. M-anchor: Anchor still is injected as ref
 test_mutation 119 "Anchor still is injected into refs" \
@@ -1294,19 +1294,19 @@ test_mutation 126 "G1 approval refused without estimates" \
 test_mutation 127 "Clip loop uses shot_results (latest handle)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_clip_loop_uses_latest_retry_handle" \
-    sed -i 's/handle = self.shot_results.get(shot\["shot_id"\])/handle = self.shot_workflow_handles.get(shot["shot_id"])  # MUTATED - use stale handle dict/'
+    sed -i '/# Use shot_results to get latest handle/,/handle = self\.shot_results\.get/{s/handle = self\.shot_results\.get(shot\["shot_id"\])/handle = self.shot_workflow_handles.get(shot["shot_id"])  # MUTATED - use stale handle dict/}'
 
 # 128: shot_plan version = shot_attempts (already incremented)
 test_mutation 128 "shot_plan version = shot_attempts" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_attempt_override_gives_retry_suffix" \
-    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\]/shot_plan["version"] = 1  # MUTATED/'
+    sed -i '/# Total attempt number for job_id\/version/,/shot_plan\["version"\] = total_attempt/{s/shot_plan\["version"\] = total_attempt/shot_plan["version"] = 1  # MUTATED/}'
 
 # 129: 3f - .jpeg glob when resolving G2-approved anchor still  
 test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
     "api/main.py" \
     "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
-    sed -i 's/list(output_dir\.glob("still_v\*\.jpeg"))/[]  # MUTATED/'
+    sed -i 's|list(output_dir.glob("still_v\*.jpeg"))|[]  # MUTATED|'
 
 # 130: 3g - verify_episode_files_activity honours EPISODES_DIR
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
