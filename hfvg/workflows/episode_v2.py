@@ -696,6 +696,9 @@ class EpisodeWorkflowV2:
             # Also update shot_results to track latest handle
             self.shot_results[shot_id] = handle
             
+            # Track pending retry in workflow state for deterministic checking
+            self.state.pending_retries[shot_id] = workflow_id
+            
             workflow.logger.info(f"Retry child started for {shot_id}: {workflow_id}")
             
             return {"status": "queued", "workflow_id": workflow_id}
