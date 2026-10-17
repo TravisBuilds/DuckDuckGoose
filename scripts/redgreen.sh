@@ -1306,7 +1306,7 @@ test_mutation 128 "shot_plan version = shot_attempts" \
 test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
     "api/main.py" \
     "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
-    sed -i 's|list(output_dir.glob("still_v\*.jpeg"))|[]  # MUTATED|'
+    sed -i 's/"still_v\*\.jpeg"/"still_v*.XXX"  # MUTATED - wrong extension/'
 
 # 130: 3g - verify_episode_files_activity honours EPISODES_DIR
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
