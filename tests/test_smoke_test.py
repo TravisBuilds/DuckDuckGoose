@@ -363,6 +363,16 @@ async def test_smoke_test_presubmit_exception_released(tmp_path, monkeypatch):
         )
         total_credit_reserved = (await cursor.fetchone())[0] or 0
         assert total_credit_reserved == 0, f"Credit holds should be released after pre-submit exception, got {total_credit_reserved}"
+    
+    # Verify budget_transactions has reserve and release rows
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT txn_type FROM budget_transactions WHERE episode_id = ? ORDER BY created_at",
+            ("ep01",)
+        )
+        txn_types = [row[0] for row in await cursor.fetchall()]
+        assert "reserve" in txn_types, "budget_transactions should have a 'reserve' row"
+        assert "release" in txn_types, "budget_transactions should have a 'release' row"
 
 
 @pytest.mark.asyncio
@@ -447,3 +457,13 @@ async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeyp
         )
         total_credit_reserved = (await cursor.fetchone())[0] or 0
         assert total_credit_reserved > 0, "Credit holds should NOT be released after post-submit timeout"
+    
+    # Verify job_ledger has a pending_reconcile row
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT status FROM job_ledger WHERE episode_id = ? AND job_id = ?",
+            ("ep01", "smoke_job_timeout")
+        )
+        row = await cursor.fetchone()
+        assert row is not None, "job_ledger should have a row for the timed-out job"
+        assert row[0] == "pending_reconcile", f"job_ledger status should be 'pending_reconcile', got '{row[0]}'"

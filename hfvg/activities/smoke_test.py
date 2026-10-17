@@ -134,7 +134,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             job_id=job_id,
             shot_id=None,
             model="higgsfield-ai/soul/v2/standard",
-            tier="standard",
+            tier="draft",
             line_name="L2_drafts",
             usd_micros=estimated_cost_micros
         )

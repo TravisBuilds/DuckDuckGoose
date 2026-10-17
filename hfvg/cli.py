@@ -389,10 +389,22 @@ def smoke_test(episode_id: str, live: bool):
         sys.exit(1)
     
     import os
+    import aiosqlite
     from hfvg.activities.smoke_test import run_smoke_test
     from hfvg.studio_db import store_smoke_test_result
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Check episode exists before spending
+    async def check_episode_exists():
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute("SELECT episode_id FROM episodes WHERE episode_id = ?", (episode_id,))
+            return await cursor.fetchone() is not None
+    
+    if not asyncio.run(check_episode_exists()):
+        click.echo(f"❌ Episode '{episode_id}' not found in database", err=True)
+        import sys
+        sys.exit(1)
     
     click.echo(f"🧪 Running live smoke test for {episode_id}...")
     click.echo("   Upload probe + SOUL V2 generation (~0.09 credits)")
