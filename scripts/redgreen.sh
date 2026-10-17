@@ -1296,11 +1296,11 @@ mutate 127 \
     "tests/test_harness_pr10_mutations.py::test_clip_loop_uses_latest_retry_handle" \
     sed -i 's/handle = self.shot_results.get(shot\["shot_id"\])/handle = self.shot_workflow_handles.get(shot["shot_id"])  # MUTATED - use stale handle dict/'
 
-# 128: attempt_overrides produces correct retry version
+# 128: shot_plan version = shot_attempts (already incremented)
 mutate 128 \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_attempt_override_gives_retry_suffix" \
-    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\] + 1/shot_plan["version"] = 1  # MUTATED - ignore attempt count/'
+    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\]/shot_plan["version"] = 1  # MUTATED/'
 
 # Print final summary
 print_summary
