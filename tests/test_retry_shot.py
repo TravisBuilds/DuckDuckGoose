@@ -308,22 +308,26 @@ async def test_retry_shot_respects_max_retries():
             
             # Wait for retry to also fail (RetryableShotWorkflow fails on attempt 1, succeeds on attempt 2+)
             # But we're only at attempt 2 now, so it still fails
+            # Need to approve G2 first for retry to proceed
+            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await asyncio.sleep(2.0)
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
             # Try to retry again (should be refused - already at max_retries=1)
-            # This should raise ApplicationError since we're at the limit
-            from temporalio.exceptions import ApplicationError
+            from temporalio.client import WorkflowUpdateFailedError
             try:
-                await handle.signal("retry_shot", args=["A01"])
-                await asyncio.sleep(0.5)
-                # If signal succeeded without raising, verify attempt count didn't increase
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                # The update handler should have raised ApplicationError, so we shouldn't get here
-                # But if we do, verify attempt count is still 1
-                assert state["shot_attempts"]["A01"] == 1
-            except ApplicationError as e:
-                # Expected: retry refused with ApplicationError
-                assert "Max retries" in str(e) or "already attempted" in str(e)
+                retry_result2 = await handle.execute_update(
+                    EpisodeWorkflowV2.retry_shot,
+                    args=["A01"]
+                )
+                pytest.fail("Expected WorkflowUpdateFailedError for exceeding max retries")
+            except WorkflowUpdateFailedError as e:
+                # Expected: retry refused
+                assert "Max retries" in str(e.cause) or "already attempted" in str(e.cause)
+            
+            # Verify attempt count is still 1
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["shot_attempts"]["A01"] == 1
             
             await handle.terminate("test done")
 
