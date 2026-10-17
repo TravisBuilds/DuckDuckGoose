@@ -683,21 +683,7 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
         
-        # Validate: shot must be in failed_shots
-        failed_shot = None
-        for fs in self.state.failed_shots:
-            if fs["shot_id"] == shot_id:
-                failed_shot = fs
-                break
-        
-        if not failed_shot:
-            workflow.logger.error(f"Cannot retry {shot_id}: not in failed_shots")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: shot not in failed_shots",
-                non_retryable=True
-            )
-        
-        # Check retry limit (server-side enforcement via config)
+        # Check retry limit FIRST (before checking failed_shots)
         attempt_count = self.state.shot_attempts.get(shot_id, 0)
         max_retries = config.MAX_SHOT_RETRIES
         if attempt_count >= max_retries:
@@ -706,6 +692,20 @@ class EpisodeWorkflowV2:
             )
             raise ApplicationError(
                 f"Max retries ({max_retries}) exceeded for shot {shot_id}",
+                non_retryable=True
+            )
+        
+        # Validate: shot must be in failed_shots OR have been retried before
+        failed_shot = None
+        for fs in self.state.failed_shots:
+            if fs["shot_id"] == shot_id:
+                failed_shot = fs
+                break
+        
+        if not failed_shot and shot_id not in self.state.shot_attempts:
+            workflow.logger.error(f"Cannot retry {shot_id}: not in failed_shots")
+            raise ApplicationError(
+                f"Cannot retry {shot_id}: shot not in failed_shots",
                 non_retryable=True
             )
         
