@@ -692,11 +692,3 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
     assert str(custom_data_dir) in result["local_path"]
 
 
-# End-frame anchor support is tested via manual verification and the existing anchor tests
-    
-    # The actual enforcement happens in submit_still_job_enforced at line 320:
-    # if refs_with_anchor and len(refs_with_anchor) > still_cap:
-    # This code doesn't distinguish between regular and _end shots,
-    # so the same cap applies to both after anchor is added
-
-

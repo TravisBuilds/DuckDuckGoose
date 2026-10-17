@@ -1054,6 +1054,10 @@ async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypat
             )
             
             assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"
-            assert "not.*failed" in response.text.lower() or "cannot retry" in response.text.lower()
+            # Check for refusal reason (not a generic failure message)
+            assert ("cannot retry" in response.text.lower() or 
+                    "not in failed" in response.text.lower() or
+                    "already approved" in response.text.lower()), \
+                   f"Expected refusal reason, got: {response.text}"
             
             await handle.terminate("test done")
