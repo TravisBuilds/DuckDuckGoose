@@ -102,9 +102,9 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             clip_usd = 0.0
             try:
                 # Clip estimate doesn't require a real image URL (it's based on duration/model)
-                # Pass None or empty string instead of a fake placeholder
+                # No placeholder URL needed for estimate
                 usd_micros, credits = await clip_provider.estimate_usd_and_credits(
-                    image_url=None,  # No placeholder URL needed for estimate
+                    image_url=None,
                     prompt=prompt,
                     duration=duration,
                 )

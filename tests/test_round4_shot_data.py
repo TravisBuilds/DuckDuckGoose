@@ -550,8 +550,9 @@ async def _wait_for_passed_gate(handle, name: str, timeout: float = 5.0):
 
 
 async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
-    from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
+    from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode, list_anchor_stills, approve_g2_shots
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    import hfvg.activities as activities
 
     db_path = str(tmp_path / "ep.db")
     monkeypatch.setenv("DB_PATH", db_path)
@@ -616,6 +617,8 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.approve_g108_activity,
+            activities.list_anchor_stills,
+            activities.approve_g2_shots,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
             activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
             activities.post_to_platform,
@@ -1002,6 +1005,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 activities.load_gate_policy_activity, activities.parse_beatmap_activity,
                 activities.check_live_mode_and_g108,
                 activities.approve_g108_activity,
+                activities.list_anchor_stills,
+                activities.approve_g2_shots,
                 activities.trim_clips, activities.render_edit, activities.mix_audio,
                 activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
                 activities.post_to_platform,
