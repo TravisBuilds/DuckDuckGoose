@@ -41,12 +41,12 @@ class UploadCache:
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS upload_cache (
-                    file_path TEXT NOT NULL,
-                    file_version INTEGER NOT NULL,
                     file_sha256 TEXT NOT NULL,
+                    file_version INTEGER NOT NULL,
                     public_url TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    PRIMARY KEY (file_path, file_version, file_sha256)
+                    file_path TEXT,
+                    PRIMARY KEY (file_sha256, file_version)
                 )
                 """
             )
@@ -74,11 +74,11 @@ class UploadCache:
         # Compute SHA256 of current file
         sha256 = self._compute_sha256(file_path)
         
-        # Look up in cache
+        # Look up in cache by sha256+version only (dedupes across different paths)
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT public_url FROM upload_cache WHERE file_path = ? AND file_version = ? AND file_sha256 = ?",
-                (file_path, version, sha256)
+                "SELECT public_url FROM upload_cache WHERE file_sha256 = ? AND file_version = ?",
+                (sha256, version)
             ) as cursor:
                 row = await cursor.fetchone()
                 if not row:
@@ -113,17 +113,17 @@ class UploadCache:
         # Compute SHA256 of file
         sha256 = self._compute_sha256(file_path)
         
-        # Store in cache with current timestamp
+        # Store in cache with current timestamp (key: sha256+version for deduplication)
         created_at = datetime.now(timezone.utc).isoformat()
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO upload_cache 
-                (file_path, file_version, file_sha256, public_url, created_at)
+                (file_sha256, file_version, public_url, created_at, file_path)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (file_path, version, sha256, public_url, created_at)
+                (sha256, version, public_url, created_at, file_path)
             )
             await db.commit()
     
@@ -137,16 +137,16 @@ class UploadCache:
         sha256 = self._compute_sha256(file_path)
         created_at = datetime.now(timezone.utc).isoformat()
         
-        # Try to insert a placeholder with special "uploading://" URL
+        # Try to insert a placeholder with special "uploading://" URL (key: sha256+version)
         async with aiosqlite.connect(self.db_path) as db:
             try:
                 await db.execute(
                     """
                     INSERT INTO upload_cache 
-                    (file_path, file_version, file_sha256, public_url, created_at)
+                    (file_sha256, file_version, public_url, created_at, file_path)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (file_path, version, sha256, "uploading://in-progress", created_at)
+                    (sha256, version, "uploading://in-progress", created_at, file_path)
                 )
                 await db.commit()
                 return (True, sha256)  # Claimed! Caller must upload
@@ -172,8 +172,8 @@ class UploadCache:
         while (asyncio.get_event_loop().time() - start) < timeout:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
-                    "SELECT public_url FROM upload_cache WHERE file_path = ? AND file_version = ? AND file_sha256 = ?",
-                    (file_path, version, sha256)
+                    "SELECT public_url FROM upload_cache WHERE file_sha256 = ? AND file_version = ?",
+                    (sha256, version)
                 ) as cursor:
                     row = await cursor.fetchone()
                     if row:
@@ -200,7 +200,7 @@ class UploadCache:
         """
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "DELETE FROM upload_cache WHERE file_path = ? AND file_version = ? AND file_sha256 = ?",
-                (file_path, version, sha256)
+                "DELETE FROM upload_cache WHERE file_sha256 = ? AND file_version = ?",
+                (sha256, version)
             )
             await db.commit()
