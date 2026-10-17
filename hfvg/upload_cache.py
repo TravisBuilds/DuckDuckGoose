@@ -86,6 +86,10 @@ class UploadCache:
                 
                 public_url = row[0]
         
+        # Treat uploading://in-progress as a miss - never HEAD-check or delete it
+        if public_url == "uploading://in-progress":
+            return None
+        
         # HEAD-check the URL to ensure it's still accessible
         try:
             async with httpx.AsyncClient() as client:
