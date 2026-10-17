@@ -70,6 +70,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             quality = params.get("quality", "medium")
             aspect_ratio = params.get("aspect_ratio", "9:16")
             refs = shot.get("refs", [])
+            end_frame = params.get("end_frame", False)
             
             # Estimate still cost
             still_estimate_available = True
@@ -85,6 +86,12 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                 )
                 still_credits = credits
                 still_usd = usd_micros / 1_000_000
+                
+                # If end_frame is True, we need TWO stills: main + end frame
+                if end_frame:
+                    still_credits *= 2
+                    still_usd *= 2
+                    
             except Exception as e:
                 activity.logger.warning(f"Still estimate failed for {shot_id}: {e}")
                 still_estimate_available = False
