@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 import click
 from temporalio.client import Client
