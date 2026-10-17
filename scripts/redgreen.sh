@@ -553,7 +553,7 @@ test_mutation 9 "Canary starts real ShotWorkflow" \
 test_mutation 10 "Approval update reaches workflow" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
-    sed -i '/def approve_g1_shot_plan/,/@workflow.update/{s/@workflow.update/# @workflow.update  # MUTATED/}' 
+    sed -i '/@workflow.update/{N;/async def approve_g1_shot_plan/s/@workflow.update/# @workflow.update  # MUTATED/}' 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW MUTATIONS (Task #2): Additional safety protections
