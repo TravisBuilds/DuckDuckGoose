@@ -1234,19 +1234,19 @@ test_mutation 116 "Smoke test gate enforced on paid stages" \
 test_mutation 117 "Retry respects max_retries limit" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_retry_shot.py::test_retry_shot_respects_max_retries" \
-    sed -i 's/if attempt_count >= max_retries:/if False and attempt_count >= max_retries:  # MUTATED/'
+    sed -i 's/if attempt_count > max_retries:/if False:  # MUTATED - allow unlimited retries/'
 
 # 118. M-retry2: Different idempotency key per attempt
 test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
-    sed -i 's/workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.state.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
+    sed -i 's/retry_num = self.state.shot_attempts\[shot_id\] - 1/retry_num = 0  # MUTATED - always retry0/'
 
 # 121. M-retry-version: Retry increments version for unique job_id
 test_mutation 121 "Retry increments version for unique job_id" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_retry_shot.py::test_retry_shot_increments_version_for_unique_job_id" \
-    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\] + 1/shot_plan["version"] = 1  # MUTATED - always v1/'
+    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\]/shot_plan["version"] = 1  # MUTATED - always v1/'
 
 # 119. M-anchor: Anchor still is injected as ref
 test_mutation 119 "Anchor still is injected into refs" \
