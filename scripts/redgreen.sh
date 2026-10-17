@@ -1226,6 +1226,22 @@ test_mutation 116 "Smoke test gate enforced on paid stages" \
     "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
     sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS: Single-shot retry and G1 plan (Feature set)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 117. M-retry1: Retry limit enforced
+test_mutation 117 "Retry respects max_retries limit" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_respects_max_retries" \
+    sed -i 's/if attempt_count >= max_retries:/if False and attempt_count >= max_retries:  # MUTATED/'
+
+# 118. M-retry2: Different idempotency key per attempt
+test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
+    sed -i 's/workflow_id = f"{self.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
+
 # Print final summary
 print_summary
 exit_code=$?

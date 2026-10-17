@@ -436,5 +436,31 @@ def smoke_test(episode_id: str, live: bool):
     sys.exit(0 if result['passed'] else 1)
 
 
+@cli.command()
+@click.argument("episode_id")
+@click.argument("shot_id")
+@click.option("--max-retries", default=1, help="Maximum retry attempts (default: 1)")
+def retry_shot(episode_id: str, shot_id: str, max_retries: int):
+    """Retry a failed shot (only valid while parked at G1/G2)."""
+    
+    async def _retry():
+        client = await Client.connect(
+            config.TEMPORAL_HOST,
+            namespace=config.TEMPORAL_NAMESPACE,
+        )
+        
+        handle = client.get_workflow_handle(episode_id)
+        
+        try:
+            await handle.signal("retry_shot", shot_id, max_retries)
+            click.echo(f"✓ Retry signal sent for shot {shot_id} (max {max_retries} attempts)")
+        except Exception as e:
+            click.echo(f"❌ Error: {e}", err=True)
+            import sys
+            sys.exit(1)
+    
+    asyncio.run(_retry())
+
+
 if __name__ == "__main__":
     cli()

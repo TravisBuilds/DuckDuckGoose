@@ -104,6 +104,9 @@ class EpisodeState(BaseModel):
     new_credit_cap: int = 0  # New credit cap value
     failed_shots: list[dict] = Field(default_factory=list)  # Failed shot workflows at gate 2
     shots_on_hold: list[str] = Field(default_factory=list)  # Shots waiting on hold at gate 2 for approval
+    shot_attempts: dict[str, int] = Field(default_factory=dict)  # Retry attempts per shot
+    g1_plan: dict = Field(default_factory=dict)  # G1 credit plan (per-shot and total credits/USD)
+    output_paths: dict[str, dict] = Field(default_factory=dict)  # Local paths: {shot_id: {still_v1: path, clip_v1: path}}
 
 
 class CreditTransaction(BaseModel):

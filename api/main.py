@@ -1267,6 +1267,62 @@ async def set_live_mode_endpoint(
     }
 
 
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry")
+async def retry_shot(
+    episode_id: str,
+    shot_id: str,
+    max_retries: int = 1,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Retry a failed shot (only valid while parked at G1/G2 for a shot in failed_shots).
+    
+    Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
+    allows max_retries per shot (default 1), uses NEW idempotency key per attempt,
+    moves shot from failed_shots back to running then to done or failed.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    # Find the episode workflow
+    workflow_id = episode_workflow_id(episode_id)
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        
+        # Send retry signal
+        await handle.signal("retry_shot", shot_id, max_retries)
+        
+        # Audit log
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "retry_shot", f"Shot {shot_id} retry requested (max {max_retries})", "admin")
+            )
+            await db.commit()
+        
+        return {
+            "success": True,
+            "episode_id": episode_id,
+            "shot_id": shot_id,
+            "max_retries": max_retries,
+            "message": f"Retry signal sent for shot {shot_id}",
+        }
+        
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending retry signal: {str(e)}")
+
+
 @app.post("/api/episodes/{episode_id}/set-dry")
 async def set_dry_mode_endpoint(
     episode_id: str,

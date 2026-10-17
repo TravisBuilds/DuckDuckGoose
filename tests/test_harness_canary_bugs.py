@@ -866,3 +866,178 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     duck_ref = [r for r in refs if r["key"] == "r_duck"][0]
     # Duck should be v3 (current file exists alongside _v2 archive, so max N + 1 = 2 + 1 = 3)
     assert duck_ref["version"] == 3, f"Expected version 3 (max archived N + 1), got {duck_ref['version']}"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_parallel_upload_dedupe_same_sha256_version():
+    """
+    Test that concurrent uploads with same (sha256, version) are deduplicated deterministically.
+    
+    The cache key is sha256+version, so two parallel uploads of the same file content
+    and version should result in only ONE actual upload call, even under race conditions.
+    """
+    import hashlib
+    from pathlib import Path
+    from hfvg.upload_cache import UploadCache
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    import httpx
+    import respx
+    import asyncio
+    import os
+    
+    # Create a ref
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ref_path = Path(tmpdir) / "refs" / "r_shared.png"
+        ref_path.parent.mkdir(parents=True, exist_ok=True)
+        ref_content = b"shared-ref-content-for-sha256"
+        ref_path.write_bytes(ref_content)
+        
+        # Compute expected SHA256
+        expected_sha256 = hashlib.sha256(ref_content).hexdigest()
+        
+        db_path = str(Path(tmpdir) / "test.db")
+        
+        # Mock Higgsfield API
+        upload_call_count = {"count": 0}
+        
+        with respx.mock:
+            def mock_generate_upload_url(request):
+                upload_call_count["count"] += 1
+                return httpx.Response(200, json={
+                    "upload_url": "http://mock.upload/put-shared",
+                    "public_url": "http://mock.cdn/shared-ref.png",
+                    "upload_headers": {"Content-Type": "image/png"}
+                })
+            
+            respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
+            respx.put("http://mock.upload/put-shared").mock(return_value=httpx.Response(200, content=b""))
+            
+            os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+            os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+            os.environ["DATABASE_PATH"] = db_path
+            
+            # Initialize cache
+            cache = UploadCache(db_path)
+            await cache.init_db()
+            
+            provider = HiggsfieldStillProvider()
+            
+            # Launch 5 concurrent uploads of the same file and version
+            async def upload_task():
+                result = await provider.upload_reference(str(ref_path), version=1)
+                return result["public_url"]
+            
+            results = await asyncio.gather(*[upload_task() for _ in range(5)])
+            
+            # All should get the same URL
+            assert all(url == "http://mock.cdn/shared-ref.png" for url in results)
+            
+            # CRITICAL: Only ONE actual upload should have occurred
+            assert upload_call_count["count"] == 1, f"Expected 1 upload, got {upload_call_count['count']}"
+            
+            # Cache should have exactly one entry with the correct sha256
+            import aiosqlite
+            async with aiosqlite.connect(db_path) as db:
+                async with db.execute("SELECT file_sha256, file_version, public_url FROM upload_cache") as cursor:
+                    rows = await cursor.fetchall()
+            
+            assert len(rows) == 1, "Should have exactly one cache entry"
+            cached_sha256, cached_version, cached_url = rows[0]
+            assert cached_sha256 == expected_sha256
+            assert cached_version == 1
+            assert cached_url == "http://mock.cdn/shared-ref.png"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
+    """
+    Test that reserve_credits includes the job_id in the credit ledger.
+    
+    The job_id is used later to resolve harness->provider job mapping.
+    """
+    import os
+    from hfvg.credit_ledger import CreditLedger
+    
+    db_path = str(tmp_path / "test.db")
+    os.environ["DATABASE_PATH"] = db_path
+    
+    ledger = CreditLedger(db_path)
+    await ledger.init_db()
+    await ledger.create_episode_line("ep99", cap_credits=1000)
+    
+    # Reserve with job_id
+    job_id = "still-ep99-A01-v1"
+    reserved = await ledger.reserve_credits("ep99", job_id, 5.0, "test still")
+    assert reserved is True
+    
+    # Check that job_id was recorded
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT job_id, amount_credits FROM credit_reserves WHERE job_id = ?",
+            (job_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    
+    assert row is not None, "Reserve with job_id should be recorded"
+    assert row[0] == job_id
+    assert row[1] == 5.0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_estimate_usd_and_credits_called_before_submit(tmp_path):
+    """
+    Test that estimate_usd_and_credits is called and used before submission.
+    
+    The estimate is used for budget planning and should be called via /estimate endpoint.
+    """
+    import os
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    import httpx
+    
+    # Mock the /estimate endpoint
+    estimate_called = {"count": 0, "params": None}
+    
+    def capture_estimate(request):
+        import json
+        estimate_called["count"] += 1
+        estimate_called["params"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "credits": "1.25",
+            "usd": "1.25"
+        })
+    
+    estimate_route = respx.post("http://mock.api/estimate/xai/grok-imagine-image-2.0").mock(
+        side_effect=capture_estimate
+    )
+    
+    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
+    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    
+    provider = HiggsfieldStillProvider(dry_run=False)
+    
+    try:
+        # Call estimate
+        usd_micros = await provider.estimate_usd_micros(
+            prompt="A test prompt",
+            resolution="1k",
+            quality="high",
+            aspect_ratio="16:9",
+        )
+        
+        # Verify estimate was called
+        assert estimate_called["count"] == 1, "Estimate should be called once"
+        assert estimate_called["params"] is not None
+        
+        # Verify returned value is in usd_micros
+        assert usd_micros == 1_250_000, f"Expected 1.25 USD = 1_250_000 usd_micros, got {usd_micros}"
+        
+        # Verify estimate params include model info
+        assert "prompt" in estimate_called["params"]
+        assert estimate_called["params"]["prompt"] == "A test prompt"
+        
+    finally:
+        await provider.close()

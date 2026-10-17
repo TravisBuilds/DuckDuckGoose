@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         commit_credits_activity,
         release_credits_activity,
     )
+    from hfvg.activities.save_assets import save_asset_locally
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
     from temporalio.exceptions import ActivityError, ApplicationError
@@ -461,6 +462,18 @@ class ShotWorkflow:
                 self.still_error = None
 
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
+                
+                # Save still locally
+                try:
+                    still_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "still", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Still saved locally to {still_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save still locally: {e}, continuing")
 
                 review_result = await workflow.execute_activity(
                     review_still,
@@ -711,6 +724,18 @@ class ShotWorkflow:
                 }
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
+                
+                # Save clip locally
+                try:
+                    clip_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "clip", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Clip saved locally to {clip_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
 
                 # Prepare rubric with expected clip parameters for motion QC
                 clip_rubric = {
