@@ -23,6 +23,7 @@ from hfvg.activities.workflow_support import (
     upsert_episode_activity,
     approve_g108_activity,
 )
+from hfvg.activities.g1_plan import compute_g1_plan_activity
 from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
 from hfvg.activities.preflight import preflight_validate_episode_activity
 
@@ -55,6 +56,7 @@ __all__ = [
     "mark_job_pending_reconcile",
     "load_gate_policy_activity",
     "parse_beatmap_activity",
+    "compute_g1_plan_activity",
     "upsert_episode_activity",
     "approve_g108_activity",
     "preflight_validate_episode_activity",
