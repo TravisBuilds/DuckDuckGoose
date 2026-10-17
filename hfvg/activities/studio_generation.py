@@ -40,6 +40,32 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, Seedance
 from hfvg.routing import plan_route
 
 
+def _get_ref_version_from_sidecar(ref_path: str) -> int:
+    """
+    Get ref version from sidecar file.
+    
+    Args:
+        ref_path: Path to the reference image
+    
+    Returns:
+        Version number from sidecar, or 1 if no sidecar exists
+    """
+    ref_path_obj = Path(ref_path)
+    version_sidecar = ref_path_obj.parent / ".versions" / f"{ref_path_obj.stem}.json"
+    
+    if version_sidecar.exists():
+        try:
+            import json as json_lib
+            sidecar_data = json_lib.loads(version_sidecar.read_text())
+            return sidecar_data.get("version", 1)
+        except (json_lib.JSONDecodeError, OSError):
+            # Fall back to v1 if sidecar is corrupted
+            return 1
+    
+    # No sidecar = version 1
+    return 1
+
+
 def _create_fake_still(output_path: str) -> str:
     """Create a small real PNG file for dry-run mode."""
     # Create a minimal valid 1x1 PNG (67 bytes)
@@ -118,9 +144,11 @@ async def verify_episode_files_activity(episode_id: str) -> dict:
     Raises:
         FileNotFoundError: If shots.json is missing in live mode
     """
-    shots_json_path = f"data/episodes/{episode_id}/shots.json"
+    from pathlib import Path
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    shots_json_path = episodes_dir / episode_id / "shots.json"
     
-    if not os.path.exists(shots_json_path):
+    if not shots_json_path.exists():
         raise FileNotFoundError(
             f"shots.json missing for episode {episode_id} at {shots_json_path}. "
             "Live mode requires shots.json to be present before workflow start."
@@ -177,6 +205,7 @@ async def submit_still_job_enforced(
     tier: str | None = None,
     shot_meta: dict[str, Any] | None = None,
     missing_refs: list[str] | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
@@ -201,6 +230,11 @@ async def submit_still_job_enforced(
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Gate: Smoke test (live mode only, unless override)
+    if not dry_run_env:
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "submit_still_job_enforced")
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
@@ -247,70 +281,140 @@ async def submit_still_job_enforced(
         raise ValueError(
             f"Shot {shot_id} is held at G2.01: refs not on disk yet: {sorted(missing_refs)}"
         )
+    
+    # Load anchor still if configured for this shot
+    refs_with_anchor = list(refs or [])
+    from hfvg.studio_db import get_anchor_still
+    # Strip _end suffix for end-frame stills (A02_end -> A02) to use same anchor
+    base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id
+    anchor = await get_anchor_still(db_path, episode_id, base_shot_id)
+    if anchor:
+        anchor_path = anchor["local_path"]
+        # Verify anchor still file exists and SHA256 matches
+        from pathlib import Path
+        import hashlib
+        anchor_file = Path(anchor_path)
+        if not anchor_file.exists():
+            raise ValueError(
+                f"Anchor still file not found: {anchor_path}"
+            )
+        
+        # Verify SHA256
+        sha256_hash = hashlib.sha256()
+        with open(anchor_file, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        computed_sha256 = sha256_hash.hexdigest()
+        
+        if computed_sha256 != anchor["sha256"]:
+            raise ValueError(
+                f"Anchor still SHA256 mismatch: expected {anchor['sha256']}, got {computed_sha256}"
+            )
+        
+        # Add anchor to refs (prepend so it's first)
+        refs_with_anchor.insert(0, anchor_path)
+        activity.logger.info(
+            f"Added anchor still from {anchor['anchor_shot_id']} (v{anchor['version']}) to {shot_id} refs"
+        )
+    
+    # Check ref cap after adding anchor
     still_cap = max_refs_for(still_model_path())
-    if refs and len(refs) > still_cap:
+    if refs_with_anchor and len(refs_with_anchor) > still_cap:
         raise ValueError(
-            f"Shot {shot_id} has {len(refs)} refs, over the {still_model_path()} limit of {still_cap}; "
+            f"Shot {shot_id} has {len(refs_with_anchor)} refs (including anchor), over the {still_model_path()} limit of {still_cap}; "
             "refusing instead of silently dropping refs"
         )
     
-    # Generate job_id (will be used as provider idempotency key)
-    job_id = f"still-{episode_id}-{shot_id}-v{version}"
+    # Generate job_id (harness identifier)
+    # Original shots: still-{ep}-{shot}-v{version}
+    # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
+    if attempt > 1:
+        # Retry: use -r{N} where N is retry number (attempt-1)
+        attempt_suffix = f"-r{attempt - 1}"
+    else:
+        # Original: use -v{version}
+        attempt_suffix = f"-v{version}"
     
-    # Estimate credits for credit ledger
-    # Stills use Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
-    # Map quality to pricing: "high" -> "high", else "standard"
-    pricing_quality = "high" if quality == "high" else "standard"
-    model_path = still_model_path()  # xai/grok-imagine-image-2.0
-    
-    # Use pricing table for credit estimation (provider will call /estimate separately for USD cost)
-    estimated_credits = estimate_still_credits(model_path, pricing_quality)
-    
-    # Reserve credits from credit ledger
-    credit_ledger = CreditLedger(db_path)
-    await credit_ledger.init_db()
-    
-    credit_result = await credit_ledger.reserve_credits(
-        episode_id, job_id, estimated_credits,
-        notes=f"still {shot_id} {quality} {resolution}"
-    )
-    
-    if not credit_result.get("reserved"):
-        available = credit_result.get("available", 0)
-        over_cap = credit_result.get("over_cap", False)
-        
-        if over_cap:
-            # Hard cap hit - pause workflow (non-retryable, wait for cap raise signal)
-            from hfvg.errors import InsufficientCreditsError
-            raise InsufficientCreditsError(
-                f"Credit hard cap reached for {job_id}. "
-                f"Available: {available} credits. Requested: {estimated_credits} credits. "
-                "Raise cap via raise_credit_cap signal to resume.",
-                required=float(estimated_credits),
-                available=float(available)
-            )
-        else:
-            # Other reserve failure
-            raise ValueError(
-                f"Credit reserve failed for {job_id}. "
-                f"Available: {available} credits. Requested: {estimated_credits} credits."
-            )
+    # Use sha256 prefix (first 8 chars) for anchor suffix for uniqueness
+    anchor_suffix = f"-anchor{anchor['sha256'][:8]}" if anchor else ""
+    job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
     
+    # Initialize ledgers (but don't reserve yet)
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    # Track what we've reserved for cleanup
+    credits_reserved = False
+    budget_reserved = False
+    budget_line_name = None
+    budget_amount = 0
+    
     try:
-        # Estimate cost in integer micro-dollars (provider estimate's USD value)
-        estimated_cost = await provider.estimate_usd_micros(
+        # Upload local reference images to Higgsfield and get URLs
+        uploaded_refs = []
+        if refs_with_anchor:
+            for ref_path in refs_with_anchor:
+                # Check if this is a local file path (not already a URL)
+                if not ref_path.startswith(("http://", "https://")):
+                    # Get ref version from sidecar (not shot version!)
+                    ref_version = _get_ref_version_from_sidecar(ref_path)
+                    
+                    # Upload the local file and get the actual URL from provider
+                    upload_result = await provider.upload_reference(ref_path, ref_version)
+                    uploaded_url = upload_result["public_url"]
+                    uploaded_refs.append(uploaded_url)
+                    activity.logger.info(
+                        f"Uploaded reference {ref_path} v{ref_version} -> {uploaded_url}"
+                    )
+                else:
+                    # Already a URL, use as-is
+                    uploaded_refs.append(ref_path)
+        
+        # Estimate cost in integer micro-dollars and credits (provider estimate's values)
+        estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(
             prompt=prompt,
             resolution=resolution,
             quality=quality,
             aspect_ratio=aspect_ratio,
         )
         
+        model_path = still_model_path()
+        
         activity.logger.info(
-            f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD"
+            f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits"
         )
+        
+        # Reserve credits AFTER upload/estimate succeed
+        credit_result = await credit_ledger.reserve_credits(
+            episode_id, job_id, estimated_credits,
+            notes=f"still {shot_id} {quality} {resolution}"
+        )
+        
+        if not credit_result.get("reserved"):
+            available = credit_result.get("available", 0)
+            over_cap = credit_result.get("over_cap", False)
+            
+            if over_cap:
+                from hfvg.errors import InsufficientCreditsError
+                raise InsufficientCreditsError(
+                    f"Credit hard cap reached for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits. "
+                    "Raise cap via raise_credit_cap signal to resume.",
+                    required=float(estimated_credits),
+                    available=float(available)
+                )
+            else:
+                raise ValueError(
+                    f"Credit reserve failed for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits."
+                )
+        
+        credits_reserved = True
         
         # Determine budget line based on quality
         if quality == "high" and resolution == "2k":
@@ -328,85 +432,94 @@ async def submit_still_job_enforced(
             line_name = REVISION_LINE
         
         # Reserve budget
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
         reserved = await ledger.reserve(
             episode_id=episode_id,
             line_name=line_name,
             amount_usd_micros=estimated_cost,
             reason=f"Still {shot_id} v{version}",
+            job_id=job_id,
             revision=revision,
             require_balance=True,
         )
         
         if not reserved:
-            # Release credit reservation before failing
-            await credit_ledger.release_credits(episode_id, job_id)
             raise ValueError(
                 f"Budget reserve failed for {line_name}. "
                 f"At or over 80% stop threshold. Requested: {micros_to_usd_str(estimated_cost)} USD."
             )
         
+        budget_reserved = True
+        budget_line_name = line_name
+        budget_amount = estimated_cost
+        
         activity.logger.info(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
         
-        # Submit to provider - wrapped to release reservations on ANY error
+        # Generate idempotency key from hash of actual request with uploaded URLs
+        import hashlib
+        refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
+        anchor_str = f"anchor:{anchor['sha256']}" if anchor else ""
+        key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}|{anchor_str}|attempt:{attempt}"
+        key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        idempotency_key = f"{job_id}-{key_hash}"
+        
+        # Submit to provider
+        provider_job_id = await provider.submit_image(
+            prompt=prompt,
+            resolution=resolution,
+            quality=quality,
+            image_urls=uploaded_refs,
+            idempotency_key=idempotency_key,
+            aspect_ratio=aspect_ratio,
+        )
+        
+        activity.logger.info(
+            f"Submitted still {job_id} to provider (provider_job_id={provider_job_id})"
+        )
+        
+        # Persist the harness→provider mapping
+        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
+        
+        # Record job in ledger
         try:
-            provider_job_id = await provider.submit_image(
-                prompt=prompt,
-                resolution=resolution,
-                quality=quality,
-                image_urls=refs,
-                idempotency_key=job_id,  # Use job_id as provider idempotency key
-                aspect_ratio=aspect_ratio,
+            await ledger.record_job(
+                episode_id, job_id, shot_id, provider.model_path, tier, budget_line_name,
+                budget_amount,
             )
-            
-            # Provider should return the same job_id due to idempotency
-            if provider_job_id != job_id:
-                activity.logger.warning(
-                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
-                )
-            
-            activity.logger.info(
-                f"[LIVE] Submitted still {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, line: {line_name})"
-            )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
-            
-            # Return dict with job info for polling
-            return {
-                "job_id": job_id,
-                "line_name": line_name,
-                "reserved_amount": estimated_cost,
-            }
-        
-        except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
+        except aiosqlite.Error as ledger_err:
+            # The provider already accepted (and will charge) this job: NEVER release the hold
+            # because the bookkeeping row failed. The reservation stays held.
             activity.logger.error(
-                f"Submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
+                f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
+                f"Reservation HELD."
             )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Submit failed: {str(submit_error)[:100]}"
-            )
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
-            raise
         
+        # Return success
+        return {
+            "job_id": job_id,
+            "provider_job_id": provider_job_id,
+            "line_name": budget_line_name,
+            "reserved_amount": budget_amount,
+        }
+    
+    except httpx.HTTPStatusError as e:
+        # Capture provider error details (especially 422 idempotency conflicts)
+        error_detail = f"Provider {e.response.status_code}: {e.response.text}"
+        activity.logger.error(f"Provider error for {job_id}: {error_detail}")
+        # Release whatever has been reserved
+        if budget_reserved:
+            await ledger.release(episode_id, budget_line_name, budget_amount, f"Provider error: {error_detail}")
+        if credits_reserved:
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+        raise ValueError(error_detail) from e
+    except Exception as e:
+        # Release whatever has been reserved on any other error
+        if budget_reserved:
+            await ledger.release(episode_id, budget_line_name, budget_amount, f"Submit failed: {str(e)}")
+        if credits_reserved:
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+        raise
     finally:
         await provider.close()
 
@@ -520,6 +633,10 @@ async def submit_clip_job_enforced(
         f"[LIVE MODE] Submitting paid clip generation for {episode_id}/{shot_id}"
     )
     
+    # Gate: Smoke test (live mode only)
+    from hfvg.studio_db import enforce_smoke_test_gate
+    await enforce_smoke_test_gate(db_path, episode_id, "submit_clip_job_enforced")
+    
     # Double-check: these should never happen due to use_live logic, but fail-safe
     if not live_mode:
         raise ValueError(
@@ -527,31 +644,27 @@ async def submit_clip_job_enforced(
             "Approve credit plan before generating."
         )
     
-    # Generate idempotency key including all parameters that affect generation
-    idempotency_key = generate_idempotency_key(
-        episode_id=episode_id,
-        shot_id=shot_id,
-        version=version,
-        prompt=f"clip:{prompt}",
-        start_image=start_image_url,
-        duration=duration,
-        model=route.model,
-        resolution=route.resolution,
-        end_image=end_image_url,
-        prompt_hash=hashlib.sha256(prompt.encode()).hexdigest(),
-    )
+    # Generate harness job_id
+    job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+    
+    # Generate idempotency key from hash of actual request parameters
+    # This ensures identical requests dedupe but different requests don't collide
+    import hashlib
+    key_input = f"{route.model}|{start_image_url}|{end_image_url or ''}|{prompt}|{duration}"
+    key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+    idempotency_key = f"{job_id}-{key_hash}"
     
     # Initialize provider
     provider = SeedanceVideoProvider() if route.model == "seedance" else KlingVideoProvider()
     
     try:
-        # Estimate cost in micro-dollars
+        # Estimate cost in micro-dollars and credits
         if route.model == "seedance":
             # Seedance: configurable per-second USD rate table (list price before discount)
-            estimated_cost = await provider.estimate_usd_micros(int(duration), route.resolution)
+            estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(int(duration), route.resolution)
         else:
-            # Kling 3.0 Pro: estimate's USD, else rate table
-            estimated_cost = await provider.estimate_usd_micros(
+            # Kling 3.0 Pro: estimate's USD and credits, with fallback to rate table
+            estimated_cost, estimated_credits = await provider.estimate_usd_and_credits(
                 image_url=start_image_url,
                 prompt=prompt,
                 duration=int(duration),
@@ -560,7 +673,7 @@ async def submit_clip_job_enforced(
         
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id} clip: "
-            f"{micros_to_usd_str(estimated_cost)} USD ({duration}s)"
+            f"{micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits ({duration}s)"
         )
         
         # Reserve budget from L4_video (revision tier draws on the revision reserve)
@@ -576,6 +689,7 @@ async def submit_clip_job_enforced(
             line_name=line_name,
             amount_usd_micros=estimated_cost,
             reason=f"Clip {shot_id} v{version} ({duration}s)",
+            job_id=job_id,
             revision=revision,
             require_balance=True,
         )
@@ -589,17 +703,6 @@ async def submit_clip_job_enforced(
         activity.logger.info(
             f"Reserved {micros_to_usd_str(estimated_cost)} USD from {line_name} for {shot_id}"
         )
-        
-        # Generate job_id (will be used as provider idempotency key)
-        job_id = f"clip-{episode_id}-{shot_id}-v{version}"
-        
-        # Estimate credits for credit ledger
-        # Map tier to resolution for Seedance: draft->480p, else->1080p
-        if model == "seedance":
-            resolution = "480p" if tier == "draft" else "1080p"
-            estimated_credits = estimate_clip_credits("seedance_2.5", duration, resolution)
-        else:  # kling
-            estimated_credits = estimate_clip_credits("kling_3.0", duration)
         
         # Reserve credits from credit ledger
         credit_ledger = CreditLedger(db_path)
@@ -634,11 +737,11 @@ async def submit_clip_job_enforced(
                 )
             else:
                 raise ValueError(
-                f"Credit reserve failed for {job_id}. "
-                f"Available: {available}/{cap} credits. Requested: {estimated_credits} credits."
-            )
+                    f"Credit reserve failed for {job_id}. "
+                    f"Available: {available} credits. Requested: {estimated_credits} credits."
+                )
         
-        # Validate start_image URL
+        # Validate and upload start_image if it's a local path
         if not start_image_url or not start_image_url.startswith(("http://", "https://", "/")):
             # Release both budget and credit reservations on validation failure
             await ledger.release(
@@ -650,6 +753,41 @@ async def submit_clip_job_enforced(
             await credit_ledger.release_credits(episode_id, job_id, notes=f"invalid start_image")
             raise ValueError(f"Invalid start_image URL: {start_image_url}")
         
+        # Upload local paths to Higgsfield CDN (wrap in try/except to release on upload failure)
+        try:
+            if start_image_url.startswith("/"):
+                activity.logger.info(f"Uploading local start image: {start_image_url}")
+                # Get ref version from sidecar (not shot version!)
+                ref_version = _get_ref_version_from_sidecar(start_image_url)
+                upload_result = await provider.upload_reference(start_image_url, ref_version)
+                if isinstance(upload_result, dict):
+                    start_image_url = upload_result["public_url"]
+                else:
+                    start_image_url = upload_result
+                activity.logger.info(f"Uploaded start image v{ref_version} -> {start_image_url}")
+            
+            if end_image_url and end_image_url.startswith("/"):
+                activity.logger.info(f"Uploading local end image: {end_image_url}")
+                # Get ref version from sidecar (not shot version!)
+                ref_version = _get_ref_version_from_sidecar(end_image_url)
+                upload_result = await provider.upload_reference(end_image_url, ref_version)
+                if isinstance(upload_result, dict):
+                    end_image_url = upload_result["public_url"]
+                else:
+                    end_image_url = upload_result
+                activity.logger.info(f"Uploaded end image v{ref_version} -> {end_image_url}")
+        except Exception as e:
+            # Release both reservations on upload failure
+            await ledger.release(episode_id, line_name, estimated_cost, f"Upload failed: {str(e)}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Upload failed: {str(e)}")
+            raise
+        
+        # Generate idempotency key from hash of actual request with uploaded URLs
+        import hashlib
+        key_input = f"{route.model}|{start_image_url}|{end_image_url or ''}|{prompt}|{duration}"
+        key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
+        idempotency_key = f"{job_id}-{key_hash}"
+        
         # Submit to provider - wrapped to release reservations on ANY error
         try:
             if route.model == "seedance":
@@ -660,60 +798,65 @@ async def submit_clip_job_enforced(
                     resolution=route.resolution,
                     bitrate_mode=bitrate_mode,
                     end_image_url=end_image_url,
-                    idempotency_key=job_id,  # Use job_id as provider idempotency key
+                    idempotency_key=idempotency_key,
                 )
             else:
                 provider_job_id = await provider.submit_video(
                     image_url=start_image_url,
                     prompt=prompt,
                     duration=int(duration),  # Must be integer
-                    idempotency_key=job_id,  # Use job_id as provider idempotency key
+                    idempotency_key=idempotency_key,
                     end_image_url=end_image_url,
                 )
-            
-            # Provider should return the same job_id due to idempotency
-            if provider_job_id != job_id:
-                activity.logger.warning(
-                    f"Provider returned different job_id: {provider_job_id} vs {job_id}"
-                )
-            
-            activity.logger.info(
-                f"[LIVE] Submitted {route.model} clip {job_id} for {episode_id}/{shot_id} "
-                f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
-            )
-            try:
-                await ledger.record_job(
-                    episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                    estimated_cost,
-                )
-            except aiosqlite.Error as ledger_err:
-                # The provider already accepted (and will charge) this job: NEVER release the hold
-                # because the bookkeeping row failed. The reservation stays held.
-                activity.logger.error(
-                    f"Job {job_id} submitted but per-job ledger row failed: {ledger_err}. "
-                    f"Reservation HELD."
-                )
-            
-            # Return dict with job info for polling
-            return {
-                "job_id": job_id,
-                "line_name": line_name,
-                "reserved_amount": estimated_cost,
-            }
-        
-        except Exception as submit_error:
-            # Release both budget and credit reservations on submission failure
-            activity.logger.error(
-                f"Clip submit failed, releasing {micros_to_usd_str(estimated_cost)} USD from {line_name}: {submit_error}"
-            )
-            await ledger.release(
-                episode_id=episode_id,
-                line_name=line_name,
-                amount_usd_micros=estimated_cost,
-                reason=f"Clip submit failed: {str(submit_error)[:100]}"
-            )
-            await credit_ledger.release_credits(episode_id, job_id, notes=f"submit failed: {submit_error}")
+        except httpx.HTTPStatusError as e:
+            # Capture provider error details (especially 422 idempotency conflicts)
+            error_detail = f"Provider {e.response.status_code}: {e.response.text}"
+            activity.logger.error(f"Provider error for {job_id}: {error_detail}")
+            # Release both reservations before re-raising
+            await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+            raise ValueError(error_detail) from e
+        except Exception as e:
+            # Release both reservations on any other error
+            await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
+            await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
             raise
+        
+        # Post-submit success handling (provider accepted and will charge)
+        # Store the provider job id for polling (not the harness job_id)
+        if provider_job_id != job_id:
+            activity.logger.info(
+                f"Provider returned job_id {provider_job_id}, storing for polling (harness key: {job_id})"
+            )
+        
+        # BUG 2 fix for clips: Persist the harness→provider job mapping
+        await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)
+        activity.logger.info(f"Persisted clip job mapping: {job_id} -> {provider_job_id}")
+        
+        activity.logger.info(
+            f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
+            f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
+        )
+        try:
+            await ledger.record_job(
+                episode_id, job_id, shot_id, provider.model_path, tier, line_name,
+                estimated_cost,
+            )
+        except aiosqlite.Error as ledger_err:
+            # The provider already accepted (and will charge) this job: NEVER release the hold
+            # because the bookkeeping row failed. The reservation stays held.
+            activity.logger.error(
+                f"Job {job_id} (provider {provider_job_id}) submitted but per-job ledger row failed: {ledger_err}. "
+                f"Reservation HELD."
+            )
+        
+        # Return dict with job info for polling
+        return {
+            "job_id": job_id,  # Return harness job_id (not provider's job_id)
+            "provider_job_id": provider_job_id,  # Also return provider job_id for polling
+            "line_name": line_name,
+            "reserved_amount": estimated_cost,
+        }
         
     finally:
         await provider.close()
@@ -732,7 +875,7 @@ async def poll_job_status(
     It does NOT release reservations on timeout - the workflow handles reconciliation.
     
     Args:
-        job_id: Provider job ID
+        job_id: Harness job ID (will be resolved to provider job ID for polling)
         job_type: "still" or "clip"
         episode_id: Episode ID
     
@@ -741,6 +884,24 @@ async def poll_job_status(
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    # Resolve harness job_id to provider job_id for polling
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    provider_job_id = await credit_ledger.get_provider_job(job_id)
+    
+    if not provider_job_id:
+        # In live mode, missing mapping is a hard error (Bug 2 fix)
+        if not dry_run_env:
+            raise ValueError(
+                f"No provider job mapping found for {job_id} in live mode. "
+                "This indicates a bug - provider job must be persisted after submission."
+            )
+        # Dry mode: assume job_id is already a provider ID (backward compat)
+        provider_job_id = job_id
+        activity.logger.warning(
+            f"No provider job mapping found for {job_id} in dry mode, assuming it's a provider ID"
+        )
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
@@ -787,9 +948,35 @@ async def poll_job_status(
         provider = KlingVideoProvider()
     
     try:
-        job_status = await provider.get_job_status(job_id)
+        job_status = await provider.get_job_status(provider_job_id)  # Use provider ID for polling
         
-        # Return status without taking any budget actions
+        # Check for terminal failure statuses - fail fast and release reservations
+        if job_status.status.value in ("failed", "blocked", "canceled"):
+            # Provider job failed - must fail fast, release BOTH credit and USD reservations,
+            # and surface the error message
+            activity.logger.error(
+                f"Job {provider_job_id} (harness {job_id}) {job_status.status.value}: {job_status.error}"
+            )
+            
+            # Release credit reservation using harness job_id
+            credit_ledger = CreditLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
+            await credit_ledger.init_db()
+            await credit_ledger.release_credits(
+                episode_id, job_id, notes=f"{job_status.status.value}: {job_status.error}"
+            )
+            
+            # Note: USD reservation release is handled by the workflow when it sees this status
+            # The workflow calls release_job_budget with the job info it stored from submit
+            
+            # Return terminal failure status immediately
+            return {
+                "status": job_status.status.value,  # "failed", "blocked", or "canceled"
+                "output_url": None,
+                "error": job_status.error or f"Job {job_status.status.value}",
+                "cost": None,
+            }
+        
+        # Return status without taking any budget actions for non-terminal states
         # The workflow will handle commit/release based on terminal status
         return {
             "status": job_status.status.value,  # "completed", "failed", "blocked", "canceled", "in_progress", "queued"
@@ -989,6 +1176,11 @@ async def await_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
+    # Gate: Smoke test (live mode only, unless override)
+    if not dry_run_env:
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "await_job_enforced")
+    
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(0.2)
@@ -1036,6 +1228,19 @@ async def await_job_enforced(
     else:
         provider = KlingVideoProvider()
     
+    # Resolve harness job_id to provider job_id
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    provider_job_id = await credit_ledger.get_provider_job(job_id)
+    if not provider_job_id:
+        raise ValueError(
+            f"No provider job mapping found for harness job {job_id}. "
+            f"Job may not have been submitted successfully."
+        )
+    
+    activity.logger.info(f"Polling provider job {provider_job_id} (harness: {job_id})")
+    
     released = False  # Track if we've already released to prevent double release
     
     try:
@@ -1046,10 +1251,10 @@ async def await_job_enforced(
         max_retries_5xx = 3
         
         for i in range(max_active_polls):
-            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "active"})
+            activity.heartbeat({"job_id": job_id, "provider_job_id": provider_job_id, "poll": i, "phase": "active"})
             
             try:
-                job_status = await provider.get_job_status(job_id)
+                job_status = await provider.get_job_status(provider_job_id)
                 retries_5xx = 0  # Reset counter on success
             except httpx.HTTPStatusError as http_err:
                 # Retry on 5xx errors instead of releasing (job may still be running)
@@ -1136,10 +1341,10 @@ async def await_job_enforced(
         reconciliation_interval = 10.0
         
         for i in range(max_reconciliation_polls):
-            activity.heartbeat({"job_id": job_id, "poll": i, "phase": "reconciliation"})
+            activity.heartbeat({"job_id": job_id, "provider_job_id": provider_job_id, "poll": i, "phase": "reconciliation"})
             
             try:
-                job_status = await provider.get_job_status(job_id)
+                job_status = await provider.get_job_status(provider_job_id)
             except httpx.HTTPStatusError as http_err:
                 # In reconciliation phase, log but keep polling
                 activity.logger.warning(

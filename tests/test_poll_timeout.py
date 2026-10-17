@@ -54,6 +54,9 @@ class FakeStuckProvider:
     async def estimate_usd_micros(self, **kwargs):
         return 50_000  # 0.05 USD
     
+    async def estimate_usd_and_credits(self, **kwargs):
+        return (50_000, 1.12)  # 0.05 USD, 1.12 credits
+    
     async def submit_image(self, **kwargs):
         global _submit_count
         _submit_count += 1
@@ -81,6 +84,9 @@ class FakeFailedProvider:
     
     async def estimate_usd_micros(self, **kwargs):
         return 50_000  # 0.05 USD
+    
+    async def estimate_usd_and_credits(self, **kwargs):
+        return (50_000, 1.12)  # 0.05 USD, 1.12 credits
     
     async def submit_image(self, **kwargs):
         global _submit_count
@@ -263,6 +269,7 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
@@ -339,17 +346,18 @@ async def test_poll_exhaustion_runtime_keeps_reservation(tmp_path, monkeypatch):
             }
             t_start = await env.get_current_time()
             
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await env.client.execute_workflow(
-                    "ShotWorkflow",
-                    args=["test-ep", shot_plan],
-                    id="test-poll-exhaustion",
-                    task_queue="test-queue",
-                    execution_timeout=timedelta(minutes=35),
-                )
+            # Workflow no longer raises on poll exhaustion - it returns failed status
+            result = await env.client.execute_workflow(
+                "ShotWorkflow",
+                args=["test-ep", shot_plan],
+                id="test-poll-exhaustion",
+                task_queue="test-queue",
+                execution_timeout=timedelta(minutes=35),
+            )
             
-            # Workflow must FAIL (terminal) with the exhaustion error, not hang in task-retry
-            assert "polling exhausted" in str(exc_info.value.cause), exc_info.value.cause
+            # Verify workflow completed with failed status
+            assert result["status"] == "failed"
+            assert "polling exhausted" in result["error"].lower()
             
             # More than 15 simulated minutes elapsed (time skipping), yet test runs in seconds
             elapsed = (await env.get_current_time()) - t_start
@@ -408,6 +416,7 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
@@ -483,16 +492,17 @@ async def test_confirmed_failure_releases_once(tmp_path, monkeypatch):
                 "refs": [],
             }
             
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await env.client.execute_workflow(
-                    "ShotWorkflow",
-                    args=["test-ep", shot_plan],
-                    id="test-confirmed-failure",
-                    task_queue="test-queue",
-                    execution_timeout=timedelta(minutes=5),
-                )
+            # Workflow no longer raises on confirmed failure - it returns failed status
+            result = await env.client.execute_workflow(
+                "ShotWorkflow",
+                args=["test-ep", shot_plan],
+                id="test-confirmed-failure",
+                task_queue="test-queue",
+            )
             
-            assert "failed" in str(exc_info.value.cause), exc_info.value.cause
+            # Verify workflow completed with failed status
+            assert result["status"] == "failed"
+            assert "failed" in result["error"].lower()
             
             # Verify exactly one release
             assert _release_count == 1, f"Expected 1 release, got {_release_count}"
@@ -519,6 +529,7 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test:test")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.example.com")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "test/model")
@@ -578,16 +589,19 @@ async def test_poll_activity_errors_do_not_release_runtime(tmp_path, monkeypatch
                 "params": {"resolution": "1k", "quality": "medium", "aspect_ratio": "9:16"},
                 "refs": [],
             }
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await env.client.execute_workflow(
-                    "ShotWorkflow",
-                    args=["test-ep", shot_plan],
-                    id="test-poll-errors",
-                    task_queue="test-queue",
-                    execution_timeout=timedelta(minutes=35),
-                )
-
-    assert "polling exhausted" in str(exc_info.value.cause), exc_info.value.cause
+            # Workflow no longer raises on poll exhaustion - it returns failed status
+            result = await env.client.execute_workflow(
+                "ShotWorkflow",
+                args=["test-ep", shot_plan],
+                id="test-poll-errors",
+                task_queue="test-queue",
+                execution_timeout=timedelta(minutes=35),
+            )
+            
+            # Verify workflow completed with failed status
+            assert result["status"] == "failed"
+            assert "polling exhausted" in result["error"].lower()
+    
     # The generic-error branch really ran (activity retries exhausted at least once)
     assert _poll_error_count >= 3, f"Expected poll errors to occur, got {_poll_error_count}"
     assert _submit_count == 1, f"Expected 1 submit, got {_submit_count}"

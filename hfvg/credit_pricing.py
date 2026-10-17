@@ -23,14 +23,15 @@ REF_CREDITS = {
 
 # Still generation pricing (credits per image)
 # Using Grok Image 2.0: xai/grok-imagine-image-2.0 (accepts reference images)
+# Real costs from provider: ~1.12 credits per image
 STILL_CREDITS = {
     "xai/grok-imagine-image-2.0": {
-        "high": 6.5,      # Grok Image 2.0 high quality (from /estimate)
-        "standard": 4.0,  # Grok Image 2.0 standard (from /estimate)
+        "high": 1.12,     # Grok Image 2.0 (actual cost ~1.12 credits)
+        "standard": 1.12,  # Grok Image 2.0 standard
     },
     "gpt_image_2": {
-        "high": 6.5,      # GPT Image 2 high quality (deprecated, use Grok)
-        "standard": 4.0,  # GPT Image 2 standard (deprecated, use Grok)
+        "high": 1.12,      # GPT Image 2 (deprecated, use Grok)
+        "standard": 1.12,  # GPT Image 2 standard
     },
     "higgsfield_still": {
         "high": 5.0,      # Higgsfield high quality
@@ -71,7 +72,7 @@ def estimate_ref_credits(model: str) -> float:
     return 0.1
 
 
-def estimate_still_credits(model: str, quality: str = "standard") -> int:
+def estimate_still_credits(model: str, quality: str = "standard") -> float:
     """Estimate credits for a still image generation.
     
     Args:
@@ -79,14 +80,14 @@ def estimate_still_credits(model: str, quality: str = "standard") -> int:
         quality: Quality level (e.g., "high", "standard")
     
     Returns:
-        Estimated credits (integer)
+        Estimated credits (float, exact decimal to avoid under-reserving)
     """
     if model in STILL_CREDITS:
-        return int(STILL_CREDITS[model].get(quality, DEFAULT_STILL_CREDITS))
-    return int(DEFAULT_STILL_CREDITS)
+        return float(STILL_CREDITS[model].get(quality, DEFAULT_STILL_CREDITS))
+    return float(DEFAULT_STILL_CREDITS)
 
 
-def estimate_clip_credits(model: str, duration: float, resolution: str | None = None) -> int:
+def estimate_clip_credits(model: str, duration: float, resolution: str | None = None) -> float:
     """Estimate credits for a video clip generation.
     
     Args:
@@ -95,7 +96,7 @@ def estimate_clip_credits(model: str, duration: float, resolution: str | None = 
         resolution: Resolution for Seedance (e.g., "1080p", "720p", "480p")
     
     Returns:
-        Estimated credits (integer)
+        Estimated credits (float, exact decimal to avoid under-reserving)
     """
     if model.startswith("kling"):
         rate = CLIP_CREDITS_PER_SECOND.get("kling_3.0", {}).get("standard", DEFAULT_CLIP_CREDITS_PER_SECOND)
@@ -107,7 +108,7 @@ def estimate_clip_credits(model: str, duration: float, resolution: str | None = 
     else:
         rate = DEFAULT_CLIP_CREDITS_PER_SECOND
     
-    return int(rate * duration)
+    return float(rate * duration)
 
 
 async def call_higgsfield_estimate(model_path: str, params: dict) -> float:

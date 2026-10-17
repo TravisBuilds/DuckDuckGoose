@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         commit_credits_activity,
         release_credits_activity,
     )
+    from hfvg.activities.save_assets import save_asset_locally
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
     from temporalio.exceptions import ActivityError, ApplicationError
@@ -51,6 +52,17 @@ class ShotWorkflow:
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
         self.status = "running"  # Status: running, paused_cap, completed, failed
+        
+        # Per-shot G2 status tracking (Item 4)
+        self.still_status = "pending"  # pending/done/failed
+        self.still_url: str | None = None
+        self.still_error: str | None = None
+        self.clip_status = "pending"  # pending/done/failed
+        self.clip_url: str | None = None
+        self.clip_error: str | None = None
+        self.end_still_status = "pending"  # For end-frame shots
+        self.end_still_url: str | None = None
+        self.end_still_error: str | None = None
 
     @workflow.signal
     def stills_approved(self):
@@ -87,6 +99,16 @@ class ShotWorkflow:
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
             "human_approved_still": self.human_approved_still,
+            # Per-shot G2 status (Item 4)
+            "still_status": self.still_status,
+            "still_url": self.still_url,
+            "still_error": self.still_error,
+            "clip_status": self.clip_status,
+            "clip_url": self.clip_url,
+            "clip_error": self.clip_error,
+            "end_still_status": self.end_still_status,
+            "end_still_url": self.end_still_url,
+            "end_still_error": self.end_still_error,
         }
     
     async def _poll_job_to_completion(
@@ -283,6 +305,7 @@ class ShotWorkflow:
                         None,  # tier
                         shot_plan.get("shot_meta"),
                         shot_plan.get("missing_refs", []),
+                        self.version,  # attempt
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -321,8 +344,13 @@ class ShotWorkflow:
         """
         self.episode_id = episode_id
         self.shot_id = shot_plan["shot_id"]
+        
+        # Use attempt number if provided (for retries), otherwise default to 0
+        # Version is separate: original=1, retry1=2, retry2=3, etc.
+        attempt = shot_plan.get("attempt", 0)
+        self.version = shot_plan.get("version", 1)
 
-        workflow.logger.info(f"Starting shot {self.shot_id}")
+        workflow.logger.info(f"Starting shot {self.shot_id} (attempt {attempt})")
 
         # NO RETRY after reserve: each retry would resubmit a paid call and leak reservations
         # Provider idempotency-key should dedupe, but we must not rely on that
@@ -379,6 +407,7 @@ class ShotWorkflow:
                                 None,  # tier (activity default)
                                 shot_plan.get("shot_meta"),  # prompt lint metadata
                                 shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
+                                self.version,  # attempt
                             ],
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
@@ -399,23 +428,59 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.still_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.still_error = error_message
+                            workflow.logger.error(f"Still submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
-                poll_result = await self._poll_job_to_completion(
-                    job_id=job_info["job_id"],
-                    job_type="still",
-                    line_name=job_info["line_name"],
-                    reserved_amount=job_info["reserved_amount"],
-                )
+                try:
+                    poll_result = await self._poll_job_to_completion(
+                        job_id=job_info["job_id"],
+                        job_type="still",
+                        line_name=job_info["line_name"],
+                        reserved_amount=job_info["reserved_amount"],
+                    )
+                except RuntimeError as e:
+                    # Provider failure or polling exhaustion - update G2 status and return failure
+                    self.still_status = "failed"
+                    self.still_error = str(e)
+                    workflow.logger.error(f"Still generation failed: {e}")
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "error": str(e),
+                    }
                 
                 self.still_asset = {
                     "url": poll_result["url"],
                     "cost": poll_result["cost"],
                 }
+                
+                # Update G2 status (Item 4)
+                self.still_status = "done"
+                self.still_url = poll_result["url"]
+                self.still_error = None
 
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
+                
+                # Save still locally
+                try:
+                    still_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "still", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Still saved locally to {still_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save still locally: {e}, continuing")
 
                 review_result = await workflow.execute_activity(
                     review_still,
@@ -455,6 +520,12 @@ class ShotWorkflow:
                         )
                         self.end_still_asset = end_still_result
                         self.end_image_url = end_still_result["url"]
+                        
+                        # Update G2 end_still status
+                        self.end_still_status = "done"
+                        self.end_still_url = end_still_result["url"]
+                        self.end_still_error = None
+                        
                         workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
                     
                     break
@@ -516,6 +587,9 @@ class ShotWorkflow:
                     workflow.logger.error(
                         f"Still failed QC without escalation: {review_result['issues']}"
                     )
+                    # Update G2 status
+                    self.still_status = "failed"
+                    self.still_error = f"QC failed: {', '.join(review_result['issues'])}"
                     return {
                         "shot_id": self.shot_id,
                         "status": "failed",
@@ -525,6 +599,9 @@ class ShotWorkflow:
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on still: {e}, routing to recovery")
+                # Update G2 status
+                self.still_status = "failed"
+                self.still_error = f"Content blocked: {str(e)}"
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
@@ -535,6 +612,9 @@ class ShotWorkflow:
 
         if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):
             workflow.logger.error(f"Still failed after {self.max_retries} attempts")
+            # Update G2 status
+            self.still_status = "failed"
+            self.still_error = "Max retries exceeded"
             return {
                 "shot_id": self.shot_id,
                 "status": "failed",
@@ -613,16 +693,37 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.clip_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.clip_error = error_message
+                            workflow.logger.error(f"Clip submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "still_url": self.still_asset["url"],
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
-                poll_result = await self._poll_job_to_completion(
-                    job_id=job_info["job_id"],
-                    job_type="clip",
-                    line_name=job_info["line_name"],
-                    reserved_amount=job_info["reserved_amount"],
-                )
+                try:
+                    poll_result = await self._poll_job_to_completion(
+                        job_id=job_info["job_id"],
+                        job_type="clip",
+                        line_name=job_info["line_name"],
+                        reserved_amount=job_info["reserved_amount"],
+                    )
+                except RuntimeError as e:
+                    # Provider failure or polling exhaustion - update clip status and return failure
+                    self.clip_status = "failed"
+                    self.clip_error = str(e)
+                    workflow.logger.error(f"Clip generation failed: {e}")
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "still_url": self.still_asset["url"],
+                        "error": str(e),
+                    }
                 
                 self.clip_asset = {
                     "url": poll_result["url"],
@@ -630,6 +731,18 @@ class ShotWorkflow:
                 }
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
+                
+                # Save clip locally
+                try:
+                    clip_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "clip", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Clip saved locally to {clip_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
 
                 # Prepare rubric with expected clip parameters for motion QC
                 clip_rubric = {
@@ -648,6 +761,10 @@ class ShotWorkflow:
 
                 if clip_qc["passed"]:
                     workflow.logger.info(f"Clip passed QC on attempt {attempt + 1}")
+                    # Update clip status
+                    self.clip_status = "done"
+                    self.clip_url = self.clip_asset["url"]
+                    self.clip_error = None
                     break
                 elif clip_qc.get("escalate"):
                     # QC failed in live mode - escalate to human review, don't retry
@@ -667,6 +784,9 @@ class ShotWorkflow:
                     workflow.logger.error(
                         f"Clip failed QC without escalation: {clip_qc['issues']}"
                     )
+                    # Update clip status
+                    self.clip_status = "failed"
+                    self.clip_error = f"QC failed: {', '.join(clip_qc['issues'])}"
                     return {
                         "shot_id": self.shot_id,
                         "status": "failed",
@@ -676,6 +796,9 @@ class ShotWorkflow:
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on clip: {e}, routing to recovery")
+                # Update clip status
+                self.clip_status = "failed"
+                self.clip_error = f"Content blocked: {str(e)}"
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
@@ -687,6 +810,9 @@ class ShotWorkflow:
 
         if not self.clip_asset or not clip_qc.get("passed"):
             workflow.logger.error(f"Clip failed after {self.max_retries} attempts")
+            # Update clip status
+            self.clip_status = "failed"
+            self.clip_error = "Max clip retries exceeded"
             return {
                 "shot_id": self.shot_id,
                 "status": "failed",

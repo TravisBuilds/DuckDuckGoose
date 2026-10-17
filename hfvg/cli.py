@@ -17,6 +17,96 @@ def cli():
 
 
 @cli.command()
+@click.argument("episode_id")
+def lint(episode_id: str):
+    """Lint episode configuration and beatmap."""
+    import httpx
+    from pathlib import Path
+    
+    # Check if episode directory exists
+    episode_dir = Path("./data/episodes") / episode_id
+    if not episode_dir.exists():
+        click.echo(f"❌ Episode directory not found: {episode_dir}", err=True)
+        import sys
+        sys.exit(1)
+    
+    issues = []
+    warnings = []
+    
+    # Check BEATMAP.md
+    beatmap_path = episode_dir / "BEATMAP.md"
+    if not beatmap_path.exists():
+        issues.append(f"BEATMAP.md missing at {beatmap_path}")
+    else:
+        try:
+            from hfvg.episode_parser import parse_beatmap
+            shots = parse_beatmap(str(beatmap_path))
+            if not shots:
+                warnings.append("BEATMAP.md contains no shots")
+            else:
+                click.echo(f"✓ BEATMAP.md: {len(shots)} shots")
+        except Exception as e:
+            issues.append(f"BEATMAP.md parse error: {str(e)}")
+    
+    # Check shots.json
+    shots_json = episode_dir / "shots.json"
+    if not shots_json.exists():
+        warnings.append("shots.json missing (required for live mode)")
+    else:
+        try:
+            import json
+            from hfvg.shot_data import parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text()))
+            click.echo(f"✓ shots.json: valid")
+        except Exception as e:
+            issues.append(f"shots.json parse error: {str(e)}")
+    
+    # Check refs.json
+    refs_json = episode_dir / "refs.json"
+    if refs_json.exists():
+        try:
+            import json
+            refs_data = json.loads(refs_json.read_text())
+            per_shot = refs_data.get("per_shot", {})
+            missing_refs = []
+            
+            for shot_id, shot_refs in per_shot.items():
+                for ref_entry in shot_refs:
+                    if isinstance(ref_entry, dict):
+                        ref_path = ref_entry.get("path")
+                        if ref_path and not Path(ref_path).exists():
+                            missing_refs.append(f"{shot_id}: {ref_path}")
+            
+            if missing_refs:
+                warnings.append(f"{len(missing_refs)} reference files not found")
+                for ref in missing_refs[:5]:
+                    warnings.append(f"  - {ref}")
+            else:
+                click.echo(f"✓ refs.json: all references exist")
+        except Exception as e:
+            issues.append(f"refs.json parse error: {str(e)}")
+    
+    # Summary
+    if issues:
+        click.echo(f"\n❌ {len(issues)} issue(s) found:", err=True)
+        for issue in issues:
+            click.echo(f"  - {issue}", err=True)
+    
+    if warnings:
+        click.echo(f"\n⚠  {len(warnings)} warning(s):")
+        for warning in warnings:
+            click.echo(f"  - {warning}")
+    
+    if not issues and not warnings:
+        click.echo(f"\n✓ {episode_id}: All checks passed")
+        import sys
+        sys.exit(0)
+    
+    import sys
+    sys.exit(1 if issues else 0)
+
+
+@cli.command()
 @click.option("--episode-id", required=True, help="Unique episode ID")
 @click.option("--idea", required=True, help="Video idea/concept")
 @click.option("--platforms", default="instagram", help="Comma-separated platforms")
@@ -287,5 +377,271 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
     asyncio.run(_canary())
 
 
+@cli.command()
+@click.argument("episode_id")
+@click.option("--live", is_flag=True, help="Run live smoke test (spends real credits)")
+def smoke_test(episode_id: str, live: bool):
+    """Run smoke test to validate Higgsfield API connectivity and billing."""
+    if not live:
+        click.echo("❌ Smoke test requires --live flag (spends ~0.09 credits)", err=True)
+        click.echo("   Usage: hfvg smoke-test <episode-id> --live", err=True)
+        import sys
+        sys.exit(1)
+    
+    import os
+    import aiosqlite
+    from hfvg.activities.smoke_test import run_smoke_test
+    from hfvg.studio_db import store_smoke_test_result
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Check episode exists before spending
+    async def check_episode_exists():
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute("SELECT episode_id FROM episodes WHERE episode_id = ?", (episode_id,))
+            return await cursor.fetchone() is not None
+    
+    if not asyncio.run(check_episode_exists()):
+        click.echo(f"❌ Episode '{episode_id}' not found in database", err=True)
+        import sys
+        sys.exit(1)
+    
+    click.echo(f"🧪 Running live smoke test for {episode_id}...")
+    click.echo("   Upload probe + SOUL V2 generation (~0.09 credits)")
+    
+    result = asyncio.run(run_smoke_test(episode_id, db_path))
+    
+    # Store result in DB
+    asyncio.run(store_smoke_test_result(db_path, episode_id, result))
+    
+    click.echo()
+    click.echo(f"Upload probe:      {'✅ PASSED' if result['upload_probe']['passed'] else '❌ FAILED'}")
+    if result['upload_probe']['error']:
+        click.echo(f"  Error: {result['upload_probe']['error']}")
+    else:
+        click.echo(f"  Public URL: {result['upload_probe']['public_url']}")
+    
+    click.echo()
+    click.echo(f"Generation probe:  {'✅ PASSED' if result['generation_probe']['passed'] else '❌ FAILED'}")
+    if result['generation_probe']['error']:
+        click.echo(f"  Error: {result['generation_probe']['error']}")
+    else:
+        click.echo(f"  Provider ID: {result['generation_probe']['provider_job_id']}")
+    
+    click.echo()
+    click.echo(f"Overall:           {'✅ PASSED' if result['passed'] else '❌ FAILED'}")
+    click.echo(f"Timestamp:         {result['timestamp']}")
+    
+    import sys
+    sys.exit(0 if result['passed'] else 1)
+
+
+@cli.command()
+@click.argument("episode_id")
+@click.argument("shot_id")
+def retry_shot(episode_id: str, shot_id: str):
+    """Retry a failed shot (only valid while parked at G1/G2)."""
+    
+    async def _retry():
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
+        
+        client = await Client.connect(
+            config.TEMPORAL_HOST,
+            namespace=config.TEMPORAL_NAMESPACE,
+        )
+        
+        handle = client.get_workflow_handle(episode_id)
+        
+        try:
+            result = await handle.execute_update("retry_shot", shot_id)
+            click.echo(f"✓ Retry queued for shot {shot_id}: {result}")
+        except WorkflowUpdateFailedError as e:
+            if e.cause and isinstance(e.cause, ApplicationError):
+                click.echo(f"❌ Retry refused: {e.cause}", err=True)
+            else:
+                click.echo(f"❌ Error: {e}", err=True)
+            import sys
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"❌ Error: {e}", err=True)
+            import sys
+            sys.exit(1)
+    
+    asyncio.run(_retry())
+
+
 if __name__ == "__main__":
     cli()
+
+
+@cli.command("set-anchor")
+@click.argument("episode_id")
+@click.argument("anchor_shot_id")
+@click.option("--for", "target_shots", required=True, help="Comma-separated list of target shot IDs (e.g., A02,A03,A04)")
+@click.option("--file", "file_path", help="External file path (requires --approved-by)")
+@click.option("--approved-by", help="Approval note (required for external files)")
+def set_anchor(episode_id: str, anchor_shot_id: str, target_shots: str, file_path: str | None, approved_by: str | None):
+    """
+    Set an anchor still as a reference for target shots.
+    
+    Examples:
+        # Use G2-approved still as anchor
+        hfvg set-anchor ep05 A01 --for A02,A03,A04
+        
+        # Use external file as anchor
+        hfvg set-anchor ep05 A01 --for A02,A03,A04 --file /path/to/still.png --approved-by "Travis approved via Studio"
+    """
+    import httpx
+    import os
+    
+    target_shot_ids = [s.strip() for s in target_shots.split(",") if s.strip()]
+    if not target_shot_ids:
+        click.echo("❌ Error: --for must specify at least one target shot", err=True)
+        import sys
+        sys.exit(1)
+    
+    # Reject self-anchoring
+    if anchor_shot_id in target_shot_ids:
+        click.echo(f"❌ Error: Cannot anchor shot {anchor_shot_id} to itself", err=True)
+        import sys
+        sys.exit(1)
+    
+    # External file requires approved_by
+    if file_path and not approved_by:
+        click.echo("❌ Error: External file requires --approved-by note", err=True)
+        import sys
+        sys.exit(1)
+    
+    # Call API endpoint
+    api_base = os.getenv("HFVG_API_BASE", "http://localhost:8000")
+    admin_secret = os.getenv("ADMIN_SECRET")
+    if not admin_secret:
+        click.echo("❌ Error: ADMIN_SECRET environment variable not set", err=True)
+        import sys
+        sys.exit(1)
+    
+    headers = {"Authorization": f"Bearer {admin_secret}"}
+    payload = {
+        "anchor_shot_id": anchor_shot_id,
+        "target_shot_ids": target_shot_ids,
+    }
+    
+    if file_path:
+        payload["file_path"] = file_path
+    if approved_by:
+        payload["approved_by"] = approved_by
+    
+    try:
+        response = httpx.post(
+            f"{api_base}/api/episodes/{episode_id}/anchor",
+            json=payload,
+            headers=headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        click.echo(f"✓ Anchor still set successfully")
+        click.echo(f"  Episode: {result['episode_id']}")
+        click.echo(f"  Anchor: {result['anchor_shot_id']}")
+        click.echo(f"  Target shots: {', '.join(result['target_shot_ids'])}")
+        click.echo(f"  Local path: {result['local_path']}")
+        click.echo(f"  Version: {result['version']}")
+        click.echo(f"  SHA256: {result['sha256']}")
+        if result.get('approved_by'):
+            click.echo(f"  Approved by: {result['approved_by']}")
+        
+    except httpx.HTTPStatusError as e:
+        click.echo(f"❌ HTTP {e.response.status_code}: {e.response.text}", err=True)
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error: {str(e)}", err=True)
+        import sys
+        sys.exit(1)
+
+
+@cli.command("start-v2")
+@click.argument("episode_id")
+@click.option("--beatmap", help="Path to BEATMAP.md file")
+@click.option("--dry-run/--live", default=True, help="Run in dry-run mode (default: true)")
+@click.option("--shots", help="Comma-separated shot IDs subset (e.g., A01,A02)")
+@click.option("--credit-cap", type=int, help="Credit cap for this run")
+@click.option("--attempt-overrides", help="JSON shot_id->attempt mapping (e.g., '{\"A02\": 2}')")
+def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | None, credit_cap: int | None, attempt_overrides: str | None):
+    """Start episode using EpisodeWorkflowV2 via API.
+    
+    Examples:
+        # Start with default settings
+        hfvg start-v2 ep05
+        
+        # Start specific shots as retries
+        hfvg start-v2 ep05 --shots A01,A02 --attempt-overrides '{"A02": 2}'
+    """
+    import httpx
+    import os
+    
+    api_base = os.getenv("HFVG_API_BASE", "http://localhost:8000")
+    admin_secret = os.getenv("ADMIN_SECRET")
+    if not admin_secret:
+        click.echo("❌ Error: ADMIN_SECRET environment variable not set", err=True)
+        import sys
+        sys.exit(1)
+    
+    headers = {"Authorization": f"Bearer {admin_secret}"}
+    payload = {
+        "episode_id": episode_id,
+        "dry_run": dry_run,
+    }
+    
+    if beatmap:
+        from pathlib import Path
+        beatmap_path = Path(beatmap)
+        if not beatmap_path.exists():
+            click.echo(f"❌ Error: Beatmap file not found: {beatmap}", err=True)
+            import sys
+            sys.exit(1)
+        payload["beatmap_content"] = beatmap_path.read_text()
+    
+    if shots:
+        payload["shots_subset"] = [s.strip() for s in shots.split(",")]
+    
+    if credit_cap:
+        payload["credit_cap"] = credit_cap
+    
+    if attempt_overrides:
+        try:
+            payload["attempt_overrides"] = json.loads(attempt_overrides)
+        except json.JSONDecodeError as e:
+            click.echo(f"❌ Error: Invalid JSON in --attempt-overrides: {e}", err=True)
+            import sys
+            sys.exit(1)
+    
+    try:
+        response = httpx.post(
+            f"{api_base}/api/episodes",
+            json=payload,
+            headers=headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        click.echo(f"✓ Episode {episode_id} started")
+        click.echo(f"  Workflow ID: {result['workflow_id']}")
+        click.echo(f"  Run ID: {result['run_id']}")
+        click.echo(f"  Mode: {'DRY-RUN' if dry_run else 'LIVE'}")
+        if payload.get("shots_subset"):
+            click.echo(f"  Shots: {', '.join(payload['shots_subset'])}")
+        if payload.get("attempt_overrides"):
+            click.echo(f"  Attempt overrides: {payload['attempt_overrides']}")
+        
+    except httpx.HTTPStatusError as e:
+        click.echo(f"❌ HTTP {e.response.status_code}: {e.response.text}", err=True)
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error: {str(e)}", err=True)
+        import sys
+        sys.exit(1)

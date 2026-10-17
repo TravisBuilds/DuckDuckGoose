@@ -18,9 +18,18 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
+    
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -36,6 +45,10 @@ async def test_ref_commits_credits_even_when_qc_fails(tmp_path, monkeypatch):
         
         # Mock HTTP responses - provider succeeds, returns tiny image that will fail QC
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-qc-fail-123"})
             )
@@ -97,9 +110,18 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
+    
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -116,6 +138,10 @@ async def test_ref_uses_staging_path_before_qc(tmp_path, monkeypatch):
         
         # Mock HTTP responses - QC will fail
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-staging-123"})
             )
@@ -163,9 +189,18 @@ async def test_ref_moves_to_final_path_when_qc_passes(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
+    
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -191,6 +226,10 @@ async def test_ref_moves_to_final_path_when_qc_passes(tmp_path, monkeypatch):
         
         # Mock HTTP responses
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-pass-123"})
             )
@@ -240,9 +279,18 @@ async def test_provider_failure_releases_credits(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
+    
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -258,6 +306,10 @@ async def test_provider_failure_releases_credits(tmp_path, monkeypatch):
         
         # Mock HTTP responses - provider fails
         with respx.mock:
+            # Mock estimate endpoint (needed for live mode USD estimate)
+            respx.post("https://api.higgsfield.ai/estimate/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"credits": "0.09", "usd": "0.09"})
+            )
             respx.post("https://api.higgsfield.ai/higgsfield-ai/soul/v2/standard").mock(
                 return_value=httpx.Response(200, json={"request_id": "req-fail-123"})
             )

@@ -207,6 +207,7 @@ async def _live_db(tmp_path, monkeypatch, line="L2_drafts"):
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     # Initialize credit line for episode (needed for lint bypass test)
     await init_episode_credit_line_activity("ep99", cap_credits=1000)

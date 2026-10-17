@@ -93,54 +93,104 @@ class HiggsfieldStillProvider(GenerationProvider):
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-still-{hash_digest}"
     
-    async def upload_reference(self, image_path: str | Path) -> str:
+    async def upload_reference(self, image_path: str | Path, version: int = 1) -> dict:
         """
-        Upload reference image and return media ID.
+        Upload reference image and return upload result with URL.
+        
+        Uses upload cache to avoid re-uploading the same file.
+        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
         
         Args:
             image_path: Path to reference image
+            version: Version number for cache key (default: 1)
         
         Returns:
-            media_id for use in generation
+            dict with 'public_url' (the CDN URL for the uploaded file)
         """
-        # Get upload URL
+        import mimetypes
+        from hfvg.upload_cache import UploadCache
+        
+        # Initialize cache
+        cache = UploadCache()
+        await cache.init_db()
+        
+        # Check cache first (quick path)
+        cached_url = await cache.get_cached_url(str(image_path), version)
+        if cached_url:
+            return {"public_url": cached_url}
+        
+        # Try to claim upload slot (concurrent deduplication)
+        claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+        
+        if not claimed:
+            # Another upload is in progress for this file - wait for it
+            waited_url = await cache.wait_for_concurrent_upload(str(image_path), version, sha256, timeout=30.0)
+            if waited_url:
+                return {"public_url": waited_url}
+            # Timeout or failed - fall through to retry upload ourselves
+            claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+            if not claimed:
+                # Still can't claim - return cached or fail
+                cached_url = await cache.get_cached_url(str(image_path), version)
+                if cached_url:
+                    return {"public_url": cached_url}
+                raise ValueError(f"Concurrent upload timeout for {image_path}")
+        
+        # We claimed the slot - proceed with upload
+        
+        # Determine content type from file extension
+        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        
+        # Get upload URL and metadata (REQUIRES content_type)
         response = await self.client.post(
             "/files/generate-upload-url",
-            json={"filename": Path(image_path).name}
+            json={"content_type": content_type}
         )
         response.raise_for_status()
         data = response.json()
-        upload_url = data["upload_url"]
-        media_id = data["media_id"]
         
-        # Upload file
+        upload_url = data["upload_url"]
+        public_url = data["public_url"]
+        upload_headers = data["upload_headers"]
+        
+        # Upload file with exact headers from API (includes x-amz-tagging)
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         
-        # Use a plain httpx client for the PUT (no auth needed)
+        # Use a plain httpx client for the PUT (no auth, just upload_headers)
         async with httpx.AsyncClient() as plain_client:
-            upload_response = await plain_client.put(upload_url, content=image_bytes)
+            upload_response = await plain_client.put(
+                upload_url, 
+                content=image_bytes,
+                headers=upload_headers
+            )
             upload_response.raise_for_status()
         
-        return media_id
+        # Cache the uploaded URL
+        await cache.cache_url(str(image_path), version, public_url)
+        
+        return {"public_url": public_url}
     
     async def _estimate_response(
         self,
         prompt: str,
         resolution: str,
-        quality: str,
+        quality: str | None,
         aspect_ratio: str | None,
     ) -> dict:
         """POST /estimate/{model_path}; returns the parsed JSON (fail closed on any error)."""
-        # Map quality to allowed values (low, medium)
-        if quality not in ("low", "medium"):
-            quality = "medium"
-
         payload = {
             "prompt": prompt,
             "resolution": resolution,
-            "quality": quality,
         }
+        
+        # Only include quality if provided (SOUL V2 doesn't use quality field)
+        if quality is not None:
+            # Map quality to allowed values (low, medium)
+            if quality not in ("low", "medium"):
+                quality = "medium"
+            payload["quality"] = quality
+        
         if aspect_ratio:
             payload["aspect_ratio"] = aspect_ratio
 
@@ -159,7 +209,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         aspect_ratio: str | None = None,
     ) -> float:
         """
@@ -186,7 +236,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         aspect_ratio: str | None = None,
     ) -> int:
         """
@@ -203,11 +253,43 @@ class HiggsfieldStillProvider(GenerationProvider):
         except (ValueError, TypeError) as e:
             raise ValueError(f"Failed to get USD estimate for still generation: {e}") from e
 
+    async def estimate_usd_and_credits(
+        self,
+        prompt: str,
+        resolution: str = "1k",
+        quality: str | None = None,
+        aspect_ratio: str | None = None,
+    ) -> tuple[int, float]:
+        """
+        Estimate cost in both USD micro-dollars and credits from the provider's estimate.
+
+        Returns:
+            (usd_micros, credits) tuple
+        """
+        data = await self._estimate_response(prompt, resolution, quality, aspect_ratio)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None or usd_micros <= 0:
+                raise ValueError(f"Estimate response has no positive 'usd' value: {data}")
+            
+            # Extract credits from estimate response
+            credits_str = data.get("credits")
+            if credits_str is None:
+                raise ValueError(f"Estimate response has no 'credits' value: {data}")
+            credits = float(credits_str)
+            if credits <= 0:
+                raise ValueError(f"Estimate response has non-positive credits: {data}")
+            
+            return (usd_micros, credits)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD/credits estimate for still generation: {e}") from e
+
+
     async def submit_image(
         self,
         prompt: str,
         resolution: str = "1k",
-        quality: str = "medium",
+        quality: str | None = None,
         image_urls: list[str] | None = None,
         idempotency_key: str | None = None,
         aspect_ratio: str | None = None,
@@ -222,8 +304,8 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         Args:
             prompt: Generation prompt
-            resolution: Resolution (1k, 2k)
-            quality: Quality (low, medium only - no high)
+            resolution: Resolution (1k, 2k, 720p, 1080p)
+            quality: Quality (low, medium only - no high). Omit for SOUL V2.
             image_urls: List of public reference image URLs (max 3)
             idempotency_key: Idempotency key (default: deterministic based on params)
             aspect_ratio: Aspect ratio (e.g. "9:16", "16:9", "1:1")
@@ -231,22 +313,24 @@ class HiggsfieldStillProvider(GenerationProvider):
         Returns:
             request_id for polling
         """
-        # Map quality to allowed values (low, medium)
-        if quality not in ("low", "medium"):
-            quality = "medium"
-        
         # Generate deterministic idempotency key if not provided
         if not idempotency_key:
             idempotency_key = self._generate_idempotency_key(
-                prompt, resolution, quality, image_urls
+                prompt, resolution, quality or "medium", image_urls
             )
         
         # Submit generation with documented API format
         payload = {
             "prompt": prompt,
             "resolution": resolution,
-            "quality": quality,
         }
+        
+        # Only include quality if provided (SOUL V2 doesn't use quality field)
+        if quality is not None:
+            # Map quality to allowed values (low, medium)
+            if quality not in ("low", "medium"):
+                quality = "medium"
+            payload["quality"] = quality
         
         if image_urls:
             # Documented limit: never silently truncate a shot's ref list, refuse instead

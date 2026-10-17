@@ -40,9 +40,18 @@ async def test_ref_generation_calls_real_provider_methods(tmp_path, monkeypatch)
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
+    
+    # Initialize budget ledger with manual balance for GC.01 check
+    from hfvg.budget import BudgetLedger
+    budget_ledger = BudgetLedger(db_path)
+    await budget_ledger.init_db()
+    await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
+    # Create L1_refs line for ref generation
+    await budget_ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()

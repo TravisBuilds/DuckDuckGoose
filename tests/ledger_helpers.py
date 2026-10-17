@@ -17,12 +17,20 @@ async def insert_line(db, episode_id: str, line_name: str, cap_usd_micros: int,
           cap_usd_micros, stop_usd_micros))
 
 
-async def set_balance(db_path: str, usd: str = "100.00", note: str = "test balance"):
-    """Record a manual GC.01 balance (required before any live paid job)."""
+async def set_balance(db_path: str, usd: str = "100.00", note: str = "test balance", episode_id: str = "ep99"):
+    """Record a manual GC.01 balance and initialize standard budget lines."""
     from hfvg.pricing import usd_to_micros
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     await ledger.set_manual_balance(usd_to_micros(usd), "test", note)
+    
+    # Initialize standard budget lines with generous caps for testing
+    # This ensures ref generation and other activities have budget lines available
+    for line_name in ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video"]:
+        try:
+            await ledger.set_line(episode_id, line_name, 100_000_000, 80_000_000, "higgsfield")
+        except:
+            pass  # Line may already exist
 
 
 async def expect_value_error(awaitable, contains: str) -> str:

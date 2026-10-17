@@ -1,6 +1,7 @@
 """Tests for credit hard cap pause/resume mechanism."""
 
 import pytest
+import respx
 
 from hfvg.credit_ledger import CreditLedger
 from hfvg.studio_db import init_studio_db
@@ -72,6 +73,7 @@ async def test_raise_cap_and_resume(tmp_path):
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     """
     Test: When hard cap is hit, no job is submitted (pause happens before provider call).
@@ -84,6 +86,7 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -127,18 +130,18 @@ async def test_pause_before_submit_no_job_created(tmp_path, monkeypatch):
     shots_dir.mkdir(parents=True, exist_ok=True)
     (shots_dir / "shots.json").write_text('[{"shot_id": "A01"}]')
     
-    # Reserve 4 credits (within cap)
-    await credit_ledger.reserve_credits("ep99", "job-1", 4)
+    # Reserve 4.5 credits (within cap, leaves 0.5 available)
+    await credit_ledger.reserve_credits("ep99", "job-1", 4.5)
     
     # Mock provider endpoints (should NOT be called if cap blocks)
     estimate_mock = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
-        return_value=httpx.Response(200, json={"credits": "6.5", "usd": "0.39"})
+        return_value=httpx.Response(200, json={"credits": "1.12", "usd": "0.07"})
     )
     submit_mock = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "job-123"})
     )
     
-    # Try to submit still (needs ~6-7 credits, but only 1 available)
+    # Try to submit still (needs 1 credit from table, but only 0.5 available after 4.5 reserved from 5 cap)
     # Should raise InsufficientCreditsError BEFORE calling provider
     with pytest.raises(InsufficientCreditsError) as exc_info:
         await submit_still_job_enforced(
