@@ -74,6 +74,11 @@ class Config:
     """Global configuration."""
 
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    @staticmethod
+    def database_path() -> str:
+        """Get database path from environment."""
+        return os.getenv("DATABASE_PATH", "./data/studio.db")
 
     # Near-zero delays for fast testing (configurable via env vars)
     DRY_RUN_STILL_DELAY: float = float(os.getenv("DRY_RUN_STILL_DELAY", "0.05"))

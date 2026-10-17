@@ -347,11 +347,9 @@ class EpisodeWorkflowV2:
         
         # Get list of anchor shots to skip (they're already approved)
         from hfvg.studio_db import list_anchor_stills
-        import os
-        db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
         anchor_stills = await workflow.execute_activity(
             list_anchor_stills,
-            args=[db_path, episode_id],
+            args=[config.database_path(), episode_id],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
@@ -460,11 +458,9 @@ class EpisodeWorkflowV2:
         
         # Mark all completed shots as approved in the database
         from hfvg.studio_db import approve_g2_shots
-        import os
-        db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
         approved_count = await workflow.execute_activity(
             approve_g2_shots,
-            args=[db_path, episode_id],
+            args=[config.database_path(), episode_id],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
