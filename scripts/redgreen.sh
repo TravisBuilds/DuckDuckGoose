@@ -1290,6 +1290,12 @@ mutate 126 \
     "tests/test_harness_pr10_mutations.py::test_g1_approval_refused_without_estimates" \
     sed -i 's/if not dry_run and not estimates_available and not override_unavailable_estimates:/if False:  # MUTATED - allow G1 without estimates/'
 
+# 127: Clip loop uses shot_results (latest handle), not stale original
+mutate 127 \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_clip_loop_uses_latest_retry_handle" \
+    sed -i 's/handle = self.shot_results.get(shot\["shot_id"\])/handle = self.shot_workflow_handles.get(shot["shot_id"])  # MUTATED - use stale handle dict/'
+
 # Print final summary
 print_summary
 exit_code=$?
