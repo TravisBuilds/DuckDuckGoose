@@ -475,24 +475,18 @@ class EpisodeWorkflowV2:
             if completion and completion.get("done") and completion.get("success"):
                 shots_on_hold.append(shot_id)
         
-        workflow.logger.info(f"DEBUG: About to set shots_on_hold to {shots_on_hold}")
         self.state.shots_on_hold = shots_on_hold
         workflow.logger.info(f"Gate 2: {len(shots_on_hold)} shot(s) waiting on hold for approval")
-        workflow.logger.info(f"DEBUG: approved_g2={self.approved_g2_scene_stills}")
         
         # Wait for approval with periodic retry completion checking
-        workflow.logger.info("Starting G2 wait loop with retry checking...")
         while not self.approved_g2_scene_stills:
-            workflow.logger.info("G2 wait loop iteration - checking retries")
             await self._check_and_clear_completed_retries()
-            workflow.logger.info("G2 wait loop - waiting for approval (1s timeout)")
             try:
                 await workflow.wait_condition(
                     lambda: self.approved_g2_scene_stills,
                     timeout=timedelta(seconds=1)
                 )
             except asyncio.TimeoutError:
-                workflow.logger.info("G2 wait timeout, continuing loop")
                 pass  # Timeout is expected, loop continues
         
         self.passed_gates.append("G2_SCENE_STILLS")
@@ -718,12 +712,9 @@ class EpisodeWorkflowV2:
         if not self.state.pending_retries:
             return  # Nothing to check
         
-        workflow.logger.info(f"Checking {len(self.state.pending_retries)} pending retries: {list(self.state.pending_retries.keys())}")
-        
         for shot_id in list(self.state.pending_retries.keys()):
             workflow_id = self.state.pending_retries[shot_id]
             handle = workflow.get_external_workflow_handle(workflow_id)
-            workflow.logger.info(f"Checking retry child {shot_id} -> {workflow_id}")
             
             try:
                 # Query child to check if still phase is done
