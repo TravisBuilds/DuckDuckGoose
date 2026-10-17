@@ -101,6 +101,12 @@ def _make_activities():
         from hfvg.budget import REQUIRED_BUDGET_LINES
         return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
 
+    @activity.defn(name="approve_g2_shots")
+    async def approve_g2(*a): return 0
+    
+    @activity.defn(name="list_anchor_stills")
+    async def list_anchors(*a): return []
+    
     names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",
              "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
@@ -112,7 +118,7 @@ def _make_activities():
         return activity.defn(name=n)(f)
     
     extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, *extra]
+    return [lock, unlock, policy, parse, refs, report, g1_plan, budget_init, approve_g2, list_anchors, *extra]
 
 
 @pytest.mark.asyncio
