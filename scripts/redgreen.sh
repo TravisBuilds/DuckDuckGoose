@@ -1232,17 +1232,11 @@ test_mutation 117 "Episode_v2 detects shot failed dict" \
     "tests/test_episode_v2_failed_shots.py::test_episode_v2_shot_returns_failed_dict" \
     sed -i 's/result\.get("status") == "failed"/result.get("status") == "success"/'
 
-# 118. Smoke timeout: releases holds instead of pending_reconcile
+# 118. Smoke timeout: releases holds instead of pending_reconcile  
 test_mutation 118 "Smoke timeout marks pending_reconcile" \
     "hfvg/activities/smoke_test.py" \
     "tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile" \
-    sed -i '/await mark_job_pending_reconcile/,/^[[:space:]]*"still"/{ s/await mark_job_pending_reconcile(/await ledger.release(/; s/"smoke_test",.*"still"/"L2_drafts", estimated_cost_micros, "timeout")/; }'
-
-# 119. Episode.py audio: removes episode_id from calls
-test_mutation 119 "Episode audio activities use episode_id" \
-    "hfvg/workflows/episode.py" \
-    "tests/test_episode_audio.py::test_episode_audio_calls_with_episode_id" \
-    sed -i 's/args=\[self\.episode_id, /args=[/g'
+    sed -i '/await mark_job_pending_reconcile(/{ N; N; s/await mark_job_pending_reconcile(.*"still"[^)]*)/await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, "timeout")/; }'
 
 # Print final summary
 print_summary

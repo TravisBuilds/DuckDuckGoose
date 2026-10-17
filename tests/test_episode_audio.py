@@ -3,7 +3,7 @@
 import pytest
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from temporalio import activity
+from temporalio import activity, workflow
 from hfvg.workflows.episode import EpisodeWorkflow
 
 
@@ -30,6 +30,24 @@ async def track_music(episode_id: str, style: str, duration: float) -> str:
     """Track music call with episode_id."""
     audio_calls_tracker.append(("music", episode_id))
     return f"dry-run://music-{episode_id}.mp3"
+
+
+# Mock ShotWorkflow to avoid child workflow complexity
+@workflow.defn
+class MockShotWorkflow:
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        await workflow.wait_condition(lambda: False, timeout=0.1)  # Just wait briefly
+        return {
+            "status": "completed",
+            "shot_id": shot_dict["shot_id"],
+            "still_url": "dry-run://still.png",
+            "clip_url": "dry-run://clip.mp4",
+        }
+    
+    @workflow.signal
+    async def scene_approved(self):
+        pass
 
 
 # Mock all other activities
@@ -105,7 +123,7 @@ async def test_episode_audio_calls_with_episode_id(tmp_path, monkeypatch):
         async with Worker(
             env.client,
             task_queue="test-audio",
-            workflows=[EpisodeWorkflow],
+            workflows=[EpisodeWorkflow, MockShotWorkflow],
             activities=[
                 mock_read_file, mock_generate_script, mock_ingest_assets,
                 mock_render_shots, mock_trim_clips, mock_render_edit, mock_mix_audio,
@@ -121,15 +139,20 @@ async def test_episode_audio_calls_with_episode_id(tmp_path, monkeypatch):
             
             # Send signals to progress workflow through to audio stage
             import asyncio
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             await handle.signal("readback_approved")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             await handle.signal("character_locks_approved")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             await handle.signal("storyboard_approved")
+            await asyncio.sleep(0.05)
+            # Approve scenes (workflow has 2 scenes by default)
+            await handle.signal("scene_approved", 1)
+            await asyncio.sleep(0.05)
+            await handle.signal("scene_approved", 2)
             
             # Wait for workflow to reach audio stage and call activities
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
             
             # Cancel to stop before final_approved wait
             await handle.cancel()
