@@ -187,7 +187,7 @@ async def test_retry_shot_succeeds_on_second_attempt():
             
             # Wait for G1 and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for A01 to fail
             state = await _wait_for_state(
@@ -293,7 +293,7 @@ async def test_retry_shot_refuses_when_shot_not_failed():
             
             # Wait for G1 and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for G2 (shot failed but we'll try to retry A02 which didn't fail)
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
@@ -342,7 +342,7 @@ async def test_retry_shot_respects_max_retries():
             
             # Wait for G1 and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for A01 to fail (original attempt)
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
@@ -406,7 +406,7 @@ async def test_retry_shot_uses_different_idempotency_key():
             
             # Wait for G1 and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for A01 to fail
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
@@ -648,7 +648,7 @@ async def test_retry_shot_increments_version_for_unique_job_id():
             
             # Wait for G1 and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for A01 to fail
             await _wait_for_state(

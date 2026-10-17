@@ -800,7 +800,8 @@ class EpisodeWorkflowV2:
         actual_attempts = self.state.shot_attempts[shot_id]
         total_attempt = override + actual_attempts
         shot_plan["attempt"] = total_attempt
-        shot_plan["version"] = total_attempt
+        # Version must increment for unique job_id: original=v1, retry1=r1 (version 2), retry2=r2 (version 3)
+        shot_plan["version"] = self.state.shot_attempts[shot_id] + 1
         
         # Build prompt if missing
         if "prompt" not in shot_plan:

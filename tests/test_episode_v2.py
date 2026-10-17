@@ -475,7 +475,7 @@ async def test_attempt_overrides_start_shot_as_retry():
                 await asyncio.sleep(0.1)
             
             # Approve G1
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for still submissions
             for _ in range(100):

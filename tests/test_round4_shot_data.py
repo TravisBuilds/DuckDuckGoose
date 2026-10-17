@@ -1043,7 +1043,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             )
             
             # Approve G1
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             state = await _gate(handle, "G2_SCENE_STILLS")
             state = await handle.query(EpisodeWorkflowV2.get_state)
             

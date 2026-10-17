@@ -157,7 +157,7 @@ async def test_episode_v2_shot_returns_failed_dict():
             
             # Wait for G1 gate and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for failed_shots to populate
             state = await _wait_for_state(
@@ -263,7 +263,7 @@ async def test_episode_v2_shot_success_path():
             
             # Wait for G1 gate and approve
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for G2 gate
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS")

@@ -532,7 +532,7 @@ A second shot (uses A01 as anchor).
                 await asyncio.sleep(0.1)
             
             # Approve G1 to start shots
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for workflow to reach G2 (which means shots have been started)
             for _ in range(50):
