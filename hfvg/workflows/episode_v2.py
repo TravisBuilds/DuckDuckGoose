@@ -593,23 +593,25 @@ class EpisodeWorkflowV2:
         self.state.new_credit_cap = new_cap
     
     @workflow.signal
-    async def retry_shot(self, shot_id: str, max_retries: int = 1):
+    async def retry_shot(self, shot_id: str) -> dict:
         """
         Retry a failed shot (only valid while parked at G1/G2 for a shot in failed_shots).
         
         Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
-        allows max_retries per shot (default 1), uses NEW idempotency key per attempt,
+        enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
         moves shot from failed_shots back to running then to done or failed,
         and records attempts in episode state.
         
         Args:
             shot_id: Shot ID to retry
-            max_retries: Maximum retry attempts per shot (default 1)
+            
+        Returns:
+            dict with status: "queued" | "refused", reason if refused
         """
         # Validate: must be parked at G1 or G2
         if self.state.current_gate not in ("G1_SHOT_PLAN", "G2_SCENE_STILLS"):
             workflow.logger.error(f"Cannot retry {shot_id}: not at G1/G2 gate (current: {self.state.current_gate})")
-            return
+            return {"status": "refused", "reason": "Not at G1 or G2 gate"}
         
         # Validate: shot must be in failed_shots
         failed_shot = None
@@ -620,15 +622,16 @@ class EpisodeWorkflowV2:
         
         if not failed_shot:
             workflow.logger.error(f"Cannot retry {shot_id}: not in failed_shots")
-            return
+            return {"status": "refused", "reason": "Shot not in failed_shots"}
         
-        # Check retry limit
+        # Check retry limit (server-side enforcement via config)
         attempt_count = self.state.shot_attempts.get(shot_id, 0)
+        max_retries = config.config.MAX_SHOT_RETRIES
         if attempt_count >= max_retries:
             workflow.logger.error(
                 f"Cannot retry {shot_id}: already attempted {attempt_count} times (max {max_retries})"
             )
-            return
+            return {"status": "refused", "reason": f"Max retries ({max_retries}) exceeded"}
         
         # Remove from failed_shots and increment attempt count
         self.state.failed_shots = [fs for fs in self.state.failed_shots if fs["shot_id"] != shot_id]
@@ -647,10 +650,12 @@ class EpisodeWorkflowV2:
         
         if not shot_plan:
             workflow.logger.error(f"Cannot retry {shot_id}: not found in beatmap")
-            return
+            return {"status": "refused", "reason": "Shot not found in beatmap"}
         
-        # Set dry_run flag and build prompt if missing
-        shot_plan["dry_run"] = self.state.episode_id.startswith("ep") and not self.state.episode_id.endswith("_live")
+        # Pass attempt number into shot_plan so ShotWorkflow uses unique job ID
+        shot_plan["attempt"] = self.state.shot_attempts[shot_id]
+        
+        # Build prompt if missing
         if "prompt" not in shot_plan:
             from hfvg.episode_parser import build_prompt_from_shot
             shot_plan["prompt"] = build_prompt_from_shot(shot_plan)
@@ -673,6 +678,33 @@ class EpisodeWorkflowV2:
                 try:
                     result = await handle
                     if isinstance(result, dict) and result.get("status") == "failed":
+                        # Move back to failed_shots
+                        self.state.failed_shots.append({
+                            "shot_id": shot_id,
+                            "error": result.get("error", "Unknown"),
+                        })
+                        workflow.logger.error(f"Retry of {shot_id} failed: {result.get('error')}")
+                    elif isinstance(result, dict) and result.get("status") == "completed":
+                        # Move to done_shots
+                        self.shot_results[shot_id] = result
+                        workflow.logger.info(f"Retry of {shot_id} succeeded")
+                except Exception as e:
+                    # Child workflow failed
+                    self.state.failed_shots.append({
+                        "shot_id": shot_id,
+                        "error": str(e),
+                    })
+                    workflow.logger.error(f"Retry child workflow failed for {shot_id}: {e}")
+            
+            workflow.create_task(track_retry_completion())
+            
+            return {"status": "queued"}
+            
+        except Exception as e:
+            workflow.logger.error(f"Failed to start retry child for {shot_id}: {e}")
+            # Re-add to failed_shots
+            self.state.failed_shots.append(failed_shot)
+            return {"status": "refused", "reason": f"Failed to start retry: {str(e)}"}
                         self.state.failed_shots.append({
                             "shot_id": shot_id,
                             "status": "failed",

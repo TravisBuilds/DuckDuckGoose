@@ -1240,7 +1240,7 @@ test_mutation 117 "Retry respects max_retries limit" \
 test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
-    sed -i 's/workflow_id = f"{self.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
+    sed -i 's/workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.state.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
 
 # Print final summary
 print_summary

@@ -15,11 +15,11 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     Args:
         episode_id: Episode ID
         shots: List of shot plans from beatmap
-        dry_run: If True, use dry-run mode estimates
+        dry_run: If True, use dry-run mode estimates (ignored for provider construction)
         
     Returns:
         dict with:
-            - shots: list of {shot_id, still_credits, still_usd, clip_credits, clip_usd, total_credits, total_usd}
+            - shots: list of {shot_id, still_credits, still_usd, clip_credits, clip_usd, total_credits, total_usd, still_estimate_available, clip_estimate_available}
             - total_still_credits: sum of all still credits
             - total_clip_credits: sum of all clip credits
             - total_credits: sum of all credits
@@ -29,7 +29,8 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     """
     shot_estimates = []
     
-    still_provider = HiggsfieldStillProvider(dry_run=dry_run)
+    # Providers don't take dry_run parameter
+    still_provider = HiggsfieldStillProvider()
     
     try:
         for shot in shots:
@@ -38,43 +39,54 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             params = shot.get("params", {})
             duration = params.get("duration", 5.0)
             model = params.get("model", "kling")
+            resolution = params.get("resolution", "1k")
+            quality = params.get("quality", "medium")
+            aspect_ratio = params.get("aspect_ratio", "9:16")
+            refs = shot.get("refs", [])
             
             # Estimate still cost
+            still_estimate_available = True
+            still_credits = 0.0
+            still_usd = 0.0
             try:
-                still_usd_micros = await still_provider.estimate_usd_micros(
+                # Use real resolution, quality, aspect_ratio
+                still_estimate = await still_provider.estimate_usd_and_credits(
                     prompt=prompt,
-                    resolution="1k",
-                    quality="medium",
-                    aspect_ratio=params.get("aspect_ratio", "9:16"),
+                    resolution=resolution,
+                    quality=quality,
+                    aspect_ratio=aspect_ratio,
+                    refs=refs,  # Use real refs
                 )
-                # Convert usd_micros to credits (1 credit = 1 USD for Higgsfield)
-                still_credits = still_usd_micros / 1_000_000
-                still_usd = still_usd_micros / 1_000_000
+                # estimate returns {credits: float, usd_micros: int}
+                still_credits = still_estimate["credits"]
+                still_usd = still_estimate["usd_micros"] / 1_000_000
             except Exception as e:
-                activity.logger.warning(f"Still estimate failed for {shot_id}: {e}, using default")
-                still_credits = 0.06  # Default estimate
-                still_usd = 0.06
+                activity.logger.warning(f"Still estimate failed for {shot_id}: {e}")
+                still_estimate_available = False
             
             # Estimate clip cost based on model
             if model == "kling":
-                clip_provider = KlingVideoProvider(dry_run=dry_run)
+                clip_provider = KlingVideoProvider()
             elif model == "seedance":
-                clip_provider = SeedanceVideoProvider(dry_run=dry_run)
+                clip_provider = SeedanceVideoProvider()
             else:
-                clip_provider = KlingVideoProvider(dry_run=dry_run)  # Default
+                clip_provider = KlingVideoProvider()  # Default
             
+            clip_estimate_available = True
+            clip_credits = 0.0
+            clip_usd = 0.0
             try:
-                clip_usd_micros = await clip_provider.estimate_usd_micros(
-                    image_url="https://example.com/placeholder.jpg",  # Placeholder, not used for estimate
+                clip_estimate = await clip_provider.estimate_usd_and_credits(
+                    image_url="https://example.com/placeholder.jpg",  # Placeholder, estimate doesn't need real URL
                     prompt=prompt,
                     duration=duration,
                 )
-                clip_credits = clip_usd_micros / 1_000_000
-                clip_usd = clip_usd_micros / 1_000_000
+                # estimate returns {credits: float, usd_micros: int}
+                clip_credits = clip_estimate["credits"]
+                clip_usd = clip_estimate["usd_micros"] / 1_000_000
             except Exception as e:
-                activity.logger.warning(f"Clip estimate failed for {shot_id}: {e}, using default")
-                clip_credits = duration * 0.05  # Default: 0.05 credits per second
-                clip_usd = duration * 0.05
+                activity.logger.warning(f"Clip estimate failed for {shot_id}: {e}")
+                clip_estimate_available = False
             finally:
                 await clip_provider.close()
             
@@ -82,8 +94,10 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                 "shot_id": shot_id,
                 "still_credits": round(still_credits, 2),
                 "still_usd": f"{still_usd:.2f}",
+                "still_estimate_available": still_estimate_available,
                 "clip_credits": round(clip_credits, 2),
                 "clip_usd": f"{clip_usd:.2f}",
+                "clip_estimate_available": clip_estimate_available,
                 "total_credits": round(still_credits + clip_credits, 2),
                 "total_usd": f"{still_usd + clip_usd:.2f}",
             })

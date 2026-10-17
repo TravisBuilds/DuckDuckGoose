@@ -343,8 +343,12 @@ class ShotWorkflow:
         """
         self.episode_id = episode_id
         self.shot_id = shot_plan["shot_id"]
+        
+        # Use attempt number if provided (for retries), otherwise default to 1
+        attempt = shot_plan.get("attempt", 1)
+        self.version = attempt
 
-        workflow.logger.info(f"Starting shot {self.shot_id}")
+        workflow.logger.info(f"Starting shot {self.shot_id} (attempt {attempt})")
 
         # NO RETRY after reserve: each retry would resubmit a paid call and leak reservations
         # Provider idempotency-key should dedupe, but we must not rely on that
