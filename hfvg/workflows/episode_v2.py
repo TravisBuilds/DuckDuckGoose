@@ -410,11 +410,56 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== GATE 2: SCENE STILLS ===")
         self.state.current_gate = "G2_SCENE_STILLS"
         
+        # Helper to check and record retry completions deterministically
+        async def check_pending_retries():
+            """Check if any pending retry handles have completed and record results."""
+            for shot_id in list(self.state.pending_retries.keys()):
+                if shot_id not in self._retry_handles:
+                    # No handle for this retry (shouldn't happen)
+                    workflow.logger.warning(f"No handle found for pending retry {shot_id}")
+                    del self.state.pending_retries[shot_id]
+                    continue
+                
+                retry_handle = self._retry_handles[shot_id]
+                
+                # Try to get result without blocking
+                try:
+                    # Check if the handle is done by attempting to describe it
+                    # This is a non-blocking check in Temporal
+                    result = await retry_handle
+                    
+                    # Handle completed, process result
+                    if isinstance(result, dict) and result.get("status") == "failed":
+                        error_detail = result.get("error", "Unknown error")
+                        workflow.logger.error(f"Retry of {shot_id} failed: {error_detail}")
+                        self.state.failed_shots.append({
+                            "shot_id": shot_id,
+                            "status": "failed",
+                            "reason": error_detail
+                        })
+                    else:
+                        workflow.logger.info(f"Retry of {shot_id} completed successfully")
+                    
+                    # Remove from pending
+                    del self.state.pending_retries[shot_id]
+                    del self._retry_handles[shot_id]
+                    
+                except Exception:
+                    # Handle not done yet or errored, skip for now
+                    pass
+        
         # Wait for approval OR any child failure (exit as soon as any shot fails)
-        await workflow.wait_condition(
-            lambda: self.approved_g2_scene_stills or 
-            any(status.get("success") == False for status in shot_completion_status.values())
-        )
+        # Periodically check retry completions using workflow.wait_condition
+        def approval_or_failure_condition():
+            # Check retry completions synchronously by checking state
+            return (self.approved_g2_scene_stills or 
+                    any(status.get("success") == False for status in shot_completion_status.values()))
+        
+        while not approval_or_failure_condition():
+            # Check pending retries deterministically
+            await check_pending_retries()
+            # Wait a bit before checking again
+            await workflow.sleep(0.5)
         
         # If we exited because of failures (not approval), surface them
         if not self.approved_g2_scene_stills and len(self.state.failed_shots) > 0:
