@@ -57,7 +57,7 @@ class SuccessShotWorkflow:
         }
 
 
-def _wait_for_state(handle, pred, timeout=10.0):
+async def _wait_for_state(handle, pred, timeout=10.0):
     """Poll get_state until predicate is true."""
     loop = asyncio.get_event_loop()
     end = loop.time() + timeout
@@ -94,7 +94,7 @@ async def test_episode_v2_shot_returns_failed_dict():
         async def policy(*a): return {}
 
         @activity.defn(name="parse_beatmap_activity")
-        async def parse(path):
+        async def parse(*args):
             return script_data
 
         @activity.defn(name="load_refs_to_generate_activity")
@@ -181,7 +181,7 @@ async def test_episode_v2_shot_success_path():
         async def policy(*a): return {}
 
         @activity.defn(name="parse_beatmap_activity")
-        async def parse(path):
+        async def parse(*args):
             return script_data
 
         @activity.defn(name="load_refs_to_generate_activity")
