@@ -1294,8 +1294,18 @@ async def retry_shot(
     try:
         handle = temporal_client.get_workflow_handle(workflow_id)
         
-        # Send retry signal
-        result = await handle.signal("retry_shot", shot_id)
+        # Send retry update (returns result or raises ApplicationError on refusal)
+        try:
+            result = await handle.execute_update(
+                "retry_shot",
+                shot_id
+            )
+        except Exception as e:
+            # Update was refused - return 4xx
+            from temporalio.exceptions import ApplicationError
+            if isinstance(e, ApplicationError):
+                raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
         # Audit log
         import aiosqlite
