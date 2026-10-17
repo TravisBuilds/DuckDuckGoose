@@ -149,7 +149,7 @@ async def test_retry_shot_succeeds_on_second_attempt():
             assert "Generation failed" in state["failed_shots"][0]["reason"]
             
             # Retry the shot
-            await handle.signal("retry_shot", "A01", 1)
+            await handle.signal("retry_shot", args=["A01", 1])
             
             # Wait a bit for retry to start
             await asyncio.sleep(1.0)
@@ -193,7 +193,7 @@ async def test_retry_shot_refuses_when_not_at_gate():
             
             # Before reaching G1, try to retry (should be refused)
             await asyncio.sleep(0.5)
-            await handle.signal("retry_shot", "A01", 1)
+            await handle.signal("retry_shot", args=["A01", 1])
             
             # Wait for G1
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
@@ -232,7 +232,7 @@ async def test_retry_shot_refuses_when_shot_not_failed():
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             
             # Try to retry A02 (which isn't failed)
-            await handle.signal("retry_shot", "A02", 1)
+            await handle.signal("retry_shot", args=["A02", 1])
             
             await asyncio.sleep(0.5)
             
@@ -270,14 +270,14 @@ async def test_retry_shot_respects_max_retries():
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
             # Retry once (max_retries=1)
-            await handle.signal("retry_shot", "A01", 1)
+            await handle.signal("retry_shot", args=["A01", 1])
             await asyncio.sleep(0.5)
             
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 1
             
             # Try to retry again (should be refused - already at max)
-            await handle.signal("retry_shot", "A01", 1)
+            await handle.signal("retry_shot", args=["A01", 1])
             await asyncio.sleep(0.5)
             
             state = await handle.query(EpisodeWorkflowV2.get_state)
@@ -319,7 +319,7 @@ async def test_retry_shot_uses_different_idempotency_key():
             assert desc.id == "ep_retry5-shot-A01"
             
             # Retry the shot
-            await handle.signal("retry_shot", "A01", 2)  # Allow 2 retries
+            await handle.signal("retry_shot", args=["A01", 2])  # Allow 2 retries
             await asyncio.sleep(0.5)
             
             # Check that retry workflow has different ID (includes retry1)
