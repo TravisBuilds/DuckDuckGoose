@@ -561,6 +561,7 @@ async def test_g2_approval_marks_shots_approved(tmp_path, monkeypatch):
     import aiosqlite
     
     db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
     await init_studio_db(db_path)
     
     # Create shots with different statuses
@@ -569,7 +570,7 @@ async def test_g2_approval_marks_shots_approved(tmp_path, monkeypatch):
     await upsert_shot(db_path, "ep99", "A03", "Shot 3", status="pending", still_url=None)  # No still
     
     # Approve G2
-    count = await approve_g2_shots(db_path, "ep99")
+    count = await approve_g2_shots("ep99")
     
     # Should have approved 2 shots (A01 and A02 have still_url)
     assert count == 2
