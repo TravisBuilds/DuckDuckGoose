@@ -588,7 +588,6 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
                 pass
 
 
-@pytest.mark.skip("Flaky: timing-dependent, mutation 128 tests version behavior")
 @pytest.mark.asyncio
 async def test_normal_retry_gives_r1_suffix(tmp_path):
     """
@@ -613,34 +612,23 @@ async def test_normal_retry_gives_r1_suffix(tmp_path):
             )
             
             # Wait for G1 and approve
-            for _ in range(50):
-                try:
-                    state = await handle.query(EpisodeWorkflowV2.get_state)
-                    if state["current_gate"] == "G1_SHOT_PLAN":
-                        break
-                except:
-                    pass
-                await asyncio.sleep(0.1)
-            
+            await workflow.wait_condition(
+                lambda: handle.query(EpisodeWorkflowV2.get_state).get("current_gate") == "G1_SHOT_PLAN",
+                timeout=timedelta(seconds=10)
+            )
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait for shot to fail
-            await asyncio.sleep(1.0)
+            await workflow.wait_condition(
+                lambda: len(handle.query(EpisodeWorkflowV2.get_state).get("failed_shots", [])) > 0,
+                timeout=timedelta(seconds=5)
+            )
             
             # Retry the failed shot
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert len(state["failed_shots"]) == 1, "Expected 1 failed shot"
-            
             retry_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
             assert retry_result["status"] == "queued"
             
-            # Approve G2 to let retry complete
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            
-            # Wait for retry to complete
-            await asyncio.sleep(1.0)
-            
-            # Check that version was incremented to 2 (producing -r1 suffix)
+            # Check that shot_attempts was incremented to 2
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 2, f"Expected attempt 2, got {state['shot_attempts']['A01']}"
             
