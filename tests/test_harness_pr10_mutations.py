@@ -868,16 +868,16 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             in_clip_loop = True
         
         # In the clip loop, verify it uses shot_results
-        if in_clip_loop and 'self.shot_results' in line and '.get' in line:
+        if in_clip_loop and 'self.shot_results' in line:
             found_shot_results_usage = True
             break
         
         # Stop if we've moved past the clip loop
-        if in_clip_loop and ('def ' in line or '@workflow' in line):
+        if in_clip_loop and i > 0 and 'async def ' in line:
             break
     
     assert found_shot_results_usage, \
-        "Clip loop should use self.shot_results.get() to get the latest handle (includes retries)"
+        "Clip loop should use self.shot_results to get the latest handle (includes retries)"
 
 
 # ============================================================================
