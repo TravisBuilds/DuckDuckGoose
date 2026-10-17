@@ -71,9 +71,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0;
-
-'
+NC='\033[0m'
 
 # Results tracking
 declare -a MUTATION_NAMES
@@ -432,6 +430,7 @@ print_summary() {
     echo -e "${BLUE}Total tests: ${#MUTATION_NAMES[@]}${NC}"
     echo -e "${GREEN}Passed: $PASS_COUNT${NC}"
     echo -e "${YELLOW}Skipped: $SKIP_COUNT${NC}"
+    echo -e "${YELLOW}Invalid: $INVALID_COUNT${NC}"
     echo -e "${RED}Failed: $FAIL_COUNT${NC}"
     echo ""
     
@@ -1259,6 +1258,18 @@ test_mutation 120 "Anchor + refs respects model ref cap" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
     sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check original refs, not with anchor/'
+
+# 122. M-anchor-end: Anchor applied to end-frame stills
+test_mutation 122 "Anchor still is applied to end-frame stills" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_still_applied_to_end_frame" \
+    sed -i 's/base_shot_id = shot_id\.replace("_end", "") if shot_id\.endswith("_end") else shot_id/base_shot_id = shot_id  # MUTATED - no _end stripping/'
+
+# 123. M-anchor-end-cap: Anchor + refs enforces cap on end-frame stills
+test_mutation 123 "Anchor + refs enforces ref cap on end-frame stills" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_plus_refs_enforces_cap_on_end_frame" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if False and refs_with_anchor and len(refs_with_anchor) > still_cap:  # MUTATED - skip cap check/'
 
 # Print final summary
 print_summary

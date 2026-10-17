@@ -285,7 +285,9 @@ async def submit_still_job_enforced(
     # Load anchor still if configured for this shot
     refs_with_anchor = list(refs or [])
     from hfvg.studio_db import get_anchor_still
-    anchor = await get_anchor_still(db_path, episode_id, shot_id)
+    # Strip _end suffix for end-frame stills (A02_end -> A02) to use same anchor
+    base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id
+    anchor = await get_anchor_still(db_path, episode_id, base_shot_id)
     if anchor:
         anchor_path = anchor["local_path"]
         # Verify anchor still file exists and SHA256 matches

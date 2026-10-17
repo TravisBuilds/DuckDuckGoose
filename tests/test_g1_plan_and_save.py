@@ -15,7 +15,7 @@ from hfvg.activities.save_assets import save_asset_locally
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_computes_per_shot_and_total_estimates():
+async def test_g1_plan_computes_per_shot_and_total_estimates(monkeypatch):
     """Test that G1 plan computes per-shot and total credits/USD from provider estimates."""
     
     # Mock Higgsfield still estimate
@@ -29,9 +29,8 @@ async def test_g1_plan_computes_per_shot_and_total_estimates():
             return_value=httpx.Response(200, json={"credits": "0.25", "usd": "0.25"})
         )
         
-        import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -59,7 +58,7 @@ async def test_g1_plan_computes_per_shot_and_total_estimates():
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_marks_estimate_unavailable_on_failure():
+async def test_g1_plan_marks_estimate_unavailable_on_failure(monkeypatch):
     """Test that G1 plan marks estimates as unavailable when provider estimates fail (no silent defaults)."""
     
     # Mock estimate endpoints to fail
@@ -71,9 +70,8 @@ async def test_g1_plan_marks_estimate_unavailable_on_failure():
             return_value=httpx.Response(500, json={"error": "Service unavailable"})
         )
         
-        import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -227,7 +225,7 @@ async def test_save_asset_locally_handles_multiple_attempts():
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_dry_run_no_real_api_calls():
+async def test_g1_plan_dry_run_no_real_api_calls(monkeypatch):
     """Test that G1 plan in dry run mode doesn't make real /estimate API calls."""
     
     # Mock estimate endpoints - they should NOT be called in dry run
@@ -240,8 +238,8 @@ async def test_g1_plan_dry_run_no_real_api_calls():
         )
         
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -266,7 +264,7 @@ async def test_g1_plan_dry_run_no_real_api_calls():
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_unavailable_flag_when_estimates_fail():
+async def test_g1_plan_unavailable_flag_when_estimates_fail(monkeypatch):
     """Test that G1 plan sets estimates_available=False when any estimate fails."""
     
     # Mock: still estimate succeeds, clip estimate fails
@@ -279,8 +277,8 @@ async def test_g1_plan_unavailable_flag_when_estimates_fail():
         )
         
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -297,7 +295,7 @@ async def test_g1_plan_unavailable_flag_when_estimates_fail():
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_clip_estimate_no_placeholder_url():
+async def test_g1_plan_clip_estimate_no_placeholder_url(monkeypatch):
     """Test that clip estimate doesn't use a placeholder image URL."""
     
     captured_requests = []
@@ -315,8 +313,8 @@ async def test_g1_plan_clip_estimate_no_placeholder_url():
         )
         
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},

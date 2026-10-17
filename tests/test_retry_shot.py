@@ -448,7 +448,7 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
     Test that retry uses distinct ledger job_id AND Idempotency-Key on live path.
     
     Uses fake provider to capture both values, asserts they differ between
-    original (still-{ep}-{shot}) and retry 1 (still-{ep}-{shot}-r2).
+    original (still-{ep}-{shot}) and retry 1 (still-{ep}-{shot}-r1).
     """
     import os
     import tempfile
