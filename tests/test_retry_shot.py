@@ -199,17 +199,17 @@ async def test_retry_shot_refuses_when_not_at_gate():
             # Before reaching G1, try to retry (should be refused)
             await asyncio.sleep(0.5)
             
-            # Try retry (should raise ApplicationError)
-            from temporalio.exceptions import ApplicationError
+            # Try retry (should raise WorkflowUpdateFailedError wrapping ApplicationError)
+            from temporalio.client import WorkflowUpdateFailedError
             try:
                 await handle.execute_update(
                     EpisodeWorkflowV2.retry_shot,
                     args=["A01"]
                 )
-                pytest.fail("Expected ApplicationError for retry before G1")
-            except ApplicationError as e:
+                pytest.fail("Expected WorkflowUpdateFailedError for retry before G1")
+            except WorkflowUpdateFailedError as e:
                 # Expected - retry refused
-                assert "not at G1 or G2" in str(e)
+                assert "not at G1 or G2" in str(e.cause) or "not in failed_shots" in str(e.cause)
             
             # Wait for G1
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
@@ -248,14 +248,15 @@ async def test_retry_shot_refuses_when_shot_not_failed():
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             
             # Try to retry A02 (which isn't failed)
+            from temporalio.client import WorkflowUpdateFailedError
             try:
                 await handle.execute_update(
                     EpisodeWorkflowV2.retry_shot,
                     args=["A02"]
                 )
-                pytest.fail("Expected ApplicationError for retry of non-failed shot")
-            except ApplicationError as e:
-                assert "not in failed_shots" in str(e)
+                pytest.fail("Expected WorkflowUpdateFailedError for retry of non-failed shot")
+            except WorkflowUpdateFailedError as e:
+                assert "not in failed_shots" in str(e.cause)
             
             await asyncio.sleep(0.5)
             
