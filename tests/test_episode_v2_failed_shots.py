@@ -57,47 +57,7 @@ class SuccessShotWorkflow:
         }
 
 
-def _make_activities():
-    """Create minimal activity mocks needed for EpisodeWorkflowV2."""
-    @activity.defn(name="acquire_run_lock")
-    async def lock(*a): return True
-
-    @activity.defn(name="release_run_lock")
-    async def unlock(*a): return True
-
-    @activity.defn(name="load_gate_policy_activity")
-    async def policy(*a): return {}
-
-    @activity.defn(name="parse_beatmap_activity")
-    async def parse(*a, script_data=None):
-        return script_data
-
-    @activity.defn(name="load_refs_to_generate_activity")
-    async def refs(*a): return []
-
-    @activity.defn(name="generate_run_report")
-    async def report(*a): return {}
-
-    async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
-
-    @activity.defn(name="init_episode_budget_lines_activity")
-    async def budget_init(*a):
-        from hfvg.budget import REQUIRED_BUDGET_LINES
-        return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
-
-    names = ["init_episode_credit_line_activity",
-             "preflight_validate_episode_activity",
-             "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
-             "recheck_refs_activity", "update_credit_cap_activity"]
-    def mk(n):
-        async def f(*a):
-            return await noop(*a)
-        return activity.defn(name=n)(f)
-    extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
-
-
-async def _wait_for_state(handle, pred, timeout=10.0):
+def _wait_for_state(handle, pred, timeout=10.0):
     """Poll get_state until predicate is true."""
     loop = asyncio.get_event_loop()
     end = loop.time() + timeout
@@ -113,26 +73,65 @@ async def _wait_for_state(handle, pred, timeout=10.0):
 @pytest.mark.timeout(60)
 async def test_episode_v2_shot_returns_failed_dict():
     """Test that a shot returning {'status':'failed','error':'...'} ends up in failed_shots with exact reason."""
+    script_data = {
+        "shots": [
+            {
+                "shot_id": "shot_001",
+                "prompt": "A test shot that will fail",
+                "duration": 3.0
+            }
+        ]
+    }
+    
+    def _make_activities_with_script():
+        @activity.defn(name="acquire_run_lock")
+        async def lock(*a): return True
+
+        @activity.defn(name="release_run_lock")
+        async def unlock(*a): return True
+
+        @activity.defn(name="load_gate_policy_activity")
+        async def policy(*a): return {}
+
+        @activity.defn(name="parse_beatmap_activity")
+        async def parse(path):
+            return script_data
+
+        @activity.defn(name="load_refs_to_generate_activity")
+        async def refs(*a): return []
+
+        @activity.defn(name="generate_run_report")
+        async def report(*a): return {}
+
+        async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
+
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def budget_init(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+
+        names = ["init_episode_credit_line_activity",
+                 "preflight_validate_episode_activity",
+                 "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
+                 "recheck_refs_activity", "update_credit_cap_activity"]
+        def mk(n):
+            async def f(*a):
+                return await noop(*a)
+            return activity.defn(name=n)(f)
+        extra = [mk(n) for n in names]
+        return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+    
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-failed-shot",
             workflows=[EpisodeWorkflowV2, FailedShotWorkflow],
-            activities=_make_activities(),
+            activities=_make_activities_with_script(),
         ):
-            script_data = {
-                "shots": [
-                    {
-                        "shot_id": "shot_001",
-                        "prompt": "A test shot that will fail",
-                        "duration": 3.0
-                    }
-                ]
-            }
             
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep_test_fail", script_data, True, ["shot_001"], 40],
+                args=["ep_test_fail", None, True, ["shot_001"], 40],
                 id="test-failed-shot-workflow",
                 task_queue="test-failed-shot",
             )
@@ -161,26 +160,65 @@ async def test_episode_v2_shot_returns_failed_dict():
 @pytest.mark.timeout(60)
 async def test_episode_v2_shot_success_path():
     """Test that a successful shot is recorded properly."""
+    script_data = {
+        "shots": [
+            {
+                "shot_id": "shot_002",
+                "prompt": "A test shot that succeeds",
+                "duration": 3.0
+            }
+        ]
+    }
+    
+    def _make_activities_with_script():
+        @activity.defn(name="acquire_run_lock")
+        async def lock(*a): return True
+
+        @activity.defn(name="release_run_lock")
+        async def unlock(*a): return True
+
+        @activity.defn(name="load_gate_policy_activity")
+        async def policy(*a): return {}
+
+        @activity.defn(name="parse_beatmap_activity")
+        async def parse(path):
+            return script_data
+
+        @activity.defn(name="load_refs_to_generate_activity")
+        async def refs(*a): return []
+
+        @activity.defn(name="generate_run_report")
+        async def report(*a): return {}
+
+        async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
+
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def budget_init(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+
+        names = ["init_episode_credit_line_activity",
+                 "preflight_validate_episode_activity",
+                 "upsert_episode_activity", "verify_episode_files_activity", "approve_g108_activity",
+                 "recheck_refs_activity", "update_credit_cap_activity"]
+        def mk(n):
+            async def f(*a):
+                return await noop(*a)
+            return activity.defn(name=n)(f)
+        extra = [mk(n) for n in names]
+        return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+    
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-success-shot",
             workflows=[EpisodeWorkflowV2, SuccessShotWorkflow],
-            activities=_make_activities(),
+            activities=_make_activities_with_script(),
         ):
-            script_data = {
-                "shots": [
-                    {
-                        "shot_id": "shot_002",
-                        "prompt": "A test shot that succeeds",
-                        "duration": 3.0
-                    }
-                ]
-            }
             
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep_test_success", script_data, True, ["shot_002"], 40],
+                args=["ep_test_success", None, True, ["shot_002"], 40],
                 id="test-success-shot-workflow",
                 task_queue="test-success-shot",
             )
