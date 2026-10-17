@@ -778,11 +778,14 @@ class EpisodeWorkflowV2:
             )
         
         # Check retry limit FIRST (before checking failed_shots)
+        # shot_attempts tracks total attempts (original + retries)
+        # MAX_SHOT_RETRIES is max number of retries (not including original)
+        # So max total attempts = MAX_SHOT_RETRIES + 1
         attempt_count = self.state.shot_attempts.get(shot_id, 0)
         max_retries = config.MAX_SHOT_RETRIES
-        if attempt_count >= max_retries:
+        if attempt_count > max_retries:  # Already exceeded retry limit
             workflow.logger.error(
-                f"Cannot retry {shot_id}: already attempted {attempt_count} times (max {max_retries})"
+                f"Cannot retry {shot_id}: already attempted {attempt_count} times (max {max_retries} retries = {max_retries + 1} total attempts)"
             )
             raise ApplicationError(
                 f"Max retries ({max_retries}) exceeded for shot {shot_id}",
