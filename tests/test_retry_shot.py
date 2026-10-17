@@ -324,7 +324,7 @@ async def test_retry_shot_respects_max_retries():
                     EpisodeWorkflowV2.retry_shot,
                     args=["A01"]
                 )
-                pytest.fail("Expected WorkflowUpdateFailedError for exceeding max retries")
+                assert False, "Expected WorkflowUpdateFailedError for exceeding max retries"
             except WorkflowUpdateFailedError as e:
                 # Expected: retry refused
                 assert "Max retries" in str(e.cause) or "already attempted" in str(e.cause)
@@ -372,7 +372,7 @@ async def test_retry_shot_uses_different_idempotency_key():
                 desc = await original_wf.describe()
                 assert desc.id == "ep_retry5-shot-A01"
             except RPCError:
-                pytest.fail("Original workflow should exist, but describe() raised RPCError")
+                assert False, "Original workflow should exist, but describe() raised RPCError"
             
             # Retry the shot
             retry_result = await handle.execute_update(
@@ -387,7 +387,7 @@ async def test_retry_shot_uses_different_idempotency_key():
                 desc = await retry_wf.describe()
                 assert desc.id == "ep_retry5-shot-A01-retry1"
             except RPCError:
-                pytest.fail("Retry workflow should exist, but describe() raised RPCError")
+                assert False, "Retry workflow should exist, but describe() raised RPCError"
             
             await handle.terminate("test done")
 

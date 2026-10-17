@@ -241,7 +241,9 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
         mock_lint.return_value = None
         MockProvider.return_value = FakeProvider()
         
-        with pytest.raises(ValueError, match="over the .* limit of 3"):
+        # Should raise ValueError for exceeding cap
+        raised_exception = None
+        try:
             await submit_still_job_enforced(
                 episode_id="ep99",
                 shot_id="A02",
@@ -250,6 +252,12 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
                 refs=[str(ref1), str(ref2), str(ref3)],
                 shot_meta={"count": 0},
             )
+        except ValueError as e:
+            raised_exception = e
+        
+        assert raised_exception is not None, "Expected ValueError for exceeding ref cap with anchor"
+        assert "over the" in str(raised_exception) and "limit of 3" in str(raised_exception), \
+            f"Expected ref cap error message, got: {raised_exception}"
 
 
 @pytest.mark.asyncio
