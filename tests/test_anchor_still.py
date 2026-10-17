@@ -365,7 +365,7 @@ async def test_api_rejects_self_anchoring(tmp_path, monkeypatch):
             "anchor_shot_id": "A01",
             "target_shot_ids": ["A01", "A02"],  # A01 trying to anchor to itself
         },
-        headers={"Authorization": "Bearer test-secret"}
+        headers={"Authorization": "Bearer test-secret-32-characters-long-enough-for-validation"}
     )
     
     assert response.status_code == 400
@@ -590,7 +590,7 @@ async def test_anchor_path_supports_webp(tmp_path, monkeypatch):
             "anchor_shot_id": "A01",
             "target_shot_ids": ["A02"],
         },
-        headers={"Authorization": "Bearer test-secret"}
+        headers={"Authorization": "Bearer test-secret-32-characters-long-enough-for-validation"}
     )
     
     assert response.status_code == 200
@@ -640,7 +640,7 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
             "anchor_shot_id": "A01",
             "target_shot_ids": ["A02"],
         },
-        headers={"Authorization": "Bearer test-secret"}
+        headers={"Authorization": "Bearer test-secret-32-characters-long-enough-for-validation"}
     )
     
     assert response.status_code == 200
