@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.activities.credit_activities import update_credit_cap_activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.activities.g1_plan import compute_g1_plan_activity
+    from hfvg.studio_db import list_anchor_stills, approve_g2_shots
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
     from hfvg.episode_parser import build_prompt_from_shot
@@ -346,7 +347,6 @@ class EpisodeWorkflowV2:
                 self.missing_refs = self._collect_missing_refs(shots)
         
         # Get list of anchor shots to skip (they're already approved)
-        from hfvg.studio_db import list_anchor_stills
         anchor_stills = await workflow.execute_activity(
             list_anchor_stills,
             args=[config.database_path(), episode_id],
@@ -457,7 +457,6 @@ class EpisodeWorkflowV2:
         workflow.logger.info("[APPROVED G2] Scene stills approved")
         
         # Mark all completed shots as approved in the database
-        from hfvg.studio_db import approve_g2_shots
         approved_count = await workflow.execute_activity(
             approve_g2_shots,
             args=[config.database_path(), episode_id],

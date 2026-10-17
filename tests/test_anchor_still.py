@@ -494,8 +494,7 @@ A second shot (uses A01 as anchor).
     async def mock_release_lock(*args):
         return True
     
-    env = await WorkflowEnvironment.start_time_skipping()
-    async with env:
+    async with await WorkflowEnvironment.start_local() as env:
         worker = Worker(
             env.client,
             task_queue="test-q",
