@@ -747,7 +747,7 @@ async def test_retry_shot_increments_version_for_unique_job_id():
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
 class FailOnceThenSucceedWithStateQuery:
-    """Fails on first attempt, succeeds on retry immediately (no wait for approval)."""
+    """Fails on first attempt, succeeds on retry, calls submit activity."""
     def __init__(self):
         self.approved = False
         self.still_status = "pending"
@@ -766,16 +766,32 @@ class FailOnceThenSucceedWithStateQuery:
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        from datetime import timedelta
+        from temporalio.common import RetryPolicy
+        
         version = shot_dict.get("version", 1)
+        shot_id = shot_dict.get("shot_id", "A01")
+        prompt = shot_dict.get("prompt", "Test prompt")
+        
+        # Call submit_still_job_enforced to generate real job_id
+        try:
+            await workflow.execute_activity(
+                "submit_still_job_enforced",
+                args=[episode_id, shot_id, prompt, version, [], "1k", "medium", "9:16", None, None, [], version],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except:
+            pass  # Ignore activity errors
         
         if version == 1:
-            # First attempt fails immediately
+            # First attempt fails after submission
             self.still_status = "failed"
             return {"status": "failed", "error": "First attempt failed"}
         else:
-            # Retry succeeds immediately (no wait for approval in this test workflow)
+            # Retry succeeds after submission
             self.still_status = "complete"
-            return {"status": "completed", "shot_id": shot_dict["shot_id"]}
+            return {"status": "completed", "shot_id": shot_id}
 
 
 # ============================================================================
@@ -786,19 +802,19 @@ class FailOnceThenSucceedWithStateQuery:
 async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
     """
     Deterministic workflow test for MAX_SHOT_RETRIES=1:
-    - Original attempt fails
-    - retry1 starts, gets job id with -r1 suffix, completes
+    - Original attempt fails, submits still-ep99-A01-v1
+    - retry1 starts, gets job id still-ep99-A01-r1, completes
     - retry2 is refused with max-retries message specifically
-    
-    Also tests attempt_overrides {'A02': 2}: first submit gets -r1, further retry refused.
     
     This test verifies that pending_retries is properly cleared when retry child completes,
     and that the max-retries limit is enforced after completion.
+    Tests with MAX_SHOT_RETRIES=1 (non-default value).
     """
-    # Set MAX_SHOT_RETRIES=1 for this test
-    monkeypatch.setenv("MAX_SHOT_RETRIES", "1")
-    
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg import config
+    
+    # Patch config directly (non-default value for testing)
+    monkeypatch.setattr(config.Config, "MAX_SHOT_RETRIES", 1)
     
     # Track submissions
     still_submissions = []
@@ -835,6 +851,12 @@ async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
             # Wait for shot to fail
             await _wait_for_state(handle, lambda s: len(s.get("failed_shots", [])) > 0)
             
+            # Verify original submission was -v1
+            assert len(still_submissions) == 1, f"Expected 1 submission, got {len(still_submissions)}"
+            job_id_1, _, version_1, _ = still_submissions[0]
+            assert job_id_1 == "still-ep99-A01-v1", f"Original should be -v1, got {job_id_1}"
+            assert version_1 == 1, f"Original version should be 1, got {version_1}"
+            
             # First retry (should succeed)
             retry1_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
             assert retry1_result["status"] == "queued", f"Expected retry1 queued, got {retry1_result}"
@@ -857,6 +879,12 @@ async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
             # Give background task time to clear pending_retries
             await asyncio.sleep(0.5)
             
+            # Verify retry submission was -r1
+            assert len(still_submissions) == 2, f"Expected 2 submissions after retry, got {len(still_submissions)}"
+            job_id_2, _, version_2, _ = still_submissions[1]
+            assert job_id_2 == "still-ep99-A01-r1", f"Retry should be -r1, got {job_id_2}"
+            assert version_2 == 2, f"Retry version should be 2, got {version_2}"
+            
             # Verify pending_retries was cleared by background task
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert "A01" not in state.get("pending_retries", []), \
@@ -876,6 +904,10 @@ async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
                     f"Expected 'Max retries' message after retry1 completes, got: {error_msg}"
                 assert "retry already in progress" not in error_msg.lower(), \
                     f"Should NOT get 'retry already in progress' after retry1 completes, got: {error_msg}"
+            
+            # Verify no extra submissions (no duplicate paid job)
+            assert len(still_submissions) == 2, \
+                f"Expected exactly 2 submissions (no duplicates), got {len(still_submissions)}: {still_submissions}"
             
             await handle.terminate("test done")
 
@@ -897,3 +929,125 @@ class AlwaysFailWorkflow:
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         return {"status": "failed", "error": "Always fails"}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class SubmitThenFailWorkflow:
+    """Calls submit_still_job_enforced then fails - for testing attempt overrides."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = False
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        from datetime import timedelta
+        from temporalio.common import RetryPolicy
+        
+        shot_id = shot_dict["shot_id"]
+        prompt = shot_dict.get("prompt", "Test prompt")
+        version = shot_dict.get("version", 1)
+        
+        # Call submit_still_job_enforced to generate job_id
+        try:
+            await workflow.execute_activity(
+                "submit_still_job_enforced",
+                args=[episode_id, shot_id, prompt, version, [], "1k", "medium", "9:16", None, None, [], version],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except:
+            pass  # Ignore activity errors
+        
+        # Always fail after submission
+        return {"status": "failed", "error": "Test failure after submit"}
+
+
+@pytest.mark.asyncio
+async def test_attempt_overrides_first_submit_is_retry(tmp_path, monkeypatch):
+    """
+    Test attempt_overrides {'A02': 2}: first submit gets -r1, further retry refused.
+    
+    When attempt_overrides={'A02': 2}, shot_attempts is seeded with 2, so:
+    - First submission gets job_id with -r1 suffix (version 2)
+    - Attempting to retry is refused with "Max retries" (already at limit with MAX_SHOT_RETRIES=1)
+    
+    This prevents duplicate paid submissions (e.g., still-ep05-A02-v1 would be a duplicate).
+    """
+    monkeypatch.setenv("MAX_SHOT_RETRIES", "1")
+    
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    
+    # Track submissions to verify job_id format
+    still_submissions = []
+    
+    @activity.defn(name="submit_still_job_enforced")
+    async def track_submit(*args):
+        episode_id, shot_id, prompt, version = args[0], args[1], args[2], args[3]
+        attempt = args[-1] if len(args) > 11 else version
+        # Job ID format: -v1 for version 1, -r1 for version 2 (first retry), -r2 for version 3, etc.
+        if version == 1:
+            job_id = f"still-{episode_id}-{shot_id}-v1"
+        else:
+            job_id = f"still-{episode_id}-{shot_id}-r{version-1}"
+        still_submissions.append((job_id, version, attempt))
+        return {"job_id": job_id, "credits_used": 0.05}
+    
+    activities = _make_activities() + [track_submit]
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-attempt-overrides",
+            workflows=[EpisodeWorkflowV2, SubmitThenFailWorkflow],
+            activities=activities,
+        ):
+            # Start with attempt_overrides={'A02': 2} to simulate first retry
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep05", None, True, ["A02"], 40, {"A02": 2}],  # attempt_overrides
+                id="test-attempt-overrides-workflow",
+                task_queue="test-attempt-overrides",
+            )
+            
+            # Wait for G1 and approve
+            await _wait_for_state(handle, lambda s: s.get("current_gate") == "G1_SHOT_PLAN")
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for shot to fail
+            await _wait_for_state(handle, lambda s: len(s.get("failed_shots", [])) > 0)
+            
+            # Verify first submission got -r1 (not -v1) because override seeded shot_attempts=2
+            assert len(still_submissions) == 1, f"Expected 1 submission, got {len(still_submissions)}"
+            job_id, version, attempt = still_submissions[0]
+            assert job_id == "still-ep05-A02-r1", \
+                f"Expected 'still-ep05-A02-r1' (override seeds shot_attempts=2, version 2 -> -r1), got '{job_id}'"
+            assert version == 2, f"Expected version 2 with override, got {version}"
+            
+            # Verify shot_attempts was seeded with override value
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["shot_attempts"]["A02"] == 2, \
+                f"shot_attempts should be seeded with override value 2, got {state['shot_attempts'].get('A02')}"
+            
+            # Try to retry - should be refused because shot_attempts=2, max_retries=1, 2>1
+            from temporalio.client import WorkflowUpdateFailedError
+            try:
+                retry_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A02"])
+                pytest.fail(f"Expected retry to be refused with override at limit, but got: {retry_result}")
+            except WorkflowUpdateFailedError as e:
+                error_msg = str(e.cause)
+                # Must be "Max retries" message (not "in progress" or other)
+                assert "Max retries" in error_msg, \
+                    f"Expected 'Max retries' error with override at limit, got: {error_msg}"
+            
+            # Verify no duplicate submission happened
+            assert len(still_submissions) == 1, \
+                f"Expected only 1 submission (no duplicate), got {len(still_submissions)}: {still_submissions}"
+            
+            await handle.terminate("test done")
