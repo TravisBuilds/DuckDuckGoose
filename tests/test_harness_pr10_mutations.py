@@ -579,7 +579,8 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             
             # Verify attempt_overrides was applied
             state = await handle.query(EpisodeWorkflowV2.get_state)
-            assert state["shot_attempts"]["A01"] == 2, f"Expected attempt 2, got {state['shot_attempts']['A01']}"
+            override = state.get("shot_attempt_overrides", {}).get("A01", 0)
+            assert override == 2, f"Expected override 2, got {override}"
             
             try:
                 await handle.terminate("test done")
