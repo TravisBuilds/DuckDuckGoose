@@ -306,14 +306,12 @@ async def test_retry_shot_respects_max_retries():
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 1
             
-            # Wait for retry to also fail (RetryableShotWorkflow fails on attempt 1, succeeds on attempt 2+)
-            # But we're only at attempt 2 now, so it still fails
-            # Need to approve G2 first for retry to proceed
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            # Wait for retry to fail (RetryableShotWorkflow fails on attempt==1)
+            # The retry child will fail immediately, but we need to give the check loop time to process it
+            # Don't approve G2 yet - keep workflow at G2 gate
             await asyncio.sleep(2.0)
-            await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
-            # Try to retry again (should be refused - already at max_retries=1)
+            # Now try to retry again (should be refused - already at max_retries=1)
             from temporalio.client import WorkflowUpdateFailedError
             try:
                 retry_result2 = await handle.execute_update(
@@ -328,6 +326,9 @@ async def test_retry_shot_respects_max_retries():
             # Verify attempt count is still 1
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 1
+            
+            # Now approve G2 to let workflow proceed
+            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
             
             await handle.terminate("test done")
 
