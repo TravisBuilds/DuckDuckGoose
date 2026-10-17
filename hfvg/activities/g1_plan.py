@@ -49,17 +49,15 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             still_credits = 0.0
             still_usd = 0.0
             try:
-                # Use real resolution, quality, aspect_ratio
-                still_estimate = await still_provider.estimate_usd_and_credits(
+                # Use real resolution, quality, aspect_ratio (refs not needed for estimate)
+                usd_micros, credits = await still_provider.estimate_usd_and_credits(
                     prompt=prompt,
                     resolution=resolution,
                     quality=quality,
                     aspect_ratio=aspect_ratio,
-                    refs=refs,  # Use real refs
                 )
-                # estimate returns {credits: float, usd_micros: int}
-                still_credits = still_estimate["credits"]
-                still_usd = still_estimate["usd_micros"] / 1_000_000
+                still_credits = credits
+                still_usd = usd_micros / 1_000_000
             except Exception as e:
                 activity.logger.warning(f"Still estimate failed for {shot_id}: {e}")
                 still_estimate_available = False
@@ -76,14 +74,13 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             clip_credits = 0.0
             clip_usd = 0.0
             try:
-                clip_estimate = await clip_provider.estimate_usd_and_credits(
+                usd_micros, credits = await clip_provider.estimate_usd_and_credits(
                     image_url="https://example.com/placeholder.jpg",  # Placeholder, estimate doesn't need real URL
                     prompt=prompt,
                     duration=duration,
                 )
-                # estimate returns {credits: float, usd_micros: int}
-                clip_credits = clip_estimate["credits"]
-                clip_usd = clip_estimate["usd_micros"] / 1_000_000
+                clip_credits = credits
+                clip_usd = usd_micros / 1_000_000
             except Exception as e:
                 activity.logger.warning(f"Clip estimate failed for {shot_id}: {e}")
                 clip_estimate_available = False
