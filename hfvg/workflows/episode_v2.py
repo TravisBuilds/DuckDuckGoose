@@ -494,7 +494,11 @@ class EpisodeWorkflowV2:
         
         workflow.logger.info("Awaiting all clip completions...")
         results = []
-        for handle in shot_workflow_handles:
+        # Use shot_results to get latest handle (includes retries)
+        for shot in shots:
+            handle = self.shot_results.get(shot["shot_id"])
+            if not handle:
+                continue
             # Process credit cap raise before each handle check
             while self.state.credit_cap_raised and self.state.new_credit_cap > 0:
                 workflow.logger.info(f"Processing credit cap raise to {self.state.new_credit_cap}")
@@ -719,8 +723,12 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
         
-        # Pass attempt number into shot_plan so ShotWorkflow uses unique job ID
+        # Pass attempt number and version into shot_plan
+        # Original shot: attempt=0, version=1
+        # First retry: attempt=1, version=2
+        # Second retry: attempt=2, version=3, etc.
         shot_plan["attempt"] = self.state.shot_attempts[shot_id]
+        shot_plan["version"] = self.state.shot_attempts[shot_id] + 1
         
         # Build prompt if missing
         if "prompt" not in shot_plan:

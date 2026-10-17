@@ -439,11 +439,13 @@ def smoke_test(episode_id: str, live: bool):
 @cli.command()
 @click.argument("episode_id")
 @click.argument("shot_id")
-@click.option("--max-retries", default=1, help="Maximum retry attempts (default: 1)")
-def retry_shot(episode_id: str, shot_id: str, max_retries: int):
+def retry_shot(episode_id: str, shot_id: str):
     """Retry a failed shot (only valid while parked at G1/G2)."""
     
     async def _retry():
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
+        
         client = await Client.connect(
             config.TEMPORAL_HOST,
             namespace=config.TEMPORAL_NAMESPACE,
@@ -452,8 +454,15 @@ def retry_shot(episode_id: str, shot_id: str, max_retries: int):
         handle = client.get_workflow_handle(episode_id)
         
         try:
-            await handle.signal("retry_shot", shot_id, max_retries)
-            click.echo(f"✓ Retry signal sent for shot {shot_id} (max {max_retries} attempts)")
+            result = await handle.execute_update("retry_shot", shot_id)
+            click.echo(f"✓ Retry queued for shot {shot_id}: {result}")
+        except WorkflowUpdateFailedError as e:
+            if e.cause and isinstance(e.cause, ApplicationError):
+                click.echo(f"❌ Retry refused: {e.cause}", err=True)
+            else:
+                click.echo(f"❌ Error: {e}", err=True)
+            import sys
+            sys.exit(1)
         except Exception as e:
             click.echo(f"❌ Error: {e}", err=True)
             import sys

@@ -393,6 +393,62 @@ async def test_retry_shot_uses_different_idempotency_key():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_retry_shot_increments_version_for_unique_job_id():
+    """Test that retry increments version so job_id is unique (v1 -> v2)."""
+    from temporalio import workflow as wf_module
+    
+    # Track what versions are submitted
+    submitted_versions = []
+    
+    @activity.defn(name="submit_still_job_enforced")
+    async def mock_submit_still(*args, **kwargs):
+        # Args: episode_id, shot_id, prompt, version, ...
+        if len(args) >= 4:
+            submitted_versions.append(args[3])  # version
+        return {"job_id": f"job-v{args[3]}", "status": "queued"}
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-retry-version",
+            workflows=[EpisodeWorkflowV2, RetryableShotWorkflow],
+            activities=[*_make_activities(), mock_submit_still],
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep_retry_version", None, True, ["A01"], 40],
+                id="test-retry-version-workflow",
+                task_queue="test-retry-version",
+            )
+            
+            # Wait for G1 and approve
+            await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
+            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for A01 to fail
+            await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
+            
+            # Original shot should have used version 1
+            assert submitted_versions == [1], f"Original should use v1, got {submitted_versions}"
+            
+            # Retry the shot
+            retry_result = await handle.execute_update(
+                EpisodeWorkflowV2.retry_shot,
+                args=["A01"]
+            )
+            assert retry_result["status"] == "queued"
+            
+            # Wait for retry to also fail
+            await asyncio.sleep(2.0)
+            
+            # Retry should have used version 2
+            assert submitted_versions == [1, 2], f"Retry should use v2, got {submitted_versions}"
+            
+            await handle.terminate("test done")
+
+
+@pytest.mark.asyncio
 @pytest.mark.timeout(120)
 async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
     """

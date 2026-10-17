@@ -345,9 +345,10 @@ class ShotWorkflow:
         self.episode_id = episode_id
         self.shot_id = shot_plan["shot_id"]
         
-        # Use attempt number if provided (for retries), otherwise default to 1
-        attempt = shot_plan.get("attempt", 1)
-        self.version = attempt
+        # Use attempt number if provided (for retries), otherwise default to 0
+        # Version is separate: original=1, retry1=2, retry2=3, etc.
+        attempt = shot_plan.get("attempt", 0)
+        self.version = shot_plan.get("version", 1)
 
         workflow.logger.info(f"Starting shot {self.shot_id} (attempt {attempt})")
 

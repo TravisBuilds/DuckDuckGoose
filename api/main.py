@@ -1295,16 +1295,23 @@ async def retry_shot(
         handle = temporal_client.get_workflow_handle(workflow_id)
         
         # Send retry update (returns result or raises ApplicationError on refusal)
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
         try:
             result = await handle.execute_update(
                 "retry_shot",
                 shot_id
             )
+        except WorkflowUpdateFailedError as e:
+            # Update was refused - check if it's an ApplicationError inside
+            if e.cause and isinstance(e.cause, ApplicationError):
+                # Map workflow refusal to 409 Conflict
+                raise HTTPException(status_code=409, detail=str(e.cause))
+            raise
+        except ApplicationError as e:
+            # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            # Update was refused - return 4xx
-            from temporalio.exceptions import ApplicationError
-            if isinstance(e, ApplicationError):
-                raise HTTPException(status_code=400, detail=str(e))
             raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
         # Audit log

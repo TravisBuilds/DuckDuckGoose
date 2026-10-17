@@ -980,3 +980,70 @@ async def test_set_ref_versions_endpoint(test_db_api, tmp_path, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert "refs_updated" in data or "updated_versions" in data or "success" in data  # Accept any success indicator
+
+
+@pytest.mark.asyncio
+async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypatch):
+    """Test: POST /api/episodes/{episode_id}/shots/{shot_id}/retry returns 409 on refusal."""
+    from api.main import app, temporal_client
+    from httpx import AsyncClient, ASGITransport
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg.studio_db import init_studio_db, create_episode, approve_g108
+    from temporalio import activity
+    
+    monkeypatch.setenv("DATABASE_PATH", str(test_db_api))
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    await init_studio_db(str(test_db_api))
+    await create_episode(str(test_db_api), "ep99")
+    await approve_g108(str(test_db_api), "ep99")
+    
+    # Start Temporal workflow that will refuse retry (no failed shots)
+    async with await WorkflowEnvironment.start_local() as env:
+        @activity.defn(name="parse_beatmap_activity")
+        async def mock_parse(*a): return {"shots": [{"shot_id": "A01", "prompt": "test"}]}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def mock_g1(*a): return {"shots": [], "total_credits": 0.0, "estimates_available": True}
+        
+        async def noop(*a): return {}
+        names = ["upsert_episode_activity", "init_episode_credit_line_activity", 
+                 "init_episode_budget_lines_activity", "preflight_validate_episode_activity",
+                 "load_gate_policy_activity", "load_refs_to_generate_activity",
+                 "recheck_refs_activity", "acquire_run_lock", "release_run_lock",
+                 "list_anchor_stills", "approve_g2_shots"]
+        activities = [mock_parse, mock_g1] + [activity.defn(name=n)(lambda *a: noop(*a)) for n in names]
+        
+        async with Worker(env.client, task_queue="test-retry-api", workflows=[EpisodeWorkflowV2], activities=activities):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep99", None, True],
+                id="ep99-workflow",
+                task_queue="test-retry-api",
+            )
+            
+            # Wait for G1
+            import asyncio
+            for _ in range(50):
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                if state["current_gate"] == "G1_SHOT_PLAN":
+                    break
+                await asyncio.sleep(0.1)
+            
+            # Patch temporal_client to use our test client
+            monkeypatch.setattr("api.main.temporal_client", env.client)
+            
+            # Try to retry a shot that isn't failed (should return 409)
+            client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+            response = await client.post(
+                "/api/episodes/ep99/shots/A01/retry",
+                headers={"Authorization": admin_secret}
+            )
+            
+            assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"
+            assert "not.*failed" in response.text.lower() or "cannot retry" in response.text.lower()
+            
+            await handle.terminate("test done")
