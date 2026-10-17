@@ -102,10 +102,10 @@ def _make_activities():
         return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
 
     @activity.defn(name="approve_g2_shots")
-    async def approve_g2(*a): return 0
+    async def approve_g2(episode_id: str): return 0
     
     @activity.defn(name="list_anchor_stills")
-    async def list_anchors(*a): return []
+    async def list_anchors(episode_id: str): return []
     
     names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",

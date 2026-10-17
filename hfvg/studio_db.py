@@ -267,19 +267,19 @@ async def upsert_shot(
 
 @activity.defn
 async def approve_g2_shots(
-    db_path: str,
     episode_id: str,
 ) -> int:
     """
     Mark all completed/still_complete shots as approved after G2 approval.
     
     Args:
-        db_path: Path to studio database
         episode_id: Episode ID
         
     Returns:
         Number of shots marked as approved
     """
+    import os
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     async with aiosqlite.connect(db_path) as db:
         # Mark shots with still_url as approved (they passed G2)
         cursor = await db.execute(
@@ -512,21 +512,21 @@ async def get_anchor_still(
 
 @activity.defn
 async def list_anchor_stills(
-    db_path: str,
     episode_id: str,
 ) -> list[dict]:
     """
     List all anchor stills for an episode.
     
     Args:
-        db_path: Path to studio database
         episode_id: Episode ID
         
     Returns:
         List of dicts with anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by
     """
+    import os
     import aiosqlite
     
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
             """SELECT anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by

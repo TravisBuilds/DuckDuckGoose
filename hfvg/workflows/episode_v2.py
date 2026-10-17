@@ -349,7 +349,7 @@ class EpisodeWorkflowV2:
         # Get list of anchor shots to skip (they're already approved)
         anchor_stills = await workflow.execute_activity(
             list_anchor_stills,
-            args=[config.database_path(), episode_id],
+            args=[episode_id],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
@@ -459,7 +459,7 @@ class EpisodeWorkflowV2:
         # Mark all completed shots as approved in the database
         approved_count = await workflow.execute_activity(
             approve_g2_shots,
-            args=[config.database_path(), episode_id],
+            args=[episode_id],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
