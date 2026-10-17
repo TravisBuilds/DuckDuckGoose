@@ -154,4 +154,5 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
         "total_clip_usd": f"{total_clip_usd:.2f}",
         "total_usd": f"{total_usd:.2f}",
         "estimates_available": not any_unavailable,  # False if any estimate failed
+        "dry_run": dry_run,  # Pass through for workflow validation
     }

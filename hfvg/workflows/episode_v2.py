@@ -629,37 +629,45 @@ class EpisodeWorkflowV2:
         """G2.01 is needed when any shot references a ref that is not on disk (planned new ref)."""
         return bool(self._collect_missing_refs(shots))
     
-    # Signal handlers for 3 gates
-    @workflow.signal
-    async def approve_g1_shot_plan(self, override_unavailable_estimates: bool = False):
+    # Update handlers for 3 gates
+    @workflow.update
+    async def approve_g1_shot_plan(self, override_unavailable_estimates: bool = False) -> dict:
         """Approve shot plan (G1_SHOT_PLAN): Beatmap + credit plan.
         
         Args:
             override_unavailable_estimates: If True, allow approval even when estimates_available=False in live mode
+            
+        Returns:
+            dict with status: "approved"
+            
+        Raises:
+            ApplicationError: If approval is refused (estimates unavailable in live mode without override)
         """
-        # In live mode, block approval if estimates are unavailable unless explicitly overridden
-        # Only check if we're at G1 gate and g1_plan has been computed
-        if self.state.g1_plan:
+        if override_unavailable_estimates and self.state.g1_plan:
             estimates_available = self.state.g1_plan.get("estimates_available", True)
-            dry_run = self.state.g1_plan.get("dry_run", True)
-            
-            if not dry_run and not estimates_available and not override_unavailable_estimates:
-                workflow.logger.error(
-                    "G1 approval blocked: estimates_available=False in live mode. "
-                    "Use override_unavailable_estimates=True to proceed anyway."
-                )
-                raise ApplicationError(
-                    "Cannot approve G1 in live mode when estimates are unavailable. "
-                    "Provider estimate requests failed. Pass override_unavailable_estimates=True to proceed anyway.",
-                    non_retryable=True
-                )
-            
-            if override_unavailable_estimates and not estimates_available:
+            if not estimates_available:
                 workflow.logger.warning(
                     "G1 approved with override_unavailable_estimates=True despite estimates_available=False"
                 )
         
         self.approved_g1_shot_plan = True
+        return {"status": "approved"}
+    
+    @approve_g1_shot_plan.validator
+    def validate_g1_approval(self, override_unavailable_estimates: bool = False):
+        """Validator for G1 approval - checks estimates availability in live mode."""
+        # In live mode, block approval if estimates are unavailable unless explicitly overridden
+        # Only check if g1_plan has been computed
+        if self.state.g1_plan:
+            estimates_available = self.state.g1_plan.get("estimates_available", True)
+            dry_run = self.state.g1_plan.get("dry_run", False)  # Default False to be safe
+            
+            if not dry_run and not estimates_available and not override_unavailable_estimates:
+                raise ApplicationError(
+                    "Cannot approve G1 in live mode when estimates are unavailable. "
+                    "Provider estimate requests failed. Pass override_unavailable_estimates=True to proceed anyway.",
+                    non_retryable=True
+                )
     
     @workflow.signal
     async def approve_g2_scene_stills(self):
