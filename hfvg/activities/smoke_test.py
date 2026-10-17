@@ -128,6 +128,17 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         
         budget_reserved = True
         
+        # Record job in ledger for pending_reconcile tracking
+        await ledger.record_job(
+            episode_id=episode_id,
+            job_id=job_id,
+            shot_id=None,
+            model="higgsfield-ai/soul/v2/standard",
+            tier="standard",
+            line_name="L2_drafts",
+            usd_micros=estimated_cost_micros
+        )
+        
         # Reserve credits
         credit_ledger = CreditLedger(db_path)
         await credit_ledger.init_db()
@@ -259,13 +270,13 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             if budget_reserved:
                 try:
                     await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test exception: {e}")
-                except Exception:
-                    pass
+                except Exception as release_err:
+                    activity.logger.error(f"Failed to release budget hold after smoke test exception: {release_err}")
             if credits_reserved:
                 try:
                     await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test exception: {e}")
-                except Exception:
-                    pass
+                except Exception as release_err:
+                    activity.logger.error(f"Failed to release credit hold after smoke test exception: {release_err}")
         return {
             "passed": False,
             "provider_job_id": provider_job_id,
@@ -274,7 +285,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
 
 
 @activity.defn
-async def run_smoke_test(episode_id: str, db_path: str, poll_timeout_secs: int = 60) -> dict:
+async def run_smoke_test(episode_id: str, db_path: str, poll_timeout_secs: int = 180) -> dict:
     """Run smoke test probes and return results."""
     # Use cheapest model: SOUL V2 standard (~0.09 credits)
     model_path = "higgsfield-ai/soul/v2/standard"

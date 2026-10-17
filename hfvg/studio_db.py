@@ -250,10 +250,12 @@ async def store_smoke_test_result(db_path: str, episode_id: str, result: dict):
     import json
     async with aiosqlite.connect(db_path) as db:
         # Store in episodes table smoke_test_result column (JSON)
-        await db.execute(
+        cursor = await db.execute(
             "UPDATE episodes SET smoke_test_result = ? WHERE episode_id = ?",
             (json.dumps(result), episode_id)
         )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Episode {episode_id} not found - cannot store smoke test result")
         await db.commit()
 
 

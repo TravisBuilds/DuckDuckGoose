@@ -184,6 +184,24 @@ async def test_smoke_test_nsfw_terminal(tmp_path, monkeypatch):
     # nsfw is terminal, so test fails but holds should be released
     assert result["passed"] is False
     assert "blocked" in result["generation_probe"]["error"].lower() or "nsfw" in result["generation_probe"]["error"].lower()
+    
+    # Verify holds were released
+    import aiosqlite
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_usd_micros) FROM budget_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_reserved = (await cursor.fetchone())[0] or 0
+        assert total_reserved == 0, f"Budget holds should be released after nsfw, got {total_reserved}"
+    
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_credits) FROM credit_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_credit_reserved = (await cursor.fetchone())[0] or 0
+        assert total_credit_reserved == 0, f"Credit holds should be released after nsfw, got {total_credit_reserved}"
 
 
 @pytest.mark.asyncio
@@ -247,6 +265,24 @@ async def test_smoke_test_canceled_terminal(tmp_path, monkeypatch):
     # canceled is terminal, so test fails but holds should be released
     assert result["passed"] is False
     assert "blocked" in result["generation_probe"]["error"].lower() or "canceled" in result["generation_probe"]["error"].lower()
+    
+    # Verify holds were released
+    import aiosqlite
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_usd_micros) FROM budget_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_reserved = (await cursor.fetchone())[0] or 0
+        assert total_reserved == 0, f"Budget holds should be released after canceled, got {total_reserved}"
+    
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_credits) FROM credit_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_credit_reserved = (await cursor.fetchone())[0] or 0
+        assert total_credit_reserved == 0, f"Credit holds should be released after canceled, got {total_credit_reserved}"
 
 
 @pytest.mark.asyncio
@@ -309,6 +345,24 @@ async def test_smoke_test_presubmit_exception_released(tmp_path, monkeypatch):
     assert result["passed"] is False
     assert "generation_probe" in result
     assert "error" in result["generation_probe"]
+    
+    # Verify holds were released (no job_id exists, so release on exception)
+    import aiosqlite
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_usd_micros) FROM budget_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_reserved = (await cursor.fetchone())[0] or 0
+        assert total_reserved == 0, f"Budget holds should be released after pre-submit exception, got {total_reserved}"
+    
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
+        cursor = await conn.execute(
+            "SELECT SUM(reserved_credits) FROM credit_lines WHERE episode_id = ?",
+            ("ep01",)
+        )
+        total_credit_reserved = (await cursor.fetchone())[0] or 0
+        assert total_credit_reserved == 0, f"Credit holds should be released after pre-submit exception, got {total_credit_reserved}"
 
 
 @pytest.mark.asyncio
