@@ -387,6 +387,68 @@ async def test_retry_shot_respects_max_retries():
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
+async def test_retry_shot_respects_max_retries_with_attempt_overrides():
+    """Test that retry limit works correctly with attempt_overrides.
+    
+    With attempt_overrides={'A02': 2} and MAX_SHOT_RETRIES=1:
+    - First submission is attempt=2 (produces -r1 job ID)
+    - First submission fails
+    - One retry is allowed (attempt=3, -r2)
+    - Second retry is refused (would be attempt=4, -r3)
+    """
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-retry-override-limit",
+            workflows=[EpisodeWorkflowV2, RetryableShotWorkflow],
+            activities=_make_activities(),
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep_retry_override", None, True, ["A02"], 40, {"A02": 2}],  # attempt_overrides
+                id="test-retry-override-limit-workflow",
+                task_queue="test-retry-override-limit",
+            )
+            
+            # Wait for G1 and approve
+            await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for A02 to fail (starts at attempt=2 due to override)
+            await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
+            
+            # Verify override was applied correctly
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            assert state["shot_attempt_overrides"]["A02"] == 2, "Override should be 2"
+            
+            # First retry should be ALLOWED (this is attempt 3, -r2)
+            retry_result = await handle.execute_update(
+                EpisodeWorkflowV2.retry_shot,
+                args=["A02"]
+            )
+            assert retry_result["status"] == "queued"
+            
+            # Wait for first retry to fail
+            await asyncio.sleep(2.0)
+            
+            # Second retry should be REFUSED (would be attempt 4, but max_retries=1)
+            from temporalio.client import WorkflowUpdateFailedError
+            try:
+                retry_result2 = await handle.execute_update(
+                    EpisodeWorkflowV2.retry_shot,
+                    args=["A02"]
+                )
+                assert False, "Expected WorkflowUpdateFailedError for exceeding max retries"
+            except WorkflowUpdateFailedError as e:
+                # Must mention max retries
+                assert ("Max retries" in str(e.cause) or "already attempted" in str(e.cause))
+            
+            await handle.terminate("test done")
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
 async def test_retry_shot_uses_different_idempotency_key():
     """Test that retry_shot uses a different workflow ID (with attempt number)."""
     from temporalio.service import RPCError
