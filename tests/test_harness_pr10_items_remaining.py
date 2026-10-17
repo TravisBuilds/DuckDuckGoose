@@ -67,31 +67,43 @@ async def test_verify_episode_files_honors_episodes_dir():
 @pytest.mark.timeout(20)
 async def test_cli_retry_shot_execute_update_and_exit_code():
     """Test that CLI retry-shot uses execute_update (not signal) and exits nonzero on refusal."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch, call
     from hfvg import cli
     from click.testing import CliRunner
     
+    # Track which method was called
+    execute_update_called = []
+    signal_called = []
+    
     # Mock the Temporal client and workflow handle
-    mock_handle = AsyncMock()
-    mock_handle.execute_update = AsyncMock(return_value={"status": "retry_queued"})
-    mock_handle.signal = AsyncMock()
+    async def mock_execute_update(update_name, *args):
+        execute_update_called.append((update_name, args))
+        return {"status": "retry_queued"}
     
-    mock_client = AsyncMock()
-    mock_client.get_workflow_handle = MagicMock(return_value=mock_handle)
+    async def mock_signal(signal_name, *args):
+        signal_called.append((signal_name, args))
     
-    # Mock Client.connect to return our mock client
-    with patch('hfvg.cli.Client.connect', new=AsyncMock(return_value=mock_client)):
+    mock_handle = MagicMock()
+    mock_handle.execute_update = mock_execute_update
+    mock_handle.signal = mock_signal
+    
+    async def mock_connect(*args, **kwargs):
+        client = AsyncMock()
+        client.get_workflow_handle = MagicMock(return_value=mock_handle)
+        return client
+    
+    # Patch Client.connect
+    with patch('hfvg.cli.Client.connect', new=mock_connect):
         runner = CliRunner()
         result = runner.invoke(cli.retry_shot, ['ep_test', 'A01'])
         
         # Verify execute_update was called (not signal)
-        mock_handle.execute_update.assert_called_once()
-        call_args = mock_handle.execute_update.call_args
-        assert call_args[0][0] == "retry_shot", "Should call retry_shot update"
-        assert call_args[0][1] == "A01", "Should pass shot_id"
+        assert len(execute_update_called) == 1, f"Expected execute_update called once, got {len(execute_update_called)} calls"
+        assert execute_update_called[0][0] == "retry_shot", "Should call retry_shot update"
+        assert execute_update_called[0][1] == ("A01",), "Should pass shot_id"
         
         # Verify signal was NOT called
-        mock_handle.signal.assert_not_called()
+        assert len(signal_called) == 0, f"Signal should not be called, but was called {len(signal_called)} times"
         
         # Verify command succeeded
         assert result.exit_code == 0, f"Command should succeed, got exit code {result.exit_code}"

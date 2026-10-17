@@ -630,6 +630,9 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
                     pass
                 await asyncio.sleep(0.1)
             
+            # Wait for shot workflow to start
+            await asyncio.sleep(0.5)
+            
             # Verify attempt_overrides was applied
             state = await handle.query(EpisodeWorkflowV2.get_state)
             override = state.get("shot_attempt_overrides", {}).get("A01", 0)
@@ -641,6 +644,7 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             
             # Query the shot workflow to get the version it received
             shot_handle = env.client.get_workflow_handle("ep_test-shot-A01")
+            await asyncio.sleep(0.2)  # Let shot workflow process
             shot_version = await shot_handle.query("get_version")
             assert shot_version == 2, f"Expected shot_plan version 2, got {shot_version}"
             
@@ -874,11 +878,10 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             await asyncio.sleep(1.0)
             
             # Assert the clip loop used the RETRY handle (version 2), not the original (version 1)
-            # Get the shot workflow handle to query which version received the signal
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            shot_handle_id = f"ep_test-shot-A01"
-            shot_handle = env.client.get_workflow_handle(shot_handle_id)
-            signaled_version = await shot_handle.query("get_signaled_version")
+            # The retry workflow has ID: ep_test-shot-A01-retry1 (retry_num = attempts - 1 = 2 - 1 = 1)
+            retry_handle_id = f"ep_test-shot-A01-retry1"
+            retry_handle = env.client.get_workflow_handle(retry_handle_id)
+            signaled_version = await retry_handle.query("get_signaled_version")
             
             assert signaled_version == 2, \
                 f"Expected clip loop to signal retry handle (version 2), but it signaled version {signaled_version}"
