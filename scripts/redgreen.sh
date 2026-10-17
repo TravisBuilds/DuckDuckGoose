@@ -285,7 +285,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Baseline has errors")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
@@ -312,7 +312,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("No file change")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
@@ -327,7 +327,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Syntax error")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
