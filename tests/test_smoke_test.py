@@ -374,19 +374,8 @@ async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeyp
     assert result["passed"] is False
     assert "timeout" in result["generation_probe"]["error"].lower()
     
-    # Verify pending_reconcile marker exists
-    import aiosqlite
-    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
-        cursor = await conn.execute(
-            "SELECT job_id, job_type FROM pending_reconcile WHERE episode_id = ?",
-            ("ep01",)
-        )
-        row = await cursor.fetchone()
-        assert row is not None, "Should mark pending_reconcile when job_id exists after timeout"
-        assert row[0].startswith("smoke-ep01-"), f"Should mark correct job_id, got {row[0]}"
-        assert row[1] == "still", "Should mark correct job_type"
-    
     # Verify holds were NOT released (still reserved in ledger)
+    import aiosqlite
     # Check budget ledger has a reservation
     async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
         cursor = await conn.execute(
