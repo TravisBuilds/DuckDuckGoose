@@ -250,7 +250,10 @@ async def test_retry_shot_refuses_when_shot_not_failed():
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_retry_shot_respects_max_retries():
-    """Test that retry_shot respects the max_retries limit."""
+    """Test that retry_shot respects the max_retries limit.
+    
+    First shot fails, first retry also fails, second retry is refused due to MAX_SHOT_RETRIES=1.
+    """
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
@@ -270,23 +273,34 @@ async def test_retry_shot_respects_max_retries():
             await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
             await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
             
-            # Wait for A01 to fail
+            # Wait for A01 to fail (original attempt)
             await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
-            # Retry once (max_retries=1)
+            # Retry once (attempt 1 -> attempt 2, max_retries=1)
             await handle.signal("retry_shot", args=["A01"])
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             
             state = await handle.query(EpisodeWorkflowV2.get_state)
             assert state["shot_attempts"]["A01"] == 1
             
-            # Try to retry again (should be refused - already at max)
-            await handle.signal("retry_shot", args=["A01"])
-            await asyncio.sleep(0.5)
+            # Wait for retry to also fail (RetryableShotWorkflow fails on attempt 1, succeeds on attempt 2+)
+            # But we're only at attempt 2 now, so it still fails
+            await _wait_for_state(handle, lambda s: len(s["failed_shots"]) > 0)
             
-            state = await handle.query(EpisodeWorkflowV2.get_state)
-            # Attempt count should still be 1 (second retry refused)
-            assert state["shot_attempts"]["A01"] == 1
+            # Try to retry again (should be refused - already at max_retries=1)
+            # This should raise ApplicationError since we're at the limit
+            from temporalio.exceptions import ApplicationError
+            try:
+                await handle.signal("retry_shot", args=["A01"])
+                await asyncio.sleep(0.5)
+                # If signal succeeded without raising, verify attempt count didn't increase
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                # The update handler should have raised ApplicationError, so we shouldn't get here
+                # But if we do, verify attempt count is still 1
+                assert state["shot_attempts"]["A01"] == 1
+            except ApplicationError as e:
+                # Expected: retry refused with ApplicationError
+                assert "Max retries" in str(e) or "already attempted" in str(e)
             
             await handle.terminate("test done")
 
@@ -295,6 +309,7 @@ async def test_retry_shot_respects_max_retries():
 @pytest.mark.timeout(60)
 async def test_retry_shot_uses_different_idempotency_key():
     """Test that retry_shot uses a different workflow ID (with attempt number)."""
+    from temporalio.service import RPCError
     
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
@@ -319,8 +334,11 @@ async def test_retry_shot_uses_different_idempotency_key():
             
             # Check original workflow ID exists
             original_wf = env.client.get_workflow_handle("ep_retry5-shot-A01")
-            desc = await original_wf.describe()
-            assert desc.id == "ep_retry5-shot-A01"
+            try:
+                desc = await original_wf.describe()
+                assert desc.id == "ep_retry5-shot-A01"
+            except RPCError:
+                pytest.fail("Original workflow should exist, but describe() raised RPCError")
             
             # Retry the shot
             await handle.signal("retry_shot", args=["A01"])  # Max retries from config
@@ -328,8 +346,11 @@ async def test_retry_shot_uses_different_idempotency_key():
             
             # Check that retry workflow has different ID (includes retry1)
             retry_wf = env.client.get_workflow_handle("ep_retry5-shot-A01-retry1")
-            desc = await retry_wf.describe()
-            assert desc.id == "ep_retry5-shot-A01-retry1"
+            try:
+                desc = await retry_wf.describe()
+                assert desc.id == "ep_retry5-shot-A01-retry1"
+            except RPCError:
+                pytest.fail("Retry workflow should exist, but describe() raised RPCError")
             
             await handle.terminate("test done")
 
