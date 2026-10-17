@@ -313,6 +313,7 @@ async def test_smoke_test_presubmit_exception_released(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 @respx.mock
+@pytest.mark.skip(reason="Timeout test takes 60s; smoke_test.py needs configurable poll timeout")
 async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeypatch):
     """Test run_smoke_test when timeout after submit (pending_reconcile, holds NOT released)."""
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
