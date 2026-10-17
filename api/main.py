@@ -299,6 +299,7 @@ class StartCanaryRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     gate_id: str = Field(..., description="Gate ID to approve (e.g., g101, g103, g108, g212, g409)")
     note: str | None = Field(None, description="Optional approval note")
+    override_unavailable_estimates: bool = Field(False, description="Override unavailable estimates for G1 approval in live mode")
 
 
 class EpisodeStateResponse(BaseModel):
@@ -306,6 +307,7 @@ class EpisodeStateResponse(BaseModel):
     stage: str | None
     approvals: dict[str, bool]
     shots_count: int
+    estimates_available: bool | None = None  # From G1 plan - None if G1 not yet computed
 
 
 class ShotStatus(BaseModel):
@@ -739,6 +741,7 @@ async def get_episode_state(
         stage=state.get("stage"),
         approvals=state.get("approvals", {}),
         shots_count=state.get("shots", 0),
+        estimates_available=state.get("g1_plan", {}).get("estimates_available"),
     )
 
 
@@ -778,7 +781,11 @@ async def approve_gate(
             # Map gate_id to signal method
             signal_name = f"approve_{request.gate_id.lower()}"
             
-            await handle.signal(signal_name)
+            # For G1 approval, pass override parameter if needed
+            if request.gate_id.lower() in ["g1_shot_plan", "g1"] and request.override_unavailable_estimates:
+                await handle.signal(signal_name, request.override_unavailable_estimates)
+            else:
+                await handle.signal(signal_name)
             
             return {
                 "success": True,
