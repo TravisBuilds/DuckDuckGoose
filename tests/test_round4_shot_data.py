@@ -536,6 +536,19 @@ async def _gate(handle, name, timeout=15.0):
     raise AssertionError(f"workflow never reached gate {name}; at {state['current_gate']}")
 
 
+async def _wait_for_passed_gate(handle, name: str, timeout: float = 5.0):
+    """Wait for a gate to appear in passed_gates."""
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    
+    end = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < end:
+        state = await handle.query(EpisodeWorkflowV2.get_state)
+        if name in state.get("passed_gates", []):
+            return state
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"workflow never passed gate {name}; passed_gates: {state.get('passed_gates', [])}")
+
+
 async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -574,6 +587,19 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
     async def mock_report(*args):
         return {"report_path": "/fake/report.txt"}
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def mock_g1_plan(*args):
+        # Stub G1 plan to avoid real /estimate API calls
+        return {
+            "shots": [],
+            "total_still_credits": 0.0,
+            "total_clip_credits": 0.0,
+            "total_credits": 0.0,
+            "total_still_usd": "0.00",
+            "total_clip_usd": "0.00",
+            "total_usd": "0.00",
+        }
+    
     worker_cm = Worker(
         env_cm.client, task_queue="r4-ep", workflows=[EpisodeWorkflowV2, stub],
         activities=[
@@ -586,8 +612,8 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
             mock_verify,
             mock_load_refs,
             mock_report,
+            mock_g1_plan,
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
-            activities.compute_g1_plan_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.approve_g108_activity,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
@@ -861,14 +887,12 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
                 W.run, args=["ep98", str(beat), False], id="r4-ep98-live", task_queue="r4-ep")
             # Approve G1 to reach G2
             await handle.signal(W.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
-            state = await handle.query(W.get_state)
+            state = await _gate(handle, "G2_SCENE_STILLS")
             assert state["current_gate"] == "G2_SCENE_STILLS"
             
             # Approve to proceed through G2
             await handle.signal(W.approve_g2_scene_stills)
-            await asyncio.sleep(1.5)
-            state = await handle.query(W.get_state)
+            state = await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             assert "G2_SCENE_STILLS" in state["passed_gates"], "should pass G2 after approval"
             
             # M-97: Assert recheck merged ref data into plan
@@ -950,6 +974,19 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             "B04": {"refs": [have_path], "missing_refs": []},
         }
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def mock_g1_plan(*args):
+        # Stub G1 plan to avoid real /estimate API calls
+        return {
+            "shots": [],
+            "total_still_credits": 0.0,
+            "total_clip_credits": 0.0,
+            "total_credits": 0.0,
+            "total_still_usd": "0.00",
+            "total_clip_usd": "0.00",
+            "total_usd": "0.00",
+        }
+    
     SEEN_PLANS_M95.clear()
     
     # Fresh Temporal env
@@ -961,9 +998,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 mock_acquire_lock, mock_release_lock,
                 activities.upsert_episode_activity,
                 init_episode_credit_line_activity, init_episode_budget_lines_activity,
-                mock_preflight, mock_verify, mock_load_refs, mock_report, mock_recheck,
+                mock_preflight, mock_verify, mock_load_refs, mock_report, mock_recheck, mock_g1_plan,
                 activities.load_gate_policy_activity, activities.parse_beatmap_activity,
-                activities.compute_g1_plan_activity,
                 activities.check_live_mode_and_g108,
                 activities.approve_g108_activity,
                 activities.trim_clips, activities.render_edit, activities.mix_audio,
@@ -985,7 +1021,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             
             # Approve G1
             await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
+            state = await _gate(handle, "G2_SCENE_STILLS")
             state = await handle.query(EpisodeWorkflowV2.get_state)
             
             # M-95: Assert recheck was called and updated missing_refs
@@ -995,7 +1031,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             
             # M-97: Assert recheck merged data into shot plans
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            await asyncio.sleep(1.0)
+            await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             plan = SEEN_PLANS_M95["A01"]
             assert "refs" in plan, "M-97: recheck should merge refs"
             assert len(plan["refs"]) == 2, "M-97: Should have 2 refs after recheck"
