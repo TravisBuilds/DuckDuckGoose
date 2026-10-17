@@ -387,6 +387,19 @@ async def test_cli_rejects_self_anchoring(tmp_path, monkeypatch, capsys):
     assert "Cannot anchor shot A01 to itself" in result.output
 
 
+# Module-level workflow stub for test_episode_workflow_skips_anchor_shots
+from temporalio import workflow as wf_module
+
+STARTED_SHOTS_GLOBAL = []
+
+@wf_module.defn
+class StubShotWorkflowForAnchorTest:
+    @wf_module.run
+    async def run(self, episode_id: str, shot_plan: dict):
+        STARTED_SHOTS_GLOBAL.append(shot_plan["shot_id"])
+        return {"status": "completed"}
+
+
 @pytest.mark.asyncio
 async def test_episode_workflow_skips_anchor_shots(tmp_path, monkeypatch):
     """Test that episode workflow skips regenerating shots used as anchors."""
@@ -397,6 +410,8 @@ async def test_episode_workflow_skips_anchor_shots(tmp_path, monkeypatch):
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     import hfvg.activities as activities
     from temporalio import activity
+    
+    STARTED_SHOTS_GLOBAL.clear()
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
@@ -433,9 +448,6 @@ A first shot.
 A second shot (uses A01 as anchor).
 """)
     
-    # Track which shot workflows were started
-    started_shots = []
-    
     @activity.defn(name="parse_beatmap_activity")
     async def mock_parse_beatmap(*args):
         return [
@@ -453,6 +465,7 @@ A second shot (uses A01 as anchor).
             "total_still_usd": "0.00",
             "total_clip_usd": "0.00",
             "total_usd": "0.00",
+            "estimates_available": True,
         }
     
     @activity.defn(name="preflight_validate_episode_activity")
@@ -471,26 +484,17 @@ A second shot (uses A01 as anchor).
     async def mock_recheck(*args):
         return {}
     
-    # Stub shot workflow that records which shots were started
-    from temporalio import workflow as wf_module
-    
-    @wf_module.defn
-    class StubShotWorkflow:
-        @wf_module.run
-        async def run(self, episode_id: str, shot_plan: dict):
-            started_shots.append(shot_plan["shot_id"])
-            return {"status": "completed"}
-    
     env = await WorkflowEnvironment.start_time_skipping()
     async with env:
         worker = Worker(
             env.client,
             task_queue="test-q",
-            workflows=[EpisodeWorkflowV2, StubShotWorkflow],
+            workflows=[EpisodeWorkflowV2, StubShotWorkflowForAnchorTest],
             activities=[
                 mock_parse_beatmap, mock_g1_plan, mock_preflight, mock_load_gate,
                 mock_load_refs, mock_recheck,
                 activities.list_anchor_stills,
+                activities.approve_g2_shots,
                 activities.check_live_mode_and_g108,
                 activities.upsert_episode_activity,
                 init_episode_credit_line_activity,
@@ -514,8 +518,8 @@ A second shot (uses A01 as anchor).
             await handle.terminate()
     
     # Verify: A02 should have been started, but NOT A01 (it's the anchor)
-    assert "A02" in started_shots, "A02 should be generated"
-    assert "A01" not in started_shots, "A01 should be skipped (it's an anchor shot)"
+    assert "A02" in STARTED_SHOTS_GLOBAL, "A02 should be generated"
+    assert "A01" not in STARTED_SHOTS_GLOBAL, "A01 should be skipped (it's an anchor shot)"
 
 
 @pytest.mark.asyncio
