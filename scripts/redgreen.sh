@@ -1242,6 +1242,12 @@ test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
     "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
     sed -i 's/workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts\[shot_id\]}"/workflow_id = f"{self.state.episode_id}-shot-{shot_id}"  # MUTATED - no retry suffix/'
 
+# 121. M-retry-version: Retry increments version for unique job_id
+test_mutation 121 "Retry increments version for unique job_id" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_increments_version_for_unique_job_id" \
+    sed -i 's/shot_plan\["version"\] = self.state.shot_attempts\[shot_id\] + 1/shot_plan["version"] = 1  # MUTATED - always v1/'
+
 # 119. M-anchor: Anchor still is injected as ref
 test_mutation 119 "Anchor still is injected into refs" \
     "hfvg/activities/studio_generation.py" \

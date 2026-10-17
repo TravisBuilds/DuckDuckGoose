@@ -982,7 +982,6 @@ async def test_set_ref_versions_endpoint(test_db_api, tmp_path, monkeypatch):
     assert "refs_updated" in data or "updated_versions" in data or "success" in data  # Accept any success indicator
 
 
-@pytest.mark.skip(reason="Temporal test environment issues - functionality covered by integration tests")
 @pytest.mark.asyncio
 async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypatch):
     """Test: POST /api/episodes/{episode_id}/shots/{shot_id}/retry returns 409 on refusal."""
@@ -1008,11 +1007,16 @@ async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypat
         async def mock_parse(*a): return {"shots": [{"shot_id": "A01", "prompt": "test"}]}
         
         @activity.defn(name="compute_g1_plan_activity")
-        async def mock_g1(*a): return {"shots": [], "total_credits": 0.0, "estimates_available": True}
+        async def mock_g1(*a): return {"shots": [], "total_credits": 0.0, "total_usd": 0.0, "estimates_available": True}
+        
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def mock_budget(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
         
         async def noop(*a): return {}
         names = ["upsert_episode_activity", "init_episode_credit_line_activity", 
-                 "init_episode_budget_lines_activity", "preflight_validate_episode_activity",
+                 "preflight_validate_episode_activity",
                  "load_gate_policy_activity", "load_refs_to_generate_activity",
                  "recheck_refs_activity", "acquire_run_lock", "release_run_lock",
                  "list_anchor_stills", "approve_g2_shots"]
@@ -1021,13 +1025,13 @@ async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypat
             async def act(*a):
                 return {}
             return act
-        activities = [mock_parse, mock_g1] + [make_activity(n) for n in names]
+        activities = [mock_parse, mock_g1, mock_budget] + [make_activity(n) for n in names]
         
         async with Worker(env.client, task_queue="test-retry-api", workflows=[EpisodeWorkflowV2], activities=activities):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
                 args=["ep99", None, True],
-                id="ep99-workflow",
+                id="ep99",
                 task_queue="test-retry-api",
             )
             
@@ -1046,7 +1050,7 @@ async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypat
             client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
             response = await client.post(
                 "/api/episodes/ep99/shots/A01/retry",
-                headers={"Authorization": admin_secret}
+                headers={"Authorization": f"Bearer {admin_secret}"}
             )
             
             assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"

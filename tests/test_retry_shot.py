@@ -2,10 +2,12 @@
 
 import asyncio
 import pytest
+from datetime import timedelta
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ActivityError
+from temporalio.common import RetryPolicy
 
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
@@ -42,8 +44,51 @@ class RetryableShotWorkflow:
             "status": "completed",
             "shot_id": shot_dict["shot_id"],
             "still_url": "dry-run://still.png",
-            "clip_url": "dry-run://clip.mp4",
-        }
+        "clip_url": "dry-run://clip.mp4",
+    }
+
+
+# Mock ShotWorkflow for version increment test that tracks actual submission params
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class VersionTestShotWorkflow:
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        shot_id = shot_dict["shot_id"]
+        version = shot_dict.get("version", 1)
+        
+        # Call still activity with version passed through
+        from datetime import timedelta
+        from temporalio.common import RetryPolicy
+        
+        try:
+            result = await workflow.execute_activity(
+                "submit_still_job_enforced",
+                args=[
+                    episode_id, shot_id, shot_dict["prompt"], version,
+                    [], "1k", "medium", "9:16", None, None, [],
+                    version  # Pass version as attempt (like real ShotWorkflow)
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            
+            # Wait for approval
+            await workflow.wait_condition(lambda: self.approved, timeout=timedelta(seconds=30))
+            
+            return {"shot_id": shot_id, "status": "success", "job_id": result["job_id"]}
+        except Exception as e:
+            return {"shot_id": shot_id, "status": "failed", "error": str(e)}
 
 
 async def _wait_for_state(handle, pred, timeout=10.0):
@@ -538,3 +583,107 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
     # Both keys should contain their respective job_ids as prefix
     assert job_id_1 in idem_key_1, f"job_id '{job_id_1}' should be in idempotency_key '{idem_key_1}'"
     assert job_id_2 in idem_key_2, f"job_id '{job_id_2}' should be in idempotency_key '{idem_key_2}'"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_retry_shot_increments_version_for_unique_job_id():
+    """
+    WORKFLOW-level test: retry increments version so job_id uses -r1, not -v1.
+    
+    This test MUST FAIL if episode_v2.py line 747 is mutated to:
+        shot_plan["version"] = 1  # MUTATED - always v1
+    
+    The mutation breaks version increment, causing retry to submit still-ep99-A01-v1
+    instead of still-ep99-A01-r1, which breaks idempotency and job tracking.
+    """
+    # Track all still submissions: (job_id, idempotency_key, version, attempt)
+    still_submissions = []
+    
+    # Fake still activity that records submissions
+    @activity.defn(name="submit_still_job_enforced")
+    async def fake_still(episode_id: str, shot_id: str, prompt: str, version: int, 
+                       refs, resolution, quality, aspect_ratio, tier, shot_meta, 
+                       missing_refs, attempt: int):
+        # Build job_id same way as real activity
+        if attempt > 1:
+            attempt_suffix = f"-r{attempt - 1}"
+        else:
+            attempt_suffix = f"-v{version}"
+        job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}"
+        
+        # Build idempotency key (simplified - just include attempt)
+        import hashlib
+        idem_key = f"{job_id}-attempt{attempt}-{hashlib.md5(prompt.encode()).hexdigest()[:8]}"
+        
+        still_submissions.append((job_id, idem_key, version, attempt))
+        
+        # Fail on first attempt, succeed on retry
+        if len(still_submissions) == 1:
+            raise ApplicationError("Still generation failed", non_retryable=True)
+        
+        return {
+            "job_id": job_id,
+            "provider_job_id": f"prov-{job_id}",
+            "idempotency_key": idem_key,
+            "status": "submitted",
+        }
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        # Set up activities
+        activities = _make_activities() + [fake_still]
+        
+        async with Worker(
+            env.client,
+            task_queue="test-retry-version",
+            workflows=[EpisodeWorkflowV2, VersionTestShotWorkflow],
+            activities=activities
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep99", None, True, ["A01"], 40],
+                id="test-retry-version-workflow",
+                task_queue="test-retry-version",
+            )
+            
+            # Wait for G1 and approve
+            await _wait_for_state(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
+            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for A01 to fail
+            await _wait_for_state(
+                handle,
+                lambda s: len(s["failed_shots"]) > 0 and s["failed_shots"][0]["shot_id"] == "A01"
+            )
+            
+            # Verify first submission used -v1
+            assert len(still_submissions) == 1, f"Expected 1 submission, got {len(still_submissions)}"
+            job_id_1, idem_key_1, version_1, attempt_1 = still_submissions[0]
+            assert job_id_1 == "still-ep99-A01-v1", f"Original job_id should be -v1, got {job_id_1}"
+            assert version_1 == 1, f"Original version should be 1, got {version_1}"
+            assert attempt_1 == 1, f"Original attempt should be 1, got {attempt_1}"
+            
+            # Retry the shot
+            await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+            
+            # Approve the retry still
+            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await asyncio.sleep(1.0)
+            
+            # Verify retry submission used -r1, not -v1 or -v2
+            assert len(still_submissions) == 2, f"Expected 2 submissions after retry, got {len(still_submissions)}"
+            job_id_2, idem_key_2, version_2, attempt_2 = still_submissions[1]
+            
+            # CRITICAL ASSERTION: retry must use -r1, not -v1 or -v2
+            # If version increment is broken (mutation), this will fail
+            assert job_id_2 == "still-ep99-A01-r1", (
+                f"Retry job_id MUST be 'still-ep99-A01-r1' (not -v1 or -v2), got '{job_id_2}'. "
+                f"This means version increment is broken in episode_v2.py line 747."
+            )
+            assert version_2 == 2, f"Retry version should be 2, got {version_2}"
+            assert attempt_2 == 2, f"Retry attempt should be 2, got {attempt_2}"
+            
+            # Verify idempotency keys differ
+            assert idem_key_1 != idem_key_2, f"Idempotency keys must differ: {idem_key_1} vs {idem_key_2}"
+            
+            await handle.terminate("test done")

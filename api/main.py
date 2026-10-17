@@ -1332,6 +1332,8 @@ async def retry_shot(
             "message": f"Retry signal sent for shot {shot_id}",
         }
         
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions without wrapping
     except Exception as e:
         from temporalio.service import RPCError, RPCStatusCode
         if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
