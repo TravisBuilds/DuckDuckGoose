@@ -406,7 +406,7 @@ async def test_episode_workflow_skips_anchor_shots(tmp_path, monkeypatch):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still, list_anchor_stills, approve_g2_shots
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     import hfvg.activities as activities
     from temporalio import activity
@@ -493,8 +493,8 @@ A second shot (uses A01 as anchor).
             activities=[
                 mock_parse_beatmap, mock_g1_plan, mock_preflight, mock_load_gate,
                 mock_load_refs, mock_recheck,
-                activities.list_anchor_stills,
-                activities.approve_g2_shots,
+                list_anchor_stills,
+                approve_g2_shots,
                 activities.check_live_mode_and_g108,
                 activities.upsert_episode_activity,
                 init_episode_credit_line_activity,
