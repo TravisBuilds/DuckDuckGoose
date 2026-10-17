@@ -371,8 +371,9 @@ async def test_retry_shot_respects_max_retries():
                 )
                 assert False, "Expected WorkflowUpdateFailedError for exceeding max retries"
             except WorkflowUpdateFailedError as e:
-                # Expected: retry refused
-                assert "Max retries" in str(e.cause) or "already attempted" in str(e.cause)
+                # Expected: retry refused (either max retries or pending retry)
+                assert ("Max retries" in str(e.cause) or "already attempted" in str(e.cause) or
+                        "retry already in progress" in str(e.cause))
             
             # Verify attempt count is still 1
             state = await handle.query(EpisodeWorkflowV2.get_state)
