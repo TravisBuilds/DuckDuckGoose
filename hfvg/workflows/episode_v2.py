@@ -656,12 +656,12 @@ class EpisodeWorkflowV2:
             shot_plan["prompt"] = build_prompt_from_shot(shot_plan)
         
         # Launch new still child with NEW idempotency key (include attempt number)
-        workflow_id = f"{self.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts[shot_id]}"
+        workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{self.state.shot_attempts[shot_id]}"
         
         try:
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[self.episode_id, shot_plan],
+                args=[self.state.episode_id, shot_plan],
                 id=workflow_id,
                 task_queue=workflow.info().task_queue,
             )
