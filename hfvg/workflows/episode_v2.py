@@ -492,6 +492,20 @@ class EpisodeWorkflowV2:
         # Clear hold state after approval (shots will be released to clips)
         self.state.shots_on_hold = []
         
+        # Wait for any pending retries to complete before moving to clips
+        if hasattr(self, '_retry_handles') and self._retry_handles:
+            workflow.logger.info(f"Waiting for {len(self._retry_handles)} pending retries to complete...")
+            max_wait = 30  # Maximum seconds to wait
+            waited = 0
+            while self._retry_handles and waited < max_wait:
+                await check_pending_retries()
+                if self._retry_handles:
+                    await workflow.sleep(0.5)
+                    waited += 0.5
+            
+            if self._retry_handles:
+                workflow.logger.warning(f"Timed out waiting for {len(self._retry_handles)} retries")
+        
         # ================================================================
         # Generate Clips
         # ================================================================
