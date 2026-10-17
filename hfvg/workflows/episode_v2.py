@@ -372,14 +372,19 @@ class EpisodeWorkflowV2:
         shot_workflow_handles = []
         shot_completion_status = {}  # Track completion: {shot_id: {"done": bool, "success": bool, "error": str?}}
         
-        # Track background tasks that monitor child completion
+        # Track background tasks that monitor child completion (store as instance var for retry access)
         import asyncio
-        background_tasks = []
+        self.background_tasks = []
         
-        async def track_child_completion(shot_id: str, handle):
+        async def track_child_completion(shot_id: str, handle, is_retry: bool = False):
             """Background task to await child and record result in state."""
             try:
                 result = await handle
+                # Clear pending_retries if this was a retry child
+                if is_retry and shot_id in self.state.pending_retries:
+                    self.state.pending_retries.pop(shot_id, None)
+                    workflow.logger.info(f"Retry child {shot_id} completed, cleared from pending_retries")
+                
                 # Check if result indicates failure (Issue B: shot returns failed dict instead of raising)
                 if isinstance(result, dict) and result.get("status") == "failed":
                     error_detail = result.get("error", "Unknown error")
@@ -396,6 +401,11 @@ class EpisodeWorkflowV2:
             except Exception as e:
                 # Child raised an exception
                 error_detail = str(e)
+                
+                # Clear pending_retries if this was a retry child
+                if is_retry and shot_id in self.state.pending_retries:
+                    self.state.pending_retries.pop(shot_id, None)
+                    workflow.logger.info(f"Retry child {shot_id} failed with exception, cleared from pending_retries")
                 
                 shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
                 workflow.logger.error(f"Shot {shot_id} failed: {error_detail}")
@@ -441,9 +451,9 @@ class EpisodeWorkflowV2:
             shot_workflow_handles.append(handle)
             self.shot_results[shot["shot_id"]] = handle
             
-            # Start background task to track completion
-            task = asyncio.create_task(track_child_completion(shot["shot_id"], handle))
-            background_tasks.append(task)
+            # Start background task to track completion (is_retry=False for original shots)
+            task = asyncio.create_task(track_child_completion(shot["shot_id"], handle, is_retry=False))
+            self.background_tasks.append(task)
         
         workflow.logger.info(f"Launched {len(shot_workflow_handles)} shot workflows with background tracking")
         
@@ -478,16 +488,8 @@ class EpisodeWorkflowV2:
         self.state.shots_on_hold = shots_on_hold
         workflow.logger.info(f"Gate 2: {len(shots_on_hold)} shot(s) waiting on hold for approval")
         
-        # Wait for approval with periodic retry completion checking
-        while not self.approved_g2_scene_stills:
-            await self._check_and_clear_completed_retries()
-            try:
-                await workflow.wait_condition(
-                    lambda: self.approved_g2_scene_stills,
-                    timeout=timedelta(seconds=1)
-                )
-            except asyncio.TimeoutError:
-                pass  # Timeout is expected, loop continues
+        # Wait for G2 approval (background tasks will clear pending_retries automatically)
+        await workflow.wait_condition(lambda: self.approved_g2_scene_stills)
         
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
@@ -704,57 +706,6 @@ class EpisodeWorkflowV2:
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
-    async def _check_and_clear_completed_retries(self) -> None:
-        """
-        Check all pending retries and clear those that completed.
-        Called periodically by wait_condition to enable deterministic retry tracking.
-        """
-        if not self.state.pending_retries:
-            return  # Nothing to check
-        
-        for shot_id in list(self.state.pending_retries.keys()):
-            workflow_id = self.state.pending_retries[shot_id]
-            handle = workflow.get_external_workflow_handle(workflow_id)
-            
-            try:
-                # Query child to check if still phase is done
-                child_state = await handle.query("get_state")
-                if child_state.get("still_status") in ("complete", "approved", "failed"):
-                    # Still is done, clear pending and record outcome
-                    self.state.pending_retries.pop(shot_id, None)
-                    workflow.logger.info(f"Retry child {shot_id} still complete, cleared from pending")
-                    
-                    # Await final result asynchronously and record outcome
-                    try:
-                        result = await handle
-                        if isinstance(result, dict) and result.get("status") == "failed":
-                            self.state.failed_shots.append({
-                                "shot_id": shot_id,
-                                "status": "failed",
-                                "reason": result.get("error", "Unknown error"),
-                            })
-                    except Exception as e:
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "status": "failed",
-                            "reason": f"Retry child error: {e}"
-                        })
-            except:
-                # Child query failed, check if workflow terminated
-                try:
-                    desc = await handle.describe()
-                    # If in terminal state, clear and record
-                    if desc.status in [2, 3, 4, 5]:  # COMPLETED, FAILED, CANCELED, TERMINATED
-                        self.state.pending_retries.pop(shot_id, None)
-                        workflow.logger.info(f"Retry child {shot_id} terminated, cleared from pending")
-                        self.state.failed_shots.append({
-                            "shot_id": shot_id,
-                            "status": "failed",
-                            "reason": "Retry child terminated"
-                        })
-                except:
-                    pass  # Child might not exist yet
-    
     @workflow.update
     async def retry_shot(self, shot_id: str) -> dict:
         """
@@ -790,10 +741,15 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
         
-        # Check and clear any completed retries first
-        await self._check_and_clear_completed_retries()
+        # Block retries while a retry is already pending for this shot (check immediate duplicates FIRST)
+        if shot_id in self.state.pending_retries:
+            workflow.logger.error(f"Cannot retry {shot_id}: retry already pending")
+            raise ApplicationError(
+                f"Cannot retry {shot_id}: retry already in progress",
+                non_retryable=True
+            )
         
-        # Check retry limit FIRST (so error message is about max retries, not "in progress")
+        # Check retry limit (so error message is about max retries when budget is exhausted)
         # shot_attempts tracks total attempts (original + retries)
         # MAX_SHOT_RETRIES is max number of retries (not including original)
         # So max total attempts = MAX_SHOT_RETRIES + 1
@@ -805,14 +761,6 @@ class EpisodeWorkflowV2:
             )
             raise ApplicationError(
                 f"Max retries ({max_retries}) exceeded for shot {shot_id}",
-                non_retryable=True
-            )
-        
-        # Block retries while a retry is already pending for this shot (after checking max retries)
-        if shot_id in self.state.pending_retries:
-            workflow.logger.error(f"Cannot retry {shot_id}: retry already pending")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: retry already in progress",
                 non_retryable=True
             )
         
@@ -884,8 +832,45 @@ class EpisodeWorkflowV2:
             self.shot_results[shot_id] = handle
             
             # Track pending retry in workflow state for deterministic checking
-            # Completion will be checked via _check_and_clear_completed_retries()
+            # Completion will be checked via background task that clears pending_retries
             self.state.pending_retries[shot_id] = workflow_id
+            
+            # Create background task to track retry completion and clear pending_retries
+            # Use the track_child_completion function from the main shot loop (redefine locally)
+            import asyncio
+            
+            async def track_retry_completion():
+                """Background task to await retry child and clear pending_retries."""
+                try:
+                    result = await handle
+                    # Clear pending_retries when retry completes
+                    self.state.pending_retries.pop(shot_id, None)
+                    workflow.logger.info(f"Retry child {shot_id} completed, cleared from pending_retries")
+                    
+                    # Check if result indicates failure
+                    if isinstance(result, dict) and result.get("status") == "failed":
+                        error_detail = result.get("error", "Unknown error")
+                        self.state.failed_shots.append({
+                            "shot_id": shot_id,
+                            "status": "failed",
+                            "reason": error_detail
+                        })
+                        workflow.logger.error(f"Retry shot {shot_id} failed: {error_detail}")
+                except Exception as e:
+                    # Retry child raised an exception
+                    error_detail = str(e)
+                    self.state.pending_retries.pop(shot_id, None)
+                    workflow.logger.info(f"Retry child {shot_id} failed with exception, cleared from pending_retries")
+                    self.state.failed_shots.append({
+                        "shot_id": shot_id,
+                        "status": "failed",
+                        "reason": f"Retry child error: {error_detail}"
+                    })
+                    workflow.logger.error(f"Retry shot {shot_id} failed: {error_detail}")
+            
+            # Start the background task
+            retry_task = asyncio.create_task(track_retry_completion())
+            self.background_tasks.append(retry_task)
             
             workflow.logger.info(f"Retry child started for {shot_id}: {workflow_id}")
             
