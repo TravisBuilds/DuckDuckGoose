@@ -34,7 +34,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
