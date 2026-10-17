@@ -518,12 +518,25 @@ A second shot (uses A01 as anchor).
                 task_queue="test-q",
             )
             
-            # Workflow should skip A01 (it's an anchor shot)
-            # Let the workflow start shots (before G2 gate)
+            # Wait for G1 gate and approve to start shots
             import asyncio
-            await asyncio.sleep(0.2)
             
-            # Terminate before gates
+            for _ in range(50):
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if state["current_gate"] == "G1_SHOT_PLAN":
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.1)
+            
+            # Approve G1 to start shots
+            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for shots to start (they start after G1 approval)
+            await asyncio.sleep(1.0)
+            
+            # Terminate before G2
             await handle.terminate()
     
     # Verify: A02 should have been started, but NOT A01 (it's the anchor)
