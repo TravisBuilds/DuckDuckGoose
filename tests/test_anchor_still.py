@@ -517,3 +517,135 @@ A second shot (uses A01 as anchor).
     assert "A02" in started_shots, "A02 should be generated"
     assert "A01" not in started_shots, "A01 should be skipped (it's an anchor shot)"
 
+
+@pytest.mark.asyncio
+async def test_g2_approval_marks_shots_approved(tmp_path, monkeypatch):
+    """Test that G2 approval marks all completed shots as approved."""
+    from hfvg.studio_db import init_studio_db, upsert_shot, approve_g2_shots
+    import aiosqlite
+    
+    db_path = str(tmp_path / "test.db")
+    await init_studio_db(db_path)
+    
+    # Create shots with different statuses
+    await upsert_shot(db_path, "ep99", "A01", "Shot 1", status="pending", still_url="fake://a01.png")
+    await upsert_shot(db_path, "ep99", "A02", "Shot 2", status="pending", still_url="fake://a02.png")
+    await upsert_shot(db_path, "ep99", "A03", "Shot 3", status="pending", still_url=None)  # No still
+    
+    # Approve G2
+    count = await approve_g2_shots(db_path, "ep99")
+    
+    # Should have approved 2 shots (A01 and A02 have still_url)
+    assert count == 2
+    
+    # Verify statuses
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT shot_id, status FROM shots WHERE episode_id = ? ORDER BY shot_id", ("ep99",)) as cursor:
+            rows = await cursor.fetchall()
+    
+    statuses = {row[0]: row[1] for row in rows}
+    assert statuses["A01"] == "approved"
+    assert statuses["A02"] == "approved"
+    assert statuses["A03"] == "pending"  # No still_url, should stay pending
+
+
+@pytest.mark.asyncio
+async def test_anchor_path_supports_webp(tmp_path, monkeypatch):
+    """Test that anchor path resolution supports .webp files."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, upsert_shot
+    import os
+    
+    # Set up data directory
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    
+    await init_studio_db(db_path)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+    await approve_g108(db_path, "ep99")
+    
+    # Create a shot and mark it as approved with .webp file
+    await upsert_shot(
+        db_path, "ep99", "A01", "Test shot", status="approved",
+        still_url="fake://still.png"
+    )
+    
+    # Create output directory and .webp file
+    output_dir = data_dir / "episodes" / "ep99" / "outputs" / "A01"
+    output_dir.mkdir(parents=True)
+    webp_file = output_dir / "still_v1.webp"
+    webp_file.write_bytes(b"fake webp data")
+    
+    # Try to set anchor with the .webp file
+    client = TestClient(app)
+    response = client.post(
+        "/api/episodes/ep99/anchor",
+        json={
+            "anchor_shot_id": "A01",
+            "target_shot_ids": ["A02"],
+        },
+        headers={"Authorization": "Bearer test-secret"}
+    )
+    
+    assert response.status_code == 200
+    result = response.json()
+    assert result["success"] is True
+    assert "still_v1.webp" in result["local_path"]
+
+
+@pytest.mark.asyncio
+async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
+    """Test that anchor paths are resolved relative to DATA_DIR, not current directory."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, upsert_shot
+    import os
+    
+    # Set up custom data directory
+    custom_data_dir = tmp_path / "custom_data"
+    custom_data_dir.mkdir()
+    monkeypatch.setenv("DATA_DIR", str(custom_data_dir))
+    
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("ADMIN_SECRET", "test-secret")
+    
+    await init_studio_db(db_path)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+    await approve_g108(db_path, "ep99")
+    
+    # Create a shot and mark it as approved
+    await upsert_shot(
+        db_path, "ep99", "A01", "Test shot", status="approved",
+        still_url="fake://still.png"
+    )
+    
+    # Create output directory in custom data dir
+    output_dir = custom_data_dir / "episodes" / "ep99" / "outputs" / "A01"
+    output_dir.mkdir(parents=True)
+    still_file = output_dir / "still_v1.png"
+    still_file.write_bytes(b"fake image data")
+    
+    # Try to set anchor - should find file in custom_data_dir
+    client = TestClient(app)
+    response = client.post(
+        "/api/episodes/ep99/anchor",
+        json={
+            "anchor_shot_id": "A01",
+            "target_shot_ids": ["A02"],
+        },
+        headers={"Authorization": "Bearer test-secret"}
+    )
+    
+    assert response.status_code == 200
+    result = response.json()
+    assert result["success"] is True
+    # Path should contain custom_data_dir
+    assert str(custom_data_dir) in result["local_path"]
+

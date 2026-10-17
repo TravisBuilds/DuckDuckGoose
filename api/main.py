@@ -2262,16 +2262,22 @@ async def set_anchor_still(
             )
         
         # Find the local file for this still
-        # Pattern: data/episodes/{episode_id}/outputs/{shot_id}/still_v{version}.{ext}
-        output_dir = Path(f"data/episodes/{episode_id}/outputs/{anchor_shot_id}")
+        # Pattern: {data_dir}/episodes/{episode_id}/outputs/{shot_id}/still_v{version}.{ext}
+        import os
+        data_dir = Path(os.getenv("DATA_DIR", "./data"))
+        output_dir = data_dir / "episodes" / episode_id / "outputs" / anchor_shot_id
         if not output_dir.exists():
             raise HTTPException(
                 status_code=404,
                 detail=f"Output directory not found for {anchor_shot_id}"
             )
         
-        # Find the latest still version
-        still_files = list(output_dir.glob("still_v*.png")) + list(output_dir.glob("still_v*.jpg"))
+        # Find the latest still version (support .png, .jpg, .webp)
+        still_files = (
+            list(output_dir.glob("still_v*.png")) +
+            list(output_dir.glob("still_v*.jpg")) +
+            list(output_dir.glob("still_v*.webp"))
+        )
         if not still_files:
             raise HTTPException(
                 status_code=404,

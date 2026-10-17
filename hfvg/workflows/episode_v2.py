@@ -456,6 +456,16 @@ class EpisodeWorkflowV2:
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
         
+        # Mark all completed shots as approved in the database
+        from hfvg.studio_db import approve_g2_shots
+        approved_count = await workflow.execute_activity(
+            approve_g2_shots,
+            args=[config.database_path(), episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        workflow.logger.info(f"Marked {approved_count} shot(s) as approved after G2")
+        
         # Clear hold state after approval (shots will be released to clips)
         self.state.shots_on_hold = []
         

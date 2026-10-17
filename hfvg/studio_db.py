@@ -233,6 +233,64 @@ async def approve_g108(
         await db.commit()
 
 
+async def upsert_shot(
+    db_path: str,
+    episode_id: str,
+    shot_id: str,
+    prompt: str | None = None,
+    status: str = "pending",
+    still_url: str | None = None,
+    clip_url: str | None = None,
+) -> None:
+    """
+    Insert or update a shot.
+    
+    Args:
+        db_path: Path to studio database
+        episode_id: Episode ID
+        shot_id: Shot ID
+        prompt: Shot prompt
+        status: Shot status (pending, completed, approved, etc.)
+        still_url: Still image URL
+        clip_url: Clip video URL
+    """
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """INSERT OR REPLACE INTO shots 
+               (id, episode_id, shot_id, status, prompt, still_url, clip_url, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (f"{episode_id}-{shot_id}", episode_id, shot_id, status, prompt, still_url, clip_url)
+        )
+        await db.commit()
+
+
+async def approve_g2_shots(
+    db_path: str,
+    episode_id: str,
+) -> int:
+    """
+    Mark all completed/still_complete shots as approved after G2 approval.
+    
+    Args:
+        db_path: Path to studio database
+        episode_id: Episode ID
+        
+    Returns:
+        Number of shots marked as approved
+    """
+    async with aiosqlite.connect(db_path) as db:
+        # Mark shots with still_url as approved (they passed G2)
+        cursor = await db.execute(
+            """UPDATE shots 
+               SET status = 'approved', updated_at = datetime('now')
+               WHERE episode_id = ? AND still_url IS NOT NULL AND still_url != ''""",
+            (episode_id,)
+        )
+        count = cursor.rowcount
+        await db.commit()
+        return count
+
+
 async def insert_shots_from_beatmap(
     db_path: str,
     episode_id: str,
