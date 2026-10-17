@@ -64,6 +64,7 @@ async def test_live_still_fails_without_budget_lines(tmp_path, monkeypatch):
     mock_provider = AsyncMock()
     mock_provider.model_path = "xai/grok-imagine-image-2.0"
     mock_provider.estimate_usd_micros = AsyncMock(return_value=100_000)
+    mock_provider.estimate_usd_and_credits = AsyncMock(return_value=(100_000, 1.12))
     mock_provider.submit_image = AsyncMock(return_value="still-ep99-A01-v1")
     mock_provider.close = AsyncMock()
     
@@ -162,6 +163,7 @@ async def test_live_still_succeeds_with_budget_lines(tmp_path, monkeypatch):
         mock_provider = AsyncMock()
         mock_provider.model_path = "xai/grok-imagine-image-2.0"
         mock_provider.estimate_usd_micros = AsyncMock(return_value=100_000)
+        mock_provider.estimate_usd_and_credits = AsyncMock(return_value=(100_000, 1.12))
         mock_provider.submit_image = AsyncMock(return_value="still-ep99-A01-v1")
         mock_provider.close = AsyncMock()
         

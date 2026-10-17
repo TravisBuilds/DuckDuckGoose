@@ -54,6 +54,9 @@ class FakeStuckProvider:
     async def estimate_usd_micros(self, **kwargs):
         return 50_000  # 0.05 USD
     
+    async def estimate_usd_and_credits(self, **kwargs):
+        return (50_000, 1.12)  # 0.05 USD, 1.12 credits
+    
     async def submit_image(self, **kwargs):
         global _submit_count
         _submit_count += 1
@@ -81,6 +84,9 @@ class FakeFailedProvider:
     
     async def estimate_usd_micros(self, **kwargs):
         return 50_000  # 0.05 USD
+    
+    async def estimate_usd_and_credits(self, **kwargs):
+        return (50_000, 1.12)  # 0.05 USD, 1.12 credits
     
     async def submit_image(self, **kwargs):
         global _submit_count

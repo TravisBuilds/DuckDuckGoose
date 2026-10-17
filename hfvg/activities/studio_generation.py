@@ -332,6 +332,8 @@ async def submit_still_job_enforced(
             aspect_ratio=aspect_ratio,
         )
         
+        model_path = still_model_path()
+        
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits"
         )
