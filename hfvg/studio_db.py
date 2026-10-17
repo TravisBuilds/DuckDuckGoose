@@ -94,6 +94,22 @@ async def init_studio_db(db_path: str = "./data/studio.db"):
             )
         """)
         
+        # Anchor stills table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS anchor_stills (
+                episode_id TEXT NOT NULL,
+                anchor_shot_id TEXT NOT NULL,
+                target_shot_id TEXT NOT NULL,
+                local_path TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                sha256 TEXT NOT NULL,
+                approved_by TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (episode_id, target_shot_id),
+                FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
+            )
+        """)
+        
         await db.commit()
 
 
@@ -359,3 +375,114 @@ async def enforce_smoke_test_gate(db_path: str, episode_id: str, activity_name: 
             f"Smoke test gate failed: {reason}. "
             f"Run smoke test or set SMOKE_TEST_OVERRIDE=true"
         )
+
+
+async def set_anchor_still(
+    db_path: str,
+    episode_id: str,
+    anchor_shot_id: str,
+    target_shot_ids: list[str],
+    local_path: str,
+    version: int,
+    sha256: str,
+    approved_by: str | None = None,
+) -> None:
+    """
+    Set an anchor still for target shots.
+    
+    Args:
+        db_path: Path to studio database
+        episode_id: Episode ID
+        anchor_shot_id: Shot ID of the anchor still
+        target_shot_ids: List of shot IDs that will use this anchor as a ref
+        local_path: Local file path to the anchor still
+        version: Version number of the anchor still
+        sha256: SHA256 hash of the anchor still file
+        approved_by: Optional note about who/what approved this anchor
+    """
+    import aiosqlite
+    
+    async with aiosqlite.connect(db_path) as db:
+        for target_shot_id in target_shot_ids:
+            await db.execute(
+                """INSERT OR REPLACE INTO anchor_stills 
+                   (episode_id, anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (episode_id, anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by)
+            )
+        await db.commit()
+
+
+async def get_anchor_still(
+    db_path: str,
+    episode_id: str,
+    target_shot_id: str,
+) -> dict | None:
+    """
+    Get anchor still for a target shot.
+    
+    Args:
+        db_path: Path to studio database
+        episode_id: Episode ID
+        target_shot_id: Target shot ID
+        
+    Returns:
+        dict with anchor_shot_id, local_path, version, sha256, approved_by if found, None otherwise
+    """
+    import aiosqlite
+    
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            """SELECT anchor_shot_id, local_path, version, sha256, approved_by
+               FROM anchor_stills
+               WHERE episode_id = ? AND target_shot_id = ?""",
+            (episode_id, target_shot_id)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "anchor_shot_id": row[0],
+                    "local_path": row[1],
+                    "version": row[2],
+                    "sha256": row[3],
+                    "approved_by": row[4],
+                }
+            return None
+
+
+async def list_anchor_stills(
+    db_path: str,
+    episode_id: str,
+) -> list[dict]:
+    """
+    List all anchor stills for an episode.
+    
+    Args:
+        db_path: Path to studio database
+        episode_id: Episode ID
+        
+    Returns:
+        List of dicts with anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by
+    """
+    import aiosqlite
+    
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            """SELECT anchor_shot_id, target_shot_id, local_path, version, sha256, approved_by
+               FROM anchor_stills
+               WHERE episode_id = ?
+               ORDER BY anchor_shot_id, target_shot_id""",
+            (episode_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "anchor_shot_id": row[0],
+                    "target_shot_id": row[1],
+                    "local_path": row[2],
+                    "version": row[3],
+                    "sha256": row[4],
+                    "approved_by": row[5],
+                }
+                for row in rows
+            ]

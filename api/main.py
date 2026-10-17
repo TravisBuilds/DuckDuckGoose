@@ -1271,7 +1271,6 @@ async def set_live_mode_endpoint(
 async def retry_shot(
     episode_id: str,
     shot_id: str,
-    max_retries: int = 1,
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
@@ -1279,7 +1278,7 @@ async def retry_shot(
     Retry a failed shot (only valid while parked at G1/G2 for a shot in failed_shots).
     
     Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
-    allows max_retries per shot (default 1), uses NEW idempotency key per attempt,
+    enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
     moves shot from failed_shots back to running then to done or failed.
     
     Requires: Authorization header with admin secret OR session cookie.
@@ -1296,7 +1295,7 @@ async def retry_shot(
         handle = temporal_client.get_workflow_handle(workflow_id)
         
         # Send retry signal
-        await handle.signal("retry_shot", shot_id, max_retries)
+        result = await handle.signal("retry_shot", shot_id)
         
         # Audit log
         import aiosqlite
@@ -1304,7 +1303,7 @@ async def retry_shot(
             await db.execute(
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
-                (episode_id, "retry_shot", f"Shot {shot_id} retry requested (max {max_retries})", "admin")
+                (episode_id, "retry_shot", f"Shot {shot_id} retry requested", "admin")
             )
             await db.commit()
         
@@ -1312,7 +1311,7 @@ async def retry_shot(
             "success": True,
             "episode_id": episode_id,
             "shot_id": shot_id,
-            "max_retries": max_retries,
+            "result": result,
             "message": f"Retry signal sent for shot {shot_id}",
         }
         
