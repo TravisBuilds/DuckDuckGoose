@@ -724,6 +724,9 @@ async def test_retry_shot_increments_version_for_unique_job_id():
             # Retry the shot
             await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
             
+            # Wait for pending_retries to clear (retry still has landed)
+            await _wait_for_state(handle, lambda s: len(s.get("pending_retries", {})) == 0, timeout=5.0)
+            
             # Approve the retry still
             await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             await asyncio.sleep(1.0)

@@ -99,8 +99,8 @@ async def test_api_g2_refused_with_409_while_retry_pending(tmp_path, monkeypatch
     ep = "ep91"
     api_main, client = await _api(tmp_path, monkeypatch, ep)
     async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(env.client, task_queue="api-g2-409",
-                              workflows=[EpisodeWorkflowV2, SlowRetryWorkflowForPendingTest], activities=_make_activities()):
+        async with Worker(env.client, task_queue="api-g2-409",
+                          workflows=[EpisodeWorkflowV2, SlowRetryWorkflowForPendingTest], activities=_make_activities()):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run, args=[ep, None, True, ["A01"], 40], id=ep, task_queue="api-g2-409")
             try:
