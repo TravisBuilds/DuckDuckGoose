@@ -31,6 +31,7 @@ async def test_g1_plan_computes_per_shot_and_total_estimates(monkeypatch):
         
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -72,6 +73,7 @@ async def test_g1_plan_marks_estimate_unavailable_on_failure(monkeypatch):
         
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -240,6 +242,7 @@ async def test_g1_plan_dry_run_no_real_api_calls(monkeypatch):
         import os
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -279,6 +282,7 @@ async def test_g1_plan_unavailable_flag_when_estimates_fail(monkeypatch):
         import os
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
