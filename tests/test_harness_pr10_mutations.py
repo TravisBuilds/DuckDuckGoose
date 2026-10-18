@@ -847,9 +847,13 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
     After a retry, the clip loop must await the retry handle result (version 2),
     not the original (version 1) - and it must actually run to completion.
 
-    Uses the time-skipping test server: the retry child (like the real ShotWorkflow) only finishes
-    after stills_approved, so after G2 the parent sits in its bounded 30s pending-retry wait;
-    env.sleep() skips that wait deterministically instead of burning 30s of wall clock.
+    The retry child (like the real ShotWorkflow) only finishes after stills_approved. Since the
+    bug-2 fix, the parent signals stills_approved BEFORE its bounded pending-retry wait, so the
+    retry finishes promptly and the clip loop runs right after G2 - no workflow time has to be
+    skipped. We deliberately do NOT call env.sleep(): with a broken clip loop the workflow task
+    fails on every attempt, the time-skipping server keeps time locked, and env.sleep() dies with
+    RPCError("Timeout expired") - a non-assertion error that hides the real failure. Waiting on
+    state with a wall-clock budget turns "clip loop never finished" into an AssertionError.
 
     Mutation 127 replaces the clip-loop lookup with a non-existent/stale handle store. The workflow
     then cannot await the retry child and never leaves CLIP_GENERATION, so G_FINAL_CUT is never
@@ -914,11 +918,13 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 st, ok = await wait_for(handle, lambda s: s.get("shot_attempts", {}).get("A01") == 2)
                 assert ok, f"retry not recorded: {st}"
 
-                # Approve G2 -> parent waits (bounded 30s) for the pending retry; skip that wait
+                # Approve G2 -> parent signals stills_approved (incl. the pending retry), the retry
+                # child finishes, and the clip loop awaits the latest handle. No time skipping: the
+                # workflow must get to G_FINAL_CUT on its own within the wall-clock budget below
+                # (this also proves the 30s pending-retry timeout is not hit).
                 await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
                 st, ok = await wait_for(handle, lambda s: "G2_SCENE_STILLS" in s.get("passed_gates", []))
                 assert ok, f"G2 approval not processed: {st}"
-                await env.sleep(timedelta(seconds=35))
 
                 # The clip loop must await the LATEST handle (retry v2) and run to the end -> G_FINAL_CUT
                 final, ok = await wait_for(handle, lambda s: s.get("current_gate") == "G_FINAL_CUT")
@@ -1162,8 +1168,22 @@ async def test_pending_retry_does_not_block_clips(tmp_path):
                 start_time = time.time()
                 await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
                 
-                # Skip 35 seconds of workflow time (past the 30s timeout)
-                await env.sleep(timedelta(seconds=35))
+                # Do NOT skip workflow time: env.sleep(35) would fast-forward through the 30s
+                # pending-retry timeout and let the OLD (buggy) ordering pass too. Instead the
+                # episode must reach G_FINAL_CUT on its own, well inside the 30s timeout.
+                reached = None
+                while time.time() - start_time < 10.0:
+                    try:
+                        st = await asyncio.wait_for(
+                            handle.query(EpisodeWorkflowV2.get_state, rpc_timeout=timedelta(seconds=2)), timeout=3)
+                    except Exception:
+                        st = None
+                    if st and st.get("current_gate") == "G_FINAL_CUT":
+                        reached = st
+                        break
+                    await asyncio.sleep(0.1)
+                assert reached is not None, \
+                    "Episode did not reach G_FINAL_CUT within 10s of G2 approval without time skipping (pending retry blocked clips / 30s timeout)"
                 
                 # The episode should have progressed to G_FINAL_CUT without timing out
                 elapsed = time.time() - start_time
