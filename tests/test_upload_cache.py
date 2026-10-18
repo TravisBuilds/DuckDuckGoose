@@ -76,6 +76,7 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
+        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
         
         provider = HiggsfieldStillProvider()
         
@@ -152,6 +153,7 @@ async def test_upload_cache_reupload_on_head_failure(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
+        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
         
         provider = HiggsfieldStillProvider()
         
@@ -218,6 +220,7 @@ async def test_upload_cache_different_version_uploads_separately(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
+        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
         
         provider = HiggsfieldStillProvider()
         
@@ -280,6 +283,7 @@ async def test_upload_cache_reupload_on_head_403(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
+        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
         
         provider = HiggsfieldStillProvider()
         

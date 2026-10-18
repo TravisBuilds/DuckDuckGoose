@@ -52,15 +52,21 @@ def normalize_reference_image(
     The normalized file is cached by original SHA256, so repeated calls with
     the same source (even if renamed/moved) return the same normalized file.
     
+    Skips normalization if SKIP_IMAGE_NORMALIZE env var is set (for tests).
+    
     Args:
         source_path: Path to original reference image
         cache_dir: Directory for normalized cache (default: <source_dir>/.normalized)
     """
-    if Image is None:
-        raise RuntimeError("Pillow not available; cannot normalize images")
-    
     # Compute source SHA256 for cache key
     source_sha = compute_file_sha256(source_path)
+    
+    # Skip normalization if env var is set (for tests with fake images)
+    if os.getenv("SKIP_IMAGE_NORMALIZE", "").lower() == "true":
+        return (source_path, source_sha)
+    
+    if Image is None:
+        raise RuntimeError("Pillow not available; cannot normalize images")
     
     # Cache directory (next to source, or specified)
     if cache_dir is None:

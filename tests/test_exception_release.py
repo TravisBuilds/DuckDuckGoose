@@ -64,6 +64,7 @@ async def test_still_submit_500_releases_reservation(test_episode, monkeypatch, 
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -104,6 +105,7 @@ async def test_clip_bad_start_image_releases_reservation(test_episode, monkeypat
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v1/videos/image2video")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -142,6 +144,7 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     
     # Mock provider that raises on poll
@@ -299,6 +302,7 @@ async def test_still_upload_failure_releases_both_ledgers(test_episode, monkeypa
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -356,6 +360,7 @@ async def test_clip_upload_failure_releases_both_ledgers(test_episode, monkeypat
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_KLING_VIDEO", "kling-video/v3.0/pro/image-to-video")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -435,6 +440,7 @@ async def test_still_422_captures_provider_detail(tmp_path, monkeypatch, respx_m
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("SKIP_IMAGE_NORMALIZE", "true")
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")

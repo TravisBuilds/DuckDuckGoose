@@ -72,6 +72,7 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     os.environ["DRY_RUN"] = "false"
     os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB with episode in live mode
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -83,6 +84,7 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     # Initialize budget with all necessary lines
     from hfvg.budget import BudgetLedger
     ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await ledger.init_db()
     await ledger.set_line("ep05", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
@@ -94,6 +96,7 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep05", cap_credits=10000)
     
@@ -188,6 +191,7 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     os.environ["DRY_RUN"] = "false"
     os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -199,6 +203,7 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     # Initialize budget with all necessary lines
     from hfvg.budget import BudgetLedger
     ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await ledger.init_db()
     await ledger.set_line("ep05", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_line("ep05", "L2_drafts", 100_000_000, 80_000_000, "higgsfield")
@@ -210,6 +215,7 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep05", cap_credits=10000)
     
@@ -273,6 +279,7 @@ async def test_failed_job_releases_reservations(tmp_path):
     os.environ["DRY_RUN"] = "false"
     os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -284,6 +291,7 @@ async def test_failed_job_releases_reservations(tmp_path):
     # Initialize credit ledger with reservation
     from hfvg.credit_ledger import CreditLedger
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep05", cap_credits=10000)
     
@@ -336,6 +344,7 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
@@ -351,10 +360,12 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     from hfvg.credit_ledger import CreditLedger
     
     budget_ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await budget_ledger.init_db()
     await budget_ledger.set_manual_balance(100_000_000, "test", "test balance")
     
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep06", cap_credits=1000)
     
@@ -420,6 +431,7 @@ async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
     # Setup test environment
     os.environ["ADMIN_SECRET"] = "a" * 32
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     os.environ["DRY_RUN"] = "true"
     
     # Create episode directory without BEATMAP.md
@@ -468,12 +480,14 @@ async def test_balance_accepts_string_or_numeric(tmp_path):
     # Setup test environment
     os.environ["ADMIN_SECRET"] = "a" * 32
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db
     from hfvg.budget import BudgetLedger
     await init_studio_db(os.environ["DATABASE_PATH"])
     ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await ledger.init_db()
     
     client = TestClient(app)
@@ -515,6 +529,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     os.environ["DRY_RUN"] = "false"
     os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -526,6 +541,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     # Initialize budget with all necessary lines
     from hfvg.budget import BudgetLedger
     ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await ledger.init_db()
     await ledger.set_line("ep05", "L4_video", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_manual_balance(100_000_000, "test", "test balance")
@@ -533,6 +549,7 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep05", cap_credits=10000)
     
@@ -658,6 +675,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     os.environ["DRY_RUN"] = "false"
     os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize DB
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
@@ -669,6 +687,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     # Initialize budget
     from hfvg.budget import BudgetLedger
     ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await ledger.init_db()
     await ledger.set_line("ep99", "L1_refs", 100_000_000, 80_000_000, "higgsfield")
     await ledger.set_manual_balance(100_000_000, "test", "test balance")
@@ -676,6 +695,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     # Initialize credit ledger
     from hfvg.credit_ledger import CreditLedger
     credit_ledger = CreditLedger(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep99", cap_credits=10000)
     
@@ -700,6 +720,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     # Check upload_cache: entry should be keyed with ref_version=2, NOT shot_version=3
     from hfvg.upload_cache import UploadCache
     cache = UploadCache(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     import aiosqlite
     async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
@@ -751,10 +772,12 @@ async def test_concurrent_uploads_deduplicated(tmp_path):
     os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
     os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
     os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     # Initialize cache
     from hfvg.upload_cache import UploadCache
     cache = UploadCache(os.environ["DATABASE_PATH"])
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     await cache.init_db()
     
     # Simulate two concurrent uploads of the same ref (same path, version, sha256)
@@ -916,6 +939,7 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version():
             os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
             os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
             os.environ["DATABASE_PATH"] = db_path
+            os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
             
             # Initialize cache
             cache = UploadCache(db_path)
@@ -962,6 +986,7 @@ async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
     
     db_path = str(tmp_path / "test.db")
     os.environ["DATABASE_PATH"] = db_path
+    os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
     
     ledger = CreditLedger(db_path)
     await ledger.init_db()
