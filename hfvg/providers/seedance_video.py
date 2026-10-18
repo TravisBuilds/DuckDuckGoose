@@ -64,11 +64,11 @@ class SeedanceVideoProvider(GenerationProvider):
         """
         Upload reference image and return upload result with URL.
         
+        Before upload, normalizes the image (JPEG, downscale, compress).
         Uses upload cache to avoid re-uploading the same file.
-        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
         
         Args:
-            image_path: Path to reference image
+            image_path: Path to reference image (will be normalized before upload)
             version: Version number for cache key (default: 1)
         
         Returns:
@@ -76,20 +76,25 @@ class SeedanceVideoProvider(GenerationProvider):
         """
         import mimetypes
         from hfvg.upload_cache import UploadCache
+        from hfvg.image_normalize import normalize_reference_image
         from pathlib import Path as PathLib
+        
+        # Normalize image first (convert to JPEG, downscale, compress)
+        normalized_path, original_sha = normalize_reference_image(PathLib(image_path))
+        upload_path = normalized_path
         
         # Check upload cache first
         cache = UploadCache()
         await cache.init_db()
         
-        cached_url = await cache.get_cached_url(str(image_path), version)
+        cached_url = await cache.get_cached_url(str(upload_path), version)
         if cached_url:
             return {"public_url": cached_url}
         
-        # Not in cache or HEAD check failed - upload the file
+        # Not in cache - upload the normalized file
         
-        # Determine content type from file extension
-        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        # Normalized images are always JPEG
+        content_type = "image/jpeg"
         
         # Get upload URL (REQUIRES content_type)
         response = await self.client.post(
@@ -102,8 +107,8 @@ class SeedanceVideoProvider(GenerationProvider):
         public_url = data["public_url"]
         upload_headers = data["upload_headers"]
         
-        # Upload file with exact headers from API (includes x-amz-tagging)
-        with open(image_path, "rb") as f:
+        # Upload normalized file with exact headers from API (includes x-amz-tagging)
+        with open(upload_path, "rb") as f:
             image_bytes = f.read()
         
         # Use a plain httpx client for the PUT (no auth, just upload_headers)
@@ -116,7 +121,7 @@ class SeedanceVideoProvider(GenerationProvider):
             upload_response.raise_for_status()
         
         # Cache the uploaded URL
-        await cache.cache_url(str(image_path), version, public_url)
+        await cache.cache_url(str(upload_path), version, public_url)
         
         return {"public_url": public_url}
 

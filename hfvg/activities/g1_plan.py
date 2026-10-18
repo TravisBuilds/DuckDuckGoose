@@ -77,7 +77,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             still_credits = 0.0
             still_usd = 0.0
             try:
-                # Use real resolution, quality, aspect_ratio (refs not needed for estimate)
+                # Estimate start frame still
                 usd_micros, credits = await still_provider.estimate_usd_and_credits(
                     prompt=prompt,
                     resolution=resolution,
@@ -87,10 +87,18 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                 still_credits = credits
                 still_usd = usd_micros / 1_000_000
                 
-                # If end_frame is True, we need TWO stills: main + end frame
+                # If end_frame is True, estimate end frame still too
                 if end_frame:
-                    still_credits *= 2
-                    still_usd *= 2
+                    # Use end_prompt if available, otherwise same as start frame
+                    end_prompt = shot.get("end_prompt") or prompt
+                    end_usd_micros, end_credits = await still_provider.estimate_usd_and_credits(
+                        prompt=end_prompt,
+                        resolution=resolution,
+                        quality=quality,
+                        aspect_ratio=aspect_ratio,
+                    )
+                    still_credits += end_credits
+                    still_usd += (end_usd_micros / 1_000_000)
                     
             except Exception as e:
                 activity.logger.warning(f"Still estimate failed for {shot_id}: {e}")

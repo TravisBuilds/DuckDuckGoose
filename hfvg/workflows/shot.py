@@ -212,7 +212,8 @@ class ShotWorkflow:
             
             elif status in ("failed", "blocked", "canceled"):
                 # Provider confirmed failure - release reservation
-                reason = f"{status}: {status_result.get('error', 'no details')}"
+                error_details = status_result.get('error', 'no details')
+                reason = f"{status}: {error_details}"
                 
                 await workflow.execute_activity(
                     release_job_budget,
@@ -239,11 +240,11 @@ class ShotWorkflow:
                 
                 workflow.logger.error(f"Job {job_id} {status}, reservation and credits released")
                 
-                # Raise appropriate error - these will NOT be caught by the except above
+                # Raise appropriate error with job_id and raw error
                 if status == "blocked":
-                    raise ContentBlockError(f"Provider blocked: {status_result.get('error')}")
+                    raise ContentBlockError(f"Provider blocked job {job_id}: {error_details}")
                 else:
-                    raise RuntimeError(f"Job {status}: {status_result.get('error')}")
+                    raise RuntimeError(f"Job {job_id} {status}: {error_details}")
             
             # Non-terminal: continue polling
             workflow.logger.info(f"Job {job_id} status: {status}, poll {poll_count + 1}/{max_polls}")
@@ -283,8 +284,8 @@ class ShotWorkflow:
         Returns:
             dict with url and cost
         """
-        params = shot_plan.get("params", {})
-        end_prompt = params.get("end_prompt", shot_plan["prompt"])
+        # Use end_prompt if provided, otherwise fall back to prompt (start frame prompt)
+        end_prompt = shot_plan.get("end_prompt") or shot_plan["prompt"]
         
         workflow.logger.info(f"Generating end still for {self.shot_id}")
         

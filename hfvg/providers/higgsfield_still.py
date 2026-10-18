@@ -97,11 +97,11 @@ class HiggsfieldStillProvider(GenerationProvider):
         """
         Upload reference image and return upload result with URL.
         
+        Before upload, normalizes the image (JPEG, downscale, compress).
         Uses upload cache to avoid re-uploading the same file.
-        Before reuse, HEAD-checks the cached URL to ensure it's still accessible.
         
         Args:
-            image_path: Path to reference image
+            image_path: Path to reference image (will be normalized before upload)
             version: Version number for cache key (default: 1)
         
         Returns:
@@ -109,37 +109,45 @@ class HiggsfieldStillProvider(GenerationProvider):
         """
         import mimetypes
         from hfvg.upload_cache import UploadCache
+        from hfvg.image_normalize import normalize_reference_image
+        
+        # Normalize image first (convert to JPEG, downscale, compress)
+        # This ensures we upload optimized images regardless of source format
+        normalized_path, original_sha = normalize_reference_image(Path(image_path))
+        
+        # Use normalized path for upload
+        upload_path = normalized_path
         
         # Initialize cache
         cache = UploadCache()
         await cache.init_db()
         
-        # Check cache first (quick path)
-        cached_url = await cache.get_cached_url(str(image_path), version)
+        # Check cache first (quick path) - cache key is the normalized path
+        cached_url = await cache.get_cached_url(str(upload_path), version)
         if cached_url:
             return {"public_url": cached_url}
         
         # Try to claim upload slot (concurrent deduplication)
-        claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+        claimed, sha256 = await cache.try_claim_upload_slot(str(upload_path), version)
         
         if not claimed:
             # Another upload is in progress for this file - wait for it
-            waited_url = await cache.wait_for_concurrent_upload(str(image_path), version, sha256, timeout=30.0)
+            waited_url = await cache.wait_for_concurrent_upload(str(upload_path), version, sha256, timeout=30.0)
             if waited_url:
                 return {"public_url": waited_url}
             # Timeout or failed - fall through to retry upload ourselves
-            claimed, sha256 = await cache.try_claim_upload_slot(str(image_path), version)
+            claimed, sha256 = await cache.try_claim_upload_slot(str(upload_path), version)
             if not claimed:
                 # Still can't claim - return cached or fail
-                cached_url = await cache.get_cached_url(str(image_path), version)
+                cached_url = await cache.get_cached_url(str(upload_path), version)
                 if cached_url:
                     return {"public_url": cached_url}
-                raise ValueError(f"Concurrent upload timeout for {image_path}")
+                raise ValueError(f"Concurrent upload timeout for {upload_path}")
         
         # We claimed the slot - proceed with upload
         
-        # Determine content type from file extension
-        content_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        # Normalized images are always JPEG
+        content_type = "image/jpeg"
         
         # Get upload URL and metadata (REQUIRES content_type)
         response = await self.client.post(
@@ -153,8 +161,8 @@ class HiggsfieldStillProvider(GenerationProvider):
         public_url = data["public_url"]
         upload_headers = data["upload_headers"]
         
-        # Upload file with exact headers from API (includes x-amz-tagging)
-        with open(image_path, "rb") as f:
+        # Upload normalized file with exact headers from API (includes x-amz-tagging)
+        with open(upload_path, "rb") as f:
             image_bytes = f.read()
         
         # Use a plain httpx client for the PUT (no auth, just upload_headers)
@@ -166,8 +174,8 @@ class HiggsfieldStillProvider(GenerationProvider):
             )
             upload_response.raise_for_status()
         
-        # Cache the uploaded URL
-        await cache.cache_url(str(image_path), version, public_url)
+        # Cache the uploaded URL (keyed by normalized path)
+        await cache.cache_url(str(upload_path), version, public_url)
         
         return {"public_url": public_url}
     

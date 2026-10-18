@@ -1410,6 +1410,30 @@ test_mutation 144 "G1 estimate sends duration as int not float" \
     "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_duration_as_int_not_float" \
     sed -i 's/duration=int(duration)/duration=duration/'
 
+# 145: Reference images must be normalized before upload
+test_mutation 145 "Reference images are normalized before upload" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_image_normalize.py::test_normalize_large_png_to_jpeg" \
+    sed -i 's/normalized_path, original_sha = normalize_reference_image(Path(image_path))/normalized_path, original_sha = Path(image_path), ""/'
+
+# 146: End prompt must be used for _end stills when provided
+test_mutation 146 "End still uses end_prompt when provided" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_end_prompt.py::test_end_prompt_string" \
+    sed -i 's/end_prompt = shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = shot_plan["prompt"]/'
+
+# 147: Normalized images must be cached by original SHA256
+test_mutation 147 "Normalized images cached by original SHA" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize.py::test_normalize_cache_by_sha" \
+    sed -i 's/normalized_path = cache_dir \/ f"{source_sha}.jpg"/normalized_path = cache_dir \/ f"{uuid.uuid4().hex}.jpg"/'
+
+# 148: Provider job ID must be included in failure error messages
+test_mutation 148 "Job failures include provider job ID" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_shot_live.py" \
+    sed -i 's/raise RuntimeError(f"Job {job_id} {status}: {error_details}")/raise RuntimeError(f"Job {status}: {error_details}")/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -133,6 +133,13 @@ class Config:
         "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL",
         "https://storage.googleapis.com/higgsfield-public/placeholder-1080x1920.jpg"
     )
+    
+    # Reference image normalization limits (before upload)
+    # Large images (e.g. 1520x2688 PNG 4-8 MB) can cause provider failures
+    REF_MAX_LONG_SIDE: int = int(os.getenv("REF_MAX_LONG_SIDE", "1280"))
+    REF_MAX_BYTES: int = int(os.getenv("REF_MAX_BYTES", "1048576"))  # ~1 MB
+    JPEG_QUALITY_START: int = int(os.getenv("JPEG_QUALITY_START", "88"))
+    JPEG_QUALITY_MIN: int = int(os.getenv("JPEG_QUALITY_MIN", "65"))
 
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 
