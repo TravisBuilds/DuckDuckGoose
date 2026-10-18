@@ -1363,7 +1363,7 @@ test_mutation 136 "G2 approval accepted after retry completes" \
 test_mutation 137 "No 30s pending-retry wait after G2" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
-    sed -i '/# Safety design: G2 approval validator/a\        # MUTATED - re-add the 30s wait\
+    sed -i '/# Safety design: G2 approval validator now refuses/a\        # MUTATED - re-add the 30s wait\
         if self.state.pending_retries:\
             try:\
                 await workflow.wait_condition(\
@@ -1389,7 +1389,7 @@ test_mutation 139 "API G2 refusal returns 409 (HTTPException re-raised)" \
 test_mutation 140 "retry_still_ready signal clears pending_retries" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
-    sed -i '/def retry_still_ready/,/^[[:space:]]*$/{ /self\.state\.pending_retries\.pop/s/^/# MUTATED - disabled: /; }'
+    sed -i '/clearing pending_retries.*$/{ n; s/^/# MUTATED - disabled: /; }'
 
 # Print final summary
 print_summary
