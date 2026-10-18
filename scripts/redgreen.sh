@@ -1329,13 +1329,13 @@ test_mutation 131 "3h: CLI retry-shot uses execute_update" \
 test_mutation 132 "G2 approval handles finished child gracefully" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_g2_approval_with_finished_child_succeeds" \
-    sed -i '/await handle\.signal("stills_approved")/s/try:/if False:  # MUTATED - no try-except, raises on finished child/'
+    sed -i '520,530s/try:/# try:  # MUTATED/; 520,530s/except Exception as e:/# except Exception as e:  # MUTATED/'
 
 # 133: Bug Fix 2 - Pending retry causes 30s timeout before clips
 test_mutation 133 "Pending retry signaled before wait (no 30s timeout)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
-    sed -i '/# Signal all shot workflows.*including pending retries.*to proceed/,/await handle\.signal("stills_approved")/{/await handle\.signal("stills_approved")/d;}'
+    sed -i '/# Signal all shot workflows/,+12{/await handle\.signal("stills_approved")/s/await handle\.signal("stills_approved")/pass  # MUTATED - skip signal/}'
 
 # Print final summary
 print_summary
