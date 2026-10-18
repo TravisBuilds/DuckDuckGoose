@@ -16,10 +16,8 @@ async def test_g1_estimate_sends_string_image_url_for_kling(monkeypatch):
     
     Mutation: Remove placeholder URL assignment (image_url stays None) -> HTTP 400.
     """
-    from hfvg.config import config
-    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
     still_route = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
@@ -74,10 +72,8 @@ async def test_g1_estimate_sends_last_image_url_for_end_frame_shots(monkeypatch)
     
     Mutation: Remove last_image_url logic -> end frame not estimated correctly.
     """
-    from hfvg.config import config
-    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
     respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
@@ -133,10 +129,8 @@ async def test_g1_estimate_sends_duration_as_int_not_float(monkeypatch):
     
     Mutation: Remove int() cast -> duration sent as float -> potential API rejection.
     """
-    from hfvg.config import config
-    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
     respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
