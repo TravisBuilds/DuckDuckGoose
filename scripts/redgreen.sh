@@ -1396,7 +1396,7 @@ test_mutation 141 "Real ShotWorkflow sends retry_still_ready after retry stills 
 test_mutation 142 "G1 estimate sends string image_url to clip provider" \
     "hfvg/activities/g1_plan.py" \
     "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_string_image_url_for_kling" \
-    sed -i 's/placeholder_url = cfg\.G1_ESTIMATE_PLACEHOLDER_IMAGE_URL/placeholder_url = None  # MUTATED/'
+    sed -i 's/placeholder_url = cfg\.get_placeholder_image_url()/placeholder_url = None  # MUTATED/'
 
 # 143: G1 estimate must pass last_image_url for end-frame shots
 test_mutation 143 "G1 estimate sends last_image_url for end-frame shots" \
@@ -1422,11 +1422,11 @@ test_mutation 146 "End still uses end_prompt when provided" \
     "tests/test_pr10_216_fixes.py::test_real_shot_end_still_uses_end_prompt" \
     sed -i 's/end_prompt = shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = shot_plan["prompt"]/'
 
-# 147: Normalized images must be cached by original SHA256
+# 147: Normalized images must be cached by original SHA256 + size limits
 test_mutation 147 "Normalized images cached by original SHA" \
     "hfvg/image_normalize.py" \
     "tests/test_image_normalize.py::test_normalize_cache_by_sha" \
-    sed -i 's/normalized_path = cache_dir \/ f"{source_sha}.jpg"/normalized_path = cache_dir \/ f"{os.urandom(8).hex()}.jpg"/'
+    sed -i 's/cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"/cache_key = f"{__import__('\''os'\'').urandom(8).hex()}"  # MUTATED/'
 
 # 148: Provider job ID must be included in failure error messages
 test_mutation 148 "Job failures include provider job ID" \
