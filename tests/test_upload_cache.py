@@ -9,6 +9,7 @@ import respx
 
 from hfvg.upload_cache import UploadCache
 from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+from tests.fake_image_passthrough import passthrough_normalize
 
 
 @pytest.mark.asyncio
@@ -76,7 +77,7 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
-        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
+        passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
         
@@ -153,7 +154,7 @@ async def test_upload_cache_reupload_on_head_failure(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
-        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
+        passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
         
@@ -220,7 +221,7 @@ async def test_upload_cache_different_version_uploads_separately(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
-        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
+        passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
         
@@ -283,7 +284,7 @@ async def test_upload_cache_reupload_on_head_403(tmp_path):
         os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
         os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
         os.environ["DATABASE_PATH"] = db_path
-        os.environ["SKIP_IMAGE_NORMALIZE"] = "true"
+        passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
         

@@ -34,3 +34,12 @@ def _isolate_test_dirs(tmp_path, monkeypatch):
 def _synthetic_lint_kit(tmp_path, monkeypatch):
     kit_path = write_kit(tmp_path / "synthetic_lint_kit.json")
     monkeypatch.setenv("PROMPT_LINT_KIT_PATH", str(kit_path))
+
+
+@pytest.fixture(autouse=True)
+def _restore_real_image_normalize():
+    """Undo any passthrough_normalize() a test installed (fake-image tests only)."""
+    from tests.fake_image_passthrough import restore_normalize
+    restore_normalize()
+    yield
+    restore_normalize()

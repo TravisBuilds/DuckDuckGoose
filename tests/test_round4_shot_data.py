@@ -277,7 +277,10 @@ async def test_live_still_with_missing_refs_is_held_before_spend(tmp_path, monke
     # Create the ref file that exists (so mutation doesn't fail with FileNotFoundError)
     ref_file = tmp_path / "a" / "have.png"
     ref_file.parent.mkdir(parents=True, exist_ok=True)
-    ref_file.write_bytes(b"fake-ref-data")
+    # A real (tiny) PNG: if the refs gate is bypassed, upload_reference normalizes it, so fake bytes
+    # would crash in PIL (UnidentifiedImageError) instead of reaching the spend assertions below.
+    from PIL import Image
+    Image.new("RGB", (8, 8), "white").save(ref_file, "PNG")
     
     # Mock upload API (real shape per live probe)
     respx.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
@@ -298,10 +301,10 @@ async def test_live_still_with_missing_refs_is_held_before_spend(tmp_path, monke
     err = await acapture(ValueError, submit_still_job_enforced(
         "ep99", "A01", lint_ok("S"), 1, [str(ref_file)], "1k", "medium", "9:16", None,
         lint_meta(), ["r_new"]))
-    assert err is not None and "G2.01" in str(err) and "r_new" in str(err)
-    assert sub.call_count == 0
+    assert sub.call_count == 0, f"paid submit reached the provider despite missing refs ({sub.call_count} calls)"
+    assert err is not None and "G2.01" in str(err) and "r_new" in str(err), f"not held at G2.01: {err!r}"
     status = await BudgetLedger(db_path).get_line_status("ep99", "L2_drafts")
-    assert status["reserved"] == 0
+    assert status["reserved"] == 0, f"budget reserved despite hold: {status}"
 
 
 @pytest.mark.asyncio

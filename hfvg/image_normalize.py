@@ -52,7 +52,8 @@ def normalize_reference_image(
     The normalized file is cached by original SHA256, so repeated calls with
     the same source (even if renamed/moved) return the same normalized file.
     
-    Skips normalization if SKIP_IMAGE_NORMALIZE env var is set (for tests).
+    Never skippable: there is no env/config switch to bypass it (tests that upload fake
+    bytes replace this function in-process via tests/fake_image_passthrough.py).
     
     Args:
         source_path: Path to original reference image
@@ -60,10 +61,6 @@ def normalize_reference_image(
     """
     # Compute source SHA256 for cache key
     source_sha = compute_file_sha256(source_path)
-    
-    # Skip normalization if env var is set (for tests with fake images)
-    if os.getenv("SKIP_IMAGE_NORMALIZE", "").lower() == "true":
-        return (source_path, source_sha)
     
     if Image is None:
         raise RuntimeError("Pillow not available; cannot normalize images")
@@ -113,7 +110,12 @@ def normalize_reference_image(
     # Save as JPEG with quality compression to meet size target
     quality = JPEG_QUALITY_START
     while quality >= JPEG_QUALITY_MIN:
-        img.save(normalized_path, "JPEG", quality=quality, optimize=True, subsampling=0)
+        try:
+            img.save(normalized_path, "JPEG", quality=quality, optimize=True, subsampling=0)
+        except OSError:
+            # Pillow sizes the optimize buffer at width*height bytes; very detailed images
+            # overflow it ("Suspension not allowed here"). Save unoptimized instead of crashing.
+            img.save(normalized_path, "JPEG", quality=quality, optimize=False, subsampling=0)
         normalized_size = normalized_path.stat().st_size
         
         if normalized_size <= REF_MAX_BYTES or quality == JPEG_QUALITY_MIN:

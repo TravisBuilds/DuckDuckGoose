@@ -1219,7 +1219,7 @@ test_mutation 114 "Clip submit persists provider_job mapping" \
 test_mutation 115 "Upload checks cache before uploading" \
     "hfvg/providers/higgsfield_still.py" \
     "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
-    sed -i 's/cached_url = await cache.get_cached_url(str(image_path), version)/cached_url = None  # MUTATED - bypass cache/'
+    sed -i 's/cached_url = await cache.get_cached_url(str(upload_path), version)/cached_url = None  # MUTATED - bypass cache/'
 
 # 116. Smoke test gate: paid stages refuse without passing smoke test
 test_mutation 116 "Smoke test gate enforced on paid stages" \
@@ -1413,26 +1413,32 @@ test_mutation 144 "G1 estimate sends duration as int not float" \
 # 145: Reference images must be normalized before upload
 test_mutation 145 "Reference images are normalized before upload" \
     "hfvg/providers/higgsfield_still.py" \
-    "tests/test_image_normalize.py::test_normalize_large_png_to_jpeg" \
+    "tests/test_pr10_216_fixes.py::test_still_upload_reference_puts_normalized_jpeg_not_original" \
     sed -i 's/normalized_path, original_sha = normalize_reference_image(Path(image_path))/normalized_path, original_sha = Path(image_path), ""/'
 
 # 146: End prompt must be used for _end stills when provided
 test_mutation 146 "End still uses end_prompt when provided" \
     "hfvg/workflows/shot.py" \
-    "tests/test_end_prompt.py::test_end_prompt_string" \
+    "tests/test_pr10_216_fixes.py::test_real_shot_end_still_uses_end_prompt" \
     sed -i 's/end_prompt = shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = shot_plan["prompt"]/'
 
 # 147: Normalized images must be cached by original SHA256
 test_mutation 147 "Normalized images cached by original SHA" \
     "hfvg/image_normalize.py" \
     "tests/test_image_normalize.py::test_normalize_cache_by_sha" \
-    sed -i 's/normalized_path = cache_dir \/ f"{source_sha}.jpg"/normalized_path = cache_dir \/ f"{uuid.uuid4().hex}.jpg"/'
+    sed -i 's/normalized_path = cache_dir \/ f"{source_sha}.jpg"/normalized_path = cache_dir \/ f"{os.urandom(8).hex()}.jpg"/'
 
 # 148: Provider job ID must be included in failure error messages
 test_mutation 148 "Job failures include provider job ID" \
     "hfvg/workflows/shot.py" \
-    "tests/test_shot_live.py" \
+    "tests/test_pr10_216_fixes.py::test_failed_job_reason_has_job_id_and_raw_error" \
     sed -i 's/raise RuntimeError(f"Job {job_id} {status}: {error_details}")/raise RuntimeError(f"Job {status}: {error_details}")/'
+
+# 149: Reference normalization must not be skippable via env (SKIP_IMAGE_NORMALIZE must not exist in product)
+test_mutation 149 "Normalization cannot be skipped by SKIP_IMAGE_NORMALIZE" \
+    "hfvg/image_normalize.py" \
+    "tests/test_pr10_216_fixes.py::test_normalization_cannot_be_skipped_by_env" \
+    sed -i 's/^    source_sha = compute_file_sha256(source_path)$/&\n    if os.getenv("SKIP_IMAGE_NORMALIZE", "").lower() == "true":  # MUTATED\n        return (source_path, source_sha)/'
 
 # Print final summary
 print_summary
