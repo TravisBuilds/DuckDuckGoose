@@ -848,17 +848,17 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
     """
     Test that the clip loop uses shot_results (latest handle) not a stale original.
     
-    When a shot is retried, shot_results[shot_id] is updated to the new handle.
-    The clip loop must use this updated handle, not the original.
+    After a retry, the clip loop must await the retry handle result (version 2), 
+    not the original (version 1).
     """
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
-    # Use a workflow that tracks which version received the stills_approved signal
+    # Use a workflow that returns its version in the result
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-clip-latest",
-            workflows=[EpisodeWorkflowV2, TrackRetryWorkflowForClipLoop],
+            workflows=[EpisodeWorkflowV2, FailOnceThenSucceedWorkflow],
             activities=_make_activities(),
         ):
             handle = await env.client.start_workflow(
@@ -879,38 +879,27 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 await asyncio.sleep(0.1)
             
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             
-            # Retry the shot - this creates a new workflow with version 2
+            # Retry the shot - this creates version 2
             await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+            await asyncio.sleep(1.0)
             
-            # Wait for retry workflow to actually start
-            retry_handle_id = "ep_test-shot-A01-retry1"
-            retry_handle = env.client.get_workflow_handle(retry_handle_id)
-            for _ in range(30):
-                try:
-                    await retry_handle.query("get_signaled_version")
-                    break  # Workflow exists and responds
-                except:
-                    await asyncio.sleep(0.1)
-            
-            await asyncio.sleep(0.5)
-            
-            # Approve G2 - this signals stills_approved to shot workflows
-            # The episode workflow should signal the RETRY handle (ep_test-shot-A01-retry1)
-            # not the original (ep_test-shot-A01)
+            # Approve G2 and wait for clips to complete
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await asyncio.sleep(2.0)
             
-            # Wait for signals to propagate and retry workflow to process them
-            # The retry workflow needs time to: receive signal, set version, sleep 0.5s
-            await asyncio.sleep(3.0)
+            # Check the done_shots - if shot_results was used correctly, we should see version 2
+            state = await handle.query(EpisodeWorkflowV2.get_state)
+            done_shots = state.get("done_shots", [])
             
-            # Query the RETRY workflow to verify IT received the signal (version 2)
-            signaled_version = await retry_handle.query("get_signaled_version")
+            # The mutation would cause done_shots to be empty or contain wrong version
+            assert len(done_shots) > 0, "Clip loop should have completed the retry shot"
             
-            # The mutation would cause version 1 (original) or None to be signaled
-            assert signaled_version == 2, \
-                f"Clip loop must signal retry handle (version 2), got version {signaled_version}. " \
+            a01_result = next((s for s in done_shots if s["shot_id"] == "A01"), None)
+            assert a01_result is not None, "Shot A01 should be in done_shots"
+            assert a01_result.get("version") == 2, \
+                f"Clip loop must use retry handle (version 2), got version {a01_result.get('version')}. " \
                 f"This means shot_results (latest handle) was not used."
             
             await handle.terminate("test done")
