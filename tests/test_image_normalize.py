@@ -57,29 +57,29 @@ async def test_normalize_large_png_to_jpeg():
 
 
 @pytest.mark.asyncio
-async def test_normalize_cache_by_sha():
+async def test_normalize_cache_by_sha(tmp_path):
     """Test: normalized images are cached by original SHA256."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-        
-        # Create identical content in two different files
-        source1 = tmpdir / "img1.png"
-        source2 = tmpdir / "img2.png"
-        create_test_image(source1, (1000, 1000))
-        create_test_image(source2, (1000, 1000))
-        
-        # Both should have same SHA
-        sha1 = compute_file_sha256(source1)
-        sha2 = compute_file_sha256(source2)
-        assert sha1 == sha2
-        
-        # Normalize first file
-        norm1, _ = normalize_reference_image(source1)
-        assert norm1.exists()
-        
-        # Normalize second file - should return same cached file
-        norm2, _ = normalize_reference_image(source2)
-        assert norm1 == norm2
+    tmpdir = tmp_path
+    
+    # Create identical content in two different files
+    source1 = tmpdir / "img1.png"
+    source2 = tmpdir / "img2.png"
+    create_test_image(source1, (1000, 1000))
+    create_test_image(source2, (1000, 1000))
+    
+    # Both should have same SHA
+    sha1 = compute_file_sha256(source1)
+    sha2 = compute_file_sha256(source2)
+    assert sha1 == sha2
+    
+    # Normalize first file
+    cache = tmpdir / "cache"
+    norm1, _ = normalize_reference_image(source1, cache_dir=cache)
+    assert norm1.exists()
+    
+    # Normalize second file - should return same cached file
+    norm2, _ = normalize_reference_image(source2, cache_dir=cache)
+    assert norm1 == norm2
 
 
 @pytest.mark.asyncio

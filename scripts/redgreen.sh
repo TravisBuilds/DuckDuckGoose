@@ -1476,6 +1476,30 @@ test_mutation 155 "Lead ref download failure refuses before spend" \
     "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_download_failure_refuses_before_spend" \
     sed -i 's/if response.status_code != 200 or not content_type.startswith("image\/") or not data:/if False:  # MUTATED/'
 
+# 156: concurrent normalization of one ref must not share a temp file (unique temp per call)
+test_mutation 156 "Concurrent normalization of a shared ref does not collide" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_concurrent_normalize_same_source_does_not_collide" \
+    sed -i 's/temp_path = normalized_path.with_name(f"{cache_key}.{os.getpid()}-{uuid.uuid4().hex}.tmp")/temp_path = normalized_path.with_suffix(".tmp")  # MUTATED/'
+
+# 157: EXIF orientation must be applied before normalizing
+test_mutation 157 "EXIF orientation applied during normalization" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_exif_orientation_applied" \
+    sed -i 's/^        img = ImageOps.exif_transpose(img)$/        pass  # MUTATED/'
+
+# 158: high-detail images fall back to an unoptimized save instead of crashing (Pillow optimize buffer)
+test_mutation 158 "High-detail image saves without crashing" \
+    "hfvg/image_normalize.py" \
+    "tests/test_pr10_216_fixes.py::test_normalize_high_detail_image_does_not_crash" \
+    sed -i 's/^                img.save(temp_path, "JPEG", quality=quality, optimize=False, subsampling=0)$/                raise  # MUTATED/'
+
+# 159: normalized cache key includes the size limits (changing limits invalidates the cache)
+test_mutation 159 "Normalize cache key includes size limits" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_cache_key_includes_size_limits" \
+    sed -i 's/cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"/cache_key = f"{source_sha}"  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

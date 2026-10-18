@@ -267,7 +267,10 @@ def test_normalize_high_detail_image_does_not_crash(tmp_path):
     rnd = random.Random(7)
     src = tmp_path / "noise.png"
     Image.frombytes("RGB", (1600, 900), bytes(rnd.getrandbits(8) for _ in range(1600 * 900 * 3))).save(src)
-    out, _ = normalize_reference_image(src, cache_dir=tmp_path / "c")
+    try:
+        out, _ = normalize_reference_image(src, cache_dir=tmp_path / "c")
+    except OSError as e:  # surface as an AssertionError (redgreen classifies on AssertionError)
+        raise AssertionError(f"normalization crashed on a high-detail image: {e!r}") from e
     assert out.read_bytes()[:3] == b"\xff\xd8\xff", "output is not a JPEG"
     assert max(Image.open(out).size) <= 1280, "not downscaled"
 

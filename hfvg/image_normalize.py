@@ -9,6 +9,7 @@ Normalizes reference images (still, _end, anchor) before upload:
 """
 
 import os
+import uuid
 import hashlib
 from pathlib import Path
 from typing import Tuple
@@ -128,28 +129,32 @@ def normalize_reference_image(
         img = img.resize(new_size, Image.Resampling.LANCZOS)
     
     # Save as JPEG with quality compression to meet size target
-    # Write to temp file, then rename atomically
-    temp_path = normalized_path.with_suffix(".tmp")
+    # Write to a temp file unique to this call, then rename atomically: two workers normalizing the
+    # same ref at once (shared refs across shots, or start + _end) must never share one temp file.
+    temp_path = normalized_path.with_name(f"{cache_key}.{os.getpid()}-{uuid.uuid4().hex}.tmp")
     quality = JPEG_QUALITY_START
     final_quality = quality
-    while quality >= JPEG_QUALITY_MIN:
-        try:
-            img.save(temp_path, "JPEG", quality=quality, optimize=True, subsampling=0)
-        except OSError:
-            # Pillow sizes the optimize buffer at width*height bytes; very detailed images
-            # overflow it ("Suspension not allowed here"). Save unoptimized instead of crashing.
-            img.save(temp_path, "JPEG", quality=quality, optimize=False, subsampling=0)
-        normalized_size = temp_path.stat().st_size
-        final_quality = quality
-        
-        if normalized_size <= REF_MAX_BYTES or quality == JPEG_QUALITY_MIN:
-            break
-        
-        # Reduce quality and retry
-        quality -= 5
-    
-    # Atomic rename to final location
-    temp_path.rename(normalized_path)
+    try:
+        while quality >= JPEG_QUALITY_MIN:
+            try:
+                img.save(temp_path, "JPEG", quality=quality, optimize=True, subsampling=0)
+            except OSError:
+                # Pillow sizes the optimize buffer at width*height bytes; very detailed images
+                # overflow it ("Suspension not allowed here"). Save unoptimized instead of crashing.
+                img.save(temp_path, "JPEG", quality=quality, optimize=False, subsampling=0)
+            normalized_size = temp_path.stat().st_size
+            final_quality = quality
+
+            if normalized_size <= REF_MAX_BYTES or quality == JPEG_QUALITY_MIN:
+                break
+
+            # Reduce quality and retry
+            quality -= 5
+
+        # Atomic rename to final location (POSIX rename replaces; identical content either way)
+        temp_path.rename(normalized_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
     
     final_size = normalized_path.stat().st_size
     final_dimensions = img.size
