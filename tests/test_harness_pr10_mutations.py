@@ -885,11 +885,13 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             
             # Retry the shot - this creates version 2
             await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-            await asyncio.sleep(1.0)
+            
+            # Wait for retry to complete stills stage
+            await asyncio.sleep(2.0)
             
             # Approve G2 and wait for clips to complete
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(3.0)
             
             # Check the done_shots - if shot_results was used correctly, we should see version 2
             state = await handle.query(EpisodeWorkflowV2.get_state)
