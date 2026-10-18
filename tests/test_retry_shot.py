@@ -104,6 +104,7 @@ class VersionTestShotWorkflow:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         shot_id = shot_dict["shot_id"]
         version = shot_dict.get("version", 1)
+        parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         
         # Call still activity with version passed through
         from datetime import timedelta
@@ -120,6 +121,11 @@ class VersionTestShotWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+            
+            # For retry (version > 1), signal parent that still is ready for review
+            if version > 1:
+                parent = workflow.get_external_workflow_handle(parent_workflow_id)
+                await parent.signal("retry_still_ready", args=[shot_id, version])
             
             # Wait for approval
             await workflow.wait_condition(lambda: self.approved, timeout=timedelta(seconds=30))
