@@ -330,12 +330,10 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             # If the @workflow.update decorator is removed (mutation), this will fail
             try:
                 await handle.execute_update("approve_g1_shot_plan")
-            except AttributeError as e:
-                # Mutation removed @workflow.update decorator, causing AttributeError
-                pytest.fail(f"Update decorator missing: approval update not accepted by workflow. {e}")
-            except Exception as e:
-                # Any other error also indicates the update didn't work
-                pytest.fail(f"Approval update failed to reach workflow: {e}")
+            except (AttributeError, Exception) as e:
+                # Mutation removed @workflow.update decorator, causing error
+                # Convert to AssertionError so redgreen classifies this correctly
+                assert False, f"Approval update failed - decorator likely missing: {e}"
             
             await env.sleep(0.1)
             

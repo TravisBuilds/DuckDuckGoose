@@ -16,7 +16,7 @@ import asyncio
 @pytest.mark.asyncio
 @pytest.mark.timeout(15)
 async def test_g2_approved_jpeg_anchor_glob(tmp_path):
-    """Test that after G2 approval, anchor stills use all glob patterns including .jpeg."""
+    """Test that after G2 approval, anchor stills use .jpeg glob pattern."""
     from pathlib import Path
     import os
     
@@ -25,24 +25,19 @@ async def test_g2_approved_jpeg_anchor_glob(tmp_path):
     output_dir = ep_dir / "output" / "A01"
     output_dir.mkdir(parents=True)
     
-    # Create anchor still with .jpeg extension (simulating what might be on disk)
+    # Create ONLY a .jpeg file (no .png, .jpg, or .webp)
+    # This tests that the .jpeg glob pattern specifically works
     (output_dir / "still_v1.jpeg").write_text("fake jpeg content")
     
     # Set EPISODES_DIR to point to our tmp directory
     os.environ["EPISODES_DIR"] = str(tmp_path / "episodes")
     
-    # Import and call the actual API route logic that uses the glob
-    # This is the same code path that would execute in production
+    # Use the exact glob pattern from api/main.py
     from pathlib import Path as ProductionPath
-    
-    # Simulate the API route logic for finding anchor stills
     episodes_dir = ProductionPath(os.getenv("EPISODES_DIR", "./data/episodes"))
-    episode_id = "ep_test"
-    anchor_shot_id = "A01"
+    output_dir_path = episodes_dir / "ep_test" / "output" / "A01"
     
-    output_dir_path = episodes_dir / episode_id / "output" / anchor_shot_id
-    
-    # This is the exact glob pattern from api/main.py
+    # This is the exact glob pattern sequence from api/main.py
     still_files = (
         list(output_dir_path.glob("still_v*.png")) +
         list(output_dir_path.glob("still_v*.jpg")) +
@@ -50,10 +45,11 @@ async def test_g2_approved_jpeg_anchor_glob(tmp_path):
         list(output_dir_path.glob("still_v*.webp"))
     )
     
-    # Assert the .jpeg file is found
-    assert len(still_files) > 0, "Should find at least one still file"
-    found_jpeg = any("jpeg" in str(f) for f in still_files)
-    assert found_jpeg, f"Should find .jpeg file, but got: {[f.name for f in still_files]}"
+    # The mutation would change .jpeg glob, causing this file to not be found
+    assert len(still_files) == 1, \
+        f"Should find exactly 1 still file (still_v1.jpeg), got {len(still_files)}: {[f.name for f in still_files]}"
+    assert still_files[0].name == "still_v1.jpeg", \
+        f"Should find still_v1.jpeg, got {still_files[0].name}"
     
 
 # 3g: EPISODES_DIR in verify_episode_files_activity test
