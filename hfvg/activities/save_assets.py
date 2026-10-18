@@ -48,6 +48,19 @@ async def save_asset_locally(
     activity.logger.info(f"Downloading {asset_type} from {asset_url} to {output_path}")
     
     try:
+        # Handle local file paths (dry run mode)
+        if not asset_url.startswith(("http://", "https://")):
+            # It's a local file path, just copy it
+            if Path(asset_url).exists():
+                output_path.write_bytes(Path(asset_url).read_bytes())
+                activity.logger.info(f"Copied local file {asset_url} to {output_path}")
+                return str(output_path)
+            else:
+                activity.logger.warning(f"Local file {asset_url} does not exist, skipping")
+                # Return a placeholder path for dry run
+                return str(output_path)
+        
+        # HTTP download for real assets
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(asset_url)
             response.raise_for_status()

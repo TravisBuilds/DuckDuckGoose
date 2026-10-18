@@ -16,16 +16,18 @@ async def test_g1_estimate_sends_string_image_url_for_kling(monkeypatch):
     
     Mutation: Remove placeholder URL assignment (image_url stays None) -> HTTP 400.
     """
+    from hfvg.config import config
+    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
-    still_route = respx.post("https://api.higgsfield.ai/v1/providers/xai/grok-imagine-image-2.0/estimate").mock(
+    still_route = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"usd": "0.05", "credits": "0.5"})
     )
     
     # Mock Kling clip estimate - will capture the request payload
-    clip_route = respx.post("https://api.higgsfield.ai/v1/providers/kling-video/v3.0/pro/image-to-video/estimate").mock(
+    clip_route = respx.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(200, json={"usd": "0.28", "credits": "8.96"})
     )
     
@@ -72,16 +74,18 @@ async def test_g1_estimate_sends_last_image_url_for_end_frame_shots(monkeypatch)
     
     Mutation: Remove last_image_url logic -> end frame not estimated correctly.
     """
+    from hfvg.config import config
+    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
-    respx.post("https://api.higgsfield.ai/v1/providers/xai/grok-imagine-image-2.0/estimate").mock(
+    respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"usd": "0.05", "credits": "0.5"})
     )
     
     # Mock Kling clip estimate
-    clip_route = respx.post("https://api.higgsfield.ai/v1/providers/kling-video/v3.0/pro/image-to-video/estimate").mock(
+    clip_route = respx.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(200, json={"usd": "0.28", "credits": "8.96"})
     )
     
@@ -129,16 +133,18 @@ async def test_g1_estimate_sends_duration_as_int_not_float(monkeypatch):
     
     Mutation: Remove int() cast -> duration sent as float -> potential API rejection.
     """
+    from hfvg.config import config
+    
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
-    monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
+    monkeypatch.setattr(config, "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://example.com/placeholder.jpg")
     
     # Mock Higgsfield still estimate
-    respx.post("https://api.higgsfield.ai/v1/providers/xai/grok-imagine-image-2.0/estimate").mock(
+    respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"usd": "0.05", "credits": "0.5"})
     )
     
     # Mock Kling clip estimate
-    clip_route = respx.post("https://api.higgsfield.ai/v1/providers/kling-video/v3.0/pro/image-to-video/estimate").mock(
+    clip_route = respx.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(200, json={"usd": "0.28", "credits": "8.96"})
     )
     
@@ -184,12 +190,12 @@ async def test_g1_estimate_available_false_only_on_genuine_failure(monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", "/tmp/test.db")
     
     # Mock still estimate success
-    respx.post("https://api.higgsfield.ai/v1/providers/xai/grok-imagine-image-2.0/estimate").mock(
+    respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"usd": "0.05", "credits": "0.5"})
     )
     
     # Mock clip estimate failure (genuine API error)
-    respx.post("https://api.higgsfield.ai/v1/providers/kling-video/v3.0/pro/image-to-video/estimate").mock(
+    respx.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
         return_value=httpx.Response(500, json={"error": "Internal server error"})
     )
     

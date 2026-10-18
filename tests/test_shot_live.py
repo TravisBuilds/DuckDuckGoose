@@ -16,6 +16,7 @@ from hfvg.activities.credit_activities import (
     commit_credits_activity,
     release_credits_activity,
 )
+from hfvg.activities.save_assets import save_asset_locally
 
 
 @pytest.mark.asyncio
@@ -244,6 +245,7 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
                 activities.record_shot_result,
                 commit_credits_activity,
                 release_credits_activity,
+                save_asset_locally,
             ],
         ):
             shot_plan = {
@@ -266,7 +268,7 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
             still_ready = False
             for _ in range(100):  # Poll with small sleeps (deterministic in time-skipping)
                 try:
-                    state = await handle.query(ShotWorkflow.get_status)
+                    state = await handle.query(ShotWorkflow.get_state)
                     if state.get("still_url"):
                         still_ready = True
                         break

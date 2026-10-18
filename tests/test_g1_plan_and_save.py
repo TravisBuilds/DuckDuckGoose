@@ -295,8 +295,8 @@ async def test_g1_plan_unavailable_flag_when_estimates_fail(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_g1_plan_clip_estimate_no_placeholder_url(monkeypatch):
-    """Test that clip estimate doesn't use a placeholder image URL."""
+async def test_g1_plan_clip_estimate_uses_placeholder_url(monkeypatch):
+    """Test that clip estimate DOES send a valid placeholder image URL (pricing doesn't depend on image content)."""
     
     captured_requests = []
     
@@ -315,6 +315,7 @@ async def test_g1_plan_clip_estimate_no_placeholder_url(monkeypatch):
         import os
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "https://storage.googleapis.com/higgsfield-public/placeholder-1080x1920.jpg")
         
         shots = [
             {"shot_id": "A01", "prompt": "Shot A01", "params": {"duration": 5.0, "model": "kling"}},
@@ -325,7 +326,9 @@ async def test_g1_plan_clip_estimate_no_placeholder_url(monkeypatch):
         # Verify estimate was called
         assert clip_route.call_count == 1
         
-        # Verify request body doesn't contain placeholder URL
-        request_body = captured_requests[0].content.decode()
-        assert "placeholder" not in request_body.lower(), "Clip estimate should not use placeholder image URL"
-        assert "example.com" not in request_body.lower(), "Clip estimate should not use example.com placeholder"
+        # Verify request body DOES contain placeholder URL
+        import json
+        request_body = json.loads(captured_requests[0].content.decode())
+        assert "image_url" in request_body, "Clip estimate must include image_url"
+        assert isinstance(request_body["image_url"], str), "image_url must be a string"
+        assert request_body["image_url"] == "https://storage.googleapis.com/higgsfield-public/placeholder-1080x1920.jpg"
