@@ -1386,6 +1386,12 @@ test_mutation 140 "retry_still_ready signal clears pending_retries" \
     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
     sed -i '/clearing pending_retries.*$/{ n; s/^/# MUTATED - disabled: /; }'
 
+# 141: REAL ShotWorkflow must send retry_still_ready before waiting for stills_approved (else G2 deadlock)
+test_mutation 141 "Real ShotWorkflow sends retry_still_ready after retry stills land" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_real_shot_retry_still_ready.py::test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land" \
+    sed -i 's/^\( *\)await self\._notify_parent_retry_still_ready(shot_plan)$/\1pass  # MUTATED - retry_still_ready never sent/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -335,6 +335,21 @@ class ShotWorkflow:
             "cost": poll_result["cost"],
         }
     
+    async def _notify_parent_retry_still_ready(self, shot_plan: dict) -> None:
+        """Tell the episode workflow this RETRY child's still(s) have landed (QC'd + recorded),
+        so it can clear pending_retries and let G2 (the human review) be approved.
+        Only retries (version > 1) with a known parent; the parent ignores unknown shots.
+        Must run BEFORE waiting for stills_approved, otherwise G2 deadlocks."""
+        parent_id = shot_plan.get("parent_workflow_id")
+        if not parent_id or self.version <= 1:
+            return
+        try:
+            await workflow.get_external_workflow_handle(parent_id).signal(
+                "retry_still_ready", args=[self.shot_id, self.version]
+            )
+        except ApplicationError as e:
+            workflow.logger.warning(f"Could not send retry_still_ready to {parent_id}: {e}")
+
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
@@ -554,6 +569,9 @@ class ShotWorkflow:
                         retry_policy=retry_policy,
                     )
                     
+                    # Retry still landed (recorded as needs_review): unblock G2 before waiting on it
+                    await self._notify_parent_retry_still_ready(shot_plan)
+
                     # Wait for human approval signal (stills_approved)
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
                     await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
@@ -620,6 +638,11 @@ class ShotWorkflow:
                 "status": "failed",
                 "error": "Max retries exceeded",
             }
+
+        # Retry still(s) landed (start + end frame, QC passed, recorded): unblock G2.
+        # (Escalated retries already notified above, before their own wait.)
+        if not self.human_approved_still:
+            await self._notify_parent_retry_still_ready(shot_plan)
 
         # CRITICAL: Wait for parent to approve this scene's stills before generating clip
         workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
