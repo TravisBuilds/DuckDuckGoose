@@ -127,7 +127,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                     # At G1 time, no stills exist yet; use stable placeholder
                     # (pricing doesn't depend on image content)
                     from hfvg.config import config as cfg
-                    placeholder_url = cfg.G1_ESTIMATE_PLACEHOLDER_IMAGE_URL
+                    placeholder_url = cfg.get_placeholder_image_url()
                     
                     # For end-frame shots, pass placeholder as last_image_url too
                     last_image_url = placeholder_url if end_frame else None

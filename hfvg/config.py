@@ -129,10 +129,18 @@ class Config:
     
     # Placeholder image URL for G1 clip estimates (pricing doesn't depend on image content)
     # Must be a valid public image URL that the provider can access
-    G1_ESTIMATE_PLACEHOLDER_IMAGE_URL: str = os.getenv(
-        "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL",
-        "https://storage.googleapis.com/higgsfield-public/placeholder-1080x1920.jpg"
-    )
+    # Required: must be explicitly set via env var (no default)
+    @staticmethod
+    def get_placeholder_image_url() -> str:
+        """Get placeholder image URL, raising clear error if not configured."""
+        url = os.getenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "")
+        if not url:
+            raise ValueError(
+                "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL environment variable is required. "
+                "Set it to a valid public image URL (1080x1920 recommended) for clip estimates. "
+                "Pricing does not depend on image content, so any static placeholder works."
+            )
+        return url
     
     # Reference image normalization limits (before upload)
     # Large images (e.g. 1520x2688 PNG 4-8 MB) can cause provider failures

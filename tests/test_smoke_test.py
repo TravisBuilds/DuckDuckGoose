@@ -62,8 +62,9 @@ async def test_smoke_test_end_to_end(tmp_path, monkeypatch):
         })
     )
     respx.put("http://mock.upload/put").mock(side_effect=capture_upload)
+    # The CDN serves back exactly what was PUT (the normalized JPEG), not the source PNG
     respx.get("http://mock.cdn/probe.png").mock(
-        return_value=httpx.Response(200, content=png_bytes)
+        side_effect=lambda r: httpx.Response(200, content=upload_capture[-1])
     )
     
     # Mock generation probe - assert submit JSON matches SOUL V2 schema
@@ -163,9 +164,10 @@ async def test_smoke_test_nsfw_terminal(tmp_path, monkeypatch):
             "upload_headers": {"Content-Type": "image/png"}
         })
     )
-    respx.put("http://mock.upload/put").mock(return_value=httpx.Response(200))
+    _put = []  # the CDN serves back exactly what was PUT (the normalized JPEG)
+    respx.put("http://mock.upload/put").mock(side_effect=lambda r: (_put.append(r.content), httpx.Response(200))[1])
     respx.get("http://mock.cdn/probe.png").mock(
-        return_value=httpx.Response(200, content=png_bytes)
+        side_effect=lambda r: httpx.Response(200, content=_put[-1])
     )
     
     respx.post("http://mock.api/estimate/higgsfield-ai/soul/v2/standard").mock(
@@ -244,9 +246,10 @@ async def test_smoke_test_canceled_terminal(tmp_path, monkeypatch):
             "upload_headers": {"Content-Type": "image/png"}
         })
     )
-    respx.put("http://mock.upload/put").mock(return_value=httpx.Response(200))
+    _put = []  # the CDN serves back exactly what was PUT (the normalized JPEG)
+    respx.put("http://mock.upload/put").mock(side_effect=lambda r: (_put.append(r.content), httpx.Response(200))[1])
     respx.get("http://mock.cdn/probe.png").mock(
-        return_value=httpx.Response(200, content=png_bytes)
+        side_effect=lambda r: httpx.Response(200, content=_put[-1])
     )
     
     respx.post("http://mock.api/estimate/higgsfield-ai/soul/v2/standard").mock(
@@ -325,9 +328,10 @@ async def test_smoke_test_presubmit_exception_released(tmp_path, monkeypatch):
             "upload_headers": {"Content-Type": "image/png"}
         })
     )
-    respx.put("http://mock.upload/put").mock(return_value=httpx.Response(200))
+    _put = []  # the CDN serves back exactly what was PUT (the normalized JPEG)
+    respx.put("http://mock.upload/put").mock(side_effect=lambda r: (_put.append(r.content), httpx.Response(200))[1])
     respx.get("http://mock.cdn/probe.png").mock(
-        return_value=httpx.Response(200, content=png_bytes)
+        side_effect=lambda r: httpx.Response(200, content=_put[-1])
     )
     
     respx.post("http://mock.api/estimate/higgsfield-ai/soul/v2/standard").mock(
@@ -415,9 +419,10 @@ async def test_smoke_test_postsubmit_timeout_pending_reconcile(tmp_path, monkeyp
             "upload_headers": {"Content-Type": "image/png"}
         })
     )
-    respx.put("http://mock.upload/put").mock(return_value=httpx.Response(200))
+    _put = []  # the CDN serves back exactly what was PUT (the normalized JPEG)
+    respx.put("http://mock.upload/put").mock(side_effect=lambda r: (_put.append(r.content), httpx.Response(200))[1])
     respx.get("http://mock.cdn/probe.png").mock(
-        return_value=httpx.Response(200, content=png_bytes)
+        side_effect=lambda r: httpx.Response(200, content=_put[-1])
     )
     
     respx.post("http://mock.api/estimate/higgsfield-ai/soul/v2/standard").mock(

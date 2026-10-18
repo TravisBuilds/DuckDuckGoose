@@ -34,9 +34,10 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
         img = Image.new('RGB', (1, 1), color='red')
         img.save(tmp_path, 'PNG')
         
-        # Read back the bytes for verification
-        with open(tmp_path, 'rb') as f:
-            png_bytes = f.read()
+        # upload_reference uploads the NORMALIZED file (JPEG), so verify against those bytes
+        from hfvg.image_normalize import normalize_reference_image
+        norm_path, _ = normalize_reference_image(Path(tmp_path))
+        png_bytes = norm_path.read_bytes()
         
         # Upload using provider's real method
         upload_result = await provider.upload_reference(tmp_path, version=1)
@@ -55,7 +56,7 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
                 "error": f"Downloaded bytes mismatch: expected {len(png_bytes)}, got {len(downloaded)}"
             }
         
-        # Verify downloaded bytes decode as PNG
+        # Verify downloaded bytes decode as an image
         try:
             from io import BytesIO
             img_check = Image.open(BytesIO(downloaded))
@@ -64,7 +65,7 @@ async def _probe_upload(provider: HiggsfieldStillProvider) -> dict:
             return {
                 "passed": False,
                 "public_url": public_url,
-                "error": f"Downloaded bytes don't decode as PNG: {decode_err}"
+                "error": f"Downloaded bytes don't decode as an image: {decode_err}"
             }
         
         return {

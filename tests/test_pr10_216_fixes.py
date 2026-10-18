@@ -263,3 +263,24 @@ def test_normalize_high_detail_image_does_not_crash(tmp_path):
     out, _ = normalize_reference_image(src, cache_dir=tmp_path / "c")
     assert out.read_bytes()[:3] == b"\xff\xd8\xff", "output is not a JPEG"
     assert max(Image.open(out).size) <= 1280, "not downscaled"
+
+
+@pytest.mark.asyncio
+async def test_smoke_upload_probe_passes_with_normalized_upload(tmp_path, monkeypatch):
+    """Live smoke failed Oct 18 14:13: probe compared the CDN bytes to the original 69-byte PNG, but
+    upload_reference now uploads the normalized JPEG (286 bytes). The probe must verify the uploaded bytes."""
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "t.db"))
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    from hfvg.activities.smoke_test import _probe_upload
+    stored = {}
+    with respx.mock:
+        respx.post("http://mock.api/files/generate-upload-url").mock(return_value=httpx.Response(200, json={
+            "upload_url": "http://mock.upload/put", "public_url": "http://mock.cdn/probe.jpg",
+            "upload_headers": {"Content-Type": "image/jpeg"}}))
+        respx.put("http://mock.upload/put").mock(side_effect=lambda r: (stored.update(b=r.content), httpx.Response(200))[1])
+        respx.get("http://mock.cdn/probe.jpg").mock(side_effect=lambda r: httpx.Response(200, content=stored["b"]))
+        res = await _probe_upload(HiggsfieldStillProvider())
+    assert stored["b"][:3] == b"\xff\xd8\xff", "probe upload should be the normalized JPEG"
+    assert res["passed"], f"smoke upload probe failed against its own upload: {res}"
