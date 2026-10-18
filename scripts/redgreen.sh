@@ -1329,13 +1329,13 @@ test_mutation 131 "3h: CLI retry-shot uses execute_update" \
 test_mutation 132 "G2 approval handles finished child gracefully" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_g2_approval_with_finished_child_succeeds" \
-    sed -i '/await handle\.signal("stills_approved")/,/except workflow\.RPCError/s/except workflow\.RPCError as e:/# except workflow.RPCError as e:  # MUTATED - no catch/'
+    sed -i 's/if e\.type != "ExternalWorkflowExecutionNotFound":/if True:  # MUTATED - no NotFound tolerance, re-raise everything/'
 
 # 134: Bug Fix 1 addendum - Other errors must not be swallowed
 test_mutation 134 "G2 signal error checking is specific (NOT_FOUND only)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_g2_approval_does_not_swallow_other_errors" \
-    sed -i 's/except workflow\.RPCError as e:/except Exception as e:  # MUTATED - catch all, swallows other errors/'
+    sed -i 's/if e\.type != "ExternalWorkflowExecutionNotFound":/if False:  # MUTATED - catch all, swallows other errors/'
 
 # 133: Bug Fix 2 - Pending retry causes 30s timeout before clips
 test_mutation 133 "Pending retry signaled before wait (no 30s timeout)" \
@@ -1351,7 +1351,7 @@ test_mutation 133 "Pending retry signaled before wait (no 30s timeout)" \
 test_mutation 135 "G2 approval refused while retry is pending" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_g2_refused_while_retry_pending" \
-    sed -i '/@approve_g2_scene_stills\.validator/,/def validate_approve_g2_scene_stills/s/def validate_approve_g2_scene_stills/def validate_approve_g2_scene_stills_DISABLED  # MUTATED - no validator/'
+    sed -i 's/^\( *\)@approve_g2_scene_stills\.validator/\1# @approve_g2_scene_stills.validator  # MUTATED - no validator/'
 
 # 136: Safety - G2 accepted after retry completes
 test_mutation 136 "G2 approval accepted after retry completes" \
@@ -1372,6 +1372,24 @@ test_mutation 137 "No 30s pending-retry wait after G2" \
                 )\
             except asyncio.TimeoutError:\
                 workflow.logger.warning(f"Timed out waiting for retries")'
+
+# 138: G2 API route must use execute_update (a signal to an update handler is dropped)
+test_mutation 138 "API G2 approval uses execute_update, not signal" \
+    "api/main.py" \
+    "tests/test_g2_api_route_update.py::test_api_g2_accepted_reaches_workflow_when_no_retry_pending" \
+    sed -i 's/await handle\.execute_update(signal_name)$/await handle.signal(signal_name)  # MUTATED - signal dropped by update handler/'
+
+# 139: API approve route must not turn its 409 into a 500
+test_mutation 139 "API G2 refusal returns 409 (HTTPException re-raised)" \
+    "api/main.py" \
+    "tests/test_g2_api_route_update.py::test_api_g2_refused_with_409_while_retry_pending" \
+    sed -i 's/raise  # keep 404\/409 - do not turn them into 500/raise HTTPException(status_code=500, detail="MUTATED")  # keep 404\/409/'
+
+# 140: retry_still_ready signal must clear pending_retries
+test_mutation 140 "retry_still_ready signal clears pending_retries" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+    sed -i '/def retry_still_ready/,/^[[:space:]]*$/{ /self\.state\.pending_retries\.pop/s/^/# MUTATED - disabled: /; }'
 
 # Print final summary
 print_summary

@@ -13,6 +13,8 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 from temporalio.common import RetryPolicy
 from temporalio.client import WorkflowUpdateFailedError
+from temporalio.exceptions import ApplicationError
+from temporalio.worker import Interceptor, WorkflowInboundInterceptor, WorkflowOutboundInterceptor
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -73,7 +75,7 @@ class BlockingAfterStillsApprovalWorkflow:
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
 class SlowRetryWorkflowForPendingTest:
-    """Shot workflow that waits forever on retry (simulates pending)."""
+    """Shot workflow that never sends retry_still_ready (simulates still not produced yet)."""
     def __init__(self):
         self.approved = False
     
@@ -89,12 +91,16 @@ class SlowRetryWorkflowForPendingTest:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         # First attempt fails immediately
         attempt = shot_dict.get("version", 1)
+        shot_id = shot_dict["shot_id"]
         if attempt == 1:
             return {"status": "failed", "error": "First attempt failed"}
         
-        # Retry waits forever (simulates pending)
+        # Retry: DO NOT signal parent (simulates still not produced yet)
+        # This keeps the shot in pending_retries for testing concurrent retry refusal
+        
+        # Wait forever
         await workflow.wait_condition(lambda: self.approved, timeout=timedelta(hours=1))
-        return {"status": "completed", "shot_id": shot_dict["shot_id"]}
+        return {"status": "completed", "shot_id": shot_id}
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
@@ -143,10 +149,17 @@ class RetryAwaitsStillsApprovalWorkflow:
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
+        shot_id = shot_dict["shot_id"]
         if version == 1:
             return {"status": "failed", "error": "First attempt failed", "version": version}
-        await workflow.wait_condition(lambda: self.approved)
-        return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+        
+        # Retry: signal parent that still is ready for review
+        parent = workflow.get_external_workflow_handle(episode_id)
+        await parent.signal("retry_still_ready", args=[shot_id, version])
+        
+        # Then wait for stills_approved (with timeout to prevent hangs)
+        await workflow.wait_condition(lambda: self.approved, timeout=timedelta(hours=1))
+        return {"status": "completed", "shot_id": shot_id, "version": version}
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
@@ -988,12 +1001,17 @@ class PendingRetryWorkflow:
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
+        shot_id = shot_dict["shot_id"]
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
-            # Stay pending - wait forever until signaled
-            await workflow.wait_condition(lambda: self.approved)
-            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+            # Retry: signal parent that still is ready for review
+            parent = workflow.get_external_workflow_handle(episode_id)
+            await parent.signal("retry_still_ready", args=[shot_id, version])
+            
+            # Stay pending - wait forever until signaled (with timeout to prevent hangs)
+            await workflow.wait_condition(lambda: self.approved, timeout=timedelta(hours=1))
+            return {"status": "completed", "shot_id": shot_id, "version": version}
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
@@ -1013,11 +1031,16 @@ class QuickRetryWorkflow:
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
+        shot_id = shot_dict["shot_id"]
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
-            # Retry completes immediately (still is "produced")
-            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+            # Retry: signal parent that still is ready for review
+            parent = workflow.get_external_workflow_handle(episode_id)
+            await parent.signal("retry_still_ready", args=[shot_id, version])
+            
+            # Then complete immediately (still is "produced")
+            return {"status": "completed", "shot_id": shot_id, "version": version}
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
@@ -1079,11 +1102,17 @@ class RetryWaitsForApprovalWorkflow:
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
+        shot_id = shot_dict["shot_id"]
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
-            await workflow.wait_condition(lambda: self.approved)
-            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+            # Retry: signal parent that still is ready for review
+            parent = workflow.get_external_workflow_handle(episode_id)
+            await parent.signal("retry_still_ready", args=[shot_id, version])
+            
+            # Then wait for stills_approved (with timeout to prevent hangs)
+            await workflow.wait_condition(lambda: self.approved, timeout=timedelta(hours=1))
+            return {"status": "completed", "shot_id": shot_id, "version": version}
 
 
 # ============================================================================
@@ -1227,14 +1256,17 @@ async def test_pending_retry_does_not_block_clips(tmp_path):
                         pass
                     await asyncio.sleep(0.1)
                 
-                # Retry the shot - creates a pending retry that waits for stills_approved
+                # Retry the shot - creates a retry child that signals when still is ready
                 await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
                 await asyncio.sleep(0.5)
                 
-                # Verify retry is pending
+                # Verify pending_retries was cleared (new design: cleared when still lands, not when child completes)
                 state = await handle.query(EpisodeWorkflowV2.get_state)
-                assert len(state.get("pending_retries", [])) > 0, \
-                    f"Should have pending retry, got: {state.get('pending_retries')}"
+                assert len(state.get("pending_retries", {})) == 0, \
+                    f"pending_retries should be cleared after still lands, got: {state.get('pending_retries')}"
+                
+                # Verify retry child is still running (waiting for stills_approved)
+                assert state.get("shot_attempts", {}).get("A01") == 2, "Retry should be recorded"
                 
                 # Approve G2 - should signal pending retry and NOT wait 30 seconds
                 start_time = time.time()
@@ -1280,21 +1312,42 @@ async def test_pending_retry_does_not_block_clips(tmp_path):
 # Bug Fix 1 addendum: Other errors must NOT be swallowed
 # ============================================================================
 
+class _FailStillsApprovedSignalOutbound(WorkflowOutboundInterceptor):
+    """Make the parent's in-workflow signal to a child fail with a NON-NotFound error."""
+
+    async def signal_child_workflow(self, input):
+        if input.signal == "stills_approved":
+            raise ApplicationError(
+                "simulated signal failure (not ExternalWorkflowExecutionNotFound)",
+                type="SimulatedSignalFailure",
+            )
+        return await super().signal_child_workflow(input)
+
+
+class _FailStillsApprovedSignalInbound(WorkflowInboundInterceptor):
+    def init(self, outbound):
+        super().init(_FailStillsApprovedSignalOutbound(outbound))
+
+
+class _FailStillsApprovedSignalInterceptor(Interceptor):
+    def workflow_interceptor_class(self, input):
+        return _FailStillsApprovedSignalInbound
+
+
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
 async def test_g2_approval_does_not_swallow_other_errors(tmp_path):
     """
-    Test that G2 approval does NOT catch and swallow errors other than NOT_FOUND.
-    
-    The bug-1 fix catches RPCError with status NOT_FOUND when signaling finished children.
-    But other errors (e.g., a different RPCError status, or any non-RPC error) must
-    propagate and fail the workflow, not be silently logged.
+    Test that G2 approval does NOT catch and swallow errors other than "child not found".
+
+    Inside a workflow, signalling a finished child raises ApplicationError with
+    type "ExternalWorkflowExecutionNotFound" (there is no RPCError in workflow code); the
+    bug-1 fix tolerates exactly that. Any other signal failure must propagate and FAIL the
+    episode workflow, not be silently logged. A worker interceptor makes the parent's
+    stills_approved signal fail with a different ApplicationError type (a finished child
+    alone can only ever produce the NotFound case, which is the one we must tolerate).
     """
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-    from temporalio.service import RPCError, RPCStatusCode
-    
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -1302,6 +1355,7 @@ async def test_g2_approval_does_not_swallow_other_errors(tmp_path):
             task_queue="test-error-not-swallowed",
             workflows=[EpisodeWorkflowV2, RaiseDifferentErrorOnSignal],
             activities=_make_activities(),
+            interceptors=[_FailStillsApprovedSignalInterceptor()],
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
@@ -1309,44 +1363,50 @@ async def test_g2_approval_does_not_swallow_other_errors(tmp_path):
                 id="test-error-not-swallowed-workflow",
                 task_queue="test-error-not-swallowed",
             )
-            
+
+            async def state():
+                return await asyncio.wait_for(
+                    handle.query(EpisodeWorkflowV2.get_state, rpc_timeout=timedelta(seconds=2)), timeout=3)
+
             try:
-                # Wait for G1 and approve
                 for _ in range(50):
                     try:
-                        state = await handle.query(EpisodeWorkflowV2.get_state)
-                        if state["current_gate"] == "G1_SHOT_PLAN":
+                        if (await state())["current_gate"] == "G1_SHOT_PLAN":
                             break
-                    except:
+                    except Exception:
                         pass
                     await asyncio.sleep(0.1)
-                
                 await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
-                await asyncio.sleep(0.5)
-                
-                # Wait for shot to fail
+
                 for _ in range(50):
                     try:
-                        state = await handle.query(EpisodeWorkflowV2.get_state)
-                        if len(state.get("failed_shots", [])) > 0:
+                        if len((await state()).get("failed_shots", [])) > 0:
                             break
-                    except:
+                    except Exception:
                         pass
                     await asyncio.sleep(0.1)
-                
-                # Approve G2 - this will try to signal the child, which raises INTERNAL error
-                # This error should NOT be caught - it should propagate and fail the workflow
+
+                # Approve G2 -> parent signals the child -> SimulatedSignalFailure.
                 await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
-                await asyncio.sleep(2.0)
-                
-                # The workflow should have FAILED (not silently swallowed the error)
-                desc = await handle.describe()
-                assert desc.status.name == "FAILED", \
-                    f"Workflow should have FAILED due to non-NOT_FOUND error, got: {desc.status.name}"
+
+                status = None
+                for _ in range(50):
+                    status = (await handle.describe()).status.name
+                    if status == "FAILED":
+                        break
+                    await asyncio.sleep(0.1)
+                assert status == "FAILED", \
+                    f"Workflow should have FAILED due to a non-NotFound signal error, got: {status}"
+                failure = None
+                async for ev in handle.fetch_history_events():
+                    if ev.HasField("workflow_execution_failed_event_attributes"):
+                        failure = ev.workflow_execution_failed_event_attributes.failure
+                assert failure is not None and "SimulatedSignalFailure" in str(failure), \
+                    f"Episode failed for the wrong reason: {failure}"
             finally:
                 try:
                     await handle.terminate("test done")
-                except:
+                except Exception:
                     pass
 
 
@@ -1373,7 +1433,7 @@ async def test_g2_refused_while_retry_pending(tmp_path):
         async with Worker(
             env.client,
             task_queue="test-g2-refused",
-            workflows=[EpisodeWorkflowV2, PendingRetryWorkflow],
+            workflows=[EpisodeWorkflowV2, SlowRetryWorkflowForPendingTest],
             activities=_make_activities(),
         ):
             handle = await env.client.start_workflow(
@@ -1417,15 +1477,18 @@ async def test_g2_refused_while_retry_pending(tmp_path):
                     f"Should have pending retry, got: {state.get('pending_retries')}"
                 
                 # Try to approve G2 - this MUST be refused
+                # (plain assert, not pytest.fail: redgreen requires an AssertionError when red)
+                error_msg = None
                 try:
                     await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
-                    pytest.fail("G2 approval should have been refused while retry is pending")
                 except WorkflowUpdateFailedError as e:
                     error_msg = str(e.cause)
-                    assert "retry is pending" in error_msg.lower(), \
-                        f"Error should mention 'retry is pending', got: {error_msg}"
-                    assert "A01" in error_msg, \
-                        f"Error should mention shot ID A01, got: {error_msg}"
+                assert error_msg is not None, \
+                    "G2 approval should have been refused while retry is pending"
+                assert "retry is pending" in error_msg.lower(), \
+                    f"Error should mention 'retry is pending', got: {error_msg}"
+                assert "A01" in error_msg, \
+                    f"Error should mention shot ID A01, got: {error_msg}"
             finally:
                 try:
                     await handle.terminate("test done")

@@ -446,7 +446,7 @@ class EpisodeWorkflowV2:
             
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[episode_id, shot_plan],
+                args=[workflow.info().workflow_id, shot_plan],
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
@@ -520,11 +520,12 @@ class EpisodeWorkflowV2:
             if handle:
                 try:
                     await handle.signal("stills_approved")
-                except workflow.RPCError as e:
+                except ApplicationError as e:
                     # Bug #1: If a shot already finished (failed, not retried), signaling it
-                    # raises RPCError with status NOT_FOUND. This is normal - just log it.
-                    # Re-raise any other error (wrong status, or non-RPC errors)
-                    if e.status != workflow.RPCStatusCode.NOT_FOUND:
+                    # from inside the workflow fails with ApplicationError of type
+                    # "ExternalWorkflowExecutionNotFound" (there is no RPCError in workflow
+                    # code). This is normal - just log it. Re-raise anything else.
+                    if e.type != "ExternalWorkflowExecutionNotFound":
                         raise
                     workflow.logger.info(
                         f"Could not signal {shot['shot_id']} (already finished): {e}"
@@ -722,6 +723,26 @@ class EpisodeWorkflowV2:
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
+    @workflow.signal
+    def retry_still_ready(self, shot_id: str, attempt: int):
+        """
+        Signal from retry child: its still has landed (produced and available for review).
+        
+        This signal clears pending_retries for this shot, allowing G2 approval.
+        The design: G2 approval requires all retry stills to be produced and reviewed.
+        The retry child sends this after producing its still(s) and BEFORE waiting for
+        stills_approved. G2 approval then counts as reviewing that still.
+        
+        Args:
+            shot_id: Shot ID whose retry still is ready
+            attempt: Attempt number (for logging/verification)
+        """
+        if shot_id in self.state.pending_retries:
+            workflow.logger.info(f"Retry still ready for {shot_id} (attempt {attempt}), clearing pending_retries")
+            self.state.pending_retries.pop(shot_id, None)
+        else:
+            workflow.logger.warning(f"retry_still_ready called for {shot_id} but not in pending_retries")
+    
     @workflow.update
     async def retry_shot(self, shot_id: str) -> dict:
         """
@@ -835,7 +856,7 @@ class EpisodeWorkflowV2:
         try:
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[self.state.episode_id, shot_plan],
+                args=[workflow.info().workflow_id, shot_plan],
                 id=workflow_id,
                 task_queue=workflow.info().task_queue,
             )

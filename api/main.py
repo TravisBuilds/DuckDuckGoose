@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from temporalio.client import Client as TemporalClient
+from temporalio.client import WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
 
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
@@ -798,12 +799,31 @@ async def approve_gate(
                         "message": f"Approval sent for gate {request.gate_id}",
                         "note": request.note,
                     }
-                except ApplicationError as e:
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
                     # Validator refused - return 409 Conflict
+                    cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"G1 approval refused: {str(e)}"
+                        detail=f"G1 approval refused: {str(cause)}"
                     )
+            elif request.gate_id.lower() == "g2_scene_stills":
+                # G2 is a workflow update (validator refuses while a retry is pending).
+                # A signal to an update handler is silently dropped, so it MUST be an update.
+                try:
+                    await handle.execute_update(signal_name)
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
+                    cause = getattr(e, "cause", None) or e
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"G2 approval refused: {str(cause)}"
+                    )
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "gate_id": request.gate_id,
+                    "message": f"Approval sent for gate {request.gate_id}",
+                    "note": request.note,
+                }
             else:
                 # Other gates use signal
                 await handle.signal(signal_name)
@@ -817,6 +837,8 @@ async def approve_gate(
         
         raise HTTPException(status_code=404, detail=f"No running EpisodeWorkflowV2 found for episode {episode_id}")
         
+    except HTTPException:
+        raise  # keep 404/409 - do not turn them into 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
 
