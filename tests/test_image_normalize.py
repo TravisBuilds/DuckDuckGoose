@@ -1,11 +1,20 @@
 """Tests for reference image normalization."""
 
 import pytest
+import os
 from pathlib import Path
 from PIL import Image
 import tempfile
 
 from hfvg.image_normalize import normalize_reference_image, compute_file_sha256
+
+
+@pytest.fixture(autouse=True)
+def clear_skip_normalize():
+    """Clear SKIP_IMAGE_NORMALIZE env var before each test."""
+    if "SKIP_IMAGE_NORMALIZE" in os.environ:
+        del os.environ["SKIP_IMAGE_NORMALIZE"]
+    yield
 
 
 def create_test_image(path: Path, size: tuple[int, int], mode: str = "RGB") -> None:
