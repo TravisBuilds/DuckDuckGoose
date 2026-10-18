@@ -1500,6 +1500,18 @@ test_mutation 159 "Normalize cache key includes size limits" \
     "tests/test_image_normalize_enhancements.py::test_cache_key_includes_size_limits" \
     sed -i 's/cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"/cache_key = f"{source_sha}"  # MUTATED/'
 
+# 160: an embedded ICC profile is converted to sRGB pixel values (not silently skipped)
+test_mutation 160 "ICC profile converted to sRGB" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_icc_profile_converted_to_srgb" \
+    sed -i 's/input_profile = ImageCms.ImageCmsProfile(_io.BytesIO(icc_bytes))/input_profile = ImageCms.ImageCmsProfile(icc_bytes)  # MUTATED (raw bytes: TypeError, swallowed)/'
+
+# 161: RGBA refs (Studio PNGs) get their ICC profile converted too
+test_mutation 161 "ICC conversion covers RGBA refs" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_icc_profile_converted_for_rgba_png" \
+    sed -i 's/img.mode in ("RGB", "RGBA", "CMYK"):/img.mode in ("RGB", "CMYK"):  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

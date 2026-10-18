@@ -101,15 +101,21 @@ def normalize_reference_image(
     if ImageOps is not None:
         img = ImageOps.exif_transpose(img)
     
-    # Convert ICC profile to sRGB if present
-    if ImageCms is not None and img.mode == "RGB" and "icc_profile" in img.info:
+    # Convert an embedded ICC profile to sRGB pixel values (RGB, RGBA - e.g. Studio PNG refs - and CMYK).
+    # ImageCmsProfile needs a file-like object: raw bytes raise TypeError, which used to be swallowed
+    # so no ref was ever converted.
+    icc_bytes = img.info.get("icc_profile")
+    if ImageCms is not None and icc_bytes and img.mode in ("RGB", "RGBA", "CMYK"):
         try:
+            import io as _io
             srgb_profile = ImageCms.createProfile("sRGB")
-            input_profile = ImageCms.ImageCmsProfile(img.info["icc_profile"])
-            img = ImageCms.profileToProfile(img, input_profile, srgb_profile, outputMode="RGB")
-        except Exception:
-            # If ICC conversion fails, continue without it (better than crashing)
-            pass
+            input_profile = ImageCms.ImageCmsProfile(_io.BytesIO(icc_bytes))
+            out_mode = "RGBA" if img.mode == "RGBA" else "RGB"
+            img = ImageCms.profileToProfile(img, input_profile, srgb_profile, outputMode=out_mode)
+        except (ImageCms.PyCMSError, OSError, ValueError, TypeError) as e:
+            # A broken/unsupported profile must not block the ref; keep the pixels, but say so.
+            if hasattr(activity, "logger"):
+                activity.logger.warning(f"ICC -> sRGB conversion skipped for {source_path.name}: {e!r}")
     
     # Convert to RGB (flatten alpha onto white background)
     if img.mode in ("RGBA", "LA", "P"):

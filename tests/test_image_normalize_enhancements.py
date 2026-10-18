@@ -24,45 +24,48 @@ def _create_test_image_with_exif(path: Path, orientation: int = 6) -> None:
     img.save(path, "JPEG", exif=exif)
 
 
+def _swapped_primaries_icc() -> bytes:
+    """A minimal, valid ICC v2 RGB matrix/TRC display profile whose red and green primaries are
+    SWAPPED relative to sRGB (gamma 2.2). A pixel that is pure green in this space is sRGB red, so a
+    correct ICC -> sRGB conversion turns (0, 255, 0) into red; skipping the conversion leaves it green."""
+    import struct
+
+    def s15(v):
+        return struct.pack(">i", int(round(v * 65536)))
+
+    def xyz(x, y, z):
+        return b"XYZ " + b"\0" * 4 + s15(x) + s15(y) + s15(z)
+
+    curv = b"curv" + b"\0" * 4 + struct.pack(">I", 1) + struct.pack(">H", 0x0233) + b"\0\0"  # gamma 2.2
+    text = b"swapped-RG test profile"
+    desc = (b"desc" + b"\0" * 4 + struct.pack(">I", len(text) + 1) + text + b"\0"
+            + b"\0" * 8 + b"\0" * 3 + b"\0" * 67)
+    srgb_r, srgb_g, srgb_b = (0.4361, 0.2225, 0.0139), (0.3851, 0.7169, 0.0971), (0.1431, 0.0606, 0.7141)
+    tags = [(b"desc", desc), (b"wtpt", xyz(0.9642, 1.0, 0.8249)),
+            (b"rXYZ", xyz(*srgb_g)), (b"gXYZ", xyz(*srgb_r)), (b"bXYZ", xyz(*srgb_b)),   # R <-> G swapped
+            (b"rTRC", curv), (b"gTRC", curv), (b"bTRC", curv)]
+    offset = 128 + 4 + 12 * len(tags)
+    table, data = b"", b""
+    for sig, body in tags:
+        while (offset + len(data)) % 4:
+            data += b"\0"
+        table += sig + struct.pack(">II", offset + len(data), len(body))
+        data += body
+    body = struct.pack(">I", len(tags)) + table + data
+    size = 128 + len(body)
+    header = (struct.pack(">I", size) + b"\0" * 4 + bytes([2, 0x10, 0, 0]) + b"mntrRGB XYZ " + b"\0" * 12
+              + b"acsp" + b"\0" * 4 + b"\0" * 4 + b"\0" * 8 + b"\0" * 8 + b"\0" * 4
+              + s15(0.9642) + s15(1.0) + s15(0.8249) + b"\0" * 4 + b"\0" * 16 + b"\0" * 28)
+    assert len(header) == 128
+    return header + body
+
+
 def _create_image_with_icc(path: Path) -> None:
-    """Create a test image with ICC color profile."""
-    # Create a simple green image  
-    img = Image.new("RGB", (100, 100), (0, 255, 0))
-    
-    # Save and reload to get a valid ICC profile
-    # First save as PNG
-    img.save(path, "PNG")
-    
-    # Reload and verify we can attach an ICC profile
-    img = Image.open(path)
-    
-    # Create sRGB profile for testing
-    srgb_profile = ImageCms.createProfile("sRGB")
-    
-    # Get profile bytes using buildTransform and tobytes
-    # We need to save the profile in a way Pillow can read it back
-    # The easiest way is to use an image that already has a profile
-    # or to manually construct the bytes
-    try:
-        # Try to get the profile bytes via a temp transform
-        import io
-        temp_img = Image.new("RGB", (10, 10))
-        # Use profileToProfile which handles the conversion
-        converted = ImageCms.profileToProfile(temp_img, srgb_profile, srgb_profile)
-        if "icc_profile" in converted.info:
-            profile_bytes = converted.info["icc_profile"]
-        else:
-            # Fallback: just mark the image as having a profile
-            # The test will verify the code path is exercised
-            img.save(path, "PNG")
-            return
-    except:
-        # If that fails, just save without profile
-        img.save(path, "PNG")
-        return
-    
-    # Save with the ICC profile
-    img.save(path, "PNG", icc_profile=profile_bytes)
+    """Pure-green PNG tagged with the swapped-primaries profile (embedded iCCP); fails loudly if the
+    profile cannot be embedded instead of silently falling back to an untagged image."""
+    profile = _swapped_primaries_icc()
+    ImageCms.ImageCmsProfile(io.BytesIO(profile))  # must parse as a valid ICC profile
+    Image.new("RGB", (100, 100), (0, 255, 0)).save(path, "PNG", icc_profile=profile)
 
 
 def test_exif_orientation_applied(tmp_path):
@@ -82,26 +85,28 @@ def test_exif_orientation_applied(tmp_path):
 
 
 def test_icc_profile_converted_to_srgb(tmp_path):
-    """Test that ICC profiles are converted to sRGB."""
+    """A non-sRGB tagged ref must be converted to sRGB pixel values, not just have its tag stripped."""
     src = tmp_path / "with_icc.png"
     _create_image_with_icc(src)
-    
-    # Verify the source has an ICC profile
-    src_img = Image.open(src)
-    assert "icc_profile" in src_img.info, "Source image must have ICC profile for this test"
-    
+    with Image.open(src) as src_img:
+        assert src_img.info.get("icc_profile") == _swapped_primaries_icc(), "source must carry the test profile"
+        assert src_img.getpixel((50, 50)) == (0, 255, 0)
+
     out, _ = normalize_reference_image(src, cache_dir=tmp_path / "cache")
-    
-    # Output should be JPEG
-    assert out.exists()
-    assert out.suffix == ".jpg"
-    
-    # Verify the image was processed (RGB mode, correct dimensions)
     result = Image.open(out)
-    assert result.mode == "RGB"
-    assert result.size == (100, 100)
-    
-    # The ICC conversion code path was exercised (function didn't crash with ICC profile present)
+    assert out.suffix == ".jpg" and result.mode == "RGB" and result.size == (100, 100)
+    r, g, b = result.getpixel((50, 50))
+    # In the swapped space, stored green == sRGB red. Without conversion the output stays green.
+    assert r > 200 and g < 80 and b < 80, f"ICC profile not converted to sRGB: got {(r, g, b)}, expected ~red"
+
+
+def test_icc_profile_converted_for_rgba_png(tmp_path):
+    """Studio refs are RGBA PNGs: their ICC profile must be converted too (then alpha is flattened)."""
+    src = tmp_path / "rgba_icc.png"
+    Image.new("RGBA", (100, 100), (0, 255, 0, 255)).save(src, "PNG", icc_profile=_swapped_primaries_icc())
+    out, _ = normalize_reference_image(src, cache_dir=tmp_path / "cache")
+    r, g, b = Image.open(out).getpixel((50, 50))
+    assert r > 200 and g < 80 and b < 80, f"RGBA ref ICC profile not converted to sRGB: got {(r, g, b)}"
 
 
 def test_cache_key_includes_size_limits(tmp_path):
