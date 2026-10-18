@@ -1363,7 +1363,10 @@ test_mutation 136 "G2 approval accepted after retry completes" \
 # 137: SKIP - No longer relevant with new design (pending_retries cleared by retry_still_ready)
 # The 30s wait was removed, but adding it back has no effect because pending_retries is
 # always empty at this point (cleared when retry still lands, not when shot finishes).
-skip_mutation 137 "No 30s pending-retry wait after G2 (obsolete with new design)"
+# test_mutation 137 "No 30s pending-retry wait after G2" \
+#     "hfvg/workflows/episode_v2.py" \
+#     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+#     sed -i '/comment-does-not-exist/'
 
 # 138: G2 API route must use execute_update (a signal to an update handler is dropped)
 test_mutation 138 "API G2 approval uses execute_update, not signal" \
