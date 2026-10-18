@@ -99,11 +99,3 @@ def test_end_prompt_cannot_be_empty():
     
     with pytest.raises(ShotDataError, match="empty end_prompt"):
         parse_shots(data)
-
-
-def test_end_prompt_used_for_end_frame():
-    """Test: _end still uses end_prompt when provided, falls back to prompt."""
-    # This would need to be tested in the workflow/activity tests
-    # where we verify that when end_frame=True and end_prompt is set,
-    # the _end still generation uses end_prompt instead of prompt
-    pass
