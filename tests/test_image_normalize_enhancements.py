@@ -112,21 +112,25 @@ def test_atomic_cache_write(tmp_path, monkeypatch):
     Image.new("RGB", (100, 100), "red").save(src)
     cache = tmp_path / "cache"
     
-    # Track what files exist during the save operation
-    files_during_save = []
-    original_save = Image.Image.save
+    # Track rename operations to verify atomic write
+    import pathlib
+    original_rename = pathlib.Path.rename
+    renames = []
     
-    def track_save(self, fp, *args, **kwargs):
-        files_during_save.extend(cache.glob("*"))
-        return original_save(self, fp, *args, **kwargs)
+    def track_rename(self, target):
+        renames.append((str(self), str(target)))
+        return original_rename(self, target)
     
-    monkeypatch.setattr(Image.Image, "save", track_save)
+    monkeypatch.setattr(pathlib.Path, "rename", track_rename)
     
     out, _ = normalize_reference_image(src, cache_dir=cache)
     
-    # During save, there should have been a .tmp file
-    temp_files = [f for f in files_during_save if f.suffix == ".tmp"]
-    assert len(temp_files) > 0, "No temp file created during save"
+    # Should have renamed from .tmp to .jpg
+    assert len(renames) > 0, "No rename operation performed"
+    src_file, dst_file = renames[-1]
+    assert src_file.endswith(".tmp"), f"Source of rename not a temp file: {src_file}"
+    assert dst_file.endswith(".jpg"), f"Destination of rename not .jpg: {dst_file}"
+    assert dst_file == str(out), "Renamed to wrong destination"
     
     # After completion, no .tmp files should remain
     remaining_temps = list(cache.glob("*.tmp"))
