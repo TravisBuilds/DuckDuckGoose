@@ -126,10 +126,11 @@ class FailOnceThenSucceedWorkflow:
     """Fails on first attempt, succeeds on retry."""
     def __init__(self):
         self.call_count = 0
+        self.approved = False
     
     @workflow.signal
     def stills_approved(self):
-        pass
+        self.approved = True
     
     @workflow.signal
     def resume_after_cap_raise(self):
@@ -144,7 +145,8 @@ class FailOnceThenSucceedWorkflow:
             # First attempt fails
             return {"status": "failed", "error": "First attempt failed"}
         else:
-            # Retry succeeds
+            # Retry succeeds after waiting for approval
+            await workflow.wait_condition(lambda: self.approved)
             return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
 
 
