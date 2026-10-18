@@ -883,6 +883,17 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             
             # Retry the shot - this creates a new workflow with version 2
             await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+            
+            # Wait for retry workflow to actually start
+            retry_handle_id = "ep_test-shot-A01-retry1"
+            retry_handle = env.client.get_workflow_handle(retry_handle_id)
+            for _ in range(30):
+                try:
+                    await retry_handle.query("get_signaled_version")
+                    break  # Workflow exists and responds
+                except:
+                    await asyncio.sleep(0.1)
+            
             await asyncio.sleep(0.5)
             
             # Approve G2 - this signals stills_approved to shot workflows
@@ -890,12 +901,11 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
             # not the original (ep_test-shot-A01)
             await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
             
-            # Wait for signals to propagate and workflows to process
-            await asyncio.sleep(1.5)
+            # Wait for signals to propagate and retry workflow to process them
+            # The retry workflow needs time to: receive signal, set version, sleep 0.5s
+            await asyncio.sleep(3.0)
             
             # Query the RETRY workflow to verify IT received the signal (version 2)
-            retry_handle_id = "ep_test-shot-A01-retry1"
-            retry_handle = env.client.get_workflow_handle(retry_handle_id)
             signaled_version = await retry_handle.query("get_signaled_version")
             
             # The mutation would cause version 1 (original) or None to be signaled
