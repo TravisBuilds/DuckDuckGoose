@@ -38,6 +38,43 @@ from hfvg.pricing import (
 )
 from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
+
+
+def assemble_still_refs(
+    lead: str | None,
+    anchor: str | None,
+    planned: list[str],
+    cap: int,
+) -> tuple[list[str], bool]:
+    """
+    Assemble still refs in priority order: [lead] + [anchor] + planned.
+    When lead + anchor + planned > cap, the anchor is dropped first (lead takes priority).
+    If still over cap after dropping anchor, the result exceeds cap and the caller must refuse.
+
+    Args:
+        lead: optional lead reference (e.g. start still for _end frames)
+        anchor: optional anchor still path
+        planned: list of planned ref paths
+        cap: max refs for the model
+
+    Returns:
+        (assembled_refs, anchor_used): final ref list and whether anchor was kept
+    """
+    refs = (
+        ([lead] if lead else [])
+        + ([anchor] if anchor else [])
+        + planned
+    )
+
+    anchor_used = bool(anchor)
+
+    # Rule: when lead + anchor + planned > cap, drop the anchor first
+    if lead and anchor and len(refs) > cap:
+        refs = [lead] + planned
+        anchor_used = False
+
+    return refs, anchor_used
+
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
@@ -368,14 +405,16 @@ async def submit_still_job_enforced(
     lead_sha8 = lead_sha[:8] if lead_sha else None
 
     # Assemble in priority order: [lead (start still)] + [anchor] + planned refs.
-    refs_with_anchor = ([lead_local] if lead_local else []) + ([anchor_path] if anchor else []) + planned_refs
+    refs_with_anchor, anchor_used = assemble_still_refs(
+        lead=lead_local,
+        anchor=anchor_path if anchor else None,
+        planned=planned_refs,
+        cap=max_refs_for(still_model_path()),
+    )
     still_cap = max_refs_for(still_model_path())
-    anchor_used = bool(anchor)
-    # Rule: when a lead ref is present and the set is over the cap, the ANCHOR is dropped first (the
-    # start still already carries the anchored look). Nothing else is ever dropped.
-    if lead_local and anchor and len(refs_with_anchor) > still_cap:
-        del refs_with_anchor[1]   # the anchor (index 0 is the lead)
-        anchor_used = False
+    
+    # Log decisions
+    if lead_local and anchor and not anchor_used:
         activity.logger.info(
             f"Dropped anchor still from {anchor['anchor_shot_id']} for {shot_id}: lead ref (start still) present "
             f"and {len(refs_with_anchor) + 1} refs > {still_model_path()} cap {still_cap}"

@@ -26,51 +26,65 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
     return table
 
 
-# Per-model max reference images (documented limits, harness default capped at 8). Sources:
-# - xai/grok-imagine-image-2.0: image_urls maxItems 10 documented
-#   https://docs.higgsfield.ai/docs/models/grok-image-2/generate-and-edit  -> EFFECTIVE harness cap 5.
-#   Live evidence (ep05 canary, Oct 18 2026, all 1k medium 9:16): every instant failure (only
-#   "Generation failed", ~6 s, no charge) came with 6-7 image_urls - A02_end-r2
-#   97be983c-09c6-43fd-b713-2e4459bd5b20 and A02_end-r3 8b427df8-8f15-4481-ae35-8d3271731297 (6 refs:
-#   start still, A01 anchor, duck, family, mochi, pool) - while every success had <=5 - A02-r2
-#   626c6461-2d96-4303-ab7f-3a8ff63a65db and A02-r3 3fe9f971-2ad4-4e78-91cf-11dda9943963 (5 refs each:
-#   A01 anchor, duck, family, mochi, pool). The documented 10 is not what the model accepts in
-#   practice, so the harness refuses above 5. Override per model (no code change) with
-#   MODEL_MAX_REFS_JSON='{"xai/grok-imagine-image-2.0": 6}' once the provider confirms a higher limit.
-# - alibaba/qwen-image-3/edit: image_urls minItems 1, maxItems 3
-#   https://docs.higgsfield.ai/docs/models/qwen-image-3/edit  -> 3
-# - bytedance/seedance-2.5/reference-to-video: image_urls maxItems 30 (50 media total)
-#   https://docs.higgsfield.ai/docs/models/seedance-2-5/reference-to-video  -> harness cap 8
-# - kling-video/v3.0/pro/image-to-video: only image_url + last_image_url frames; "elements" has no
-#   documented maxItems (UNCONFIRMED)  https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video -> 3
-# Any model not in the table falls back to STILL_MAX_REFS (default 3).
-DEFAULT_MODEL_MAX_REFS: dict[str, int] = {
-    "xai/grok-imagine-image-2.0": 5,   # xAI docs: "up to five source images"
-    "alibaba/qwen-image-3/edit": 3,
-    "bytedance/seedance-2.5/reference-to-video": 8,
-    "kling-video/v3.0/pro/image-to-video": 3,
-}
-
-
-def model_max_refs_table() -> dict[str, int]:
-    """Defaults merged with MODEL_MAX_REFS_JSON ('{"model/path": n}'), read at call time."""
-    table = dict(DEFAULT_MODEL_MAX_REFS)
-    override = os.getenv("MODEL_MAX_REFS_JSON")
-    if override:
-        for model, cap in json.loads(override).items():
-            cap = int(cap)
-            if cap < 0:
-                raise ValueError(f"MODEL_MAX_REFS_JSON: negative cap for {model}")
-            table[model] = cap
-    return table
+# Reference image caps are now managed by the model capabilities registry (hfvg/model_caps.py).
+# See docs/MODEL-CAPS.md for details.
 
 
 def max_refs_for(model_path: str) -> int:
-    """Max reference images for model_path; unknown models fall back to STILL_MAX_REFS (3)."""
-    table = model_max_refs_table()
-    if model_path in table:
-        return table[model_path]
-    return int(os.getenv("STILL_MAX_REFS", "3"))
+    """
+    Max reference images for model_path from the registry.
+    Unknown models raise UnknownModelError (no fallback).
+    MODEL_MAX_REFS_JSON may lower (never raise) a registry cap unless MODEL_CAPS_ALLOW_RAISE=1.
+    """
+    from hfvg import model_caps
+
+    registry = model_caps.get_registry()
+    caps = registry.resolve(model_path)  # raises UnknownModelError
+    limit = caps.limit("max_refs")
+
+    if limit is None or limit.unknown:
+        raise model_caps.UnknownModelError(
+            f"Model '{model_path}' has no max_refs limit in the registry"
+        )
+
+    registry_value = limit.value
+    if not isinstance(registry_value, int) or registry_value < 0:
+        raise ValueError(f"Invalid max_refs value for {model_path}: {registry_value}")
+
+    # Check for MODEL_MAX_REFS_JSON override
+    override_json = os.getenv("MODEL_MAX_REFS_JSON")
+    if override_json:
+        overrides = json.loads(override_json)
+        if model_path in overrides:
+            override_value = int(overrides[model_path])
+            if override_value < 0:
+                raise ValueError(f"MODEL_MAX_REFS_JSON: negative cap for {model_path}")
+
+            # Lowering is always allowed
+            if override_value <= registry_value:
+                return override_value
+
+            # Raising requires explicit flag
+            if os.getenv("MODEL_CAPS_ALLOW_RAISE") == "1":
+                source_info = limit.source_urls(registry)
+                source_desc = (
+                    f"{source_info[0][0]} checked {source_info[0][1]}"
+                    if source_info
+                    else "registry"
+                )
+                logger.warning(
+                    "MODEL_MAX_REFS_JSON raising cap",
+                    model=model_path,
+                    registry_value=registry_value,
+                    override_value=override_value,
+                    source=source_desc,
+                )
+                return override_value
+            else:
+                # Silently clamp to registry value (don't raise)
+                return registry_value
+
+    return registry_value
 
 
 def still_model_path() -> str:
