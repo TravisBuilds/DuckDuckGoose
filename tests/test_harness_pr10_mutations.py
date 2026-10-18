@@ -968,6 +968,78 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
 
 
 # ============================================================================
+
+# Additional workflows for G2 safety tests (module-level)
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class PendingRetryWorkflow:
+    """Fails on first attempt, retry stays pending until signaled."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        version = shot_dict.get("version", 1)
+        if version == 1:
+            return {"status": "failed", "error": "First attempt failed"}
+        else:
+            # Stay pending - wait forever until signaled
+            await workflow.wait_condition(lambda: self.approved)
+            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class QuickRetryWorkflow:
+    """Fails on first attempt, retry completes immediately."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        version = shot_dict.get("version", 1)
+        if version == 1:
+            return {"status": "failed", "error": "First attempt failed"}
+        else:
+            # Retry completes immediately (still is "produced")
+            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class RaiseDifferentErrorOnSignal:
+    """Returns failed, then raises a non-NOT_FOUND error when signaled."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        # Simulate a different error (not NOT_FOUND)
+        raise RPCError("Something went wrong", RPCStatusCode.INTERNAL, b"")
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        return {"status": "failed", "error": "Fails immediately"}
+
+
 # Bug Fix workflows (module-level to avoid "local class" error)
 # ============================================================================
 
@@ -1223,25 +1295,7 @@ async def test_g2_approval_does_not_swallow_other_errors(tmp_path):
     from temporalio.worker import Worker
     from temporalio.service import RPCError, RPCStatusCode
     
-    @workflow.defn(name="ShotWorkflow", sandboxed=False)
-    class RaiseDifferentErrorOnSignal:
-        """Returns failed, then raises a non-NOT_FOUND error when signaled."""
-        def __init__(self):
-            self.approved = False
-        
-        @workflow.signal
-        def stills_approved(self):
-            # Simulate a different error (not NOT_FOUND)
-            raise RPCError("Something went wrong", RPCStatusCode.INTERNAL, b"")
-        
-        @workflow.signal
-        def resume_after_cap_raise(self):
-            pass
-        
-        @workflow.run
-        async def run(self, episode_id: str, shot_dict: dict) -> dict:
-            return {"status": "failed", "error": "Fails immediately"}
-    
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -1312,32 +1366,9 @@ async def test_g2_refused_while_retry_pending(tmp_path):
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
-    from temporalio.exceptions import WorkflowUpdateFailedError
+    from temporalio.client import WorkflowUpdateFailedError
     
-    @workflow.defn(name="ShotWorkflow", sandboxed=False)
-    class PendingRetryWorkflow:
-        """Fails on first attempt, retry stays pending until signaled."""
-        def __init__(self):
-            self.approved = False
-        
-        @workflow.signal
-        def stills_approved(self):
-            self.approved = True
-        
-        @workflow.signal
-        def resume_after_cap_raise(self):
-            pass
-        
-        @workflow.run
-        async def run(self, episode_id: str, shot_dict: dict) -> dict:
-            version = shot_dict.get("version", 1)
-            if version == 1:
-                return {"status": "failed", "error": "First attempt failed"}
-            else:
-                # Stay pending - wait forever until signaled
-                await workflow.wait_condition(lambda: self.approved)
-                return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
-    
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -1414,29 +1445,7 @@ async def test_g2_accepted_after_retry_completes(tmp_path):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     
-    @workflow.defn(name="ShotWorkflow", sandboxed=False)
-    class QuickRetryWorkflow:
-        """Fails on first attempt, retry completes immediately."""
-        def __init__(self):
-            self.approved = False
-        
-        @workflow.signal
-        def stills_approved(self):
-            self.approved = True
-        
-        @workflow.signal
-        def resume_after_cap_raise(self):
-            pass
-        
-        @workflow.run
-        async def run(self, episode_id: str, shot_dict: dict) -> dict:
-            version = shot_dict.get("version", 1)
-            if version == 1:
-                return {"status": "failed", "error": "First attempt failed"}
-            else:
-                # Retry completes immediately (still is "produced")
-                return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
-    
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
