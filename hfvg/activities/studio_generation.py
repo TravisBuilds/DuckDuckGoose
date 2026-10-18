@@ -14,6 +14,7 @@ Real providers only when all checks pass.
 """
 
 import os
+import json
 import asyncio
 import uuid
 import hashlib
@@ -1077,8 +1078,12 @@ async def poll_job_status(
         if job_status.status.value in ("failed", "blocked", "canceled"):
             # Provider job failed - must fail fast, release BOTH credit and USD reservations,
             # and surface the error message
+            raw = getattr(job_status, "raw", None)
+            hdrs = getattr(job_status, "response_headers", None) or {}
+            cid = hdrs.get("x-correlation-id")
             activity.logger.error(
-                f"Job {provider_job_id} (harness {job_id}) {job_status.status.value}: {job_status.error}"
+                f"Job {provider_job_id} (harness {job_id}) {job_status.status.value}: {job_status.error} "
+                f"| raw status body: {json.dumps(raw)} | response headers: {json.dumps(hdrs)}"
             )
             
             # Release credit reservation using harness job_id
@@ -1092,11 +1097,16 @@ async def poll_job_status(
             # The workflow calls release_job_budget with the job info it stored from submit
             
             # Return terminal failure status immediately
+            error = job_status.error or f"Job {job_status.status.value}"
+            if cid:
+                error = f"{error} (x-correlation-id {cid})"
             return {
                 "status": job_status.status.value,  # "failed", "blocked", or "canceled"
                 "output_url": None,
-                "error": job_status.error or f"Job {job_status.status.value}",
+                "error": error,
                 "cost": None,
+                "provider_raw": raw,
+                "provider_headers": hdrs,
             }
         
         # Return status without taking any budget actions for non-terminal states
@@ -1442,12 +1452,16 @@ async def await_job_enforced(
                 )
                 released = True  # Mark as released
                 
+                hdrs = getattr(job_status, "response_headers", None) or {}
                 activity.logger.error(
-                    f"Job {job_id} {job_status.status.value}: {job_status.error}"
+                    f"Job {job_id} {job_status.status.value}: {job_status.error} "
+                    f"| raw status body: {json.dumps(getattr(job_status, 'raw', None))} "
+                    f"| response headers: {json.dumps(hdrs)}"
                 )
                 
                 raise ValueError(
                     f"Generation {job_status.status.value}: {job_status.error}"
+                    + (f" (x-correlation-id {hdrs['x-correlation-id']})" if hdrs.get("x-correlation-id") else "")
                 )
             
             # Still processing

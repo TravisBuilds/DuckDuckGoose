@@ -9,6 +9,8 @@ Implements the documented Higgsfield API:
 """
 
 import os
+import json
+import logging
 import uuid
 import hashlib
 from pathlib import Path
@@ -20,6 +22,32 @@ from hfvg.config import config, max_refs_for
 from hfvg.pricing import estimate_from_response
 from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
+
+logger = logging.getLogger(__name__)
+RAW_BODY_LOG_LIMIT = 16_384  # bytes of a provider error body kept in logs / exceptions
+_HIDDEN_HEADERS = {"set-cookie", "authorization"}
+
+
+def response_headers(response: httpx.Response) -> dict[str, str]:
+    """All response headers except cookies/auth (X-Correlation-ID, cf-ray, date, ...)."""
+    try:
+        items = list(response.headers.items())
+    except (AttributeError, TypeError):  # test doubles without real headers
+        return {}
+    return {k: v for k, v in items if k.lower() not in _HIDDEN_HEADERS}
+
+
+def _is_http_error(response: httpx.Response) -> bool:
+    code = getattr(response, "status_code", 200)
+    return isinstance(code, int) and code >= 400
+
+
+def _body_text(response: httpx.Response) -> str:
+    try:
+        text = response.text
+    except Exception:  # undecodable body
+        text = repr(response.content[:RAW_BODY_LOG_LIMIT])
+    return text[:RAW_BODY_LOG_LIMIT]
 
 
 class HiggsfieldStillProvider(GenerationProvider):
@@ -363,9 +391,32 @@ class HiggsfieldStillProvider(GenerationProvider):
             json=payload,
             headers=headers,
         )
-        response.raise_for_status()
-        
+        summary = {
+            "model_path": self.model_path,
+            "n_image_urls": len(payload.get("image_urls") or []),
+            "image_urls": payload.get("image_urls") or [],
+            "prompt_chars": len(prompt),
+            "prompt_sha8": hashlib.sha256(prompt.encode()).hexdigest()[:8],
+            "params": {k: v for k, v in payload.items() if k not in ("prompt", "image_urls")},
+            "idempotency_key": idempotency_key,
+        }
+        hdrs = response_headers(response)
+        if _is_http_error(response):
+            body = _body_text(response)
+            logger.error(
+                "Higgsfield submit rejected: HTTP %s body=%s headers=%s request=%s",
+                response.status_code, body, json.dumps(hdrs), json.dumps(summary),
+            )
+            raise httpx.HTTPStatusError(
+                f"Higgsfield submit {self.model_path} -> HTTP {response.status_code} "
+                f"(x-correlation-id {hdrs.get('x-correlation-id')}): {body}",
+                request=response.request, response=response,
+            )
         data = response.json()
+        logger.info(
+            "Higgsfield submit accepted: request_id=%s x-correlation-id=%s request=%s",
+            data.get("request_id"), hdrs.get("x-correlation-id"), json.dumps(summary),
+        )
         # Documented API returns "request_id"
         return data["request_id"]
     
@@ -389,10 +440,23 @@ class HiggsfieldStillProvider(GenerationProvider):
         """
         # GET /requests/{request_id}/status per documented API
         response = await self.client.get(f"/requests/{request_id}/status")
-        response.raise_for_status()
+        hdrs = response_headers(response)
+        if _is_http_error(response):
+            body = _body_text(response)
+            logger.error("Higgsfield status %s -> HTTP %s body=%s headers=%s",
+                         request_id, response.status_code, body, json.dumps(hdrs))
+            raise httpx.HTTPStatusError(
+                f"Higgsfield status {request_id} -> HTTP {response.status_code} "
+                f"(x-correlation-id {hdrs.get('x-correlation-id')}): {body}",
+                request=response.request, response=response,
+            )
         
         data = response.json()
         status_str = data.get("status", "queued").lower()
+        if status_str in ("failed", "nsfw", "blocked", "canceled"):
+            # Terminal failure: keep the FULL raw body and headers (support needs X-Correlation-ID)
+            logger.error("Higgsfield request %s terminal %s: body=%s headers=%s",
+                         request_id, status_str, json.dumps(data), json.dumps(hdrs))
         
         # Map Higgsfield API status to ProviderJobStatus
         if status_str == "completed":
@@ -423,6 +487,8 @@ class HiggsfieldStillProvider(GenerationProvider):
             output_url=output_url,
             cost=cost,
             error=data.get("error"),
+            raw=data,
+            response_headers=hdrs,
         )
 
     async def get_balance(self) -> float:

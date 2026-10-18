@@ -1612,6 +1612,53 @@ test_mutation 181 "worker registers resolve_landed_start_still" \
     "tests/test_end_still_backfill.py::test_worker_registers_resolve_landed_start_still" \
     sed -i 's/^    activities.resolve_landed_start_still,/    # MUTATED activities.resolve_landed_start_still,/'
 
+# RAW PROVIDER EVIDENCE MUTATIONS: full failure body + headers (X-Correlation-ID)
+
+test_mutation 182 "terminal failure logs raw body+headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/^        if status_str in ("failed", "nsfw", "blocked", "canceled"):/        if False:  # MUTATED/'
+
+test_mutation 183 "ProviderJob keeps raw status body" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/^            raw=data,/            raw=None,  # MUTATED/'
+
+test_mutation 184 "cookies stripped from kept headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/ if k.lower() not in _HIDDEN_HEADERS}/}  # MUTATED/'
+
+test_mutation 185 "submit summary counts image_urls" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_submit_rejection_carries_body_headers_and_request_summary" \
+    sed -i 's/"n_image_urls": len(payload.get("image_urls") or \[\]),/"n_image_urls": 0,  # MUTATED/'
+
+test_mutation 186 "submit success logs correlation id" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_submit_success_logs_correlation_id_and_summary" \
+    sed -i 's/data.get("request_id"), hdrs.get("x-correlation-id"), json.dumps(summary),/data.get("request_id"), None, json.dumps(summary),  # MUTATED/'
+
+test_mutation 187 "status HTTP error keeps body" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_status_http_error_carries_body_and_correlation_id" \
+    sed -i '/Higgsfield status {request_id} -> HTTP {response.status_code}/{n;s/: {body}",/: <dropped>",  # MUTATED/}'
+
+test_mutation 188 "poll failure error carries correlation id" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                error = f"{error} (x-correlation-id {cid})"/                pass  # MUTATED/'
+
+test_mutation 189 "poll failure returns raw body" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                "provider_raw": raw,/                "provider_raw": None,  # MUTATED/'
+
+test_mutation 190 "poll failure logs raw body" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                f"| raw status body: {json.dumps(raw)} | response headers: {json.dumps(hdrs)}"/                f""  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?

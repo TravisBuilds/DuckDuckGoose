@@ -45,7 +45,7 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
 #   documented maxItems (UNCONFIRMED)  https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video -> 3
 # Any model not in the table falls back to STILL_MAX_REFS (default 3).
 DEFAULT_MODEL_MAX_REFS: dict[str, int] = {
-    "xai/grok-imagine-image-2.0": 5,   # effective limit (live evidence above); docs say 10
+    "xai/grok-imagine-image-2.0": 5,   # xAI docs: "up to five source images"
     "alibaba/qwen-image-3/edit": 3,
     "bytedance/seedance-2.5/reference-to-video": 8,
     "kling-video/v3.0/pro/image-to-video": 3,
