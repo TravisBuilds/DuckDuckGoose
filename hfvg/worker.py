@@ -43,6 +43,7 @@ PRODUCTION_ACTIVITIES = [
     activities.submit_clip_job_enforced,
     activities.await_job_enforced,
     activities.poll_job_status,
+    activities.resolve_landed_start_still,
     activities.commit_job_budget,
     activities.release_job_budget,
     activities.mark_job_pending_reconcile,

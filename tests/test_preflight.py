@@ -216,7 +216,7 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
     base_path = tmp_path / "data" / "episodes" / episode_id
     base_path.mkdir(parents=True, exist_ok=True)
     
-    # Shot needs 9 refs, exceeds still model cap of 8
+    # Shot needs 9 refs, exceeds still model cap of 5
     (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
     (base_path / "shots.json").write_text(json.dumps({
         "shots": [{
@@ -248,7 +248,7 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
         with pytest.raises(PreflightError) as exc_info:
             await preflight_validate_episode_activity(episode_id, None, False)
         
-        # Refs are checked against still model (Grok Image 2.0 cap 8), not clip model
+        # Refs are checked against still model (Grok Image 2.0 cap 5), not clip model
         assert "9" in str(exc_info.value) or "8" in str(exc_info.value)
         assert "A01" in str(exc_info.value)
     

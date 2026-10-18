@@ -27,8 +27,16 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
 
 
 # Per-model max reference images (documented limits, harness default capped at 8). Sources:
-# - xai/grok-imagine-image-2.0: image_urls maxItems 10
-#   https://docs.higgsfield.ai/docs/models/grok-image-2/generate-and-edit  -> harness cap 8
+# - xai/grok-imagine-image-2.0: image_urls maxItems 10 documented
+#   https://docs.higgsfield.ai/docs/models/grok-image-2/generate-and-edit  -> EFFECTIVE harness cap 5.
+#   Live evidence (ep05 canary, Oct 18 2026, all 1k medium 9:16): every instant failure (only
+#   "Generation failed", ~6 s, no charge) came with 6-7 image_urls - A02_end-r2
+#   97be983c-09c6-43fd-b713-2e4459bd5b20 and A02_end-r3 8b427df8-8f15-4481-ae35-8d3271731297 (6 refs:
+#   start still, A01 anchor, duck, family, mochi, pool) - while every success had <=5 - A02-r2
+#   626c6461-2d96-4303-ab7f-3a8ff63a65db and A02-r3 3fe9f971-2ad4-4e78-91cf-11dda9943963 (5 refs each:
+#   A01 anchor, duck, family, mochi, pool). The documented 10 is not what the model accepts in
+#   practice, so the harness refuses above 5. Override per model (no code change) with
+#   MODEL_MAX_REFS_JSON='{"xai/grok-imagine-image-2.0": 6}' once the provider confirms a higher limit.
 # - alibaba/qwen-image-3/edit: image_urls minItems 1, maxItems 3
 #   https://docs.higgsfield.ai/docs/models/qwen-image-3/edit  -> 3
 # - bytedance/seedance-2.5/reference-to-video: image_urls maxItems 30 (50 media total)
@@ -37,7 +45,7 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
 #   documented maxItems (UNCONFIRMED)  https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video -> 3
 # Any model not in the table falls back to STILL_MAX_REFS (default 3).
 DEFAULT_MODEL_MAX_REFS: dict[str, int] = {
-    "xai/grok-imagine-image-2.0": 8,
+    "xai/grok-imagine-image-2.0": 5,   # effective limit (live evidence above); docs say 10
     "alibaba/qwen-image-3/edit": 3,
     "bytedance/seedance-2.5/reference-to-video": 8,
     "kling-video/v3.0/pro/image-to-video": 3,

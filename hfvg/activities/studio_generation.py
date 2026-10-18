@@ -23,6 +23,7 @@ from typing import Any
 import aiosqlite
 import httpx
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from hfvg.budget import BudgetLedger, REVISION_LINE
 from hfvg.credit_ledger import CreditLedger
@@ -37,14 +38,16 @@ from hfvg.pricing import (
 from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
+from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
 
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
 
 
-async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> str:
-    """Return a local file path for an _end frame's lead ref (the shot's start still).
+async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> tuple[str, str]:
+    """Return (local file path, sha256 of its bytes) for an _end frame's lead ref (the shot's start
+    still). The sha names the job id (-lead<sha8>), so the id follows the exact start still sent.
 
     A local path is returned unchanged (it must exist). An http(s) URL - e.g. the provider's output
     link for the start still - is downloaded into <DATA_DIR>/lead_refs/ so it is normalized and
@@ -54,7 +57,7 @@ async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> st
     if not lead_ref.startswith(("http://", "https://")):
         if not Path(lead_ref).is_file():
             raise ValueError(f"Lead ref (start still) for {shot_id} not found on disk: {lead_ref}")
-        return lead_ref
+        return lead_ref, hashlib.sha256(Path(lead_ref).read_bytes()).hexdigest()
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             response = await client.get(lead_ref)
@@ -72,12 +75,13 @@ async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> st
     ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, ".img")
     out_dir = Path(os.getenv("DATA_DIR", "./data")) / "lead_refs"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{episode_id}-{shot_id}-{hashlib.sha256(data).hexdigest()[:16]}{ext}"
+    sha = hashlib.sha256(data).hexdigest()
+    out = out_dir / f"{episode_id}-{shot_id}-{sha[:16]}{ext}"
     if not out.exists():
         tmp = out.with_suffix(out.suffix + f".{uuid.uuid4().hex}.part")
         tmp.write_bytes(data)
         tmp.replace(out)
-    return str(out)
+    return str(out), sha
 
 
 def _get_ref_version_from_sidecar(ref_path: str) -> int:
@@ -251,8 +255,10 @@ async def submit_still_job_enforced(
     """
     Submit still generation job with full enforcement.
 
-    lead_ref: optional reference placed FIRST (ahead of the anchor), e.g. the shot's approved
-    start still when generating its _end frame. Does not change the job id.
+    lead_ref: optional reference placed FIRST, e.g. the shot's start still when generating its _end
+    frame. Adds -lead<sha8 of the start still> to the job id. When the lead plus anchor plus planned
+    refs exceed the still model's cap, the anchor is dropped first (and its -anchor suffix with it);
+    if still over the cap the job is refused, never silently trimmed.
     
     Enforcement:
     - Prompt lint gate (live: refuse BEFORE estimate/reserve/provider call; dry: warn)
@@ -327,16 +333,15 @@ async def submit_still_job_enforced(
         )
     
     # Load anchor still if configured for this shot
-    refs_with_anchor = list(refs or [])
+    planned_refs = list(refs or [])
     from hfvg.studio_db import get_anchor_still
     # Strip _end suffix for end-frame stills (A02_end -> A02) to use same anchor
     base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id
     anchor = await get_anchor_still(db_path, episode_id, base_shot_id)
     if anchor:
         anchor_path = anchor["local_path"]
-        # Verify anchor still file exists and SHA256 matches
-        from pathlib import Path
-        import hashlib
+        # Verify anchor still file exists and SHA256 matches (module-level Path/hashlib: a local
+        # import here would make them function-locals and break the lead-ref path when no anchor)
         anchor_file = Path(anchor_path)
         if not anchor_file.exists():
             raise ValueError(
@@ -355,25 +360,36 @@ async def submit_still_job_enforced(
                 f"Anchor still SHA256 mismatch: expected {anchor['sha256']}, got {computed_sha256}"
             )
         
-        # Add anchor to refs (prepend so it's first)
-        refs_with_anchor.insert(0, anchor_path)
+    # _end frames: the shot's own start still leads so the end frame matches it.
+    # Never hand the provider its own output link: fetch the start still, then it goes through
+    # the same normalize + upload path as every other ref (fails closed before any reserve).
+    lead_local, lead_sha = await _localize_lead_ref(lead_ref, episode_id, shot_id) if lead_ref else (None, None)
+    lead_sha8 = lead_sha[:8] if lead_sha else None
+
+    # Assemble in priority order: [lead (start still)] + [anchor] + planned refs.
+    refs_with_anchor = ([lead_local] if lead_local else []) + ([anchor_path] if anchor else []) + planned_refs
+    still_cap = max_refs_for(still_model_path())
+    anchor_used = bool(anchor)
+    # Rule: when a lead ref is present and the set is over the cap, the ANCHOR is dropped first (the
+    # start still already carries the anchored look). Nothing else is ever dropped.
+    if lead_local and anchor and len(refs_with_anchor) > still_cap:
+        del refs_with_anchor[1]   # the anchor (index 0 is the lead)
+        anchor_used = False
+        activity.logger.info(
+            f"Dropped anchor still from {anchor['anchor_shot_id']} for {shot_id}: lead ref (start still) present "
+            f"and {len(refs_with_anchor) + 1} refs > {still_model_path()} cap {still_cap}"
+        )
+    if lead_local:
+        activity.logger.info(f"Added lead ref (start still) first for {shot_id}: {lead_ref} -> {lead_local}")
+    if anchor_used:
         activity.logger.info(
             f"Added anchor still from {anchor['anchor_shot_id']} (v{anchor['version']}) to {shot_id} refs"
         )
-    
-    # _end frames: the shot's own start still leads (ahead of the anchor) so the end frame matches it
-    if lead_ref:
-        # Never hand the provider its own output link: fetch the start still, then it goes through
-        # the same normalize + upload path as every other ref (fails closed before any reserve).
-        lead_local = await _localize_lead_ref(lead_ref, episode_id, shot_id)
-        refs_with_anchor.insert(0, lead_local)
-        activity.logger.info(f"Added lead ref (start still) first for {shot_id}: {lead_ref} -> {lead_local}")
 
-    # Check ref cap after adding anchor
-    still_cap = max_refs_for(still_model_path())
+    # Check ref cap after the lead/anchor rules: still over -> refuse, never silently drop refs
     if refs_with_anchor and len(refs_with_anchor) > still_cap:
         raise ValueError(
-            f"Shot {shot_id} has {len(refs_with_anchor)} refs (including anchor), over the {still_model_path()} limit of {still_cap}; "
+            f"Shot {shot_id} has {len(refs_with_anchor)} refs (including lead/anchor), over the {still_model_path()} limit of {still_cap}; "
             "refusing instead of silently dropping refs"
         )
     
@@ -388,8 +404,11 @@ async def submit_still_job_enforced(
         attempt_suffix = f"-v{version}"
     
     # Use sha256 prefix (first 8 chars) for anchor suffix for uniqueness
-    anchor_suffix = f"-anchor{anchor['sha256'][:8]}" if anchor else ""
-    job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{anchor_suffix}"
+    # Suffixes describe the refs actually sent: -lead<sha8 of the start still> when a lead ref leads,
+    # -anchor<sha8> only if the anchor is still in the set (a dropped anchor changes the id).
+    lead_suffix = f"-lead{lead_sha8}" if lead_sha8 else ""
+    anchor_suffix = f"-anchor{anchor['sha256'][:8]}" if anchor_used else ""
+    job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{lead_suffix}{anchor_suffix}"
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -509,9 +528,8 @@ async def submit_still_job_enforced(
         )
         
         # Generate idempotency key from hash of actual request with uploaded URLs
-        import hashlib
         refs_str = ",".join(sorted(uploaded_refs)) if uploaded_refs else ""
-        anchor_str = f"anchor:{anchor['sha256']}" if anchor else ""
+        anchor_str = f"anchor:{anchor['sha256']}" if anchor_used else ""
         key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or ''}|{refs_str}|{anchor_str}|attempt:{attempt}"
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
@@ -912,6 +930,59 @@ async def submit_clip_job_enforced(
         
     finally:
         await provider.close()
+
+
+@activity.defn
+async def resolve_landed_start_still(episode_id: str, shot_id: str, attempt: int, version: int) -> dict[str, Any]:
+    """Find the start still that already LANDED for this shot attempt, without generating anything.
+
+    Used by EpisodeWorkflowV2.retry_end_still to backfill only the _end still. Free and read-only:
+    job_ledger (committed start job for exactly this attempt) -> provider_jobs (provider id) ->
+    GET /requests/{id}/status (no charge) -> images[0].url. Refuses (non-retryable) when the start
+    did not land, is ambiguous, or an _end with a lead ref was already submitted for this attempt
+    (so the backfill can never become a silent paid retry).
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    suffix = f"-r{attempt - 1}" if attempt > 1 else f"-v{version}"
+    start_prefix = f"still-{episode_id}-{shot_id}{suffix}"
+    end_lead_prefix = f"still-{episode_id}-{shot_id}_end{suffix}-lead"
+
+    def refuse(msg: str):
+        raise ApplicationError(msg, type="EndStillBackfillRefused", non_retryable=True)
+
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT job_id, status FROM job_ledger WHERE episode_id = ? AND shot_id = ?", (episode_id, shot_id)
+        ) as cur:
+            rows = [r for r in await cur.fetchall()
+                    if r[0] == start_prefix or r[0].startswith(start_prefix + "-")]
+        async with db.execute("SELECT job_id FROM provider_jobs") as cur:
+            prior_end = [r[0] for r in await cur.fetchall()
+                         if r[0].startswith(end_lead_prefix)]
+    if prior_end:
+        refuse(f"{shot_id}_end was already submitted with a lead ref for this attempt ({prior_end}); "
+               "refusing to resubmit (no retries)")
+    committed = [r[0] for r in rows if r[1] == "committed"]
+    if len(committed) != 1:
+        refuse(f"Need exactly one committed start still {start_prefix}* for {episode_id}/{shot_id}, "
+               f"found {rows}")
+    start_job_id = committed[0]
+    credit_ledger = CreditLedger(db_path)
+    provider_job_id = await credit_ledger.get_provider_job(start_job_id)
+    if not provider_job_id:
+        refuse(f"No provider job mapping for landed start still {start_job_id}")
+    provider = HiggsfieldStillProvider()
+    try:
+        job = await provider.get_job_status(provider_job_id)   # GET status: free
+    finally:
+        await provider.close()
+    if job.status != ProviderJobStatus.COMPLETED or not job.output_url:
+        refuse(f"Start still {start_job_id} ({provider_job_id}) is not completed with an image: "
+               f"status={job.status} error={job.error}")
+    activity.logger.info(
+        f"Resolved landed start still for {episode_id}/{shot_id}: {start_job_id} -> {provider_job_id} -> {job.output_url}"
+    )
+    return {"url": job.output_url, "job_id": start_job_id, "provider_job_id": provider_job_id}
 
 
 @activity.defn

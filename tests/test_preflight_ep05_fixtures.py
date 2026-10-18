@@ -8,10 +8,10 @@ from pathlib import Path
 @pytest.mark.asyncio
 async def test_preflight_passes_with_ep05_shaped_fixtures(tmp_path, monkeypatch):
     """
-    Test: Real-shaped ep05 with BEATMAP.md, A02 with 6 refs, live mode passes.
+    Test: Real-shaped ep05 with BEATMAP.md, A02 with 5 refs (at the cap), live mode passes.
     Verifies:
     - BEATMAP.md (not beatmap.txt) is accepted
-    - 6 refs for A02 is within still model (Grok Image 2.0) cap of 8
+    - 5 refs for A02 is exactly the still model (Grok Image 2.0) effective cap of 5
     """
     from hfvg.activities.preflight import preflight_validate_episode_activity
     from hfvg.studio_db import init_studio_db
@@ -38,7 +38,7 @@ Duck arrives at the backyard pool, excited.
 Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Family, Pool).
 """)
     
-    # 2. shots.json with A02 having 6 refs (within Grok Image 2.0 cap of 8)
+    # 2. shots.json with A02 having 5 refs (at Grok Image 2.0 effective cap of 5)
     (ep_dir / "shots.json").write_text(json.dumps({
         "shots": [
             {
@@ -63,12 +63,11 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
                 "end_frame": False,
                 "ref_keys": [
                     "r_duck",
-                    "r_rowan", 
                     "r_hazel",
                     "r_mochi",
                     "r_family",
                     "r_pool"
-                ]  # 6 refs, within Grok Image 2.0 cap of 8
+                ]  # 5 refs, at Grok Image 2.0 effective cap of 5
             }
         ]
     }))
@@ -129,7 +128,7 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
 @pytest.mark.asyncio
 async def test_preflight_fails_when_refs_exceed_still_model_cap(tmp_path, monkeypatch):
     """
-    Test: Shot with 9 refs exceeds still model (Grok Image 2.0) cap of 8, fails preflight.
+    Test: Shot with 6 refs exceeds still model (Grok Image 2.0) effective cap of 5, fails preflight.
     Verifies preflight checks against still model cap, not clip model cap.
     """
     from hfvg.activities.preflight import preflight_validate_episode_activity
@@ -154,7 +153,7 @@ async def test_preflight_fails_when_refs_exceed_still_model_cap(tmp_path, monkey
 Shot with too many refs (9 > 8 cap).
 """)
     
-    # shots.json with A01 having 9 refs (exceeds Grok Image 2.0 cap of 8)
+    # shots.json with A01 having 6 refs (exceeds Grok Image 2.0 effective cap of 5)
     (ep_dir / "shots.json").write_text(json.dumps({
         "shots": [
             {
@@ -172,11 +171,8 @@ Shot with too many refs (9 > 8 cap).
                     "r_hazel",
                     "r_mochi",
                     "r_family",
-                    "r_pool",
-                    "r_tree",
-                    "r_bench",
-                    "r_fence"
-                ]  # 9 refs, exceeds cap of 8
+                    "r_pool"
+                ]  # 6 refs: one over the effective cap of 5 (the count that failed live)
             }
         ]
     }))
@@ -221,11 +217,11 @@ Shot with too many refs (9 > 8 cap).
         # Should have error about A01 refs exceeding cap
         error_text = str(exc_info.value).lower()
         assert "a01" in error_text, f"Error should mention A01, got: {exc_info.value}"
-        assert "9" in error_text or "8" in error_text, \
-            f"Error should mention ref count (9) or cap (8), got: {exc_info.value}"
+        assert "needs 6 refs" in error_text and "allows 5" in error_text, \
+            f"Error should mention ref count (6) and cap (5), got: {exc_info.value}"
         
         # Should mention it's checking against still model, not clip model
-        assert "still" in error_text or "grok" in error_text or "allows 8" in error_text, \
+        assert "xai/grok-imagine-image-2.0" in error_text, \
             f"Error should indicate still model cap, got: {exc_info.value}"
         
     finally:
