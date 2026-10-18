@@ -508,7 +508,29 @@ class EpisodeWorkflowV2:
         # Clear hold state after approval (shots will be released to clips)
         self.state.shots_on_hold = []
         
-        # Wait (bounded) for any pending retry children to finish before clips
+        # ================================================================
+        # Generate Clips
+        # ================================================================
+        workflow.logger.info("=== CLIP GENERATION ===")
+        self.state.stage = PipelineStage.CLIP_GENERATION
+        
+        # Signal all shot workflows (including pending retries) to proceed with clips
+        # This must happen BEFORE waiting for pending retries to complete, otherwise
+        # retry children will wait forever for stills_approved (Bug #2).
+        for shot in shots:
+            handle = self.shot_results.get(shot["shot_id"])
+            if handle:
+                try:
+                    await handle.signal("stills_approved")
+                except Exception as e:
+                    # Bug #1: If a shot already finished (failed, not retried), the signal
+                    # raises ExternalWorkflowExecutionNotFound. This is normal - just log it.
+                    workflow.logger.info(
+                        f"Could not signal {shot['shot_id']} (likely already finished): {e}"
+                    )
+        
+        # Now wait (bounded) for any pending retry children to finish
+        # They've received stills_approved, so they should complete promptly
         if self.state.pending_retries:
             try:
                 await workflow.wait_condition(
@@ -519,18 +541,6 @@ class EpisodeWorkflowV2:
                 workflow.logger.warning(
                     f"Timed out waiting for {len(self.state.pending_retries)} retries"
                 )
-        
-        # ================================================================
-        # Generate Clips
-        # ================================================================
-        workflow.logger.info("=== CLIP GENERATION ===")
-        self.state.stage = PipelineStage.CLIP_GENERATION
-        
-        # Signal all shot workflows to proceed with clips
-        for shot in shots:
-            handle = self.shot_results.get(shot["shot_id"])
-            if handle:
-                await handle.signal("stills_approved")
         
         workflow.logger.info("Awaiting all clip completions...")
         results = []

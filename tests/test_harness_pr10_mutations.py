@@ -959,3 +959,227 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
 # Item 5: EPISODES_DIR consistency test
 # Item 9: Credit cap update test  
 # These are integration-level fixes, tested via existing suite
+
+
+# ============================================================================
+# Bug Fix workflows (module-level to avoid "local class" error)
+# ============================================================================
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class ImmediateFailWorkflow:
+    """Always fails immediately and completes - for Bug Fix 1 test."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        return {"status": "failed", "error": "Always fails"}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class RetryWaitsForApprovalWorkflow:
+    """Fails on first attempt, retry waits for stills_approved - for Bug Fix 2 test."""
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        version = shot_dict.get("version", 1)
+        if version == 1:
+            return {"status": "failed", "error": "First attempt failed"}
+        else:
+            await workflow.wait_condition(lambda: self.approved)
+            return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+
+
+# ============================================================================
+# Bug Fix 1: G2 approval with finished child workflow
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(30)
+async def test_g2_approval_with_finished_child_succeeds(tmp_path):
+    """
+    Test that approving G2 succeeds even when a shot child has already finished.
+    
+    Bug: When a shot fails and is not retried, its handle remains in shot_results
+    but the workflow has already completed. Approving G2 signals all children with
+    stills_approved, which raises ExternalWorkflowExecutionNotFound for completed
+    workflows, causing the entire episode to fail.
+    
+    Fix: Catch and log the exception gracefully, allowing the episode to continue.
+    """
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-g2-finished",
+            workflows=[EpisodeWorkflowV2, ImmediateFailWorkflow],
+            activities=_make_activities(),
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep_g2_finished", None, True, ["A01"], 40],
+                id="test-g2-finished-workflow",
+                task_queue="test-g2-finished",
+            )
+            
+            try:
+                # Wait for G1 and approve
+                for _ in range(50):
+                    try:
+                        state = await handle.query(EpisodeWorkflowV2.get_state)
+                        if state["current_gate"] == "G1_SHOT_PLAN":
+                            break
+                    except:
+                        pass
+                    await asyncio.sleep(0.1)
+                
+                await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+                await asyncio.sleep(0.5)
+                
+                # Wait for shot to fail
+                for _ in range(50):
+                    try:
+                        state = await handle.query(EpisodeWorkflowV2.get_state)
+                        if len(state.get("failed_shots", [])) > 0:
+                            break
+                    except:
+                        pass
+                    await asyncio.sleep(0.1)
+                
+                # Shot has failed and completed - its handle is in shot_results but workflow is done
+                # Now approve G2 - this should NOT fail with ExternalWorkflowExecutionNotFound
+                await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+                await asyncio.sleep(2.0)
+                
+                # Verify the episode workflow is still running and healthy
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                assert "G2_SCENE_STILLS" in state.get("passed_gates", []), \
+                    f"G2 should be passed even with finished child, got: {state.get('passed_gates')}"
+                assert state.get("current_gate") == "G_FINAL_CUT", \
+                    f"Episode should progress to G_FINAL_CUT, got: {state.get('current_gate')}"
+                
+                # The failed shot should still be in failed_shots
+                assert len(state.get("failed_shots", [])) == 1, \
+                    f"Failed shot should remain in failed_shots, got: {state.get('failed_shots')}"
+            finally:
+                try:
+                    await handle.terminate("test done")
+                except:
+                    pass
+
+
+# ============================================================================
+# Bug Fix 2: Pending retry blocks clip generation
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(30)
+async def test_pending_retry_does_not_block_clips(tmp_path):
+    """
+    Test that a pending retry doesn't cause a 30s timeout before clips start.
+    
+    Bug: After G2 approval, the episode waits up to 30s for pending_retries to clear.
+    But retry children only complete after receiving stills_approved signal, which is
+    sent AFTER the wait. This creates a deadlock/timeout situation.
+    
+    Fix: Signal all children (including pending retries) with stills_approved BEFORE
+    waiting for pending_retries to clear. This allows retry children to complete promptly.
+    """
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    import time
+    
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-pending-retry",
+            workflows=[EpisodeWorkflowV2, RetryWaitsForApprovalWorkflow],
+            activities=_make_activities(),
+        ):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep_pending", None, True, ["A01"], 40],
+                id="test-pending-retry-workflow",
+                task_queue="test-pending-retry",
+            )
+            
+            try:
+                # Wait for G1 and approve
+                for _ in range(50):
+                    try:
+                        state = await handle.query(EpisodeWorkflowV2.get_state)
+                        if state["current_gate"] == "G1_SHOT_PLAN":
+                            break
+                    except:
+                        pass
+                    await asyncio.sleep(0.1)
+                
+                await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+                await asyncio.sleep(0.5)
+                
+                # Wait for shot to fail
+                for _ in range(50):
+                    try:
+                        state = await handle.query(EpisodeWorkflowV2.get_state)
+                        if len(state.get("failed_shots", [])) > 0:
+                            break
+                    except:
+                        pass
+                    await asyncio.sleep(0.1)
+                
+                # Retry the shot - creates a pending retry that waits for stills_approved
+                await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+                await asyncio.sleep(0.5)
+                
+                # Verify retry is pending
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                assert len(state.get("pending_retries", [])) > 0, \
+                    f"Should have pending retry, got: {state.get('pending_retries')}"
+                
+                # Approve G2 - should signal pending retry and NOT wait 30 seconds
+                start_time = time.time()
+                await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+                
+                # Skip 35 seconds of workflow time (past the 30s timeout)
+                await env.sleep(timedelta(seconds=35))
+                
+                # The episode should have progressed to G_FINAL_CUT without timing out
+                elapsed = time.time() - start_time
+                assert elapsed < 10.0, \
+                    f"G2 approval should be fast with time-skipping, took {elapsed:.1f}s (suggests 30s timeout occurred)"
+                
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                assert state.get("current_gate") == "G_FINAL_CUT", \
+                    f"Episode should reach G_FINAL_CUT without timeout, got: {state.get('current_gate')}"
+                assert len(state.get("pending_retries", [])) == 0, \
+                    f"Pending retry should be cleared, got: {state.get('pending_retries')}"
+                assert len(state.get("failed_shots", [])) == 0, \
+                    f"Retry should have succeeded, got: {state.get('failed_shots')}"
+            finally:
+                try:
+                    await handle.terminate("test done")
+                except:
+                    pass
+
