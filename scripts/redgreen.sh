@@ -1408,7 +1408,7 @@ test_mutation 143 "G1 estimate sends last_image_url for end-frame shots" \
 test_mutation 144 "G1 estimate sends duration as int not float" \
     "hfvg/activities/g1_plan.py" \
     "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_duration_as_int_not_float" \
-    sed -i 's/duration=int(duration)/duration=duration  # MUTATED - send float/'
+    sed -i 's/duration=int(duration)/duration=duration/'
 
 # Print final summary
 print_summary
