@@ -484,7 +484,7 @@ async def test_attempt_overrides_start_shot_as_retry():
                 await asyncio.sleep(0.1)
             
             # Approve G2
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             
             # Verify submissions
             assert len(still_calls) == 2, f"Expected 2 submissions, got {len(still_calls)}"

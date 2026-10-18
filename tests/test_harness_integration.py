@@ -177,7 +177,7 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
             assert state.get("current_gate") == "G2_SCENE_STILLS", f"Expected G2, got {state.get('current_gate')}"
             
             # Step 3: Approve G2_SCENE_STILLS
-            await handle.signal("approve_g2_scene_stills")
+            await handle.execute_update("approve_g2_scene_stills")
             print(f"✓ G2_SCENE_STILLS approved")
             
             # Wait for clips generation and G_FINAL gate

@@ -249,7 +249,7 @@ async def test_retry_shot_succeeds_on_second_attempt():
             assert state["shot_attempts"].get("A01", 0) == 2  # First shot=1, first retry=2
             
             # Approve G2 (which will approve the retry)
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             
             # Wait for retry to complete successfully
             await asyncio.sleep(2.0)
@@ -719,7 +719,7 @@ async def test_retry_shot_increments_version_for_unique_job_id():
             await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
             
             # Approve the retry still
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             await asyncio.sleep(1.0)
             
             # Verify retry submission used -r1, not -v1 or -v2

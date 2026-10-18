@@ -1329,13 +1329,49 @@ test_mutation 131 "3h: CLI retry-shot uses execute_update" \
 test_mutation 132 "G2 approval handles finished child gracefully" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_g2_approval_with_finished_child_succeeds" \
-    sed -i '520,530s/try:/# try:  # MUTATED/; 520,530s/except Exception as e:/# except Exception as e:  # MUTATED/'
+    sed -i '/await handle\.signal("stills_approved")/,/except workflow\.RPCError/s/except workflow\.RPCError as e:/# except workflow.RPCError as e:  # MUTATED - no catch/'
+
+# 134: Bug Fix 1 addendum - Other errors must not be swallowed
+test_mutation 134 "G2 signal error checking is specific (NOT_FOUND only)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_approval_does_not_swallow_other_errors" \
+    sed -i 's/except workflow\.RPCError as e:/except Exception as e:  # MUTATED - catch all, swallows other errors/'
 
 # 133: Bug Fix 2 - Pending retry causes 30s timeout before clips
 test_mutation 133 "Pending retry signaled before wait (no 30s timeout)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
     sed -i '/# Signal all shot workflows/,+12{/await handle\.signal("stills_approved")/s/await handle\.signal("stills_approved")/pass  # MUTATED - skip signal/}'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Safety Design: G2 approval must refuse while retry is pending
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 135: Safety - G2 refused while retry pending
+test_mutation 135 "G2 approval refused while retry is pending" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_refused_while_retry_pending" \
+    sed -i '/@approve_g2_scene_stills\.validator/,/def validate_approve_g2_scene_stills/s/def validate_approve_g2_scene_stills/def validate_approve_g2_scene_stills_DISABLED  # MUTATED - no validator/'
+
+# 136: Safety - G2 accepted after retry completes
+test_mutation 136 "G2 approval accepted after retry completes" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_accepted_after_retry_completes" \
+    sed -i 's/self\.state\.pending_retries\.pop(shot_id, None)/pass  # MUTATED - pending_retries never cleared/'
+
+# 137: Safety - No 30s stall after G2 (validator ensures pending_retries empty)
+test_mutation 137 "No 30s pending-retry wait after G2" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+    sed -i '/# Safety design: G2 approval validator/a\        # MUTATED - re-add the 30s wait\
+        if self.state.pending_retries:\
+            try:\
+                await workflow.wait_condition(\
+                    lambda: not self.state.pending_retries,\
+                    timeout=timedelta(seconds=30),\
+                )\
+            except asyncio.TimeoutError:\
+                workflow.logger.warning(f"Timed out waiting for retries")'
 
 # Print final summary
 print_summary

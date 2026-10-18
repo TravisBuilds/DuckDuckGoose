@@ -178,7 +178,7 @@ async def test_b_all_shots_ok_g2_still_needs_approval():
             assert "G2_SCENE_STILLS" not in s["passed_gates"]
             assert CLIP_RELEASED == []
             # approval releases clips
-            await h.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await h.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             await _wait_for(h, lambda s: "G2_SCENE_STILLS" in s["passed_gates"])
             await asyncio.sleep(1.0)
             assert sorted(CLIP_RELEASED) == ["A01", "A02"]

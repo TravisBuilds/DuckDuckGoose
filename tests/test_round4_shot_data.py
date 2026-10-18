@@ -911,7 +911,7 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
             assert state["current_gate"] == "G2_SCENE_STILLS"
             
             # Approve to proceed through G2
-            await handle.signal(W.approve_g2_scene_stills)
+            await handle.execute_update(W.approve_g2_scene_stills)
             state = await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             assert "G2_SCENE_STILLS" in state["passed_gates"], "should pass G2 after approval"
             
@@ -1053,7 +1053,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 f"M-95: After recheck, missing_refs should be empty, got {state.get('missing_refs')}"
             
             # M-97: Assert recheck merged data into shot plans
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             plan = SEEN_PLANS_M95["A01"]
             assert "refs" in plan, "M-97: recheck should merge refs"

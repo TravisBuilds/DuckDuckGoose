@@ -514,33 +514,24 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== CLIP GENERATION ===")
         self.state.stage = PipelineStage.CLIP_GENERATION
         
-        # Signal all shot workflows (including pending retries) to proceed with clips
-        # This must happen BEFORE waiting for pending retries to complete, otherwise
-        # retry children will wait forever for stills_approved (Bug #2).
+        # Signal all shot workflows to proceed with clips
         for shot in shots:
             handle = self.shot_results.get(shot["shot_id"])
             if handle:
                 try:
                     await handle.signal("stills_approved")
-                except Exception as e:
-                    # Bug #1: If a shot already finished (failed, not retried), the signal
-                    # raises ExternalWorkflowExecutionNotFound. This is normal - just log it.
+                except workflow.RPCError as e:
+                    # Bug #1: If a shot already finished (failed, not retried), signaling it
+                    # raises RPCError with status NOT_FOUND. This is normal - just log it.
+                    # Re-raise any other error (wrong status, or non-RPC errors)
+                    if e.status != workflow.RPCStatusCode.NOT_FOUND:
+                        raise
                     workflow.logger.info(
-                        f"Could not signal {shot['shot_id']} (likely already finished): {e}"
+                        f"Could not signal {shot['shot_id']} (already finished): {e}"
                     )
         
-        # Now wait (bounded) for any pending retry children to finish
-        # They've received stills_approved, so they should complete promptly
-        if self.state.pending_retries:
-            try:
-                await workflow.wait_condition(
-                    lambda: not self.state.pending_retries,
-                    timeout=timedelta(seconds=30),
-                )
-            except asyncio.TimeoutError:
-                workflow.logger.warning(
-                    f"Timed out waiting for {len(self.state.pending_retries)} retries"
-                )
+        # Safety design: G2 approval validator now refuses while retries are pending,
+        # so pending_retries is guaranteed empty here. No 30s timeout wait needed.
         
         workflow.logger.info("Awaiting all clip completions...")
         results = []
@@ -698,10 +689,23 @@ class EpisodeWorkflowV2:
                     non_retryable=True
                 )
     
-    @workflow.signal
+    @workflow.update
     async def approve_g2_scene_stills(self):
         """Approve scene stills (G2_SCENE_STILLS): All stills + refs."""
         self.approved_g2_scene_stills = True
+    
+    @approve_g2_scene_stills.validator
+    def validate_approve_g2_scene_stills(self):
+        """Validator for G2 approval - refuses if any retry is still pending."""
+        # Safety: unreviewed retry stills must never go to paid clips
+        # If a retry is pending, its new still hasn't been produced and reviewed yet
+        if self.state.pending_retries:
+            pending_list = ", ".join(self.state.pending_retries.keys())
+            raise ApplicationError(
+                f"Cannot approve G2 while retry is pending for: {pending_list}. "
+                f"Wait for the retry still to complete and be reviewed first.",
+                non_retryable=True
+            )
     
     @workflow.signal
     async def approve_g_final_cut(self):
