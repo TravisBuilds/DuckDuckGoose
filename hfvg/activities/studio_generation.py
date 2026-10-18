@@ -40,6 +40,46 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, Seedance
 from hfvg.routing import plan_route
 
 
+LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
+
+
+async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> str:
+    """Return a local file path for an _end frame's lead ref (the shot's start still).
+
+    A local path is returned unchanged (it must exist). An http(s) URL - e.g. the provider's output
+    link for the start still - is downloaded into <DATA_DIR>/lead_refs/ so it is normalized and
+    re-uploaded like any other ref instead of being passed to the provider as-is. Raises ValueError
+    on any download problem; this runs before credits/budget are reserved, so a failure costs nothing.
+    """
+    if not lead_ref.startswith(("http://", "https://")):
+        if not Path(lead_ref).is_file():
+            raise ValueError(f"Lead ref (start still) for {shot_id} not found on disk: {lead_ref}")
+        return lead_ref
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(lead_ref)
+    except httpx.HTTPError as e:
+        raise ValueError(f"Cannot download lead ref (start still) for {shot_id} from {lead_ref}: {e}") from e
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    data = response.content
+    if response.status_code != 200 or not content_type.startswith("image/") or not data:
+        raise ValueError(
+            f"Cannot use lead ref (start still) for {shot_id} from {lead_ref}: "
+            f"HTTP {response.status_code}, content-type {content_type or 'missing'}, {len(data)} bytes"
+        )
+    if len(data) > LEAD_REF_MAX_BYTES:
+        raise ValueError(f"Lead ref (start still) for {shot_id} is too large: {len(data)} bytes")
+    ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, ".img")
+    out_dir = Path(os.getenv("DATA_DIR", "./data")) / "lead_refs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{episode_id}-{shot_id}-{hashlib.sha256(data).hexdigest()[:16]}{ext}"
+    if not out.exists():
+        tmp = out.with_suffix(out.suffix + f".{uuid.uuid4().hex}.part")
+        tmp.write_bytes(data)
+        tmp.replace(out)
+    return str(out)
+
+
 def _get_ref_version_from_sidecar(ref_path: str) -> int:
     """
     Get ref version from sidecar file.
@@ -206,9 +246,13 @@ async def submit_still_job_enforced(
     shot_meta: dict[str, Any] | None = None,
     missing_refs: list[str] | None = None,
     attempt: int = 1,
+    lead_ref: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
+
+    lead_ref: optional reference placed FIRST (ahead of the anchor), e.g. the shot's approved
+    start still when generating its _end frame. Does not change the job id.
     
     Enforcement:
     - Prompt lint gate (live: refuse BEFORE estimate/reserve/provider call; dry: warn)
@@ -317,6 +361,14 @@ async def submit_still_job_enforced(
             f"Added anchor still from {anchor['anchor_shot_id']} (v{anchor['version']}) to {shot_id} refs"
         )
     
+    # _end frames: the shot's own start still leads (ahead of the anchor) so the end frame matches it
+    if lead_ref:
+        # Never hand the provider its own output link: fetch the start still, then it goes through
+        # the same normalize + upload path as every other ref (fails closed before any reserve).
+        lead_local = await _localize_lead_ref(lead_ref, episode_id, shot_id)
+        refs_with_anchor.insert(0, lead_local)
+        activity.logger.info(f"Added lead ref (start still) first for {shot_id}: {lead_ref} -> {lead_local}")
+
     # Check ref cap after adding anchor
     still_cap = max_refs_for(still_model_path())
     if refs_with_anchor and len(refs_with_anchor) > still_cap:

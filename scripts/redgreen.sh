@@ -1420,7 +1420,7 @@ test_mutation 145 "Reference images are normalized before upload" \
 test_mutation 146 "End still uses end_prompt when provided" \
     "hfvg/workflows/shot.py" \
     "tests/test_pr10_216_fixes.py::test_real_shot_end_still_uses_end_prompt" \
-    sed -i 's/end_prompt = shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = shot_plan["prompt"]/'
+    sed -i 's/end_prompt = self.end_prompt_override or shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = self.end_prompt_override or shot_plan["prompt"]  # MUTATED/'
 
 # 147: Normalized images must be cached by original SHA256 + size limits
 test_mutation 147 "Normalized images cached by original SHA" \
@@ -1439,6 +1439,42 @@ test_mutation 149 "Normalization cannot be skipped by SKIP_IMAGE_NORMALIZE" \
     "hfvg/image_normalize.py" \
     "tests/test_pr10_216_fixes.py::test_normalization_cannot_be_skipped_by_env" \
     sed -i 's/^    source_sha = compute_file_sha256(source_path)$/&\n    if os.getenv("SKIP_IMAGE_NORMALIZE", "").lower() == "true":  # MUTATED\n        return (source_path, source_sha)/'
+
+# 150: Live (escalated) review must generate the _end still BEFORE waiting for stills_approved/G2
+test_mutation 150 "Escalated review generates _end still before the G2 wait" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_review_generates_end_still_before_waiting" \
+    sed -i 's/if params.get("end_frame") and workflow.patched("end-still-before-human-review"):/if False:  # MUTATED/'
+
+# 151: _end still must lead with the shot's start still
+test_mutation 151 "_end still uses the start still as first ref" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_review_generates_end_still_before_waiting" \
+    sed -i 's/self.still_url,  # lead_ref: the approved\/landed start still goes first/None,  # MUTATED lead_ref dropped/'
+
+# 152: generate_end_still backfill for runs parked at review without an _end still
+test_mutation 152 "generate_end_still backfills a parked run" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_backfill_signal_generates_end_still_for_parked_legacy_run" \
+    sed -i 's/while not self.stills_approved and self._end_still_backfill_due(params):/while False:  # MUTATED/'
+
+# 153: escalated retry must not signal retry_still_ready before its _end still lands
+test_mutation 153 "Escalated retry signals ready only after _end lands" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_retry_signals_ready_only_after_end_still_lands" \
+    sed -i 's/^\( *\)# Both review paths produce the _end still BEFORE the human-review\/G2 wait (and$/\1await self._notify_parent_retry_still_ready(shot_plan)  # MUTATED - early\n&/'
+
+# 154: _end lead ref (start still) is downloaded + normalized + re-uploaded, never the provider output link
+test_mutation 154 "_end lead ref re-uploaded, not provider link" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_is_downloaded_normalized_and_reuploaded" \
+    sed -i 's/lead_local = await _localize_lead_ref(lead_ref, episode_id, shot_id)/lead_local = lead_ref  # MUTATED/'
+
+# 155: a failed/non-image start-still download refuses before any estimate/reserve/submit
+test_mutation 155 "Lead ref download failure refuses before spend" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_download_failure_refuses_before_spend" \
+    sed -i 's/if response.status_code != 200 or not content_type.startswith("image\/") or not data:/if False:  # MUTATED/'
 
 # Print final summary
 print_summary

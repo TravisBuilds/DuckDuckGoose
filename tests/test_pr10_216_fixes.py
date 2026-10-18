@@ -120,7 +120,7 @@ START = "Exactly 0 animals in frame. Real-time, no slow motion. START frame prob
 END = "Exactly 0 animals in frame. Real-time, no slow motion. END frame probe."
 
 
-def _activities(log, shot, fail_still=False):
+def _activities(log, shot, fail_still=False, escalate=False):
     def mk(name, fn):
         async def w(*a):
             return await fn(*a)
@@ -141,8 +141,13 @@ def _activities(log, shot, fail_still=False):
     async def none(*a): return None
     async def path(*a): return "/tmp/fake-still.jpg"
     async def passed(*a): return {"passed": True, "issues": []}
+    async def review(*a):
+        if escalate:
+            return {"passed": False, "escalate": True, "issues": ["Real QC agent not implemented - escalate to human review"]}
+        return {"passed": True, "issues": []}
     async def submit_still(ep, sid, prompt, version, *rest):
         log.append(("submit_still", sid, prompt))
+        log.append(("lead", sid, rest[8] if len(rest) > 8 else None))
         return {"job_id": f"still-{ep}-{sid}-v{version}", "line_name": "L", "reserved_amount": 1}
     async def poll(job_id, *a):
         if fail_still and job_id.startswith("still-"):
@@ -160,7 +165,7 @@ def _activities(log, shot, fail_still=False):
         ("list_anchor_stills", empty_l), ("precheck_still_qc", passed), ("submit_still_job_enforced", submit_still),
         ("poll_job_status", poll), ("commit_job_budget", none), ("commit_credits_activity", none),
         ("release_job_budget", none), ("release_credits_activity", none), ("save_asset_locally", path),
-        ("review_still", passed), ("record_shot_result", none), ("mark_job_pending_reconcile", none),
+        ("review_still", review), ("record_shot_result", none), ("mark_job_pending_reconcile", none),
         ("review_clip", passed), ("precheck_clip_qc", passed), ("submit_clip_job_enforced", submit_clip)]]
     out += [mk(n, ok) for n in [
         "init_episode_credit_line_activity", "preflight_validate_episode_activity", "upsert_episode_activity",
@@ -168,7 +173,7 @@ def _activities(log, shot, fail_still=False):
     return out
 
 
-async def _run_episode(tmp_path, monkeypatch, shot, done, fail_still=False, budget=20.0):
+async def _run_episode(tmp_path, monkeypatch, shot, done, fail_still=False, budget=20.0, escalate=False, action=None):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "studio.db"))
     monkeypatch.setenv("DRY_RUN", "true")
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -176,7 +181,7 @@ async def _run_episode(tmp_path, monkeypatch, shot, done, fail_still=False, budg
     log, st = [], None
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(env.client, task_queue="pr10-216", workflows=[EpisodeWorkflowV2, ShotWorkflow],
-                          activities=_activities(log, shot, fail_still)):
+                          activities=_activities(log, shot, fail_still, escalate)):
             h = await env.client.start_workflow(EpisodeWorkflowV2.run, args=["ep05", None, True, [shot["shot_id"]], 1000],
                                                 id="ep05", task_queue="pr10-216")
             async def state():
@@ -193,6 +198,8 @@ async def _run_episode(tmp_path, monkeypatch, shot, done, fail_still=False, budg
                     await asyncio.sleep(0.05)
                 assert st and st.get("current_gate") == "G1_SHOT_PLAN", f"never reached G1: {st}"
                 await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+                if action:
+                    await action(env, log)
                 end = time.time() + budget
                 while time.time() < end:
                     try:
@@ -284,3 +291,200 @@ async def test_smoke_upload_probe_passes_with_normalized_upload(tmp_path, monkey
         res = await _probe_upload(HiggsfieldStillProvider())
     assert stored["b"][:3] == b"\xff\xd8\xff", "probe upload should be the normalized JPEG"
     assert res["passed"], f"smoke upload probe failed against its own upload: {res}"
+
+
+
+# ------------------------------------------------------------------ live escalate path (_end before review)
+async def _shot_state(env):
+    from hfvg.workflows.shot import ShotWorkflow
+    return await env.client.get_workflow_handle("ep05-shot-A02").query(ShotWorkflow.get_state)
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(90)
+async def test_escalated_review_generates_end_still_before_waiting(tmp_path, monkeypatch):
+    """Live QC always escalates to human review: the _end still (end_prompt, start still as first
+    ref) must be generated BEFORE the shot waits for stills_approved (G2), with no clip started."""
+    st, log = await _run_episode(tmp_path, monkeypatch, _shot(end_prompt=END), _both_landed, escalate=True)
+    subs = [(e[1], e[2]) for e in log if e[0] == "submit_still"]
+    assert ("A02", START) in subs, f"start still not submitted with prompt: {subs}"
+    assert ("A02_end", END) in subs, f"_end still not generated with end_prompt before review wait: {subs}"
+    assert [s for s, _ in subs].count("A02") == 1, f"start still resubmitted: {subs}"
+    leads = {e[1]: e[2] for e in log if e[0] == "lead"}
+    assert leads.get("A02") is None, f"start still must not get a lead ref: {leads}"
+    assert leads.get("A02_end") == "fake://still-ep05-A02-v1.jpg", f"_end must lead with the start still: {leads}"
+    assert not any(e[0] == "submit_clip" for e in log), f"clip started without G2: {log}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(90)
+async def test_backfill_signal_generates_end_still_for_parked_legacy_run(tmp_path, monkeypatch):
+    """A run parked at review WITHOUT an _end still (started before the fix: patch marker absent)
+    gets it via generate_end_still(end_prompt) without resubmitting the start still."""
+    import temporalio.workflow as tw
+    monkeypatch.setattr(tw, "patched", lambda patch_id: False)   # behave like a pre-fix run
+    NEW_END = END + " Tray on the stone edge."
+
+    async def action(env, log):
+        end = time.time() + 15
+        while time.time() < end:   # parked at review, start landed, no _end yet
+            try:
+                st = await _shot_state(env)
+                if st.get("still_status") == "done":
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.3)
+        assert not any(e[0] == "submit_still" and e[1] == "A02_end" for e in log), f"legacy run made _end without signal: {log}"
+        await env.client.get_workflow_handle("ep05-shot-A02").signal("generate_end_still", NEW_END)
+
+    st, log = await _run_episode(tmp_path, monkeypatch, _shot(end_prompt=END), _both_landed, escalate=True, action=action)
+    subs = [(e[1], e[2]) for e in log if e[0] == "submit_still"]
+    assert ("A02_end", NEW_END) in subs, f"backfill did not submit _end with the signalled end_prompt: {subs}"
+    assert [s for s, _ in subs].count("A02") == 1, f"start still resubmitted by backfill: {subs}"
+    leads = {e[1]: e[2] for e in log if e[0] == "lead"}
+    assert leads.get("A02_end") == "fake://still-ep05-A02-v1.jpg", f"backfilled _end must lead with the start still: {leads}"
+    assert not any(e[0] == "submit_clip" for e in log), f"clip started without G2: {log}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+async def test_escalated_retry_signals_ready_only_after_end_still_lands(tmp_path, monkeypatch):
+    """Escalated (live) RETRY: retry_still_ready (which clears pending_retries / unblocks G2) must
+    fire only after BOTH the start and the _end still landed."""
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "studio.db"))
+    monkeypatch.setenv("DRY_RUN", "true")
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg.workflows.shot import ShotWorkflow
+    from tests.test_real_shot_retry_still_ready import _activities as retry_acts
+
+    log = []
+    @activity.defn(name="review_still")
+    async def escalate_review(*a):
+        return {"passed": False, "escalate": True, "issues": ["Real QC agent not implemented - escalate to human review"]}
+    acts = [a for a in retry_acts(log) if getattr(a, "__temporal_activity_definition").name != "review_still"]
+    acts.append(escalate_review)
+
+    async def state(h):
+        return await asyncio.wait_for(h.query(EpisodeWorkflowV2.get_state, rpc_timeout=timedelta(seconds=2)), 3)
+    async def wait(h, pred, budget):
+        end, st = time.time() + budget, None
+        while time.time() < end:
+            try:
+                st = await state(h)
+                if pred(st):
+                    return st, True
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        return st, False
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(env.client, task_queue="esc-retry", workflows=[EpisodeWorkflowV2, ShotWorkflow], activities=acts):
+            h = await env.client.start_workflow(EpisodeWorkflowV2.run, args=["ep05", None, True, ["A02"], 1000],
+                                                id="ep05", task_queue="esc-retry")
+            try:
+                st, ok = await wait(h, lambda s: s.get("current_gate") == "G1_SHOT_PLAN", 10)
+                assert ok, f"never reached G1: {st}"
+                await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+                st, ok = await wait(h, lambda s: s.get("failed_shots"), 10)
+                assert ok, f"original A02 never failed: {st}"
+                await h.execute_update(EpisodeWorkflowV2.retry_shot, args=["A02"])
+                st, ok = await wait(h, lambda s: not s.get("pending_retries"), 30)
+                assert ok, f"escalated retry never cleared pending_retries: {st and st.get('pending_retries')}"
+                landed = [e[1] for e in log if e[0] == "landed"]
+                assert "still-ep05-A02-v2" in landed and "still-ep05-A02_end-v2" in landed, \
+                    f"retry_still_ready fired before the _end still landed: {log}"
+                assert not any(e[0] == "submit_clip" for e in log), f"clip started before G2: {log}"
+            finally:
+                for wid in ("ep05", "ep05-shot-A02-retry1"):
+                    try:
+                        await env.client.get_workflow_handle(wid).terminate("test done")
+                    except Exception:
+                        pass
+
+
+# ------------------------------------------------------------------ _end lead ref is re-uploaded, not the provider link
+PROVIDER_OUT = "https://d3u0tzju9qaucj.cloudfront.net/out/start-still.jpeg"
+
+
+def _mock_uploads(puts):
+    import json
+    n = {"i": 0}
+    def post(req):
+        n["i"] += 1
+        i = n["i"]
+        return httpx.Response(200, json={"upload_url": f"http://mock.upload/put{i}", "public_url": f"https://cdn.upload/ref{i}.jpg",
+                                         "upload_headers": {"Content-Type": "image/jpeg"}})
+    respx.post("https://api.higgsfield.ai/files/generate-upload-url").mock(side_effect=post)
+    respx.put(url__regex=r"http://mock\.upload/put\d+").mock(
+        side_effect=lambda r: (puts.append((str(r.url), r.content)), httpx.Response(200))[1])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_end_still_lead_ref_is_downloaded_normalized_and_reuploaded(tmp_path, monkeypatch):
+    import json
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    from tests.lint_helpers import lint_meta, lint_ok
+    from tests.test_round4_shot_data import _live_env
+
+    await _live_env(tmp_path, monkeypatch)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    big = io.BytesIO()
+    Image.new("RGB", (1520, 2688), (200, 120, 40)).save(big, "JPEG", quality=95)
+    start_bytes = big.getvalue()
+    other = tmp_path / "refs" / "duck.png"
+    other.parent.mkdir()
+    Image.new("RGB", (64, 64), "green").save(other, "PNG")
+
+    puts = []
+    _mock_uploads(puts)
+    dl = respx.get(PROVIDER_OUT).mock(return_value=httpx.Response(200, content=start_bytes, headers={"content-type": "image/jpeg"}))
+    respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "0.96", "usd": "0.06"}))
+    sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "req-end"}))
+
+    await submit_still_job_enforced("ep99", "A02_end", lint_ok("END"), 1, [str(other)], "1k", "medium", "9:16",
+                                    None, lint_meta(), [], 1, PROVIDER_OUT)
+
+    assert dl.call_count == 1, f"start still was not downloaded (calls={dl.call_count})"
+    assert sub.call_count == 1, f"expected one paid submit, got {sub.call_count}"
+    urls = json.loads(sub.calls[0].request.content)["image_urls"]
+    assert PROVIDER_OUT not in urls, f"provider output link passed through as a ref: {urls}"
+    assert len(urls) == 2 and all(u.startswith("https://cdn.upload/") for u in urls), f"refs not all re-uploaded: {urls}"
+    assert len(puts) == 2, f"expected 2 uploads (start still + duck), got {len(puts)}"
+    lead_put = dict(puts)[urls[0].replace("https://cdn.upload/ref", "http://mock.upload/put").replace(".jpg", "")]
+    up = Image.open(io.BytesIO(lead_put))
+    assert lead_put[:3] == b"\xff\xd8\xff" and max(up.size) <= 1280, f"start still not normalized before upload: {up.size}"
+    assert up.getpixel((up.width // 2, up.height // 2))[0] > 150, "first ref is not the start still"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_end_still_lead_ref_download_failure_refuses_before_spend(tmp_path, monkeypatch):
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    from hfvg.budget import BudgetLedger
+    from tests.lint_helpers import acapture, lint_meta, lint_ok
+    from tests.test_round4_shot_data import _live_env
+
+    db_path = await _live_env(tmp_path, monkeypatch)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    puts = []
+    _mock_uploads(puts)
+    respx.get(PROVIDER_OUT).mock(return_value=httpx.Response(403, content=b"<Error>AccessDenied</Error>",
+                                                             headers={"content-type": "application/xml"}))
+    est = respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"credits": "0.96", "usd": "0.06"}))
+    sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
+        return_value=httpx.Response(200, json={"request_id": "never"}))
+
+    # Exception (not ValueError): any other failure mode must surface as an AssertionError below
+    err = await acapture(Exception, submit_still_job_enforced(
+        "ep99", "A02_end", lint_ok("END"), 1, [], "1k", "medium", "9:16", None, lint_meta(), [], 1, PROVIDER_OUT))
+    assert err is not None and "lead ref" in str(err) and "403" in str(err), f"download failure not refused: {err!r}"
+    assert sub.call_count == 0 and est.call_count == 0 and not puts, "reached provider despite failed start-still download"
+    status = await BudgetLedger(db_path).get_line_status("ep99", "L2_drafts")
+    assert status["reserved"] == 0, f"budget reserved despite refusal: {status}"

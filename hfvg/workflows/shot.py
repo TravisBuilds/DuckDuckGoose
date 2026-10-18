@@ -51,6 +51,8 @@ class ShotWorkflow:
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
+        self.end_still_requested = False  # generate_end_still signal (backfill for runs started before the fix)
+        self.end_prompt_override: str | None = None
         self.status = "running"  # Status: running, paused_cap, completed, failed
         
         # Per-shot G2 status tracking (Item 4)
@@ -74,6 +76,14 @@ class ShotWorkflow:
         """Signal: the END-frame image URL for a start+end clip (Kling last_image_url)."""
         self.end_image_url = url
     
+    @workflow.signal
+    def generate_end_still(self, end_prompt: str | None = None):
+        """Backfill: generate the missing _end still while waiting at review (before stills_approved).
+        Only acts for end_frame shots whose end still is missing; never touches the start still."""
+        self.end_still_requested = True
+        if end_prompt:
+            self.end_prompt_override = end_prompt
+
     @workflow.signal
     def resume_after_cap_raise(self):
         """Signal from parent that credit cap was raised, resume paused shot."""
@@ -284,8 +294,8 @@ class ShotWorkflow:
         Returns:
             dict with url and cost
         """
-        # Use end_prompt if provided, otherwise fall back to prompt (start frame prompt)
-        end_prompt = shot_plan.get("end_prompt") or shot_plan["prompt"]
+        # end_prompt (signal override > shot plan) if provided, otherwise the start frame prompt
+        end_prompt = self.end_prompt_override or shot_plan.get("end_prompt") or shot_plan["prompt"]
         
         workflow.logger.info(f"Generating end still for {self.shot_id}")
         
@@ -307,6 +317,7 @@ class ShotWorkflow:
                         shot_plan.get("shot_meta"),
                         shot_plan.get("missing_refs", []),
                         self.version,  # attempt
+                        self.still_url,  # lead_ref: the approved/landed start still goes first
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -336,6 +347,44 @@ class ShotWorkflow:
             "cost": poll_result["cost"],
         }
     
+    async def _produce_end_still(
+        self, shot_plan: dict, refs, resolution: str, quality: str, aspect_ratio: str,
+        retry_policy: RetryPolicy,
+    ) -> dict | None:
+        """Generate, record and save the _end still. Returns a failure dict (and records the error
+        in G2 state) if it failed, None on success."""
+        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
+        try:
+            end_still_result = await self._generate_end_still(
+                shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+            )
+        except (RuntimeError, ActivityError) as e:
+            err = str(e.cause) if isinstance(e, ActivityError) and e.cause else str(e)
+            self.end_still_status = "failed"
+            self.end_still_error = err
+            workflow.logger.error(f"End-frame still failed for {self.shot_id}: {err}")
+            return {"shot_id": self.shot_id, "status": "failed", "error": f"End still failed: {err}"}
+        self.end_still_asset = end_still_result
+        self.end_image_url = end_still_result["url"]
+        self.end_still_status = "done"
+        self.end_still_url = end_still_result["url"]
+        self.end_still_error = None
+        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
+        try:
+            end_local = await workflow.execute_activity(
+                save_asset_locally,
+                args=[self.episode_id, f"{self.shot_id}_end", end_still_result["url"], "still", self.version],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
+            workflow.logger.info(f"End still saved locally to {end_local}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to save end still locally: {e}, continuing")
+        return None
+
+    def _end_still_backfill_due(self, params: dict) -> bool:
+        return bool(self.end_still_requested and params.get("end_frame") and not self.end_image_url)
+
     async def _notify_parent_retry_still_ready(self, shot_plan: dict) -> None:
         """Tell the episode workflow this RETRY child's still(s) have landed (QC'd + recorded),
         so it can clear pending_retries and let G2 (the human review) be approved.
@@ -530,19 +579,11 @@ class ShotWorkflow:
                     
                     # Generate end-frame still if required (before Gate 2)
                     if params.get("end_frame"):
-                        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
-                        end_still_result = await self._generate_end_still(
+                        end_fail = await self._produce_end_still(
                             shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
                         )
-                        self.end_still_asset = end_still_result
-                        self.end_image_url = end_still_result["url"]
-                        
-                        # Update G2 end_still status
-                        self.end_still_status = "done"
-                        self.end_still_url = end_still_result["url"]
-                        self.end_still_error = None
-                        
-                        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
+                        if end_fail:
+                            return end_fail
                     
                     break
                 elif review_result.get("escalate"):
@@ -550,6 +591,15 @@ class ShotWorkflow:
                     workflow.logger.info(
                         f"Still QC escalated to human review, waiting for approval signal: {review_result['issues']}"
                     )
+                    
+                    # Both review paths produce the _end still BEFORE the human-review/G2 wait (and
+                    # before retry_still_ready). patched(): runs already parked at review replay unchanged.
+                    if params.get("end_frame") and workflow.patched("end-still-before-human-review"):
+                        end_fail = await self._produce_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )
+                        if end_fail:
+                            return end_fail
                     
                     # Record still as needs_review (clear any stale clip_url from previous runs)
                     await workflow.execute_activity(
@@ -575,7 +625,15 @@ class ShotWorkflow:
 
                     # Wait for human approval signal (stills_approved)
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
-                    await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
+                    review_wait = lambda: self.stills_approved or self._end_still_backfill_due(params)
+                    await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
+                    # Backfill (generate_end_still signal): only for runs parked here without an _end still
+                    while not self.stills_approved and self._end_still_backfill_due(params):
+                        self.end_still_requested = False
+                        await self._produce_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )  # on failure the error is in G2 state; keep waiting (start still preserved)
+                        await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
                     workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
                     
                     # Set human_approved_still flag AFTER approval
