@@ -150,11 +150,12 @@ class RetryAwaitsStillsApprovalWorkflow:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
         shot_id = shot_dict["shot_id"]
+        parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)  # Fallback to episode_id for compatibility
         if version == 1:
             return {"status": "failed", "error": "First attempt failed", "version": version}
         
         # Retry: signal parent that still is ready for review
-        parent = workflow.get_external_workflow_handle(episode_id)
+        parent = workflow.get_external_workflow_handle(parent_workflow_id)
         await parent.signal("retry_still_ready", args=[shot_id, version])
         
         # Then wait for stills_approved (with timeout to prevent hangs)
@@ -1002,11 +1003,12 @@ class PendingRetryWorkflow:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
         shot_id = shot_dict["shot_id"]
+        parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
             # Retry: signal parent that still is ready for review
-            parent = workflow.get_external_workflow_handle(episode_id)
+            parent = workflow.get_external_workflow_handle(parent_workflow_id)
             await parent.signal("retry_still_ready", args=[shot_id, version])
             
             # Stay pending - wait forever until signaled (with timeout to prevent hangs)
@@ -1032,11 +1034,12 @@ class QuickRetryWorkflow:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
         shot_id = shot_dict["shot_id"]
+        parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
             # Retry: signal parent that still is ready for review
-            parent = workflow.get_external_workflow_handle(episode_id)
+            parent = workflow.get_external_workflow_handle(parent_workflow_id)
             await parent.signal("retry_still_ready", args=[shot_id, version])
             
             # Then complete immediately (still is "produced")
@@ -1103,11 +1106,12 @@ class RetryWaitsForApprovalWorkflow:
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
         version = shot_dict.get("version", 1)
         shot_id = shot_dict["shot_id"]
+        parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         if version == 1:
             return {"status": "failed", "error": "First attempt failed"}
         else:
             # Retry: signal parent that still is ready for review
-            parent = workflow.get_external_workflow_handle(episode_id)
+            parent = workflow.get_external_workflow_handle(parent_workflow_id)
             await parent.signal("retry_still_ready", args=[shot_id, version])
             
             # Then wait for stills_approved (with timeout to prevent hangs)

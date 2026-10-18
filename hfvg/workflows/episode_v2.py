@@ -444,9 +444,12 @@ class EpisodeWorkflowV2:
                 f"Starting {shot_id} with attempt={total_attempt} (shot_attempts={actual_attempts}, override={override})"
             )
             
+            # Add parent workflow ID to shot_plan for retry_still_ready signaling
+            shot_plan["parent_workflow_id"] = workflow.info().workflow_id
+            
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[workflow.info().workflow_id, shot_plan],
+                args=[episode_id, shot_plan],
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
@@ -853,10 +856,14 @@ class EpisodeWorkflowV2:
         retry_num = self.state.shot_attempts[shot_id] - 1
         workflow_id = f"{self.state.episode_id}-shot-{shot_id}-retry{retry_num}"
         
+        # Add parent workflow ID to shot_plan for retry_still_ready signaling
+        shot_plan_with_parent = dict(shot_plan)
+        shot_plan_with_parent["parent_workflow_id"] = workflow.info().workflow_id
+        
         try:
             handle = await workflow.start_child_workflow(
                 "ShotWorkflow",
-                args=[workflow.info().workflow_id, shot_plan],
+                args=[self.state.episode_id, shot_plan_with_parent],
                 id=workflow_id,
                 task_queue=workflow.info().task_queue,
             )
