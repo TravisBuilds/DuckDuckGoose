@@ -1392,6 +1392,24 @@ test_mutation 141 "Real ShotWorkflow sends retry_still_ready after retry stills 
     "tests/test_real_shot_retry_still_ready.py::test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land" \
     sed -i 's/^\( *\)await self\._notify_parent_retry_still_ready(shot_plan)$/\1pass  # MUTATED - retry_still_ready never sent/'
 
+# 142: G1 clip estimate must send valid string image_url (not None)
+test_mutation 142 "G1 estimate sends string image_url to clip provider" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_string_image_url_for_kling" \
+    sed -i 's/placeholder_url = cfg\.G1_ESTIMATE_PLACEHOLDER_IMAGE_URL/placeholder_url = None  # MUTATED/'
+
+# 143: G1 estimate must pass last_image_url for end-frame shots
+test_mutation 143 "G1 estimate sends last_image_url for end-frame shots" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_last_image_url_for_end_frame_shots" \
+    sed -i 's/last_image_url = placeholder_url if end_frame else None/last_image_url = None  # MUTATED - never send last_image_url/'
+
+# 144: G1 estimate must send duration as int
+test_mutation 144 "G1 estimate sends duration as int not float" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_duration_as_int_not_float" \
+    sed -i 's/duration=int(duration)/duration=duration  # MUTATED - send float/'
+
 # Print final summary
 print_summary
 exit_code=$?

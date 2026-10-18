@@ -126,6 +126,13 @@ class Config:
     
     # Max retry attempts per shot (server-side enforcement)
     MAX_SHOT_RETRIES: int = int(os.getenv("MAX_SHOT_RETRIES", "1"))
+    
+    # Placeholder image URL for G1 clip estimates (pricing doesn't depend on image content)
+    # Must be a valid public image URL that the provider can access
+    G1_ESTIMATE_PLACEHOLDER_IMAGE_URL: str = os.getenv(
+        "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL",
+        "https://storage.googleapis.com/higgsfield-public/placeholder-1080x1920.jpg"
+    )
 
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 

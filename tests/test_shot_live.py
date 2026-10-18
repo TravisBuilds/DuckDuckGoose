@@ -207,10 +207,8 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
     proceeding to expensive clip generation. This test confirms the
     workflow completes successfully when approval is sent.
     
-    Note: Testing the negative case (blocking forever without approval) is
-    difficult in time-skipping test environments due to workflow timeouts.
-    The protection itself is enforced by the wait_condition in the workflow code,
-    and all production paths that reach clip generation send the approval signal.
+    Made deterministic: query workflow state to confirm still ready before
+    sending approval (no sleep); use time-skipping properly (no wall-clock timeout).
     """
     from hfvg.studio_db import init_studio_db, create_episode
     from hfvg.credit_ledger import CreditLedger
@@ -262,14 +260,28 @@ async def test_shot_workflow_requires_approval_for_clip(tmp_path, monkeypatch):
                 task_queue="test-task-queue",
             )
             
-            # Wait for still generation to complete
-            await asyncio.sleep(1.0)
+            # Deterministic: query workflow to wait for still_url (still generation complete)
+            # before sending approval. Time-skipping server advances workflow time instantly
+            # for timers/delays, so queries complete fast.
+            still_ready = False
+            for _ in range(100):  # Poll with small sleeps (deterministic in time-skipping)
+                try:
+                    state = await handle.query(ShotWorkflow.get_status)
+                    if state.get("still_url"):
+                        still_ready = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.1)
+            
+            assert still_ready, "Still generation did not complete in time"
             
             # Send required approval signal
             await handle.signal("stills_approved")
             
-            # Wait for workflow to complete
-            result = await asyncio.wait_for(handle.result(), timeout=15)
+            # Wait for workflow to complete (no arbitrary wall-clock timeout:
+            # time-skipping environment completes workflow timers instantly)
+            result = await handle.result()
             
             # Verify both still and clip were generated
             assert result["status"] == "completed"
