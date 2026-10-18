@@ -65,3 +65,4 @@ logs/
 .DS_Store
 Thumbs.db
 data/
+!hfvg/data/
