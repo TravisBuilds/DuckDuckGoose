@@ -127,6 +127,9 @@ def test_shots_json_validation_rejects_bad_entries():
 async def test_parse_beatmap_activity_merges_and_live_requires(tmp_path, monkeypatch, data_env):
     from hfvg.activities.workflow_support import parse_beatmap_activity
 
+    # Reset DRY_RUN to default state (test isolation)
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     beat = tmp_path / "BEATMAP.md"
     beat.write_text(
         "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
@@ -141,6 +144,7 @@ async def test_parse_beatmap_activity_merges_and_live_requires(tmp_path, monkeyp
     assert by_id["A02"]["params"]["duration"] == 5 and by_id["A02"]["params"]["end_frame"] is True
     # live (DRY_RUN=false) + beatmap shots that differ from shots.json -> refuse
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     err = await acapture(ShotDataError, parse_beatmap_activity(str(beat), "ep98", False))
     assert err is not None and "differ" in str(err)
 
@@ -218,6 +222,7 @@ async def _live_env(tmp_path, monkeypatch):
     await approve_g108(db_path, "ep99")
     await set_balance(db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
@@ -268,17 +273,38 @@ async def test_live_still_with_missing_refs_is_held_before_spend(tmp_path, monke
     from hfvg.budget import BudgetLedger
 
     db_path = await _live_env(tmp_path, monkeypatch)
+    
+    # Create the ref file that exists (so mutation doesn't fail with FileNotFoundError)
+    ref_file = tmp_path / "a" / "have.png"
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    # A real (tiny) PNG: if the refs gate is bypassed, upload_reference normalizes it, so fake bytes
+    # would crash in PIL (UnidentifiedImageError) instead of reaching the spend assertions below.
+    from PIL import Image
+    Image.new("RGB", (8, 8), "white").save(ref_file, "PNG")
+    
+    # Mock upload API (real shape per live probe)
+    respx.post("https://api.higgsfield.ai/files/generate-upload-url").mock(
+        return_value=httpx.Response(200, json={
+            "upload_url": "http://upload/url",
+            "public_url": "http://cdn.example.com/media123.png",
+            "upload_headers": {"Content-Type": "image/png", "x-amz-tagging": "retention=temporary"}
+        })
+    )
+    respx.put("http://upload/url").mock(
+        return_value=httpx.Response(200, content=b"")
+    )
+    
     respx.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "1", "usd": "0.06"}))
     sub = respx.post("https://api.higgsfield.ai/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"request_id": "never"}))
     err = await acapture(ValueError, submit_still_job_enforced(
-        "ep99", "A01", lint_ok("S"), 1, ["/a/have.png"], "1k", "medium", "9:16", None,
+        "ep99", "A01", lint_ok("S"), 1, [str(ref_file)], "1k", "medium", "9:16", None,
         lint_meta(), ["r_new"]))
-    assert err is not None and "G2.01" in str(err) and "r_new" in str(err)
-    assert sub.call_count == 0
+    assert sub.call_count == 0, f"paid submit reached the provider despite missing refs ({sub.call_count} calls)"
+    assert err is not None and "G2.01" in str(err) and "r_new" in str(err), f"not held at G2.01: {err!r}"
     status = await BudgetLedger(db_path).get_line_status("ep99", "L2_drafts")
-    assert status["reserved"] == 0
+    assert status["reserved"] == 0, f"budget reserved despite hold: {status}"
 
 
 @pytest.mark.asyncio
@@ -513,9 +539,23 @@ async def _gate(handle, name, timeout=15.0):
     raise AssertionError(f"workflow never reached gate {name}; at {state['current_gate']}")
 
 
-async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
-    from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode
+async def _wait_for_passed_gate(handle, name: str, timeout: float = 5.0):
+    """Wait for a gate to appear in passed_gates."""
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    
+    end = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < end:
+        state = await handle.query(EpisodeWorkflowV2.get_state)
+        if name in state.get("passed_gates", []):
+            return state
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"workflow never passed gate {name}; passed_gates: {state.get('passed_gates', [])}")
+
+
+async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
+    from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode, list_anchor_stills, approve_g2_shots
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    import hfvg.activities as activities
 
     db_path = str(tmp_path / "ep.db")
     monkeypatch.setenv("DB_PATH", db_path)
@@ -551,6 +591,20 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
     async def mock_report(*args):
         return {"report_path": "/fake/report.txt"}
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def mock_g1_plan(*args):
+        # Stub G1 plan to avoid real /estimate API calls
+        return {
+            "shots": [],
+            "total_still_credits": 0.0,
+            "total_clip_credits": 0.0,
+            "total_credits": 0.0,
+            "total_still_usd": "0.00",
+            "total_clip_usd": "0.00",
+            "total_usd": "0.00",
+            "estimates_available": True,
+        }
+    
     worker_cm = Worker(
         env_cm.client, task_queue="r4-ep", workflows=[EpisodeWorkflowV2, stub],
         activities=[
@@ -563,9 +617,12 @@ async def _episode_to_g201(tmp_path, monkeypatch, dry_run):
             mock_verify,
             mock_load_refs,
             mock_report,
+            mock_g1_plan,
             activities.load_gate_policy_activity, activities.parse_beatmap_activity,
             activities.recheck_refs_activity, activities.check_live_mode_and_g108,
             activities.approve_g108_activity,
+            list_anchor_stills,
+            approve_g2_shots,
             activities.trim_clips, activities.render_edit, activities.mix_audio,
             activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
             activities.post_to_platform,
@@ -609,6 +666,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
         tier: str | None = None,
         shot_meta: dict | None = None,
         missing_refs: list[str] | None = None,
+        attempt: int = 1,
     ):
         """Stub that captures params for assertion."""
         CAPTURED_PARAMS["refs"] = refs
@@ -686,6 +744,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
@@ -773,6 +832,7 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
     """M-96: Activity refuses submission when refs are missing (live mode)."""
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    from unittest.mock import AsyncMock, patch
     import aiosqlite
     
     # Mock lint to always pass so we reach refs check
@@ -782,7 +842,8 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("DRY_RUN", "false")  # Live mode to trigger refs check
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Live mode to trigger refs check
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     await init_studio_db(db_path)
@@ -802,16 +863,31 @@ async def test_shot_workflow_passes_refs_to_still_provider_activity(tmp_path, mo
         await insert_line(db, "ep99", "L2_drafts", 10_000_000, 8_000_000)
         await db.commit()
     
+    # Mock provider to avoid real network calls when mutation disables refs check
+    class MockProvider:
+        model_path = "test/model"
+        async def close(self): pass
+        async def estimate_usd_micros(self, **kwargs): return 50_000
+        async def estimate_usd_and_credits(self, **kwargs): return (50_000, 1.0)
+        async def submit_image(self, **kwargs): return "fake-job-id"
+        async def upload_reference(self, path, version): return {"public_url": f"fake://ref/{path}"}
+    
     # Try to submit with missing refs - lint is mocked, should hit refs check
-    try:
-        await submit_still_job_enforced(
-            "ep99", "A01", "Test prompt", 1,
-            missing_refs=["ref_missing"],  # Has missing refs
-            shot_meta={"count": 1, "characters": ["D"], "antler": False, "duck": False, "wet": False}
-        )
-        assert False, "Should have raised ValueError for missing refs"
-    except ValueError as e:
-        assert "G2" in str(e) and "refs not on disk" in str(e), f"Expected G2 refs error, got: {e}"
+    with patch("hfvg.activities.studio_generation.HiggsfieldStillProvider", return_value=MockProvider()), \
+         patch("hfvg.activities.studio_generation.check_live_mode_and_g108", new_callable=AsyncMock, return_value=(True, True)):
+        raised_error = None
+        try:
+            await submit_still_job_enforced(
+                "ep99", "A01", "Test prompt", 1,
+                missing_refs=["ref_missing"],  # Has missing refs
+                shot_meta={"count": 1, "characters": ["D"], "antler": False, "duck": False, "wet": False}
+            )
+        except ValueError as e:
+            raised_error = e
+        
+        assert raised_error is not None, "Should have raised ValueError for missing refs"
+        assert "G2" in str(raised_error) and "refs not on disk" in str(raised_error), \
+            f"Expected G2 refs error, got: {raised_error}"
 
 
 @pytest.mark.asyncio
@@ -826,21 +902,20 @@ async def test_g201_triggers_for_new_refs_and_plans_carry_data(tmp_path, monkeyp
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     async with env:
         async with worker:
             handle = await env.client.start_workflow(
                 W.run, args=["ep98", str(beat), False], id="r4-ep98-live", task_queue="r4-ep")
             # Approve G1 to reach G2
-            await handle.signal(W.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
-            state = await handle.query(W.get_state)
+            await handle.execute_update(W.approve_g1_shot_plan)
+            state = await _gate(handle, "G2_SCENE_STILLS")
             assert state["current_gate"] == "G2_SCENE_STILLS"
             
             # Approve to proceed through G2
-            await handle.signal(W.approve_g2_scene_stills)
-            await asyncio.sleep(1.5)
-            state = await handle.query(W.get_state)
+            await handle.execute_update(W.approve_g2_scene_stills)
+            state = await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             assert "G2_SCENE_STILLS" in state["passed_gates"], "should pass G2 after approval"
             
             # M-97: Assert recheck merged ref data into plan
@@ -863,7 +938,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
+    from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108, list_anchor_stills, approve_g2_shots
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     import hfvg.activities as activities
     
@@ -888,6 +963,7 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
     monkeypatch.setenv("SHOTS_JSON_PATH", str(sp))
     monkeypatch.setenv("REFS_JSON_PATH", str(rp))
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Create activity mocks
     from temporalio import activity
@@ -921,6 +997,20 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             "B04": {"refs": [have_path], "missing_refs": []},
         }
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def mock_g1_plan(*args):
+        # Stub G1 plan to avoid real /estimate API calls
+        return {
+            "shots": [],
+            "total_still_credits": 0.0,
+            "total_clip_credits": 0.0,
+            "total_credits": 0.0,
+            "total_still_usd": "0.00",
+            "total_clip_usd": "0.00",
+            "total_usd": "0.00",
+            "estimates_available": True,
+        }
+    
     SEEN_PLANS_M95.clear()
     
     # Fresh Temporal env
@@ -932,10 +1022,12 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 mock_acquire_lock, mock_release_lock,
                 activities.upsert_episode_activity,
                 init_episode_credit_line_activity, init_episode_budget_lines_activity,
-                mock_preflight, mock_verify, mock_load_refs, mock_report, mock_recheck,
+                mock_preflight, mock_verify, mock_load_refs, mock_report, mock_recheck, mock_g1_plan,
                 activities.load_gate_policy_activity, activities.parse_beatmap_activity,
                 activities.check_live_mode_and_g108,
                 activities.approve_g108_activity,
+                list_anchor_stills,
+                approve_g2_shots,
                 activities.trim_clips, activities.render_edit, activities.mix_audio,
                 activities.generate_voiceover, activities.generate_sfx, activities.generate_music,
                 activities.post_to_platform,
@@ -954,8 +1046,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
             )
             
             # Approve G1
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
-            await asyncio.sleep(0.5)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+            state = await _gate(handle, "G2_SCENE_STILLS")
             state = await handle.query(EpisodeWorkflowV2.get_state)
             
             # M-95: Assert recheck was called and updated missing_refs
@@ -964,8 +1056,8 @@ async def test_g2_detects_missing_refs_and_recheck_merges_data(tmp_path, monkeyp
                 f"M-95: After recheck, missing_refs should be empty, got {state.get('missing_refs')}"
             
             # M-97: Assert recheck merged data into shot plans
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            await asyncio.sleep(1.0)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await _wait_for_passed_gate(handle, "G2_SCENE_STILLS")
             plan = SEEN_PLANS_M95["A01"]
             assert "refs" in plan, "M-97: recheck should merge refs"
             assert len(plan["refs"]) == 2, "M-97: Should have 2 refs after recheck"
@@ -984,6 +1076,7 @@ async def test_g201_holds_live_while_refs_still_missing_then_releases(tmp_path, 
     shots = [_shot("A01"), _shot("B04", duration=3, ref_keys=["r_have"])]
     sp, rp, new = _write_data(data_env["tmp"], shots)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     async with env:
         async with worker:
             handle = await env.client.start_workflow(
@@ -1036,7 +1129,13 @@ AUTH = {"Authorization": "Bearer " + "a" * 32}
 STATE = {"episode_id": "ep04", "stage": "script", "approvals": {"g101": True}, "shots": 31}
 
 
-def test_get_episode_looks_up_the_started_workflow_id(monkeypatch):
+def test_get_episode_looks_up_the_started_workflow_id(monkeypatch, tmp_path):
+    # Create minimal beatmap for ep04
+    beatmap_dir = tmp_path / "data/episodes/ep04"
+    beatmap_dir.mkdir(parents=True, exist_ok=True)
+    (beatmap_dir / "BEATMAP.md").write_text("# Episode 04\n\n## A01\nTest shot")
+    monkeypatch.chdir(tmp_path)
+    
     temporal = _temporal_mock(STATE)
     client, _ = _client(monkeypatch, temporal)
     start = client.post("/api/episodes", headers=AUTH, json={"episode_id": "ep04", "dry_run": True})

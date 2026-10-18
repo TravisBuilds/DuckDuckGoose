@@ -8,6 +8,7 @@ Each test exercises a critical safety mechanism and will fail if that mechanism 
 import hashlib
 import json
 import pytest
+from temporalio import activity
 from tests.lint_helpers import lint_ok, lint_meta
 from tests.ledger_helpers import insert_line, set_balance
 import aiosqlite
@@ -50,6 +51,7 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
     import httpx
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -102,11 +104,11 @@ async def test_activity_level_enforcement(test_db, monkeypatch, respx_mock):
 
 @pytest.mark.asyncio
 async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_mock):
-    """Test 5: Idempotency key is actually sent to provider."""
+    """Test 5: Identical inputs produce the same idempotency key; changed prompt produces different key."""
     import httpx
-    from hfvg.activities.studio_generation import generate_idempotency_key
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -114,19 +116,6 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
     
     await set_live_mode(test_db, "ep99", True)
     await approve_g108(test_db, "ep99")
-    
-    # Calculate expected idempotency key with all parameters
-    # submit_still_job_enforced defaults: refs=None, resolution="1k", quality="medium", aspect_ratio="9:16"
-    expected_key = generate_idempotency_key(
-        episode_id="ep99",
-        shot_id="A01",
-        version=1,
-        prompt=lint_ok("Test prompt"),
-        refs=None,
-        quality="medium",
-        resolution="1k",
-        aspect_ratio="9:16",
-    )
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0").mock(
@@ -138,16 +127,36 @@ async def test_idempotent_retry_no_double_charge(test_db, monkeypatch, respx_moc
         return_value=httpx.Response(200, json={"request_id": "test-123", "status": "queued"})
     )
     
-    # Call activity
+    # Call activity first time
     await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    # Verify the idempotency key was sent (now uses job_id format: still-{episode}-{shot}-v{version})
-    assert mock_route.called, "Provider should be called"
-    request = mock_route.calls[0].request
-    actual_key = request.headers.get("Idempotency-Key")
-    # The key should now be in the format: still-ep99-A01-v1
-    expected_job_id = "still-ep99-A01-v1"
-    assert actual_key == expected_job_id, f"Idempotency-Key should be job_id. Expected: {expected_job_id}, Got: {actual_key}"
+    # Get idempotency key from first call
+    assert mock_route.call_count == 1, "Provider should be called once"
+    first_request = mock_route.calls[0].request
+    first_key = first_request.headers.get("Idempotency-Key")
+    assert first_key is not None, "Idempotency-Key header must be present"
+    
+    # Call activity second time with identical inputs
+    await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
+    
+    # Get idempotency key from second call
+    assert mock_route.call_count == 2, "Provider should be called twice"
+    second_request = mock_route.calls[1].request
+    second_key = second_request.headers.get("Idempotency-Key")
+    
+    # Identical inputs should produce the same key
+    assert second_key == first_key, f"Identical inputs should give same key: {first_key} vs {second_key}"
+    
+    # Call with changed prompt
+    await submit_still_job_enforced("ep99", "A01", lint_ok("Different prompt"), 1, shot_meta=lint_meta())
+    
+    # Get idempotency key from third call
+    assert mock_route.call_count == 3, "Provider should be called three times"
+    third_request = mock_route.calls[2].request
+    third_key = third_request.headers.get("Idempotency-Key")
+    
+    # Changed prompt should produce a different key
+    assert third_key != first_key, f"Changed prompt should give different key: {first_key} vs {third_key}"
 
 
 @pytest.mark.asyncio  
@@ -266,6 +275,17 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
     from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     from hfvg.activities.ref_generation import generate_ref_activity, load_refs_to_generate_activity
+    from hfvg.activities.g1_plan import compute_g1_plan_activity
+    from hfvg.studio_db import list_anchor_stills, approve_g2_shots
+    
+    @activity.defn(name="recheck_refs_activity")
+    async def noop_recheck(*a): return {}
+    
+    @activity.defn(name="verify_episode_files_activity")
+    async def noop_verify(*a): return {}
+    
+    @activity.defn(name="update_credit_cap_activity")
+    async def noop_update_cap(*a): return {}
     
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -284,6 +304,12 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
                 generate_ref_activity,
                 acquire_run_lock,
                 release_run_lock,
+                compute_g1_plan_activity,
+                list_anchor_stills,
+                approve_g2_shots,
+                noop_recheck,
+                noop_verify,
+                noop_update_cap,
             ],
         ):
             # Start workflow
@@ -300,13 +326,20 @@ async def test_approval_signal_reaches_episode_workflow(monkeypatch, tmp_path):
             state = await handle.query("get_state")
             assert not state["approvals"]["g1_shot_plan"], "Should not be approved yet"
             
-            # Send signal
-            await handle.signal("approve_g1_shot_plan")
+            # Send update (was signal, now update)
+            # If the @workflow.update decorator is removed (mutation), this will fail
+            try:
+                await handle.execute_update("approve_g1_shot_plan")
+            except (AttributeError, Exception) as e:
+                # Mutation removed @workflow.update decorator, causing error
+                # Convert to AssertionError so redgreen classifies this correctly
+                assert False, f"Approval update failed - decorator likely missing: {e}"
+            
             await env.sleep(0.1)
             
-            # Check state after - signal should have reached workflow
+            # Check state after - update should have reached workflow
             state_after = await handle.query("get_state")
-            assert state_after["approvals"]["g1_shot_plan"], "Signal should reach workflow and approve"
+            assert state_after["approvals"]["g1_shot_plan"], "Update should reach workflow and approve"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -379,6 +412,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     
     # Even with live mode and G1.08 enabled in DB
     await set_live_mode(test_db, "ep99", True)
@@ -397,7 +431,7 @@ async def test_dry_run_forces_dry_never_live(test_db, monkeypatch, respx_mock):
     # Should return dry job (not call provider)
     result = await submit_still_job_enforced("ep99", "A01", lint_ok("Test prompt"), 1, shot_meta=lint_meta())
     
-    assert result["job_id"].startswith("still-dry-"), "Should return dry job"
+    assert result["job_id"].startswith("still-dry-"), f"Should return dry job, got {result['job_id']}"
     assert result["reserved_amount"] == 60_000, "Should return the dry estimate (0.06 USD in usd_micros)"
     
     # Key assertion: provider endpoints should NOT be called when DRY_RUN=true
@@ -461,6 +495,7 @@ async def test_still_activity_reserves_budget(test_db, monkeypatch, respx_mock):
     from hfvg.budget import BudgetLedger
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
@@ -505,6 +540,7 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
     from hfvg.activities.studio_generation import generate_idempotency_key
     
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_db)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     monkeypatch.setenv("KLING_MODEL_PATH", "kling-video/v3.0/pro/image-to-video")
@@ -519,8 +555,9 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         await insert_line(db, "ep99", "L4_video", 50_000_000, 40_000_000)
         await db.commit()
     
-    # Expected idempotency key is now the deterministic job_id
-    expected_key = "clip-ep99-A01-v1"
+    # Idempotency key is now job_id + hash of request params
+    # Format: clip-ep99-A01-v1-{hash}
+    expected_key_prefix = "clip-ep99-A01-v1-"
     
     # Mock estimate endpoint
     respx_mock.post("https://api.higgsfield.ai/estimate/kling-video/v3.0/pro/image-to-video").mock(
@@ -538,8 +575,13 @@ async def test_clip_idempotency_key_sent(test_db, monkeypatch, respx_mock):
         shot_meta=lint_meta(),
     )
     
-    # Verify idempotency key was sent
+    # Verify idempotency key was sent with correct format
     assert mock_route.called, "Provider should be called"
     request = mock_route.calls[0].request
     actual_key = request.headers.get("Idempotency-Key")
-    assert actual_key == expected_key, f"Idempotency-Key mismatch. Expected: {expected_key}, Got: {actual_key}"
+    assert actual_key is not None, "Idempotency-Key header must be present"
+    assert actual_key.startswith(expected_key_prefix), f"Idempotency-Key should start with {expected_key_prefix}, got: {actual_key}"
+    # Verify hash suffix is 16 hex chars
+    hash_suffix = actual_key[len(expected_key_prefix):]
+    assert len(hash_suffix) == 16, f"Hash suffix should be 16 chars, got {len(hash_suffix)}"
+    assert all(c in "0123456789abcdef" for c in hash_suffix), f"Hash suffix should be hex, got: {hash_suffix}"

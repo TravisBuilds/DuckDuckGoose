@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         commit_credits_activity,
         release_credits_activity,
     )
+    from hfvg.activities.save_assets import save_asset_locally
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
     from temporalio.exceptions import ActivityError, ApplicationError
@@ -50,7 +51,20 @@ class ShotWorkflow:
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
+        self.end_still_requested = False  # generate_end_still signal (backfill for runs started before the fix)
+        self.end_prompt_override: str | None = None
         self.status = "running"  # Status: running, paused_cap, completed, failed
+        
+        # Per-shot G2 status tracking (Item 4)
+        self.still_status = "pending"  # pending/done/failed
+        self.still_url: str | None = None
+        self.still_error: str | None = None
+        self.clip_status = "pending"  # pending/done/failed
+        self.clip_url: str | None = None
+        self.clip_error: str | None = None
+        self.end_still_status = "pending"  # For end-frame shots
+        self.end_still_url: str | None = None
+        self.end_still_error: str | None = None
 
     @workflow.signal
     def stills_approved(self):
@@ -62,6 +76,14 @@ class ShotWorkflow:
         """Signal: the END-frame image URL for a start+end clip (Kling last_image_url)."""
         self.end_image_url = url
     
+    @workflow.signal
+    def generate_end_still(self, end_prompt: str | None = None):
+        """Backfill: generate the missing _end still while waiting at review (before stills_approved).
+        Only acts for end_frame shots whose end still is missing; never touches the start still."""
+        self.end_still_requested = True
+        if end_prompt:
+            self.end_prompt_override = end_prompt
+
     @workflow.signal
     def resume_after_cap_raise(self):
         """Signal from parent that credit cap was raised, resume paused shot."""
@@ -87,6 +109,16 @@ class ShotWorkflow:
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
             "human_approved_still": self.human_approved_still,
+            # Per-shot G2 status (Item 4)
+            "still_status": self.still_status,
+            "still_url": self.still_url,
+            "still_error": self.still_error,
+            "clip_status": self.clip_status,
+            "clip_url": self.clip_url,
+            "clip_error": self.clip_error,
+            "end_still_status": self.end_still_status,
+            "end_still_url": self.end_still_url,
+            "end_still_error": self.end_still_error,
         }
     
     async def _poll_job_to_completion(
@@ -190,7 +222,8 @@ class ShotWorkflow:
             
             elif status in ("failed", "blocked", "canceled"):
                 # Provider confirmed failure - release reservation
-                reason = f"{status}: {status_result.get('error', 'no details')}"
+                error_details = status_result.get('error', 'no details')
+                reason = f"{status}: {error_details}"
                 
                 await workflow.execute_activity(
                     release_job_budget,
@@ -217,11 +250,11 @@ class ShotWorkflow:
                 
                 workflow.logger.error(f"Job {job_id} {status}, reservation and credits released")
                 
-                # Raise appropriate error - these will NOT be caught by the except above
+                # Raise appropriate error with job_id and raw error
                 if status == "blocked":
-                    raise ContentBlockError(f"Provider blocked: {status_result.get('error')}")
+                    raise ContentBlockError(f"Provider blocked job {job_id}: {error_details}")
                 else:
-                    raise RuntimeError(f"Job {status}: {status_result.get('error')}")
+                    raise RuntimeError(f"Job {job_id} {status}: {error_details}")
             
             # Non-terminal: continue polling
             workflow.logger.info(f"Job {job_id} status: {status}, poll {poll_count + 1}/{max_polls}")
@@ -261,8 +294,8 @@ class ShotWorkflow:
         Returns:
             dict with url and cost
         """
-        params = shot_plan.get("params", {})
-        end_prompt = params.get("end_prompt", shot_plan["prompt"])
+        # end_prompt (signal override > shot plan) if provided, otherwise the start frame prompt
+        end_prompt = self.end_prompt_override or shot_plan.get("end_prompt") or shot_plan["prompt"]
         
         workflow.logger.info(f"Generating end still for {self.shot_id}")
         
@@ -283,6 +316,8 @@ class ShotWorkflow:
                         None,  # tier
                         shot_plan.get("shot_meta"),
                         shot_plan.get("missing_refs", []),
+                        self.version,  # attempt
+                        self.still_url,  # lead_ref: the approved/landed start still goes first
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
@@ -312,6 +347,59 @@ class ShotWorkflow:
             "cost": poll_result["cost"],
         }
     
+    async def _produce_end_still(
+        self, shot_plan: dict, refs, resolution: str, quality: str, aspect_ratio: str,
+        retry_policy: RetryPolicy,
+    ) -> dict | None:
+        """Generate, record and save the _end still. Returns a failure dict (and records the error
+        in G2 state) if it failed, None on success."""
+        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
+        try:
+            end_still_result = await self._generate_end_still(
+                shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+            )
+        except (RuntimeError, ActivityError) as e:
+            err = str(e.cause) if isinstance(e, ActivityError) and e.cause else str(e)
+            self.end_still_status = "failed"
+            self.end_still_error = err
+            workflow.logger.error(f"End-frame still failed for {self.shot_id}: {err}")
+            return {"shot_id": self.shot_id, "status": "failed", "error": f"End still failed: {err}"}
+        self.end_still_asset = end_still_result
+        self.end_image_url = end_still_result["url"]
+        self.end_still_status = "done"
+        self.end_still_url = end_still_result["url"]
+        self.end_still_error = None
+        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
+        try:
+            end_local = await workflow.execute_activity(
+                save_asset_locally,
+                args=[self.episode_id, f"{self.shot_id}_end", end_still_result["url"], "still", self.version],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
+            workflow.logger.info(f"End still saved locally to {end_local}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to save end still locally: {e}, continuing")
+        return None
+
+    def _end_still_backfill_due(self, params: dict) -> bool:
+        return bool(self.end_still_requested and params.get("end_frame") and not self.end_image_url)
+
+    async def _notify_parent_retry_still_ready(self, shot_plan: dict) -> None:
+        """Tell the episode workflow this RETRY child's still(s) have landed (QC'd + recorded),
+        so it can clear pending_retries and let G2 (the human review) be approved.
+        Only retries (version > 1) with a known parent; the parent ignores unknown shots.
+        Must run BEFORE waiting for stills_approved, otherwise G2 deadlocks."""
+        parent_id = shot_plan.get("parent_workflow_id")
+        if not parent_id or self.version <= 1:
+            return
+        try:
+            await workflow.get_external_workflow_handle(parent_id).signal(
+                "retry_still_ready", args=[self.shot_id, self.version]
+            )
+        except ApplicationError as e:
+            workflow.logger.warning(f"Could not send retry_still_ready to {parent_id}: {e}")
+
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
@@ -321,8 +409,13 @@ class ShotWorkflow:
         """
         self.episode_id = episode_id
         self.shot_id = shot_plan["shot_id"]
+        
+        # Use attempt number if provided (for retries), otherwise default to 0
+        # Version is separate: original=1, retry1=2, retry2=3, etc.
+        attempt = shot_plan.get("attempt", 0)
+        self.version = shot_plan.get("version", 1)
 
-        workflow.logger.info(f"Starting shot {self.shot_id}")
+        workflow.logger.info(f"Starting shot {self.shot_id} (attempt {attempt})")
 
         # NO RETRY after reserve: each retry would resubmit a paid call and leak reservations
         # Provider idempotency-key should dedupe, but we must not rely on that
@@ -379,6 +472,7 @@ class ShotWorkflow:
                                 None,  # tier (activity default)
                                 shot_plan.get("shot_meta"),  # prompt lint metadata
                                 shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
+                                self.version,  # attempt
                             ],
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
@@ -399,23 +493,59 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.still_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.still_error = error_message
+                            workflow.logger.error(f"Still submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
-                poll_result = await self._poll_job_to_completion(
-                    job_id=job_info["job_id"],
-                    job_type="still",
-                    line_name=job_info["line_name"],
-                    reserved_amount=job_info["reserved_amount"],
-                )
+                try:
+                    poll_result = await self._poll_job_to_completion(
+                        job_id=job_info["job_id"],
+                        job_type="still",
+                        line_name=job_info["line_name"],
+                        reserved_amount=job_info["reserved_amount"],
+                    )
+                except RuntimeError as e:
+                    # Provider failure or polling exhaustion - update G2 status and return failure
+                    self.still_status = "failed"
+                    self.still_error = str(e)
+                    workflow.logger.error(f"Still generation failed: {e}")
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "error": str(e),
+                    }
                 
                 self.still_asset = {
                     "url": poll_result["url"],
                     "cost": poll_result["cost"],
                 }
+                
+                # Update G2 status (Item 4)
+                self.still_status = "done"
+                self.still_url = poll_result["url"]
+                self.still_error = None
 
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
+                
+                # Save still locally
+                try:
+                    still_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "still", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Still saved locally to {still_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save still locally: {e}, continuing")
 
                 review_result = await workflow.execute_activity(
                     review_still,
@@ -449,13 +579,11 @@ class ShotWorkflow:
                     
                     # Generate end-frame still if required (before Gate 2)
                     if params.get("end_frame"):
-                        workflow.logger.info(f"{self.shot_id} requires end frame, generating now")
-                        end_still_result = await self._generate_end_still(
+                        end_fail = await self._produce_end_still(
                             shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
                         )
-                        self.end_still_asset = end_still_result
-                        self.end_image_url = end_still_result["url"]
-                        workflow.logger.info(f"End-frame still generated: {self.end_image_url}")
+                        if end_fail:
+                            return end_fail
                     
                     break
                 elif review_result.get("escalate"):
@@ -463,6 +591,15 @@ class ShotWorkflow:
                     workflow.logger.info(
                         f"Still QC escalated to human review, waiting for approval signal: {review_result['issues']}"
                     )
+                    
+                    # Both review paths produce the _end still BEFORE the human-review/G2 wait (and
+                    # before retry_still_ready). patched(): runs already parked at review replay unchanged.
+                    if params.get("end_frame") and workflow.patched("end-still-before-human-review"):
+                        end_fail = await self._produce_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )
+                        if end_fail:
+                            return end_fail
                     
                     # Record still as needs_review (clear any stale clip_url from previous runs)
                     await workflow.execute_activity(
@@ -483,9 +620,20 @@ class ShotWorkflow:
                         retry_policy=retry_policy,
                     )
                     
+                    # Retry still landed (recorded as needs_review): unblock G2 before waiting on it
+                    await self._notify_parent_retry_still_ready(shot_plan)
+
                     # Wait for human approval signal (stills_approved)
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
-                    await workflow.wait_condition(lambda: self.stills_approved, timeout=timedelta(hours=24))
+                    review_wait = lambda: self.stills_approved or self._end_still_backfill_due(params)
+                    await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
+                    # Backfill (generate_end_still signal): only for runs parked here without an _end still
+                    while not self.stills_approved and self._end_still_backfill_due(params):
+                        self.end_still_requested = False
+                        await self._produce_end_still(
+                            shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+                        )  # on failure the error is in G2 state; keep waiting (start still preserved)
+                        await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
                     workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
                     
                     # Set human_approved_still flag AFTER approval
@@ -516,6 +664,9 @@ class ShotWorkflow:
                     workflow.logger.error(
                         f"Still failed QC without escalation: {review_result['issues']}"
                     )
+                    # Update G2 status
+                    self.still_status = "failed"
+                    self.still_error = f"QC failed: {', '.join(review_result['issues'])}"
                     return {
                         "shot_id": self.shot_id,
                         "status": "failed",
@@ -525,6 +676,9 @@ class ShotWorkflow:
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on still: {e}, routing to recovery")
+                # Update G2 status
+                self.still_status = "failed"
+                self.still_error = f"Content blocked: {str(e)}"
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
@@ -535,11 +689,19 @@ class ShotWorkflow:
 
         if not self.still_asset or (not review_result.get("passed") and not self.human_approved_still):
             workflow.logger.error(f"Still failed after {self.max_retries} attempts")
+            # Update G2 status
+            self.still_status = "failed"
+            self.still_error = "Max retries exceeded"
             return {
                 "shot_id": self.shot_id,
                 "status": "failed",
                 "error": "Max retries exceeded",
             }
+
+        # Retry still(s) landed (start + end frame, QC passed, recorded): unblock G2.
+        # (Escalated retries already notified above, before their own wait.)
+        if not self.human_approved_still:
+            await self._notify_parent_retry_still_ready(shot_plan)
 
         # CRITICAL: Wait for parent to approve this scene's stills before generating clip
         workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
@@ -613,16 +775,37 @@ class ShotWorkflow:
                             self.cap_raised = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
-                            # Other activity error - re-raise
-                            raise
+                            # Other activity error - set failed status with cause
+                            self.clip_status = "failed"
+                            error_message = str(e.cause) if e.cause else str(e)
+                            self.clip_error = error_message
+                            workflow.logger.error(f"Clip submit failed: {error_message}")
+                            return {
+                                "shot_id": self.shot_id,
+                                "status": "failed",
+                                "still_url": self.still_asset["url"],
+                                "error": error_message,
+                            }
 
                 # Poll for completion using workflow-level polling loop (R1)
-                poll_result = await self._poll_job_to_completion(
-                    job_id=job_info["job_id"],
-                    job_type="clip",
-                    line_name=job_info["line_name"],
-                    reserved_amount=job_info["reserved_amount"],
-                )
+                try:
+                    poll_result = await self._poll_job_to_completion(
+                        job_id=job_info["job_id"],
+                        job_type="clip",
+                        line_name=job_info["line_name"],
+                        reserved_amount=job_info["reserved_amount"],
+                    )
+                except RuntimeError as e:
+                    # Provider failure or polling exhaustion - update clip status and return failure
+                    self.clip_status = "failed"
+                    self.clip_error = str(e)
+                    workflow.logger.error(f"Clip generation failed: {e}")
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "failed",
+                        "still_url": self.still_asset["url"],
+                        "error": str(e),
+                    }
                 
                 self.clip_asset = {
                     "url": poll_result["url"],
@@ -630,6 +813,18 @@ class ShotWorkflow:
                 }
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
+                
+                # Save clip locally
+                try:
+                    clip_local_path = await workflow.execute_activity(
+                        save_asset_locally,
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "clip", attempt + 1],
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=retry_policy,
+                    )
+                    workflow.logger.info(f"Clip saved locally to {clip_local_path}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
 
                 # Prepare rubric with expected clip parameters for motion QC
                 clip_rubric = {
@@ -648,6 +843,10 @@ class ShotWorkflow:
 
                 if clip_qc["passed"]:
                     workflow.logger.info(f"Clip passed QC on attempt {attempt + 1}")
+                    # Update clip status
+                    self.clip_status = "done"
+                    self.clip_url = self.clip_asset["url"]
+                    self.clip_error = None
                     break
                 elif clip_qc.get("escalate"):
                     # QC failed in live mode - escalate to human review, don't retry
@@ -667,6 +866,9 @@ class ShotWorkflow:
                     workflow.logger.error(
                         f"Clip failed QC without escalation: {clip_qc['issues']}"
                     )
+                    # Update clip status
+                    self.clip_status = "failed"
+                    self.clip_error = f"QC failed: {', '.join(clip_qc['issues'])}"
                     return {
                         "shot_id": self.shot_id,
                         "status": "failed",
@@ -676,6 +878,9 @@ class ShotWorkflow:
 
             except ContentBlockError as e:
                 workflow.logger.error(f"Content block on clip: {e}, routing to recovery")
+                # Update clip status
+                self.clip_status = "failed"
+                self.clip_error = f"Content blocked: {str(e)}"
                 return {
                     "shot_id": self.shot_id,
                     "status": "blocked",
@@ -687,6 +892,9 @@ class ShotWorkflow:
 
         if not self.clip_asset or not clip_qc.get("passed"):
             workflow.logger.error(f"Clip failed after {self.max_retries} attempts")
+            # Update clip status
+            self.clip_status = "failed"
+            self.clip_error = "Max clip retries exceeded"
             return {
                 "shot_id": self.shot_id,
                 "status": "failed",

@@ -178,19 +178,60 @@ class CreditLedger:
                 row = await cursor.fetchone()
                 return row[0] if row else None
     
+    async def get_job_from_provider_job(self, provider_job_id: str) -> str | None:
+        """
+        Get internal job ID from provider job ID (reverse lookup).
+        
+        Returns:
+            job_id if found, None otherwise
+        """
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute(
+                "SELECT job_id FROM provider_jobs WHERE provider_job_id = ?",
+                (provider_job_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    
+    async def release_credits_by_provider_job(self, episode_id: str, provider_job_id: str, notes: str = ""):
+        """Release credits using provider job ID (looks up internal job_id)."""
+        job_id = await self.get_job_from_provider_job(provider_job_id)
+        if job_id:
+            await self.release_credits(episode_id, job_id, notes)
+        else:
+            # No mapping found, try to release using provider_job_id directly as fallback
+            await self.release_credits(episode_id, provider_job_id, notes)
+    
     async def create_episode_line(self, episode_id: str, cap_credits: int | None = None):
-        """Create credit line for episode."""
+        """Create credit line for episode. If episode exists and cap_credits is provided, update the cap."""
         settings = get_credit_settings()
         cap = cap_credits if cap_credits is not None else settings.episode_cap_credits
         pause = cap * settings.pause_percent // 100
         
         async with aiosqlite.connect(self.db_path, uri=True, isolation_level="IMMEDIATE") as db:
-            await db.execute(
-                """INSERT OR IGNORE INTO credit_lines 
-                   (line_id, episode_id, cap_credits, pause_threshold_credits, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (f"episode_{episode_id}", episode_id, cap, pause, _now_iso())
+            # Check if episode exists
+            cursor = await db.execute(
+                "SELECT cap_credits FROM credit_lines WHERE line_id = ?",
+                (f"episode_{episode_id}",)
             )
+            existing = await cursor.fetchone()
+            
+            if existing and cap_credits is not None:
+                # Update existing cap
+                await db.execute(
+                    """UPDATE credit_lines 
+                       SET cap_credits = ?, pause_threshold_credits = ?
+                       WHERE line_id = ?""",
+                    (cap, pause, f"episode_{episode_id}")
+                )
+            else:
+                # Insert new line
+                await db.execute(
+                    """INSERT OR IGNORE INTO credit_lines 
+                       (line_id, episode_id, cap_credits, pause_threshold_credits, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (f"episode_{episode_id}", episode_id, cap, pause, _now_iso())
+                )
             await db.commit()
     
     async def acquire_run_lock(

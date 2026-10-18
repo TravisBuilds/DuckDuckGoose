@@ -97,7 +97,8 @@ async def test_canary_route_checks_g108(test_db_api, monkeypatch):
 @pytest.mark.asyncio
 async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
     """Test: Canary in non-dry mode requires live_mode in DB."""
-    monkeypatch.setenv("DRY_RUN", "false")  # Non-dry mode
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate  # Non-dry mode
     
     # Create episode, approve G1.08, but do NOT enable live_mode
     await create_episode(test_db_api, "ep99")
@@ -365,7 +366,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "failed", f"Expected failed status, got {data}"
+            # Workflow completes successfully but returns failed shot result
+            assert data["status"] == "completed", f"Expected completed status, got {data}"
+            assert data["result"]["status"] == "failed", f"Expected failed shot, got {data['result']}"
             
             # Check that L6 reservation was released to exactly 0
             status_after = await ledger.get_line_status("ep99", "L6_reserve")
@@ -378,7 +381,9 @@ async def test_canary_l6_reconcile_on_failure(test_db_api, monkeypatch, tmp_path
                 cookies=cookies,
             )
             assert response.status_code == 200
-            assert response.json()["status"] == "failed"
+            data2 = response.json()
+            assert data2["status"] == "completed"
+            assert data2["result"]["status"] == "failed"
             
             status_after2 = await ledger.get_line_status("ep99", "L6_reserve")
             assert status_after2["reserved"] == 0, "L6 should still be 0 (idempotent)"
@@ -548,25 +553,24 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             except Exception:
                 pass
             
-            # Wait for workflow status to be recorded as failed (not just terminated)
-            # This prevents race where status API returns "running" before state is persisted
-            async def is_failed():
-                try:
-                    desc = await handle.describe()
-                    return desc.status.name == "FAILED"
-                except Exception:
-                    return False
+                # Wait for workflow to reach completed state
+                async def is_completed():
+                    try:
+                        desc = await handle.describe()
+                        return desc.status.name == "COMPLETED"
+                    except Exception:
+                        return False
             
-            # Wait up to 2 seconds for status to be "FAILED"
+            # Wait up to 2 seconds for status to be "COMPLETED"
             timeout = asyncio.get_event_loop().time() + 2.0
             while asyncio.get_event_loop().time() < timeout:
-                if await is_failed():
+                if await is_completed():
                     break
                 await asyncio.sleep(0.05)
             
-            # Verify it's actually failed before proceeding
+            # Verify it's actually completed before proceeding
             desc = await handle.describe()
-            assert desc.status.name == "FAILED", f"Workflow should be FAILED, got {desc.status.name}"
+            assert desc.status.name == "COMPLETED", f"Workflow should be COMPLETED, got {desc.status.name}"
             
             # Set up API
             admin_secret = "a" * 32
@@ -601,7 +605,9 @@ async def test_canary_l6_reconcile_concurrent(test_db_api, monkeypatch, tmp_path
             # All should succeed
             for resp in results:
                 assert resp.status_code == 200
-                assert resp.json()["status"] == "failed"
+                data = resp.json()
+                assert data["status"] == "completed"
+                assert data["result"]["status"] == "failed"
             
             # Check that L6 is exactly 0 (not negative!)
             status_after = await ledger.get_line_status("ep99", "L6_reserve")
@@ -790,6 +796,7 @@ async def test_approve_completed_canary_409(test_db_api, monkeypatch):
 async def _setup_live_canary(test_db_api, monkeypatch, tmp_path, style=None):
     """Live-mode canary fixtures: episode live + G1.08, one shot, L6 line, manual balance."""
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
     monkeypatch.setenv("MODEL_PATH_GPT_IMAGE_2", "xai/grok-imagine-image-2.0")
     await create_episode(test_db_api, "ep99")
@@ -908,3 +915,149 @@ async def test_canary_live_prompt_lint_refuses_before_estimate_and_reserve(test_
     assert est_still.call_count == 0 and est_clip.call_count == 0
     status = await BudgetLedger(test_db_api).get_line_status("ep99", "L6_reserve")
     assert status["reserved"] == 0
+
+
+@pytest.mark.asyncio
+async def test_lint_endpoint_returns_violations(test_db_api, monkeypatch):
+    """Test: POST /api/lint returns lint violations for invalid prompts."""
+    from api.main import app
+    from httpx import AsyncClient, ASGITransport
+    
+    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    
+    # Test with a prompt that has violations
+    response = await client.post("/api/lint", json={
+        "prompt": "Missing count clause here",
+        "live": False
+    })
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert "problems" in data
+    assert len(data["problems"]) > 0  # Should have violations
+
+
+@pytest.mark.asyncio
+async def test_set_ref_versions_endpoint(test_db_api, tmp_path, monkeypatch):
+    """Test: POST /api/episodes/{episode_id}/set-ref-versions updates versions."""
+    from api.main import app
+    from httpx import AsyncClient, ASGITransport
+    import json
+    from pathlib import Path
+    
+    # Setup episode directory
+    episode_dir = tmp_path / "data" / "episodes" / "ep99"
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create refs.json
+    refs_json = episode_dir / "refs.json"
+    refs_json.write_text('{"per_shot": {}, "versions": {}}')
+    
+    monkeypatch.setenv("DATABASE_PATH", str(test_db_api))
+    monkeypatch.chdir(tmp_path)  # Change to tmp_path so ./data/episodes resolves correctly
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from hfvg.studio_db import init_studio_db, create_episode
+    await init_studio_db(str(test_db_api))
+    await create_episode(str(test_db_api), "ep99")
+    
+    # Create async client
+    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    
+    # Login first to get session cookie
+    login_response = await client.post("/api/login", json={"admin_secret": admin_secret})
+    assert login_response.status_code == 200
+    cookies = login_response.cookies
+    
+    # Test setting ref versions with authenticated session
+    response = await client.post(
+        "/api/episodes/ep99/set-ref-versions",
+        json={"r_duck": 2, "r_bird": 1},
+        cookies=cookies
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert "refs_updated" in data or "updated_versions" in data or "success" in data  # Accept any success indicator
+
+
+@pytest.mark.asyncio
+async def test_retry_shot_endpoint_returns_409_on_refusal(test_db_api, monkeypatch):
+    """Test: POST /api/episodes/{episode_id}/shots/{shot_id}/retry returns 409 on refusal."""
+    from api.main import app, temporal_client
+    from httpx import AsyncClient, ASGITransport
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+    from hfvg.studio_db import init_studio_db, create_episode, approve_g108
+    from temporalio import activity
+    
+    monkeypatch.setenv("DATABASE_PATH", str(test_db_api))
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    await init_studio_db(str(test_db_api))
+    await create_episode(str(test_db_api), "ep99")
+    await approve_g108(str(test_db_api), "ep99")
+    
+    # Start Temporal workflow that will refuse retry (no failed shots)
+    async with await WorkflowEnvironment.start_local() as env:
+        @activity.defn(name="parse_beatmap_activity")
+        async def mock_parse(*a): return {"shots": [{"shot_id": "A01", "prompt": "test"}]}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def mock_g1(*a): return {"shots": [], "total_credits": 0.0, "total_usd": 0.0, "estimates_available": True}
+        
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def mock_budget(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+        
+        async def noop(*a): return {}
+        names = ["upsert_episode_activity", "init_episode_credit_line_activity", 
+                 "preflight_validate_episode_activity",
+                 "load_gate_policy_activity", "load_refs_to_generate_activity",
+                 "recheck_refs_activity", "acquire_run_lock", "release_run_lock",
+                 "list_anchor_stills", "approve_g2_shots"]
+        def make_activity(name):
+            @activity.defn(name=name)
+            async def act(*a):
+                return {}
+            return act
+        activities = [mock_parse, mock_g1, mock_budget] + [make_activity(n) for n in names]
+        
+        async with Worker(env.client, task_queue="test-retry-api", workflows=[EpisodeWorkflowV2], activities=activities):
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep99", None, True],
+                id="ep99",
+                task_queue="test-retry-api",
+            )
+            
+            # Wait for G1
+            import asyncio
+            for _ in range(50):
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                if state["current_gate"] == "G1_SHOT_PLAN":
+                    break
+                await asyncio.sleep(0.1)
+            
+            # Patch temporal_client to use our test client
+            monkeypatch.setattr("api.main.temporal_client", env.client)
+            
+            # Try to retry a shot that isn't failed (should return 409)
+            client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+            response = await client.post(
+                "/api/episodes/ep99/shots/A01/retry",
+                headers={"Authorization": f"Bearer {admin_secret}"}
+            )
+            
+            assert response.status_code == 409, f"Expected 409, got {response.status_code}: {response.text}"
+            # Check for refusal reason (not a generic failure message)
+            assert ("cannot retry" in response.text.lower() or 
+                    "not in failed" in response.text.lower() or
+                    "already approved" in response.text.lower()), \
+                   f"Expected refusal reason, got: {response.text}"
+            
+            await handle.terminate("test done")

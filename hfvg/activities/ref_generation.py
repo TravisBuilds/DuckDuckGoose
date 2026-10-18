@@ -144,6 +144,38 @@ async def generate_ref_activity(
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     
+    # Estimate USD cost for ref generation from pricing table (not hardcoded literal)
+    # SOUL V2: credits ≈ USD (both ~0.09), so convert credits to USD micros
+    from hfvg.pricing import usd_to_micros
+    estimated_usd_micros = usd_to_micros(str(estimated_credits))
+    
+    # Initialize USD ledger for live mode
+    from hfvg.budget import BudgetLedger
+    usd_ledger = BudgetLedger(db_path)
+    await usd_ledger.init_db()
+    
+    # Reserve USD budget from L1_refs line (live mode only)
+    if not dry_run:
+        # Gate: Smoke test (live mode only)
+        from hfvg.studio_db import enforce_smoke_test_gate
+        await enforce_smoke_test_gate(db_path, episode_id, "generate_ref_activity")
+        
+        usd_reserved = await usd_ledger.reserve(
+            episode_id=episode_id,
+            line_name="L1_refs",
+            amount_usd_micros=estimated_usd_micros,
+            reason=f"Ref {ref_key} v{version}",
+            require_balance=True,  # Always require balance in live mode
+        )
+        
+        if not usd_reserved:
+            # Release credit reservation since USD reserve failed
+            await ledger.release_credits(episode_id, job_id, notes="USD reserve failed")
+            raise ValueError(
+                f"USD budget reserve failed for L1_refs. "
+                f"At or over 80% stop threshold. Requested: {estimated_usd_micros} usd_micros."
+            )
+    
     # Reserve credits from credit ledger
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -173,7 +205,7 @@ async def generate_ref_activity(
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
             version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
             
-            # Commit credits (dry mode completes instantly)
+            # Commit credits only (no USD reservation in dry mode)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
         else:
             # Live mode: call provider
@@ -204,9 +236,17 @@ async def generate_ref_activity(
             provider = HiggsfieldProvider(dry_run=False)
             job = await provider.poll_job(provider_job_id)
             
-            # Provider completed - commit credits immediately (charged whether QC passes or not)
+            # Provider completed - commit credits and USD immediately (charged whether QC passes or not)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
-            activity.logger.info(f"Committed credits for {job_id} (provider completed)")
+            await usd_ledger.commit(
+                episode_id=episode_id,
+                line_name="L1_refs",
+                reserved_usd_micros=estimated_usd_micros,
+                actual_usd_micros=estimated_usd_micros,
+                job_id=job_id,
+                reason=f"Ref {ref_key} v{version} completed"
+            )
+            activity.logger.info(f"Committed credits and USD for {job_id} (provider completed)")
             
             # Download and save to staging path (not final path yet)
             if not job.output_url:
@@ -256,7 +296,7 @@ async def generate_ref_activity(
         }
         
     except Exception as e:
-        # Only release credits if provider never completed
+        # Only release credits and USD if provider never completed
         # Check if credits were already committed
         import aiosqlite
         committed = False
@@ -269,12 +309,19 @@ async def generate_ref_activity(
                 committed = row[0] > 0
         
         if not committed:
-            # Provider failed before completing - release credits
-            activity.logger.info(f"Provider failed, releasing credits for {job_id}: {e}")
+            # Provider failed before completing - release credits (and USD in live mode)
+            activity.logger.info(f"Provider failed, releasing credits and USD for {job_id}: {e}")
             await ledger.release_credits(episode_id, job_id)
+            if not dry_run:
+                await usd_ledger.release(
+                    episode_id=episode_id,
+                    line_name="L1_refs",
+                    amount_usd_micros=estimated_usd_micros,
+                    reason=f"Ref {ref_key} failed: {str(e)[:100]}"
+                )
         else:
-            # Provider completed (charged) but QC or download failed - credits already committed
-            activity.logger.info(f"Provider completed, credits already committed for {job_id}")
+            # Provider completed (charged) but QC or download failed - credits and USD already committed
+            activity.logger.info(f"Provider completed, credits and USD already committed for {job_id}")
         
         raise
 
@@ -291,6 +338,9 @@ async def load_refs_to_generate_activity(
     Validates each entry has required fields: key, prompt, output_path, type.
     In live mode, fails if refs.json is missing.
     
+    When refs.json has no versions map or no version for a ref, defaults to the
+    latest version present on disk (from sidecars or _vN archives), not v1.
+    
     Args:
         episode_id: Episode identifier
         shots_subset: Optional list of shot IDs to filter refs
@@ -304,6 +354,55 @@ async def load_refs_to_generate_activity(
         ValueError: If any to_generate entry is missing required fields
     """
     from hfvg.shot_data import refs_json_path
+    
+    def _get_latest_version_on_disk(ref_path: str) -> int:
+        """
+        Determine latest version present on disk for a ref.
+        
+        Checks:
+        1. Version sidecar at .versions/{stem}.json
+        2. Archived versions at refs/_vN/{filename}
+        
+        Returns:
+            Latest version number found, or 1 if none found
+        """
+        p = Path(ref_path)
+        
+        # Check version sidecar first
+        sidecar = p.parent / ".versions" / f"{p.stem}.json"
+        if sidecar.exists():
+            try:
+                data = json.loads(sidecar.read_text())
+                return data.get("version", 1)
+            except (json.JSONDecodeError, OSError):
+                pass
+        
+        # Check archived versions: refs/_v2, refs/_v3, etc.
+        refs_dir = p.parent
+        max_version = 0  # Start at 0
+        
+        # Scan for _vN directories first
+        for archive_dir in refs_dir.glob("_v*"):
+            if archive_dir.is_dir():
+                try:
+                    version_num = int(archive_dir.name[2:])  # Extract N from "_vN"
+                    archived_file = archive_dir / p.name
+                    if archived_file.exists() and version_num > max_version:
+                        max_version = version_num
+                except (ValueError, OSError):
+                    pass
+        
+        # If current file exists alongside archived versions, return max N + 1
+        if p.exists():
+            if max_version > 0:
+                # Current file exists with archived versions, so it's max N + 1
+                return max_version + 1
+            else:
+                # Current file exists but no archived versions
+                return 1
+        
+        # Current file doesn't exist
+        return max_version if max_version > 0 else 1
     
     refs_path = refs_json_path(episode_id)
     if not refs_path.exists():
@@ -331,11 +430,17 @@ async def load_refs_to_generate_activity(
     if isinstance(to_generate_raw, dict):
         # Map format: {key: path}
         for key, path in to_generate_raw.items():
+            # Determine version: versions map, then latest on disk, then 1
+            if key in versions_map:
+                version = versions_map[key]
+            else:
+                version = _get_latest_version_on_disk(path)
+            
             ref_spec = {
                 "key": key,
                 "output_path": path,
                 "type": "character_sheet",  # default
-                "version": versions_map.get(key, 1),  # Read from versions map, default 1
+                "version": version,
             }
             # Get prompt from prompts map if available
             if key in prompts_map:
@@ -359,9 +464,16 @@ async def load_refs_to_generate_activity(
             if "type" not in ref_spec:
                 ref_spec["type"] = "character_sheet"
             if "version" not in ref_spec:
-                # Check versions map first, then default to 1
+                # Determine version: versions map, then latest on disk, then 1
                 key = ref_spec.get("key")
-                ref_spec["version"] = versions_map.get(key, 1) if key else 1
+                output_path = ref_spec.get("output_path")
+                
+                if key and key in versions_map:
+                    ref_spec["version"] = versions_map[key]
+                elif output_path:
+                    ref_spec["version"] = _get_latest_version_on_disk(output_path)
+                else:
+                    ref_spec["version"] = 1
             
             # Check for prompt in entry or prompts map
             if "prompt" not in ref_spec or not ref_spec["prompt"]:

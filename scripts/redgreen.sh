@@ -71,9 +71,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0;
-
-'
+NC='\033[0m'
 
 # Results tracking
 declare -a MUTATION_NAMES
@@ -82,6 +80,8 @@ declare -a MUTATION_REASONS
 
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
+INVALID_COUNT=0
 
 log_header() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -112,7 +112,7 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="" > "$tmp_output" 2>&1
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
     
     # Check for collection errors or syntax errors (INVALID mutation)
@@ -271,7 +271,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("SKIP")
         MUTATION_REASONS+=("$skip_reason")
-        PASS_COUNT=$((PASS_COUNT + 1))  # Count skips as passes for overall success
+        SKIP_COUNT=$((SKIP_COUNT + 1))
         return
     fi
     
@@ -285,7 +285,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Baseline has errors")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
@@ -312,7 +312,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("No file change")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
@@ -327,7 +327,7 @@ test_mutation() {
         MUTATION_NAMES+=("$num. $name")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Syntax error")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        INVALID_COUNT=$((INVALID_COUNT + 1))
         return
     fi
     
@@ -430,6 +430,8 @@ print_summary() {
     echo ""
     echo -e "${BLUE}Total tests: ${#MUTATION_NAMES[@]}${NC}"
     echo -e "${GREEN}Passed: $PASS_COUNT${NC}"
+    echo -e "${YELLOW}Skipped: $SKIP_COUNT${NC}"
+    echo -e "${YELLOW}Invalid: $INVALID_COUNT${NC}"
     echo -e "${RED}Failed: $FAIL_COUNT${NC}"
     echo ""
     
@@ -521,7 +523,7 @@ test_mutation 4 "Activity-level enforcement (not just API)" \
 test_mutation 5 "Idempotent retry (no double-charge)" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_redgreen_safety.py::test_idempotent_retry_no_double_charge" \
-    python3 scripts/mutate_idempotency.py
+    sed -i 's/key_input = f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio or \x27\x27}|{refs_str}|{anchor_str}|attempt:{attempt}"/key_input = str(uuid.uuid4())  # MUTATED - random idempotency key/'
 
 # 6. Auth fail-closed
 test_mutation 6 "Auth fail-closed (no default secret)" \
@@ -547,11 +549,12 @@ test_mutation 9 "Canary starts real ShotWorkflow" \
     "tests/test_redgreen_safety.py::test_canary_starts_shot_workflow" \
     sed -i 's/@workflow.defn/#@workflow.defn  # MUTATED/'
 
-# 10. Approval signal reaches workflow
-test_mutation 10 "Approval signal reaches workflow" \
+# 10. Approval update reaches workflow (retargeted to @workflow.update)
+test_mutation 10 "Approval update reaches workflow" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
-    sed -i 's/@workflow.signal/# @workflow.signal  # MUTATED/' 
+    sed -i -e '/@workflow.update/{N;/async def approve_g1_shot_plan/s/@workflow.update/# @workflow.update  # MUTATED/}' \
+           -e 's/^\(\s*\)@approve_g1_shot_plan\.validator/\1# @approve_g1_shot_plan.validator  # MUTATED (validator needs the update; else import-time AttributeError)/' 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW MUTATIONS (Task #2): Additional safety protections
@@ -561,7 +564,7 @@ test_mutation 10 "Approval signal reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i '/if not request\.admin_secret or request\.admin_secret != ADMIN_SECRET:/s/.*/    if False:  # MUTATED/'
+    sed -i 's/if not request.admin_secret or request.admin_secret != admin_secret:/if False:  # MUTATED/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -630,7 +633,7 @@ test_mutation 20 "Still approve route sends signal" \
 test_mutation 23 "M-23 SKIP: Audio stages not implemented (PR #8)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio" \
-    sed -i '1s/^/# M-23: Audio stages stubbed (PR #8)\n/'  # Harmless comment to satisfy file-change check
+    true  # Expected skip - no mutation needed
 
 # 24. EXPECTED SKIP: Delivery stage not implemented (PR #8 stub)
 # Line 60 in episode_v2.py docstring: "Delivery (encode, Drive, Grower handoff - HOLD by default)"
@@ -640,7 +643,7 @@ test_mutation 23 "M-23 SKIP: Audio stages not implemented (PR #8)" \
 test_mutation 24 "M-24 SKIP: Delivery stage not implemented (PR #8)" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
-    sed -i '1s/^/# M-24: Delivery stage stubbed (PR #8)\n/'  # Harmless comment to satisfy file-change check
+    true  # Expected skip - no mutation needed
 
 # 25. Stills approved wait (retargeted from human-approved check)
 test_mutation 25 "Workflow waits for parent stills_approved signal" \
@@ -670,7 +673,7 @@ test_mutation 28 "5xx poll retries before releasing budget" \
 test_mutation 29 "Canary reconciles L6 on workflow failure" \
     "api/main.py" \
     "tests/test_api_routes.py::test_canary_l6_reconcile_on_failure" \
-    sed -i '/Workflow failed: release/,+1 s/await _reconcile_canary_l6/# await _reconcile_canary_l6  # MUTATED/'
+    sed -i 's/await _reconcile_canary_l6/pass  # MUTATED; await _reconcile_canary_l6/'
 
 # 30. QC fail-closed without episode_id
 test_mutation 30 "QC fails closed when episode_id is missing" \
@@ -1011,7 +1014,7 @@ test_mutation 82 "M-R4n Live clip held when planned refs are missing" \
 test_mutation 83 "M-R4o Still activity refuses refs over the limit" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_live_still_over_ref_limit_is_refused_not_truncated" \
-    sed -i 's/^    if refs and len(refs) > still_cap:$/    if False:  # MUTATED/'
+    sed -i 's/^    if refs_with_anchor and len(refs_with_anchor) > still_cap:$/    if False:  # MUTATED/'
 
 # 84. M-R4p Still provider refuses instead of truncating refs
 test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
@@ -1053,7 +1056,7 @@ test_mutation 89 "M-R4u Workflow passes shot tags (wet) to the clip activity" \
 test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip" \
-    sed -i '595s/shot_plan.get("missing_refs", \[\]),$/[],  # MUTATED/'
+    sed -i '/submit_clip_job_enforced/,/start_to_close_timeout=timedelta/{ /shot_plan.get("missing_refs", \[\]),/s/.*/                                [],  # MUTATED - no missing_refs/; }'
 
 # 91. M-R4w End-frame generation succeeds in both dry and live modes
 test_mutation 91 "M-R4w End-frame generation succeeds in both dry and live modes" \
@@ -1076,7 +1079,7 @@ test_mutation 92 "M-R4x End-image URL is stored from the end-frame still result"
 test_mutation 93 "M-R4y SKIP: Synchronous generation replaced async signal" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
-    sed -i '1s/^/# M-93: Async signal pattern obsolete (synchronous generation)\n/'  # Harmless comment
+    true  # Expected skip - no mutation needed
 
 # 94. M-R4z Workflow passes the end image to the clip activity
 test_mutation 94 "M-R4z Workflow passes the end image to the clip activity" \
@@ -1179,6 +1182,335 @@ test_mutation 110 "M-R5f Unknown models fall back to STILL_MAX_REFS" \
     "hfvg/config.py" \
     "tests/test_model_ref_caps.py::test_unknown_model_falls_back_to_still_max_refs" \
     sed -i 's/^    return int(os.getenv("STILL_MAX_REFS", "3"))$/    return 3  # MUTATED/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG FIX MUTATIONS: Harness canary bugs (PR #10)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 111. BUG 2: poll_job_status resolves harness→provider ID
+test_mutation 111 "BUG 2: poll uses provider ID not harness ID" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_canary_bugs.py::test_workflow_polls_with_provider_id_not_harness_id" \
+    sed -i 's/job_status = await provider.get_job_status(provider_job_id)/job_status = await provider.get_job_status(job_id)  # MUTATED - use harness ID/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPLOAD CACHE MUTATIONS: PR #10 upload caching
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 112. Upload cache: drop content_type from upload POST
+test_mutation 112 "Upload POST includes content_type" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i 's/json={"content_type": content_type}/json={}  # MUTATED - no content_type/'
+
+# 113. Upload cache: drop upload_headers from PUT
+test_mutation 113 "Upload PUT includes upload_headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i 's/headers=upload_headers$/headers={}  # MUTATED - no upload_headers/'
+
+# 114. Clip submit persists provider_job mapping
+test_mutation 114 "Clip submit persists provider_job mapping" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_canary_bugs.py::test_clip_submit_persists_provider_job_mapping" \
+    sed -i '/await credit_ledger.persist_provider_job(job_id, provider_job_id, provider.model_path)/s/.*/            pass  # MUTATED - skip persist_provider_job/'
+
+# 115. Upload cache: cache is consulted before upload
+test_mutation 115 "Upload checks cache before uploading" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_upload_cache.py::test_upload_cache_reuses_url_across_submits" \
+    sed -i 's/cached_url = await cache.get_cached_url(str(upload_path), version)/cached_url = None  # MUTATED - bypass cache/'
+
+# 116. Smoke test gate: paid stages refuse without passing smoke test
+test_mutation 116 "Smoke test gate enforced on paid stages" \
+    "hfvg/studio_db.py" \
+    "tests/test_smoke_gate.py::test_smoke_gate_refuses_without_passing_test" \
+    sed -i '/if not passed:/,/^[[:space:]]*$/ { /if not passed:/s/.*/    pass  # MUTATED - disable gate/; t; d }'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW MUTATIONS: Single-shot retry and G1 plan (Feature set)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 117. M-retry1: Retry limit enforced
+test_mutation 117 "Retry respects max_retries limit" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_respects_max_retries" \
+    sed -i 's/if attempt_count > max_retries:/if False:  # MUTATED - allow unlimited retries/'
+
+# 118. M-retry2: Different idempotency key per attempt
+test_mutation 118 "Retry uses different workflow ID (includes attempt)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_uses_different_idempotency_key" \
+    sed -i 's/retry_num = self.state.shot_attempts\[shot_id\] - 1/retry_num = 0  # MUTATED - always retry0/'
+
+# 121. M-retry-version: Retry increments version for unique job_id
+test_mutation 121 "Retry increments version for unique job_id" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_retry_shot.py::test_retry_shot_increments_version_for_unique_job_id" \
+    sed -i '/# Pass attempt number and version into shot_plan/,/shot_plan\["version"\] = actual_attempts/{s/shot_plan\["version"\] = actual_attempts/shot_plan["version"] = 1  # MUTATED - always v1/}'
+
+# 119. M-anchor: Anchor still is injected as ref
+test_mutation 119 "Anchor still is injected into refs" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_still_injected_into_refs" \
+    sed -i 's/refs_with_anchor\.insert(0, anchor_path)/pass  # MUTATED - skip anchor injection/'
+
+# 120. M-anchor-cap: Anchor + refs enforces ref cap
+test_mutation 120 "Anchor + refs respects model ref cap" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check original refs, not with anchor/'
+
+# 122: End-frame anchor: strip '_end' suffix to find anchor
+test_mutation 122 "End-frame anchor: strip _end suffix" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix" \
+    sed -i 's/base_shot_id = shot_id.replace("_end", "") if shot_id.endswith("_end") else shot_id/base_shot_id = shot_id  # MUTATED - do not strip _end suffix/'
+
+# 123: Ref cap on end frames includes the anchor
+test_mutation 123 "Ref cap on end frames includes anchor" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_mutations.py::test_end_frame_anchor_enforces_ref_cap" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check refs without anchor on end frame/'
+
+# 124: Retry refused after G2 is approved
+test_mutation 124 "Retry refused after G2 is approved" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_retry_refused_after_g2_approved" \
+    sed -i 's/if "G2_SCENE_STILLS" in self.passed_gates:/if False:  # MUTATED - allow retry after G2/'
+
+# 125: Retry refused while one is already pending
+test_mutation 125 "Retry refused while one is already pending" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_retry_refused_while_pending" \
+    sed -i 's/if shot_id in self.state.pending_retries:/if False:  # MUTATED - allow duplicate retry/'
+
+# 126: G1 approval refused in live mode when estimates unavailable
+test_mutation 126 "G1 approval refused without estimates" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g1_approval_refused_without_estimates" \
+    sed -i 's/if not dry_run and not estimates_available and not override_unavailable_estimates:/if False:  # MUTATED - allow G1 without estimates/'
+
+# 127: Clip loop uses shot_results (latest handle), not stale original
+test_mutation 127 "Clip loop uses shot_results (latest handle)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_clip_loop_uses_latest_retry_handle" \
+    sed -i '/# Use shot_results to get latest handle/,/handle = self\.shot_results\.get/{s/handle = self\.shot_results\.get(shot\["shot_id"\])/handle = self.shot_workflow_handles.get(shot["shot_id"])  # MUTATED - use stale handle dict/}'
+
+# 128: shot_plan version = shot_attempts (already incremented)
+test_mutation 128 "shot_plan version = shot_attempts" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_attempt_override_gives_retry_suffix" \
+    sed -i '/# Total attempt number for job_id\/version/,/shot_plan\["version"\] = total_attempt/{s/shot_plan\["version"\] = total_attempt/shot_plan["version"] = 1  # MUTATED/}'
+
+# 129: 3f - .jpeg glob when resolving G2-approved anchor still  
+test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
+    "api/main.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
+    sed -i 's/glob("still_v\*\.jpeg")/glob("still_v*.XXX-MUTATED-not-jpeg")/'
+
+# 130: 3g - verify_episode_files_activity honours EPISODES_DIR
+test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_verify_episode_files_honors_episodes_dir" \
+    sed -i 's|episodes_dir = Path(os\.getenv("EPISODES_DIR", "\./data/episodes"))|episodes_dir = Path(".")  # MUTATED|'
+
+# 131: 3h - CLI retry-shot uses execute_update
+test_mutation 131 "3h: CLI retry-shot uses execute_update" \
+    "hfvg/cli.py" \
+    "tests/test_harness_pr10_items_remaining.py::test_cli_retry_shot_execute_update_and_exit_code" \
+    sed -i 's/result = await handle\.execute_update("retry_shot", shot_id)/result = await handle.signal("retry_shot", shot_id)  # MUTATED/'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bug Fixes: Episode workflow robustness
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 132: Bug Fix 1 - G2 approval fails when signaling finished child
+test_mutation 132 "G2 approval handles finished child gracefully" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_approval_with_finished_child_succeeds" \
+    sed -i 's/if e\.type != "ExternalWorkflowExecutionNotFound":/if True:  # MUTATED - no NotFound tolerance, re-raise everything/'
+
+# 134: Bug Fix 1 addendum - Other errors must not be swallowed
+test_mutation 134 "G2 signal error checking is specific (NOT_FOUND only)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_approval_does_not_swallow_other_errors" \
+    sed -i 's/if e\.type != "ExternalWorkflowExecutionNotFound":/if False:  # MUTATED - catch all, swallows other errors/'
+
+# 133: Bug Fix 2 - Pending retry causes 30s timeout before clips
+test_mutation 133 "Pending retry signaled before wait (no 30s timeout)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+    sed -i '/# Signal all shot workflows/,+12{/await handle\.signal("stills_approved")/s/await handle\.signal("stills_approved")/pass  # MUTATED - skip signal/}'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Safety Design: G2 approval must refuse while retry is pending
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 135: Safety - G2 refused while retry pending
+test_mutation 135 "G2 approval refused while retry is pending" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_refused_while_retry_pending" \
+    sed -i 's/^\( *\)@approve_g2_scene_stills\.validator/\1# @approve_g2_scene_stills.validator  # MUTATED - no validator/'
+
+# 136: Safety - G2 accepted after retry completes
+test_mutation 136 "G2 approval accepted after retry completes" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_g2_accepted_after_retry_completes" \
+    sed -i 's/self\.state\.pending_retries\.pop(shot_id, None)/pass  # MUTATED - pending_retries never cleared/'
+
+# 137: Safety - No 30s stall after G2 (validator ensures pending_retries empty)
+# 137: SKIP - No longer relevant with new design (pending_retries cleared by retry_still_ready)
+# The 30s wait was removed, but adding it back has no effect because pending_retries is
+# always empty at this point (cleared when retry still lands, not when shot finishes).
+# test_mutation 137 "No 30s pending-retry wait after G2" \
+#     "hfvg/workflows/episode_v2.py" \
+#     "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+#     sed -i '/comment-does-not-exist/'
+
+# 138: G2 API route must use execute_update (a signal to an update handler is dropped)
+test_mutation 138 "API G2 approval uses execute_update, not signal" \
+    "api/main.py" \
+    "tests/test_g2_api_route_update.py::test_api_g2_accepted_reaches_workflow_when_no_retry_pending" \
+    sed -i 's/await handle\.execute_update(signal_name)$/await handle.signal(signal_name)  # MUTATED - signal dropped by update handler/'
+
+# 139: API approve route must not turn its 409 into a 500
+test_mutation 139 "API G2 refusal returns 409 (HTTPException re-raised)" \
+    "api/main.py" \
+    "tests/test_g2_api_route_update.py::test_api_g2_refused_with_409_while_retry_pending" \
+    sed -i 's/raise  # keep 404\/409 - do not turn them into 500/raise HTTPException(status_code=500, detail="MUTATED")  # keep 404\/409/'
+
+# 140: retry_still_ready signal must clear pending_retries
+test_mutation 140 "retry_still_ready signal clears pending_retries" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_harness_pr10_mutations.py::test_pending_retry_does_not_block_clips" \
+    sed -i '/clearing pending_retries.*$/{ n; s/^/# MUTATED - disabled: /; }'
+
+# 141: REAL ShotWorkflow must send retry_still_ready before waiting for stills_approved (else G2 deadlock)
+test_mutation 141 "Real ShotWorkflow sends retry_still_ready after retry stills land" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_real_shot_retry_still_ready.py::test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land" \
+    sed -i 's/^\( *\)await self\._notify_parent_retry_still_ready(shot_plan)$/\1pass  # MUTATED - retry_still_ready never sent/'
+
+# 142: G1 clip estimate must send valid string image_url (not None)
+test_mutation 142 "G1 estimate sends string image_url to clip provider" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_string_image_url_for_kling" \
+    sed -i 's/placeholder_url = cfg\.get_placeholder_image_url()/placeholder_url = None  # MUTATED/'
+
+# 143: G1 estimate must pass last_image_url for end-frame shots
+test_mutation 143 "G1 estimate sends last_image_url for end-frame shots" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_last_image_url_for_end_frame_shots" \
+    sed -i 's/last_image_url = placeholder_url if end_frame else None/last_image_url = None  # MUTATED - never send last_image_url/'
+
+# 144: G1 estimate must send duration as int
+test_mutation 144 "G1 estimate sends duration as int not float" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimate_image_url.py::test_g1_estimate_sends_duration_as_int_not_float" \
+    sed -i 's/duration=int(duration)/duration=duration/'
+
+# 145: Reference images must be normalized before upload
+test_mutation 145 "Reference images are normalized before upload" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_pr10_216_fixes.py::test_still_upload_reference_puts_normalized_jpeg_not_original" \
+    sed -i 's/normalized_path, original_sha = normalize_reference_image(Path(image_path))/normalized_path, original_sha = Path(image_path), ""/'
+
+# 146: End prompt must be used for _end stills when provided
+test_mutation 146 "End still uses end_prompt when provided" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_real_shot_end_still_uses_end_prompt" \
+    sed -i 's/end_prompt = self.end_prompt_override or shot_plan.get("end_prompt") or shot_plan\["prompt"\]/end_prompt = self.end_prompt_override or shot_plan["prompt"]  # MUTATED/'
+
+# 147: Normalized images must be cached by original SHA256 + size limits
+test_mutation 147 "Normalized images cached by original SHA" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize.py::test_normalize_cache_by_sha" \
+    sed -i 's/cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"/cache_key = f"{__import__('\''os'\'').urandom(8).hex()}"  # MUTATED/'
+
+# 148: Provider job ID must be included in failure error messages
+test_mutation 148 "Job failures include provider job ID" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_failed_job_reason_has_job_id_and_raw_error" \
+    sed -i 's/raise RuntimeError(f"Job {job_id} {status}: {error_details}")/raise RuntimeError(f"Job {status}: {error_details}")/'
+
+# 149: Reference normalization must not be skippable via env (SKIP_IMAGE_NORMALIZE must not exist in product)
+test_mutation 149 "Normalization cannot be skipped by SKIP_IMAGE_NORMALIZE" \
+    "hfvg/image_normalize.py" \
+    "tests/test_pr10_216_fixes.py::test_normalization_cannot_be_skipped_by_env" \
+    sed -i 's/^    source_sha = compute_file_sha256(source_path)$/&\n    if os.getenv("SKIP_IMAGE_NORMALIZE", "").lower() == "true":  # MUTATED\n        return (source_path, source_sha)/'
+
+# 150: Live (escalated) review must generate the _end still BEFORE waiting for stills_approved/G2
+test_mutation 150 "Escalated review generates _end still before the G2 wait" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_review_generates_end_still_before_waiting" \
+    sed -i 's/if params.get("end_frame") and workflow.patched("end-still-before-human-review"):/if False:  # MUTATED/'
+
+# 151: _end still must lead with the shot's start still
+test_mutation 151 "_end still uses the start still as first ref" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_review_generates_end_still_before_waiting" \
+    sed -i 's/self.still_url,  # lead_ref: the approved\/landed start still goes first/None,  # MUTATED lead_ref dropped/'
+
+# 152: generate_end_still backfill for runs parked at review without an _end still
+test_mutation 152 "generate_end_still backfills a parked run" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_backfill_signal_generates_end_still_for_parked_legacy_run" \
+    sed -i 's/while not self.stills_approved and self._end_still_backfill_due(params):/while False:  # MUTATED/'
+
+# 153: escalated retry must not signal retry_still_ready before its _end still lands
+test_mutation 153 "Escalated retry signals ready only after _end lands" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_pr10_216_fixes.py::test_escalated_retry_signals_ready_only_after_end_still_lands" \
+    sed -i 's/^\( *\)# Both review paths produce the _end still BEFORE the human-review\/G2 wait (and$/\1await self._notify_parent_retry_still_ready(shot_plan)  # MUTATED - early\n&/'
+
+# 154: _end lead ref (start still) is downloaded + normalized + re-uploaded, never the provider output link
+test_mutation 154 "_end lead ref re-uploaded, not provider link" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_is_downloaded_normalized_and_reuploaded" \
+    sed -i 's/lead_local = await _localize_lead_ref(lead_ref, episode_id, shot_id)/lead_local = lead_ref  # MUTATED/'
+
+# 155: a failed/non-image start-still download refuses before any estimate/reserve/submit
+test_mutation 155 "Lead ref download failure refuses before spend" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_download_failure_refuses_before_spend" \
+    sed -i 's/if response.status_code != 200 or not content_type.startswith("image\/") or not data:/if False:  # MUTATED/'
+
+# 156: concurrent normalization of one ref must not share a temp file (unique temp per call)
+test_mutation 156 "Concurrent normalization of a shared ref does not collide" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_concurrent_normalize_same_source_does_not_collide" \
+    sed -i 's/temp_path = normalized_path.with_name(f"{cache_key}.{os.getpid()}-{uuid.uuid4().hex}.tmp")/temp_path = normalized_path.with_suffix(".tmp")  # MUTATED/'
+
+# 157: EXIF orientation must be applied before normalizing
+test_mutation 157 "EXIF orientation applied during normalization" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_exif_orientation_applied" \
+    sed -i 's/^        img = ImageOps.exif_transpose(img)$/        pass  # MUTATED/'
+
+# 158: high-detail images fall back to an unoptimized save instead of crashing (Pillow optimize buffer)
+test_mutation 158 "High-detail image saves without crashing" \
+    "hfvg/image_normalize.py" \
+    "tests/test_pr10_216_fixes.py::test_normalize_high_detail_image_does_not_crash" \
+    sed -i 's/^                img.save(temp_path, "JPEG", quality=quality, optimize=False, subsampling=0)$/                raise  # MUTATED/'
+
+# 159: normalized cache key includes the size limits (changing limits invalidates the cache)
+test_mutation 159 "Normalize cache key includes size limits" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_cache_key_includes_size_limits" \
+    sed -i 's/cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"/cache_key = f"{source_sha}"  # MUTATED/'
+
+# 160: an embedded ICC profile is converted to sRGB pixel values (not silently skipped)
+test_mutation 160 "ICC profile converted to sRGB" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_icc_profile_converted_to_srgb" \
+    sed -i 's/input_profile = ImageCms.ImageCmsProfile(_io.BytesIO(icc_bytes))/input_profile = ImageCms.ImageCmsProfile(icc_bytes)  # MUTATED (raw bytes: TypeError, swallowed)/'
+
+# 161: RGBA refs (Studio PNGs) get their ICC profile converted too
+test_mutation 161 "ICC conversion covers RGBA refs" \
+    "hfvg/image_normalize.py" \
+    "tests/test_image_normalize_enhancements.py::test_icc_profile_converted_for_rgba_png" \
+    sed -i 's/img.mode in ("RGB", "RGBA", "CMYK"):/img.mode in ("RGB", "CMYK"):  # MUTATED/'
 
 # Print final summary
 print_summary

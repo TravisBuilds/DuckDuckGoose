@@ -91,8 +91,8 @@ async def test_approval_signal_reaches_episode_workflow(tmp_path, monkeypatch):
             assert state["episode_id"] == "ep99"
             assert not state["approvals"]["g1_shot_plan"], "G1 should not be approved yet"
             
-            # Send approval signal
-            await handle.signal("approve_g1_shot_plan")
+            # Send approval update (was signal, now update)
+            await handle.execute_update("approve_g1_shot_plan")
             
             # Give it time to process
             await asyncio.sleep(0.1)

@@ -34,6 +34,7 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
     
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     # Initialize DB
@@ -209,7 +210,7 @@ async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch
             )
             
             # Approve G1 to proceed to stills (would trigger still generation if we let it run)
-            await handle.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
             # Wait a bit for it to start stills phase
             await asyncio.sleep(0.2)

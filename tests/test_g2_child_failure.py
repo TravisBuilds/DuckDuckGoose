@@ -63,11 +63,29 @@ def _acts(fail_ids):
 
     async def noop(*a): return {"ok": True, "valid": True, "errors": [], "warnings": []}
     
+    @activity.defn(name="compute_g1_plan_activity")
+    async def compute_g1_plan(*a):
+        return {
+            "shots": [
+                {"shot_id": "A01", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21},
+                {"shot_id": "A02", "still_credits": 0.06, "clip_credits": 0.15, "total_credits": 0.21},
+            ],
+            "total_credits": 0.42,
+            "total_usd": "0.42",
+            "estimates_available": True,
+        }
+    
     @activity.defn(name="init_episode_budget_lines_activity")
     async def budget_init(*a):
         # Return proper structure expected by workflow
         from hfvg.budget import REQUIRED_BUDGET_LINES
         return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+    
+    @activity.defn(name="approve_g2_shots")
+    async def approve_g2(episode_id: str): return 0
+    
+    @activity.defn(name="list_anchor_stills")
+    async def list_anchors(episode_id: str): return []
 
     names = ["init_episode_credit_line_activity",
              "preflight_validate_episode_activity",
@@ -78,7 +96,7 @@ def _acts(fail_ids):
             return await noop(*a)
         return activity.defn(name=n)(f)
     extra = [mk(n) for n in names]
-    return [lock, unlock, policy, parse, refs, report, budget_init, *extra]
+    return [lock, unlock, policy, parse, refs, report, compute_g1_plan, budget_init, approve_g2, list_anchors, *extra]
 
 
 async def _state(h):
@@ -105,7 +123,7 @@ async def _run(fail_ids):
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             s = await _wait_for(h, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             return env, h, s
 
@@ -122,7 +140,7 @@ async def test_a_failed_shot_recorded_no_hang_and_g2_still_needs_approval(caplog
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             # failure is recorded while A02 still waits for stills approval
             s = await _wait_for(h, lambda s: any(f["shot_id"] == "A01" for f in s["failed_shots"]))
             assert s["current_gate"] == "G2_SCENE_STILLS"
@@ -152,7 +170,7 @@ async def test_b_all_shots_ok_g2_still_needs_approval():
                 EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                 id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
             await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            await h.signal(EpisodeWorkflowV2.approve_g1_shot_plan)
+            await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             await _wait_for(h, lambda s: s["current_gate"] == "G2_SCENE_STILLS")
             await asyncio.sleep(2.0)
             s = await _state(h)
@@ -160,7 +178,7 @@ async def test_b_all_shots_ok_g2_still_needs_approval():
             assert "G2_SCENE_STILLS" not in s["passed_gates"]
             assert CLIP_RELEASED == []
             # approval releases clips
-            await h.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+            await h.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
             await _wait_for(h, lambda s: "G2_SCENE_STILLS" in s["passed_gates"])
             await asyncio.sleep(1.0)
             assert sorted(CLIP_RELEASED) == ["A01", "A02"]

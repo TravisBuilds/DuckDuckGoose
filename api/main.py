@@ -26,6 +26,7 @@ Routes:
 """
 
 import os
+import sys
 import asyncio
 import json
 import hashlib
@@ -34,11 +35,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from temporalio.client import Client as TemporalClient
+from temporalio.client import WorkflowUpdateFailedError
+from temporalio.exceptions import ApplicationError
 
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
 from hfvg.budget import BudgetLedger
@@ -280,6 +283,7 @@ class StartEpisodeRequest(BaseModel):
     dry_run: bool = Field(True, description="Run in dry-run mode (default: true, live requires explicit false)")
     shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
+    attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -298,6 +302,7 @@ class StartCanaryRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     gate_id: str = Field(..., description="Gate ID to approve (e.g., g101, g103, g108, g212, g409)")
     note: str | None = Field(None, description="Optional approval note")
+    override_unavailable_estimates: bool = Field(False, description="Override unavailable estimates for G1 approval in live mode")
 
 
 class EpisodeStateResponse(BaseModel):
@@ -305,6 +310,7 @@ class EpisodeStateResponse(BaseModel):
     stage: str | None
     approvals: dict[str, bool]
     shots_count: int
+    estimates_available: bool | None = None  # From G1 plan - None if G1 not yet computed
 
 
 class ShotStatus(BaseModel):
@@ -350,7 +356,7 @@ class BudgetResponse(BaseModel):
 
 
 class ManualBalanceRequest(BaseModel):
-    balance_usd: str = Field(..., description="Current Higgsfield USD balance as a decimal string, e.g. '82.40'")
+    balance_usd: str | float | int = Field(..., description="Current Higgsfield USD balance as decimal string (e.g. '82.40') or numeric value")
     note: str = Field("", max_length=500)
 
 
@@ -418,7 +424,12 @@ async def login(request: LoginRequest, response: Response):
         Success message
     """
     # Validate secret server-side (fail closed)
-    if not request.admin_secret or request.admin_secret != ADMIN_SECRET:
+    # Read from env at request time to support test monkeypatching
+    admin_secret = os.getenv("ADMIN_SECRET", "")
+    if not admin_secret or len(admin_secret) < 32:
+        raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+    
+    if not request.admin_secret or request.admin_secret != admin_secret:
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
     # Create session and set httpOnly cookie with session token (NOT the secret)
@@ -455,7 +466,7 @@ async def upload_beatmap(
     validate_episode_id(episode_id)
     
     # Create episode directory
-    beatmap_dir = Path("./data/episodes") / episode_id
+    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
     
     # Save beatmap file
@@ -534,7 +545,7 @@ async def upload_prompt_kit(
     validate_episode_id(episode_id)
     
     # Create episode directory
-    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     episode_dir.mkdir(parents=True, exist_ok=True)
     
     # Save prompt_kit.json
@@ -610,7 +621,7 @@ async def upload_shots(
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
 
-    episode_dir = Path("./data/episodes") / episode_id
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     episode_dir.mkdir(parents=True, exist_ok=True)
     (episode_dir / "shots.json").write_bytes(shots_bytes)
     if refs_bytes is not None:
@@ -649,13 +660,29 @@ async def start_episode(
     
     # Save beatmap content if provided
     beatmap_path: str | None = None
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
     if request.beatmap_content:
-        beatmap_dir = Path("./data/episodes") / request.episode_id
+        beatmap_dir = episodes_dir / request.episode_id
         beatmap_dir.mkdir(parents=True, exist_ok=True)
         beatmap_path = str(beatmap_dir / "BEATMAP.md")
         
         with open(beatmap_path, "w") as f:
             f.write(request.beatmap_content)
+    else:
+        # No beatmap_content provided - check if BEATMAP.md exists in the episode directory
+        beatmap_dir = episodes_dir / request.episode_id
+        potential_beatmap = beatmap_dir / "BEATMAP.md"
+        if potential_beatmap.exists():
+            beatmap_path = str(potential_beatmap)
+        else:
+            # No beatmap content and no uploaded BEATMAP.md - error clearly
+            # Never fall back to test fixtures in production code
+            raise HTTPException(
+                status_code=400,
+                detail=f"No beatmap found for episode {request.episode_id}. "
+                       f"Either provide beatmap_content in the request or upload BEATMAP.md via "
+                       f"POST /api/episodes/upload before starting the episode."
+            )
     
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -665,7 +692,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
@@ -718,6 +745,7 @@ async def get_episode_state(
         stage=state.get("stage"),
         approvals=state.get("approvals", {}),
         shots_count=state.get("shots", 0),
+        estimates_available=state.get("g1_plan", {}).get("estimates_available"),
     )
 
 
@@ -757,18 +785,60 @@ async def approve_gate(
             # Map gate_id to signal method
             signal_name = f"approve_{request.gate_id.lower()}"
             
-            await handle.signal(signal_name)
-            
-            return {
-                "success": True,
-                "episode_id": episode_id,
-                "gate_id": request.gate_id,
-                "message": f"Approval sent for gate {request.gate_id}",
-                "note": request.note,
-            }
+            # For G1 approval, use update (with validator) to check estimates availability
+            if request.gate_id.lower() in ["g1_shot_plan", "g1"]:
+                try:
+                    result = await handle.execute_update(
+                        signal_name,
+                        request.override_unavailable_estimates if request.override_unavailable_estimates else False
+                    )
+                    return {
+                        "success": True,
+                        "episode_id": episode_id,
+                        "gate_id": request.gate_id,
+                        "message": f"Approval sent for gate {request.gate_id}",
+                        "note": request.note,
+                    }
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
+                    # Validator refused - return 409 Conflict
+                    cause = getattr(e, "cause", None) or e
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"G1 approval refused: {str(cause)}"
+                    )
+            elif request.gate_id.lower() == "g2_scene_stills":
+                # G2 is a workflow update (validator refuses while a retry is pending).
+                # A signal to an update handler is silently dropped, so it MUST be an update.
+                try:
+                    await handle.execute_update(signal_name)
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
+                    cause = getattr(e, "cause", None) or e
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"G2 approval refused: {str(cause)}"
+                    )
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "gate_id": request.gate_id,
+                    "message": f"Approval sent for gate {request.gate_id}",
+                    "note": request.note,
+                }
+            else:
+                # Other gates use signal
+                await handle.signal(signal_name)
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "gate_id": request.gate_id,
+                    "message": f"Approval sent for gate {request.gate_id}",
+                    "note": request.note,
+                }
         
         raise HTTPException(status_code=404, detail=f"No running EpisodeWorkflowV2 found for episode {episode_id}")
         
+    except HTTPException:
+        raise  # keep 404/409 - do not turn them into 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
 
@@ -914,7 +984,9 @@ async def set_manual_balance(
     from hfvg.pricing import usd_to_micros
     
     try:
-        micros = usd_to_micros(request.balance_usd)
+        # Convert to string if numeric for consistent handling
+        balance_value = str(request.balance_usd) if isinstance(request.balance_usd, (int, float)) else request.balance_usd
+        micros = usd_to_micros(balance_value)
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=422, detail=f"Invalid balance_usd: {e}")
     
@@ -1245,6 +1317,80 @@ async def set_live_mode_endpoint(
     }
 
 
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry")
+async def retry_shot(
+    episode_id: str,
+    shot_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Retry a failed shot (only valid while parked at G1/G2 for a shot in failed_shots).
+    
+    Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
+    enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
+    moves shot from failed_shots back to running then to done or failed.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    # Find the episode workflow
+    workflow_id = episode_workflow_id(episode_id)
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        
+        # Send retry update (returns result or raises ApplicationError on refusal)
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
+        try:
+            result = await handle.execute_update(
+                "retry_shot",
+                shot_id
+            )
+        except WorkflowUpdateFailedError as e:
+            # Update was refused - check if it's an ApplicationError inside
+            if e.cause and isinstance(e.cause, ApplicationError):
+                # Map workflow refusal to 409 Conflict
+                raise HTTPException(status_code=409, detail=str(e.cause))
+            raise
+        except ApplicationError as e:
+            # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
+        
+        # Audit log
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, "retry_shot", f"Shot {shot_id} retry requested", "admin")
+            )
+            await db.commit()
+        
+        return {
+            "success": True,
+            "episode_id": episode_id,
+            "shot_id": shot_id,
+            "result": result,
+            "message": f"Retry signal sent for shot {shot_id}",
+        }
+        
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions without wrapping
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending retry signal: {str(e)}")
+
+
 @app.post("/api/episodes/{episode_id}/set-dry")
 async def set_dry_mode_endpoint(
     episode_id: str,
@@ -1522,8 +1668,9 @@ async def run_canary(
     
     canary_shot_meta: dict | None = None  # prompt-lint metadata (set when the beatmap shot is found)
     # Load beatmap to get full shot data for prompt building
-    beatmap_path = Path("./data/episodes") / episode_id / "BEATMAP.md"
-    episode_path = Path("./data/episodes") / episode_id
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    beatmap_path = episodes_dir / episode_id / "BEATMAP.md"
+    episode_path = episodes_dir / episode_id
     
     if beatmap_path.exists():
         # Load prompt_kit.json (required for live mode, optional for dry mode)
@@ -1836,8 +1983,420 @@ async def run_canary(
     }
 
 
+@app.post("/api/episodes/{episode_id}/smoke-test")
+async def run_smoke_test_api(
+    episode_id: str,
+    live: bool = False,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Run smoke test: upload probe + SOUL V2 generation probe (~0.09 credits).
+    
+    Must pass live=true query param to actually run (safety).
+    Gated stages check for recent passing smoke test before spending.
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not live:
+        raise HTTPException(
+            status_code=400,
+            detail="Smoke test requires live=true query param (spends ~0.09 credits)"
+        )
+    
+    from hfvg.activities.smoke_test import run_smoke_test
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    try:
+        result = await run_smoke_test(episode_id, db_path)
+        
+        # Store result in episode metadata
+        from hfvg.studio_db import store_smoke_test_result
+        await store_smoke_test_result(db_path, episode_id, result)
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Smoke test failed: {e}")
+
+
+@app.post("/api/episodes/{episode_id}/lint")
+async def lint_episode(
+    episode_id: str,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Lint episode configuration and beatmap.
+    
+    Checks:
+    - BEATMAP.md exists and is valid
+    - shots.json exists (if required)
+    - Budget configuration is valid
+    - Reference images are accessible
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    issues = []
+    warnings = []
+    
+    # Check BEATMAP.md exists
+    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    beatmap_path = beatmap_dir / "BEATMAP.md"
+    if not beatmap_path.exists():
+        issues.append(f"BEATMAP.md missing at {beatmap_path}")
+    else:
+        # Try to parse beatmap
+        try:
+            from hfvg.episode_parser import parse_beatmap
+            shots = parse_beatmap(str(beatmap_path))
+            if not shots:
+                warnings.append("BEATMAP.md parsed but contains no shots")
+        except Exception as e:
+            issues.append(f"BEATMAP.md parse error: {str(e)}")
+    
+    # Check shots.json for live mode
+    shots_json = beatmap_dir / "shots.json"
+    if not shots_json.exists():
+        warnings.append("shots.json missing (required for live mode)")
+    else:
+        try:
+            import json
+            from hfvg.shot_data import parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text()))
+        except Exception as e:
+            issues.append(f"shots.json parse error: {str(e)}")
+    
+    # Check budget configuration
+    # Only warn if episode has reached G1.08 approval but has no budget lines
+    import aiosqlite
+    g108_approved = False
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT g108_approved FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                g108_approved = bool(row[0])
+    
+    if g108_approved:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row[0] == 0:
+                    warnings.append("No budget lines configured (G1.08 approved but budget not initialized)")
+    
+    # Check refs.json and reference files
+    refs_json = beatmap_dir / "refs.json"
+    if refs_json.exists():
+        try:
+            import json
+            refs_data = json.loads(refs_json.read_text())
+            per_shot = refs_data.get("per_shot", {})
+            missing_refs = []
+            
+            for shot_id, shot_refs in per_shot.items():
+                for ref_entry in shot_refs:
+                    if isinstance(ref_entry, dict):
+                        ref_path = ref_entry.get("path")
+                        if ref_path and not Path(ref_path).exists():
+                            missing_refs.append(f"{shot_id}: {ref_path}")
+            
+            if missing_refs:
+                warnings.append(f"{len(missing_refs)} reference files not found: {missing_refs[:3]}")
+        except Exception as e:
+            issues.append(f"refs.json parse error: {str(e)}")
+    
+    return {
+        "episode_id": episode_id,
+        "status": "pass" if not issues else "fail",
+        "issues": issues,
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/episodes/{episode_id}/set-ref-versions")
+async def set_ref_versions(
+    episode_id: str,
+    versions: dict[str, int],
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Set or bump reference image versions in refs.json.
+    
+    Args:
+        versions: Map of ref keys to version numbers (e.g., {"r_duck_sheet": 2})
+    
+    Requires: Cookie auth
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Load refs.json
+    refs_json_path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs.json"
+    if not refs_json_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"refs.json not found for episode {episode_id}"
+        )
+    
+    import json
+    refs_data = json.loads(refs_json_path.read_text())
+    
+    # Update versions map
+    if "versions" not in refs_data:
+        refs_data["versions"] = {}
+    
+    for ref_key, version in versions.items():
+        if not isinstance(version, int) or version < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid version for {ref_key}: {version}. Must be positive integer."
+            )
+        refs_data["versions"][ref_key] = version
+    
+    # Write updated refs.json
+    refs_json_path.write_text(json.dumps(refs_data, indent=2))
+    
+    # Write version sidecars for any existing ref files
+    per_shot = refs_data.get("per_shot", {})
+    updated_sidecars = []
+    
+    for ref_key, version in versions.items():
+        # Find the ref path in per_shot
+        ref_path = None
+        for shot_refs in per_shot.values():
+            for ref_entry in shot_refs:
+                if isinstance(ref_entry, dict) and ref_entry.get("key") == ref_key:
+                    ref_path = ref_entry.get("path")
+                    break
+            if ref_path:
+                break
+        
+        if ref_path and Path(ref_path).exists():
+            # Write version sidecar
+            version_sidecar_dir = Path(ref_path).parent / ".versions"
+            version_sidecar_dir.mkdir(parents=True, exist_ok=True)
+            version_sidecar = version_sidecar_dir / f"{Path(ref_path).stem}.json"
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            updated_sidecars.append(str(version_sidecar))
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "versions_updated": versions,
+        "sidecars_written": len(updated_sidecars),
+        "refs_json_path": str(refs_json_path),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+@app.post("/api/lint")
+async def lint_prompt_endpoint(request: dict):
+    """
+    Lint a prompt for violations.
+    
+    Args:
+        request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool), optional "episode_id" (str)
+    
+    Returns:
+        dict with "problems" list
+    """
+    from hfvg.prompt_lint import lint_violations, load_lint_kit
+    
+    prompt = request.get("prompt", "")
+    shot_meta = request.get("shot_meta", {})
+    episode_id = request.get("episode_id", "default")  # Default episode if not specified
+    
+    kit = load_lint_kit(episode_id)
+    problems = lint_violations(prompt, shot_meta, kit)
+    
+    return {"problems": problems}
+
+
+@app.post("/api/episodes/{episode_id}/anchor")
+async def set_anchor_still(
+    episode_id: str,
+    anchor_shot_id: str = Body(...),
+    target_shot_ids: list[str] = Body(...),
+    file_path: str | None = Body(None),
+    approved_by: str | None = Body(None),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Set an anchor still as a reference for target shots.
+    
+    Accepts either:
+    1. A G2-approved still (anchor_shot_id with approved status)
+    2. An externally supplied file (file_path with explicit approved_by note)
+    
+    Args:
+        episode_id: Episode ID
+        anchor_shot_id: Shot ID of the anchor still
+        target_shot_ids: List of shot IDs that will use this anchor as ref
+        file_path: Optional external file path (requires approved_by)
+        approved_by: Required if using external file, optional for G2-approved still
+        
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not target_shot_ids:
+        raise HTTPException(status_code=400, detail="target_shot_ids cannot be empty")
+    
+    # Reject self-anchoring: anchor_shot_id must not be in target_shot_ids
+    if anchor_shot_id in target_shot_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot anchor shot {anchor_shot_id} to itself"
+        )
+    
+    import hashlib
+    import aiosqlite
+    from pathlib import Path
+    
+    # Determine the anchor still path and validate approval
+    if file_path:
+        # External file mode - requires explicit approved_by note
+        if not approved_by:
+            raise HTTPException(
+                status_code=400, 
+                detail="External file requires explicit --approved-by note"
+            )
+        
+        local_path = Path(file_path)
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        # Compute SHA256
+        sha256_hash = hashlib.sha256()
+        with open(local_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        sha256 = sha256_hash.hexdigest()
+        
+        # Use version 0 for external files
+        version = 0
+        
+    else:
+        # G2-approved still mode
+        # Check that the anchor shot is G2-approved
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            async with db.execute(
+                "SELECT status, still_url FROM shots WHERE episode_id = ? AND shot_id = ?",
+                (episode_id, anchor_shot_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Anchor shot {anchor_shot_id} not found"
+            )
+        
+        status, still_url = row
+        if status != "approved":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Anchor shot {anchor_shot_id} must be G2-approved (current status: {status})"
+            )
+        
+        if not still_url:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Anchor shot {anchor_shot_id} has no still_url"
+            )
+        
+        # Find the local file for this still
+        # Pattern: {data_dir}/episodes/{episode_id}/outputs/{shot_id}/still_v{version}.{ext}
+        import os
+        data_dir = Path(os.getenv("DATA_DIR", "./data"))
+        output_dir = data_dir / "episodes" / episode_id / "outputs" / anchor_shot_id
+        if not output_dir.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Output directory not found for {anchor_shot_id}"
+            )
+        
+        # Find the latest still version (support .png, .jpg, .jpeg, .webp)
+        still_files = (
+            list(output_dir.glob("still_v*.png")) +
+            list(output_dir.glob("still_v*.jpg")) +
+            list(output_dir.glob("still_v*.jpeg")) +
+            list(output_dir.glob("still_v*.webp"))
+        )
+        if not still_files:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No still files found for {anchor_shot_id}"
+            )
+        
+        # Sort by version number and take the latest
+        def extract_version(p):
+            import re
+            m = re.search(r'still_v(\d+)', p.name)
+            return int(m.group(1)) if m else 0
+        
+        still_files.sort(key=extract_version, reverse=True)
+        local_path = still_files[0]
+        version = extract_version(local_path)
+        
+        # Compute SHA256
+        sha256_hash = hashlib.sha256()
+        with open(local_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        sha256 = sha256_hash.hexdigest()
+    
+    # Store anchor still metadata
+    from hfvg.studio_db import set_anchor_still
+    await set_anchor_still(
+        DATABASE_PATH,
+        episode_id,
+        anchor_shot_id,
+        target_shot_ids,
+        str(local_path),
+        version,
+        sha256,
+        approved_by,
+    )
+    
+    # Audit log
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (
+                episode_id,
+                "set_anchor",
+                f"Anchor {anchor_shot_id} set for {', '.join(target_shot_ids)} (approved_by: {approved_by or 'G2'})",
+                "admin"
+            )
+        )
+        await db.commit()
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "anchor_shot_id": anchor_shot_id,
+        "target_shot_ids": target_shot_ids,
+        "local_path": str(local_path),
+        "version": version,
+        "sha256": sha256,
+        "approved_by": approved_by,
+        "message": f"Anchor still set for {len(target_shot_ids)} shot(s)",
+    }

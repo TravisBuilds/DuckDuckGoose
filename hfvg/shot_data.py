@@ -77,9 +77,19 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
         prompt = _require(item, "prompt", str, sid)
         if not prompt.strip():
             raise ShotDataError(f"shots.json shot {sid}: empty prompt")
+        
+        # Optional end_prompt for end-frame shots (_end still uses this instead of prompt)
+        end_prompt = item.get("end_prompt")
+        if end_prompt is not None:
+            if not isinstance(end_prompt, str):
+                raise ShotDataError(f"shots.json shot {sid}: end_prompt must be string, got {end_prompt!r}")
+            if not end_prompt.strip():
+                raise ShotDataError(f"shots.json shot {sid}: empty end_prompt")
+        
         ref_keys = _require(item, "ref_keys", list, sid)
         out[sid] = {
             "prompt": prompt,  # AS-IS: never recomposed
+            "end_prompt": end_prompt,  # Optional: for _end still when end_frame=true
             "shot_meta": {
                 "count": count,
                 "characters": [str(c) for c in chars],
@@ -177,6 +187,7 @@ def merge_into_shots(
             continue
         new = dict(shot)
         new["prompt"] = plan["prompt"]
+        new["end_prompt"] = plan.get("end_prompt")  # Optional: for _end still
         new["shot_meta"] = plan["shot_meta"]
         new["params"] = {**dict(shot.get("params") or {}), **plan["params"]}
         new["tags"] = sorted(set(shot.get("tags") or []) | set(plan["tags"]))

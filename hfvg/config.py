@@ -74,6 +74,11 @@ class Config:
     """Global configuration."""
 
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    @staticmethod
+    def database_path() -> str:
+        """Get database path from environment."""
+        return os.getenv("DATABASE_PATH", "./data/studio.db")
 
     # Near-zero delays for fast testing (configurable via env vars)
     DRY_RUN_STILL_DELAY: float = float(os.getenv("DRY_RUN_STILL_DELAY", "0.05"))
@@ -118,6 +123,31 @@ class Config:
     # Fallback max refs for models missing from DEFAULT_MODEL_MAX_REFS (see max_refs_for). Over the
     # limit the harness REFUSES (never silently truncates a shot's ref list).
     STILL_MAX_REFS: int = int(os.getenv("STILL_MAX_REFS", "3"))
+    
+    # Max retry attempts per shot (server-side enforcement)
+    MAX_SHOT_RETRIES: int = int(os.getenv("MAX_SHOT_RETRIES", "1"))
+    
+    # Placeholder image URL for G1 clip estimates (pricing doesn't depend on image content)
+    # Must be a valid public image URL that the provider can access
+    # Required: must be explicitly set via env var (no default)
+    @staticmethod
+    def get_placeholder_image_url() -> str:
+        """Get placeholder image URL, raising clear error if not configured."""
+        url = os.getenv("G1_ESTIMATE_PLACEHOLDER_IMAGE_URL", "")
+        if not url:
+            raise ValueError(
+                "G1_ESTIMATE_PLACEHOLDER_IMAGE_URL environment variable is required. "
+                "Set it to a valid public image URL (1080x1920 recommended) for clip estimates. "
+                "Pricing does not depend on image content, so any static placeholder works."
+            )
+        return url
+    
+    # Reference image normalization limits (before upload)
+    # Large images (e.g. 1520x2688 PNG 4-8 MB) can cause provider failures
+    REF_MAX_LONG_SIDE: int = int(os.getenv("REF_MAX_LONG_SIDE", "1280"))
+    REF_MAX_BYTES: int = int(os.getenv("REF_MAX_BYTES", "1048576"))  # ~1 MB
+    JPEG_QUALITY_START: int = int(os.getenv("JPEG_QUALITY_START", "88"))
+    JPEG_QUALITY_MIN: int = int(os.getenv("JPEG_QUALITY_MIN", "65"))
 
     DB_PATH: str = os.getenv("DB_PATH", "hfvg.db")
 

@@ -1,7 +1,7 @@
 """Tests for Episode Workflow V2 (handbook-compliant with approval gates)."""
 
 import pytest
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -37,6 +37,42 @@ class StubShotWorkflow:
             "clip_url": f"https://test.com/{episode_id}/{shot_id}_clip.mp4",
             "status": "success",
         }
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
+class AttemptOverrideTestShot:
+    """Test shot workflow that calls submit_still_job_enforced with version."""
+    
+    def __init__(self):
+        self.approved = False
+    
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+    
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+    
+    @workflow.run
+    async def run(self, episode_id: str, shot_plan: dict) -> dict:
+        from datetime import timedelta
+        from temporalio.common import RetryPolicy
+        
+        # Call activity with version passed as attempt
+        result = await workflow.execute_activity(
+            "submit_still_job_enforced",
+            args=[
+                episode_id, shot_plan["shot_id"], shot_plan["prompt"],
+                shot_plan.get("version", 1), [], "1k", "medium", "9:16",
+                None, None, [], shot_plan.get("version", 1)
+            ],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        
+        await workflow.wait_condition(lambda: self.approved, timeout=timedelta(seconds=30))
+        return {"shot_id": shot_plan["shot_id"], "status": "success", "job_id": result["job_id"]}
 
 
 @pytest.mark.asyncio
@@ -355,3 +391,116 @@ async def test_episode_v2_gx01_hold(tmp_path, monkeypatch):
             # Workflow should now complete
             result = await handle.result()
             assert result is not None, "Workflow should complete after all approvals"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_attempt_overrides_start_shot_as_retry():
+    """Test that attempt_overrides parameter starts shot with retry attempt number."""
+    # Track still submissions
+    still_calls = []
+    
+    @activity.defn(name="submit_still_job_enforced")
+    async def fake_still(episode_id: str, shot_id: str, prompt: str, version: int,
+                        refs, resolution, quality, aspect_ratio, tier, shot_meta,
+                        missing_refs, attempt: int):
+        # Build job_id same way as real activity
+        if attempt > 1:
+            job_id = f"still-{episode_id}-{shot_id}-r{attempt - 1}"
+        else:
+            job_id = f"still-{episode_id}-{shot_id}-v{version}"
+        
+        still_calls.append({
+            "shot_id": shot_id,
+            "version": version,
+            "attempt": attempt,
+            "job_id": job_id,
+        })
+        
+        return {
+            "job_id": job_id,
+            "provider_job_id": f"prov-{job_id}",
+            "idempotency_key": f"idem-{job_id}",
+            "status": "submitted",
+        }
+    
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    
+    async with await WorkflowEnvironment.start_local() as env:
+        @activity.defn(name="parse_beatmap_activity")
+        async def parse(*a): return {"shots": [{"shot_id": "A01", "prompt": "Test 1"},
+                                                {"shot_id": "A02", "prompt": "Test 2"}]}
+        
+        @activity.defn(name="compute_g1_plan_activity")
+        async def g1(*a): return {"shots": [], "total_credits": 0.0, "total_usd": "0", "estimates_available": True}
+        
+        @activity.defn(name="init_episode_budget_lines_activity")
+        async def budget(*a):
+            from hfvg.budget import REQUIRED_BUDGET_LINES
+            return {"line_count": len(REQUIRED_BUDGET_LINES), "lines": REQUIRED_BUDGET_LINES}
+        
+        names = ["upsert_episode_activity", "init_episode_credit_line_activity",
+                 "preflight_validate_episode_activity", "load_gate_policy_activity",
+                 "load_refs_to_generate_activity", "recheck_refs_activity",
+                 "acquire_run_lock", "release_run_lock", "list_anchor_stills",
+                 "approve_g2_shots"]
+        
+        def mk(n):
+            @activity.defn(name=n)
+            async def f(*a): return {}
+            return f
+        
+        activities = [parse, g1, budget, fake_still] + [mk(n) for n in names]
+        
+        async with Worker(env.client, task_queue="test-overrides", workflows=[EpisodeWorkflowV2, AttemptOverrideTestShot],
+                         activities=activities):
+            # Start with A02 overridden to attempt 2 (first retry)
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=["ep99", None, True, ["A01", "A02"], 40, {"A02": 2}],
+                id="test-overrides",
+                task_queue="test-overrides",
+            )
+            
+            # Wait for G1 gate with state polling
+            async def at_g1_gate():
+                state = await handle.query(EpisodeWorkflowV2.get_state)
+                return state["current_gate"] == "G1_SHOT_PLAN"
+            
+            import asyncio
+            for _ in range(100):
+                if await at_g1_gate():
+                    break
+                await asyncio.sleep(0.1)
+            
+            # Approve G1
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait for still submissions
+            for _ in range(100):
+                if len(still_calls) >= 2:
+                    break
+                await asyncio.sleep(0.1)
+            
+            # Approve G2
+            await handle.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
+            
+            # Verify submissions
+            assert len(still_calls) == 2, f"Expected 2 submissions, got {len(still_calls)}"
+            
+            # A01 should be normal (attempt=1, version=1, job_id with -v1)
+            a01 = next(c for c in still_calls if c["shot_id"] == "A01")
+            assert a01["attempt"] == 1, f"A01 attempt should be 1, got {a01['attempt']}"
+            assert a01["version"] == 1, f"A01 version should be 1, got {a01['version']}"
+            assert a01["job_id"] == "still-ep99-A01-v1", f"A01 job_id should be -v1, got {a01['job_id']}"
+            
+            # A02 should be retry (attempt=2, version=2, job_id with -r1)
+            # attempt_overrides: {'A02': 2} means start at attempt 2 (first retry)
+            # This is override=2, actual_attempts=0, so total_attempt=2, giving -r{2-1} = -r1
+            a02 = next(c for c in still_calls if c["shot_id"] == "A02")
+            assert a02["attempt"] == 2, f"A02 attempt should be 2, got {a02['attempt']}"
+            assert a02["version"] == 2, f"A02 version should be 2, got {a02['version']}"
+            assert a02["job_id"] == "still-ep99-A02-r1", f"A02 job_id should be -r1, got {a02['job_id']}"
+            
+            await handle.terminate("test done")

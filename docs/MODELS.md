@@ -29,8 +29,7 @@ This document describes the AI models used for generation and their pricing stru
 ### Pricing
 - **Estimate Endpoint:** `POST https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0`
 - **Table Prices:**
-  - High quality: ~6.5 credits per image
-  - Standard quality: ~4.0 credits per image
+  - All qualities: ~1.12 credits per image
 - **Live Mode:** Provider calls `/estimate` endpoint during submission for exact USD cost; credit reservation uses table price
 - **Dry Mode:** Uses table price from `hfvg/credit_pricing.py`
 

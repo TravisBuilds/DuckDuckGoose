@@ -92,36 +92,82 @@ class KlingVideoProvider(GenerationProvider):
         hash_digest = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         return f"hf-clip-{hash_digest}"
     
+    async def upload_reference(self, image_path: str | Path, version: int = 1) -> dict:
+        """
+        Upload reference image and return upload result with URL.
+        
+        Before upload, normalizes the image (JPEG, downscale, compress).
+        Uses upload cache to avoid re-uploading the same file.
+        
+        Args:
+            image_path: Path to reference image (will be normalized before upload)
+            version: Version number for cache key (default: 1)
+        
+        Returns:
+            dict with 'public_url' (the CDN URL for the uploaded file)
+        """
+        import mimetypes
+        from hfvg.upload_cache import UploadCache
+        from hfvg.image_normalize import normalize_reference_image
+        
+        # Normalize image first (convert to JPEG, downscale, compress)
+        normalized_path, original_sha = normalize_reference_image(Path(image_path))
+        upload_path = normalized_path
+        
+        # Check upload cache first
+        cache = UploadCache()
+        await cache.init_db()
+        
+        cached_url = await cache.get_cached_url(str(upload_path), version)
+        if cached_url:
+            return {"public_url": cached_url}
+        
+        # Not in cache - upload the normalized file
+        
+        # Normalized images are always JPEG
+        content_type = "image/jpeg"
+        
+        # Get upload URL (REQUIRES content_type)
+        response = await self.client.post(
+            "/files/generate-upload-url",
+            json={"content_type": content_type}
+        )
+        response.raise_for_status()
+        data = response.json()
+        upload_url = data["upload_url"]
+        public_url = data["public_url"]
+        upload_headers = data["upload_headers"]
+        
+        # Upload normalized file with exact headers from API (includes x-amz-tagging)
+        with open(upload_path, "rb") as f:
+            image_bytes = f.read()
+        
+        # Use a plain httpx client for the PUT (no auth, just upload_headers)
+        async with httpx.AsyncClient() as plain_client:
+            upload_response = await plain_client.put(
+                upload_url,
+                content=image_bytes,
+                headers=upload_headers
+            )
+            upload_response.raise_for_status()
+        
+        # Cache the uploaded URL
+        await cache.cache_url(str(upload_path), version, public_url)
+        
+        return {"public_url": public_url}
+    
     async def upload_image(self, image_path: str | Path) -> str:
         """
-        Upload start image and return media ID.
+        Upload start image and return public URL (legacy method).
         
         Args:
             image_path: Path to start image
         
         Returns:
-            media_id for use in generation
+            public_url for use in generation
         """
-        # Get upload URL
-        response = await self.client.post(
-            "/files/generate-upload-url",
-            json={"filename": Path(image_path).name}
-        )
-        response.raise_for_status()
-        data = response.json()
-        upload_url = data["upload_url"]
-        media_id = data["media_id"]
-        
-        # Upload file
-        with open(image_path, "rb") as f:
-            image_bytes = f.read()
-        
-        # Use a plain httpx client for the PUT (no auth needed)
-        async with httpx.AsyncClient() as plain_client:
-            upload_response = await plain_client.put(upload_url, content=image_bytes)
-            upload_response.raise_for_status()
-        
-        return media_id
+        result = await self.upload_reference(image_path, version=1)
+        return result["public_url"]
     
     async def _estimate_response(
         self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None
@@ -189,6 +235,40 @@ class KlingVideoProvider(GenerationProvider):
             return usd_micros
         except (ValueError, TypeError) as e:
             raise ValueError(f"Failed to get USD estimate for video generation: {e}") from e
+
+    async def estimate_usd_and_credits(
+        self, image_url: str, prompt: str, duration: int, end_image_url: str | None = None
+    ) -> tuple[int, float]:
+        """
+        Estimate cost in both USD micro-dollars and credits from the provider's estimate.
+
+        Returns:
+            (usd_micros, credits) tuple
+        """
+        data = await self._estimate_response(image_url, prompt, duration, end_image_url)
+        try:
+            usd_micros = estimate_from_response(data)
+            if usd_micros is None:
+                usd_micros = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+            if usd_micros <= 0:
+                raise ValueError(f"Non-positive USD estimate: {data}")
+            
+            # Extract credits from estimate response, or use table
+            credits_str = data.get("credits")
+            if credits_str is not None:
+                credits = float(credits_str)
+            else:
+                # Fall back to table: ~1.5 credits/second for kling pro
+                from hfvg.credit_pricing import estimate_clip_credits
+                credits = estimate_clip_credits("kling_3.0", duration)
+            
+            if credits <= 0:
+                raise ValueError(f"Non-positive credits estimate: {data}")
+            
+            return (usd_micros, credits)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to get USD/credits estimate for video generation: {e}") from e
+
 
     async def submit_video(
         self,
