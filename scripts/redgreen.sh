@@ -553,7 +553,8 @@ test_mutation 9 "Canary starts real ShotWorkflow" \
 test_mutation 10 "Approval update reaches workflow" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_redgreen_safety.py::test_approval_signal_reaches_episode_workflow" \
-    sed -i '/@workflow.update/{N;/async def approve_g1_shot_plan/s/@workflow.update/# @workflow.update  # MUTATED/}' 
+    sed -i -e '/@workflow.update/{N;/async def approve_g1_shot_plan/s/@workflow.update/# @workflow.update  # MUTATED/}' \
+           -e 's/^\(\s*\)@approve_g1_shot_plan\.validator/\1# @approve_g1_shot_plan.validator  # MUTATED (validator needs the update; else import-time AttributeError)/' 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW MUTATIONS (Task #2): Additional safety protections
@@ -1306,7 +1307,7 @@ test_mutation 128 "shot_plan version = shot_attempts" \
 test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
     "api/main.py" \
     "tests/test_harness_pr10_items_remaining.py::test_g2_approved_jpeg_anchor_glob" \
-    sed -i 's/"still_v\*\.jpeg"/"still_v*.XXX"  # MUTATED - wrong extension/'
+    sed -i 's/glob("still_v\*\.jpeg")/glob("still_v*.XXX-MUTATED-not-jpeg")/'
 
 # 130: 3g - verify_episode_files_activity honours EPISODES_DIR
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \

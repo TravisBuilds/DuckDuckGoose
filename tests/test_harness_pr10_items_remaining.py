@@ -15,41 +15,59 @@ import asyncio
 # 3f: .jpeg anchor glob test
 @pytest.mark.asyncio
 @pytest.mark.timeout(15)
-async def test_g2_approved_jpeg_anchor_glob(tmp_path):
-    """Test that after G2 approval, anchor stills use .jpeg glob pattern."""
-    from pathlib import Path
-    import os
-    
-    # Create episode output directory
-    ep_dir = tmp_path / "episodes" / "ep_test"
-    output_dir = ep_dir / "output" / "A01"
+async def test_g2_approved_jpeg_anchor_glob(tmp_path, monkeypatch):
+    """Test that set-anchor (G2-approved still mode) resolves a still saved as .jpeg.
+
+    Drives the REAL route POST /api/episodes/{ep}/anchor (api/main.py), whose
+    `output_dir.glob("still_v*.jpeg")` is the only glob that can find this file
+    (still_v1.jpeg matches neither *.png, *.jpg nor *.webp). Mutation 129 changes that
+    glob, so the route answers 404 "No still files found" and the asserts below fail.
+    """
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, upsert_shot
+    import hashlib
+
+    secret = "test-secret-32-characters-long-enough-for-validation"
+    data_dir = tmp_path / "data"
+    db_path = str(tmp_path / "test.db")
+    # monkeypatch (not os.environ[...] =) so nothing leaks into other tests
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("ADMIN_SECRET", secret)
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path, raising=False)
+
+    await init_studio_db(db_path)
+    await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
+    await approve_g108(db_path, "ep99")
+    await upsert_shot(db_path, "ep99", "A01", "Anchor shot", status="approved",
+                      still_url="fake://still.jpeg")
+
+    # ONLY a .jpeg still on disk (no .png / .jpg / .webp)
+    output_dir = data_dir / "episodes" / "ep99" / "outputs" / "A01"
     output_dir.mkdir(parents=True)
-    
-    # Create ONLY a .jpeg file (no .png, .jpg, or .webp)
-    # This tests that the .jpeg glob pattern specifically works
-    (output_dir / "still_v1.jpeg").write_text("fake jpeg content")
-    
-    # Set EPISODES_DIR to point to our tmp directory
-    os.environ["EPISODES_DIR"] = str(tmp_path / "episodes")
-    
-    # Use the exact glob pattern from api/main.py
-    from pathlib import Path as ProductionPath
-    episodes_dir = ProductionPath(os.getenv("EPISODES_DIR", "./data/episodes"))
-    output_dir_path = episodes_dir / "ep_test" / "output" / "A01"
-    
-    # This is the exact glob pattern sequence from api/main.py
-    still_files = (
-        list(output_dir_path.glob("still_v*.png")) +
-        list(output_dir_path.glob("still_v*.jpg")) +
-        list(output_dir_path.glob("still_v*.jpeg")) +
-        list(output_dir_path.glob("still_v*.webp"))
+    jpeg_bytes = b"fake jpeg still v3"
+    (output_dir / "still_v3.jpeg").write_bytes(jpeg_bytes)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/episodes/ep99/anchor",
+        json={"anchor_shot_id": "A01", "target_shot_ids": ["A02"]},
+        headers={"Authorization": f"Bearer {secret}"},
     )
-    
-    # The mutation would change .jpeg glob, causing this file to not be found
-    assert len(still_files) == 1, \
-        f"Should find exactly 1 still file (still_v1.jpeg), got {len(still_files)}: {[f.name for f in still_files]}"
-    assert still_files[0].name == "still_v1.jpeg", \
-        f"Should find still_v1.jpeg, got {still_files[0].name}"
+
+    assert response.status_code == 200, \
+        f"set-anchor must find the .jpeg still, got {response.status_code}: {response.text}"
+    body = response.json()
+    assert body["success"] is True
+    assert body["local_path"].endswith("still_v3.jpeg"), f"wrong file resolved: {body['local_path']}"
+    assert body["version"] == 3, f"version must come from still_v3.jpeg, got {body['version']}"
+    assert body["sha256"] == hashlib.sha256(jpeg_bytes).hexdigest()
+
+    from hfvg.studio_db import get_anchor_still
+    anchor = await get_anchor_still(db_path, "ep99", "A02")
+    assert anchor is not None and anchor["local_path"].endswith("still_v3.jpeg"), \
+        f"anchor for A02 not persisted with the .jpeg path: {anchor}"
     
 
 # 3g: EPISODES_DIR in verify_episode_files_activity test

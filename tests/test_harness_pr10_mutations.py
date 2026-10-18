@@ -122,6 +122,34 @@ class CaptureVersionWorkflow:
 
 
 @workflow.defn(name="ShotWorkflow", sandboxed=False)
+class RetryAwaitsStillsApprovalWorkflow:
+    """
+    Realistic shot child for the clip-loop test (M-127): like the real ShotWorkflow, it does NOT
+    finish until the parent sends stills_approved (clips only start after G2).
+    - version 1 (original): fails immediately -> parked in failed_shots.
+    - version >= 2 (retry): stays RUNNING until stills_approved, then returns completed + version.
+    """
+    def __init__(self):
+        self.approved = False
+
+    @workflow.signal
+    def stills_approved(self):
+        self.approved = True
+
+    @workflow.signal
+    def resume_after_cap_raise(self):
+        pass
+
+    @workflow.run
+    async def run(self, episode_id: str, shot_dict: dict) -> dict:
+        version = shot_dict.get("version", 1)
+        if version == 1:
+            return {"status": "failed", "error": "First attempt failed", "version": version}
+        await workflow.wait_condition(lambda: self.approved)
+        return {"status": "completed", "shot_id": shot_dict["shot_id"], "version": version}
+
+
+@workflow.defn(name="ShotWorkflow", sandboxed=False)
 class FailOnceThenSucceedWorkflow:
     """
     Fails on first attempt, succeeds immediately on retry.
@@ -811,21 +839,55 @@ async def test_g1_approval_refused_without_estimates(tmp_path):
 # ============================================================================
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 async def test_clip_loop_uses_latest_retry_handle(tmp_path):
     """
     Test that the clip loop uses shot_results (latest handle) not a stale original.
-    
-    After a retry, the clip loop must await the retry handle result (version 2), 
-    not the original (version 1).
+
+    After a retry, the clip loop must await the retry handle result (version 2),
+    not the original (version 1) - and it must actually run to completion.
+
+    Uses the time-skipping test server: the retry child (like the real ShotWorkflow) only finishes
+    after stills_approved, so after G2 the parent sits in its bounded 30s pending-retry wait;
+    env.sleep() skips that wait deterministically instead of burning 30s of wall clock.
+
+    Mutation 127 replaces the clip-loop lookup with a non-existent/stale handle store. The workflow
+    then cannot await the retry child and never leaves CLIP_GENERATION, so G_FINAL_CUT is never
+    reached and the strict assertions below fail with AssertionError. (stage=clip_generation alone
+    is NOT evidence: it is set before the clip loop runs.)
     """
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-    
-    # Use a workflow that returns its version in the result
-    async with await WorkflowEnvironment.start_local() as env:
+
+    async def state_of(h):
+        # Bounded query: if the workflow task is failing (e.g. a broken clip loop), the query
+        # would otherwise block forever instead of letting the assertion below report it.
+        try:
+            return await asyncio.wait_for(
+                h.query(EpisodeWorkflowV2.get_state, rpc_timeout=timedelta(seconds=2)), timeout=3
+            )
+        except Exception:
+            return None
+
+    async def wait_for(h, pred, budget_s=10.0):
+        # Wall-clock budget (not a poll count): a stuck workflow makes each query time out,
+        # so a poll-count loop would take minutes instead of failing fast.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + budget_s
+        st = last = None
+        while loop.time() < deadline:
+            st = await state_of(h)
+            if st:
+                last = st
+                if pred(st):
+                    return st, True
+            await asyncio.sleep(0.1)
+        return last, False
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-clip-latest",
-            workflows=[EpisodeWorkflowV2, FailOnceThenSucceedWorkflow],
+            workflows=[EpisodeWorkflowV2, RetryAwaitsStillsApprovalWorkflow],
             activities=_make_activities(),
         ):
             handle = await env.client.start_workflow(
@@ -834,72 +896,58 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 id="test-clip-latest-workflow",
                 task_queue="test-clip-latest",
             )
-            
-            # Wait for G1 and approve
-            for _ in range(50):
+            try:
+
+                st, ok = await wait_for(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
+                assert ok, f"never reached G1: {st}"
+                await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+
+                # Original (v1) fails
+                st, ok = await wait_for(handle, lambda s: len(s.get("failed_shots", [])) > 0)
+                assert ok, f"original A01 never failed: {st}"
+
+                # Retry -> v2 child, which stays running until stills_approved
+                retry_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
+                assert retry_result["status"] == "queued", retry_result
+                retry_wf_id = retry_result["workflow_id"]
+                retry_handle = env.client.get_workflow_handle(retry_wf_id)
+                st, ok = await wait_for(handle, lambda s: s.get("shot_attempts", {}).get("A01") == 2)
+                assert ok, f"retry not recorded: {st}"
+
+                # Approve G2 -> parent waits (bounded 30s) for the pending retry; skip that wait
+                await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
+                st, ok = await wait_for(handle, lambda s: "G2_SCENE_STILLS" in s.get("passed_gates", []))
+                assert ok, f"G2 approval not processed: {st}"
+                await env.sleep(timedelta(seconds=35))
+
+                # The clip loop must await the LATEST handle (retry v2) and run to the end -> G_FINAL_CUT
+                final, ok = await wait_for(handle, lambda s: s.get("current_gate") == "G_FINAL_CUT")
+                assert ok, (
+                    "Clip loop never completed after G2 approval: workflow did not reach G_FINAL_CUT "
+                    f"(last state: {final and {k: final.get(k) for k in ('current_gate', 'stage', 'passed_gates', 'failed_shots', 'pending_retries')}})"
+                )
+                assert final.get("stage") == "mute_edit", \
+                    f"After the clip loop the workflow must be in mute_edit, got: {final.get('stage')}"
+                assert len(final.get("failed_shots", [])) == 0, \
+                    f"Retry should have succeeded, but failed_shots contains: {final.get('failed_shots')}"
+
+                # The handle the loop awaited is the retry child: it got stills_approved and finished as v2
+                desc = await retry_handle.describe()
+                assert desc.status is not None and desc.status.name == "COMPLETED", \
+                    f"Retry child (latest handle) should be COMPLETED, got {desc.status}"
+                retry_res = await retry_handle.result()
+                assert retry_res.get("status") == "completed" and retry_res.get("version") == 2, \
+                    f"Latest (retry) handle should be the completed v2 child, got: {retry_res}"
+
+                # The episode itself is healthy (parked at G_FINAL_CUT, not failed)
+                ep_desc = await handle.describe()
+                assert ep_desc.status is not None and ep_desc.status.name == "RUNNING", \
+                    f"Episode workflow should be RUNNING at G_FINAL_CUT, got {ep_desc.status}"
+            finally:
                 try:
-                    state = await handle.query(EpisodeWorkflowV2.get_state)
-                    if state["current_gate"] == "G1_SHOT_PLAN":
-                        break
-                except:
+                    await asyncio.wait_for(handle.terminate("test done"), timeout=5)
+                except Exception:
                     pass
-                await asyncio.sleep(0.1)
-            
-            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
-            await asyncio.sleep(1.0)
-            
-            # Retry the shot - this creates version 2
-            retry_result = await handle.execute_update(EpisodeWorkflowV2.retry_shot, args=["A01"])
-            
-            # Wait for retry workflow to complete
-            if "workflow_id" in retry_result:
-                retry_handle = env.client.get_workflow_handle(retry_result["workflow_id"])
-                for _ in range(100):
-                    try:
-                        desc = await retry_handle.describe()
-                        if desc.status in [2, 3]:  # COMPLETED or FAILED
-                            break
-                    except:
-                        pass
-                    await asyncio.sleep(0.1)
-            
-            # Give background task time to clear pending_retries
-            await asyncio.sleep(1.0)
-            
-            # Approve G2 - this triggers clip generation which signals stills_approved
-            await handle.signal(EpisodeWorkflowV2.approve_g2_scene_stills)
-            
-            # Wait for clip loop to complete
-            await asyncio.sleep(3.0)
-            
-            # Verify clip loop completed or is running
-            from temporalio.service import RPCError
-            try:
-                state = await handle.query(EpisodeWorkflowV2.get_state)
-                
-                # If mutation were active, clip loop would await version 1 handle (failed)
-                # and workflow would be stuck at still_generation stage.
-                # Success = workflow progressed to clip_generation or beyond
-                assert state.get("stage") in ["clip_generation", "mute_edit", None], \
-                    f"Workflow should have progressed to clip stage, got: {state.get('stage')}"
-                
-                # Verify the retry succeeded (failed_shots should be empty)
-                assert len(state.get("failed_shots", [])) == 0, \
-                    f"Retry should have succeeded, but failed_shots contains: {state.get('failed_shots')}"
-            except RPCError as e:
-                if "already completed" in str(e):
-                    # Workflow completed - check it succeeded
-                    desc = await handle.describe()
-                    if desc.status == 3:  # FAILED
-                        raise AssertionError(f"Workflow failed unexpectedly")
-                    # Success: clip loop ran to completion using correct handle
-                else:
-                    raise
-            
-            try:
-                await handle.terminate("test done")
-            except:
-                pass  # Already completed
 
 
 # ============================================================================
