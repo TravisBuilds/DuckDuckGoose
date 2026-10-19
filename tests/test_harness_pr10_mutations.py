@@ -275,7 +275,7 @@ async def test_end_frame_anchor_strips_suffix(tmp_path, monkeypatch):
     captured_refs = []
     
     class FakeProvider:
-        model_path = "unknown/model"
+        model_path = "xai/grok-imagine-image-2.0"
         
         async def close(self):
             pass
@@ -371,7 +371,7 @@ async def test_end_frame_anchor_enforces_ref_cap(tmp_path, monkeypatch):
     from hfvg.credit_ledger import CreditLedger
     
     class FakeProvider:
-        model_path = "unknown/model"
+        model_path = "xai/grok-imagine-image-2.0"
         
         async def close(self):
             pass
@@ -391,7 +391,7 @@ async def test_end_frame_anchor_enforces_ref_cap(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
-    monkeypatch.setenv("MODEL_PATH_STILL", "unknown/model")
+    monkeypatch.setenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0")
     monkeypatch.setenv("STILL_MAX_REFS", "3")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
     
