@@ -35,31 +35,26 @@ def test_unknown_model_raises_with_no_fallback(monkeypatch):
 def test_env_json_overrides_one_model_only(monkeypatch):
     # Override can lower (no flag needed)
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 4}))
-    model_caps._registry = None  # Clear cache
     assert max_refs_for("xai/grok-imagine-image-2.0") == 4
     assert max_refs_for("alibaba/qwen-image-3/edit") == 3
     
     # Override to raise requires MODEL_CAPS_ALLOW_RAISE=1
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 6}))
     monkeypatch.delenv("MODEL_CAPS_ALLOW_RAISE", raising=False)
-    model_caps._registry = None
-    assert max_refs_for("xai/grok-imagine-image-2.0") == 5  # Clamped to registry value
+    with pytest.warns(UserWarning, match="above the documented cap 5"):
+        assert max_refs_for("xai/grok-imagine-image-2.0") == 5  # clamped, loudly
     
     # With flag, raise is allowed
     monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")
-    model_caps._registry = None
     assert max_refs_for("xai/grok-imagine-image-2.0") == 6
-    
-    # Clean up
-    model_caps._registry = None
+    # the registry itself is never mutated by an override
+    assert model_caps.get_registry().resolve("xai/grok-imagine-image-2.0").limit("max_refs").value == 5
 
 
 def test_env_json_negative_cap_is_rejected(monkeypatch):
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": -1}))
-    model_caps._registry = None
     err = capture(ValueError, max_refs_for, "xai/grok-imagine-image-2.0")
     assert err is not None, "a negative cap must be rejected, not accepted"
-    model_caps._registry = None
 
 
 @pytest.mark.asyncio

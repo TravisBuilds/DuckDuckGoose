@@ -1,26 +1,51 @@
-"""Preflight checks: validate shot specs against model limits before any spend."""
-import hashlib
-from dataclasses import dataclass
+"""Preflight: check every shot against the documented model limits BEFORE any upload, estimate or reserve.
+
+Used at three points (same rules, same messages):
+- G1 plan (compute_g1_plan_activity): every shot, in dry and live runs; the G1 approval validator refuses
+  approval while any error-severity violation exists.
+- Submit (submit_still_job_enforced / submit_clip_job_enforced): defense in depth, right before spend.
+- API / CLI (POST /api/episodes/{id}/preflight, `hfvg preflight`): per-shot pass/fail for creators.
+
+Inputs are the normalized dicts produced by shot_inputs()/route_for(); missing optional values mean
+"provider default" (aspect None -> field omitted, quality None -> field omitted), never a violation.
+"""
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from temporalio.exceptions import ApplicationError
+
 from hfvg import model_caps
-from hfvg.activities.studio_generation import assemble_still_refs
 from hfvg.config import max_refs_for, still_model_path
+from hfvg.still_refs import assemble_still_refs
+
+DEFAULT_CLIP_PATHS = {
+    "kling": ("MODEL_PATH_KLING", "kling-video/v3.0/pro/image-to-video"),
+    "seedance": ("MODEL_PATH_SEEDANCE", "bytedance/seedance-2.5/image-to-video"),
+}
+# Clip routes whose submit path sends int(duration) (Kling); others refuse fractional seconds (Seedance)
+TRUNCATING_CLIP_ALIASES = ("kling",)
+# Model statuses that refuse (no API path) vs. warn
+REFUSE_STATUSES = {"mcp_only_not_on_api"}
+WARN_STATUSES = {"deprecated_upstream", "configured_cap_only_not_routed"}
+PIL_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "GIF": "image/gif"}
 
 
-class PreflightError(Exception):
-    """Non-retryable error raised when preflight validation fails."""
+class PreflightError(ApplicationError, ValueError):
+    """A shot breaks a documented model limit. Non-retryable: retrying cannot fix the shot.
 
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.non_retryable = True
+    Subclasses Temporal's ApplicationError (non_retryable=True, type="PreflightError") so the activity
+    fails once and the creator message reaches failed_shots; also a ValueError for existing callers.
+    """
+
+    def __init__(self, message: str, violations: list["Violation"] | None = None):
+        super().__init__(message, type="PreflightError", non_retryable=True)
+        self.violations = list(violations or [])
 
 
 @dataclass
 class Violation:
-    """A preflight violation."""
-
     shot_id: str
     frame: str  # "start" | "end" | "clip" | "audio"
     model: str
@@ -32,17 +57,274 @@ class Violation:
     source_url: str | None = None
     checked: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["text"] = format_violation(self)
+        return d
+
 
 def format_violation(v: Violation) -> str:
-    """Format a violation as a creator-facing message."""
+    """Creator-facing message plus where the limit comes from."""
     msg = v.message
     if v.source_url and v.checked:
-        # Extract domain or key part of URL for brevity
-        url_display = v.source_url
-        if url_display.startswith("https://"):
-            url_display = url_display.replace("https://", "").split("/")[0]
-        msg += f" Limit source: {url_display}, checked {v.checked}."
+        host = v.source_url.replace("https://", "").split("/")[0] if v.source_url.startswith("https://") else v.source_url
+        msg += f" Limit source: {host}, checked {v.checked}."
     return msg
+
+
+def raise_on_errors(violations: list[Violation], label: str) -> None:
+    errors = [v for v in violations if v.severity == "error"]
+    if errors:
+        raise PreflightError(
+            f"Preflight refused {label} before any spend:\n" + "\n".join(format_violation(v) for v in errors),
+            errors,
+        )
+
+
+def clip_model_path(alias: str | None) -> str:
+    """Harness clip routing alias (params.model: kling|seedance) -> model path, as the providers use it."""
+    alias = alias or "kling"
+    if alias in DEFAULT_CLIP_PATHS:
+        env, default = DEFAULT_CLIP_PATHS[alias]
+        return os.getenv(env, default)
+    return alias
+
+
+def _present(value: Any) -> bool:
+    """A frame flag/URL counts only when truthy: shots.json uses end_frame: false for 'no end frame'."""
+    return value not in (None, False, "", 0)
+
+
+def shot_inputs(shot: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a G1 shot plan ({shot_id, prompt, end_prompt, params, refs}) or a shots.json entry
+    ({id, prompt, end_prompt, model, duration, end_frame, ref_keys}) into preflight inputs.
+    At plan time the start frame is the planned start still ("planned")."""
+    params = shot.get("params") or {}
+
+    def pick(key, default=None):
+        return params.get(key, shot.get(key, default))
+
+    end_flag = pick("end_frame")
+    return {
+        "id": shot.get("shot_id") or shot.get("id"),
+        "start_prompt": shot.get("prompt") or "",
+        "end_prompt": shot.get("end_prompt") or None,
+        "clip_prompt": shot.get("clip_prompt") or shot.get("prompt") or "",
+        "ref_keys": list(shot.get("refs") if shot.get("refs") is not None else shot.get("ref_keys") or []),
+        "aspect_ratio": pick("aspect_ratio"),
+        "resolution": pick("resolution"),
+        "quality": pick("quality"),
+        "duration": pick("duration"),
+        "clip_model_alias": pick("model", "kling"),
+        "start_frame": "planned",
+        "end_frame": "planned" if _present(end_flag) else None,
+    }
+
+
+def route_for(shot: dict[str, Any], *, anchor_ref: str | None = None) -> dict[str, Any]:
+    """Model routing for a normalized shot (still model from config, clip model from params.model)."""
+    return {
+        "still_model": still_model_path(),
+        "clip_model": clip_model_path(shot.get("clip_model_alias")),
+        "anchor_ref": anchor_ref,
+    }
+
+
+def _src(limit, registry):
+    urls = limit.source_urls(registry) if limit else []
+    return urls[0] if urls else (None, None)
+
+
+def _resolve(registry, model, shot_id, frame, out):
+    try:
+        caps = registry.resolve(model)
+    except model_caps.UnknownModelError as e:
+        out.append(Violation(shot_id, frame, model, "model", "known model", model, "error",
+                             f"Shot {shot_id} ({frame}): unknown model '{model}'. {e}"))
+        return None
+    if caps.status in REFUSE_STATUSES:
+        out.append(Violation(shot_id, frame, model, "status", "active", caps.status, "error",
+                             f"Shot {shot_id} ({frame}): {model} is MCP-only and cannot be used on the API path. "
+                             "Choose a different model."))
+    elif caps.status in WARN_STATUSES:
+        what = "is deprecated upstream; consider a newer model" if caps.status == "deprecated_upstream" \
+            else "has documented limits but is not routed by the harness yet"
+        out.append(Violation(shot_id, frame, model, "status", "active", caps.status, "warning",
+                             f"Shot {shot_id} ({frame}): {model} {what}."))
+    return caps
+
+
+def _check_choice(caps, registry, out, shot_id, frame, model, field, limit_name, value, label):
+    limit = caps.limit(limit_name)
+    if value is None or not limit or limit.unknown or not isinstance(limit.value, list):
+        return
+    if value not in limit.value:
+        url, checked = _src(limit, registry)
+        out.append(Violation(shot_id, frame, model, field, limit.value, value, "error",
+                             f"Shot {shot_id} ({frame} frame) {label} '{value}' is not supported by {model}. "
+                             f"Supported: {', '.join(map(str, limit.value))}.", url, checked))
+
+
+def _check_prompt(caps, registry, out, shot_id, frame, model, prompt, where):
+    limit = caps.limit("prompt_max_chars")
+    if prompt and limit and not limit.unknown and isinstance(limit.value, int) and len(prompt) > limit.value:
+        url, checked = _src(limit, registry)
+        note = " (Higgsfield silently cuts the rest)" if "kling" in model.lower() else ""
+        out.append(Violation(shot_id, frame, model, "prompt_max_chars", limit.value, len(prompt), "error",
+                             f"Shot {shot_id} {where} prompt is {len(prompt)} characters; {model} accepts "
+                             f"{limit.value}{note}. Shorten it by {len(prompt) - limit.value}.", url, checked))
+
+
+def _still(shot, route, registry, phase, out):
+    shot_id = shot["id"]
+    model = route.get("still_model") or still_model_path()
+    caps = _resolve(registry, model, shot_id, phase, out)
+    if caps is None:
+        return
+    # Refs: same lead/anchor rule as submit. End stills lead with the start still: at plan time it is
+    # implied (route without "lead_ref"); at submit time the caller passes the actual lead (or None).
+    lead = route["lead_ref"] if "lead_ref" in route else ("start_still" if phase == "end" else None)
+    cap = max_refs_for(model)
+    assembled, _ = assemble_still_refs(lead=lead, anchor=route.get("anchor_ref"),
+                                       planned=list(shot.get("ref_keys") or []), cap=cap)
+    if len(assembled) > cap:
+        url, checked = _src(caps.limit("max_refs"), registry)
+        extra = " (including the start still that leads every end frame)" if lead else ""
+        out.append(Violation(shot_id, phase, model, "max_refs", cap, len(assembled), "error",
+                             f"Shot {shot_id} ({phase} frame) uses {len(assembled)} reference images{extra}, "
+                             f"but {model} accepts at most {cap}. Remove {len(assembled) - cap} reference(s) "
+                             "in shots.json (ref_keys) and try again (refused rather than silently dropping "
+                             "refs).", url, checked))
+    prompt = (shot.get("end_prompt") or shot.get("start_prompt")) if phase == "end" else shot.get("start_prompt")
+    _check_prompt(caps, registry, out, shot_id, phase, model, prompt or "", f"({phase} frame)")
+    _check_choice(caps, registry, out, shot_id, phase, model, "aspect_ratio", "aspect_ratios",
+                  shot.get("aspect_ratio"), "aspect ratio")
+    _check_choice(caps, registry, out, shot_id, phase, model, "resolution", "resolutions",
+                  shot.get("resolution"), "resolution")
+    # Quality: check what the provider actually sends (harness 'high' is a budget tier sent as medium)
+    from hfvg.providers.higgsfield_still import provider_quality
+    asked = shot.get("quality")
+    sent = provider_quality(asked)
+    if sent is not None and sent != asked:
+        out.append(Violation(shot_id, phase, model, "quality", sent, asked, "warning",
+                             f"Shot {shot_id} ({phase} frame) quality '{asked}' is sent to {model} as '{sent}'."))
+    _check_choice(caps, registry, out, shot_id, phase, model, "quality", "quality", sent, "quality")
+
+
+def _clip(shot, route, registry, files, out):
+    shot_id = shot["id"]
+    model = route.get("clip_model") or clip_model_path(shot.get("clip_model_alias"))
+    caps = _resolve(registry, model, shot_id, "clip", out)
+    if caps is None:
+        return
+    duration = shot.get("duration")
+    dlim = caps.limit("duration_s")
+    if duration is not None and dlim and not dlim.unknown and isinstance(dlim.value, dict):
+        lo, hi = dlim.value.get("min", 0), dlim.value.get("max", float("inf"))
+        url, checked = _src(dlim, registry)
+        fractional = dlim.value.get("integer") and float(duration) != int(duration)
+        truncates = any(model == clip_model_path(a) for a in TRUNCATING_CLIP_ALIASES)
+        sent = int(duration) if fractional and truncates else duration
+        if sent < lo or sent > hi:
+            shown = f"{duration} s (sent as {sent} s)" if sent != duration else f"{duration} s"
+            out.append(Violation(shot_id, "clip", model, "duration", f"{lo}-{hi}s", duration, "error",
+                                 f"Shot {shot_id} clip is {shown}, but {model} needs a duration "
+                                 f"from {lo} to {hi} seconds.", url, checked))
+        if fractional and truncates:
+            out.append(Violation(shot_id, "clip", model, "duration", "integer seconds", duration, "warning",
+                                 f"Shot {shot_id} clip is {duration} s; {model} takes whole seconds, so it is "
+                                 f"sent as {sent} s.", url, checked))
+        elif fractional:
+            out.append(Violation(shot_id, "clip", model, "duration", "integer seconds", duration, "error",
+                                 f"Shot {shot_id} clip is {duration} s, but {model} needs a whole number of "
+                                 f"seconds from {lo} to {hi}.", url, checked))
+    _check_prompt(caps, registry, out, shot_id, "clip", model, shot.get("clip_prompt") or "", "clip")
+
+    has_start, has_end = _present(shot.get("start_frame")), _present(shot.get("end_frame"))
+    start_lim, end_lim = caps.limit("start_frame"), caps.limit("end_frame")
+    if start_lim and start_lim.value == "required" and not has_start:
+        out.append(Violation(shot_id, "clip", model, "start_frame", "required", "missing", "error",
+                             f"Shot {shot_id} clip: {model} requires a start frame."))
+    if has_end and end_lim and end_lim.value == "unsupported":
+        out.append(Violation(shot_id, "clip", model, "end_frame", "unsupported", "present", "error",
+                             f"Shot {shot_id} clip: {model} does not support end frames."))
+    if has_end and not has_start:
+        out.append(Violation(shot_id, "clip", model, "frames", "start required with end", "end only", "error",
+                             f"Shot {shot_id} clip: {model} does not support last-frame-only. Provide a start frame."))
+    if files:
+        for key in ("start_frame", "end_frame"):
+            ref = shot.get(key)
+            if _present(ref) and ref in files:
+                _frame_file(caps, registry, out, shot_id, model, key, Path(files[ref]))
+
+
+def _frame_file(caps, registry, out, shot_id, model, key, path):
+    """Frame file checks: real format (decoded, not the extension), bytes, min side, aspect range."""
+    def err(field, lim, actual, msg, limit_obj):
+        url, checked = _src(limit_obj, registry)
+        out.append(Violation(shot_id, "clip", model, field, lim, actual, "error",
+                             f"Shot {shot_id} clip {key}: {msg}", url, checked))
+
+    if not path.exists():
+        out.append(Violation(shot_id, "clip", model, "frame_file", "exists", "missing", "error",
+                             f"Shot {shot_id} clip {key}: file {path.name} not found."))
+        return
+    blim = caps.limit("frame_max_bytes")
+    size = path.stat().st_size
+    if blim and not blim.unknown and isinstance(blim.value, int) and size > blim.value:
+        err("frame_max_bytes", blim.value, size,
+            f"{size} bytes is over the {model} limit of {blim.value} bytes.", blim)
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            fmt, (w, h) = PIL_FORMATS.get(img.format or "", f"image/{(img.format or 'unknown').lower()}"), img.size
+    except Exception:
+        out.append(Violation(shot_id, "clip", model, "frame_format", "image", "unreadable", "error",
+                             f"Shot {shot_id} clip {key}: {path.name} is not a readable image."))
+        return
+    flim = caps.limit("frame_formats")
+    if flim and not flim.unknown and isinstance(flim.value, list) and fmt not in flim.value:
+        err("frame_format", flim.value, fmt,
+            f"format {fmt} not supported by {model}. Supported: {', '.join(flim.value)}.", flim)
+    mlim = caps.limit("frame_min_px")
+    if mlim and not mlim.unknown and isinstance(mlim.value, int) and min(w, h) < mlim.value:
+        err("frame_min_px", mlim.value, min(w, h),
+            f"minimum dimension {min(w, h)} px is below {model} requirement of {mlim.value} px.", mlim)
+    alim = caps.limit("frame_aspect_range")
+    if alim and not alim.unknown and isinstance(alim.value, list):
+        lo, hi = alim.value
+        ratio = w / h
+        if ratio < lo or ratio > hi:
+            err("frame_aspect_range", f"{lo:.2f}-{hi:.2f}", f"{ratio:.2f}",
+                f"aspect ratio {ratio:.2f} is outside {model} range {lo:.2f}-{hi:.2f}.", alim)
+
+
+def _audio(shot, route, registry, out):
+    shot_id = shot["id"]
+    model = route.get("audio_model") or shot.get("audio_model")
+    caps = _resolve(registry, model, shot_id, "audio", out)
+    if caps is None:
+        return
+    if caps.status == "alias_invalid_upstream_id":
+        out.append(Violation(shot_id, "audio", model, "status", "upstream id", model, "warning",
+                             f"Shot {shot_id} (audio): '{model}' is not an ElevenLabs model id; the harness sends music_v1."))
+    text = shot.get("text") or ""
+    tlim = caps.limit("text_max_chars")
+    if text and tlim and not tlim.unknown and isinstance(tlim.value, int) and len(text) > tlim.value:
+        url, checked = _src(tlim, registry)
+        out.append(Violation(shot_id, "audio", model, "text_max_chars", tlim.value, len(text), "error",
+                             f"Shot {shot_id} audio text is {len(text)} characters; {model} accepts {tlim.value}. "
+                             f"Shorten it by {len(text) - tlim.value}.", url, checked))
+    for field, key, unit in (("duration_s", "duration_s", "s"), ("duration_ms", "music_length_ms", "ms")):
+        value, lim = shot.get(key), caps.limit(field)
+        if value is None or not lim or lim.unknown or not isinstance(lim.value, dict):
+            continue
+        lo, hi = lim.value.get("min", 0), lim.value.get("max", float("inf"))
+        if value < lo or value > hi:
+            url, checked = _src(lim, registry)
+            out.append(Violation(shot_id, "audio", model, field, f"{lo}-{hi}{unit}", value, "error",
+                                 f"Shot {shot_id} audio is {value} {unit}, but {model} needs {lo} to {hi} {unit}.",
+                                 url, checked))
 
 
 def preflight_shot(
@@ -53,490 +335,18 @@ def preflight_shot(
     phase: str,
     files: dict[str, str] | None = None,
 ) -> list[Violation]:
-    """
-    Run preflight checks on one shot.
-
-    Args:
-        shot: shot dict from shots.json (id, start_prompt, end_prompt, clip_prompt, duration, refs, etc.)
-        route: routing info (still_model, clip_model, etc.)
-        registry: model capabilities registry
-        phase: "start" | "end" | "clip" | "audio"
-        files: optional dict of {key: local_path} for file-based checks (format, size, dimensions)
-
-    Returns:
-        list of Violation
-    """
-    violations = []
-    shot_id = shot["id"]
-
-    # Still checks (start and/or end)
+    """Check one shot for one phase ("start" | "end" | "clip" | "audio"). Returns violations (errors and
+    warnings); never raises for a violation. Use raise_on_errors() at spend points."""
+    out: list[Violation] = []
     if phase in ("start", "end"):
-        still_model = route.get("still_model", still_model_path())
-        
-        try:
-            caps = registry.resolve(still_model)
-        except model_caps.UnknownModelError as e:
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame=phase,
-                    model=still_model,
-                    field="model",
-                    limit="known model",
-                    actual=still_model,
-                    severity="error",
-                    message=f"Shot {shot_id} ({phase} frame): unknown model '{still_model}'. {e}",
-                )
-            )
-            return violations  # Can't check further without caps
-
-        # Check model status
-        if caps.status == "mcp_only_not_on_api":
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame=phase,
-                    model=still_model,
-                    field="status",
-                    limit="active",
-                    actual=caps.status,
-                    severity="error",
-                    message=f"Shot {shot_id} ({phase} frame): {still_model} is MCP-only and cannot be used on the API path. Choose a different model.",
-                )
-            )
-        elif caps.status == "deprecated_upstream":
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame=phase,
-                    model=still_model,
-                    field="status",
-                    limit="active",
-                    actual=caps.status,
-                    severity="warning",
-                    message=f"Shot {shot_id} ({phase} frame): {still_model} is deprecated. Consider migrating to a newer model.",
-                )
-            )
-
-        # Ref count check
-        planned_refs = shot.get("ref_keys", [])
-        # For end frames, we need to account for lead ref (start still)
-        lead_ref = None
-        if phase == "end":
-            # In practice, lead_ref would be the start still path, but for preflight we just know it exists
-            lead_ref = "placeholder_start_still"  # Counted as 1 ref
-
-        # Get anchor if configured (would come from DB in practice; for preflight check route)
-        anchor_ref = route.get("anchor_ref")
-
-        # Assemble refs using the same logic as submit
-        # Use max_refs_for() to get effective cap (respects MODEL_MAX_REFS_JSON overrides)
-        effective_max_refs = max_refs_for(still_model)
-        assembled, anchor_used = assemble_still_refs(
-            lead=lead_ref,
-            anchor=anchor_ref,
-            planned=planned_refs,
-            cap=effective_max_refs,
-        )
-
-        # Check against effective cap (not raw registry value)
-        # This respects MODEL_MAX_REFS_JSON overrides with MODEL_CAPS_ALLOW_RAISE
-        if len(assembled) > effective_max_refs:
-            # Get source info from registry for error message
-            max_refs_limit = caps.limit("max_refs")
-            source_urls = max_refs_limit.source_urls(registry) if max_refs_limit else []
-            source_url, checked = source_urls[0] if source_urls else (None, None)
-            
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame=phase,
-                    model=still_model,
-                    field="max_refs",
-                    limit=effective_max_refs,
-                    actual=len(assembled),
-                    severity="error",
-                    message=(
-                        f"Shot {shot_id} ({phase} frame) uses {len(assembled)} reference images, "
-                        f"but {still_model} accepts at most {effective_max_refs}. "
-                        f"Remove {len(assembled) - effective_max_refs} reference(s) in shots.json (ref_keys) and try again."
-                    ),
-                    source_url=source_url,
-                    checked=checked,
-                )
-            )
-
-        # Prompt length check
-        prompt_field = "end_prompt" if phase == "end" and "end_prompt" in shot else "start_prompt"
-        prompt = shot.get(prompt_field, "")
-        prompt_limit = caps.limit("prompt_max_chars")
-        if prompt_limit and not prompt_limit.unknown and len(prompt) > prompt_limit.value:
-            source_urls = prompt_limit.source_urls(registry)
-            source_url, checked = source_urls[0] if source_urls else (None, None)
-            
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame=phase,
-                    model=still_model,
-                    field="prompt_max_chars",
-                    limit=prompt_limit.value,
-                    actual=len(prompt),
-                    severity="error",
-                    message=(
-                        f"Shot {shot_id} ({phase} frame) prompt is {len(prompt)} characters; "
-                        f"{still_model} accepts {prompt_limit.value}. "
-                        f"Shorten it by {len(prompt) - prompt_limit.value}."
-                    ),
-                    source_url=source_url,
-                    checked=checked,
-                )
-            )
-
-        # Aspect ratio check
-        aspect = shot.get("aspect_ratio", "9:16")
-        aspect_limit = caps.limit("aspect_ratios")
-        if aspect_limit and not aspect_limit.unknown:
-            if isinstance(aspect_limit.value, list) and aspect not in aspect_limit.value:
-                source_urls = aspect_limit.source_urls(registry)
-                source_url, checked = source_urls[0] if source_urls else (None, None)
-                
-                violations.append(
-                    Violation(
-                        shot_id=shot_id,
-                        frame=phase,
-                        model=still_model,
-                        field="aspect_ratio",
-                        limit=aspect_limit.value,
-                        actual=aspect,
-                        severity="error",
-                        message=(
-                            f"Shot {shot_id} ({phase} frame) aspect ratio '{aspect}' is not supported by {still_model}. "
-                            f"Supported: {', '.join(aspect_limit.value)}."
-                        ),
-                        source_url=source_url,
-                        checked=checked,
-                    )
-                )
-
-        # Resolution check
-        resolution = shot.get("resolution", "1k")
-        resolution_limit = caps.limit("resolutions")
-        if resolution_limit and not resolution_limit.unknown:
-            if isinstance(resolution_limit.value, list) and resolution not in resolution_limit.value:
-                source_urls = resolution_limit.source_urls(registry)
-                source_url, checked = source_urls[0] if source_urls else (None, None)
-                
-                violations.append(
-                    Violation(
-                        shot_id=shot_id,
-                        frame=phase,
-                        model=still_model,
-                        field="resolution",
-                        limit=resolution_limit.value,
-                        actual=resolution,
-                        severity="error",
-                        message=(
-                            f"Shot {shot_id} ({phase} frame) resolution '{resolution}' is not supported by {still_model}. "
-                            f"Supported: {', '.join(resolution_limit.value)}."
-                        ),
-                        source_url=source_url,
-                        checked=checked,
-                    )
-                )
-
-        # Quality check
-        quality = shot.get("quality", "medium")
-        quality_limit = caps.limit("quality")
-        if quality_limit and not quality_limit.unknown:
-            if isinstance(quality_limit.value, list) and quality not in quality_limit.value:
-                source_urls = quality_limit.source_urls(registry)
-                source_url, checked = source_urls[0] if source_urls else (None, None)
-                
-                violations.append(
-                    Violation(
-                        shot_id=shot_id,
-                        frame=phase,
-                        model=still_model,
-                        field="quality",
-                        limit=quality_limit.value,
-                        actual=quality,
-                        severity="error",
-                        message=(
-                            f"Shot {shot_id} ({phase} frame) quality '{quality}' is not supported by {still_model}. "
-                            f"Supported: {', '.join(quality_limit.value)}."
-                        ),
-                        source_url=source_url,
-                        checked=checked,
-                    )
-                )
-
-    # Clip checks
-    if phase == "clip":
-        clip_model = route.get("clip_model", "kling-video/v3.0/pro/image-to-video")
-        
-        try:
-            caps = registry.resolve(clip_model)
-        except model_caps.UnknownModelError as e:
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame="clip",
-                    model=clip_model,
-                    field="model",
-                    limit="known model",
-                    actual=clip_model,
-                    severity="error",
-                    message=f"Shot {shot_id} (clip): unknown model '{clip_model}'. {e}",
-                )
-            )
-            return violations
-
-        # Duration check
-        duration = shot.get("duration")
-        duration_limit = caps.limit("duration_s")
-        if duration_limit and not duration_limit.unknown:
-            dur_spec = duration_limit.value
-            if isinstance(dur_spec, dict):
-                min_dur = dur_spec.get("min", 0)
-                max_dur = dur_spec.get("max", float("inf"))
-                integer_required = dur_spec.get("integer", False)
-
-                if duration is not None:
-                    if duration < min_dur or duration > max_dur:
-                        source_urls = duration_limit.source_urls(registry)
-                        source_url, checked = source_urls[0] if source_urls else (None, None)
-                        
-                        violations.append(
-                            Violation(
-                                shot_id=shot_id,
-                                frame="clip",
-                                model=clip_model,
-                                field="duration",
-                                limit=f"{min_dur}-{max_dur}s",
-                                actual=duration,
-                                severity="error",
-                                message=(
-                                    f"Shot {shot_id} clip is {duration} s, but {clip_model} needs a duration "
-                                    f"from {min_dur} to {max_dur} seconds."
-                                ),
-                                source_url=source_url,
-                                checked=checked,
-                            )
-                        )
-
-                    if integer_required and not isinstance(duration, int) and duration != int(duration):
-                        source_urls = duration_limit.source_urls(registry)
-                        source_url, checked = source_urls[0] if source_urls else (None, None)
-                        
-                        violations.append(
-                            Violation(
-                                shot_id=shot_id,
-                                frame="clip",
-                                model=clip_model,
-                                field="duration",
-                                limit="integer seconds",
-                                actual=duration,
-                                severity="error",
-                                message=(
-                                    f"Shot {shot_id} clip is {duration} s, but {clip_model} needs a whole number of seconds "
-                                    f"from {min_dur} to {max_dur}."
-                                ),
-                                source_url=source_url,
-                                checked=checked,
-                            )
-                        )
-
-        # Clip prompt length
-        clip_prompt = shot.get("clip_prompt", "")
-        clip_prompt_limit = caps.limit("prompt_max_chars")
-        if clip_prompt_limit and not clip_prompt_limit.unknown and len(clip_prompt) > clip_prompt_limit.value:
-            source_urls = clip_prompt_limit.source_urls(registry)
-            source_url, checked = source_urls[0] if source_urls else (None, None)
-            
-            note = ""
-            if "kling" in clip_model.lower():
-                note = " (Higgsfield silently cuts the rest)"
-            
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame="clip",
-                    model=clip_model,
-                    field="prompt_max_chars",
-                    limit=clip_prompt_limit.value,
-                    actual=len(clip_prompt),
-                    severity="error",
-                    message=(
-                        f"Shot {shot_id} prompt is {len(clip_prompt)} characters; "
-                        f"{clip_model} accepts {clip_prompt_limit.value}{note}. "
-                        f"Shorten it by {len(clip_prompt) - clip_prompt_limit.value}."
-                    ),
-                    source_url=source_url,
-                    checked=checked,
-                )
-            )
-
-        # Start frame requirement
-        start_frame_limit = caps.limit("start_frame")
-        if start_frame_limit and start_frame_limit.value == "required":
-            # Check if start frame exists (in practice this would check the file)
-            if not shot.get("start_frame"):
-                violations.append(
-                    Violation(
-                        shot_id=shot_id,
-                        frame="clip",
-                        model=clip_model,
-                        field="start_frame",
-                        limit="required",
-                        actual="missing",
-                        severity="error",
-                        message=f"Shot {shot_id} clip: {clip_model} requires a start frame.",
-                    )
-                )
-
-        # End frame handling
-        end_frame_limit = caps.limit("end_frame")
-        has_start = shot.get("start_frame") is not None
-        has_end = shot.get("end_frame") is not None
-        
-        if end_frame_limit and end_frame_limit.value == "unsupported" and has_end:
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame="clip",
-                    model=clip_model,
-                    field="end_frame",
-                    limit="unsupported",
-                    actual="present",
-                    severity="error",
-                    message=f"Shot {shot_id} clip: {clip_model} does not support end frames.",
-                )
-            )
-
-        # Last-frame-only not supported
-        if has_end and not has_start:
-            violations.append(
-                Violation(
-                    shot_id=shot_id,
-                    frame="clip",
-                    model=clip_model,
-                    field="frames",
-                    limit="start required with end",
-                    actual="end only",
-                    severity="error",
-                    message=f"Shot {shot_id} clip: {clip_model} does not support last-frame-only. Provide a start frame.",
-                )
-            )
-
-        # Frame format check (if files available)
-        if files:
-            frame_formats_limit = caps.limit("frame_formats")
-            if frame_formats_limit and not frame_formats_limit.unknown:
-                allowed_formats = frame_formats_limit.value
-                for frame_key in ["start_frame", "end_frame"]:
-                    if frame_key in shot and shot[frame_key] in files:
-                        frame_path = files[shot[frame_key]]
-                        # Detect format from file
-                        frame_file = Path(frame_path)
-                        if frame_file.exists():
-                            # Simple format detection by extension or magic bytes
-                            suffix = frame_file.suffix.lower()
-                            format_map = {
-                                ".jpg": "image/jpeg",
-                                ".jpeg": "image/jpeg",
-                                ".png": "image/png",
-                                ".webp": "image/webp",
-                                ".gif": "image/gif",
-                            }
-                            detected_format = format_map.get(suffix)
-                            if detected_format and detected_format not in allowed_formats:
-                                source_urls = frame_formats_limit.source_urls(registry)
-                                source_url, checked = source_urls[0] if source_urls else (None, None)
-                                
-                                violations.append(
-                                    Violation(
-                                        shot_id=shot_id,
-                                        frame="clip",
-                                        model=clip_model,
-                                        field="frame_format",
-                                        limit=allowed_formats,
-                                        actual=detected_format,
-                                        severity="error",
-                                        message=(
-                                            f"Shot {shot_id} clip {frame_key}: format {detected_format} not supported by {clip_model}. "
-                                            f"Supported: {', '.join(allowed_formats)}."
-                                        ),
-                                        source_url=source_url,
-                                        checked=checked,
-                                    )
-                                )
-
-            # Frame size and dimension checks
-            frame_min_px_limit = caps.limit("frame_min_px")
-            if frame_min_px_limit and not frame_min_px_limit.unknown:
-                for frame_key in ["start_frame", "end_frame"]:
-                    if frame_key in shot and shot[frame_key] in files:
-                        frame_path = files[shot[frame_key]]
-                        frame_file = Path(frame_path)
-                        if frame_file.exists():
-                            try:
-                                from PIL import Image
-                                with Image.open(frame_file) as img:
-                                    width, height = img.size
-                                    min_dim = min(width, height)
-                                    if min_dim < frame_min_px_limit.value:
-                                        source_urls = frame_min_px_limit.source_urls(registry)
-                                        source_url, checked = source_urls[0] if source_urls else (None, None)
-                                        
-                                        violations.append(
-                                            Violation(
-                                                shot_id=shot_id,
-                                                frame="clip",
-                                                model=clip_model,
-                                                field="frame_min_px",
-                                                limit=frame_min_px_limit.value,
-                                                actual=min_dim,
-                                                severity="error",
-                                                message=(
-                                                    f"Shot {shot_id} clip {frame_key}: minimum dimension {min_dim} px is below "
-                                                    f"{clip_model} requirement of {frame_min_px_limit.value} px."
-                                                ),
-                                                source_url=source_url,
-                                                checked=checked,
-                                            )
-                                        )
-
-                                    # Aspect ratio check
-                                    frame_aspect_limit = caps.limit("frame_aspect_range")
-                                    if frame_aspect_limit and not frame_aspect_limit.unknown:
-                                        aspect_ratio = width / height
-                                        min_aspect, max_aspect = frame_aspect_limit.value
-                                        if aspect_ratio < min_aspect or aspect_ratio > max_aspect:
-                                            source_urls = frame_aspect_limit.source_urls(registry)
-                                            source_url, checked = source_urls[0] if source_urls else (None, None)
-                                            
-                                            violations.append(
-                                                Violation(
-                                                    shot_id=shot_id,
-                                                    frame="clip",
-                                                    model=clip_model,
-                                                    field="frame_aspect_range",
-                                                    limit=f"{min_aspect:.2f}-{max_aspect:.2f}",
-                                                    actual=f"{aspect_ratio:.2f}",
-                                                    severity="error",
-                                                    message=(
-                                                        f"Shot {shot_id} clip {frame_key}: aspect ratio {aspect_ratio:.2f} (1:{1/aspect_ratio:.1f} or {aspect_ratio:.1f}:1) "
-                                                        f"is outside {clip_model} range {min_aspect:.2f}-{max_aspect:.2f}."
-                                                    ),
-                                                    source_url=source_url,
-                                                    checked=checked,
-                                                )
-                                            )
-                            except Exception:
-                                pass  # Can't check dimensions without PIL or if file is invalid
-
-    return violations
+        _still(shot, route, registry, phase, out)
+    elif phase == "clip":
+        _clip(shot, route, registry, files, out)
+    elif phase == "audio":
+        _audio(shot, route, registry, out)
+    else:
+        raise ValueError(f"unknown preflight phase {phase!r}")
+    return out
 
 
 def preflight_episode(
@@ -546,40 +356,35 @@ def preflight_episode(
     *,
     files: dict[str, str] | None = None,
 ) -> list[Violation]:
-    """
-    Run preflight checks on all shots in an episode.
-
-    Args:
-        shots: list of shot dicts from shots.json
-        routing: dict of {shot_id: route_info}
-        registry: model capabilities registry
-        files: optional dict of {key: local_path} for file-based checks
-
-    Returns:
-        list of all violations across all shots
-    """
-    all_violations = []
-
+    """Every phase of every (normalized) shot: start, end when the shot has an end frame, clip."""
+    out: list[Violation] = []
     for shot in shots:
-        shot_id = shot["id"]
-        route = routing.get(shot_id, {})
+        route = routing.get(shot["id"]) or route_for(shot)
+        out += preflight_shot(shot, route, registry, phase="start", files=files)
+        if _present(shot.get("end_frame")):
+            out += preflight_shot(shot, route, registry, phase="end", files=files)
+        if shot.get("duration"):
+            out += preflight_shot(shot, route, registry, phase="clip", files=files)
+    return out
 
-        # Check start frame
-        violations = preflight_shot(shot, route, registry, phase="start", files=files)
-        all_violations.extend(violations)
 
-        # Check end frame if present
-        if shot.get("end_prompt") or shot.get("end_frame"):
-            violations = preflight_shot(shot, route, registry, phase="end", files=files)
-            all_violations.extend(violations)
-
-        # Check clip
-        if shot.get("duration") and shot.get("duration") > 0:
-            violations = preflight_shot(shot, route, registry, phase="clip", files=files)
-            all_violations.extend(violations)
-
-        # Check audio (if implemented)
-        # violations = preflight_shot(shot, route, registry, phase="audio", files=files)
-        # all_violations.extend(violations)
-
-    return all_violations
+def preflight_plans(shot_plans: list[dict[str, Any]], *, anchors: dict[str, str] | None = None) -> dict[str, Any]:
+    """Preflight raw shot plans / shots.json entries. Returns a JSON-safe report:
+    {"violations": [...], "errors": [...text], "shots": {shot_id: {"ok": bool, "errors": [...], "warnings": [...]}}}"""
+    registry = model_caps.get_registry()
+    shots = [shot_inputs(p) for p in shot_plans]
+    routing = {s["id"]: route_for(s, anchor_ref=(anchors or {}).get(s["id"])) for s in shots}
+    violations = preflight_episode(shots, routing, registry)
+    per_shot = {s["id"]: {"ok": True, "errors": [], "warnings": []} for s in shots}
+    for v in violations:
+        entry = per_shot.setdefault(v.shot_id, {"ok": True, "errors": [], "warnings": []})
+        if v.severity == "error":
+            entry["ok"] = False
+            entry["errors"].append(format_violation(v))
+        else:
+            entry["warnings"].append(format_violation(v))
+    return {
+        "violations": [v.to_dict() for v in violations],
+        "errors": [format_violation(v) for v in violations if v.severity == "error"],
+        "shots": per_shot,
+    }

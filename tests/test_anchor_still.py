@@ -1,10 +1,8 @@
 """Test anchor still feature."""
 
 import pytest
-import json
 from pathlib import Path
 from unittest.mock import patch
-from hfvg import model_caps
 
 
 @pytest.mark.asyncio
@@ -197,10 +195,8 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
-    monkeypatch.setenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0")  # Use known model
-    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 3}))  # Lower cap to 3
+    monkeypatch.setenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0")  # documented cap 5, no override
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
-    model_caps._registry = None  # Clear cache
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
@@ -235,8 +231,12 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
     ref2.write_bytes(b"ref2")
     ref3 = tmp_path / "ref3.png"
     ref3.write_bytes(b"ref3")
+    ref4 = tmp_path / "ref4.png"
+    ref4.write_bytes(b"ref4")
+    ref5 = tmp_path / "ref5.png"
+    ref5.write_bytes(b"ref5")
     
-    # Try to submit with 3 regular refs (+ anchor = 4 total, over cap of 3)
+    # 5 planned refs + anchor = 6, over the real grok cap of 5 (no lead, so the anchor is never dropped)
     with patch("hfvg.activities.studio_generation.check_live_mode_and_g108", new_callable=AsyncMock) as mock_check, \
          patch("hfvg.activities.studio_generation.enforce_prompt_lint") as mock_lint, \
          patch("hfvg.activities.studio_generation.HiggsfieldStillProvider") as MockProvider:
@@ -253,15 +253,17 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
                 shot_id="A02",
                 prompt="Exactly 0 animals in frame. Real-time, no slow motion. Test shot.",
                 version=1,
-                refs=[str(ref1), str(ref2), str(ref3)],
+                refs=[str(ref1), str(ref2), str(ref3), str(ref4), str(ref5)],
                 shot_meta={"count": 0},
             )
         except ValueError as e:
             raised_exception = e
         
         assert raised_exception is not None, "Expected ValueError for exceeding ref cap with anchor"
-        assert "over the" in str(raised_exception) and "limit of 3" in str(raised_exception), \
-            f"Expected ref cap error message, got: {raised_exception}"
+        from hfvg.preflight import PreflightError
+        assert isinstance(raised_exception, PreflightError), f"expected a preflight refusal, got: {raised_exception!r}"
+        assert "6 reference images" in str(raised_exception) and "at most 5" in str(raised_exception), \
+            f"Expected the anchor to count toward the real cap of 5, got: {raised_exception}"
 
 
 @pytest.mark.asyncio

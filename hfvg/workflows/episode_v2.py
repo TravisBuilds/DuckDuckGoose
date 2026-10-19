@@ -260,6 +260,13 @@ class EpisodeWorkflowV2:
             f"G1 plan computed: {self.state.g1_plan['total_credits']} credits, "
             f"${self.state.g1_plan['total_usd']}"
         )
+        if self.state.g1_plan.get("preflight_errors"):
+            # An approval sent before the plan existed never covers a plan that breaks model limits
+            self.approved_g1_shot_plan = False
+            workflow.logger.warning(
+                f"G1 preflight: {len(self.state.g1_plan['preflight_errors'])} model-limit error(s); "
+                "G1 approval is refused until the shots are fixed"
+            )
         
         # Calculate total credits from brief (no separate CREDIT-PLAN needed)
         total_video_credits = sum(s.get("video_credits", 0) for s in shots)
@@ -681,7 +688,16 @@ class EpisodeWorkflowV2:
     
     @approve_g1_shot_plan.validator
     def validate_g1_approval(self, override_unavailable_estimates: bool = False):
-        """Validator for G1 approval - checks estimates availability in live mode."""
+        """Validator for G1 approval: refuses while preflight errors exist (no override: a shot that
+        breaks a documented model limit must be fixed, not approved), then checks estimates in live mode."""
+        preflight_errors = (self.state.g1_plan or {}).get("preflight_errors") or []
+        if preflight_errors:
+            raise ApplicationError(
+                f"Cannot approve G1: {len(preflight_errors)} shot(s) break a model limit. Fix them and "
+                "restart the plan:\n" + "\n".join(preflight_errors),
+                type="PreflightError",
+                non_retryable=True,
+            )
         # In live mode, block approval if estimates are unavailable unless explicitly overridden
         # Only check if g1_plan has been computed
         if self.state.g1_plan:

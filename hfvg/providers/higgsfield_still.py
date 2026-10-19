@@ -24,6 +24,14 @@ from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 logger = logging.getLogger(__name__)
+
+
+def provider_quality(quality: str | None) -> str | None:
+    """The quality value actually sent: the endpoint accepts low|medium only, anything else is sent as
+    medium (harness 'high' is a budget-tier concept: L1_refs / L3_final_stills). None = field omitted."""
+    if quality is None:
+        return None
+    return quality if quality in ("low", "medium") else "medium"
 RAW_BODY_LOG_LIMIT = 16_384  # bytes of a provider error body kept in logs / exceptions
 _HIDDEN_HEADERS = {"set-cookie", "authorization"}
 
@@ -222,10 +230,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         # Only include quality if provided (SOUL V2 doesn't use quality field)
         if quality is not None:
-            # Map quality to allowed values (low, medium)
-            if quality not in ("low", "medium"):
-                quality = "medium"
-            payload["quality"] = quality
+            payload["quality"] = provider_quality(quality)
         
         if aspect_ratio:
             payload["aspect_ratio"] = aspect_ratio
@@ -363,10 +368,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         
         # Only include quality if provided (SOUL V2 doesn't use quality field)
         if quality is not None:
-            # Map quality to allowed values (low, medium)
-            if quality not in ("low", "medium"):
-                quality = "medium"
-            payload["quality"] = quality
+            payload["quality"] = provider_quality(quality)
         
         if image_urls:
             # Documented limit: never silently truncate a shot's ref list, refuse instead

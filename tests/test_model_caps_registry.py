@@ -55,16 +55,17 @@ def test_seed_json_validates():
 
 
 def test_unknown_model_refused():
-    """T3: Unknown models raise UnknownModelError with no fallback."""
+    """T3: Unknown models raise UnknownModelError with no fallback (registry and max_refs_for)."""
+    from tests.lint_helpers import capture
     registry = model_caps.get_registry()
-    
-    # resolve() should raise for unknown model
-    with pytest.raises(model_caps.UnknownModelError):
-        registry.resolve("made/up-model")
-    
-    # max_refs_for() should also raise (no fallback to 3)
-    with pytest.raises(model_caps.UnknownModelError):
-        max_refs_for("made/up-model")
+    err = capture(model_caps.UnknownModelError, registry.resolve, "made/up-model")
+    assert err is not None, "resolve() must refuse an unknown model, not fall back"
+    assert "made/up-model" in str(err) and "Known models" in str(err), err
+    err = capture(model_caps.UnknownModelError, max_refs_for, "made/up-model")
+    assert err is not None, "max_refs_for() must refuse an unknown model (no fallback cap)"
+    # aliases resolve to their model
+    assert registry.resolve("grok") is registry.models["xai/grok-imagine-image-2.0"]
+    assert registry.resolve("kling_3.0") is registry.models["kling-video/v3.0/pro/image-to-video"]
 
 
 def test_stricter_value_wins_grok():
@@ -81,86 +82,98 @@ def test_stricter_value_wins_grok():
 
 
 def test_override_can_lower_not_raise(monkeypatch):
-    """T5: MODEL_MAX_REFS_JSON can lower but not raise a cap (unless ALLOW_RAISE=1)."""
-    # Lower: should work
-    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 4}))
-    # Clear the global registry cache to force reload
-    model_caps._registry = None
-    result = max_refs_for("xai/grok-imagine-image-2.0")
-    assert result == 4
-    
-    # Raise without flag: should clamp to registry value (5)
-    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 6}))
+    """T5: MODEL_MAX_REFS_JSON can lower a cap; raising is ignored with a warning unless ALLOW_RAISE=1."""
+    import warnings as _w
+    grok = "xai/grok-imagine-image-2.0"
     monkeypatch.delenv("MODEL_CAPS_ALLOW_RAISE", raising=False)
-    model_caps._registry = None
-    result = max_refs_for("xai/grok-imagine-image-2.0")
-    assert result == 5  # Clamped, not 6
-    
-    # Raise with flag: should allow
+    for asked, expected, warns in ((4, 4, False), (5, 5, False), (6, 5, True)):
+        monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({grok: asked}))
+        with _w.catch_warnings(record=True) as caught:
+            _w.simplefilter("always")
+            got = max_refs_for(grok)
+        assert got == expected, f"override {asked}: got {got}, expected {expected}"
+        raised = [str(w.message) for w in caught if "MODEL_CAPS_ALLOW_RAISE" in str(w.message)]
+        assert bool(raised) == warns, f"override {asked}: warnings {raised}"
     monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")
-    model_caps._registry = None
-    result = max_refs_for("xai/grok-imagine-image-2.0")
-    assert result == 6  # Raised
-    
-    # Clean up
-    model_caps._registry = None
+    assert max_refs_for(grok) == 6
+    assert model_caps.get_registry().resolve(grok).limit("max_refs").value == 5   # registry untouched
 
 
-def test_caps_freshness_warns(monkeypatch):
-    """T6: Registry emits UserWarning when stale (31+ days old)."""
-    # Mock a stale checked date
-    registry = model_caps.get_registry()
-    old_checked = (datetime.now(timezone.utc) - timedelta(days=35)).strftime("%Y-%m-%d")
-    
-    # Modify the registry's checked date
-    registry.checked = old_checked
-    
-    # Check that stale() returns True
-    assert registry.stale()
+def _load_with(monkeypatch, tmp_path, name, **changes):
+    import warnings as _w
+    seed = json.loads((Path(model_caps.__file__).parent / "data" / "model_caps.json").read_text())
+    path = tmp_path / name
+    path.write_text(json.dumps(dict(seed, **changes)))
+    monkeypatch.setenv("MODEL_CAPS_PATH", str(path))
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        reg = model_caps.get_registry()   # reloads because MODEL_CAPS_PATH changed
+    return seed, reg, [str(w.message) for w in caught if "last checked" in str(w.message)]
+
+
+def test_caps_freshness_warns(monkeypatch, tmp_path):
+    """T6: a registry checked more than recheck_interval_days ago warns on load; a fresh one does not;
+    clearing MODEL_CAPS_PATH goes back to the packaged seed (no cache hacks needed)."""
+    today = datetime.now(timezone.utc)
+    seed, reg, warned = _load_with(monkeypatch, tmp_path, "stale.json",
+                                   checked=(today - timedelta(days=35)).strftime("%Y-%m-%d"))
+    assert seed["recheck_interval_days"] == 30
+    assert reg.stale() and warned, f"35-day-old registry: stale={reg.stale()} warnings={warned}"
+    _, reg, warned = _load_with(monkeypatch, tmp_path, "fresh.json",
+                                checked=(today - timedelta(days=1)).strftime("%Y-%m-%d"))
+    assert not reg.stale() and not warned, warned
+    monkeypatch.delenv("MODEL_CAPS_PATH")
+    assert model_caps.get_registry().checked == seed["checked"]
+
+
+# Keys in cost tables that are not model ids. Each needs a reason; anything else must resolve.
+NOT_MODEL_IDS = {
+    "higgsfield_still": "generic rate-table key of the still provider (the model is still_model_path())",
+    "upscale_image": "legacy HiggsfieldProvider cost-table operation; no submit path in the harness",
+    "upscale_video": "legacy HiggsfieldProvider cost-table operation; no submit path in the harness",
+}
+
+
+def _configured_model_ids():
+    from hfvg.config import config, still_model_path
+    from hfvg.credit_pricing import CLIP_CREDITS_PER_SECOND, REF_CREDITS, STILL_CREDITS
+    from hfvg.preflight import DEFAULT_CLIP_PATHS, clip_model_path
+    from hfvg.providers.elevenlabs import AUDIO_COSTS
+    from hfvg.providers.higgsfield import MODEL_COSTS
+
+    ids = {still_model_path(), config.MODEL_PATH_SOUL_V2, config.MODEL_PATH_SEEDANCE, config.MODEL_PATH_KLING}
+    ids |= {clip_model_path(alias) for alias in DEFAULT_CLIP_PATHS}   # params.model routing aliases
+    ids |= set(AUDIO_COSTS) | set(STILL_CREDITS) | set(CLIP_CREDITS_PER_SECOND) | set(REF_CREDITS)
+    ids |= {key[0] for key in MODEL_COSTS}
+    return {m for m in ids if m} - set(NOT_MODEL_IDS)
 
 
 def test_every_configured_model_has_caps():
-    """T2: Every model id/alias collected from configured sources resolves."""
-    from hfvg.config import still_model_path
-    from hfvg.providers.elevenlabs import AUDIO_COSTS
-    from hfvg.credit_pricing import STILL_CREDITS, CLIP_CREDITS_PER_SECOND, REF_CREDITS
-    
+    """T2: every model id/alias the harness configures, prices or routes resolves in the registry."""
     registry = model_caps.get_registry()
-    
-    models_to_check = set()
-    
-    # still_model_path default
-    models_to_check.add(still_model_path())
-    
-    # AUDIO_COSTS keys
-    models_to_check.update(AUDIO_COSTS.keys())
-    
-    # STILL_CREDITS keys
-    models_to_check.update(STILL_CREDITS.keys())
-    
-    # CLIP_CREDITS_PER_SECOND keys
-    models_to_check.update(CLIP_CREDITS_PER_SECOND.keys())
-    
-    # REF_CREDITS keys
-    models_to_check.update(REF_CREDITS.keys())
-    
-    # Skip known legacy aliases that are not primary model IDs
-    legacy_aliases = {"higgsfield_still", "kling_3.0", "seedance_2.5", "soul_v2"}
-    models_to_check -= legacy_aliases
-    
-    # Check that all resolve
+    ids = _configured_model_ids()
+    # the collector must actually see every kind of model the harness uses (catches a dropped source)
+    kinds = {registry.resolve(m).kind for m in ids if m in registry.models or any(m in c.aliases for c in registry.models.values())}
+    assert {"image", "video", "tts", "sfx", "music"} <= kinds, f"collector missed a model kind: {sorted(kinds)}"
+    assert {"eleven_multilingual_v2", "sound_generation", "eleven_music", "kling_3.0", "seedance_2.5",
+            "soul_v2", "gpt_image_2", "xai/grok-imagine-image-2.0"} <= ids, sorted(ids)
     failed = []
-    for model in models_to_check:
+    for model in sorted(ids):
         try:
-            caps = registry.resolve(model)
-            assert caps is not None, f"Model {model} resolved to None"
+            registry.resolve(model)
         except model_caps.UnknownModelError as e:
-            failed.append((model, str(e)))
-    
-    # Report failures if any
-    if failed:
-        msg = "Models not in registry:\n" + "\n".join(f"  - {m}: {e}" for m, e in failed)
-        pytest.fail(msg)
+            failed.append(f"{model}: {e}")
+    assert not failed, "Models without a registry entry:\n" + "\n".join(failed)
+
+
+def test_unconfigured_model_fails_the_coverage_check(monkeypatch):
+    """The coverage check is live: a newly priced model without an entry is reported."""
+    from hfvg.providers import elevenlabs
+    monkeypatch.setitem(elevenlabs.AUDIO_COSTS, "eleven_v9_unreleased", 1.0)
+    registry = model_caps.get_registry()
+    assert "eleven_v9_unreleased" in _configured_model_ids()
+    with pytest.raises(model_caps.UnknownModelError):
+        registry.resolve("eleven_v9_unreleased")
 
 
 if __name__ == "__main__":

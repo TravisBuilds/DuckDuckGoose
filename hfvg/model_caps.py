@@ -126,6 +126,12 @@ class ModelCapsRegistry(BaseModel):
 
 # Global registry instance
 _registry: ModelCapsRegistry | None = None
+_registry_path: str | None = None
+
+
+def _default_path() -> str:
+    """MODEL_CAPS_PATH if set, else the packaged seed (hfvg/data/model_caps.json)."""
+    return os.environ.get("MODEL_CAPS_PATH") or str(Path(__file__).parent / "data" / "model_caps.json")
 
 
 def load(path: str | None = None) -> ModelCapsRegistry:
@@ -133,20 +139,16 @@ def load(path: str | None = None) -> ModelCapsRegistry:
     Load the model capabilities registry from JSON.
     Honors MODEL_CAPS_PATH environment variable if path is None.
     """
-    global _registry
+    global _registry, _registry_path
 
     if path is None:
-        path = os.environ.get("MODEL_CAPS_PATH")
-
-    if path is None:
-        # Default to package data
-        data_dir = Path(__file__).parent / "data"
-        path = str(data_dir / "model_caps.json")
+        path = _default_path()
 
     with open(path, "r") as f:
         data = json.load(f)
 
     _registry = ModelCapsRegistry(**data)
+    _registry_path = path
 
     # Validate: every limit's sources must exist
     for model_id, caps in _registry.models.items():
@@ -199,8 +201,8 @@ def load(path: str | None = None) -> ModelCapsRegistry:
 
 
 def get_registry() -> ModelCapsRegistry:
-    """Get the loaded registry, loading it if necessary."""
-    if _registry is None:
+    """Get the loaded registry, (re)loading it when not loaded yet or MODEL_CAPS_PATH changed."""
+    if _registry is None or _registry_path != _default_path():
         return load()
     return _registry
 

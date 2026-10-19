@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { use } from 'react';
 import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
+import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 
 interface EpisodeState {
   episode_id: string;
@@ -58,6 +59,19 @@ interface Gates {
   g108_approved: boolean;
 }
 
+interface ModelView {
+  model_id: string;
+  kind: string;
+  status: string;
+  limits: Record<string, { value: unknown; note?: string | null; sources?: { url: string; checked: string }[] }>;
+}
+
+interface ShotPreflight {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
 interface AuditEntry {
   id: number;
   action: string;
@@ -84,6 +98,50 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [canaryWorkflowId, setCanaryWorkflowId] = useState<string | null>(null);
   const [canaryStatus, setCanaryStatus] = useState<string | null>(null);
   const [canaryError, setCanaryError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelView[]>([]);
+  const [capsStale, setCapsStale] = useState(false);
+  const [capsChecked, setCapsChecked] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<Record<string, ShotPreflight> | null>(null);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+
+  // Model limits (GET /api/models) and per-shot preflight of the uploaded shots.json
+  // (POST /api/episodes/{id}/preflight): the same checks G1 approval and every submit enforce.
+  const loadLimits = async () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    try {
+      const res = await fetch(`${apiUrl}/api/models`, { credentials: 'include' });
+      if (res.ok) {
+        const body = await res.json();
+        setModels(body.models || []);
+        setCapsStale(Boolean(body.stale));
+        setCapsChecked(body.checked || null);
+      }
+    } catch {
+      // limits card stays empty; preflight still enforces server-side
+    }
+    try {
+      const res = await fetch(`${apiUrl}/api/episodes/${episodeId}/preflight`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        setPreflight((await res.json()).shots || {});
+        setPreflightError(null);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setPreflight(null);
+        setPreflightError(body.detail || `Preflight unavailable (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      setPreflightError(err instanceof Error ? err.message : 'Preflight unavailable');
+    }
+  };
+
+  useEffect(() => {
+    loadLimits();
+  }, [episodeId]);
 
   useEffect(() => {
     loadEpisodeData();
@@ -175,7 +233,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       alert('Files uploaded successfully!');
       setShowUpload(false);
-      await loadEpisodeData();
+      await loadLimits();
+      loadEpisodeData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
     }
@@ -580,6 +639,67 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
+        {/* Model limits + per-shot preflight */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6" data-testid="model-limits-card">
+          <h2 className="text-lg font-semibold mb-1">Model Limits &amp; Preflight</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Checked before any estimate or spend; G1 cannot be approved while a shot fails.
+            {capsChecked && <> Limits checked {capsChecked}.</>}
+            {capsStale && <span className="ml-1 text-amber-600 font-semibold">Limits are due for a recheck.</span>}
+          </p>
+          {preflight ? (
+            (() => {
+              const summary = summarizePreflight(preflight);
+              return (
+                <div className="mb-4" data-testid="preflight-results">
+                  <div className={`text-sm font-medium mb-2 ${summary.failed ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                    {summary.failed
+                      ? `✗ ${summary.failed} shot(s) break a model limit, ${summary.passed} pass`
+                      : `✓ All ${summary.passed} shot(s) pass preflight`}
+                  </div>
+                  <ul className="space-y-1">
+                    {Object.keys(preflight).sort().map((sid) => (
+                      <li key={sid} className="text-sm" data-testid={`preflight-${sid}`}>
+                        <span className={preflight[sid].ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                          {preflight[sid].ok ? '✓' : '✗'} {sid}
+                        </span>
+                        {preflight[sid].errors.map((e, i) => (
+                          <div key={`e${i}`} className="ml-5 text-xs text-red-700 dark:text-red-300">{e}</div>
+                        ))}
+                        {preflight[sid].warnings.map((w, i) => (
+                          <div key={`w${i}`} className="ml-5 text-xs text-amber-700 dark:text-amber-300">{w}</div>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()
+          ) : (
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{preflightError || 'Upload shots.json to run preflight.'}</p>
+          )}
+          {models.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {models.map((m) => (
+                <div key={m.model_id} className="border border-gray-200 dark:border-gray-700 rounded p-3">
+                  <div className="font-mono text-xs mb-2">{m.model_id} <span className="text-gray-500">({m.kind})</span></div>
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {formatLimits(m).map((row) => (
+                        <tr key={row.label} title={row.note || undefined}>
+                          <td className="pr-2 text-gray-500 align-top">{row.label}</td>
+                          <td className="align-top">{row.value}</td>
+                          <td className="pl-2 text-gray-400 align-top">{row.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Shot List */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Shot List ({shots.length} shots)</h2>
@@ -598,6 +718,14 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-semibold">{shot.shot_id}</span>
+                      {preflight && preflight[shot.shot_id] && (
+                        <span
+                          className={`ml-2 text-xs ${preflight[shot.shot_id].ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                          title={preflight[shot.shot_id].errors.join('\n') || 'Passes model limits'}
+                        >
+                          {preflight[shot.shot_id].ok ? '✓ limits' : '✗ limits'}
+                        </span>
+                      )}
                       <span className={`ml-3 text-sm px-2 py-0.5 rounded ${
                         shot.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' :
                         shot.status === 'running' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' :

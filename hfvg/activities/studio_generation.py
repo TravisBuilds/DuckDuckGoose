@@ -40,41 +40,7 @@ from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
 
 
-def assemble_still_refs(
-    lead: str | None,
-    anchor: str | None,
-    planned: list[str],
-    cap: int,
-) -> tuple[list[str], bool]:
-    """
-    Assemble still refs in priority order: [lead] + [anchor] + planned.
-    When lead + anchor + planned > cap, the anchor is dropped first (lead takes priority).
-    If still over cap after dropping anchor, the result exceeds cap and the caller must refuse.
-
-    Args:
-        lead: optional lead reference (e.g. start still for _end frames)
-        anchor: optional anchor still path
-        planned: list of planned ref paths
-        cap: max refs for the model
-
-    Returns:
-        (assembled_refs, anchor_used): final ref list and whether anchor was kept
-    """
-    refs = (
-        ([lead] if lead else [])
-        + ([anchor] if anchor else [])
-        + planned
-    )
-
-    anchor_used = bool(anchor)
-
-    # Rule: when lead + anchor + planned > cap, drop the anchor first
-    if lead and anchor and len(refs) > cap:
-        refs = [lead] + planned
-        anchor_used = False
-
-    return refs, anchor_used
-
+from hfvg.still_refs import assemble_still_refs  # noqa: F401  (re-exported; the rule lives in one place)
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
@@ -398,20 +364,37 @@ async def submit_still_job_enforced(
                 f"Anchor still SHA256 mismatch: expected {anchor['sha256']}, got {computed_sha256}"
             )
         
+    # Preflight: validate the still against the model's documented limits BEFORE fetching the lead,
+    # any upload, estimate or reserve. Same lead/anchor rule as the assembly below, with the actual
+    # lead (None for start stills) and the actual anchor. Raises PreflightError (non-retryable).
+    from hfvg import preflight, model_caps
+    phase = "end" if shot_id.endswith("_end") else "start"
+    still_violations = preflight.preflight_shot(
+        {"id": shot_id, "start_prompt": prompt, "end_prompt": prompt, "ref_keys": planned_refs,
+         "resolution": resolution, "quality": quality, "aspect_ratio": aspect_ratio},
+        {"still_model": still_model_path(), "anchor_ref": anchor_path if anchor else None,
+         "lead_ref": lead_ref or None},
+        model_caps.get_registry(), phase=phase,
+    )
+    preflight.raise_on_errors(still_violations, f"{episode_id}/{shot_id}")
+    for w in still_violations:
+        activity.logger.warning(f"Preflight warning: {preflight.format_violation(w)}")
+
     # _end frames: the shot's own start still leads so the end frame matches it.
     # Never hand the provider its own output link: fetch the start still, then it goes through
     # the same normalize + upload path as every other ref (fails closed before any reserve).
     lead_local, lead_sha = await _localize_lead_ref(lead_ref, episode_id, shot_id) if lead_ref else (None, None)
     lead_sha8 = lead_sha[:8] if lead_sha else None
 
-    # Assemble in priority order: [lead (start still)] + [anchor] + planned refs.
+    # Assemble in priority order: [lead (start still)] + [anchor] + planned refs (the same rule
+    # preflight just applied, so the assembled set is within the cap here).
+    still_cap = max_refs_for(still_model_path())
     refs_with_anchor, anchor_used = assemble_still_refs(
         lead=lead_local,
         anchor=anchor_path if anchor else None,
         planned=planned_refs,
-        cap=max_refs_for(still_model_path()),
+        cap=still_cap,
     )
-    still_cap = max_refs_for(still_model_path())
     
     # Log decisions
     if lead_local and anchor and not anchor_used:
@@ -426,54 +409,6 @@ async def submit_still_job_enforced(
             f"Added anchor still from {anchor['anchor_shot_id']} (v{anchor['version']}) to {shot_id} refs"
         )
 
-    # Check ref cap after the lead/anchor rules: still over -> refuse, never silently drop refs
-    if refs_with_anchor and len(refs_with_anchor) > still_cap:
-        raise ValueError(
-            f"Shot {shot_id} has {len(refs_with_anchor)} refs (including lead/anchor), over the {still_model_path()} limit of {still_cap}; "
-            "refusing instead of silently dropping refs"
-        )
-
-    # Preflight: validate shot against model capabilities BEFORE any upload, estimate, or reserve
-    from hfvg import preflight, model_caps
-    
-    registry = model_caps.get_registry()
-    
-    # For preflight, pass the planned refs (not assembled) and let preflight do assembly
-    # This ensures preflight sees the same inputs as the actual assembly logic
-    planned_refs = list(refs) if refs else []
-    
-    shot_dict = {
-        "id": shot_id,
-        "start_prompt": prompt,
-        "ref_keys": planned_refs,  # Pass planned refs, preflight will assemble
-        "resolution": resolution,
-        "quality": quality,
-        "aspect_ratio": aspect_ratio,
-    }
-    
-    # Build route with anchor if present (preflight needs this for assembly)
-    route = {
-        "still_model": still_model_path(),
-        "anchor_ref": anchor_path if anchor else None,
-    }
-    
-    phase = "end" if shot_id.endswith("_end") else "start"
-    violations = preflight.preflight_shot(shot_dict, route, registry, phase=phase)
-    
-    # Raise on any error-severity violations
-    errors = [v for v in violations if v.severity == "error"]
-    if errors:
-        error_messages = "\n".join(preflight.format_violation(v) for v in errors)
-        raise preflight.PreflightError(
-            f"Preflight validation failed for {shot_id}:\n{error_messages}"
-        )
-    
-    # Log warnings
-    warnings_list = [v for v in violations if v.severity == "warning"]
-    for warning in warnings_list:
-        activity.logger.warning(f"Preflight warning: {preflight.format_violation(warning)}")
-
-    
     # Generate job_id (harness identifier)
     # Original shots: still-{ep}-{shot}-v{version}
     # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
@@ -757,44 +692,19 @@ async def submit_clip_job_enforced(
                 f"Shot {shot_id} is a start+end shot but no end_image_url was given; refusing a start-only clip"
             )
 
-        # Preflight: validate clip against model capabilities BEFORE any upload, estimate, or reserve
+        # Preflight: validate the clip against the model's documented limits BEFORE any upload,
+        # estimate or reserve. Raises PreflightError (non-retryable).
         from hfvg import preflight, model_caps
-        
-        registry = model_caps.get_registry()
-        
-        # Map route.model to full model path (use same defaults as providers)
-        if route.model == "kling":
-            clip_model_path = os.getenv("MODEL_PATH_KLING", "kling-video/v3.0/pro/image-to-video")
-        elif route.model == "seedance":
-            clip_model_path = os.getenv("MODEL_PATH_SEEDANCE", "bytedance/seedance-2.5/image-to-video")
-        else:
-            clip_model_path = route.model  # Fallback to raw value
-        
-        shot_dict = {
-            "id": shot_id,
-            "clip_prompt": prompt,
-            "duration": duration,
-            "start_frame": start_image_url if start_image_url else None,
-            "end_frame": end_image_url if end_image_url else None,
-        }
-        route_dict = {"clip_model": clip_model_path}
-        
-        violations = preflight.preflight_shot(shot_dict, route_dict, registry, phase="clip")
-        
-        # Raise on any error-severity violations
-        errors = [v for v in violations if v.severity == "error"]
-        if errors:
-            error_messages = "\n".join(preflight.format_violation(v) for v in errors)
-            raise preflight.PreflightError(
-                f"Preflight validation failed for {shot_id}:\n{error_messages}"
-            )
-        
-        # Log warnings
-        warnings_list = [v for v in violations if v.severity == "warning"]
-        for warning in warnings_list:
-            activity.logger.warning(f"Preflight warning: {preflight.format_violation(warning)}")
+        clip_violations = preflight.preflight_shot(
+            {"id": shot_id, "clip_prompt": prompt, "duration": duration,
+             "start_frame": start_image_url or None, "end_frame": end_image_url or None},
+            {"clip_model": preflight.clip_model_path(route.model)},
+            model_caps.get_registry(), phase="clip",
+        )
+        preflight.raise_on_errors(clip_violations, f"{episode_id}/{shot_id} clip")
+        for w in clip_violations:
+            activity.logger.warning(f"Preflight warning: {preflight.format_violation(w)}")
 
-    
     if not use_live:
         # Dry run mode: use fake provider
         job_id = f"clip-dry-{uuid.uuid4().hex[:12]}"
