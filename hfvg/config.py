@@ -4,6 +4,10 @@ import json
 import os
 from typing import Optional
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 def _load_rate_table() -> dict[str, dict[str, int]]:
     """Per-second USD rate table in integer micro-dollars (override: MODEL_USD_PER_SECOND_JSON).

@@ -158,16 +158,20 @@ def load(path: str | None = None) -> ModelCapsRegistry:
                         f"unknown source '{source_id}'"
                     )
 
-    # Validate: every source must have https:// url (or mcp:/repo-path for obs_*)
+    # Validate: every source must have https:// url (or mcp:/repo-path for obs_*/harness_*)
     for source_id, source in _registry.sources.items():
+        # Internal observation sources (obs_*, harness_*) can have repo-relative paths
+        is_internal = source_id.startswith("obs_") or source_id.startswith("harness_")
+        
         if not (
             source.url.startswith("https://")
             or source.url.startswith("mcp:")
             or source.url.startswith("/")
+            or is_internal  # Internal sources can have any descriptive text
         ):
             raise ValueError(
                 f"Source {source_id} has invalid URL: {source.url} "
-                f"(must start with https://, mcp:, or /)"
+                f"(must start with https://, mcp:, /, or be an internal obs_/harness_ source)"
             )
 
     # Validate: every non-unknown value must have ≥1 source
