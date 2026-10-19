@@ -1,0 +1,92 @@
+{
+  "models": [
+    {
+      "id": "xai/grok-imagine-image-2.0",
+      "name": "Grok Imagine Image 2.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {"type": "string", "maxLength": 10000},
+          "image_urls": {"type": "array", "maxItems": 5},
+          "resolution": {"type": "string", "enum": ["1k", "2k"]},
+          "aspect_ratio": {"type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"]},
+          "quality": {"type": "string", "enum": ["low", "medium"]}
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "id": "alibaba/qwen-image-3/edit",
+      "name": "Qwen Image 3 Edit",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {"type": "string"},
+          "image_urls": {"type": "array", "maxItems": 3}
+        }
+      }
+    },
+    {
+      "id": "kling-video/v3.0/pro/image-to-video",
+      "name": "Kling v3.0 Pro I2V",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {"type": "string", "maxLength": 2500},
+          "duration": {"type": "integer", "minimum": 3, "maximum": 15},
+          "image_url": {"type": "string"}
+        }
+      }
+    },
+    {
+      "id": "bytedance/seedance-2.5/image-to-video",
+      "name": "Seedance 2.5 I2V",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "duration": {"type": "integer", "minimum": 4, "maximum": 30}
+        }
+      }
+    },
+    {
+      "id": "bytedance/seedance-2.5/reference-to-video",
+      "name": "Seedance 2.5 R2V",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "image_urls": {"type": "array", "maxItems": 8}
+        }
+      }
+    },
+    {
+      "id": "elevenlabs/eleven_multilingual_v2",
+      "name": "ElevenLabs Multilingual v2",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string", "maxLength": 10000}
+        }
+      }
+    },
+    {
+      "id": "elevenlabs/sound_generation",
+      "name": "ElevenLabs SFX",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "duration_seconds": {"type": "number", "minimum": 0.5, "maximum": 30}
+        }
+      }
+    },
+    {
+      "id": "elevenlabs/music_v1",
+      "name": "ElevenLabs Music v1",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "duration_ms": {"type": "integer", "minimum": 3000, "maximum": 300000}
+        }
+      }
+    }
+  ]
+}
