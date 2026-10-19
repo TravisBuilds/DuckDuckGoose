@@ -147,14 +147,14 @@ This policy defines what content is acceptable when using the Hands-Free Video G
 The system includes automated checks:
 
 1. **Prompt Lint** (`hfvg/prompt_lint.py`)
-   - Checks for forbidden phrases
-   - Validates character clauses
-   - Enforces prompt structure rules
+   - Runs before estimate / reserve / provider call
+   - Live mode: any violation (or a missing lint kit / shot_meta) refuses; dry mode: warn only
+   - Clause texts come from the per-episode `prompt_kit.json` `"lint"` section (or `PROMPT_LINT_KIT_PATH`)
 
 2. **Provider Moderation**
    - Higgsfield has built-in content filters
    - ElevenLabs has voice content policies
-   - Failed content is logged, not retried
+   - A content block raises the non-retryable `ContentBlockError`
 
 3. **QC Escalation**
    - Problematic content escalates to human review
@@ -169,38 +169,24 @@ The system includes automated checks:
 
 ### Consequences
 
-**For policy violations:**
-1. **First violation:** Warning, content rejected
-2. **Repeated violations:** Account suspension
-3. **Severe violations:** Immediate account termination
+The harness has no user accounts; violating content is rejected (lint refusal, provider block,
+or human rejection at a gate) and must be rewritten.
 
 ## Examples from the Codebase
 
 ### Acceptable Content
 
-The repo includes example content that follows these guidelines:
+Use the synthetic `tests/fixtures/sample_beatmap.md` as a neutral example.
 
-**fixtures/ep05/CONTINUITY.md:**
-- Generic character descriptions (no named IP)
-- Original character designs
-- Public domain references only
+### Private Content (not for reuse)
 
-**fixtures/ep05/BEATMAP.md:**
-- Original story prompts
-- Generic locations
-- Age-appropriate scenarios
-
-### Unacceptable Content
-
-**Private content (not for public use):**
-
-Located in `examples/mid-mountain-rest/`:
-- Specific project with potential IP references
-- Not intended as a template for others
-- Included for testing purposes only
+`fixtures/ep05/` (BEATMAP.md, CONTINUITY.md, VO-AUDIO.md) and `examples/mid-mountain-rest/`
+(HARNESS-GATES.json) are the owner's private "Quacked Concierge / Mid-Mountain Rest" series:
+original but branded content with named characters (Rowan, Hazel, Mochi, DUCK-AB02), private
+asset paths and a draft VO script. They are kept because tests and gate code load them.
 
 **DO NOT:**
-- Copy content from `examples/mid-mountain-rest/`
+- Copy content from `examples/mid-mountain-rest/` or `fixtures/ep05/`
 - Use it as a template for your own episodes
 - Assume it follows all content policy guidelines
 
@@ -246,40 +232,17 @@ Develop your own characters with unique traits:
 
 ## Prompt Lint Rules
 
-The system enforces several prompt structure rules:
+`lint_prompt(prompt, shot_meta, kit)` checks (exact clause texts come from the episode's lint kit):
 
-### Required Clauses
-
-**Character count:**
-```
-❌ "Three ducks and a penguin" (doesn't state count)
-✅ "3 characters: three ducks and a penguin"
-```
-
-**Antler characters:**
-```
-❌ "Birch enters the room" (antler character without clause)
-✅ "Birch [antlers off-screen] enters the room"
-```
-
-### Forbidden Phrases
-
-These phrases are blocked by the linter:
-
-- "nothing else moves" (causes motion artifacts)
-- "realistic wild" (filter evasion attempt)
-- Banned decor words (configurable per-project)
-
-### Character Codes
-
-Use character codes consistently:
-
-```
-✅ "[TIKI] walks to the counter"
-✅ "[QUACKERS] stirs the pot"
-
-❌ "Tiki walks" then "[TIKI] walks" (inconsistent)
-```
+1. **Count clause** matching `shot_meta.count` (kit `count_template`)
+2. **Locked-camera clause** on exterior / water shots
+3. **Real-time / no slow-motion clause**
+4. **Forbidden phrases**: default `"nothing else moves"`, `"realistic wild"` (kit may override);
+   bare "waves" is forbidden (only "ONE small wave")
+5. **No carry/hold verbs** for a moose
+6. **Banned decor list** (per kit)
+7. **Antler clause** when an antler character is present
+8. **Duck clause** when the duck is present
 
 ## Questions?
 

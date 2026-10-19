@@ -38,7 +38,7 @@ graph TB
     subgraph "Provider Layer"
         HF[Higgsfield<br/>Still/Video]
         EL[ElevenLabs<br/>Audio]
-        OAI[OpenAI<br/>Judge]
+        Human[Human review<br/>live QC escalation]
     end
     
     subgraph "Data Layer"
@@ -63,7 +63,7 @@ graph TB
     G1 --> EL
     Still --> HF
     Clip --> HF
-    QC --> OAI
+    QC --> Human
     Audio --> EL
     
     G1 --> Registry
@@ -99,7 +99,7 @@ stateDiagram-v2
     Edit --> Audio: trim/QC
     Audio --> G_Final_Wait: generate VO/music/SFX
     
-    G_Final_Wait --> Report: G_FINAL approved
+    G_Final_Wait --> Report: G_FINAL_CUT approved
     Report --> [*]: complete
     
     note right of G1_Wait
@@ -120,7 +120,7 @@ stateDiagram-v2
     end note
 ```
 
-### G1: Shot Plan Gate
+### G1_SHOT_PLAN: Shot Plan Gate
 
 **Inputs:**
 - Parsed beatmap (shot list)
@@ -137,7 +137,7 @@ stateDiagram-v2
 
 **Implementation:** `EpisodeWorkflowV2.approve_g1_shot_plan()` with validator
 
-### G2: Scene Stills Gate
+### G2_SCENE_STILLS: Scene Stills Gate
 
 **Inputs:**
 - All shot start stills (QC passed or escalated+approved)
@@ -159,7 +159,7 @@ stateDiagram-v2
 - Validator refuses while `pending_retries` non-empty
 - Prevents unreviewed retry stills from going to paid clips
 
-### G_FINAL: Final Cut Gate
+### G_FINAL_CUT: Final Cut Gate
 
 **Inputs:**
 - Picture lock (all clips QC'd)
@@ -243,8 +243,8 @@ sequenceDiagram
     Activity->>Ledger: reserve(amount)
     Ledger->>DB: UPDATE ... WHERE spent+reserved+amount <= cap
     DB-->>Ledger: rows_affected=1 (success) or 0 (cap hit)
-    alt cap hit
-        Ledger-->>Activity: InsufficientCreditsError
+    alt past stop (returns False) or over a cap / GC.01 headroom (raises ValueError)
+        Ledger-->>Activity: False / ValueError
     else success
         Ledger-->>Activity: job_id
         Activity->>Provider: submit(job_id, idempotency_key)
@@ -259,14 +259,17 @@ sequenceDiagram
 
 **Atomic reserve SQL:**
 ```sql
-UPDATE episode_budget_lines
+UPDATE budget_lines
 SET reserved_usd_micros = reserved_usd_micros + ?
-WHERE episode_id = ? AND line_name = ?
+WHERE line_id = ?            -- "{episode_id}:{line_name}"
   AND (spent_usd_micros + reserved_usd_micros + ?) <= stop_usd_micros
 ```
 
+**Defaults (hfvg/budget.py, docs/DOLLAR-LEDGER.md):** episode cap $60.00, episode stop $48.00 (80%),
+GC.01 headroom $5.00, revision reserve $10.00 (`L7_revision`, outside the episode cap/stop, stop == cap).
+
 **Key properties:**
-- **Hard cap**: Reserve only succeeds if `spent + reserved + amount <= stop` (80% of cap)
+- **Stop / cap**: Reserve only succeeds if `spent + reserved + amount <= stop` (80% of the line cap) and the episode total stays at or under the $48.00 episode stop; past a stop `reserve()` returns `False`, over the episode cap or a line cap it raises `ValueError`
 - **Idempotent**: Same `job_id` (shot_id + version + suffix) → same provider idempotency key
 - **Reconciliation**: Poll exhaustion keeps reservation, marks `pending_reconcile` (never releases)
 - **Release on failure**: Confirmed provider failure (failed/blocked/canceled) releases reservation
@@ -278,24 +281,27 @@ WHERE episode_id = ? AND line_name = ?
 **Schema:**
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "checked": "2026-10-19",
-  "recheck_interval_days": 7,
+  "recheck_interval_days": 30,
+  "precedence": "...stricter of Higgsfield and upstream vendor...",
+  "shared": { ... },
   "models": {
     "xai/grok-imagine-image-2.0": {
-      "kind": "still",
+      "kind": "image",
       "provider": "higgsfield",
-      "status": "active",
+      "status": "active_default_still",
+      "aliases": ["grok", "grok_image_2_0", "grok-imagine-image-2.0"],
       "limits": {
-        "max_refs": {"value": 5, "basis": "documented", "sources": ["hf_grok_img"]},
-        "prompt_max_chars": {"value": 1000, "basis": "documented", "sources": ["hf_grok_img"]},
-        "aspect_ratios": {"value": ["1:1", "16:9", "9:16"], "basis": "documented", "sources": ["hf_grok_img"]}
+        "max_refs": {"value": 5, "basis": "stricter_upstream", "sources": ["xai_multi", "hf_grok", "..."], "higgsfield": 10, "upstream": 5},
+        "prompt_max_chars": {"value": null, "basis": "unknown", "sources": ["hf_grok", "xai_prompting", "obs_ep05"]},
+        "aspect_ratios": {"value": ["auto", "1:1", "1:2", "2:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "basis": "higgsfield", "sources": ["hf_grok", "hf_mcp_grok"]}
       }
     }
   },
   "sources": {
-    "hf_grok_img": {
-      "url": "https://higgsfield.ai/docs/models/grok-imagine-image-2",
+    "hf_grok": {
+      "url": "https://docs.higgsfield.ai/docs/models/grok-image-2/generate-and-edit",
       "publisher": "Higgsfield",
       "checked": "2026-10-19"
     }
@@ -316,20 +322,22 @@ WHERE episode_id = ? AND line_name = ?
 
 **File:** `hfvg/worker.py`
 
-Activities registered:
-- Budget: `init_episode_budget_lines_activity`, `reserve_budget_activity`, `commit_budget_activity`, `release_budget_activity`
-- Credit: `init_episode_credit_line_activity`, `reserve_credits_activity`, `commit_credits_activity`, `release_credits_activity`
-- Generation: `submit_still_job_enforced`, `submit_clip_job_enforced`, `poll_job_status`
+Activities registered (`PRODUCTION_ACTIVITIES`):
+- Budget (dollar ledger): `init_episode_budget_lines_activity`, `commit_job_budget`, `release_job_budget`, `mark_job_pending_reconcile` (reserves happen inside the `*_enforced` submit activities)
+- Credit (legacy): `init_episode_credit_line_activity`, `reserve_credits_activity`, `commit_credits_activity`, `release_credits_activity`, `update_credit_cap_activity`
+- Generation: `submit_still_job_enforced`, `submit_clip_job_enforced`, `await_job_enforced`, `poll_job_status`
 - QC: `precheck_still_qc`, `precheck_clip_qc`, `review_still`, `review_clip`
-- G1: `compute_g1_plan_activity`, `approve_g108_activity`
+- G1 / live: `compute_g1_plan_activity`, `approve_g108_activity`, `check_live_mode_and_g108`, `approve_g2_shots`
 - Preflight: `preflight_validate_episode_activity`
-- Refs: `load_refs_to_generate_activity`, `generate_ref_activity`, `recheck_refs_activity`
-- Assets: `save_asset_locally`, `record_shot_result`
-- Audio: `generate_voiceover`, `generate_music`, `generate_sfx`, `mix_audio` (PR #8)
+- Refs: `load_refs_to_generate_activity`, `generate_ref_activity`, `recheck_refs_activity`, `list_anchor_stills`
+- Assets: `save_asset_locally`, `record_shot_result`, `upsert_episode_activity`
+- Edit / audio / posting: `trim_clips`, `render_edit`, `generate_voiceover`, `generate_music`, `generate_sfx`, `mix_audio`, `post_to_platform`, `generate_run_report`
 - Workflow support: `parse_beatmap_activity`, `load_gate_policy_activity`, `verify_episode_files_activity`
+- Run lock: `acquire_run_lock`, `release_run_lock`
 - Retries: `resolve_landed_start_still` (end-frame backfill)
 
 Workflows registered:
+- `EpisodeWorkflow` (legacy; target of `hfvg approve`)
 - `EpisodeWorkflowV2`
 - `ShotWorkflow`
 - `PostingWorkflow` (stub)
@@ -338,78 +346,84 @@ Workflows registered:
 
 ### Database Schema (SQLite)
 
-**episodes**
+Abridged from `hfvg/studio_db.py` and `hfvg/budget.py` (other tables: `audit_log`,
+`budget_transactions`, `manual_balance`, `sessions`, `run_locks`, `upload_cache`,
+`smoke_gate_overrides`, plus the legacy credit tables).
+
+**episodes** (`hfvg/studio_db.py`)
 ```sql
 CREATE TABLE episodes (
     episode_id TEXT PRIMARY KEY,
     beatmap_path TEXT,
-    created_at TEXT,
     live_mode INTEGER DEFAULT 0,  -- 0=dry, 1=live
-    g108_approved INTEGER DEFAULT 0
+    g108_approved INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
 )
 ```
 
-**episode_budget_lines**
+**budget_lines** (`hfvg/budget.py`)
 ```sql
-CREATE TABLE episode_budget_lines (
-    id INTEGER PRIMARY KEY,
-    episode_id TEXT,
-    line_name TEXT,
-    cap_usd_micros INTEGER,
-    stop_usd_micros INTEGER,  -- 80% of cap
-    spent_usd_micros INTEGER DEFAULT 0,
-    reserved_usd_micros INTEGER DEFAULT 0,
-    created_at TEXT,
-    UNIQUE(episode_id, line_name)
+CREATE TABLE budget_lines (
+    line_id TEXT PRIMARY KEY,        -- "{episode_id}:{line_name}"
+    episode_id TEXT NOT NULL,
+    provider TEXT NOT NULL,          -- 'higgsfield' | 'elevenlabs'
+    line_name TEXT NOT NULL,
+    cap_usd_micros INTEGER NOT NULL,
+    stop_usd_micros INTEGER NOT NULL,  -- 80% of cap (L7_revision: == cap)
+    spent_usd_micros INTEGER NOT NULL DEFAULT 0,
+    reserved_usd_micros INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT
 )
 ```
 
-**budget_jobs**
+**job_ledger** (`hfvg/budget.py`)
 ```sql
-CREATE TABLE budget_jobs (
+CREATE TABLE job_ledger (
     job_id TEXT PRIMARY KEY,
-    episode_id TEXT,
+    episode_id TEXT NOT NULL,
     shot_id TEXT,
-    job_type TEXT,  -- 'still' or 'clip'
-    line_name TEXT,
-    reserved_usd_micros INTEGER,
-    status TEXT,  -- 'reserved', 'committed', 'released', 'pending_reconcile'
-    provider_job_id TEXT,
-    provider_model_path TEXT,
-    actual_cost_usd_micros INTEGER,
-    created_at TEXT,
-    committed_at TEXT,
-    idempotency_key TEXT UNIQUE
+    model TEXT NOT NULL,
+    tier TEXT NOT NULL,        -- 'draft' | 'final' | 'retry' | 'revision'
+    line_name TEXT NOT NULL,
+    usd_micros INTEGER NOT NULL,
+    status TEXT NOT NULL,      -- e.g. 'reserved', 'committed', 'released', 'pending_reconcile'
+    verdict TEXT,
+    used INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 )
 ```
 
-**shots**
+**shots** (`hfvg/studio_db.py`)
 ```sql
 CREATE TABLE shots (
-    id INTEGER PRIMARY KEY,
-    episode_id TEXT,
-    shot_id TEXT,
-    status TEXT,  -- 'needs_review', 'still_complete', 'completed'
+    id TEXT PRIMARY KEY,
+    episode_id TEXT NOT NULL,
+    shot_id TEXT NOT NULL,
+    status TEXT NOT NULL,
     still_url TEXT,
     clip_url TEXT,
-    metadata TEXT,  -- JSON
-    retry_count INTEGER DEFAULT 0,
+    qc_results TEXT,
+    retries INTEGER DEFAULT 0,
     prompt TEXT,
-    created_at TEXT,
-    UNIQUE(episode_id, shot_id)
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
 )
 ```
 
-**anchor_stills**
+**anchor_stills** (`hfvg/studio_db.py`)
 ```sql
 CREATE TABLE anchor_stills (
-    id INTEGER PRIMARY KEY,
-    episode_id TEXT,
-    anchor_shot_id TEXT,
-    file_path TEXT,
+    episode_id TEXT NOT NULL,
+    anchor_shot_id TEXT NOT NULL,
+    target_shot_id TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
     approved_by TEXT,
-    created_at TEXT,
-    UNIQUE(episode_id, anchor_shot_id)
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (episode_id, target_shot_id)
 )
 ```
 
@@ -439,14 +453,16 @@ data/
 │       └── ...
 ├── normalized/                    # Normalized reference cache
 │   └── <sha256>_<size>.jpeg
-└── upload_cache.db               # Higgsfield upload URL cache
+└── lead_refs/                     # Downloaded start stills used as lead refs ($DATA_DIR)
+
+(The Higgsfield upload URL cache is the `upload_cache` table in `studio.db`.)
 ```
 
 ## Retry System
 
 ### Shot Retry
 
-**Endpoint:** `POST /api/episodes/{id}/retry-shot/{shot_id}`
+**Endpoint:** `POST /api/episodes/{id}/shots/{shot_id}/retry` (CLI: `hfvg retry-shot <episode_id> <shot_id>`)
 
 **Workflow:** `EpisodeWorkflowV2.retry_shot()` update handler
 
@@ -455,7 +471,7 @@ data/
    - Parked at G1 or G2 (not after G2 approval)
    - Shot in `failed_shots` or previously retried
    - No pending retry for this shot
-   - Under `MAX_SHOT_RETRIES` limit (default 3)
+   - Under `MAX_SHOT_RETRIES` limit (default 1 retry = 2 total attempts)
 2. Increment `shot_attempts[shot_id]`
 3. Launch child with new workflow ID: `{episode}-shot-{shot_id}-retry{n}`
 4. Add to `pending_retries` (blocks G2 until still lands)
@@ -463,12 +479,12 @@ data/
 
 **Idempotency:**
 - Each retry has unique workflow ID and version
-- Job IDs include attempt: `still-{episode}-{shot}-r{attempt-1}`
+- Job IDs include attempt: `still-{episode}-{shot}-v{version}` for the original, `still-{episode}-{shot}-r{attempt-1}` for retries (plus optional `-lead<sha8>` / `-anchor<sha8>`)
 - Provider idempotency key includes attempt
 
 ### End-Frame Backfill
 
-**Endpoint:** `POST /api/episodes/{id}/retry-end-still/{shot_id}`
+**Endpoint:** none yet (no API route or CLI command); call the workflow update from a Temporal client
 
 **Workflow:** `EpisodeWorkflowV2.retry_end_still()` update handler
 
@@ -476,7 +492,7 @@ data/
 
 **Flow:**
 1. Resolve landed start still (committed status)
-2. Launch child with `reuse_start_still` flag
+2. Launch child `{episode_id}-shot-{shot_id}-end{n}` with `reuse_start_still` flag
 3. Child skips start still submit (cost=0)
 4. Generates _end still with start still as lead ref
 5. Uses same attempt/version (deterministic job_id)
@@ -487,7 +503,7 @@ data/
 
 ```
 ┌─────────────────────────┐
-│   Mutation Tests (218)  │  ← Red-green proofs
+│   Red-green (219)       │  ← 215 mutations + 4 probes
 ├─────────────────────────┤
 │  Integration Tests      │  ← Real Temporal workflows
 │  (pytest, time-skip)    │
@@ -498,7 +514,7 @@ data/
 ```
 
 **Mutation testing:** `./scripts/redgreen.sh`
-- 218 mutations across safety-critical code paths
+- 219 red-green tests: 215 numbered mutations (M-1..M-218) + 4 harness probes; 3 skipped (M-23, M-24, M-93)
 - Each mutation must cause test failure (red)
 - Restoration must pass test (green)
 - Classifies failures (AssertionError vs other)
@@ -510,21 +526,21 @@ data/
 
 **Smoke tests:** `pytest tests/test_smoke_test.py`
 - No Temporal required
-- Fast module imports, config validation
+- Smoke-test activity end to end with Higgsfield mocked (respx): success, NSFW, canceled, pre-submit exception, post-submit timeout
 
 ## Security & Safety
 
 ### Budget Safety
 
 1. **Atomic SQL WHERE clause** - cap checked in UPDATE, not before
-2. **Stop threshold** - 80% of cap blocks new reserves
+2. **Stop threshold** - $48.00 (80% of the $60.00 cap) blocks new reserves; revision reserve $10.00 sits outside the cap
 3. **Idempotent keys** - retry never double-charges
 4. **Poll exhaustion** - keeps reservation, never releases
-5. **GC.01 headroom** - $12.00 balance required after holds
+5. **GC.01 headroom** - $5.00 balance required after holds
 
 ### Auth
 
-- **API:** `Authorization: Bearer {ADMIN_SECRET}` header (min 32 chars)
+- **API:** `Authorization: Bearer {ADMIN_SECRET}` header (min 32 chars) or the httpOnly session cookie set by `POST /api/login`
 - **Fail closed:** No default secret, server refuses to start
 - **Session:** Stored in DB, 24h expiry
 
@@ -545,13 +561,13 @@ data/
 
 ### Temporal Visibility
 
-- **Workflow ID format:** `{episode_id}-episode`, `{episode_id}-shot-{shot_id}`
-- **Search attributes:** episode_id, shot_id, status
+- **Workflow ID format:** episode workflow = bare `{episode_id}` (e.g. `ep04`; `ep04-episode` is accepted and normalized by the API), shots `{episode_id}-shot-{shot_id}`, retries `...-retry{n}`, end-still backfill `...-end{n}`
+- **Search attributes:** none custom
 - **Queries:** `get_state()` exposes current stage, gates, shot status
 
 ### Logging
 
-- **structlog** - structured JSON logs
+- **logging / structlog** - Python logging in the worker, structlog in config
 - **Provider evidence** - raw response bodies + correlation IDs on failures
 - **Audit trail** - budget reserves, commits, releases logged
 
@@ -571,10 +587,10 @@ data/
 - [ ] Set provider API keys (`HIGGSFIELD_API_KEY`, etc.)
 - [ ] Configure `DATABASE_PATH` (persistent volume)
 - [ ] Set `EPISODES_DIR` (persistent volume)
-- [ ] Deploy Temporal server (prod cluster, not dev)
+- [ ] Deploy Temporal server (prod cluster, not dev); set `TEMPORAL_ADDRESS` (API) and `TEMPORAL_HOST` (worker/CLI)
 - [ ] Scale workers (multiple replicas)
-- [ ] Set `DRY_RUN=false` for live mode
-- [ ] Configure budget caps (`DEFAULT_EPISODE_CAP_USD`)
+- [ ] Set `DRY_RUN=false` for live mode (and enable each episode with `POST /api/episodes/{id}/set-live`)
+- [ ] Configure budget caps (`EPISODE_CAP_USD`, `EPISODE_STOP_PERCENT`, `GC01_HEADROOM_USD`, `REVISION_RESERVE_USD`)
 - [ ] Set up monitoring (Temporal Cloud or self-hosted)
 - [ ] Configure backup/restore for SQLite
 - [ ] Set `G1_ESTIMATE_PLACEHOLDER_IMAGE_URL` for live clip estimates

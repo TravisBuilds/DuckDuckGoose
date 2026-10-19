@@ -12,7 +12,7 @@ Planned features and improvements for the Hands-Free Video Generator.
 - End-frame generation
 - Web UI (basic)
 - CLI tools
-- Mutation testing (218 tests)
+- Red-green mutation testing (219 tests: 215 mutations + 4 probes)
 
 **🚧 In Progress:**
 - Audio stage (PR #8)
@@ -36,29 +36,13 @@ Planned features and improvements for the Hands-Free Video Generator.
 - `hfvg/activities/audio.py` (stubs exist)
 - `hfvg/workflows/episode_v2.py` (placeholder comments)
 
-#### 2. CORS Configuration
+#### 2. CORS Tests
 
-**Status:** Not started
-**Issue:** API blocks cross-origin requests from web UI
-**Fix:** Add configurable CORS middleware
+**Status:** CORS is already implemented: `api/main.py` adds `CORSMiddleware` from `CORS_ORIGINS`
+(default `http://localhost:3000,http://localhost:3001`), listed in `.env.example`.
+**Remaining:** tests for the CORS headers
 
 **Good First Issue:** ⭐
-
-```python
-# api/main.py
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-**Files to change:**
-- `api/main.py` (add middleware)
-- `.env.example` (add CORS_ORIGINS)
-- `docs/LOCAL-DEV.md` (document)
 
 **Tests:**
 - `tests/test_api_cors.py` (new)
@@ -134,7 +118,7 @@ async def generic_exception_handler(request, exc):
 
 **Files to change:**
 - `hfvg/studio_db.py` (abstract DB layer)
-- `requirements.txt` (add asyncpg)
+- `pyproject.toml` (add asyncpg)
 - Migration scripts
 
 #### 7. Webhook Notifications
@@ -232,22 +216,17 @@ async def generic_exception_handler(request, exc):
 
 These issues are great for new contributors:
 
-### 1. Add CORS Configuration ⭐
+### 1. Add CORS Tests ⭐
 
 **Difficulty:** Easy
 **Time estimate:** 1-2 hours
 **Skills:** Python, FastAPI, HTTP
 
 **Tasks:**
-- Add CORS middleware to `api/main.py`
-- Add `CORS_ORIGINS` env var to `.env.example`
-- Write tests for CORS headers
-- Document in `docs/LOCAL-DEV.md`
+- CORS middleware and `CORS_ORIGINS` already exist in `api/main.py` / `.env.example`
+- Write tests for CORS headers (allowed and disallowed origins)
 
 **Files:**
-- `api/main.py`
-- `.env.example`
-- `docs/LOCAL-DEV.md`
 - `tests/test_api_cors.py` (new)
 
 ### 2. Improve 500 Error Messages ⭐
@@ -282,7 +261,7 @@ These issues are great for new contributors:
 **Files:**
 - `api/auth.py` (new)
 - `api/main.py` (add routes)
-- `requirements.txt`
+- `pyproject.toml` / `api/requirements.txt`
 - `tests/test_auth.py` (new)
 
 ### 4. Webhook Notifications ⭐
@@ -320,7 +299,7 @@ These issues are great for new contributors:
 **Files:**
 - `hfvg/otel.py` (new)
 - `hfvg/worker.py`
-- `requirements.txt`
+- `pyproject.toml`
 - `docs/LOCAL-DEV.md`
 
 ## Experimental Ideas
@@ -373,7 +352,7 @@ Want to work on something from the roadmap?
 
 1. Comment on the related issue (or create one)
 2. Ask questions in GitHub Discussions
-3. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+3. Read [CONTRIBUTING.md](../CONTRIBUTING.md)
 4. Submit a PR!
 
 **Good First Issues** are marked with ⭐ and have detailed task lists.

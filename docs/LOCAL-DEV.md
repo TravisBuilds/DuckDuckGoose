@@ -8,7 +8,7 @@ Complete guide to setting up, running, and testing the Hands-Free Video Generato
 
 - **Python 3.11+** ([download](https://www.python.org/downloads/))
 - **Temporal CLI** ([install](https://docs.temporal.io/cli#install))
-- **Node.js 18+** ([download](https://nodejs.org/))
+- **Node.js 20+** ([download](https://nodejs.org/)) - Next.js 16; CI uses Node 20
 - **pip** (included with Python)
 
 ### Optional
@@ -30,8 +30,8 @@ Complete guide to setting up, running, and testing the Hands-Free Video Generato
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
-cd hands-free-video-generator
+git clone https://github.com/TravisBuilds/DuckDuckGoose.git
+cd DuckDuckGoose
 ```
 
 ### 2. Install Python Dependencies
@@ -50,7 +50,7 @@ python -c "import hfvg; print(hfvg.__name__)"
 - `aiosqlite>=0.20.0` - Async SQLite
 - `click>=8.1.0` - CLI framework
 - `pydantic>=2.0.0` - Data validation
-- `fastapi>=0.100.0` - API server
+- `fastapi>=0.100.0` - API server (dev extra)
 - `pytest>=8.0.0` - Testing framework
 - `respx>=0.21.0` - HTTP mocking
 
@@ -73,6 +73,9 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 
 # Edit .env with your secrets
 nano .env  # or your editor of choice
+
+# Nothing loads .env automatically: export it in each terminal
+set -a; source .env; set +a
 ```
 
 **Minimum required:**
@@ -83,8 +86,9 @@ ADMIN_SECRET=<your-generated-secret>  # Min 32 chars, REQUIRED
 **For live mode:**
 ```bash
 HIGGSFIELD_API_KEY=id:secret  # Format: id:secret
-OPENAI_API_KEY=sk-...
 ELEVENLABS_API_KEY=...
+G1_ESTIMATE_PLACEHOLDER_IMAGE_URL=https://example.com/placeholder-1080x1920.jpg
+# OPENAI_API_KEY is not read by the current code
 ```
 
 ### 5. Create Data Directories
@@ -144,7 +148,7 @@ cd api && uvicorn main:app --reload
 temporal workflow list
 
 # Check API
-curl http://localhost:8000/health
+curl http://localhost:8000/api/health
 
 # Check Web UI
 curl http://localhost:3000
@@ -159,11 +163,13 @@ curl http://localhost:3000
 pytest tests/test_smoke_test.py -v
 ```
 
-Expected output:
+Expected output (smoke-test activity with Higgsfield mocked by respx):
 ```
-tests/test_smoke_test.py::test_all_modules_import PASSED
-tests/test_smoke_test.py::test_config_loads PASSED
-tests/test_smoke_test.py::test_error_classes_work PASSED
+tests/test_smoke_test.py::test_smoke_test_end_to_end PASSED
+tests/test_smoke_test.py::test_smoke_test_nsfw_terminal PASSED
+tests/test_smoke_test.py::test_smoke_test_canceled_terminal PASSED
+tests/test_smoke_test.py::test_smoke_test_presubmit_exception_released PASSED
+tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile PASSED
 ```
 
 ### Unit Tests
@@ -176,7 +182,7 @@ pytest
 pytest tests/test_episode_v2.py -v
 
 # Specific test
-pytest tests/test_episode_v2.py::test_g1_approval -v
+pytest tests/test_episode_v2.py::test_episode_v2_approval_gates -v
 
 # With output
 pytest tests/test_caps_preflight.py -v -s
@@ -184,13 +190,11 @@ pytest tests/test_caps_preflight.py -v -s
 
 ### Integration Tests
 
-Integration tests require Temporal dev server running:
+Integration tests do NOT need a running Temporal server: they use
+`temporalio.testing.WorkflowEnvironment.start_time_skipping()` (the SDK downloads its
+test server on first use).
 
 ```bash
-# Terminal 1: Start Temporal
-temporal server start-dev
-
-# Terminal 2: Run integration tests
 pytest tests/test_temporal_integration.py -v
 ```
 
@@ -208,8 +212,8 @@ pytest tests/test_temporal_integration.py -v
 # All mutations (requires ffmpeg)
 REQUIRE_FFMPEG=1 ./scripts/redgreen.sh
 
-# Individual mutation
-./scripts/redgreen.sh  # Will run without ffmpeg, skipping motion tests
+# Without REQUIRE_FFMPEG=1 the motion QC tests are skipped
+./scripts/redgreen.sh
 ```
 
 **Expected output:**
@@ -225,19 +229,24 @@ Test                                              Result     Reason
 ...
 218. ICC conversion covers RGBA refs              ✓ PASS     Red → Green confirmed
 
-Total tests: 218
+Total tests: 219
 Passed: 216
-Skipped: 2
+Skipped: 3
 Invalid: 0
 Failed: 0
 
 ✓✓✓ ALL RED-GREEN PROOFS PASSED ✓✓✓
 ```
 
+`Total tests` is 219 = 215 numbered mutations (M-1..M-218 without M-21, M-22 and the
+commented-out M-137) + 4 harness probes (PC, P1, P2, P3). M-23, M-24 and M-93 are
+skipped via `scripts/redgreen_skip.conf`.
+
 ### Test Coverage
 
 ```bash
-# Run with coverage
+# Run with coverage (pytest-cov is not in the dev extra)
+pip install pytest-cov
 pytest --cov=hfvg --cov-report=html
 
 # View HTML report
@@ -309,50 +318,59 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for PR guidelines.
 ### Episode Management
 
 ```bash
-# Start episode (dry run)
-hfvg start-v2 ep-test-001 --beatmap fixtures/ep05/BEATMAP.md --dry-run
+# start-v2 posts to the API (HFVG_API_BASE, default http://localhost:8000) and needs
+# ADMIN_SECRET exported. Episode IDs must match ^ep\d{2}$.
 
-# Start episode (live mode)
-hfvg start-v2 ep-test-001 --beatmap fixtures/ep05/BEATMAP.md --no-dry-run
+# Start episode (dry run, the default)
+hfvg start-v2 ep01 --beatmap tests/fixtures/sample_beatmap.md --dry-run
+
+# Start episode (live mode; also needs DRY_RUN=false and POST /api/episodes/ep01/set-live)
+hfvg start-v2 ep01 --beatmap tests/fixtures/sample_beatmap.md --live
 
 # Query state
-hfvg query-state ep-test-001
+hfvg query-state ep01
 
 # Lint episode
-hfvg lint ep-test-001
+hfvg lint ep01
 ```
 
 ### Gate Approvals
 
+EpisodeWorkflowV2 gates are approved through the API (there is no CLI command for them;
+`hfvg approve` only drives the legacy EpisodeWorkflow gates
+`readback|character-locks|storyboard|stills|final`):
+
 ```bash
-# Approve G1 (shot plan)
-hfvg approve ep-test-001 g1-shot-plan
+# Approve G1_SHOT_PLAN (workflow update; refused while preflight errors exist)
+curl -X POST http://localhost:8000/api/episodes/ep01/approve \
+  -H "Authorization: Bearer YOUR_ADMIN_SECRET" -H "Content-Type: application/json" \
+  -d '{"gate_id": "g1_shot_plan"}'
 
-# Approve G2 (scene stills)
-hfvg approve ep-test-001 g2-scene-stills
+# Approve G2_SCENE_STILLS (workflow update; refused while a retry is pending)
+#   -d '{"gate_id": "g2_scene_stills"}'
 
-# Approve G_FINAL (final cut)
-hfvg approve ep-test-001 g-final-cut
+# Approve G_FINAL_CUT (signal)
+#   -d '{"gate_id": "g_final_cut"}'
 ```
 
 ### Shot Retry
 
 ```bash
-# Retry failed shot
-hfvg retry-shot ep-test-001 A02
-
-# Backfill end-frame still
-hfvg retry-end-still ep-test-001 A02 --end-prompt "Duck surprised"
+# Retry failed shot (only while parked at G1/G2)
+hfvg retry-shot ep01 A02
 ```
+
+End-frame backfill has no CLI command or API route yet; it is the `retry_end_still`
+update on EpisodeWorkflowV2 (`handle.execute_update("retry_end_still", args=["A02", "Duck surprised"])`).
 
 ### Preflight Validation
 
 ```bash
-# Validate episode against model limits
-hfvg preflight ep-test-001
+# Validate episode against model limits (default: $EPISODES_DIR/<id>/shots.json)
+hfvg preflight ep01
 
 # Validate custom shots.json
-hfvg preflight ep-test-001 --shots-path custom-shots.json
+hfvg preflight ep01 --shots custom-shots.json
 ```
 
 ## API Development
@@ -376,28 +394,25 @@ curl -X POST http://localhost:8000/api/login \
   -H "Content-Type: application/json" \
   -d '{"admin_secret": "YOUR_ADMIN_SECRET"}'
 
-# Start episode
+# Start episode (episode_id must match ^ep\d{2}$; beatmap text goes in beatmap_content)
 curl -X POST http://localhost:8000/api/episodes \
   -H "Authorization: Bearer YOUR_ADMIN_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{
-    "episode_id": "ep-test-001",
-    "beatmap_path": "fixtures/ep05/BEATMAP.md",
-    "dry_run": true
-  }'
+  -d "$(jq -n --rawfile b tests/fixtures/sample_beatmap.md \
+        '{episode_id: "ep01", beatmap_content: $b, dry_run: true}')"
 
 # Query state
-curl http://localhost:8000/api/episodes/ep-test-001 \
+curl http://localhost:8000/api/episodes/ep01 \
   -H "Authorization: Bearer YOUR_ADMIN_SECRET"
 
 # Approve G1
-curl -X POST http://localhost:8000/api/episodes/ep-test-001/approve \
+curl -X POST http://localhost:8000/api/episodes/ep01/approve \
   -H "Authorization: Bearer YOUR_ADMIN_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"signal_name": "approve_g1_shot_plan"}'
+  -d '{"gate_id": "g1_shot_plan"}'
 
 # Retry shot
-curl -X POST http://localhost:8000/api/episodes/ep-test-001/retry-shot/A02 \
+curl -X POST http://localhost:8000/api/episodes/ep01/shots/A02/retry \
   -H "Authorization: Bearer YOUR_ADMIN_SECRET"
 ```
 
@@ -454,7 +469,7 @@ breakpoint()
 workflow.logger.info(f"Current state: {self.state}")
 
 # Query workflow state
-hfvg query-state ep-test-001
+hfvg query-state ep01
 ```
 
 ### Activity Debugging
@@ -475,10 +490,10 @@ sqlite3 data/studio.db
 SELECT * FROM episodes;
 
 # Query budget
-SELECT * FROM episode_budget_lines;
+SELECT * FROM budget_lines;
 
 # Query jobs
-SELECT * FROM budget_jobs WHERE status='pending_reconcile';
+SELECT * FROM job_ledger WHERE status='pending_reconcile';
 ```
 
 ## Common Issues
@@ -544,7 +559,7 @@ pytest_socket.SocketBlockedError: A test tried to use socket.socket
 # This is expected - provider calls must be mocked with respx
 
 # If you need to allow network (NOT recommended):
-pytest tests/test_example.py --disable-socket=false
+pytest tests/test_example.py --force-enable-socket
 ```
 
 ### Issue: `ffmpeg not found` for motion tests
@@ -622,7 +637,9 @@ pytest -m "not slow"
 ### Core
 
 - `ADMIN_SECRET` - API admin secret (REQUIRED)
-- `TEMPORAL_ADDRESS` - Temporal server address (default: localhost:7233)
+- `TEMPORAL_ADDRESS` - Temporal server address used by the API (default: localhost:7233)
+- `TEMPORAL_HOST` - Temporal server address used by the worker and CLI (default: localhost:7233)
+- `TASK_QUEUE` - Worker task queue (default: hfvg-tasks)
 - `TEMPORAL_NAMESPACE` - Temporal namespace (default: default)
 - `DATABASE_PATH` - SQLite database path (default: ./data/studio.db)
 - `DRY_RUN` - Dry run mode (default: true)
@@ -630,15 +647,15 @@ pytest -m "not slow"
 ### Provider API Keys
 
 - `HIGGSFIELD_API_KEY` - Higgsfield API key (format: `id:secret`)
-- `OPENAI_API_KEY` - OpenAI API key
-- `ELEVENLABS_API_KEY` - ElevenLabs API key
+- `ELEVENLABS_API_KEY` - ElevenLabs API key (read by the ElevenLabs SDK)
+- `OPENAI_API_KEY` - not read by the current code (no OpenAI judge wired)
 
 ### Model Configuration
 
 - `MODEL_PATH_STILL` - Still image model (default: xai/grok-imagine-image-2.0)
-- `MODEL_PATH_STILL_FALLBACK` - Fallback still model
-- `MODEL_PATH_KLING` - Kling video model
-- `MODEL_PATH_SEEDANCE` - Seedance video model
+- `MODEL_PATH_SOUL_V2` - Soul V2 still model (default: higgsfield-ai/soul/v2/standard)
+- `MODEL_PATH_KLING` - Kling video model (default: kling-video/v3.0/pro/image-to-video)
+- `MODEL_PATH_SEEDANCE` - Seedance video model (default: bytedance/seedance-2.5/image-to-video)
 - `G1_ESTIMATE_PLACEHOLDER_IMAGE_URL` - Placeholder for clip estimates (REQUIRED for live G1)
 
 ### Episode Data
@@ -649,12 +666,17 @@ pytest -m "not slow"
 ### Model Capabilities
 
 - `MODEL_CAPS_PATH` - Model capabilities JSON path (default: hfvg/data/model_caps.json)
-- `MODEL_MAX_REFS_JSON` - Per-model ref cap overrides (JSON: `{"model": cap}`)
+- `MODEL_MAX_REFS_JSON` - Per-model ref cap overrides (JSON: `{"model": cap}`; lower only unless `MODEL_CAPS_ALLOW_RAISE=1`)
 
 ### Budget Configuration
 
-- `DEFAULT_EPISODE_CAP_USD` - Default episode cap (default: "60.00")
-- `GC01_HEADROOM_USD` - GC.01 headroom (default: "12.00")
+- `EPISODE_CAP_USD` - Episode cap (default: "60.00")
+- `EPISODE_STOP_PERCENT` - Episode/line stop percent (default: 80 -> $48.00 stop)
+- `GC01_HEADROOM_USD` - GC.01 headroom (default: "5.00")
+- `REVISION_RESERVE_USD` - Revision reserve line `L7_revision`, outside the cap (default: "10.00")
+- `MAX_SHOT_RETRIES` - Retries per shot (default: 1)
+
+See [.env.example](../.env.example) for the complete list.
 
 ### Testing
 
@@ -704,8 +726,6 @@ watch -n 1 'ps aux | grep "python -m hfvg.worker"'
 # Watch database size
 watch -n 5 'ls -lh data/studio.db'
 
-# Watch Temporal metrics
-curl http://localhost:8233/metrics
 ```
 
 ## Next Steps

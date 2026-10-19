@@ -14,7 +14,7 @@ Thank you for considering contributing to the Hands-Free Video Generator! This d
 1. **Fork the repository**
 2. **Clone your fork**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/hands-free-video-generator.git
+   git clone https://github.com/YOUR_USERNAME/DuckDuckGoose.git
    ```
 3. **Set up development environment** (see [docs/LOCAL-DEV.md](docs/LOCAL-DEV.md))
 4. **Create a feature branch**
@@ -43,9 +43,11 @@ Thank you for considering contributing to the Hands-Free Video Generator! This d
 
 ### One Agent at a Time
 
-**Account-level run lock prevents concurrent modifications.**
+**Process rule:** only one coding agent works on the codebase at a time. This is a team
+rule, not something the code enforces.
 
-When starting an episode:
+**Separately, the code has an account-level run lock** (`hfvg/activities/run_lock.py`): only one
+episode workflow run per account at a time. When starting an episode:
 ```python
 # Workflow acquires account-level lock
 await workflow.execute_activity(
@@ -54,17 +56,11 @@ await workflow.execute_activity(
 )
 ```
 
-**This means:**
-- Only ONE coding agent can modify the codebase at a time
-- Other agents must wait for the lock to be released
-- This prevents race conditions and conflicting changes
-- Lock is released when workflow completes or fails
-
-**Why this matters:**
-- Database writes must be serialized
-- Temporal workflows must not conflict
-- Budget reservations are atomic per account
-- File writes to episode directories are exclusive
+**The run lock means:**
+- Only ONE episode run per account (`account_identifier`, default `"default"`) at a time
+- A second episode start fails while the lock is held
+- The lock is released when the workflow ends; a holder that is no longer running, or older
+  than `RUN_LOCK_STALE_TIMEOUT_SECONDS` (default 3600), is reclaimed
 
 ## Testing Requirements
 
@@ -96,7 +92,7 @@ pytest
 # 1. Add the check
 def reserve_budget(amount):
     if spent + reserved + amount > cap:
-        raise InsufficientCreditsError("Cap exceeded")
+        raise ValueError("Budget cap exceeded")  # hfvg/budget.py raises ValueError
     # ... reserve logic
 
 # 2. Add test
@@ -211,7 +207,7 @@ Fixes #67
 
 test(mutation): add shot retry limit enforcement
 
-Adds M-117 mutation test proving MAX_SHOT_RETRIES is enforced.
+Adds M-219 mutation test proving MAX_SHOT_RETRIES is enforced.
 ```
 
 ## Pull Request Process
@@ -231,7 +227,6 @@ Before marking PR as ready:
 - [ ] Mutation tests pass (`./scripts/redgreen.sh`)
 - [ ] No secrets committed (check with `git diff`)
 - [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated (if applicable)
 - [ ] CI passes (all 3 jobs green)
 
 ### 3. Review Process
@@ -271,7 +266,7 @@ api_key = "abc123:secret456"
 
 ```bash
 # .env.example (placeholders only)
-HIGGSFIELD_API_KEY=id:secret
+HIGGSFIELD_API_KEY=
 ADMIN_SECRET=CHANGE_ME_MINIMUM_32_CHARACTERS_REQUIRED
 
 # .env (local, gitignored)
@@ -300,13 +295,17 @@ git secrets --scan
 
 ### Example Private Content in This Repo:
 
-Located in `examples/mid-mountain-rest/`:
-- Specific project example with private IP references
-- Should not be copied or used as template
+Located in `examples/mid-mountain-rest/` (`HARNESS-GATES.json`):
+- The owner's private "Quacked Concierge / Mid-Mountain Rest" series gate policy
+- Loaded by code and tests (`hfvg/gates.py` `load_policy("mid-mountain-rest")`, called from
+  `hfvg/workflows/episode_v2.py`; `tests/test_workflow_live_with_real_policy.py`), so it
+  cannot simply be deleted; do not copy it or use it as a template
 
-Located in `fixtures/ep05/`:
-- Test fixtures with specific creative content
-- Used for testing only
+Located in `fixtures/ep05/` (`BEATMAP.md`, `CONTINUITY.md`, `VO-AUDIO.md`):
+- The owner's private Ep05 "Yuzu Bath" episode: brand name, named characters
+  (Rowan, Hazel, Mochi, DUCK-AB02), private asset paths and a draft Japanese VO script
+- Used by tests (`tests/test_episode_parser.py`); for examples use the synthetic
+  `tests/fixtures/sample_beatmap.md`
 
 ### If You Need Examples:
 
@@ -335,9 +334,9 @@ Use generic, original content:
 **Example:**
 ```python
 # Good: Atomic reserve with cap check
-UPDATE episode_budget_lines
+UPDATE budget_lines
 SET reserved_usd_micros = reserved_usd_micros + ?
-WHERE episode_id = ? AND line_name = ?
+WHERE line_id = ?
   AND (spent_usd_micros + reserved_usd_micros + ?) <= stop_usd_micros
 
 # Bad: Check then reserve (race condition)
@@ -351,7 +350,7 @@ if current + amount <= cap:
 **Never bypass gates:**
 - G1 (shot plan) required before stills
 - G2 (scene stills) required before clips
-- G_FINAL (final cut) required before delivery
+- G_FINAL_CUT (final cut) required before delivery
 
 **Validators are mandatory:**
 ```python
@@ -401,7 +400,6 @@ reserved = await reserve_budget(amount)  # No validation!
 **When fixing a bug:**
 - Add test that reproduces the bug
 - Document the fix in commit message
-- Update CHANGELOG.md
 
 **When changing configuration:**
 - Update .env.example
