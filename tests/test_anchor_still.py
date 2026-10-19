@@ -1,8 +1,10 @@
 """Test anchor still feature."""
 
 import pytest
+import json
 from pathlib import Path
 from unittest.mock import patch
+from hfvg import model_caps
 
 
 @pytest.mark.asyncio
@@ -196,8 +198,9 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("MODEL_PATH_STILL", "xai/grok-imagine-image-2.0")  # Use known model
-    monkeypatch.setenv("STILL_MAX_REFS", "3")  # Cap at 3 refs for unknown models
+    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 3}))  # Lower cap to 3
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
+    model_caps._registry = None  # Clear cache
     
     await init_studio_db(db_path)
     await upsert_episode(db_path, "ep99", beatmap_path="test.md", live_mode=True)
