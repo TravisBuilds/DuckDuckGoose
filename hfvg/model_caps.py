@@ -211,6 +211,7 @@ def creator_view(model_or_alias: str) -> dict[str, Any]:
     """
     Return a creator-friendly view of a model's capabilities.
     Includes limits with 'not published' for unknowns, sources, and stale flag.
+    Sources are filtered to only include http(s) URLs (no local filesystem paths).
     """
     registry = get_registry()
     caps = registry.resolve(model_or_alias)
@@ -224,10 +225,16 @@ def creator_view(model_or_alias: str) -> dict[str, Any]:
             }
         else:
             source_info = limit.source_urls(registry)
+            # Filter to only http(s) URLs (exclude local filesystem paths)
+            http_sources = [
+                {"url": url, "checked": checked}
+                for url, checked in source_info
+                if url and (url.startswith("https://") or url.startswith("http://"))
+            ]
             limits_view[name] = {
                 "value": limit.value,
                 "basis": limit.basis,
-                "sources": [{"url": url, "checked": checked} for url, checked in source_info],
+                "sources": http_sources,
                 "note": limit.note,
             }
 
