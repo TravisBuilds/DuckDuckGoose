@@ -707,7 +707,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
         prompt="A still locked-off tripod, no camera movement. Real-time speed, no slow motion. Exactly 1 animals in frame.",
         refs=[str(ref_path)],
         resolution="1k",
-        quality="high",
+        quality="medium",  # Grok only supports low/medium
         aspect_ratio="16:9",
         version=3,  # Shot is using Mochi v3
         tier="final",
@@ -1050,7 +1050,7 @@ async def test_estimate_usd_and_credits_called_before_submit(tmp_path):
         usd_micros = await provider.estimate_usd_micros(
             prompt="A test prompt",
             resolution="1k",
-            quality="high",
+            quality="medium",  # Grok only supports low/medium
             aspect_ratio="16:9",
         )
         
