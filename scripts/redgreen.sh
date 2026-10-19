@@ -1761,6 +1761,11 @@ test_mutation 210 "coverage collector skips AUDIO_COSTS keys" \
     "tests/test_model_caps_registry.py::test_every_configured_model_has_caps" \
     sed -i 's/models_to_check.update(AUDIO_COSTS.keys())/pass  # MUTATED; models_to_check.update(AUDIO_COSTS.keys())/'
 
+test_mutation 211 "still preflight removed from submit" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
+    sed -i '/# Preflight: validate shot against model capabilities/,/activity.logger.warning.*Preflight warning/d'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -116,6 +116,14 @@ def test_still_preflight_runs_before_estimate_and_reserve():
     
     error = PreflightError("Test error")
     assert error.non_retryable == True
+    
+    # Also verify the preflight code exists in submit_still_job_enforced
+    import inspect
+    from hfvg.activities.studio_generation import submit_still_job_enforced
+    
+    source = inspect.getsource(submit_still_job_enforced)
+    assert "preflight.preflight_shot" in source, "Preflight call must exist in submit_still_job_enforced"
+    assert "PreflightError" in source, "PreflightError must be raised in submit_still_job_enforced"
 
 
 def test_clip_preflight_runs_before_estimate_and_reserve():
