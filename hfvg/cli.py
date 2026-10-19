@@ -279,11 +279,11 @@ def wait_result(episode_id: str):
 
 
 @cli.command()
-@click.option("--model", default="gpt_image_2", help="Model to use")
+@click.option("--model", default=None, help="Model to use (defaults to still_model_path())")
 @click.option("--resolution", default="1k", help="Image resolution")
 @click.option("--quality", default="medium", help="Image quality")
 @click.option("--prompt", default="A cozy mountain resort lobby with timber beams", help="Generation prompt")
-def canary(model: str, resolution: str, quality: str, prompt: str):
+def canary(model: str | None, resolution: str, quality: str, prompt: str):
     """
     Generate ONE draft-tier still for real (with confirmation).
     
@@ -291,11 +291,19 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
     NOT run in CI. Only run manually with real credentials.
     
     Example:
-        hfvg canary --model gpt_image_2 --resolution 1k --quality medium
+        hfvg canary --model xai/grok-imagine-image-2.0 --resolution 1k --quality medium
     """
 
     async def _canary():
         from hfvg.providers import HiggsfieldProvider
+        from hfvg.config import still_model_path
+        
+        if model is None:
+            model_to_use = still_model_path()
+        else:
+            model_to_use = model
+        
+        click.echo(f"Using model: {model_to_use}")
         
         # Check if running in dry-run mode
         if config.DRY_RUN:
@@ -313,13 +321,13 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
             
             # Estimate cost
             cost = await provider.estimate_cost("image", {
-                "model": model,
+                "model": model_to_use,
                 "resolution": resolution,
                 "quality": quality
             })
             
             click.echo(f"\n📊 Generation Details:")
-            click.echo(f"  Model: {model}")
+            click.echo(f"  Model: {model_to_use}")
             click.echo(f"  Resolution: {resolution}")
             click.echo(f"  Quality: {quality}")
             click.echo(f"  Estimated cost: {cost:.1f} credits")
@@ -338,7 +346,7 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
             click.echo("\n🚀 Submitting job...")
             job_id = await provider.submit_image(
                 prompt=prompt,
-                model=model,
+                model=model_to_use,
                 resolution=resolution,
                 quality=quality
             )
