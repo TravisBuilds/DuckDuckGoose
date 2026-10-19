@@ -1,332 +1,200 @@
-"""Tests for preflight validation."""
-
-import json
+"""Tests for preflight validation of shots."""
 import pytest
-from pathlib import Path
+from hfvg import model_caps, preflight
+from hfvg.activities.studio_generation import assemble_still_refs
+from hfvg.config import max_refs_for
 
 
-@pytest.mark.asyncio
-async def test_preflight_catches_missing_prompt_kit(tmp_path, monkeypatch):
-    """Test: Preflight catches missing prompt_kit.json before any spend."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity, PreflightError
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
+def test_still_over_cap_refused_with_creator_message():
+    """T7: Grok shot with 6 refs gets error with creator message."""
+    registry = model_caps.get_registry()
     
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
+    shot = {
+        "id": "A02",
+        "start_prompt": "Test prompt",
+        "ref_keys": ["ref1", "ref2", "ref3", "ref4", "ref5", "ref6"],
+        "resolution": "1k",
+        "quality": "medium",
+        "aspect_ratio": "9:16",
+    }
+    route = {"still_model": "xai/grok-imagine-image-2.0"}
     
-    # Create minimal valid inputs except prompt_kit.json
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "A01": {
-            "prompt": "Test shot",
-            "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}
-        }
-    }))
-    (base_path / "refs.json").write_text(json.dumps({"available": [], "to_generate": []}))
+    violations = preflight.preflight_shot(shot, route, registry, phase="start")
     
-    # Missing prompt_kit.json
+    errors = [v for v in violations if v.severity == "error"]
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
     
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.chdir(tmp_path)
+    error = errors[0]
+    assert error.field == "max_refs"
+    assert "6 reference images" in error.message
+    assert "at most 5" in error.message
+    assert "Remove 1" in error.message
+    assert "A02" in error.message
     
-    await init_studio_db(db_path)
-    
-    # Mock activity info
-    original_info = temporalio.activity.info
-    
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        # Should raise PreflightError with missing prompt_kit.json
-        with pytest.raises(PreflightError) as exc_info:
-            await preflight_validate_episode_activity(episode_id, None, False)
-        
-        assert "prompt_kit.json" in str(exc_info.value)
-        assert len(exc_info.value.problems) >= 1
-        assert any("prompt_kit.json" in p for p in exc_info.value.problems)
-    
-    finally:
-        temporalio.activity.info = original_info
+    # Check source info
+    formatted = preflight.format_violation(error)
+    assert "docs.x.ai" in formatted or "xai" in formatted.lower()
+    assert "2026" in formatted
+    assert "checked" in formatted.lower()
 
 
-@pytest.mark.asyncio
-async def test_preflight_catches_missing_refs(tmp_path, monkeypatch):
-    """Test: Preflight catches refs used in shots but not available or to_generate."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity, PreflightError
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
+def test_end_still_counts_after_anchor_drop():
+    """T8: lead + anchor + 4 planned -> 5 after drop -> no violation; 6 -> error."""
+    registry = model_caps.get_registry()
+    cap = 5  # Grok cap
     
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
+    # Case 1: lead + anchor + 4 planned -> 5 after anchor drop -> OK
+    # Preflight should compute this using assemble_still_refs internally
+    shot1 = {
+        "id": "A02_end",
+        "start_prompt": "Test",
+        "ref_keys": ["r1", "r2", "r3", "r4"],  # 4 planned refs
+        "resolution": "1k",
+        "quality": "medium",
+        "aspect_ratio": "9:16",
+    }
+    route = {"still_model": "xai/grok-imagine-image-2.0", "anchor_ref": "anchor_still"}
     
-    # Shot uses r_duck but refs.json doesn't have it
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "A01": {
-            "prompt": "Show r_duck in the park",
-            "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}
-        }
-    }))
-    (base_path / "refs.json").write_text(json.dumps({"available": [], "to_generate": []}))
-    (base_path / "prompt_kit.json").write_text("{}")
+    # For end frame, preflight adds lead ref internally
+    # lead + anchor + 4 planned = 6, but anchor drops -> 5 (OK)
+    violations1 = preflight.preflight_shot(shot1, route, registry, phase="end")
+    errors1 = [v for v in violations1 if v.severity == "error" and v.field == "max_refs"]
+    assert len(errors1) == 0
     
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.chdir(tmp_path)
+    # Case 2: lead + anchor + 5 planned = 7, anchor drops -> 6 (still over)
+    shot2 = {
+        "id": "A02_end",
+        "start_prompt": "Test",
+        "ref_keys": ["r1", "r2", "r3", "r4", "r5"],  # 5 planned refs
+        "resolution": "1k",
+        "quality": "medium",
+        "aspect_ratio": "9:16",
+    }
+    violations2 = preflight.preflight_shot(shot2, route, registry, phase="end")
+    errors2 = [v for v in violations2 if v.severity == "error" and v.field == "max_refs"]
+    assert len(errors2) == 1
     
-    await init_studio_db(db_path)
-    
-    original_info = temporalio.activity.info
-    
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        with pytest.raises(PreflightError) as exc_info:
-            await preflight_validate_episode_activity(episode_id, None, False)
-        
-        assert "r_duck" in str(exc_info.value)
-        assert any("r_duck" in p for p in exc_info.value.problems)
-    
-    finally:
-        temporalio.activity.info = original_info
-
-
-@pytest.mark.asyncio
-async def test_preflight_passes_with_all_valid_inputs(tmp_path, monkeypatch):
-    """Test: Preflight passes when all inputs are valid."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
-    
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
-    
-    # Create all valid inputs
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "shots": [{
-            "id": "A01",
-            "prompt": "Show r_duck in the park",
-            "count": 1,
-            "characters": ["D"],
-            "wet": False,
-            "model": "kling",
-            "duration": 3,
-            "end_frame": False,
-            "ref_keys": ["r_duck"]
-        }]
-    }))
-    
-    # Create a valid ref file
-    refs_dir = base_path / "refs"
-    refs_dir.mkdir(parents=True, exist_ok=True)
-    ref_path = refs_dir / "r_duck.png"
-    # Create a minimal valid PNG (1x1 red pixel)
-    ref_path.write_bytes(
-        b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
-        b'\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0'
-        b'\x00\x00\x00\x03\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
+    # Also verify the direct assembly logic
+    refs1, anchor_used1 = assemble_still_refs(
+        lead="start_still",
+        anchor="anchor_still",
+        planned=["r1", "r2", "r3", "r4"],
+        cap=cap,
     )
+    assert len(refs1) == 5
+    assert not anchor_used1
     
-    (base_path / "refs.json").write_text(json.dumps({
-        "per_shot": {
-            "A01": [{"key": "r_duck", "path": str(ref_path)}]
-        }
-    }))
-    (base_path / "prompt_kit.json").write_text("{}")
-    
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.chdir(tmp_path)
-    
-    await init_studio_db(db_path)
-    
-    original_info = temporalio.activity.info
-    
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        result = await preflight_validate_episode_activity(episode_id, None, False)
-        
-        assert result["status"] == "passed"
-        assert result["validated_shots"] == 1
-    
-    finally:
-        temporalio.activity.info = original_info
+    refs2, anchor_used2 = assemble_still_refs(
+        lead="start_still",
+        anchor="anchor_still",
+        planned=["r1", "r2", "r3", "r4", "r5"],
+        cap=cap,
+    )
+    assert len(refs2) == 6
+    assert not anchor_used2
 
 
-@pytest.mark.asyncio
-async def test_preflight_catches_missing_api_key_in_live_mode(tmp_path, monkeypatch):
-    """Test: Preflight catches missing API key in live mode."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity, PreflightError
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
+def test_prompt_limit_kling_refused_unknown_grok_allowed():
+    """T9: Kling 2501 chars -> error; grok 10000 -> allowed (unknown)."""
+    registry = model_caps.get_registry()
     
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
+    # Kling: 2501 chars should be refused (limit 2500)
+    long_prompt = "a" * 2501
+    shot_kling = {
+        "id": "A01",
+        "clip_prompt": long_prompt,
+        "duration": 5,
+        "start_frame": "frame.jpg",
+    }
+    route_kling = {"clip_model": "kling-video/v3.0/pro/image-to-video"}
+    violations_kling = preflight.preflight_shot(shot_kling, route_kling, registry, phase="clip")
     
-    # Create minimal valid inputs
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "A01": {
-            "prompt": "Test shot",
-            "params": {"model": "kling", "duration": 3, "aspect_ratio": "9:16"}
-        }
-    }))
-    (base_path / "refs.json").write_text(json.dumps({"available": [], "to_generate": []}))
-    (base_path / "prompt_kit.json").write_text("{}")
+    errors_kling = [v for v in violations_kling if v.severity == "error" and v.field == "prompt_max_chars"]
+    assert len(errors_kling) == 1
+    assert "2501" in errors_kling[0].message
+    assert "2500" in errors_kling[0].message
+    assert "Shorten it by 1" in errors_kling[0].message
     
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.delenv("HIGGSFIELD_API_KEY", raising=False)  # Remove API key
-    monkeypatch.chdir(tmp_path)
+    # Grok: 10000 chars should be allowed (unknown limit)
+    very_long_prompt = "a" * 10000
+    shot_grok = {
+        "id": "A02",
+        "start_prompt": very_long_prompt,
+        "ref_keys": [],
+        "resolution": "1k",
+        "quality": "medium",
+        "aspect_ratio": "9:16",
+    }
+    route_grok = {"still_model": "xai/grok-imagine-image-2.0"}
+    violations_grok = preflight.preflight_shot(shot_grok, route_grok, registry, phase="start")
     
-    await init_studio_db(db_path)
-    
-    original_info = temporalio.activity.info
-    
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        # Live mode should fail without API key
-        with pytest.raises(PreflightError) as exc_info:
-            await preflight_validate_episode_activity(episode_id, None, is_live=True)
-        
-        assert "HIGGSFIELD_API_KEY" in str(exc_info.value)
-    
-    finally:
-        temporalio.activity.info = original_info
+    errors_grok = [v for v in violations_grok if v.field == "prompt_max_chars"]
+    assert len(errors_grok) == 0  # Unknown limit doesn't refuse
 
 
-@pytest.mark.asyncio
-async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
-    """Test: Preflight fails if shot needs more refs than model allows."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity, PreflightError
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
-    import json
+def test_duration_rules():
+    """T10: Kling 2/16/4.5 -> errors; 3,15 -> ok; Seedance 3 -> error, 30 -> ok, 31 -> error."""
+    registry = model_caps.get_registry()
     
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
+    # Kling: duration must be 3-15 integer seconds
+    # Test duration 2 (too low)
+    shot_kling_low = {
+        "id": "A01",
+        "clip_prompt": "test",
+        "duration": 2,
+        "start_frame": "frame.jpg",
+    }
+    route_kling = {"clip_model": "kling-video/v3.0/pro/image-to-video"}
+    violations = preflight.preflight_shot(shot_kling_low, route_kling, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 1
+    assert "3" in errors[0].message and "15" in errors[0].message
     
-    # Shot needs 9 refs, exceeds still model cap of 5
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "shots": [{
-            "id": "A01",
-            "prompt": "Test shot with too many characters",
-            "count": 9,
-            "characters": ["D", "F", "R", "H", "M", "P", "T", "B", "S"],  # 9 characters
-            "wet": False,
-            "model": "kling",
-            "duration": 3,
-            "end_frame": False,
-            "ref_keys": ["r_duck", "r_family", "r_rowan", "r_hazel", "r_mochi", "r_pool", "r_tree", "r_bench", "r_scene"]  # 9 refs
-        }]
-    }))
-    (base_path / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))
-    (base_path / "prompt_kit.json").write_text('{}')
+    # Test duration 16 (too high)
+    shot_kling_high = shot_kling_low.copy()
+    shot_kling_high["duration"] = 16
+    violations = preflight.preflight_shot(shot_kling_high, route_kling, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 1
     
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.chdir(tmp_path)
+    # Test duration 4.5 (not integer)
+    shot_kling_float = shot_kling_low.copy()
+    shot_kling_float["duration"] = 4.5
+    violations = preflight.preflight_shot(shot_kling_float, route_kling, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 1
+    assert "whole number" in errors[0].message
     
-    await init_studio_db(db_path)
+    # Test durations 3 and 15 (OK)
+    for dur in [3, 15]:
+        shot_ok = shot_kling_low.copy()
+        shot_ok["duration"] = dur
+        violations = preflight.preflight_shot(shot_ok, route_kling, registry, phase="clip")
+        errors = [v for v in violations if v.field == "duration"]
+        assert len(errors) == 0
     
-    original_info = temporalio.activity.info
+    # Seedance: duration must be 4-30 integer seconds
+    route_seedance = {"clip_model": "bytedance/seedance-2.5/image-to-video"}
     
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        with pytest.raises(PreflightError) as exc_info:
-            await preflight_validate_episode_activity(episode_id, None, False)
-        
-        # Refs are checked against still model (Grok Image 2.0 cap 5), not clip model
-        assert "9" in str(exc_info.value) or "8" in str(exc_info.value)
-        assert "A01" in str(exc_info.value)
+    # Test 3 (too low)
+    shot_seedance = shot_kling_low.copy()
+    shot_seedance["duration"] = 3
+    violations = preflight.preflight_shot(shot_seedance, route_seedance, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 1
     
-    finally:
-        temporalio.activity.info = original_info
+    # Test 30 (OK)
+    shot_seedance["duration"] = 30
+    violations = preflight.preflight_shot(shot_seedance, route_seedance, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 0
+    
+    # Test 31 (too high)
+    shot_seedance["duration"] = 31
+    violations = preflight.preflight_shot(shot_seedance, route_seedance, registry, phase="clip")
+    errors = [v for v in violations if v.field == "duration"]
+    assert len(errors) == 1
 
 
-@pytest.mark.asyncio
-async def test_preflight_detects_version_bump_external_refs(tmp_path, monkeypatch):
-    """Test: Preflight detects version bumps when refs are in external directory."""
-    from hfvg.activities.preflight import preflight_validate_episode_activity
-    from hfvg.studio_db import init_studio_db
-    import temporalio.activity
-    import json
-    
-    episode_id = "ep99"
-    base_path = tmp_path / "data" / "episodes" / episode_id
-    base_path.mkdir(parents=True, exist_ok=True)
-    
-    # External refs directory
-    external_refs = tmp_path / "external_refs"
-    external_refs.mkdir(parents=True, exist_ok=True)
-    
-    # Create ref file in external directory
-    ref_file = external_refs / "duck.png"
-    ref_file.write_text("fake image")
-    
-    # Create version sidecar next to ref file (v1)
-    sidecar_dir = external_refs / ".versions"
-    sidecar_dir.mkdir(exist_ok=True)
-    (sidecar_dir / "r_duck.json").write_text(json.dumps({"version": 1}))
-    
-    # BEATMAP and shots
-    (base_path / "BEATMAP.md").write_text("A01 (2.5s)")
-    (base_path / "shots.json").write_text(json.dumps({
-        "shots": [{
-            "id": "A01",
-            "prompt": "Duck scene",
-            "count": 1,
-            "characters": ["D"],
-            "wet": False,
-            "model": "kling",
-            "duration": 3,
-            "end_frame": False,
-            "ref_keys": ["r_duck"]
-        }]
-    }))
-    
-    # refs.json with version bump to v2
-    (base_path / "refs.json").write_text(json.dumps({
-        "per_shot": {
-            "A01": [{
-                "key": "r_duck",
-                "path": str(ref_file)
-            }]
-        },
-        "versions": {
-            "r_duck": 2  # Version bumped from 1 to 2
-        }
-    }))
-    (base_path / "prompt_kit.json").write_text('{}')
-    
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.chdir(tmp_path)
-    
-    await init_studio_db(db_path)
-    
-    original_info = temporalio.activity.info
-    
-    try:
-        temporalio.activity.info = lambda: type('obj', (), {'workflow_id': 'test-wf'})()
-        
-        result = await preflight_validate_episode_activity(episode_id, None, False)
-        
-        # Preflight should detect version bump and count ref as to_generate
-        assert result["to_generate_refs"] == 1, f"Expected 1 to_generate_ref (version bump), got {result['to_generate_refs']}"
-        assert result["available_refs"] == 1, "Should still count as available"
-    
-    finally:
-        temporalio.activity.info = original_info
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
