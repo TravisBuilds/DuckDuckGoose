@@ -279,11 +279,11 @@ def wait_result(episode_id: str):
 
 
 @cli.command()
-@click.option("--model", default="gpt_image_2", help="Model to use")
+@click.option("--model", default=None, help="Model to use (defaults to still_model_path())")
 @click.option("--resolution", default="1k", help="Image resolution")
 @click.option("--quality", default="medium", help="Image quality")
 @click.option("--prompt", default="A cozy mountain resort lobby with timber beams", help="Generation prompt")
-def canary(model: str, resolution: str, quality: str, prompt: str):
+def canary(model: str | None, resolution: str, quality: str, prompt: str):
     """
     Generate ONE draft-tier still for real (with confirmation).
     
@@ -291,11 +291,19 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
     NOT run in CI. Only run manually with real credentials.
     
     Example:
-        hfvg canary --model gpt_image_2 --resolution 1k --quality medium
+        hfvg canary --model xai/grok-imagine-image-2.0 --resolution 1k --quality medium
     """
 
     async def _canary():
         from hfvg.providers import HiggsfieldProvider
+        from hfvg.config import still_model_path
+        
+        if model is None:
+            model_to_use = still_model_path()
+        else:
+            model_to_use = model
+        
+        click.echo(f"Using model: {model_to_use}")
         
         # Check if running in dry-run mode
         if config.DRY_RUN:
@@ -313,13 +321,13 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
             
             # Estimate cost
             cost = await provider.estimate_cost("image", {
-                "model": model,
+                "model": model_to_use,
                 "resolution": resolution,
                 "quality": quality
             })
             
             click.echo(f"\n📊 Generation Details:")
-            click.echo(f"  Model: {model}")
+            click.echo(f"  Model: {model_to_use}")
             click.echo(f"  Resolution: {resolution}")
             click.echo(f"  Quality: {quality}")
             click.echo(f"  Estimated cost: {cost:.1f} credits")
@@ -338,7 +346,7 @@ def canary(model: str, resolution: str, quality: str, prompt: str):
             click.echo("\n🚀 Submitting job...")
             job_id = await provider.submit_image(
                 prompt=prompt,
-                model=model,
+                model=model_to_use,
                 resolution=resolution,
                 quality=quality
             )
@@ -646,3 +654,42 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
         click.echo(f"❌ Error: {str(e)}", err=True)
         import sys
         sys.exit(1)
+
+
+@cli.command()
+@click.argument("episode_id")
+@click.option("--shots", "shots_path", default=None, help="shots.json path (default: data/episodes/<id>/shots.json)")
+def preflight(episode_id: str, shots_path: str | None):
+    """
+    Check every shot of an episode against the model limits (no provider calls).
+
+    Exit code 0 if no errors, 1 if errors exist.
+
+    Example:
+        hfvg preflight ep05
+    """
+    import sys
+    from pathlib import Path
+    from hfvg.preflight import preflight_plans
+    from hfvg.shot_data import ShotDataError, parse_shots
+
+    path = Path(shots_path) if shots_path else Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    if not path.exists():
+        click.echo(f"❌ {path} not found", err=True)
+        sys.exit(1)
+    try:
+        raw = json.loads(path.read_text())
+        parse_shots(raw)
+    except (ValueError, ShotDataError) as e:
+        click.echo(f"❌ Invalid shots.json: {e}", err=True)
+        sys.exit(1)
+
+    report = preflight_plans(raw["shots"])
+    click.echo(f"Preflight report: {episode_id} ({path})")
+    for sid, res in report["shots"].items():
+        click.echo(f"  {'✓' if res['ok'] else '✗'} {sid}")
+        for text in res["errors"]:
+            click.echo(f"      error: {text}", err=True)
+        for text in res["warnings"]:
+            click.echo(f"      warning: {text}")
+    sys.exit(1 if report["errors"] else 0)

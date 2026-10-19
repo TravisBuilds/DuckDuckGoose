@@ -2400,3 +2400,79 @@ async def set_anchor_still(
         "approved_by": approved_by,
         "message": f"Anchor still set for {len(target_shot_ids)} shot(s)",
     }
+
+
+ACTIVE_MODEL_STATUSES = {
+    "active_default_still", "active_default_clip", "active_default_tts",
+    "active_routed", "active", "active_ref_generation",
+}
+
+
+@app.get("/api/models")
+async def get_models(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Documented limits of every model the harness offers (creator view: unknowns are 'not published',
+    each value carries its source URL and check date). Requires: Authorization header OR session cookie."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    from hfvg import model_caps
+
+    registry = model_caps.get_registry()
+    models_data = [
+        model_caps.creator_view(model_id)
+        for model_id, caps in registry.models.items()
+        if caps.status in ACTIVE_MODEL_STATUSES
+    ]
+    return {"models": models_data, "stale": registry.stale(), "checked": registry.checked}
+
+
+class PreflightRequest(BaseModel):
+    """Preflight check request: optional shots (shots.json entries or G1 shot plans) to check instead
+    of the episode's uploaded shots.json."""
+
+    shots: list[dict] | None = None
+
+
+@app.post("/api/episodes/{episode_id}/preflight")
+async def preflight_episode(
+    episode_id: str,
+    request: PreflightRequest | None = None,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Per-shot pass/fail against the model limits, same rules as G1 and submit (no provider calls).
+
+    Shots come from the request or the episode's uploaded shots.json (data/episodes/{id}/shots.json).
+    Requires: Authorization header OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    from hfvg.preflight import preflight_plans
+    from hfvg.shot_data import ShotDataError, parse_shots
+
+    if request and request.shots:
+        shots = request.shots
+    else:
+        shots_path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+        if not shots_path.exists():
+            raise HTTPException(status_code=404, detail=f"No shots.json uploaded for {episode_id}")
+        try:
+            raw = json.loads(shots_path.read_text())
+            parse_shots(raw)  # same validation as upload
+        except (ValueError, ShotDataError) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")
+        shots = raw["shots"]
+
+    report = preflight_plans(shots)
+    errors = [v for v in report["violations"] if v["severity"] == "error"]
+    warnings = [v for v in report["violations"] if v["severity"] == "warning"]
+    return {
+        "episode_id": episode_id,
+        "shots": report["shots"],
+        "violations": report["violations"],
+        "errors": errors,
+        "warnings": warnings,
+        "has_errors": bool(errors),
+    }
+

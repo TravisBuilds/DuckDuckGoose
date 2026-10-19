@@ -26,6 +26,9 @@ dependencies = [
 [tool.hatch.build.targets.wheel]
 packages = ["hfvg"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"hfvg/data" = "hfvg/data"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
