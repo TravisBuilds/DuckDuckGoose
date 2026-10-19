@@ -759,15 +759,15 @@ async def submit_clip_job_enforced(
 
         # Preflight: validate clip against model capabilities BEFORE any upload, estimate, or reserve
         from hfvg import preflight, model_caps
-        from hfvg.config import kling_model_path, seedance_model_path
+        from hfvg.config import MODEL_PATH_KLING, MODEL_PATH_SEEDANCE
         
         registry = model_caps.get_registry()
         
         # Map route.model to full model path
         if route.model == "kling":
-            clip_model_path = kling_model_path()
+            clip_model_path = MODEL_PATH_KLING
         elif route.model == "seedance":
-            clip_model_path = seedance_model_path()
+            clip_model_path = MODEL_PATH_SEEDANCE
         else:
             clip_model_path = route.model  # Fallback to raw value
         

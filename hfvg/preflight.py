@@ -130,17 +130,21 @@ def preflight_shot(
         anchor_ref = route.get("anchor_ref")
 
         # Assemble refs using the same logic as submit
-        max_refs = max_refs_for(still_model)
+        # Use max_refs_for() to get effective cap (respects MODEL_MAX_REFS_JSON overrides)
+        effective_max_refs = max_refs_for(still_model)
         assembled, anchor_used = assemble_still_refs(
             lead=lead_ref,
             anchor=anchor_ref,
             planned=planned_refs,
-            cap=max_refs,
+            cap=effective_max_refs,
         )
 
-        max_refs_limit = caps.limit("max_refs")
-        if max_refs_limit and not max_refs_limit.unknown and len(assembled) > max_refs_limit.value:
-            source_urls = max_refs_limit.source_urls(registry)
+        # Check against effective cap (not raw registry value)
+        # This respects MODEL_MAX_REFS_JSON overrides with MODEL_CAPS_ALLOW_RAISE
+        if len(assembled) > effective_max_refs:
+            # Get source info from registry for error message
+            max_refs_limit = caps.limit("max_refs")
+            source_urls = max_refs_limit.source_urls(registry) if max_refs_limit else []
             source_url, checked = source_urls[0] if source_urls else (None, None)
             
             violations.append(
@@ -149,13 +153,13 @@ def preflight_shot(
                     frame=phase,
                     model=still_model,
                     field="max_refs",
-                    limit=max_refs_limit.value,
+                    limit=effective_max_refs,
                     actual=len(assembled),
                     severity="error",
                     message=(
                         f"Shot {shot_id} ({phase} frame) uses {len(assembled)} reference images, "
-                        f"but {still_model} accepts at most {max_refs_limit.value}. "
-                        f"Remove {len(assembled) - max_refs_limit.value} reference(s) in shots.json (ref_keys) and try again."
+                        f"but {still_model} accepts at most {effective_max_refs}. "
+                        f"Remove {len(assembled) - effective_max_refs} reference(s) in shots.json (ref_keys) and try again."
                     ),
                     source_url=source_url,
                     checked=checked,
