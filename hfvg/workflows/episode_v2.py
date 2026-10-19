@@ -65,6 +65,8 @@ class EpisodeWorkflowV2:
         self.shot_results: dict[str, dict] = {}
         self.parsed_beatmap: dict[str, Any] | None = None
         self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk
+        self.end_backfills: dict[str, int] = {}  # shot_id -> retry_end_still children started
+        self.background_tasks: list = []
     
     @workflow.run
     async def run(
@@ -926,6 +928,110 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
     
+    def _end_backfill_problem(self, shot_id: str) -> str | None:
+        """Why retry_end_still(shot_id) is not allowed right now (None = allowed). No side effects."""
+        if self.state.current_gate != "G2_SCENE_STILLS":
+            return f"not parked at G2 (current: {self.state.current_gate})"
+        if self.approved_g2_scene_stills or "G2_SCENE_STILLS" in self.passed_gates:
+            return "G2 already approved"
+        if shot_id in self.state.pending_retries:
+            return "a retry/backfill is already pending"
+        failed = next((fs for fs in self.state.failed_shots if fs["shot_id"] == shot_id), None)
+        if not failed:
+            return "shot not in failed_shots"
+        if not str(failed.get("reason", "")).startswith("End still failed"):
+            return f"shot failed for another reason ({failed.get('reason')!r}); use retry_shot"
+        plan = next((s for s in (self.parsed_beatmap or {}).get("shots", []) if s["shot_id"] == shot_id), None)
+        if not plan:
+            return "shot not found in the shot plan"
+        if not (plan.get("params") or {}).get("end_frame"):
+            return "shot has no end frame"
+        return None
+
+    @workflow.update
+    async def retry_end_still(self, shot_id: str, end_prompt: str | None = None) -> dict:
+        """Backfill ONLY the _end still of a shot whose start still landed but whose _end failed.
+
+        Unlike retry_shot this never resubmits the start: it resolves the start still that already
+        landed for the current attempt (free status lookup), then starts a ShotWorkflow child
+        {ep}-shot-{shot}-end{n} with the SAME attempt/version and reuse_start_still, so the only paid
+        call is the _end still (lead ref = that start still; deterministic job id
+        still-{ep}-{shot}_end-r{attempt-1}-lead<sha8>[...]). The shot then goes through the normal
+        review -> retry_still_ready -> wait-for-G2 path; G2 stays a human decision. Refused if an _end
+        with a lead ref was already submitted for this attempt (no retries).
+        """
+        problem = self._end_backfill_problem(shot_id)
+        if problem:   # re-check: state may have moved since the validator ran
+            raise ApplicationError(f"Cannot backfill {shot_id}_end: {problem}", non_retryable=True)
+        attempt = self.state.shot_attempts.get(shot_id, 1)
+        plan = next(s for s in self.parsed_beatmap.get("shots", []) if s["shot_id"] == shot_id)
+        n = self.end_backfills.get(shot_id, 0) + 1
+        workflow_id = f"{self.state.episode_id}-shot-{shot_id}-end{n}"
+        self.state.pending_retries[shot_id] = workflow_id   # blocks G2 and duplicate calls meanwhile
+        try:
+            start = await workflow.execute_activity(
+                "resolve_landed_start_still",
+                args=[self.state.episode_id, shot_id, attempt, attempt],
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            self.state.pending_retries.pop(shot_id, None)
+            cause = getattr(e, "cause", None) or e
+            raise ApplicationError(f"Cannot backfill {shot_id}_end: {cause}", non_retryable=True)
+
+        shot_plan = dict(plan)
+        if "prompt" not in shot_plan:
+            from hfvg.episode_parser import build_prompt_from_shot
+            shot_plan["prompt"] = build_prompt_from_shot(shot_plan)
+        if end_prompt:
+            shot_plan["end_prompt"] = end_prompt
+        shot_plan["attempt"] = attempt
+        shot_plan["version"] = attempt
+        shot_plan["parent_workflow_id"] = workflow.info().workflow_id
+        shot_plan["reuse_start_still"] = {"url": start["url"], "job_id": start["job_id"]}
+        failed_before = [fs for fs in self.state.failed_shots if fs["shot_id"] == shot_id]
+        try:
+            handle = await workflow.start_child_workflow(
+                "ShotWorkflow",
+                args=[self.state.episode_id, shot_plan],
+                id=workflow_id,
+                task_queue=workflow.info().task_queue,
+            )
+        except Exception as e:
+            self.state.pending_retries.pop(shot_id, None)
+            raise ApplicationError(f"Failed to start _end backfill for {shot_id}: {e}", non_retryable=True)
+        self.end_backfills[shot_id] = n
+        self.state.failed_shots = [fs for fs in self.state.failed_shots if fs["shot_id"] != shot_id]
+        self.shot_results[shot_id] = handle
+
+        async def track_backfill():
+            try:
+                result = await handle
+                self.state.pending_retries.pop(shot_id, None)
+                if isinstance(result, dict) and result.get("status") == "failed":
+                    self.state.failed_shots.append(
+                        {"shot_id": shot_id, "status": "failed", "reason": result.get("error", "Unknown error")})
+                    workflow.logger.error(f"_end backfill for {shot_id} failed: {result.get('error')}")
+            except Exception as e:
+                self.state.pending_retries.pop(shot_id, None)
+                self.state.failed_shots.append(
+                    {"shot_id": shot_id, "status": "failed", "reason": f"End still failed: backfill child error: {e}"})
+
+        self.background_tasks.append(asyncio.create_task(track_backfill()))
+        workflow.logger.info(
+            f"_end backfill started for {shot_id}: {workflow_id} (attempt {attempt}, reusing start {start['job_id']}; "
+            f"was failed: {failed_before})"
+        )
+        return {"status": "queued", "workflow_id": workflow_id, "attempt": attempt,
+                "start_job_id": start["job_id"], "start_still_url": start["url"]}
+
+    @retry_end_still.validator
+    def validate_retry_end_still(self, shot_id: str, end_prompt: str | None = None):
+        problem = self._end_backfill_problem(shot_id)
+        if problem:
+            raise ApplicationError(f"Cannot backfill {shot_id}_end: {problem}", non_retryable=True)
+
     @workflow.query
     def get_state(self) -> dict:
         """Get current workflow state."""

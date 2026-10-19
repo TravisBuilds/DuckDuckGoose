@@ -25,6 +25,9 @@ class ProviderJob(BaseModel):
     output_url: str | None = None
     cost: float | None = None
     error: str | None = None
+    # Full provider evidence (status body + response headers incl. X-Correlation-ID) for diagnosis
+    raw: dict[str, Any] | None = None
+    response_headers: dict[str, str] | None = None
 
 
 class GenerationProvider:

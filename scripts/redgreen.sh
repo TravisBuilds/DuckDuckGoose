@@ -1253,7 +1253,7 @@ test_mutation 121 "Retry increments version for unique job_id" \
 test_mutation 119 "Anchor still is injected into refs" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_anchor_still.py::test_anchor_still_injected_into_refs" \
-    sed -i 's/refs_with_anchor\.insert(0, anchor_path)/pass  # MUTATED - skip anchor injection/'
+    sed -i 's/ + (\[anchor_path\] if anchor else \[\]) + / + [] + /'
 
 # 120. M-anchor-cap: Anchor + refs enforces ref cap
 test_mutation 120 "Anchor + refs respects model ref cap" \
@@ -1468,7 +1468,7 @@ test_mutation 153 "Escalated retry signals ready only after _end lands" \
 test_mutation 154 "_end lead ref re-uploaded, not provider link" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_pr10_216_fixes.py::test_end_still_lead_ref_is_downloaded_normalized_and_reuploaded" \
-    sed -i 's/lead_local = await _localize_lead_ref(lead_ref, episode_id, shot_id)/lead_local = lead_ref  # MUTATED/'
+    sed -i 's/lead_local, lead_sha = await _localize_lead_ref(lead_ref, episode_id, shot_id) if lead_ref else (None, None)/lead_local, lead_sha = (lead_ref, "0" * 64) if lead_ref else (None, None)  # MUTATED (provider link passed through)/'
 
 # 155: a failed/non-image start-still download refuses before any estimate/reserve/submit
 test_mutation 155 "Lead ref download failure refuses before spend" \
@@ -1511,6 +1511,153 @@ test_mutation 161 "ICC conversion covers RGBA refs" \
     "hfvg/image_normalize.py" \
     "tests/test_image_normalize_enhancements.py::test_icc_profile_converted_for_rgba_png" \
     sed -i 's/img.mode in ("RGB", "RGBA", "CMYK"):/img.mode in ("RGB", "CMYK"):  # MUTATED/'
+
+test_mutation 162 "Grok Image 2.0 effective ref cap is 5 (6 refused)" \
+    "hfvg/config.py" \
+    "tests/test_round4_shot_data.py::test_still_provider_refuses_instead_of_truncating_refs" \
+    sed -i 's/"xai\/grok-imagine-image-2.0": 5,/"xai\/grok-imagine-image-2.0": 8,  # MUTATED/'
+
+test_mutation 163 "lead over cap drops the anchor first" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
+    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if False and lead_local and anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+
+test_mutation 164 "anchor drop removes the anchor, not the lead" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
+    sed -i 's/del refs_with_anchor\[1\]   # the anchor/del refs_with_anchor[0]   # MUTATED the anchor/'
+
+test_mutation 165 "anchor drop never drops a planned ref" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
+    sed -i 's/del refs_with_anchor\[1\]   # the anchor/refs_with_anchor.pop()   # MUTATED the anchor/'
+
+test_mutation 166 "anchor never dropped without a lead" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_start_still_never_drops_anchor_without_a_lead" \
+    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+
+test_mutation 167 "still over cap after anchor drop is refused" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_still_over_cap_after_anchor_drop_is_refused_before_spend" \
+    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if False and refs_with_anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+
+test_mutation 168 "_end job id carries -lead<sha8>" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_without_anchor_keeps_lead_first" \
+    sed -i 's/lead_suffix = f"-lead{lead_sha8}" if lead_sha8 else ""/lead_suffix = ""  # MUTATED/'
+
+test_mutation 169 "dropped anchor removes the -anchor suffix" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
+    sed -i '/anchor_suffix = /s/ if anchor_used else ""/ if anchor else ""  # MUTATED/'
+
+test_mutation 170 "lead within cap keeps the anchor second" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_end_still_keeps_anchor_after_lead_when_within_cap" \
+    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if lead_local and anchor:  # MUTATED/'
+
+test_mutation 171 "per-model cap override via MODEL_MAX_REFS_JSON" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_ref_cap_lead_anchor.py::test_cap_is_configurable_per_model_and_keeps_anchor_when_raised" \
+    sed -i 's/    still_cap = max_refs_for(still_model_path())/    still_cap = 5  # MUTATED/'
+
+test_mutation 172 "end backfill reuses the landed start (no start resubmit)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_submits_only_the_end_still_with_the_landed_start_as_lead" \
+    sed -i 's/                reuse = shot_plan.get("reuse_start_still")/                reuse = None  # MUTATED/'
+
+test_mutation 173 "end backfill keeps the parked attempt (r3 ids)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_submits_only_the_end_still_with_the_landed_start_as_lead" \
+    sed -i 's/        shot_plan\["version"\] = attempt$/        shot_plan["version"] = attempt + 1  # MUTATED/'
+
+test_mutation 174 "end backfill leads with the landed start still" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_submits_only_the_end_still_with_the_landed_start_as_lead" \
+    sed -i 's/poll_result = {"url": reuse\["url"\], "cost": 0}/poll_result = {"url": "fake:\/\/wrong-start", "cost": 0}  # MUTATED/'
+
+test_mutation 175 "end backfill applies the supplied end_prompt" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_submits_only_the_end_still_with_the_landed_start_as_lead" \
+    sed -i 's/            shot_plan\["end_prompt"\] = end_prompt/            pass  # MUTATED/'
+
+test_mutation 176 "end backfill refused when the start failed" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_refused_when_start_failed" \
+    sed -i 's/        if not str(failed.get("reason", "")).startswith("End still failed"):/        if False:  # MUTATED/'
+
+test_mutation 177 "end backfill clears pending on resolve refusal" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_end_still_backfill.py::test_retry_end_still_resolve_refusal_spends_nothing_and_keeps_shot_failed" \
+    sed -i '/start = await workflow.execute_activity(/,/raise ApplicationError(f"Cannot backfill/s/self.state.pending_retries.pop(shot_id, None)/pass  # MUTATED/'
+
+test_mutation 178 "resolve refuses after an _end with lead was submitted" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_end_still_backfill.py::test_resolve_refuses_when_an_end_with_lead_was_already_submitted" \
+    sed -i 's/    if prior_end:/    if False and prior_end:  # MUTATED/'
+
+test_mutation 179 "resolve picks exactly this attempt's start" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_end_still_backfill.py::test_resolve_landed_start_still_finds_exactly_this_attempts_start" \
+    sed -i 's/    suffix = f"-r{attempt - 1}" if attempt > 1 else f"-v{version}"/    suffix = f"-r{attempt - 2}" if attempt > 1 else f"-v{version}"  # MUTATED/'
+
+test_mutation 180 "resolve requires a committed start" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_end_still_backfill.py::test_resolve_refuses_when_start_not_committed_or_not_completed" \
+    sed -i 's/    committed = \[r\[0\] for r in rows if r\[1\] == "committed"\]/    committed = [r[0] for r in rows]  # MUTATED/'
+
+test_mutation 181 "worker registers resolve_landed_start_still" \
+    "hfvg/worker.py" \
+    "tests/test_end_still_backfill.py::test_worker_registers_resolve_landed_start_still" \
+    sed -i 's/^    activities.resolve_landed_start_still,/    # MUTATED activities.resolve_landed_start_still,/'
+
+# RAW PROVIDER EVIDENCE MUTATIONS: full failure body + headers (X-Correlation-ID)
+
+test_mutation 182 "terminal failure logs raw body+headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/^        if status_str in ("failed", "nsfw", "blocked", "canceled"):/        if False:  # MUTATED/'
+
+test_mutation 183 "ProviderJob keeps raw status body" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/^            raw=data,/            raw=None,  # MUTATED/'
+
+test_mutation 184 "cookies stripped from kept headers" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_failed_status_keeps_raw_body_and_headers" \
+    sed -i 's/ if k.lower() not in _HIDDEN_HEADERS}/}  # MUTATED/'
+
+test_mutation 185 "submit summary counts image_urls" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_submit_rejection_carries_body_headers_and_request_summary" \
+    sed -i 's/"n_image_urls": len(payload.get("image_urls") or \[\]),/"n_image_urls": 0,  # MUTATED/'
+
+test_mutation 186 "submit success logs correlation id" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_submit_success_logs_correlation_id_and_summary" \
+    sed -i 's/data.get("request_id"), hdrs.get("x-correlation-id"), json.dumps(summary),/data.get("request_id"), None, json.dumps(summary),  # MUTATED/'
+
+test_mutation 187 "status HTTP error keeps body" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_provider_raw_failure_logging.py::test_status_http_error_carries_body_and_correlation_id" \
+    sed -i '/Higgsfield status {request_id} -> HTTP {response.status_code}/{n;s/: {body}",/: <dropped>",  # MUTATED/}'
+
+test_mutation 188 "poll failure error carries correlation id" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                error = f"{error} (x-correlation-id {cid})"/                pass  # MUTATED/'
+
+test_mutation 189 "poll failure returns raw body" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                "provider_raw": raw,/                "provider_raw": None,  # MUTATED/'
+
+test_mutation 190 "poll failure logs raw body" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
+    sed -i 's/^                f"| raw status body: {json.dumps(raw)} | response headers: {json.dumps(hdrs)}"/                f""  # MUTATED/'
 
 # Print final summary
 print_summary

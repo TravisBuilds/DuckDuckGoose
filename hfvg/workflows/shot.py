@@ -454,74 +454,84 @@ class ShotWorkflow:
                         "error": f"Pre-flight QC failed: {', '.join(precheck['issues'])}",
                     }
 
-                # Call enforced activity with individual parameters - returns dict with job info
-                # Retry loop for credit cap raises
-                while True:
-                    try:
-                        job_info = await workflow.execute_activity(
-                            submit_still_job_enforced,
-                            args=[
-                                self.episode_id,
-                                self.shot_id,
-                                shot_plan["prompt"],
-                                self.version,
-                                refs,
-                                resolution,
-                                quality,
-                                aspect_ratio,
-                                None,  # tier (activity default)
-                                shot_plan.get("shot_meta"),  # prompt lint metadata
-                                shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
-                                self.version,  # attempt
-                            ],
-                            start_to_close_timeout=timedelta(minutes=2),
-                            retry_policy=retry_policy,
-                        )
-                        break  # Success, exit retry loop
-                    except ActivityError as e:
-                        # Check if wrapped error is InsufficientCreditsError
-                        if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
-                            # Hard cap hit - pause and wait for cap raise
-                            workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
-                            self.status = "paused_cap"
-                            
-                            # Wait for parent to raise cap and signal us
-                            await workflow.wait_condition(lambda: self.cap_raised)
-                            
-                            workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
-                            self.status = "running"
-                            self.cap_raised = False  # Reset for potential future pauses
-                            # Loop will retry with same job_id (idempotent)
-                        else:
-                            # Other activity error - set failed status with cause
-                            self.still_status = "failed"
-                            error_message = str(e.cause) if e.cause else str(e)
-                            self.still_error = error_message
-                            workflow.logger.error(f"Still submit failed: {error_message}")
-                            return {
-                                "shot_id": self.shot_id,
-                                "status": "failed",
-                                "error": error_message,
-                            }
-
-                # Poll for completion using workflow-level polling loop (R1)
-                try:
-                    poll_result = await self._poll_job_to_completion(
-                        job_id=job_info["job_id"],
-                        job_type="still",
-                        line_name=job_info["line_name"],
-                        reserved_amount=job_info["reserved_amount"],
+                # End-only backfill (EpisodeWorkflowV2.retry_end_still): the start still for this
+                # attempt already landed and is reused as-is - NO start submit, no new start spend.
+                # Input-driven (not patched): histories without reuse_start_still replay unchanged.
+                reuse = shot_plan.get("reuse_start_still")
+                if reuse:
+                    workflow.logger.info(
+                        f"Reusing landed start still for {self.shot_id} (job {reuse.get('job_id')}): {reuse['url']}"
                     )
-                except RuntimeError as e:
-                    # Provider failure or polling exhaustion - update G2 status and return failure
-                    self.still_status = "failed"
-                    self.still_error = str(e)
-                    workflow.logger.error(f"Still generation failed: {e}")
-                    return {
-                        "shot_id": self.shot_id,
-                        "status": "failed",
-                        "error": str(e),
-                    }
+                    poll_result = {"url": reuse["url"], "cost": 0}
+                else:
+                    # Call enforced activity with individual parameters - returns dict with job info
+                    # Retry loop for credit cap raises
+                    while True:
+                        try:
+                            job_info = await workflow.execute_activity(
+                                submit_still_job_enforced,
+                                args=[
+                                    self.episode_id,
+                                    self.shot_id,
+                                    shot_plan["prompt"],
+                                    self.version,
+                                    refs,
+                                    resolution,
+                                    quality,
+                                    aspect_ratio,
+                                    None,  # tier (activity default)
+                                    shot_plan.get("shot_meta"),  # prompt lint metadata
+                                    shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
+                                    self.version,  # attempt
+                                ],
+                                start_to_close_timeout=timedelta(minutes=2),
+                                retry_policy=retry_policy,
+                            )
+                            break  # Success, exit retry loop
+                        except ActivityError as e:
+                            # Check if wrapped error is InsufficientCreditsError
+                            if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
+                                # Hard cap hit - pause and wait for cap raise
+                                workflow.logger.warning(f"Credit cap hit for {self.shot_id}, pausing")
+                                self.status = "paused_cap"
+                            
+                                # Wait for parent to raise cap and signal us
+                                await workflow.wait_condition(lambda: self.cap_raised)
+                            
+                                workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
+                                self.status = "running"
+                                self.cap_raised = False  # Reset for potential future pauses
+                                # Loop will retry with same job_id (idempotent)
+                            else:
+                                # Other activity error - set failed status with cause
+                                self.still_status = "failed"
+                                error_message = str(e.cause) if e.cause else str(e)
+                                self.still_error = error_message
+                                workflow.logger.error(f"Still submit failed: {error_message}")
+                                return {
+                                    "shot_id": self.shot_id,
+                                    "status": "failed",
+                                    "error": error_message,
+                                }
+
+                    # Poll for completion using workflow-level polling loop (R1)
+                    try:
+                        poll_result = await self._poll_job_to_completion(
+                            job_id=job_info["job_id"],
+                            job_type="still",
+                            line_name=job_info["line_name"],
+                            reserved_amount=job_info["reserved_amount"],
+                        )
+                    except RuntimeError as e:
+                        # Provider failure or polling exhaustion - update G2 status and return failure
+                        self.still_status = "failed"
+                        self.still_error = str(e)
+                        workflow.logger.error(f"Still generation failed: {e}")
+                        return {
+                            "shot_id": self.shot_id,
+                            "status": "failed",
+                            "error": str(e),
+                        }
                 
                 self.still_asset = {
                     "url": poll_result["url"],
