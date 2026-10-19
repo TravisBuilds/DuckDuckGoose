@@ -1659,6 +1659,48 @@ test_mutation 190 "poll failure logs raw body" \
     "tests/test_provider_raw_failure_logging.py::test_poll_activity_failure_returns_and_logs_raw_evidence" \
     sed -i 's/^                f"| raw status body: {json.dumps(raw)} | response headers: {json.dumps(hdrs)}"/                f""  # MUTATED/'
 
+# MODEL CAPABILITIES REGISTRY MUTATIONS
+
+test_mutation 191 "resolve() falls back to first model instead of raising" \
+    "hfvg/model_caps.py" \
+    "tests/test_model_caps_registry.py::test_unknown_model_refused" \
+    sed -i 's/raise UnknownModelError(/return list(self.models.values())[0]  # MUTATED; raise UnknownModelError(/'
+
+test_mutation 192 "max_refs_for returns higgsfield value instead of value" \
+    "hfvg/config.py" \
+    "tests/test_model_caps_registry.py::test_stricter_value_wins_grok" \
+    sed -i 's/registry_value = limit.value/registry_value = limit.higgsfield or limit.value  # MUTATED/'
+
+test_mutation 193 "override min(...) -> max(...) (raise allowed without flag)" \
+    "hfvg/config.py" \
+    "tests/test_model_caps_registry.py::test_override_can_lower_not_raise" \
+    sed -i 's/if override_value <= registry_value:/if override_value >= registry_value:  # MUTATED/'
+
+test_mutation 194 "still ref count uses len(planned) instead of assemble_still_refs output" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_end_still_counts_after_anchor_drop" \
+    sed -i 's/assembled, _ = assemble_still_refs(/planned_refs = shot.get("ref_keys", []); assembled = planned_refs  # MUTATED; assembled, _ = assemble_still_refs(/'
+
+test_mutation 195 "> -> >= in ref-cap comparison" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_still_over_cap_refused_with_creator_message" \
+    sed -i 's/if max_refs_limit and not max_refs_limit.unknown and len(assembled) > max_refs_limit.value:/if max_refs_limit and not max_refs_limit.unknown and len(assembled) >= max_refs_limit.value:  # MUTATED/'
+
+test_mutation 196 "unknown limit treated as 0 (refuse)" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
+    sed -i 's/if prompt_limit and not prompt_limit.unknown and len(prompt) > prompt_limit.value:/if prompt_limit and (not prompt_limit.unknown or True) and len(prompt) > (prompt_limit.value if not prompt_limit.unknown else 0):  # MUTATED/'
+
+test_mutation 197 "duration integer check removed" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_duration_rules" \
+    sed -i 's/if integer_required and not isinstance(duration, int) and duration != int(duration):/if False and integer_required:  # MUTATED/'
+
+test_mutation 198 "Kling prompt limit read from upstream (3072)" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
+    sed -i 's/clip_prompt_limit = caps.limit("prompt_max_chars")/clip_prompt_limit = caps.limit("prompt_max_chars"); clip_prompt_limit.value = clip_prompt_limit.upstream if clip_prompt_limit and clip_prompt_limit.upstream else clip_prompt_limit.value if clip_prompt_limit else None  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?
