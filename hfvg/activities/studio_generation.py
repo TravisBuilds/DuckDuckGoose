@@ -454,7 +454,7 @@ async def submit_still_job_enforced(
     # Build route with anchor if present (preflight needs this for assembly)
     route = {
         "still_model": still_model_path(),
-        "anchor_ref": anchor_ref if anchor_ref else None,
+        "anchor_ref": anchor_path if anchor else None,
     }
     
     phase = "end" if shot_id.endswith("_end") else "start"

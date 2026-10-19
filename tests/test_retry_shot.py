@@ -605,7 +605,7 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
                 refs=[],
                 resolution="1k",
                 quality="medium",
-                aspect_ratio=None,
+                aspect_ratio="9:16",  # Valid aspect ratio required by preflight
                 tier=None,
                 shot_meta={"count": 0},
                 missing_refs=[],
@@ -621,7 +621,7 @@ async def test_retry_shot_distinct_job_id_and_idempotency_key(monkeypatch):
                 refs=[],
                 resolution="1k",
                 quality="medium",
-                aspect_ratio=None,
+                aspect_ratio="9:16",  # Valid aspect ratio required by preflight
                 tier=None,
                 shot_meta={"count": 0},
                 missing_refs=[],
