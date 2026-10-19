@@ -8,7 +8,6 @@ start, duck, family, mochi, pool. If still over the cap: refuse before any spend
 import hashlib
 import io
 import json
-from hfvg import model_caps
 
 import httpx
 import pytest
@@ -130,7 +129,9 @@ async def test_end_still_still_over_cap_after_anchor_drop_is_refused_before_spen
     db_path, refs, _, puts, est, sub = await _setup(tmp_path, monkeypatch)
     planned = [refs[k] for k in ("duck", "family", "mochi", "pool", "extra")]
     err = await acapture(ValueError, _submit("A02_end", planned, START_URL))
-    assert err is not None and "6 refs" in str(err) and "limit of 5" in str(err) and "refusing" in str(err), err
+    from hfvg.preflight import PreflightError
+    assert isinstance(err, PreflightError) and err.non_retryable, repr(err)
+    assert "6 reference images" in str(err) and "at most 5" in str(err) and "start still" in str(err), err
     assert sub.call_count == 0 and est.call_count == 0 and not puts, "over-cap _end reached the provider"
     status = await BudgetLedger(db_path).get_line_status("ep99", "L2_drafts")
     assert status["reserved"] == 0, status
@@ -152,7 +153,9 @@ async def test_start_still_never_drops_anchor_without_a_lead(tmp_path, monkeypat
     planned = [refs[k] for k in ("duck", "family", "mochi", "pool", "extra")]
     err = await acapture(ValueError, _submit("A02", planned, None))
     assert err is not None, f"over-cap start still (no lead) was submitted, sent {_sent(sub, puts) if sub.call_count else []}"
-    assert "6 refs" in str(err) and "refusing" in str(err), err
+    from hfvg.preflight import PreflightError
+    assert isinstance(err, PreflightError), repr(err)
+    assert "6 reference images" in str(err) and "at most 5" in str(err) and "Remove 1" in str(err), err
     assert sub.call_count == 0 and est.call_count == 0 and not puts
 
 
@@ -170,8 +173,7 @@ async def test_end_still_without_anchor_keeps_lead_first(tmp_path, monkeypatch):
 async def test_cap_is_configurable_per_model_and_keeps_anchor_when_raised(tmp_path, monkeypatch):
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({GROK: 6}))
-    monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")  # Required to raise cap above registry value
-    model_caps._registry = None  # Clear cache to pick up new env vars
+    monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")  # raising above the documented cap needs the explicit flag
     out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "mochi", "pool")], START_URL)
     assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "mochi", "pool"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}-anchor{anchor_sha[:8]}", out

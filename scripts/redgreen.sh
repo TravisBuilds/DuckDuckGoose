@@ -1012,9 +1012,9 @@ test_mutation 82 "M-R4n Live clip held when planned refs are missing" \
 
 # 83. M-R4o Still activity refuses refs over the limit
 test_mutation 83 "M-R4o Still activity refuses refs over the limit" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/preflight.py" \
     "tests/test_round4_shot_data.py::test_live_still_over_ref_limit_is_refused_not_truncated" \
-    sed -i 's/^    if refs_with_anchor and len(refs_with_anchor) > still_cap:$/    if False:  # MUTATED/'
+    sed -i 's/^    if len(assembled) > cap:$/    if False:  # MUTATED/'
 
 # 84. M-R4p Still provider refuses instead of truncating refs
 test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
@@ -1155,33 +1155,33 @@ test_mutation 105 "M-R5a Still provider cap follows its model" \
 
 # 106. M-R5b Still activity cap follows MODEL_PATH_STILL
 test_mutation 106 "M-R5b Still activity cap follows the still model" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/preflight.py" \
     "tests/test_model_ref_caps.py::test_live_still_activity_cap_follows_the_still_model" \
-    sed -i 's/^    still_cap = max_refs_for(still_model_path())$/    still_cap = 3  # MUTATED/'
+    sed -i 's/^    cap = max_refs_for(model)$/    cap = 3  # MUTATED/'
 
 # 107. M-R5c Per-model table lookup is used
 test_mutation 107 "M-R5c Per-model table lookup is used" \
     "hfvg/config.py" \
     "tests/test_model_ref_caps.py::test_default_caps_match_documented_limits" \
-    sed -i 's/^    if model_path in table:$/    if False:  # MUTATED/'
+    sed -i 's/^    caps = registry.resolve(model_path)  # raises UnknownModelError$/    caps = registry.resolve(still_model_path())  # MUTATED/'
 
 # 108. M-R5d MODEL_MAX_REFS_JSON override is honoured
 test_mutation 108 "M-R5d MODEL_MAX_REFS_JSON override is honoured" \
     "hfvg/config.py" \
     "tests/test_model_ref_caps.py::test_env_json_overrides_one_model_only" \
-    sed -i 's/^    override = os.getenv("MODEL_MAX_REFS_JSON")$/    override = None  # MUTATED/'
+    sed -i 's/^    override_json = os.getenv("MODEL_MAX_REFS_JSON")$/    override_json = None  # MUTATED/'
 
 # 109. M-R5e Negative per-model cap is rejected
 test_mutation 109 "M-R5e Negative per-model cap is rejected" \
     "hfvg/config.py" \
     "tests/test_model_ref_caps.py::test_env_json_negative_cap_is_rejected" \
-    sed -i 's/^            if cap < 0:$/            if False:  # MUTATED/'
+    sed -i 's/^            if override_value < 0:$/            if False:  # MUTATED/'
 
-# 110. M-R5f Unknown models fall back to STILL_MAX_REFS
-test_mutation 110 "M-R5f Unknown models fall back to STILL_MAX_REFS" \
+# 110. M-R5f Unknown models are refused (no fallback cap)
+test_mutation 110 "M-R5f Unknown models are refused (no fallback cap)" \
     "hfvg/config.py" \
-    "tests/test_model_ref_caps.py::test_unknown_model_falls_back_to_still_max_refs" \
-    sed -i 's/^    return int(os.getenv("STILL_MAX_REFS", "3"))$/    return 3  # MUTATED/'
+    "tests/test_model_ref_caps.py::test_unknown_model_raises_with_no_fallback" \
+    sed -i 's/^    caps = registry.resolve(model_path)  # raises UnknownModelError$/    caps = registry.models.get(model_path) or registry.resolve(still_model_path())  # MUTATED/'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BUG FIX MUTATIONS: Harness canary bugs (PR #10)
@@ -1253,13 +1253,13 @@ test_mutation 121 "Retry increments version for unique job_id" \
 test_mutation 119 "Anchor still is injected into refs" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_anchor_still.py::test_anchor_still_injected_into_refs" \
-    sed -i 's/ + (\[anchor_path\] if anchor else \[\]) + / + [] + /'
+    sed -i 's/^        anchor=anchor_path if anchor else None,$/        anchor=None,  # MUTATED/'
 
 # 120. M-anchor-cap: Anchor + refs enforces ref cap
 test_mutation 120 "Anchor + refs respects model ref cap" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/preflight.py" \
     "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
-    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check original refs, not with anchor/'
+    sed -i 's/assembled, _ = assemble_still_refs(lead=lead, anchor=route.get("anchor_ref"),/assembled, _ = assemble_still_refs(lead=lead, anchor=None,  # MUTATED/'
 
 # 122: End-frame anchor: strip '_end' suffix to find anchor
 test_mutation 122 "End-frame anchor: strip _end suffix" \
@@ -1269,9 +1269,9 @@ test_mutation 122 "End-frame anchor: strip _end suffix" \
 
 # 123: Ref cap on end frames includes the anchor
 test_mutation 123 "Ref cap on end frames includes anchor" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_harness_pr10_mutations.py::test_end_frame_anchor_enforces_ref_cap" \
-    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if refs and len(refs) > still_cap:  # MUTATED - check refs without anchor on end frame/'
+    sed -i 's/^    refs = (\[lead\] if lead else \[\]) + (\[anchor\] if anchor else \[\]) + planned$/    refs = ([lead] if lead else []) + planned  # MUTATED/'
 
 # 124: Retry refused after G2 is approved
 test_mutation 124 "Retry refused after G2 is approved" \
@@ -1513,34 +1513,34 @@ test_mutation 161 "ICC conversion covers RGBA refs" \
     sed -i 's/img.mode in ("RGB", "RGBA", "CMYK"):/img.mode in ("RGB", "CMYK"):  # MUTATED/'
 
 test_mutation 162 "Grok Image 2.0 effective ref cap is 5 (6 refused)" \
-    "hfvg/config.py" \
+    "hfvg/data/model_caps.json" \
     "tests/test_round4_shot_data.py::test_still_provider_refuses_instead_of_truncating_refs" \
-    sed -i 's/"xai\/grok-imagine-image-2.0": 5,/"xai\/grok-imagine-image-2.0": 8,  # MUTATED/'
+    sed -i '0,/"value": 5,/s//"value": 8,/'
 
 test_mutation 163 "lead over cap drops the anchor first" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
-    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if False and lead_local and anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+    sed -i 's/^    if lead and anchor and len(refs) > cap:$/    if False and lead and anchor and len(refs) > cap:  # MUTATED/'
 
 test_mutation 164 "anchor drop removes the anchor, not the lead" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
-    sed -i 's/del refs_with_anchor\[1\]   # the anchor/del refs_with_anchor[0]   # MUTATED the anchor/'
+    sed -i 's/^        refs = \[lead\] + planned$/        refs = [anchor] + planned  # MUTATED/'
 
 test_mutation 165 "anchor drop never drops a planned ref" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_ref_cap_lead_anchor.py::test_end_still_drops_anchor_first_when_lead_pushes_over_cap" \
-    sed -i 's/del refs_with_anchor\[1\]   # the anchor/refs_with_anchor.pop()   # MUTATED the anchor/'
+    sed -i 's/^        refs = \[lead\] + planned$/        refs = [lead, anchor] + planned[:-1]  # MUTATED/'
 
 test_mutation 166 "anchor never dropped without a lead" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_ref_cap_lead_anchor.py::test_start_still_never_drops_anchor_without_a_lead" \
-    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+    sed -i -e 's/^    if lead and anchor and len(refs) > cap:$/    if anchor and len(refs) > cap:  # MUTATED/' -e 's/^        refs = \[lead\] + planned$/        refs = ([lead] if lead else []) + planned  # MUTATED/'
 
 test_mutation 167 "still over cap after anchor drop is refused" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/preflight.py" \
     "tests/test_ref_cap_lead_anchor.py::test_end_still_still_over_cap_after_anchor_drop_is_refused_before_spend" \
-    sed -i 's/if refs_with_anchor and len(refs_with_anchor) > still_cap:/if False and refs_with_anchor and len(refs_with_anchor) > still_cap:  # MUTATED/'
+    sed -i 's/^    if len(assembled) > cap:$/    if len(assembled) > cap + 1:  # MUTATED/'
 
 test_mutation 168 "_end job id carries -lead<sha8>" \
     "hfvg/activities/studio_generation.py" \
@@ -1553,9 +1553,9 @@ test_mutation 169 "dropped anchor removes the -anchor suffix" \
     sed -i '/anchor_suffix = /s/ if anchor_used else ""/ if anchor else ""  # MUTATED/'
 
 test_mutation 170 "lead within cap keeps the anchor second" \
-    "hfvg/activities/studio_generation.py" \
+    "hfvg/still_refs.py" \
     "tests/test_ref_cap_lead_anchor.py::test_end_still_keeps_anchor_after_lead_when_within_cap" \
-    sed -i 's/if lead_local and anchor and len(refs_with_anchor) > still_cap:/if lead_local and anchor:  # MUTATED/'
+    sed -i 's/^    if lead and anchor and len(refs) > cap:$/    if lead and anchor:  # MUTATED/'
 
 test_mutation 171 "per-model cap override via MODEL_MAX_REFS_JSON" \
     "hfvg/activities/studio_generation.py" \
@@ -1661,110 +1661,145 @@ test_mutation 190 "poll failure logs raw body" \
 
 # MODEL CAPABILITIES REGISTRY MUTATIONS
 
-test_mutation 191 "resolve() falls back to first model instead of raising" \
+test_mutation 191 "resolve() falls back to the first model instead of raising" \
     "hfvg/model_caps.py" \
     "tests/test_model_caps_registry.py::test_unknown_model_refused" \
-    sed -i 's/raise UnknownModelError(/return list(self.models.values())[0]  # MUTATED; raise UnknownModelError(/'
+    sed -i 's/^        raise UnknownModelError($/        return list(self.models.values())[0]  # MUTATED\n&/'
 
-test_mutation 192 "max_refs_for returns higgsfield value instead of value" \
+test_mutation 192 "max_refs_for returns the Higgsfield value instead of the stricter value" \
     "hfvg/config.py" \
-    "tests/test_model_caps_registry.py::test_stricter_value_wins_grok" \
+    "tests/test_model_ref_caps.py::test_default_caps_match_documented_limits" \
     sed -i 's/registry_value = limit.value/registry_value = limit.higgsfield or limit.value  # MUTATED/'
 
-test_mutation 193 "override min(...) -> max(...) (raise allowed without flag)" \
+test_mutation 193 "override <= -> >= (raise allowed, lower refused)" \
     "hfvg/config.py" \
     "tests/test_model_caps_registry.py::test_override_can_lower_not_raise" \
     sed -i 's/if override_value <= registry_value:/if override_value >= registry_value:  # MUTATED/'
 
-test_mutation 194 "still ref count uses len(planned) instead of assemble_still_refs output" \
+test_mutation 194 "still ref count uses the planned refs instead of assemble_still_refs output" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_end_still_counts_after_anchor_drop" \
-    sed -i 's/assembled, _ = assemble_still_refs(/planned_refs = shot.get("ref_keys", []); assembled = planned_refs  # MUTATED; assembled, _ = assemble_still_refs(/'
+    "tests/test_caps_preflight.py::test_end_still_counts_after_anchor_drop" \
+    sed -i 's/    assembled, _ = assemble_still_refs(lead=lead, anchor=route.get("anchor_ref"),/    assembled, _ = (list(shot.get("ref_keys") or []), None) if True else assemble_still_refs(lead=lead, anchor=route.get("anchor_ref"),  # MUTATED/'
 
-test_mutation 195 "> -> >= in ref-cap comparison" \
+test_mutation 195 "> -> >= in the ref-cap comparison" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_still_over_cap_refused_with_creator_message" \
-    sed -i 's/if max_refs_limit and not max_refs_limit.unknown and len(assembled) > max_refs_limit.value:/if max_refs_limit and not max_refs_limit.unknown and len(assembled) >= max_refs_limit.value:  # MUTATED/'
+    "tests/test_caps_preflight.py::test_still_over_cap_refused_with_creator_message" \
+    sed -i 's/    if len(assembled) > cap:/    if len(assembled) >= cap:  # MUTATED/'
 
-test_mutation 196 "unknown limit treated as 0 (refuse)" \
+test_mutation 196 "unknown prompt limit treated as 0 (refuse)" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
-    sed -i 's/if prompt_limit and not prompt_limit.unknown and len(prompt) > prompt_limit.value:/if prompt_limit and (not prompt_limit.unknown or True) and len(prompt) > (prompt_limit.value if not prompt_limit.unknown else 0):  # MUTATED/'
+    "tests/test_caps_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
+    sed -i 's/^    limit = caps.limit("prompt_max_chars")$/&\n    limit = limit.model_copy(update={"value": 0, "basis": "higgsfield"}) if limit is not None and limit.unknown else limit  # MUTATED/'
 
-test_mutation 197 "duration integer check removed" \
+test_mutation 197 "whole-seconds duration check removed" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_duration_rules" \
-    sed -i 's/if integer_required and not isinstance(duration, int) and duration != int(duration):/if False and integer_required:  # MUTATED/'
+    "tests/test_caps_preflight.py::test_duration_rules" \
+    sed -i 's/fractional = dlim.value.get("integer") and float(duration) != int(duration)/fractional = False  # MUTATED/'
 
-test_mutation 198 "Kling prompt limit read from upstream (3072)" \
+test_mutation 198 "Kling prompt limit read from upstream (3072) instead of Higgsfield (2500)" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
-    sed -i 's/clip_prompt_limit = caps.limit("prompt_max_chars")/clip_prompt_limit = caps.limit("prompt_max_chars"); clip_prompt_limit.value = clip_prompt_limit.upstream if clip_prompt_limit and clip_prompt_limit.upstream else clip_prompt_limit.value if clip_prompt_limit else None  # MUTATED/'
+    "tests/test_caps_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
+    sed -i 's/^    limit = caps.limit("prompt_max_chars")$/&\n    limit = limit.model_copy(update={"value": limit.upstream}) if limit is not None and limit.upstream else limit  # MUTATED/'
 
 test_mutation 199 "aspect check skipped" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_aspect_resolution_quality" \
-    sed -i 's/if isinstance(aspect_limit.value, list) and aspect not in aspect_limit.value:/if False and isinstance(aspect_limit.value, list):  # MUTATED/'
+    "tests/test_caps_preflight_extended.py::test_aspect_resolution_quality" \
+    sed -i 's/"aspect_ratio", "aspect_ratios",/"aspect_ratio", "aspect_ratios_MUTATED",/'
 
 test_mutation 200 "frame format check skipped" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_frames_rules" \
-    sed -i 's/if detected_format and detected_format not in allowed_formats:/if False and detected_format:  # MUTATED/'
+    "tests/test_caps_preflight_extended.py::test_frames_rules" \
+    sed -i 's/if flim and not flim.unknown and isinstance(flim.value, list) and fmt not in flim.value:/if False and flim:  # MUTATED/'
 
 test_mutation 201 "mcp_only_not_on_api status allowed" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_model_status_rules" \
-    sed -i 's/if caps.status == "mcp_only_not_on_api":/if False and caps.status == "mcp_only_not_on_api":  # MUTATED/'
+    "tests/test_caps_preflight_extended.py::test_model_status_rules" \
+    sed -i 's/    if caps.status in REFUSE_STATUSES:/    if False and caps.status in REFUSE_STATUSES:  # MUTATED/'
 
 test_mutation 202 "SFX min 0.5 -> 0.1" \
     "hfvg/data/model_caps.json" \
-    "tests/test_preflight.py::test_audio_limits" \
-    sed -i 's/"min": 0.5,/"min": 0.1,  # MUTATED/'
+    "tests/test_caps_preflight_extended.py::test_audio_limits" \
+    sed -i 's/"min": 0.5,/"min": 0.1,/'
 
-test_mutation 203 "preflight call moved after estimate_usd_and_credits" \
+test_mutation 203 "submit preflight ignores the actual anchor" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
-    sed -i '/# Preflight: validate shot against model capabilities/,/for warning in warnings_list:/d'
+    "tests/test_anchor_still.py::test_anchor_still_enforces_ref_cap" \
+    sed -i 's/{"still_model": still_model_path(), "anchor_ref": anchor_path if anchor else None,/{"still_model": still_model_path(), "anchor_ref": None,  # MUTATED/'
 
 test_mutation 204 "PreflightError made retryable" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
-    sed -i 's/self.non_retryable = True/self.non_retryable = False  # MUTATED/'
+    "tests/test_caps_enforcement.py::test_still_preflight_runs_before_estimate_and_reserve" \
+    sed -i 's/super().__init__(message, type="PreflightError", non_retryable=True)/super().__init__(message, type="PreflightError", non_retryable=False)  # MUTATED/'
 
-test_mutation 205 "clip preflight call removed" \
+test_mutation 205 "clip preflight removed from submit" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_preflight.py::test_clip_preflight_runs_before_estimate_and_reserve" \
-    sed -i '/# Preflight: validate clip against model capabilities/,/activity.logger.warning/d'
+    "tests/test_caps_enforcement.py::test_clip_preflight_runs_before_estimate_and_reserve" \
+    sed -i '/# Preflight: validate the clip against/,/activity.logger.warning(f"Preflight warning: {preflight.format_violation(w)}")/d'
 
 test_mutation 206 "G1 approval ignores preflight errors" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_preflight.py::test_g1_refused_while_preflight_errors" \
-    sed -i 's/if preflight_errors:/if False and preflight_errors:  # MUTATED/'
+    "tests/test_caps_enforcement.py::test_g1_refused_while_preflight_errors" \
+    sed -i 's/^        if preflight_errors:$/        if False and preflight_errors:  # MUTATED/'
 
-test_mutation 207 "format_violation drops source/checked suffix" \
+test_mutation 207 "format_violation drops the source/checked suffix" \
     "hfvg/preflight.py" \
-    "tests/test_preflight.py::test_still_over_cap_refused_with_creator_message" \
-    sed -i 's/msg += f" Limit source:/pass  # MUTATED; msg += f" Limit source:/'
+    "tests/test_caps_preflight.py::test_still_over_cap_refused_with_creator_message" \
+    sed -i 's/        msg += f" Limit source:/        pass  # MUTATED; msg += f" Limit source:/'
 
 test_mutation 208 "freshness check compares with > 3650 days" \
     "hfvg/model_caps.py" \
     "tests/test_model_caps_registry.py::test_caps_freshness_warns" \
     sed -i 's/return age_days > self.recheck_interval_days/return age_days > 3650  # MUTATED/'
 
-test_mutation 209 "drift comparison ignores maxItems" \
+test_mutation 209 "drift check ignores a maxItems change" \
     "scripts/recheck_model_caps.py" \
     "tests/test_recheck_model_caps.py::test_recheck_detects_schema_drift" \
-    sed -i '/if "maxItems" in schema:/,/diffs.append/d'
+    sed -i 's/if registry_value != max_items:/if False:  # MUTATED/'
 
 test_mutation 210 "coverage collector skips AUDIO_COSTS keys" \
     "tests/test_model_caps_registry.py" \
     "tests/test_model_caps_registry.py::test_every_configured_model_has_caps" \
-    sed -i 's/models_to_check.update(AUDIO_COSTS.keys())/pass  # MUTATED; models_to_check.update(AUDIO_COSTS.keys())/'
+    sed -i 's/ids |= set(AUDIO_COSTS) | /ids |= /'
 
 test_mutation 211 "still preflight removed from submit" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
-    sed -i '/# Preflight: validate shot against model capabilities/,/activity.logger.warning.*Preflight warning/d'
+    "tests/test_caps_enforcement.py::test_still_preflight_runs_before_estimate_and_reserve" \
+    sed -i '/# Preflight: validate the still against/,/activity.logger.warning(f"Preflight warning: {preflight.format_violation(w)}")/d'
+
+test_mutation 212 "still preflight drops the actual lead (end stills under-counted at submit)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_caps_enforcement.py::test_end_still_over_cap_with_lead_refused_before_fetching_the_lead" \
+    sed -i 's/         "lead_ref": lead_ref or None},/         "lead_ref": None},  # MUTATED/'
+
+test_mutation 213 "G1 plan skips preflight" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_caps_enforcement.py::test_g1_refused_while_preflight_errors" \
+    sed -i 's/    report = preflight_plans(shots, anchors=await _anchors(episode_id, shots))/    report = {"shots": {}, "errors": [], "violations": []}  # MUTATED/'
+
+test_mutation 214 "end_frame False counted as an end frame" \
+    "hfvg/preflight.py" \
+    "tests/test_caps_preflight_extended.py::test_plan_normalizer_reads_plans_and_shots_json" \
+    sed -i 's/    return value not in (None, False, "", 0)/    return value is not None  # MUTATED/'
+
+test_mutation 215 "quality checked as asked instead of as sent (high refused)" \
+    "hfvg/preflight.py" \
+    "tests/test_caps_preflight_extended.py::test_aspect_resolution_quality" \
+    sed -i 's/    sent = provider_quality(asked)/    sent = asked  # MUTATED/'
+
+test_mutation 216 "preflight endpoint ignores the uploaded shots.json" \
+    "api/main.py" \
+    "tests/test_caps_enforcement.py::test_preflight_endpoint_reports_per_shot_pass_fail" \
+    sed -i 's/        shots = raw\["shots"\]/        shots = []  # MUTATED/'
+
+test_mutation 217 "registry cache ignores a changed MODEL_CAPS_PATH" \
+    "hfvg/model_caps.py" \
+    "tests/test_model_caps_registry.py::test_caps_freshness_warns" \
+    sed -i 's/    if _registry is None or _registry_path != _default_path():/    if _registry is None:  # MUTATED/'
+
+test_mutation 218 "raising an override without the flag is silent" \
+    "hfvg/config.py" \
+    "tests/test_model_caps_registry.py::test_override_can_lower_not_raise" \
+    sed -i 's/            warnings.warn(msg, UserWarning, stacklevel=2)/            pass  # MUTATED/'
 
 # Print final summary
 print_summary

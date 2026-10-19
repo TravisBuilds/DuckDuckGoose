@@ -1,8 +1,39 @@
 """G1 credit plan activity: estimate credits and USD for all shots."""
 
+import os
+from pathlib import Path
+
 from temporalio import activity
 
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
+
+
+async def _anchors(episode_id: str, shots: list[dict]) -> dict[str, str]:
+    """Anchor stills already configured for these shots (so preflight counts them like submit does).
+    Never creates a database: no DB or no anchor table means no anchors."""
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    if not Path(db_path).exists():
+        return {}
+    from hfvg.studio_db import get_anchor_still
+    out = {}
+    for shot in shots:
+        sid = shot.get("shot_id") or shot.get("id")
+        try:
+            anchor = await get_anchor_still(db_path, episode_id, sid)
+        except Exception:
+            return {}
+        if anchor:
+            out[sid] = anchor["local_path"]
+    return out
+
+
+async def preflight_g1(episode_id: str, shots: list[dict]) -> dict:
+    """Preflight every shot (still start/end + clip) against the model caps registry."""
+    from hfvg.preflight import preflight_plans
+    report = preflight_plans(shots, anchors=await _anchors(episode_id, shots))
+    for text in report["errors"]:
+        activity.logger.warning(f"[G1 preflight] {text}")
+    return report
 
 
 @activity.defn
@@ -29,7 +60,16 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             - estimates_available: False if any estimate failed
     """
     shot_estimates = []
-    
+
+    # Preflight first, in dry and live runs: G1 approval is refused while any shot breaks a model limit
+    report = await preflight_g1(episode_id, shots)
+    preflight_fields = {
+        "preflight": report["shots"],
+        "preflight_errors": report["errors"],
+        "dry_run": dry_run,
+    }
+    # Estimates still run (free /estimate calls) so the plan shows costs next to the errors.
+
     # In dry run, return placeholder estimates without real API calls
     if dry_run:
         for shot in shots:
@@ -54,6 +94,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             "total_clip_usd": f"{len(shots) * 0.25:.2f}",
             "total_usd": f"{len(shots) * 0.30:.2f}",
             "estimates_available": True,
+            **preflight_fields,
         }
     
     # Live mode: make real provider calls
@@ -184,5 +225,5 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
         "total_clip_usd": f"{total_clip_usd:.2f}",
         "total_usd": f"{total_usd:.2f}",
         "estimates_available": not any_unavailable,  # False if any estimate failed
-        "dry_run": dry_run,  # Pass through for workflow validation
+        **preflight_fields,  # preflight, preflight_errors, dry_run (workflow validation)
     }

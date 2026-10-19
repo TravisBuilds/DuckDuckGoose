@@ -4,6 +4,8 @@ import json
 import os
 from typing import Optional
 
+import warnings
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -84,9 +86,15 @@ def max_refs_for(model_path: str) -> int:
                     source=source_desc,
                 )
                 return override_value
-            else:
-                # Silently clamp to registry value (don't raise)
-                return registry_value
+            # Raise without the flag: clamp to the registry cap, loudly (never silently)
+            msg = (
+                f"MODEL_MAX_REFS_JSON asks {override_value} refs for {model_path}, above the documented "
+                f"cap {registry_value}; using {registry_value} (set MODEL_CAPS_ALLOW_RAISE=1 to raise)"
+            )
+            logger.warning("MODEL_MAX_REFS_JSON raise ignored", model=model_path,
+                           registry_value=registry_value, override_value=override_value)
+            warnings.warn(msg, UserWarning, stacklevel=2)
+            return registry_value
 
     return registry_value
 

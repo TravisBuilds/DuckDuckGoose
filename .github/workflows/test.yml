@@ -64,6 +64,10 @@ jobs:
       working-directory: web
       run: npm run lint
 
+    - name: Unit tests (limits formatter)
+      working-directory: web
+      run: npm run test:unit
+
     - name: Build
       working-directory: web
       run: npm run build

@@ -658,81 +658,38 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
 
 @cli.command()
 @click.argument("episode_id")
-def preflight(episode_id: str):
+@click.option("--shots", "shots_path", default=None, help="shots.json path (default: data/episodes/<id>/shots.json)")
+def preflight(episode_id: str, shots_path: str | None):
     """
-    Run preflight checks on an episode and print violations.
-    
+    Check every shot of an episode against the model limits (no provider calls).
+
     Exit code 0 if no errors, 1 if errors exist.
-    
+
     Example:
         hfvg preflight ep05
     """
-    from hfvg import model_caps, preflight
-    from hfvg.config import still_model_path
-    import aiosqlite
-    import asyncio
-    
-    async def _preflight():
-        db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-        registry = model_caps.get_registry()
-        
-        # Load beatmap from DB
-        async with aiosqlite.connect(db_path) as db:
-            async with db.execute(
-                "SELECT beatmap FROM episodes WHERE id = ?", (episode_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if not row or not row[0]:
-                    click.echo(f"❌ Episode {episode_id} not found or no beatmap", err=True)
-                    return 1
-                
-                beatmap = json.loads(row[0])
-                shots = beatmap.get("shots", [])
-        
-        if not shots:
-            click.echo(f"❌ No shots found in episode {episode_id}", err=True)
-            return 1
-        
-        # Build routing
-        routing = {}
-        for shot in shots:
-            shot_id = shot["id"]
-            routing[shot_id] = {
-                "still_model": still_model_path(),
-                "clip_model": "kling-video/v3.0/pro/image-to-video",
-            }
-        
-        # Run preflight
-        violations = preflight.preflight_episode(shots, routing, registry, files=None)
-        
-        # Print results
-        errors = [v for v in violations if v.severity == "error"]
-        warnings = [v for v in violations if v.severity == "warning"]
-        
-        click.echo(f"\n{'='*60}")
-        click.echo(f"Preflight Report: {episode_id}")
-        click.echo(f"{'='*60}\n")
-        
-        if errors:
-            click.echo(f"❌ {len(errors)} Error(s):\n", err=True)
-            for v in errors:
-                click.echo(f"  • {preflight.format_violation(v)}", err=True)
-            click.echo("")
-        
-        if warnings:
-            click.echo(f"⚠️  {len(warnings)} Warning(s):\n")
-            for v in warnings:
-                click.echo(f"  • {preflight.format_violation(v)}")
-            click.echo("")
-        
-        if not errors and not warnings:
-            click.echo("✓ All checks passed. No violations.\n")
-        
-        click.echo(f"{'='*60}\n")
-        
-        return 1 if errors else 0
-    
-    exit_code = asyncio.run(_preflight())
     import sys
-    sys.exit(exit_code)
+    from pathlib import Path
+    from hfvg.preflight import preflight_plans
+    from hfvg.shot_data import ShotDataError, parse_shots
 
+    path = Path(shots_path) if shots_path else Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    if not path.exists():
+        click.echo(f"❌ {path} not found", err=True)
+        sys.exit(1)
+    try:
+        raw = json.loads(path.read_text())
+        parse_shots(raw)
+    except (ValueError, ShotDataError) as e:
+        click.echo(f"❌ Invalid shots.json: {e}", err=True)
+        sys.exit(1)
+
+    report = preflight_plans(raw["shots"])
+    click.echo(f"Preflight report: {episode_id} ({path})")
+    for sid, res in report["shots"].items():
+        click.echo(f"  {'✓' if res['ok'] else '✗'} {sid}")
+        for text in res["errors"]:
+            click.echo(f"      error: {text}", err=True)
+        for text in res["warnings"]:
+            click.echo(f"      warning: {text}")
+    sys.exit(1 if report["errors"] else 0)
