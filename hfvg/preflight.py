@@ -126,12 +126,12 @@ def preflight_shot(
             # In practice, lead_ref would be the start still path, but for preflight we just know it exists
             lead_ref = "placeholder_start_still"  # Counted as 1 ref
 
-        # Get anchor if configured (would come from DB in practice; for preflight assume None or check route)
-        anchor_ref = route.get("anchor_ref")  # None unless specified
+        # Get anchor if configured (would come from DB in practice; for preflight check route)
+        anchor_ref = route.get("anchor_ref")
 
         # Assemble refs using the same logic as submit
         max_refs = max_refs_for(still_model)
-        assembled, _ = assemble_still_refs(
+        assembled, anchor_used = assemble_still_refs(
             lead=lead_ref,
             anchor=anchor_ref,
             planned=planned_refs,

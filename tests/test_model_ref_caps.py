@@ -5,39 +5,61 @@ import httpx
 import pytest
 import respx
 
-from hfvg.config import DEFAULT_MODEL_MAX_REFS, max_refs_for, model_max_refs_table
+from hfvg.config import max_refs_for
+from hfvg import model_caps
 from tests.lint_helpers import acapture, capture, lint_meta, lint_ok
 from tests.test_round4_shot_data import _live_env
 
 
 def test_default_caps_match_documented_limits():
     # docs say 10, but live ep05 runs failed instantly ("Generation failed") with 6-7 refs and
-    # succeeded with <=5, so the effective default is 5 (see hfvg/config.py).
+    # succeeded with <=5, so the effective default is 5 (see model_caps.json).
     assert max_refs_for("xai/grok-imagine-image-2.0") == 5
     assert max_refs_for("alibaba/qwen-image-3/edit") == 3  # docs max 3
     assert max_refs_for("bytedance/seedance-2.5/reference-to-video") == 8  # docs max 30
-    assert max_refs_for("kling-video/v3.0/pro/image-to-video") == 3  # unconfirmed
+    # Note: kling i2v has max_refs=0 (no refs, only frames)
+    caps = model_caps.get_registry().resolve("kling-video/v3.0/pro/image-to-video")
+    assert caps.limit("max_refs").value == 0
 
 
-def test_unknown_model_falls_back_to_still_max_refs(monkeypatch):
+def test_unknown_model_raises_with_no_fallback(monkeypatch):
+    # Unknown models now raise UnknownModelError instead of falling back to 3
     monkeypatch.delenv("STILL_MAX_REFS", raising=False)
-    assert max_refs_for("vendor/unknown-model") == 3
-    monkeypatch.setenv("STILL_MAX_REFS", "2")
-    assert max_refs_for("vendor/unknown-model") == 2
-    assert max_refs_for("xai/grok-imagine-image-2.0") == 5  # table wins over the fallback
+    err = capture(model_caps.UnknownModelError, max_refs_for, "vendor/unknown-model")
+    assert err is not None, "Unknown model should raise, not fall back"
+    
+    # Known models still work
+    assert max_refs_for("xai/grok-imagine-image-2.0") == 5
 
 
 def test_env_json_overrides_one_model_only(monkeypatch):
-    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 6}))
-    assert max_refs_for("xai/grok-imagine-image-2.0") == 6
+    # Override can lower (no flag needed)
+    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 4}))
+    model_caps._registry = None  # Clear cache
+    assert max_refs_for("xai/grok-imagine-image-2.0") == 4
     assert max_refs_for("alibaba/qwen-image-3/edit") == 3
-    assert DEFAULT_MODEL_MAX_REFS["xai/grok-imagine-image-2.0"] == 5  # defaults not mutated
+    
+    # Override to raise requires MODEL_CAPS_ALLOW_RAISE=1
+    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 6}))
+    monkeypatch.delenv("MODEL_CAPS_ALLOW_RAISE", raising=False)
+    model_caps._registry = None
+    assert max_refs_for("xai/grok-imagine-image-2.0") == 5  # Clamped to registry value
+    
+    # With flag, raise is allowed
+    monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")
+    model_caps._registry = None
+    assert max_refs_for("xai/grok-imagine-image-2.0") == 6
+    
+    # Clean up
+    model_caps._registry = None
 
 
 def test_env_json_negative_cap_is_rejected(monkeypatch):
-    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"x/y": -1}))
-    err = capture(ValueError, model_max_refs_table)
+    monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": -1}))
+    model_caps._registry = None
+    err = capture(ValueError, max_refs_for, "xai/grok-imagine-image-2.0")
     assert err is not None, "a negative cap must be rejected, not accepted"
+    model_caps._registry = None
 
 
 @pytest.mark.asyncio
