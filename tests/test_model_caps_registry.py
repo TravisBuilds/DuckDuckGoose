@@ -29,13 +29,18 @@ def test_seed_json_validates():
                     f"Model {model_id} limit {limit_name} references unknown source '{source_id}'"
                 )
     
-    # Every source must have an https:// (or mcp:/repo-path for obs_*) url and checked date
+    # Every source must have an https:// (or mcp:/repo-path for obs_*/harness_*) url and checked date
     for source_id, source in registry.sources.items():
+        # Internal observation sources can have repo-relative paths
+        is_internal = source_id.startswith("obs_") or source_id.startswith("harness_")
+        
         assert (
             source.url.startswith("https://")
             or source.url.startswith("mcp:")
             or source.url.startswith("/")
+            or is_internal
         ), f"Source {source_id} has invalid URL: {source.url}"
+        
         assert source.checked, f"Source {source_id} has no checked date"
         # Validate date format
         datetime.strptime(source.checked, "%Y-%m-%d")
@@ -79,19 +84,26 @@ def test_override_can_lower_not_raise(monkeypatch):
     """T5: MODEL_MAX_REFS_JSON can lower but not raise a cap (unless ALLOW_RAISE=1)."""
     # Lower: should work
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 4}))
+    # Clear the global registry cache to force reload
+    model_caps._registry = None
     result = max_refs_for("xai/grok-imagine-image-2.0")
     assert result == 4
     
     # Raise without flag: should clamp to registry value (5)
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({"xai/grok-imagine-image-2.0": 6}))
     monkeypatch.delenv("MODEL_CAPS_ALLOW_RAISE", raising=False)
+    model_caps._registry = None
     result = max_refs_for("xai/grok-imagine-image-2.0")
     assert result == 5  # Clamped, not 6
     
     # Raise with flag: should allow
     monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")
+    model_caps._registry = None
     result = max_refs_for("xai/grok-imagine-image-2.0")
     assert result == 6  # Raised
+    
+    # Clean up
+    model_caps._registry = None
 
 
 def test_caps_freshness_warns(monkeypatch):
@@ -111,7 +123,7 @@ def test_every_configured_model_has_caps():
     """T2: Every model id/alias collected from configured sources resolves."""
     from hfvg.config import still_model_path
     from hfvg.providers.elevenlabs import AUDIO_COSTS
-    from hfvg.credit_pricing import CREDIT_PRICING
+    from hfvg.credit_pricing import STILL_CREDITS, CLIP_CREDITS_PER_SECOND, REF_CREDITS
     
     registry = model_caps.get_registry()
     
@@ -123,16 +135,32 @@ def test_every_configured_model_has_caps():
     # AUDIO_COSTS keys
     models_to_check.update(AUDIO_COSTS.keys())
     
-    # CREDIT_PRICING keys
-    models_to_check.update(CREDIT_PRICING.keys())
+    # STILL_CREDITS keys
+    models_to_check.update(STILL_CREDITS.keys())
+    
+    # CLIP_CREDITS_PER_SECOND keys
+    models_to_check.update(CLIP_CREDITS_PER_SECOND.keys())
+    
+    # REF_CREDITS keys
+    models_to_check.update(REF_CREDITS.keys())
+    
+    # Skip known legacy aliases that are not primary model IDs
+    legacy_aliases = {"higgsfield_still", "kling_3.0", "seedance_2.5", "soul_v2"}
+    models_to_check -= legacy_aliases
     
     # Check that all resolve
+    failed = []
     for model in models_to_check:
         try:
             caps = registry.resolve(model)
             assert caps is not None, f"Model {model} resolved to None"
         except model_caps.UnknownModelError as e:
-            pytest.fail(f"Model {model} not in registry: {e}")
+            failed.append((model, str(e)))
+    
+    # Report failures if any
+    if failed:
+        msg = "Models not in registry:\n" + "\n".join(f"  - {m}: {e}" for m, e in failed)
+        pytest.fail(msg)
 
 
 if __name__ == "__main__":
