@@ -654,3 +654,85 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
         click.echo(f"❌ Error: {str(e)}", err=True)
         import sys
         sys.exit(1)
+
+
+@cli.command()
+@click.argument("episode_id")
+def preflight(episode_id: str):
+    """
+    Run preflight checks on an episode and print violations.
+    
+    Exit code 0 if no errors, 1 if errors exist.
+    
+    Example:
+        hfvg preflight ep05
+    """
+    from hfvg import model_caps, preflight
+    from hfvg.config import still_model_path
+    import aiosqlite
+    import asyncio
+    
+    async def _preflight():
+        db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+        registry = model_caps.get_registry()
+        
+        # Load beatmap from DB
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT beatmap FROM episodes WHERE id = ?", (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row or not row[0]:
+                    click.echo(f"❌ Episode {episode_id} not found or no beatmap", err=True)
+                    return 1
+                
+                beatmap = json.loads(row[0])
+                shots = beatmap.get("shots", [])
+        
+        if not shots:
+            click.echo(f"❌ No shots found in episode {episode_id}", err=True)
+            return 1
+        
+        # Build routing
+        routing = {}
+        for shot in shots:
+            shot_id = shot["id"]
+            routing[shot_id] = {
+                "still_model": still_model_path(),
+                "clip_model": "kling-video/v3.0/pro/image-to-video",
+            }
+        
+        # Run preflight
+        violations = preflight.preflight_episode(shots, routing, registry, files=None)
+        
+        # Print results
+        errors = [v for v in violations if v.severity == "error"]
+        warnings = [v for v in violations if v.severity == "warning"]
+        
+        click.echo(f"\n{'='*60}")
+        click.echo(f"Preflight Report: {episode_id}")
+        click.echo(f"{'='*60}\n")
+        
+        if errors:
+            click.echo(f"❌ {len(errors)} Error(s):\n", err=True)
+            for v in errors:
+                click.echo(f"  • {preflight.format_violation(v)}", err=True)
+            click.echo("")
+        
+        if warnings:
+            click.echo(f"⚠️  {len(warnings)} Warning(s):\n")
+            for v in warnings:
+                click.echo(f"  • {preflight.format_violation(v)}")
+            click.echo("")
+        
+        if not errors and not warnings:
+            click.echo("✓ All checks passed. No violations.\n")
+        
+        click.echo(f"{'='*60}\n")
+        
+        return 1 if errors else 0
+    
+    exit_code = asyncio.run(_preflight())
+    import sys
+    sys.exit(exit_code)
+

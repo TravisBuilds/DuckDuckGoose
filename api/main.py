@@ -2400,3 +2400,106 @@ async def set_anchor_still(
         "approved_by": approved_by,
         "message": f"Anchor still set for {len(target_shot_ids)} shot(s)",
     }
+
+
+@app.get("/api/models")
+async def get_models(
+    admin_secret: Annotated[str | None, Header()] = None,
+):
+    """Get model capabilities for all offered models."""
+    require_admin(admin_secret)
+    
+    from hfvg import model_caps
+    
+    registry = model_caps.get_registry()
+    
+    # Return creator view for all active models
+    models_data = []
+    for model_id, caps in registry.models.items():
+        if caps.status in ("active_default_still", "active_default_clip", "active_default_tts", 
+                          "active_routed", "active", "active_ref_generation"):
+            view = model_caps.creator_view(model_id)
+            models_data.append(view)
+    
+    return {
+        "models": models_data,
+        "stale": registry.stale(),
+        "checked": registry.checked,
+    }
+
+
+class PreflightRequest(BaseModel):
+    """Preflight check request."""
+    
+    shots: list[dict] | None = None  # Optional: check specific shots
+
+
+@app.post("/api/episodes/{episode_id}/preflight")
+async def preflight_episode(
+    episode_id: str,
+    request: PreflightRequest,
+    admin_secret: Annotated[str | None, Header()] = None,
+):
+    """Run preflight checks on episode shots."""
+    require_admin(admin_secret)
+    
+    from hfvg import model_caps, preflight
+    from hfvg.config import still_model_path
+    
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    registry = model_caps.get_registry()
+    
+    # Get shots from request or load from DB
+    if request.shots:
+        shots = request.shots
+    else:
+        # Load shots from beatmap
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT beatmap FROM episodes WHERE id = ?", (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row or not row[0]:
+                    raise HTTPException(status_code=404, detail="Episode not found or no beatmap")
+                
+                beatmap = json.loads(row[0])
+                shots = beatmap.get("shots", [])
+    
+    # Build routing for each shot
+    routing = {}
+    for shot in shots:
+        shot_id = shot["id"]
+        routing[shot_id] = {
+            "still_model": still_model_path(),
+            "clip_model": "kling-video/v3.0/pro/image-to-video",  # Default
+        }
+    
+    # Run preflight
+    violations = preflight.preflight_episode(shots, routing, registry, files=None)
+    
+    # Format violations
+    formatted_violations = []
+    for v in violations:
+        formatted_violations.append({
+            "shot_id": v.shot_id,
+            "frame": v.frame,
+            "model": v.model,
+            "field": v.field,
+            "limit": v.limit,
+            "actual": v.actual,
+            "severity": v.severity,
+            "message": preflight.format_violation(v),
+        })
+    
+    # Separate errors and warnings
+    errors = [v for v in formatted_violations if v["severity"] == "error"]
+    warnings = [v for v in formatted_violations if v["severity"] == "warning"]
+    
+    return {
+        "episode_id": episode_id,
+        "violations": formatted_violations,
+        "errors": errors,
+        "warnings": warnings,
+        "has_errors": len(errors) > 0,
+    }
+
