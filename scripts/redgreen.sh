@@ -1701,6 +1701,66 @@ test_mutation 198 "Kling prompt limit read from upstream (3072)" \
     "tests/test_preflight.py::test_prompt_limit_kling_refused_unknown_grok_allowed" \
     sed -i 's/clip_prompt_limit = caps.limit("prompt_max_chars")/clip_prompt_limit = caps.limit("prompt_max_chars"); clip_prompt_limit.value = clip_prompt_limit.upstream if clip_prompt_limit and clip_prompt_limit.upstream else clip_prompt_limit.value if clip_prompt_limit else None  # MUTATED/'
 
+test_mutation 199 "aspect check skipped" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_aspect_resolution_quality" \
+    sed -i 's/if isinstance(aspect_limit.value, list) and aspect not in aspect_limit.value:/if False and isinstance(aspect_limit.value, list):  # MUTATED/'
+
+test_mutation 200 "frame format check skipped" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_frames_rules" \
+    sed -i 's/if detected_format and detected_format not in allowed_formats:/if False and detected_format:  # MUTATED/'
+
+test_mutation 201 "mcp_only_not_on_api status allowed" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_model_status_rules" \
+    sed -i 's/if caps.status == "mcp_only_not_on_api":/if False and caps.status == "mcp_only_not_on_api":  # MUTATED/'
+
+test_mutation 202 "SFX min 0.5 -> 0.1" \
+    "hfvg/data/model_caps.json" \
+    "tests/test_preflight.py::test_audio_limits" \
+    sed -i 's/"min": 0.5,/"min": 0.1,  # MUTATED/'
+
+test_mutation 203 "preflight call moved after estimate_usd_and_credits" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
+    sed -i '/# Preflight: validate shot against model capabilities/,/for warning in warnings_list:/d'
+
+test_mutation 204 "PreflightError made retryable" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_still_preflight_runs_before_estimate_and_reserve" \
+    sed -i 's/self.non_retryable = True/self.non_retryable = False  # MUTATED/'
+
+test_mutation 205 "clip preflight call removed" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_preflight.py::test_clip_preflight_runs_before_estimate_and_reserve" \
+    sed -i '/# Preflight: validate clip against model capabilities/,/activity.logger.warning/d'
+
+test_mutation 206 "G1 approval ignores preflight errors" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_preflight.py::test_g1_refused_while_preflight_errors" \
+    sed -i 's/if preflight_errors:/if False and preflight_errors:  # MUTATED/'
+
+test_mutation 207 "format_violation drops source/checked suffix" \
+    "hfvg/preflight.py" \
+    "tests/test_preflight.py::test_still_over_cap_refused_with_creator_message" \
+    sed -i 's/msg += f" Limit source:/pass  # MUTATED; msg += f" Limit source:/'
+
+test_mutation 208 "freshness check compares with > 3650 days" \
+    "hfvg/model_caps.py" \
+    "tests/test_model_caps_registry.py::test_caps_freshness_warns" \
+    sed -i 's/return age_days > self.recheck_interval_days/return age_days > 3650  # MUTATED/'
+
+test_mutation 209 "drift comparison ignores maxItems" \
+    "scripts/recheck_model_caps.py" \
+    "tests/test_recheck_model_caps.py::test_recheck_detects_schema_drift" \
+    sed -i '/if "maxItems" in schema:/,/diffs.append/d'
+
+test_mutation 210 "coverage collector skips AUDIO_COSTS keys" \
+    "tests/test_model_caps_registry.py" \
+    "tests/test_model_caps_registry.py::test_every_configured_model_has_caps" \
+    sed -i 's/models_to_check.update(AUDIO_COSTS.keys())/pass  # MUTATED; models_to_check.update(AUDIO_COSTS.keys())/'
+
 # Print final summary
 print_summary
 exit_code=$?
