@@ -759,15 +759,14 @@ async def submit_clip_job_enforced(
 
         # Preflight: validate clip against model capabilities BEFORE any upload, estimate, or reserve
         from hfvg import preflight, model_caps
-        from hfvg.config import MODEL_PATH_KLING, MODEL_PATH_SEEDANCE
         
         registry = model_caps.get_registry()
         
-        # Map route.model to full model path
+        # Map route.model to full model path (use same defaults as providers)
         if route.model == "kling":
-            clip_model_path = MODEL_PATH_KLING
+            clip_model_path = os.getenv("MODEL_PATH_KLING", "kling-video/v3.0/pro/image-to-video")
         elif route.model == "seedance":
-            clip_model_path = MODEL_PATH_SEEDANCE
+            clip_model_path = os.getenv("MODEL_PATH_SEEDANCE", "bytedance/seedance-2.5/image-to-video")
         else:
             clip_model_path = route.model  # Fallback to raw value
         
