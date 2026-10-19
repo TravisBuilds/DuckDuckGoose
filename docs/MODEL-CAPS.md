@@ -232,6 +232,10 @@ It asserts `model_caps.resolve()` succeeds for each. Adding a model anywhere wit
   4. lists upstream URLs to re-read by hand (xAI, OpenAI, Kling, BytePlus, ElevenLabs)
 
   Output is a markdown diff for a human to apply. Offline tests run it against the saved snapshot in `tests/fixtures/`.
+  The snapshot `tests/fixtures/higgsfield_llms_full_2026-10-19.txt` is the real dump (fetched 2026-10-19 01:44 Europe/Paris), not synthetic.
+  The script itself never fetches; save a fresh dump and pass `--fixture`. Limits with a deliberately tighter basis
+  (`stricter_*`, `conservative_*`, `harness_policy`, `intersection`) only drift when upstream drops below them; untracked upstream
+  endpoints (77 on 2026-10-19) are informational unless `--strict`.
 * Owner checklist (in this doc): on every Higgsfield or vendor model announcement, and at least monthly, run the script, update values plus
   `checked`, and re-run the coverage tests.
 
