@@ -1,3 +1,10 @@
+# SYNTHETIC FIXTURE
+# This is a synthetic fixture created for testing, not a real Higgsfield API capture.
+# Higgsfield does not publish a public llms-full.txt endpoint.
+# Models and schemas are based on documented Higgsfield model IDs and capabilities.
+# Created: 2026-10-19
+# Source: docs.higgsfield.ai documentation and hfvg/data/model_caps.json
+
 {
   "models": [
     {
