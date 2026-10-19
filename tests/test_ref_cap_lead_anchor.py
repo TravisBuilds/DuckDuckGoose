@@ -8,6 +8,7 @@ start, duck, family, mochi, pool. If still over the cap: refuse before any spend
 import hashlib
 import io
 import json
+from hfvg import model_caps
 
 import httpx
 import pytest
@@ -169,6 +170,8 @@ async def test_end_still_without_anchor_keeps_lead_first(tmp_path, monkeypatch):
 async def test_cap_is_configurable_per_model_and_keeps_anchor_when_raised(tmp_path, monkeypatch):
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({GROK: 6}))
+    monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")  # Required to raise cap above registry value
+    model_caps._registry = None  # Clear cache to pick up new env vars
     out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "mochi", "pool")], START_URL)
     assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "mochi", "pool"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}-anchor{anchor_sha[:8]}", out
