@@ -9,7 +9,7 @@ Implements the documented Higgsfield API:
 
 Uses Kling 3.0 Pro (sound off): kling-video/v3.0/pro/image-to-video
 - Native 1080p
-- 3-12s duration (cost scales linearly with length)
+- 3-15s duration (cost scales linearly with length)
 - Cost: ~1.5 credits/second
 """
 
@@ -288,7 +288,7 @@ class KlingVideoProvider(GenerationProvider):
         Args:
             image_url: Public URL of start image
             prompt: Generation prompt
-            duration: Video duration in seconds (3-12), integer
+            duration: Video duration in seconds (3-15), integer
             idempotency_key: Idempotency key (default: deterministic based on params)
         
         Returns:

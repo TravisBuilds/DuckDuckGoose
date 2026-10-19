@@ -93,6 +93,12 @@ class ElevenLabsProvider(GenerationProvider):
         if self.dry_run:
             return self._mock_job_id("aud")
 
+        # Map harness model ids to upstream ElevenLabs model_id
+        # "eleven_music" is not a valid ElevenLabs model; map to music_v1
+        model_id = model
+        if model == "eleven_music":
+            model_id = "music_v1"
+
         # Real API call
         # ElevenLabs text_to_speech.convert() returns a generator of audio chunks
         # We'll store the result and return a job ID
@@ -100,7 +106,7 @@ class ElevenLabsProvider(GenerationProvider):
         audio_generator = self.client.text_to_speech.convert(
             voice_id=voice_id,
             text=text,
-            model_id=model,
+            model_id=model_id,
             voice_settings=settings or {}
         )
         
