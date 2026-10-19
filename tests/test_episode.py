@@ -60,5 +60,5 @@ async def test_episode_state_query(tmp_path):
             await handle.cancel()
             try:
                 await handle.result()
-            except:
+            except Exception:
                 pass

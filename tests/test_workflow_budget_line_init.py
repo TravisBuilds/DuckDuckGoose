@@ -1,0 +1,229 @@
+"""Workflow-level test: Verify budget lines are initialized before generation.
+
+This test MUST fail if init_episode_budget_lines_activity call is removed from workflow.
+"""
+
+import asyncio
+import os
+import pytest
+import aiosqlite
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+from unittest.mock import AsyncMock, patch
+
+from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+from hfvg import activities
+from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
+from hfvg.activities.credit_activities import (
+    init_episode_credit_line_activity,
+    init_episode_budget_lines_activity,
+)
+from hfvg.studio_db import init_studio_db
+
+
+@pytest.mark.asyncio
+async def test_workflow_creates_budget_lines_before_stills(tmp_path, monkeypatch):
+    """
+    Workflow-level test: EpisodeWorkflowV2 must create budget lines before stills.
+    
+    This test MUST FAIL if init_episode_budget_lines_activity call is removed from workflow.
+    Mutation: replacing the call at ~line 169 with `budget_result = {}` breaks this test.
+    """
+    episode_id = "ep99"
+    db_path = str(tmp_path / "test.db")
+    
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
+    
+    # Initialize DB
+    await init_studio_db(db_path)
+    
+    # Create episode
+    async with aiosqlite.connect(db_path, uri=True) as db:
+        await db.execute("""
+            INSERT INTO episodes (episode_id, beatmap_path, live_mode, g108_approved)
+            VALUES (?, ?, 1, 1)
+        """, (episode_id, ""))
+        await db.commit()
+    
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        # Mock activities that aren't relevant to budget line creation
+        from temporalio import activity
+        
+        @activity.defn(name="parse_beatmap_activity")
+        async def mock_beatmap(*args):
+            return {
+                "shots": [{
+                    "shot_id": "A01",
+                    "prompt": "Test shot",
+                    "count": 1,
+                    "characters": ["D"],
+                    "wet": False,
+                    "model": "kling",
+                    "duration": 3,
+                    "end_frame": False,
+                    "ref_keys": []
+                }]
+            }
+        
+        @activity.defn(name="load_refs_to_generate_activity")
+        async def mock_refs(*args):
+            return []
+        
+        @activity.defn(name="preflight_validate_episode_activity")
+        async def mock_preflight(*args):
+            return {"status": "passed", "episode_id": episode_id, "validated_shots": 1, 
+                    "available_refs": 0, "to_generate_refs": 0}
+        
+        @activity.defn(name="upsert_episode_activity")
+        async def mock_upsert(*args):
+            return {"ok": True}
+        
+        @activity.defn(name="verify_episode_files_activity")
+        async def mock_verify(*args):
+            return {"passed": True}
+        
+        # Mock still submission to not actually submit
+        @activity.defn(name="submit_still_job_enforced")
+        async def mock_submit_still(*args, **kwargs):
+            # This is where budget reserve happens - we want it to succeed
+            # to prove budget lines were created
+            return {"job_id": "still-test", "line_name": "L2_drafts", "reserved_amount": 100_000}
+        
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[EpisodeWorkflowV2],
+            activities=[
+                activities.load_gate_policy_activity,
+                mock_beatmap,
+                mock_preflight,
+                mock_upsert,
+                mock_verify,
+                activities.approve_g108_activity,
+                init_episode_credit_line_activity,
+                init_episode_budget_lines_activity,  # CRITICAL: workflow must call this
+                mock_refs,
+                mock_submit_still,
+                acquire_run_lock,
+                release_run_lock,
+            ],
+        ):
+            # Start workflow
+            handle = await env.client.start_workflow(
+                EpisodeWorkflowV2.run,
+                args=[episode_id, None, False, None, 500],  # credit_cap=500
+                id=f"test-{episode_id}",
+                task_queue="test-queue",
+            )
+            
+            # Poll until budget lines are created or workflow reaches G1 (with timeout)
+            # This handles race conditions under suite load
+            count = 0
+            deadline = asyncio.get_event_loop().time() + 5.0  # 5 second timeout
+            budget_lines_ready = False
+            
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    async with aiosqlite.connect(db_path, uri=True) as db:
+                        async with db.execute(
+                            "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                            (episode_id,)
+                        ) as cur:
+                            count = (await cur.fetchone())[0]
+                            if count > 0:
+                                budget_lines_ready = True
+                                break
+                except Exception:
+                    # Table doesn't exist yet or DB not ready, keep polling
+                    pass
+                
+                # Also check if workflow reached G1 (means init ran)
+                try:
+                    state = await handle.query(EpisodeWorkflowV2.get_state)
+                    if state.get("current_gate") == "G1_SHOT_PLAN":
+                        budget_lines_ready = True
+                        # Re-query count after reaching gate
+                        async with aiosqlite.connect(db_path, uri=True) as db:
+                            async with db.execute(
+                                "SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?",
+                                (episode_id,)
+                            ) as cur:
+                                count = (await cur.fetchone())[0]
+                        break
+                except Exception:
+                    pass
+                
+                await asyncio.sleep(0.05)  # Poll every 50ms
+            
+            # If we timed out, gather debug info
+            if not budget_lines_ready:
+                test_db = db_path
+                env_db = os.getenv("DATABASE_PATH", "NOT_SET")
+                
+                # Check if table exists in either location
+                def check_table(path):
+                    import sqlite3
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name='budget_lines'"
+                        )
+                        has_table = cursor.fetchone() is not None
+                        conn.close()
+                        return has_table
+                    except Exception:
+                        return False
+                
+                test_has_table = check_table(test_db)
+                env_has_table = check_table(env_db) if env_db != "NOT_SET" else False
+                
+                raise AssertionError(
+                    f"Timed out waiting for budget_lines table (5s). Database path mismatch?\n"
+                    f"  Test querying: {test_db} (table exists: {test_has_table})\n"
+                    f"  DATABASE_PATH env: {env_db} (table exists: {env_has_table})\n"
+                    f"  Budget lines count: {count}"
+                )
+            
+            # ASSERTION 1: Budget lines must exist
+            # If init_episode_budget_lines_activity call is removed from workflow, this FAILS
+            assert count > 0, (
+                f"Budget lines not created! Expected >0, got {count}. "
+                f"Workflow must call init_episode_budget_lines_activity before generation.\n"
+                f"  DATABASE_PATH: {os.getenv('DATABASE_PATH', 'NOT_SET')}\n"
+                f"  Test db_path: {db_path}"
+            )
+            
+            # ASSERTION 2: At least L7_revision should be created (always created by policy)
+            async with aiosqlite.connect(db_path, uri=True) as db:
+                async with db.execute(
+                    "SELECT line_name FROM budget_lines WHERE episode_id = ?",
+                    (episode_id,)
+                ) as cur:
+                    lines = [row[0] async for row in cur]
+            
+            assert "L7_revision" in lines, (
+                f"L7_revision line not found. Got lines: {lines}. "
+                f"Workflow must call init_episode_budget_lines_activity."
+            )
+            
+            # Approve G1 to proceed to stills (would trigger still generation if we let it run)
+            await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
+            
+            # Wait a bit for it to start stills phase
+            await asyncio.sleep(0.2)
+            
+            # Terminate workflow (we've verified budget lines exist)
+            await handle.cancel()
+            
+            # ASSERTION 3: Verify budget lines are usable (were initialized correctly)
+            # This tests that the lines have proper cap/stop values
+            from hfvg.budget import BudgetLedger
+            ledger = BudgetLedger(db_path)
+            
+            for line_name in lines:
+                status = await ledger.get_line_status(episode_id, line_name)
+                assert status["budget_cap"] > 0, f"Line {line_name} has no cap (not initialized properly)"
+                assert status["stop_threshold"] > 0, f"Line {line_name} has no stop (not initialized properly)"

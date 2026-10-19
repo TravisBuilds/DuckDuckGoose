@@ -19,6 +19,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!web/lib/
 lib64/
 parts/
 sdist/
@@ -64,3 +65,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+data/
+!hfvg/data/

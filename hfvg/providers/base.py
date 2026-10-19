@@ -23,8 +23,11 @@ class ProviderJob(BaseModel):
     status: ProviderJobStatus
     progress: float = 0.0  # 0.0 to 1.0
     output_url: str | None = None
-    cost: float = 0.0
+    cost: float | None = None
     error: str | None = None
+    # Full provider evidence (status body + response headers incl. X-Correlation-ID) for diagnosis
+    raw: dict[str, Any] | None = None
+    response_headers: dict[str, str] | None = None
 
 
 class GenerationProvider:

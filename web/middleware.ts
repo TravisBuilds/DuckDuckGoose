@@ -10,9 +10,10 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public marketing pages
+  // Allow public marketing pages and login
   if (
     pathname === '/' ||
+    pathname === '/login' ||
     pathname.startsWith('/archetypes') ||
     pathname.startsWith('/pricing') ||
     pathname.startsWith('/_next') ||
@@ -28,7 +29,7 @@ export function middleware(request: NextRequest) {
     if (!adminCookie) {
       // Redirect to login
       const url = request.nextUrl.clone();
-      url.pathname = '/studio/login';
+      url.pathname = '/login';
       url.searchParams.set('from', pathname);
       return NextResponse.redirect(url);
     }

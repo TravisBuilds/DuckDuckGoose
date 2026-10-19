@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function StudioLoginPage() {
+function LoginForm() {
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,22 +17,25 @@ export default function StudioLoginPage() {
     setLoading(true);
 
     try {
-      // Test the secret by calling the API health endpoint
-      const response = await fetch('/api/studio/verify', {
+      // Call the backend /api/login to get a session cookie
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ secret }),
+        body: JSON.stringify({ admin_secret: secret }),
+        credentials: 'include', // Important: include cookies
       });
 
       if (!response.ok) {
         throw new Error('Invalid admin secret');
       }
 
-      // Set cookie and redirect
-      document.cookie = `studio_admin_token=${secret}; path=/; max-age=86400; samesite=strict`;
-      router.push(from);
+      // Backend sets httpOnly session cookie automatically
+      // Do NOT store the raw secret in any cookie or localStorage
+      // Use window.location.assign to avoid prefetch cache issues
+      window.location.assign(from);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
       setLoading(false);
@@ -90,5 +93,19 @@ export default function StudioLoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function StudioLoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
