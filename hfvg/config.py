@@ -142,10 +142,6 @@ class Config:
     # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
     MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
 
-    # Fallback max refs for models missing from DEFAULT_MODEL_MAX_REFS (see max_refs_for). Over the
-    # limit the harness REFUSES (never silently truncates a shot's ref list).
-    STILL_MAX_REFS: int = int(os.getenv("STILL_MAX_REFS", "3"))
-    
     # Max retry attempts per shot (server-side enforcement)
     MAX_SHOT_RETRIES: int = int(os.getenv("MAX_SHOT_RETRIES", "1"))
     
