@@ -1177,16 +1177,25 @@ async def reject_still(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Reject still for a shot.
+    Reject still for a shot and persist the rejection state.
     
     Requires: Cookie auth
     """
     await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
     
-    # Audit log
+    # Persist rejection in studio.db
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Update shot status to rejected
+        await db.execute(
+            """UPDATE shots 
+               SET status = 'rejected', rejection_reason = ?, updated_at = datetime('now')
+               WHERE episode_id = ? AND shot_id = ?""",
+            (reason, episode_id, shot_id)
+        )
+        
+        # Audit log
         await db.execute(
             """INSERT INTO audit_log (episode_id, action, details, user)
                VALUES (?, ?, ?, ?)""",
@@ -1194,7 +1203,19 @@ async def reject_still(
         )
         await db.commit()
     
-    return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
+    # Send rejection signal to workflow
+    try:
+        async with await WorkflowClient.connect(settings.TEMPORAL_HOST, settings.TEMPORAL_NAMESPACE) as client:
+            workflow_id = episode_workflow_id(episode_id)
+            handle = client.get_workflow_handle(workflow_id)
+            await handle.execute_update("reject_shot", shot_id, reason)
+    except Exception as e:
+        # Workflow may not exist yet or already completed - log but continue
+        import structlog
+        logger = structlog.get_logger(__name__)
+        logger.warning(f"Could not signal workflow {workflow_id} for rejection: {e}")
+    
+    return {"success": True, "shot_id": shot_id, "message": "Still rejected", "reason": reason}
 
 
 """

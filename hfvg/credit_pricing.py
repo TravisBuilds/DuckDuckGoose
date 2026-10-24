@@ -29,10 +29,6 @@ STILL_CREDITS = {
         "high": 1.12,     # Grok Image 2.0 (actual cost ~1.12 credits)
         "standard": 1.12,  # Grok Image 2.0 standard
     },
-    "gpt_image_2": {
-        "high": 1.12,      # GPT Image 2 (deprecated, use Grok)
-        "standard": 1.12,  # GPT Image 2 standard
-    },
     "higgsfield_still": {
         "high": 5.0,      # Higgsfield high quality
         "standard": 3.0,  # Higgsfield standard

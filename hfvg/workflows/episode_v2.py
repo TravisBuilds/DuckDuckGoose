@@ -550,7 +550,14 @@ class EpisodeWorkflowV2:
         results = []
         # Use shot_results to get latest handle (includes retries)
         for shot in shots:
-            handle = self.shot_results.get(shot["shot_id"])
+            shot_id = shot["shot_id"]
+            
+            # Skip rejected shots - they should never reach clip generation
+            if self.state.shot_decisions.get(shot_id) == "rejected":
+                workflow.logger.info(f"Skipping clip generation for rejected shot {shot_id}")
+                continue
+            
+            handle = self.shot_results.get(shot_id)
             if not handle:
                 continue
             # Process credit cap raise before each handle check
@@ -728,6 +735,40 @@ class EpisodeWorkflowV2:
                 f"Wait for the retry still to complete and be reviewed first.",
                 non_retryable=True
             )
+    
+    @workflow.update
+    async def reject_shot(self, shot_id: str, reason: str) -> dict:
+        """
+        Reject a shot's still at G2 review.
+        
+        Marks the shot as rejected and prevents it from progressing to clip generation.
+        The shot can be retried via retry_shot if within retry limits.
+        
+        Args:
+            shot_id: Shot ID to reject
+            reason: Rejection reason
+            
+        Returns:
+            dict with success status and message
+        """
+        # Validate: must be parked at G2
+        if self.state.current_gate != "G2_SCENE_STILLS":
+            raise ApplicationError(
+                f"Cannot reject {shot_id}: not at G2 gate (current: {self.state.current_gate})",
+                non_retryable=True
+            )
+        
+        # Mark shot as rejected
+        self.state.shot_decisions[shot_id] = "rejected"
+        workflow.logger.info(f"Shot {shot_id} rejected at G2: {reason}")
+        
+        return {
+            "success": True,
+            "shot_id": shot_id,
+            "action": "rejected",
+            "reason": reason,
+            "message": f"Shot {shot_id} rejected and will not progress to clips"
+        }
     
     @workflow.signal
     async def approve_g_final_cut(self):

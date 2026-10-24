@@ -281,11 +281,15 @@ async def approve_g2_shots(
     import os
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     async with aiosqlite.connect(db_path) as db:
-        # Mark shots with still_url as approved (they passed G2)
+        # Mark shots with still_url as approved only if status is 'pending'
+        # (not rejected, not failed, not already approved)
         cursor = await db.execute(
             """UPDATE shots 
                SET status = 'approved', updated_at = datetime('now')
-               WHERE episode_id = ? AND still_url IS NOT NULL AND still_url != ''""",
+               WHERE episode_id = ? 
+                 AND still_url IS NOT NULL 
+                 AND still_url != ''
+                 AND status = 'pending'""",
             (episode_id,)
         )
         count = cursor.rowcount

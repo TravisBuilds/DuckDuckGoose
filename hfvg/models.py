@@ -38,6 +38,14 @@ class JobStatus(str, Enum):
     BLOCKED = "blocked"
 
 
+class ShotDecision(str, Enum):
+    """G2 decision for a shot."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETRY = "retry"
+
+
 class GenerationRequest(BaseModel):
     """Request for a generation job (still or clip)."""
 
@@ -107,6 +115,7 @@ class EpisodeState(BaseModel):
     shot_attempts: dict[str, int] = Field(default_factory=dict)  # Retry attempts per shot (actual retries done)
     shot_attempt_overrides: dict[str, int] = Field(default_factory=dict)  # Override start attempt (doesn't count against budget)
     pending_retries: dict[str, str] = Field(default_factory=dict)  # shot_id -> workflow_id for pending retries
+    shot_decisions: dict[str, str] = Field(default_factory=dict)  # shot_id -> ShotDecision for G2 per-shot approve/reject/retry
     g1_plan: dict = Field(default_factory=dict)  # G1 credit plan (per-shot and total credits/USD)
     output_paths: dict[str, dict] = Field(default_factory=dict)  # Local paths: {shot_id: {still_v1: path, clip_v1: path}}
 

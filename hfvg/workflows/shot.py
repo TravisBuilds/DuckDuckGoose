@@ -836,11 +836,24 @@ class ShotWorkflow:
                 except Exception as e:
                     workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
 
+                # Derive expected resolution and aspect from shot params or episode defaults
+                # Episode settings take precedence over hard-coded defaults
+                shot_aspect = params.get("aspect_ratio")
+                shot_resolution = params.get("resolution")
+                
+                # If not specified in shot params, fail loudly
+                if not shot_aspect or not shot_resolution:
+                    raise ApplicationError(
+                        f"Shot {self.shot_id}: clip resolution/aspect_ratio not specified in shot params. "
+                        f"Cannot validate motion QC without expected dimensions.",
+                        non_retryable=True
+                    )
+                
                 # Prepare rubric with expected clip parameters for motion QC
                 clip_rubric = {
                     "duration": duration,
-                    "resolution": params.get("resolution", "1024x576"),
-                    "aspect_ratio": params.get("aspect_ratio", "16:9"),
+                    "resolution": shot_resolution,
+                    "aspect_ratio": shot_aspect,
                 }
                 
                 clip_qc = await workflow.execute_activity(

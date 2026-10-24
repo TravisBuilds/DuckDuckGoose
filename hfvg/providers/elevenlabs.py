@@ -56,7 +56,7 @@ class ElevenLabsProvider(GenerationProvider):
     async def submit_image(
         self,
         prompt: str,
-        model: str = "gpt_image_2",
+        model: str,  # Required, no default
         resolution: str = "2k",
         quality: str = "high",
         references: list[str] | None = None,
