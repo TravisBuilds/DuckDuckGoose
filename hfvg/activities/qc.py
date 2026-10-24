@@ -427,8 +427,16 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
         
         # Get expected duration from rubric or default to 5s
         expected_duration = rubric.get("duration", 5.0)
-        expected_resolution = rubric.get("resolution", "1024x576")
-        expected_aspect = rubric.get("aspect_ratio", "16:9")
+        # G-QC-1: no landscape default. The workflow derives the expected dimensions before the
+        # paid submit (hfvg.qc.clip_expect); a rubric without them cannot be checked -> escalate.
+        expected_resolution = rubric.get("resolution")
+        expected_aspect = rubric.get("aspect_ratio")
+        if not expected_resolution or not expected_aspect:
+            return {
+                "passed": False,
+                "issues": ["Motion QC rubric has no expected resolution/aspect_ratio; cannot verify the clip"],
+                "escalate": True,
+            }
         
         # Run motion QC
         qc_result = await check_motion_qc(

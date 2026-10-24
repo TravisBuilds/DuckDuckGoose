@@ -67,6 +67,14 @@ class EpisodeWorkflowV2:
         self.missing_refs: dict[str, list[str]] = {}  # shot_id -> refs not on disk
         self.end_backfills: dict[str, int] = {}  # shot_id -> retry_end_still children started
         self.background_tasks: list = []
+        # G-GATE-1 / G-RETRY-1 / G-BUD-1 state
+        self.rejection_reasons: dict[str, str] = {}  # shot_id -> reason (G2 reject_shot)
+        self.launched_shot_plans: dict[str, dict] = {}  # shot_id -> plan of the latest still child
+        self.shot_outcomes: dict[str, dict] = {}  # shot_id -> result of the latest finished child
+        self.clip_retries: dict[str, int] = {}  # shot_id -> paid clip retries started (G3 round)
+        self.pending_clip_retries: dict[str, str] = {}  # shot_id -> clip-retry workflow id
+        self.clip_retry_log: list[dict] = []  # audit: one row per clip retry started
+        self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
     
     @workflow.run
     async def run(
@@ -389,6 +397,7 @@ class EpisodeWorkflowV2:
             """Background task to await child and record result in state."""
             try:
                 result = await handle
+                self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                 # Clear pending_retries if this was a retry child
                 if is_retry and shot_id in self.state.pending_retries:
                     self.state.pending_retries.pop(shot_id, None)
@@ -410,6 +419,7 @@ class EpisodeWorkflowV2:
             except Exception as e:
                 # Child raised an exception
                 error_detail = str(e)
+                self.shot_outcomes[shot_id] = {"status": "failed", "error": error_detail}
                 
                 # Clear pending_retries if this was a retry child
                 if is_retry and shot_id in self.state.pending_retries:
@@ -462,6 +472,7 @@ class EpisodeWorkflowV2:
                 id=f"{episode_id}-shot-{shot['shot_id']}",
                 task_queue=workflow.info().task_queue,
             )
+            self.launched_shot_plans[shot_id] = shot_plan
             shot_workflow_handles.append(handle)
             self.shot_results[shot["shot_id"]] = handle
             
@@ -508,10 +519,13 @@ class EpisodeWorkflowV2:
         self.passed_gates.append("G2_SCENE_STILLS")
         workflow.logger.info("[APPROVED G2] Scene stills approved")
         
-        # Mark all completed shots as approved in the database
+        # Mark the kept shots as approved in the database (G-GATE-1: rejected shots excluded)
+        rejected_ids = sorted(
+            sid for sid, decision in self.state.shot_decisions.items() if decision == "rejected"
+        )
         approved_count = await workflow.execute_activity(
             approve_g2_shots,
-            args=[episode_id],
+            args=[episode_id] + ([rejected_ids] if rejected_ids else []),
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
@@ -526,12 +540,18 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== CLIP GENERATION ===")
         self.state.stage = PipelineStage.CLIP_GENERATION
         
-        # Signal all shot workflows to proceed with clips
+        # Signal all shot workflows to proceed with clips - except REJECTED stills, which get
+        # still_rejected and end without a clip (G-GATE-1: never animated, never charged).
         for shot in shots:
             handle = self.shot_results.get(shot["shot_id"])
             if handle:
                 try:
-                    await handle.signal("stills_approved")
+                    if self.state.shot_decisions.get(shot["shot_id"]) != "rejected":
+                        await handle.signal("stills_approved")
+                    else:
+                        await handle.signal(
+                            "still_rejected", self.rejection_reasons.get(shot["shot_id"], "rejected at G2")
+                        )
                 except ApplicationError as e:
                     # Bug #1: If a shot already finished (failed, not retried), signaling it
                     # from inside the workflow fails with ApplicationError of type
@@ -552,12 +572,12 @@ class EpisodeWorkflowV2:
         for shot in shots:
             shot_id = shot["shot_id"]
             
-            # Skip rejected shots - they should never reach clip generation
+            # Rejected shots were sent still_rejected (no clip): no clip result to collect
             if self.state.shot_decisions.get(shot_id) == "rejected":
                 workflow.logger.info(f"Skipping clip generation for rejected shot {shot_id}")
                 continue
             
-            handle = self.shot_results.get(shot_id)
+            handle = self.shot_results.get(shot["shot_id"])
             if not handle:
                 continue
             # Process credit cap raise before each handle check
@@ -567,17 +587,17 @@ class EpisodeWorkflowV2:
                 # Update the ledger cap via activity
                 await workflow.execute_activity(
                     update_credit_cap_activity,
-                    args=[self.episode_id, self.state.new_credit_cap],
+                    args=[self.state.episode_id, self.state.new_credit_cap],
                     start_to_close_timeout=timedelta(seconds=30),
                 )
                 
                 # Forward signal to all shot workflows
-                for shot_id, shot_handle in self.shot_results.items():
+                for cap_shot_id, shot_handle in self.shot_results.items():
                     try:
                         await shot_handle.signal("resume_after_cap_raise")
-                        workflow.logger.info(f"Signaled cap raise to shot {shot_id}")
+                        workflow.logger.info(f"Signaled cap raise to shot {cap_shot_id}")
                     except Exception as e:
-                        workflow.logger.warning(f"Failed to signal shot {shot_id}: {e}")
+                        workflow.logger.warning(f"Failed to signal shot {cap_shot_id}: {e}")
                 
                 # Clear flag
                 self.state.new_credit_cap = 0
@@ -601,7 +621,8 @@ class EpisodeWorkflowV2:
         # ================================================================
         workflow.logger.info("=== GATE 3: FINAL CUT ===")
         self.state.current_gate = "G_FINAL_CUT"
-        await workflow.wait_condition(lambda: self.approved_g_final_cut)
+        # Clip retries (G-RETRY-1) may run while parked here; approval only counts once none is pending
+        await workflow.wait_condition(lambda: self.approved_g_final_cut and not self.pending_clip_retries)
         self.passed_gates.append("G_FINAL_CUT")
         workflow.logger.info("[APPROVED G_FINAL] Final cut approved")
         
@@ -632,13 +653,22 @@ class EpisodeWorkflowV2:
                     False,  # is_canary
                     start_time_dt.isoformat(),
                     end_time_dt.isoformat(),
-                    total_credits,  # credits_spent
-                    total_credits * 2,  # credits_cap (placeholder)
+                    None,  # credits_spent: read from the credit ledger by the activity (real value)
+                    None,  # credits_cap: read from the credit ledger by the activity (real value)
                     False,  # paused_for_cap
                     len(shots),  # shots_count
                     stages,
                     "complete",  # status
                     None,  # error
+                    {
+                        "clip_retries": dict(self.clip_retries),
+                        "clip_retry_log": [dict(r) for r in self.clip_retry_log],
+                        "still_attempts": dict(self.state.shot_attempts),
+                        "rejected_at_g2": sorted(
+                            s for s, d in self.state.shot_decisions.items() if d == "rejected"
+                        ),
+                        "max_paid_retries_per_shot_per_round": config.MAX_PAID_RETRIES_PER_SHOT_PER_ROUND,
+                    },
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -736,14 +766,27 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
     
+    def _reject_problem(self, shot_id: str) -> str | None:
+        """Why reject_shot(shot_id) is not allowed right now (None = allowed). No side effects."""
+        if self.state.current_gate != "G2_SCENE_STILLS":
+            return f"not at G2 gate (current: {self.state.current_gate})"
+        if self.approved_g2_scene_stills or "G2_SCENE_STILLS" in self.passed_gates:
+            return "G2 already approved, clips may be in progress"
+        if shot_id not in self.shot_results:
+            return "unknown shot (not launched in this episode)"
+        if shot_id in self.state.pending_retries:
+            return "a retry is pending for this shot; review its new still first"
+        return None
+
     @workflow.update
     async def reject_shot(self, shot_id: str, reason: str) -> dict:
         """
-        Reject a shot's still at G2 review.
-        
-        Marks the shot as rejected and prevents it from progressing to clip generation.
-        The shot can be retried via retry_shot if within retry limits.
-        
+        Reject a shot's still at G2 review (G-GATE-1).
+
+        The rejected shot's child is sent ``still_rejected`` instead of ``stills_approved`` when G2
+        is approved, so its still is never animated and no clip is paid for. The shot can be
+        retried via retry_shot (clears the rejection; the new still is reviewed at G2 again).
+
         Args:
             shot_id: Shot ID to reject
             reason: Rejection reason
@@ -751,15 +794,11 @@ class EpisodeWorkflowV2:
         Returns:
             dict with success status and message
         """
-        # Validate: must be parked at G2
-        if self.state.current_gate != "G2_SCENE_STILLS":
-            raise ApplicationError(
-                f"Cannot reject {shot_id}: not at G2 gate (current: {self.state.current_gate})",
-                non_retryable=True
-            )
-        
-        # Mark shot as rejected
+        problem = self._reject_problem(shot_id)
+        if problem:  # re-check: state may have moved since the validator ran
+            raise ApplicationError(f"Cannot reject {shot_id}: {problem}", non_retryable=True)
         self.state.shot_decisions[shot_id] = "rejected"
+        self.rejection_reasons[shot_id] = reason or ""
         workflow.logger.info(f"Shot {shot_id} rejected at G2: {reason}")
         
         return {
@@ -769,10 +808,25 @@ class EpisodeWorkflowV2:
             "reason": reason,
             "message": f"Shot {shot_id} rejected and will not progress to clips"
         }
+
+    @reject_shot.validator
+    def validate_reject_shot(self, shot_id: str, reason: str):
+        problem = self._reject_problem(shot_id)
+        if problem:
+            raise ApplicationError(f"Cannot reject {shot_id}: {problem}", non_retryable=True)
     
     @workflow.signal
     async def approve_g_final_cut(self):
-        """Approve final cut (G_FINAL_CUT): After edit."""
+        """Approve final cut (G_FINAL_CUT): After edit.
+
+        Ignored (and recorded in final_cut_refusals) while a clip retry is still running: the
+        reviewer has not seen the replacement clip yet. Send the approval again once it landed.
+        """
+        if self.pending_clip_retries:
+            pending = ", ".join(sorted(self.pending_clip_retries))
+            self.final_cut_refusals.append(f"clip retry pending for: {pending}")
+            workflow.logger.warning(f"Final cut approval ignored: clip retry pending for {pending}")
+            return
         self.approved_g_final_cut = True
     
     @workflow.signal
@@ -929,6 +983,10 @@ class EpisodeWorkflowV2:
             
             # Update shot_results to track latest handle
             self.shot_results[shot_id] = handle
+            self.launched_shot_plans[shot_id] = shot_plan_with_parent
+            # A retried still is a NEW still: any G2 rejection of the old one no longer applies
+            self.state.shot_decisions.pop(shot_id, None)
+            self.rejection_reasons.pop(shot_id, None)
             
             # Track pending retry in workflow state for deterministic checking
             # Completion will be checked via background task that clears pending_retries
@@ -942,6 +1000,7 @@ class EpisodeWorkflowV2:
                 """Background task to await retry child and clear pending_retries."""
                 try:
                     result = await handle
+                    self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                     # Clear pending_retries when retry completes
                     self.state.pending_retries.pop(shot_id, None)
                     workflow.logger.info(f"Retry child {shot_id} completed, cleared from pending_retries")
@@ -1061,10 +1120,12 @@ class EpisodeWorkflowV2:
         self.end_backfills[shot_id] = n
         self.state.failed_shots = [fs for fs in self.state.failed_shots if fs["shot_id"] != shot_id]
         self.shot_results[shot_id] = handle
+        self.launched_shot_plans[shot_id] = shot_plan
 
         async def track_backfill():
             try:
                 result = await handle
+                self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                 self.state.pending_retries.pop(shot_id, None)
                 if isinstance(result, dict) and result.get("status") == "failed":
                     self.state.failed_shots.append(
@@ -1089,6 +1150,120 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot backfill {shot_id}_end: {problem}", non_retryable=True)
 
+    def _clip_retry_problem(self, shot_id: str, reason: str) -> str | None:
+        """Why retry_clip(shot_id) is not allowed right now (None = allowed). No side effects."""
+        if not (self.approved_g2_scene_stills and "G2_SCENE_STILLS" in self.passed_gates):
+            return "G2 not approved yet (clips not started); use retry_shot for stills"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required for a paid clip retry"
+        if shot_id not in self.launched_shot_plans:
+            return "unknown shot (no still launched in this episode)"
+        if self.state.shot_decisions.get(shot_id) == "rejected":
+            return "still was rejected at G2; a rejected still is never animated"
+        if shot_id in self.pending_clip_retries:
+            return "a clip retry is already pending for this shot"
+        outcome = self.shot_outcomes.get(shot_id)
+        if outcome is None:
+            return "the shot's clip has not finished yet"
+        if outcome.get("status") == "rejected":
+            return "still was rejected at G2; a rejected still is never animated"
+        if not outcome.get("still_url"):
+            return "no approved still to animate (the shot failed before its still landed)"
+        limit = config.MAX_PAID_RETRIES_PER_SHOT_PER_ROUND
+        if self.clip_retries.get(shot_id, 0) >= limit:
+            return f"max paid clip retries per shot per round ({limit}) reached"
+        return None
+
+    @workflow.update
+    async def retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None) -> dict:
+        """G-RETRY-1: re-run ONLY the clip of a shot after G2, reusing its approved still.
+
+        Bounded: at most MAX_PAID_RETRIES_PER_SHOT_PER_ROUND (default 1) paid clip retries per shot in
+        the G3 clip round, and the per-round USD cap / episode stop are checked on the USD ledger
+        (check_round_budget_activity) BEFORE the child starts; the paid submit enforces both again.
+        The child {ep}-shot-{shot}-clipretry{n} gets a deterministic job id
+        clip-{ep}-{shot}-v{version}-c{n}, so a replayed/retried submit is idempotent. Final-cut
+        approval is held back while the retry runs.
+        """
+        problem = self._clip_retry_problem(shot_id, reason)
+        if problem:  # re-check: state may have moved since the validator ran
+            raise ApplicationError(f"Cannot retry clip for {shot_id}: {problem}", non_retryable=True)
+        ep = self.state.episode_id
+        n = self.clip_retries.get(shot_id, 0) + 1
+        outcome = self.shot_outcomes[shot_id]
+        shot_plan = dict(self.launched_shot_plans[shot_id])
+        params = shot_plan.get("params") or {}
+        version = shot_plan.get("version", shot_plan.get("attempt", 1))
+        job_id = f"clip-{ep}-{shot_id}-v{version}-c{n}"
+        workflow_id = f"{ep}-shot-{shot_id}-clipretry{n}"
+        self.pending_clip_retries[shot_id] = workflow_id  # blocks duplicates + final cut meanwhile
+        try:
+            check = await workflow.execute_activity(
+                "check_round_budget_activity",
+                args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
+                      params.get("duration", 5.0), f"c{n}"],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            self.pending_clip_retries.pop(shot_id, None)
+            cause = getattr(e, "cause", None) or e
+            raise ApplicationError(
+                f"Cannot retry clip for {shot_id}: round budget refused: {cause}",
+                type="RoundBudgetError", non_retryable=True,
+            )
+        if prompt_override:
+            shot_plan["prompt"] = prompt_override
+        shot_plan["parent_workflow_id"] = workflow.info().workflow_id
+        shot_plan["clip_only"] = {
+            "n": n,
+            "reason": reason,
+            "still_url": outcome["still_url"],
+            "end_image_url": outcome.get("end_image_url"),
+        }
+        try:
+            handle = await workflow.start_child_workflow(
+                "ShotWorkflow",
+                args=[ep, shot_plan],
+                id=workflow_id,
+                task_queue=workflow.info().task_queue,
+            )
+        except Exception as e:
+            self.pending_clip_retries.pop(shot_id, None)
+            raise ApplicationError(f"Failed to start clip retry for {shot_id}: {e}", non_retryable=True)
+        self.clip_retries[shot_id] = n
+        self.shot_results[shot_id] = handle
+        self.clip_retry_log.append({
+            "round": "G3_CLIPS", "shot_id": shot_id, "n": n, "reason": reason,
+            "workflow_id": workflow_id, "job_id": job_id,
+            "estimate_usd_micros": (check or {}).get("estimate_usd_micros"),
+        })
+
+        async def track_clip_retry():
+            try:
+                result = await handle
+                self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
+            except Exception as e:
+                self.shot_outcomes[shot_id] = {
+                    "status": "failed", "error": f"Clip retry child error: {e}",
+                    "still_url": outcome["still_url"], "end_image_url": outcome.get("end_image_url"),
+                }
+            finally:
+                self.pending_clip_retries.pop(shot_id, None)
+
+        self.background_tasks.append(asyncio.create_task(track_clip_retry()))
+        workflow.logger.info(f"Clip retry {n} started for {shot_id}: {workflow_id} ({reason})")
+        return {"status": "queued", "workflow_id": workflow_id, "retry": n, "job_id": job_id,
+                "estimate_usd_micros": (check or {}).get("estimate_usd_micros")}
+
+    @retry_clip.validator
+    def validate_retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None):
+        problem = self._clip_retry_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot retry clip for {shot_id}: {problem}", non_retryable=True)
+
     @workflow.query
     def get_state(self) -> dict:
         """Get current workflow state."""
@@ -1111,4 +1286,13 @@ class EpisodeWorkflowV2:
                 "g_final_cut": self.approved_g_final_cut,
             },
             "shots": len(self.shot_results),
+            "shot_decisions": dict(self.state.shot_decisions),
+            "clip_retries": dict(self.clip_retries),
+            "pending_clip_retries": list(self.pending_clip_retries),
+            "clip_retry_log": [dict(r) for r in self.clip_retry_log],
+            "final_cut_refusals": list(self.final_cut_refusals),
+            "shot_outcomes": {
+                k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url")}
+                for k, v in self.shot_outcomes.items()
+            },
         }

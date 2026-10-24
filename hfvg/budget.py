@@ -37,6 +37,14 @@ DEFAULT_EPISODE_CAP_USD = "60.00"
 DEFAULT_STOP_PERCENT = 80
 DEFAULT_GC01_HEADROOM_USD = "5.00"
 DEFAULT_REVISION_RESERVE_USD = "10.00"
+# G-BUD-1: per-review-round caps (80% stop) and max paid retries per shot per round
+DEFAULT_ROUND_CAP_USD = "10.00"
+DEFAULT_MAX_PAID_RETRIES_PER_SHOT_PER_ROUND = 1
+
+# Review rounds (one per human review gate that can trigger paid redo work)
+ROUND_G2_STILLS = "G2_STILLS"   # still retries while parked at G2 (retry_shot / retry_end_still)
+ROUND_G3_CLIPS = "G3_CLIPS"     # clip retries after G2 (retry_clip)
+REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS)
 
 # Importable default constants (micro-dollars)
 EPISODE_CAP_USD_MICROS = usd_to_micros(DEFAULT_EPISODE_CAP_USD)
@@ -69,10 +77,20 @@ class BudgetSettings:
     stop_percent: int
     gc01_headroom_usd_micros: int
     revision_reserve_usd_micros: int
+    round_cap_usd_micros: int = 10_000_000
+    max_paid_retries_per_shot_per_round: int = DEFAULT_MAX_PAID_RETRIES_PER_SHOT_PER_ROUND
 
     @property
     def episode_stop_usd_micros(self) -> int:
         return compute_stop_usd_micros(self.episode_cap_usd_micros, self.stop_percent)
+
+    @property
+    def round_stop_usd_micros(self) -> int:
+        return compute_stop_usd_micros(self.round_cap_usd_micros, self.stop_percent)
+
+
+class RoundBudgetError(ValueError):
+    """A paid retry is refused by the per-round cap / per-shot retry limit (before any submit)."""
 
 
 def get_budget_settings() -> BudgetSettings:
@@ -84,6 +102,9 @@ def get_budget_settings() -> BudgetSettings:
             os.getenv("GC01_HEADROOM_USD", DEFAULT_GC01_HEADROOM_USD)),
         revision_reserve_usd_micros=usd_to_micros(
             os.getenv("REVISION_RESERVE_USD", DEFAULT_REVISION_RESERVE_USD)),
+        round_cap_usd_micros=usd_to_micros(os.getenv("ROUND_CAP_USD", DEFAULT_ROUND_CAP_USD)),
+        max_paid_retries_per_shot_per_round=int(os.getenv(
+            "MAX_PAID_RETRIES_PER_SHOT_PER_ROUND", str(DEFAULT_MAX_PAID_RETRIES_PER_SHOT_PER_ROUND))),
     )
 
 
@@ -179,6 +200,22 @@ class BudgetLedger:
                     status TEXT NOT NULL,
                     verdict TEXT,
                     used INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            # G-BUD-1: per-round holds for paid retries (one row per paid job, keyed by job id).
+            # status: held -> committed | released. A released (uncharged) hold does not count.
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS round_holds (
+                    hold_key TEXT PRIMARY KEY,
+                    episode_id TEXT NOT NULL,
+                    round_id TEXT NOT NULL,
+                    shot_id TEXT NOT NULL,
+                    retry_key TEXT,
+                    usd_micros INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    reason TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -557,6 +594,7 @@ class BudgetLedger:
                         UPDATE job_ledger SET status = 'committed', usd_micros = ?, updated_at = ?
                         WHERE job_id = ?
                     """, (actual, now, job_id))
+                    await self._finalize_round_hold(db, job_id, "committed", actual)
                 await db.commit()
                 return True
             except BaseException:
@@ -611,11 +649,187 @@ class BudgetLedger:
                     await db.execute("""
                         UPDATE job_ledger SET status = 'released', updated_at = ? WHERE job_id = ?
                     """, (now, job_id))
+                    await self._finalize_round_hold(db, job_id, "released")
                 await db.commit()
                 return release_amount
             except BaseException:
                 await db.rollback()
                 raise
+
+    # ------------------------------------------------------------------ review rounds (G-BUD-1)
+
+    @staticmethod
+    async def _finalize_round_hold(db, hold_key: str, status: str, actual: int | None = None):
+        """Commit/release the round hold that shares the job id (no-op when there is none)."""
+        try:
+            if actual is None:
+                await db.execute(
+                    "UPDATE round_holds SET status = ?, updated_at = ? WHERE hold_key = ? AND status = 'held'",
+                    (status, _now_iso(), hold_key))
+            else:
+                await db.execute(
+                    "UPDATE round_holds SET status = ?, usd_micros = ?, updated_at = ? "
+                    "WHERE hold_key = ? AND status = 'held'",
+                    (status, actual, _now_iso(), hold_key))
+        except aiosqlite.OperationalError:
+            pass  # ledger created before round_holds existed (init_db adds it)
+
+    async def authorize_round_spend(self, episode_id: str, round_id: str, shot_id: str,
+                                    hold_key: str, amount_usd_micros: int, *,
+                                    retry_key: str | None = None, reason: str = "",
+                                    dry_check: bool = False) -> dict[str, Any]:
+        """Authorize (and hold) one PAID retry job against its review round, BEFORE any submit.
+
+        Atomic (BEGIN IMMEDIATE) and idempotent per ``hold_key`` (the deterministic job id): calling
+        it again for the same job never double-counts; a higher amount only re-checks the delta.
+
+        Refuses (RoundBudgetError) when
+        - ``retry_key`` is given and the shot already has ``max_paid_retries_per_shot_per_round``
+          OTHER paid retries (distinct retry_key, not released) in this round;
+        - the round total (held + committed) plus this job would pass the round's 80% stop;
+        - the episode total (budget lines, revision reserve excluded) plus this job would pass the
+          episode's 80% stop.
+        A released (failed, uncharged) hold does not count. ``dry_check=True`` runs every check and
+        writes nothing (pre-check before a retry child is started).
+        """
+        amount = _require_int("amount_usd_micros", amount_usd_micros, positive=True)
+        if round_id not in REVIEW_ROUNDS:
+            raise ValueError(f"round_id must be one of {REVIEW_ROUNDS}, got {round_id!r}")
+        settings = get_budget_settings()
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT usd_micros, status FROM round_holds WHERE hold_key = ?", (hold_key,)
+                ) as cur:
+                    existing = await cur.fetchone()
+                if existing and existing[1] == "committed":
+                    await db.rollback()
+                    return {"authorized": True, "idempotent": True, "hold_key": hold_key,
+                            "usd_micros": existing[0]}
+                prior = existing[0] if existing and existing[1] == "held" else 0
+                delta = max(0, amount - prior)
+
+                if retry_key is not None:
+                    async with db.execute("""
+                        SELECT COUNT(DISTINCT retry_key) FROM round_holds
+                        WHERE episode_id = ? AND round_id = ? AND shot_id = ? AND status != 'released'
+                          AND retry_key IS NOT NULL AND retry_key != ?
+                    """, (episode_id, round_id, shot_id, retry_key)) as cur:
+                        other_retries = (await cur.fetchone())[0]
+                    limit = settings.max_paid_retries_per_shot_per_round
+                    if other_retries >= limit:
+                        raise RoundBudgetError(
+                            f"Round {round_id}: shot {shot_id} already used {other_retries} paid "
+                            f"retr{'y' if other_retries == 1 else 'ies'} (max {limit} per shot per round)"
+                        )
+
+                async with db.execute("""
+                    SELECT COALESCE(SUM(usd_micros), 0) FROM round_holds
+                    WHERE episode_id = ? AND round_id = ? AND status != 'released' AND hold_key != ?
+                """, (episode_id, round_id, hold_key)) as cur:
+                    round_total = (await cur.fetchone())[0]
+                if round_total + prior + delta > settings.round_stop_usd_micros:
+                    raise RoundBudgetError(
+                        f"Round {round_id} would pass its {settings.stop_percent}% stop: "
+                        f"{micros_to_usd_str(round_total + prior)} USD held/spent + "
+                        f"{micros_to_usd_str(delta)} USD > {micros_to_usd_str(settings.round_stop_usd_micros)} "
+                        f"USD (cap {micros_to_usd_str(settings.round_cap_usd_micros)} USD)"
+                    )
+
+                async with db.execute("""
+                    SELECT COALESCE(SUM(spent_usd_micros + reserved_usd_micros), 0)
+                    FROM budget_lines WHERE episode_id = ? AND line_name != ?
+                """, (episode_id, REVISION_LINE)) as cur:
+                    episode_total = (await cur.fetchone())[0]
+                if delta and episode_total + delta > settings.episode_stop_usd_micros:
+                    raise RoundBudgetError(
+                        f"Episode {episode_id} would pass its {settings.stop_percent}% stop: "
+                        f"{micros_to_usd_str(episode_total)} USD + {micros_to_usd_str(delta)} USD > "
+                        f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
+                    )
+
+                if dry_check:
+                    await db.rollback()
+                    return {"authorized": True, "dry_check": True, "hold_key": hold_key,
+                            "usd_micros": prior + delta,
+                            "round_total_usd_micros": round_total + prior + delta,
+                            "round_stop_usd_micros": settings.round_stop_usd_micros}
+                now = _now_iso()
+                if existing:
+                    await db.execute("""
+                        UPDATE round_holds SET usd_micros = ?, status = 'held', retry_key = ?,
+                               reason = ?, updated_at = ?
+                        WHERE hold_key = ?
+                    """, (prior + delta, retry_key, reason, now, hold_key))
+                else:
+                    await db.execute("""
+                        INSERT INTO round_holds (hold_key, episode_id, round_id, shot_id, retry_key,
+                                                 usd_micros, status, reason, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'held', ?, ?, ?)
+                    """, (hold_key, episode_id, round_id, shot_id, retry_key, amount, reason, now, now))
+                await db.commit()
+                return {"authorized": True, "idempotent": bool(existing), "hold_key": hold_key,
+                        "usd_micros": prior + delta if existing else amount,
+                        "round_total_usd_micros": round_total + (prior + delta if existing else amount),
+                        "round_stop_usd_micros": settings.round_stop_usd_micros}
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def release_round_hold(self, hold_key: str) -> bool:
+        """Release a round hold whose job was never submitted (e.g. the retry child failed to start)."""
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            cur = await db.execute(
+                "UPDATE round_holds SET status = 'released', updated_at = ? WHERE hold_key = ? AND status = 'held'",
+                (_now_iso(), hold_key))
+            await db.commit()
+            return cur.rowcount == 1
+
+    async def get_round_hold(self, hold_key: str) -> dict[str, Any] | None:
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute("""
+                SELECT episode_id, round_id, shot_id, retry_key, usd_micros, status
+                FROM round_holds WHERE hold_key = ?
+            """, (hold_key,)) as cur:
+                row = await cur.fetchone()
+        if not row:
+            return None
+        return dict(zip(("episode_id", "round_id", "shot_id", "retry_key", "usd_micros", "status"), row))
+
+    async def get_round_status(self, episode_id: str) -> dict[str, Any]:
+        """Per-round totals, caps and per-shot paid retry counts (usd_micros)."""
+        settings = get_budget_settings()
+        await self.init_db()
+        rounds: dict[str, Any] = {
+            r: {"round_id": r, "total_usd_micros": 0, "cap_usd_micros": settings.round_cap_usd_micros,
+                "stop_usd_micros": settings.round_stop_usd_micros, "paid_retries": {}}
+            for r in REVIEW_ROUNDS
+        }
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute("""
+                SELECT round_id, shot_id, retry_key, usd_micros FROM round_holds
+                WHERE episode_id = ? AND status != 'released'
+            """, (episode_id,)) as cur:
+                rows = await cur.fetchall()
+        seen: set[tuple] = set()
+        for round_id, shot_id, retry_key, usd in rows:
+            r = rounds.setdefault(round_id, {"round_id": round_id, "total_usd_micros": 0,
+                                             "cap_usd_micros": settings.round_cap_usd_micros,
+                                             "stop_usd_micros": settings.round_stop_usd_micros,
+                                             "paid_retries": {}})
+            r["total_usd_micros"] += usd
+            if retry_key is not None and (round_id, shot_id, retry_key) not in seen:
+                seen.add((round_id, shot_id, retry_key))
+                r["paid_retries"][shot_id] = r["paid_retries"].get(shot_id, 0) + 1
+        for r in rounds.values():
+            r["at_stop"] = r["total_usd_micros"] >= r["stop_usd_micros"]
+        return {"episode_id": episode_id, "unit": "usd_micros",
+                "max_paid_retries_per_shot_per_round": settings.max_paid_retries_per_shot_per_round,
+                "rounds": rounds}
 
     # ------------------------------------------------------------------ per-job ledger
 
