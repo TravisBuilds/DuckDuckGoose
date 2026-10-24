@@ -1903,6 +1903,44 @@ test_mutation 234 "Clip retry child reuses the approved still" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_reuses_approved_still_and_is_bounded" \
     sed -i 's/^        clip_only = shot_plan\.get("clip_only")/        clip_only = None  # MUTATED/'
 
+# Round 2 mutations: Moderation recovery ladder, reconciler, stall watchdog
+
+# 235: G-REC-1a: Moderation recovery sanitizes trigger words
+test_mutation 235 "Recovery sanitizes trigger words before retry" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::test_sanitize_prompt_removes_trigger_words" \
+    sed -i 's/removed_words\.append(word\.lower())/pass  # MUTATED/'
+
+# 236: G-REC-1b: Moderation recovery tries fallback model
+test_mutation 236 "Recovery tries fallback model when sanitization fails" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::test_recovery_fallback_when_no_trigger_words" \
+    sed -i 's/fallback_model = get_fallback_model(original_model)/fallback_model = None  # MUTATED/'
+
+# 237: G-REC-1c: Recovery respects round budget cap
+test_mutation 237 "Recovery respects per-round budget cap" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::test_recovery_escalates_when_budget_exhausted" \
+    sed -i '/await ledger\.authorize_round_spend/,/dry_check=True,/{ s/dry_check=True/dry_check=False/; }'
+
+# 238: G-REC-2a: Reconciler finds pending_reconcile jobs
+test_mutation 238 "Reconciler queries pending_reconcile jobs" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::test_get_pending_reconcile_jobs_returns_pending" \
+    sed -i "s/status = 'pending_reconcile'/status = 'never_matches'  -- MUTATED/"
+
+# 239: G-REC-2b: Stall watchdog detects old reserved jobs
+test_mutation 239 "Stall watchdog detects jobs past threshold" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::test_detect_stalled_jobs_finds_old_reserved" \
+    sed -i 's/minutes_stalled) > ?/minutes_stalled) < ?  -- MUTATED/'
+
+# 240: G-REC-2c: Reconciler commits late completions
+test_mutation 240 "Reconciler commits budget for late completions" \
+    "hfvg/workflows/reconcile.py" \
+    "tests/test_reconciler.py::test_reconcile_workflow_processes_completed_job" \
+    sed -i '/if status == "completed":/,/stats\["completed"\] \+= 1/{ s/stats\["completed"\] += 1/pass  # MUTATED/; }'
+
 # Print final summary
 print_summary
 exit_code=$?

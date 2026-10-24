@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         release_credits_activity,
     )
     from hfvg.activities.save_assets import save_asset_locally
+    from hfvg.activities.moderation_recovery import attempt_moderation_recovery
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
     from hfvg.qc.clip_expect import ClipSpecError, expected_clip_dims
@@ -713,15 +714,80 @@ class ShotWorkflow:
                     }
 
             except ContentBlockError as e:
-                workflow.logger.error(f"Content block on still: {e}, routing to recovery")
-                # Update G2 status
-                self.still_status = "failed"
-                self.still_error = f"Content blocked: {str(e)}"
-                return {
-                    "shot_id": self.shot_id,
-                    "status": "blocked",
-                    "error": str(e),
-                }
+                workflow.logger.error(
+                    f"Content block on still: {e}, attempting recovery ladder"
+                )
+                
+                # G-REC-1: Attempt moderation recovery ladder
+                try:
+                    recovery_result = await workflow.execute_activity(
+                        attempt_moderation_recovery,
+                        args=[
+                            self.episode_id,
+                            self.shot_id,
+                            shot_plan["prompt"],
+                            shot_plan.get("model", "seedance-2.5"),
+                            str(e),
+                            "G2_STILLS",  # round_id
+                            5.0,  # duration (stills don't have duration, using default)
+                            config.Config.DRY_RUN,
+                        ],
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    if recovery_result["success"]:
+                        workflow.logger.info(
+                            f"Recovery succeeded via {recovery_result['step']}: "
+                            f"{', '.join(recovery_result['recovery_log'])}"
+                        )
+                        
+                        # If sanitization succeeded, retry with sanitized prompt
+                        if recovery_result["step"] == "sanitize":
+                            shot_plan["prompt"] = recovery_result["sanitized_prompt"]
+                            workflow.logger.info(
+                                f"Retrying still with sanitized prompt"
+                            )
+                            continue
+                        
+                        # If fallback model succeeded, retry with fallback
+                        elif recovery_result["step"] == "fallback":
+                            shot_plan["model"] = recovery_result["fallback_model"]
+                            workflow.logger.info(
+                                f"Retrying still with fallback model: "
+                                f"{recovery_result['fallback_model']}"
+                            )
+                            continue
+                    
+                    else:
+                        # Recovery failed, escalate to human review
+                        workflow.logger.error(
+                            f"Recovery exhausted, escalating: "
+                            f"{', '.join(recovery_result['recovery_log'])}"
+                        )
+                        self.still_status = "failed"
+                        self.still_error = (
+                            f"Content blocked, recovery exhausted: "
+                            f"{recovery_result['recovery_log'][-1]}"
+                        )
+                        return {
+                            "shot_id": self.shot_id,
+                            "status": "blocked",
+                            "error": f"Recovery exhausted: {str(e)}",
+                            "recovery_log": recovery_result["recovery_log"],
+                        }
+                        
+                except Exception as recovery_error:
+                    workflow.logger.error(
+                        f"Recovery ladder failed: {recovery_error}"
+                    )
+                    self.still_status = "failed"
+                    self.still_error = f"Content blocked, recovery failed: {str(e)}"
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "blocked",
+                        "error": str(e),
+                    }
 
             # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
@@ -957,16 +1023,85 @@ class ShotWorkflow:
                     }
 
             except ContentBlockError as e:
-                workflow.logger.error(f"Content block on clip: {e}, routing to recovery")
-                # Update clip status
-                self.clip_status = "failed"
-                self.clip_error = f"Content blocked: {str(e)}"
-                return {
-                    "shot_id": self.shot_id,
-                    "status": "blocked",
-                    "still_url": self.still_asset["url"],
-                    "error": str(e),
-                }
+                workflow.logger.error(
+                    f"Content block on clip: {e}, attempting recovery ladder"
+                )
+                
+                # G-REC-1: Attempt moderation recovery ladder
+                try:
+                    recovery_result = await workflow.execute_activity(
+                        attempt_moderation_recovery,
+                        args=[
+                            self.episode_id,
+                            self.shot_id,
+                            shot_plan["clip_prompt"] if "clip_prompt" in shot_plan else shot_plan["prompt"],
+                            shot_plan.get("model", "seedance-2.5"),
+                            str(e),
+                            "G3_CLIPS",  # round_id
+                            shot_plan.get("duration", 5.0),
+                            config.Config.DRY_RUN,
+                        ],
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=retry_policy,
+                    )
+                    
+                    if recovery_result["success"]:
+                        workflow.logger.info(
+                            f"Recovery succeeded via {recovery_result['step']}: "
+                            f"{', '.join(recovery_result['recovery_log'])}"
+                        )
+                        
+                        # If sanitization succeeded, retry with sanitized prompt
+                        if recovery_result["step"] == "sanitize":
+                            if "clip_prompt" in shot_plan:
+                                shot_plan["clip_prompt"] = recovery_result["sanitized_prompt"]
+                            else:
+                                shot_plan["prompt"] = recovery_result["sanitized_prompt"]
+                            workflow.logger.info(
+                                f"Retrying clip with sanitized prompt"
+                            )
+                            continue
+                        
+                        # If fallback model succeeded, retry with fallback
+                        elif recovery_result["step"] == "fallback":
+                            shot_plan["model"] = recovery_result["fallback_model"]
+                            workflow.logger.info(
+                                f"Retrying clip with fallback model: "
+                                f"{recovery_result['fallback_model']}"
+                            )
+                            continue
+                    
+                    else:
+                        # Recovery failed, escalate to human review
+                        workflow.logger.error(
+                            f"Recovery exhausted, escalating: "
+                            f"{', '.join(recovery_result['recovery_log'])}"
+                        )
+                        self.clip_status = "failed"
+                        self.clip_error = (
+                            f"Content blocked, recovery exhausted: "
+                            f"{recovery_result['recovery_log'][-1]}"
+                        )
+                        return {
+                            "shot_id": self.shot_id,
+                            "status": "blocked",
+                            "still_url": self.still_asset["url"],
+                            "error": f"Recovery exhausted: {str(e)}",
+                            "recovery_log": recovery_result["recovery_log"],
+                        }
+                        
+                except Exception as recovery_error:
+                    workflow.logger.error(
+                        f"Recovery ladder failed: {recovery_error}"
+                    )
+                    self.clip_status = "failed"
+                    self.clip_error = f"Content blocked, recovery failed: {str(e)}"
+                    return {
+                        "shot_id": self.shot_id,
+                        "status": "blocked",
+                        "still_url": self.still_asset["url"],
+                        "error": str(e),
+                    }
 
             # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 

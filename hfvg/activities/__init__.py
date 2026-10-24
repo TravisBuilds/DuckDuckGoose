@@ -18,6 +18,12 @@ from hfvg.activities.studio_generation import (
     release_job_budget,
     mark_job_pending_reconcile,
 )
+from hfvg.activities.moderation_recovery import attempt_moderation_recovery
+from hfvg.activities.reconcile import (
+    get_pending_reconcile_jobs,
+    detect_stalled_jobs,
+    mark_job_stalled,
+)
 from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
     parse_beatmap_activity,
@@ -64,4 +70,8 @@ __all__ = [
     "upsert_episode_activity",
     "approve_g108_activity",
     "preflight_validate_episode_activity",
+    "attempt_moderation_recovery",
+    "get_pending_reconcile_jobs",
+    "detect_stalled_jobs",
+    "mark_job_stalled",
 ]

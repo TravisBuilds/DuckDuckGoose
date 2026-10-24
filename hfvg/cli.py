@@ -8,7 +8,7 @@ import click
 from temporalio.client import Client
 
 from hfvg.config import config
-from hfvg.workflows import EpisodeWorkflow, PostingWorkflow
+from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ReconcilePendingJobsWorkflow
 
 
 @click.group()
@@ -693,3 +693,106 @@ def preflight(episode_id: str, shots_path: str | None):
         for text in res["warnings"]:
             click.echo(f"      warning: {text}")
     sys.exit(1 if report["errors"] else 0)
+
+
+@cli.command()
+@click.option("--max-jobs", default=100, help="Maximum number of jobs to reconcile")
+def reconcile(max_jobs: int):
+    """
+    Reconcile pending_reconcile jobs: re-poll provider status, land late assets, commit/release budget.
+    
+    This runs the reconciler workflow once. For continuous reconciliation, schedule this via cron
+    or use Temporal's schedule feature.
+    
+    Example:
+        hfvg reconcile
+        hfvg reconcile --max-jobs 50
+    """
+    async def run_reconcile():
+        client = await Client.connect(
+            config.TEMPORAL_HOST,
+            namespace=config.TEMPORAL_NAMESPACE,
+        )
+        
+        workflow_id = f"reconcile-{asyncio.get_running_loop().time():.0f}"
+        
+        click.echo(f"Starting reconciliation workflow (max_jobs={max_jobs})...")
+        
+        handle = await client.start_workflow(
+            ReconcilePendingJobsWorkflow.run,
+            max_jobs,
+            id=workflow_id,
+            task_queue=config.TASK_QUEUE,
+        )
+        
+        click.echo(f"Workflow started: {workflow_id}")
+        click.echo("Waiting for completion...")
+        
+        result = await handle.result()
+        
+        click.echo("\n✓ Reconciliation complete:")
+        click.echo(f"  Total jobs: {result['total']}")
+        click.echo(f"  Completed: {result['completed']}")
+        click.echo(f"  Failed: {result['failed']}")
+        click.echo(f"  Still pending: {result['still_pending']}")
+        
+        if result['errors']:
+            click.echo(f"\n⚠  {len(result['errors'])} errors:")
+            for err in result['errors'][:5]:
+                click.echo(f"    Job {err['job_id']}: {err['error']}")
+            if len(result['errors']) > 5:
+                click.echo(f"    ... and {len(result['errors']) - 5} more")
+    
+    asyncio.run(run_reconcile())
+
+
+@cli.command()
+@click.option("--threshold", default=45, help="Minutes without progress to consider stalled")
+def stalled(threshold: int):
+    """
+    Detect and report stalled jobs (jobs with no progress beyond threshold).
+    
+    This queries the database for jobs that have been in 'reserved' status for longer
+    than the threshold without completion.
+    
+    Example:
+        hfvg stalled
+        hfvg stalled --threshold 60
+    """
+    async def check_stalled():
+        from hfvg.activities.reconcile import detect_stalled_jobs
+        from hfvg.budget import BudgetLedger
+        
+        # Initialize ledger
+        db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        
+        click.echo(f"Checking for stalled jobs (threshold={threshold} minutes)...")
+        
+        # Import and call the activity directly (not through Temporal)
+        from temporalio import activity
+        from unittest.mock import MagicMock
+        
+        # Mock activity context for direct call
+        activity.info = lambda: MagicMock()
+        activity.logger = MagicMock()
+        
+        stalled_jobs = await detect_stalled_jobs(threshold)
+        
+        if not stalled_jobs:
+            click.echo("\n✓ No stalled jobs found")
+            return
+        
+        click.echo(f"\n⚠  Found {len(stalled_jobs)} stalled job(s):")
+        for job in stalled_jobs:
+            click.echo(
+                f"  {job['job_type']} {job['shot_id']} (job {job['job_id']}): "
+                f"stalled for {job['minutes_stalled']} minutes"
+            )
+        
+        click.echo(
+            f"\nRun 'hfvg reconcile' to attempt recovery of these jobs."
+        )
+    
+    asyncio.run(check_stalled())

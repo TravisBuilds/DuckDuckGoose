@@ -31,7 +31,7 @@ from hfvg.studio_db import approve_g2_shots, list_anchor_stills
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
-from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow
+from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, ReconcilePendingJobsWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
 logging.basicConfig(level=logging.INFO)
@@ -83,6 +83,10 @@ PRODUCTION_ACTIVITIES = [
     init_episode_budget_lines_activity,
     acquire_run_lock,
     release_run_lock,
+    activities.attempt_moderation_recovery,
+    activities.get_pending_reconcile_jobs,
+    activities.detect_stalled_jobs,
+    activities.mark_job_stalled,
 ]
 
 
@@ -103,7 +107,13 @@ async def main():
     worker = Worker(
         client,
         task_queue=config.TASK_QUEUE,
-        workflows=[EpisodeWorkflow, EpisodeWorkflowV2, ShotWorkflow, PostingWorkflow],
+        workflows=[
+            EpisodeWorkflow,
+            EpisodeWorkflowV2,
+            ShotWorkflow,
+            PostingWorkflow,
+            ReconcilePendingJobsWorkflow,
+        ],
         activities=PRODUCTION_ACTIVITIES,
     )
 
