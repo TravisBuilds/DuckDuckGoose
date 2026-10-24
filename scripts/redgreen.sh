@@ -1820,3 +1820,32 @@ else
 fi
 
 exit $exit_code
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUND 1 MUTATIONS: Gate correctness and spend safety
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 219: G-GATE-1a: Rejected shots skip clip generation
+test_mutation 219 "Rejected shots are skipped in clip generation loop" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_rejected_shot_never_reaches_clip_generation" \
+    sed -i 's/if self\.state\.shot_decisions\.get(shot_id) == "rejected":/if False and self.state.shot_decisions.get(shot_id) == "rejected":  # MUTATED/'
+
+# 220: G-GATE-1b: Only pending shots approved at G2
+test_mutation 220 "G2 only approves shots in pending status" \
+    "hfvg/studio_db.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_studio_db_only_approves_pending_shots" \
+    sed -i '/WHERE episode_id = ?/,/AND status = .pending./{ s/AND status = .pending.//; }'
+
+# 221: G-QC-1a: Clip QC requires explicit resolution  
+test_mutation 221 "Clip QC fails without explicit resolution/aspect" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_gate_correctness_round1.py::TestClipQCDefaults::test_clip_qc_fails_loudly_without_resolution" \
+    sed -i '/if not shot_aspect or not shot_resolution:/s/if not shot_aspect or not shot_resolution:/if False:  # MUTATED/'
+
+# 222: G-MODEL-1a: gpt_image_2 raises ValueError
+test_mutation 222 "Higgsfield refuses gpt_image_2 instead of fallback" \
+    "hfvg/providers/higgsfield.py" \
+    "tests/test_gate_correctness_round1.py::TestModelDefaults::test_higgsfield_provider_refuses_gpt_image_2" \
+    sed -i '/elif model == "gpt_image_2":/,/else:/{ /raise ValueError(/s/raise ValueError(/pass; _mutated = dict(  # MUTATED/; }'
+
