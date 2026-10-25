@@ -337,6 +337,9 @@ async def submit_still_job_enforced(
         from hfvg.studio_db import enforce_smoke_test_gate
         await enforce_smoke_test_gate(db_path, episode_id, "submit_still_job_enforced")
     
+    # Check credentials BEFORE any reservation or provider call
+    _check_higgsfield_credentials()
+    
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)

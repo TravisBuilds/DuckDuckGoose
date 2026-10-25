@@ -39,6 +39,20 @@ def _db_path() -> str:
     return os.getenv("DATABASE_PATH", "./data/studio.db")
 
 
+def _check_elevenlabs_credentials() -> None:
+    """Verify ElevenLabs API key before any spend/reservation. Raises non-retryable error if missing."""
+    if _dry_run():
+        return  # Dry run doesn't need credentials
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise ApplicationError(
+            "ELEVENLABS_API_KEY environment variable is required for live ElevenLabs audio generation. "
+            "Set the API key before starting live audio activities.",
+            type="MissingCredentials",
+            non_retryable=True
+        )
+
+
 def _beat(details: dict) -> None:
     try:
         activity.heartbeat(details)
@@ -175,6 +189,10 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
         raise _missing(f"VO line {line_id} has neither a locked file nor text")
     if not voice_id:
         raise _missing(f"VO line {line_id} needs a voice_id to generate")
+    
+    # Check credentials BEFORE preflight/reservation
+    _check_elevenlabs_credentials()
+    
     out = generated_path(episode_id, "vo", line_id, key)
     if out.is_file():  # content-hash reuse: already paid for
         return _result(out, source="generated_reused", line_id=line_id, model=model)
@@ -212,6 +230,10 @@ async def generate_sfx(episode_id: str, description: str, duration: float | None
         return _result(out, source="dry_run_stand_in", dry=True, cue_id=cue_id)
     if not description:
         raise _missing(f"SFX cue {cue_id} has neither a library file nor a prompt")
+    
+    # Check credentials BEFORE preflight/reservation
+    _check_elevenlabs_credentials()
+    
     out = generated_path(episode_id, "sfx", cue_id, key)
     if out.is_file():
         return _result(out, source="generated_reused", cue_id=cue_id)
@@ -250,6 +272,10 @@ async def generate_music(episode_id: str, style: str, duration: float, model: st
         return _result(out, source="dry_run_stand_in", dry=True, cue_id=cue_id)
     if not style:
         raise _missing("Music cue has neither a library file nor a prompt")
+    
+    # Check credentials BEFORE preflight/reservation
+    _check_elevenlabs_credentials()
+    
     out = generated_path(episode_id, "music", cue_id, key)
     if out.is_file():
         return _result(out, source="generated_reused", cue_id=cue_id, model=model)
