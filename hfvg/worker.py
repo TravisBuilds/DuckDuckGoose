@@ -28,6 +28,7 @@ from hfvg.activities.ref_generation import (
 )
 from hfvg.activities.g1_plan import compute_g1_plan_activity
 from hfvg.activities.save_assets import save_asset_locally
+from hfvg.activities.pre_approved import prepare_pre_approved_still_activity
 from hfvg.studio_db import approve_g2_shots, list_anchor_stills
 from hfvg.config import config
 from hfvg.ledger import Ledger
@@ -78,6 +79,7 @@ PRODUCTION_ACTIVITIES = [
     load_refs_to_generate_activity,
     compute_g1_plan_activity,
     save_asset_locally,
+    prepare_pre_approved_still_activity,
     approve_g2_shots,
     list_anchor_stills,
     generate_run_report,

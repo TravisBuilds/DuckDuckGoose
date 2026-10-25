@@ -31,6 +31,7 @@ import sys
 import asyncio
 import json
 import hashlib
+import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1385,6 +1386,7 @@ async def get_shots(
                     "qc_results": qc_results,
                     "retries": row[5],
                     "prompt": row[6],
+                    "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
                 })
     
     return {
@@ -2911,31 +2913,30 @@ async def preflight_episode(
     }
 
 
-def offline_cost_estimate(shots: list[dict]) -> dict:
-    """Offline USD estimate for a shot list (no provider call): one still per shot (+1 for an end
-    frame) at the dry still rate and each clip from the configured per-second rate table (list price
-    before discount, hfvg.pricing.clip_estimate_usd_micros). Shots whose model has no rate are listed
-    as unpriced instead of being guessed."""
-    from hfvg.pricing import clip_estimate_usd_micros, micros_to_usd_str
+def offline_cost_estimate(shots: list[dict], pre_approved: set[str] | None = None) -> dict:
+    """Offline USD estimate for a shot list (no provider call): the per-call estimates the dry
+    submits reserve (hfvg.estimates): one start still per shot (none when the start still is
+    pre-approved) + one end still for an end frame at the dry still rate, and each clip from the
+    configured per-second rate table (list price before discount). Shots whose model has no rate
+    are listed as unpriced instead of being guessed."""
+    from hfvg.estimates import dry_shot_estimate
+    from hfvg.pricing import micros_to_usd_str
 
+    pre_approved = set(pre_approved or ())
     per_shot: dict[str, dict] = {}
     unpriced: list[str] = []
     total = 0
     for shot in shots:
         sid = str(shot.get("id") or shot.get("shot_id") or "?")
-        stills = 2 if shot.get("end_frame") else 1
-        still_micros = stills * DRY_STILL_USD_MICROS
-        try:
-            clip_micros = clip_estimate_usd_micros(
-                str(shot.get("model") or ""), shot.get("tier"), float(shot.get("duration") or 0)
-            )
-        except (ValueError, TypeError) as e:
-            unpriced.append(f"{sid}: {e}")
-            per_shot[sid] = {"stills_usd_micros": still_micros, "clip_usd_micros": None}
-            total += still_micros
-            continue
-        per_shot[sid] = {"stills_usd_micros": still_micros, "clip_usd_micros": clip_micros}
-        total += still_micros + clip_micros
+        is_pre = sid in pre_approved or bool(shot.get("pre_approved_still"))
+        est = dry_shot_estimate(shot, pre_approved=is_pre)
+        still_micros = est["still_usd_micros"]
+        clip_micros = est["clip_usd_micros"]
+        per_shot[sid] = {"stills_usd_micros": still_micros, "clip_usd_micros": clip_micros,
+                         "pre_approved": is_pre}
+        total += still_micros + (clip_micros or 0)
+        if clip_micros is None:
+            unpriced.append(f"{sid}: {est['clip_error']}")
     return {
         "unit": "usd_micros",
         "total_usd_micros": total,
@@ -3034,6 +3035,43 @@ async def get_review_file(
     )
 
 
+_STILL_MEDIA_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+
+
+@app.get("/api/episodes/{episode_id}/shots/{shot_id}/still")
+async def get_local_still(
+    episode_id: str,
+    shot_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Authenticated preview of a shot's start still when it is a local file (a pre-approved still is
+    copied into the episode outputs and never uploaded until its clip is submitted), so G2 can show
+    it. Only files inside DATA_DIR/episodes/<episode>/outputs/<shot>/ or, for dry-run placeholder
+    stills (stored relative to the run dir), inside the dry-run output dir are served."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", shot_id):
+        raise HTTPException(status_code=400, detail="Invalid shot_id")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT still_url FROM shots WHERE episode_id = ? AND shot_id = ?", (episode_id, shot_id)
+        ) as cur:
+            row = await cur.fetchone()
+    still = (row[0] if row else None) or ""
+    if not still or still.startswith(("http://", "https://")):
+        raise HTTPException(status_code=404, detail="No local still for this shot")
+    root = (Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs" / shot_id).resolve()
+    from hfvg.activities.studio_generation import DRY_RUN_OUTPUT_DIR
+    dry_root = DRY_RUN_OUTPUT_DIR.resolve()
+    path = Path(still).resolve()
+    inside = path.is_relative_to(root) or path.is_relative_to(dry_root)
+    if not inside or not path.is_file() or path.suffix.lower() not in _STILL_MEDIA_TYPES:
+        raise HTTPException(status_code=404, detail="Still is not an episode output file")
+    return FileResponse(path=path, media_type=_STILL_MEDIA_TYPES[path.suffix.lower()], content_disposition_type="inline")
+
+
 class FinalCutRejectRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000)
 
@@ -3119,7 +3157,29 @@ async def get_credit_status(
 
     ledger = CreditLedger(DATABASE_PATH)
     await ledger.init_db()
-    return {"episode_id": episode_id, **(await ledger.get_episode_status(episode_id))}
+    return {"episode_id": episode_id, **(await ledger.get_episode_status(episode_id)),
+            "higgsfield_balance": await _higgsfield_balance_view()}
+
+
+async def _higgsfield_balance_view() -> dict:
+    """The manually recorded Higgsfield balance for the credits panel (GC.01 / B8): amount, when it
+    was recorded and whether it is recent enough for a live run (HFVG_BALANCE_MAX_AGE_HOURS)."""
+    from hfvg.budget import BudgetLedger, balance_freshness
+    status = await BudgetLedger(DATABASE_PATH).get_balance_status()
+    try:
+        fresh = balance_freshness(status)
+    except ValueError as e:
+        fresh = {"ok": False, "reason": str(e), "age_hours": None, "max_age_hours": None}
+    return {
+        "balance_usd_micros": status.get("manual_balance_usd_micros"),
+        "balance_remaining_usd_micros": status.get("balance_remaining_usd_micros"),
+        "set_at": status.get("set_at"),
+        "set_by": status.get("set_by"),
+        "fresh": bool(fresh["ok"]),
+        "age_hours": fresh.get("age_hours"),
+        "max_age_hours": fresh.get("max_age_hours"),
+        "reason": fresh.get("reason"),
+    }
 
 
 @app.get("/api/episodes/{episode_id}/shot-states")
@@ -3160,6 +3220,8 @@ async def get_shot_states(
                                    "retry": (m or {}).get("retry")}
                            for phase, m in moderation.items()},
             "moderation_escalation": child.get("moderation_escalation"),
+            "pre_approved": bool(child.get("pre_approved")),
+            "moderation_lint": child.get("moderation_lint") or {},
         }
     return {"episode_id": episode_id, "shots": out}
 

@@ -891,3 +891,60 @@ def mix(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool
 
 
 cli.add_command(mix, name="deliver")
+
+
+@cli.group()
+def budget():
+    """Dollar budget ledger: the manually recorded Higgsfield balance (GC.01)."""
+
+
+def _balance_report(status: dict) -> dict:
+    from hfvg.budget import balance_freshness
+    from hfvg.pricing import micros_to_usd_str
+    fresh = balance_freshness(status)
+    bal = status.get("manual_balance_usd_micros")
+    return {
+        "balance_usd": micros_to_usd_str(bal) if bal is not None else None,
+        "set_at": status.get("set_at"),
+        "set_by": status.get("set_by"),
+        "balance_remaining_usd": (micros_to_usd_str(status["balance_remaining_usd_micros"])
+                                  if status.get("balance_remaining_usd_micros") is not None else None),
+        "fresh": fresh["ok"],
+        "age_hours": fresh["age_hours"],
+        "max_age_hours": fresh["max_age_hours"],
+        "reason": fresh["reason"],
+    }
+
+
+@budget.command("set-balance")
+@click.argument("balance_usd")
+@click.option("--note", default="", help="Where the number came from (e.g. 'account page')")
+def set_balance(balance_usd: str, note: str):
+    """Record the Higgsfield USD balance read from the account page (there is no balance API).
+
+    Live runs refuse when no balance is recorded or it is older than HFVG_BALANCE_MAX_AGE_HOURS
+    (default 24). Uses DATABASE_PATH (default ./data/studio.db)."""
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import usd_to_micros
+    try:
+        micros = usd_to_micros(balance_usd.strip())
+    except (TypeError, ValueError) as e:
+        raise click.BadParameter(str(e), param_hint="BALANCE_USD")
+    ledger = BudgetLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
+
+    async def _run():
+        await ledger.set_manual_balance(micros, set_by="cli", note=note)
+        return await ledger.get_balance_status()
+
+    click.echo(json.dumps(_balance_report(asyncio.run(_run())), indent=2))
+
+
+@budget.command("show-balance")
+def show_balance():
+    """Show the recorded balance and whether it is recent enough for a live run."""
+    from hfvg.budget import BudgetLedger
+    ledger = BudgetLedger(os.getenv("DATABASE_PATH", "./data/studio.db"))
+    report = _balance_report(asyncio.run(ledger.get_balance_status()))
+    click.echo(json.dumps(report, indent=2))
+    if not report["fresh"]:
+        raise SystemExit(1)

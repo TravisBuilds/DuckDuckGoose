@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from temporalio import activity
 
+from hfvg.defaults import REF_MODEL_PATH, REF_RESOLUTION
+
 from hfvg.config import config
 from hfvg.credit_ledger import CreditLedger
 from hfvg.providers.higgsfield import HiggsfieldProvider
@@ -52,7 +54,7 @@ async def generate_ref_activity(
     output_path: str,
     version: int = 1,
     model: str = "soul_v2",
-    resolution: str = "2k",
+    resolution: str = REF_RESOLUTION,
 ) -> dict:
     """
     Generate a reference image (character sheet, lineup, etc.).
@@ -69,6 +71,14 @@ async def generate_ref_activity(
     Returns:
         dict with status, job_id, output_path, credits_used
     """
+    # B6: the requested resolution must be one the ref model accepts (model_caps), checked first
+    # (before the reuse check, any reserve or provider call).
+    from hfvg import model_caps
+    from hfvg.defaults import check_value
+    why = check_value(model_caps.get_registry().resolve(REF_MODEL_PATH), "resolution", resolution)
+    if why:
+        raise ValueError(f"Ref {ref_key}: resolution {resolution!r} refused for {REF_MODEL_PATH}: {why}")
+
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     
@@ -140,7 +150,7 @@ async def generate_ref_activity(
     
     # Estimate credits
     # Refs use SOUL V2: higgsfield-ai/soul/v2/standard
-    model_path = "higgsfield-ai/soul/v2/standard"
+    model_path = REF_MODEL_PATH
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     

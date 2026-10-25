@@ -15,6 +15,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from hfvg.qc.clip_constraints import ConstraintError, validate_constraints
+from hfvg.qc.continuity import ContinuityError, validate_hard_checks
 from hfvg.routing import MODELS
 
 
@@ -96,17 +98,16 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
                 raise ShotDataError(f"shots.json shot {sid}: empty clip_prompt (omit the key to reuse the still prompt)")
             clip_prompt = clip_prompt.strip()
 
-        # Optional per-shot trim for the mute picture edit (seconds into the generated clip)
-        trim_in = item.get("trim_in", 0)
-        trim_out = item.get("trim_out", duration)
-        for key, value in (("trim_in", trim_in), ("trim_out", trim_out)):
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ShotDataError(f"shots.json shot {sid}: {key} must be a number, got {value!r}")
-        if not (0 <= trim_in < trim_out <= duration):
-            raise ShotDataError(
-                f"shots.json shot {sid}: trim must satisfy 0 <= trim_in < trim_out <= duration "
-                f"(got trim_in={trim_in}, trim_out={trim_out}, duration={duration})"
-            )
+        trim_in, trim_out = _parse_trim(item, sid, duration)
+        pre_approved = _parse_pre_approved_still(item.get("pre_approved_still"), sid)
+        qc_fail_if = item.get("qc_fail_if")
+        if qc_fail_if is not None:
+            try:
+                qc_fail_if = validate_constraints(qc_fail_if, f"shots.json shot {sid}: qc_fail_if")
+            except ConstraintError as e:
+                raise ShotDataError(str(e)) from None
+            if not qc_fail_if:
+                raise ShotDataError(f"shots.json shot {sid}: empty qc_fail_if (omit the key instead)")
 
         ref_keys = _require(item, "ref_keys", list, sid)
         out[sid] = {
@@ -122,6 +123,8 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
                 "wet": wet,
                 "antler": bool(item.get("antler_character", False)),
                 "duck": bool(item.get("duck_present", False)),
+                # declared at all? (the playbook duck_role rule only judges an explicit duck_present)
+                "duck_declared": "duck_present" in item,
                 "end_frame": end_frame,
             },
             "params": {
@@ -133,15 +136,152 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             "trim": {"in": float(trim_in), "out": float(trim_out)},
             "tags": ["wet"] if wet else [],
             "ref_keys": [str(k) for k in ref_keys],
+            "pre_approved_still": pre_approved,
+            "qc_fail_if": list(qc_fail_if or []),
         }
     return out
 
 
-def resolve_refs(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dict[str, dict[str, list]]:
+def _number(value: Any, key: str, sid: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ShotDataError(f"shots.json shot {sid}: {key} must be a number, got {value!r}")
+    return float(value)
+
+
+def _parse_trim(item: dict, sid: str, duration: float) -> tuple[float, float]:
+    """The shot's trim window in clip seconds: (trim_in, trim_out), 0 <= in < out <= duration.
+
+    Two equivalent spellings (one per shot, never both):
+    - ``trim_in`` / ``trim_out``: absolute window into the generated clip
+    - ``trim_head_s`` / ``trim_tail_s``: seconds cut from the clip start / end; mapped onto the same
+      window (in = head, out = duration - tail), so assembly and QC use one representation.
+    """
+    absolute = [k for k in ("trim_in", "trim_out") if k in item]
+    relative = [k for k in ("trim_head_s", "trim_tail_s") if k in item]
+    if absolute and relative:
+        raise ShotDataError(
+            f"shots.json shot {sid}: use either trim_in/trim_out or trim_head_s/trim_tail_s, not both "
+            f"(got {absolute + relative})"
+        )
+    if relative:
+        head = _number(item.get("trim_head_s", 0), "trim_head_s", sid)
+        tail = _number(item.get("trim_tail_s", 0), "trim_tail_s", sid)
+        if head < 0 or tail < 0:
+            raise ShotDataError(f"shots.json shot {sid}: trim_head_s / trim_tail_s must be >= 0 (got {head}, {tail})")
+        if head + tail >= duration:
+            raise ShotDataError(
+                f"shots.json shot {sid}: trim_head_s + trim_tail_s ({head} + {tail}) must be shorter than "
+                f"the clip duration {duration}"
+            )
+        trim_in, trim_out = head, float(duration) - tail
+    else:
+        trim_in = _number(item.get("trim_in", 0), "trim_in", sid)
+        trim_out = _number(item.get("trim_out", duration), "trim_out", sid)
+    if not (0 <= trim_in < trim_out <= duration):
+        raise ShotDataError(
+            f"shots.json shot {sid}: trim must satisfy 0 <= trim_in < trim_out <= duration "
+            f"(got trim_in={trim_in}, trim_out={trim_out}, duration={duration})"
+        )
+    return trim_in, trim_out
+
+
+_SHA256_HEX = set("0123456789abcdef")
+
+
+def _parse_pre_approved_still(value: Any, sid: str) -> dict[str, Any] | None:
+    """``pre_approved_still``: a path string or {"path", "sha256"?, "approved_by"?}.
+
+    The owner already approved this start still (e.g. from an earlier run): the shot skips the still
+    spend and uses it as its G2 still. Relative paths resolve against the episode directory (the
+    directory of shots.json) when the still is prepared; existence and sha256 are checked then."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = {"path": value}
+    if not isinstance(value, dict):
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still must be a path or an object, got {value!r}")
+    unknown = sorted(set(value) - {"path", "sha256", "approved_by"})
+    if unknown:
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still has unknown key(s) {unknown}")
+    path = value.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still.path must be a non-empty string")
+    if path.startswith(("http://", "https://", "file:")):
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still.path must be a local file path, got {path!r}")
+    sha = value.get("sha256")
+    if sha is not None and (not isinstance(sha, str) or len(sha) != 64 or not set(sha.lower()) <= _SHA256_HEX):
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still.sha256 must be 64 hex chars")
+    approved_by = value.get("approved_by", "owner")
+    if not isinstance(approved_by, str) or not approved_by.strip():
+        raise ShotDataError(f"shots.json shot {sid}: pre_approved_still.approved_by must be a non-empty string")
+    return {"path": path.strip(), "sha256": sha.lower() if sha else None, "approved_by": approved_by.strip(),
+            "source": "shots.json"}
+
+
+def parse_episode_options(data: Any) -> dict[str, Any]:
+    """Episode-level options from shots.json (top level, next to "shots").
+
+    - ``continuity_hard_checks``: which continuity checks block the assembly (hfvg.qc.continuity);
+      None when absent (the default policy applies).
+    """
+    if not isinstance(data, dict):
+        return {"continuity_hard_checks": None}
+    hard = data.get("continuity_hard_checks")
+    if hard is not None:
+        try:
+            hard = validate_hard_checks(hard)
+        except ContinuityError as e:
+            raise ShotDataError(f"shots.json: {e}") from None
+    return {"continuity_hard_checks": hard}
+
+
+def load_episode_options(episode_id: str) -> dict[str, Any]:
+    """parse_episode_options for the episode's shots.json ({} values when there is no shots.json)."""
+    path = shots_json_path(episode_id)
+    if not path.is_file():
+        return parse_episode_options(None)
+    return parse_episode_options(_read_json(path, "shots.json"))
+
+
+def picture_seconds(shots: list[dict[str, Any]]) -> float:
+    """Planned mute-picture length: the sum of every shot's trim window (out - in)."""
+    total = 0.0
+    for shot in shots:
+        trim = shot.get("trim") or {}
+        duration = float((shot.get("params") or {}).get("duration") or 0.0)
+        t_in = float(trim.get("in", 0.0))
+        t_out = float(trim.get("out", duration))
+        total += max(0.0, t_out - t_in)
+    return round(total, 3)
+
+
+def pre_approved_still_paths(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """{shot_id: absolute path} of every shot's pre-approved start still (relative paths are
+    resolved against the shots.json directory, like the activity that copies them)."""
+    base = shots_json_path(episode_id).parent
+    out: dict[str, str] = {}
+    for sid, plan in plans.items():
+        spec = plan.get("pre_approved_still")
+        if spec:
+            raw = Path(spec["path"]).expanduser()
+            out[sid] = str(raw if raw.is_absolute() else (base / raw))
+    return out
+
+
+def resolve_refs(
+    episode_id: str,
+    ref_keys_by_shot: dict[str, list[str]],
+    pre_approved_paths: dict[str, str] | None = None,
+) -> dict[str, dict[str, list]]:
     """Resolve each shot's refs against refs.json and the filesystem (checked NOW, not the stale flag).
+
+    A refs.json entry may use ``"pre_approved_still_of": "<shot_id>"`` instead of a path/url: it
+    resolves to that shot's pre-approved start still, so an owner-approved still can be the
+    continuity ref of other shots. Naming a shot without a pre-approved still is an error.
 
     Returns {shot_id: {"refs": [path-or-url of refs that exist], "missing_refs": [keys not on disk]}}.
     """
+    pre_approved_paths = pre_approved_paths or {}
     path = refs_json_path(episode_id)
     if not path.is_file():
         raise ShotDataError(f"No refs.json found for {episode_id} (looked at {path})")
@@ -161,6 +301,18 @@ def resolve_refs(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dic
         for entry in entries:
             url = str(entry.get("url") or "")
             ref_path = str(entry.get("path") or "")
+            of = entry.get("pre_approved_still_of")
+            if of is not None:
+                if url or ref_path:
+                    raise ShotDataError(
+                        f"refs.json {sid}/{entry.get('key')}: pre_approved_still_of cannot be combined with path/url"
+                    )
+                if of not in pre_approved_paths:
+                    raise ShotDataError(
+                        f"refs.json {sid}/{entry.get('key')}: pre_approved_still_of {of!r} names a shot "
+                        f"without a pre_approved_still (have: {sorted(pre_approved_paths)})"
+                    )
+                ref_path = pre_approved_paths[of]
             if url.startswith(("http://", "https://")):
                 refs.append(url)
             elif ref_path and os.path.isfile(ref_path):
@@ -186,7 +338,11 @@ def load_shot_plans(episode_id: str, require: bool) -> dict[str, dict[str, Any]]
         for plan in plans.values():
             plan.update({"refs": [], "missing_refs": []})
         return plans
-    resolved = resolve_refs(episode_id, {sid: p["ref_keys"] for sid, p in plans.items()})
+    resolved = resolve_refs(
+        episode_id,
+        {sid: p["ref_keys"] for sid, p in plans.items()},
+        pre_approved_still_paths(episode_id, plans),
+    )
     for sid, plan in plans.items():
         plan.update(resolved[sid])
     return plans
@@ -221,5 +377,7 @@ def merge_into_shots(
         new["refs"] = plan["refs"]
         new["ref_keys"] = plan["ref_keys"]
         new["missing_refs"] = plan["missing_refs"]
+        new["pre_approved_still"] = plan.get("pre_approved_still")
+        new["qc_fail_if"] = list(plan.get("qc_fail_if") or [])
         merged.append(new)
     return merged

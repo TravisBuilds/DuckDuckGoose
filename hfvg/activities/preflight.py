@@ -259,6 +259,24 @@ async def preflight_validate_episode_activity(
             f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
         )
     
+    # 8b. Playbook moderation lint config (B5): unknown hard-rule names fail loudly in every mode
+    from hfvg.moderation_lint import ModerationLintError, hard_rules
+    try:
+        hard_rules()
+    except ModerationLintError as e:
+        problems.append(str(e))
+
+    # 9. Live mode: a manual Higgsfield balance must be recorded and recent (GC.01, B8). There is
+    # no balance endpoint, so a stale entry would let GC.01 headroom pass on an old number.
+    if is_live:
+        from hfvg.budget import balance_freshness
+        try:
+            fresh = balance_freshness(await ledger.get_balance_status())
+        except ValueError as e:  # invalid HFVG_BALANCE_MAX_AGE_HOURS
+            fresh = {"ok": False, "reason": str(e)}
+        if not fresh["ok"]:
+            problems.append(fresh["reason"])
+
     # Raise if any problems found
     if problems:
         raise PreflightError(

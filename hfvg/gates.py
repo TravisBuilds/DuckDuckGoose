@@ -7,6 +7,43 @@ from pathlib import Path
 from typing import Any
 
 
+OWNER_APPROVAL_POINTS_KEY = "owner_approval_points"
+# Older policy files used a longer key; accepted with a DeprecationWarning (generic, no names).
+LEGACY_OWNER_APPROVAL_POINTS_KEYS = ("project_owner_approval_points",)
+
+
+def owner_approval_points(data: dict, policy_path: str | Path = "<policy>") -> list:
+    """The policy's ``owner_approval_points`` (gate ids that need the owner's approval).
+
+    A missing key fails loudly (ValueError naming the key and the file): an empty default would
+    silently drop every owner approval point. A legacy alias is accepted with a DeprecationWarning."""
+    if not isinstance(data, dict):
+        raise ValueError(f"gate policy {policy_path} must be a JSON object")
+    if OWNER_APPROVAL_POINTS_KEY in data:
+        value = data[OWNER_APPROVAL_POINTS_KEY]
+        key = OWNER_APPROVAL_POINTS_KEY
+    else:
+        legacy = next((k for k in LEGACY_OWNER_APPROVAL_POINTS_KEYS if k in data), None)
+        if legacy is None:
+            raise ValueError(
+                f"gate policy {policy_path} is missing the required key '{OWNER_APPROVAL_POINTS_KEY}' "
+                "(the list of gate ids that need the owner's approval, e.g. "
+                '["G1.01", "G2.01", ...]); see docs/GATE-POLICY.md'
+            )
+        import warnings
+        warnings.warn(
+            f"gate policy {policy_path} uses the deprecated key '{legacy}'; rename it to "
+            f"'{OWNER_APPROVAL_POINTS_KEY}'",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        value = data[legacy]
+        key = legacy
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ValueError(f"gate policy {policy_path}: '{key}' must be a list of gate id strings")
+    return list(value)
+
+
 class GatePolicy:
     """
     Loads and validates HARNESS-GATES.json policy data.
@@ -29,7 +66,9 @@ class GatePolicy:
         self.series = self.data.get("series")
         self.harness = self.data.get("harness")
         self.gates = self.data.get("gates", [])
-        self.owner_approval_points = self.data.get("owner_approval_points", [])
+        
+        self.owner_approval_points = owner_approval_points(self.data, self.policy_path)
+
         self.budgets = self.data.get("budgets", {})
         self.rules = self.data.get("rules", {})
         
@@ -113,19 +152,69 @@ class GatePolicy:
 _PROJECT_RE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
-def load_policy(project: str | None = None) -> GatePolicy:
-    """
-    Load gate policy for a project.
-    
-    Args:
-        project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
-    
-    Returns:
-        GatePolicy instance
-    """
+POLICY_FILE_NAME = "HARNESS-GATES.json"
+
+
+def policy_search_paths(project: str | None = None) -> list[tuple[str, Path]]:
+    """Where load_policy looks for the gate policy, in order: [(source, path)].
+
+    1. ``HFVG_GATE_POLICY``: explicit file (the active project only; it MUST exist, see load_policy)
+    2. ``HFVG_RUN_DIR``: ``<run dir>/HARNESS-GATES.json`` then ``<run dir>/policy/HARNESS-GATES.json``
+       (the active project only)
+    3. ``examples/<project>/HARNESS-GATES.json`` in the repo (the public fallback)
+
+    The active project is ``HFVG_PROJECT`` (default ``demo``): an explicit ``load_policy("other")``
+    for a different project only uses the examples fallback, so a private run policy never leaks
+    into another project's lookup."""
+    active = os.getenv("HFVG_PROJECT", "demo")
     if project is None:
-        project = os.getenv("HFVG_PROJECT", "demo")
+        project = active
     if not _PROJECT_RE.fullmatch(project or ""):
         raise ValueError(f"invalid HFVG_PROJECT / project name {project!r} (letters, digits, '.', '_', '-')")
-    policy_path = Path(__file__).parent.parent / "examples" / project / "HARNESS-GATES.json"
-    return GatePolicy(policy_path)
+    paths: list[tuple[str, Path]] = []
+    if project == active:
+        env_path = os.getenv("HFVG_GATE_POLICY", "").strip()
+        if env_path:
+            paths.append(("HFVG_GATE_POLICY", Path(env_path)))
+        run_dir = os.getenv("HFVG_RUN_DIR", "").strip()
+        if run_dir:
+            paths.append(("HFVG_RUN_DIR", Path(run_dir) / POLICY_FILE_NAME))
+            paths.append(("HFVG_RUN_DIR", Path(run_dir) / "policy" / POLICY_FILE_NAME))
+    paths.append(("examples", Path(__file__).parent.parent / "examples" / project / POLICY_FILE_NAME))
+    return paths
+
+
+def load_policy(project: str | None = None) -> GatePolicy:
+    """
+    Load the gate policy (HARNESS-GATES.json) for a project.
+
+    Search order: see policy_search_paths (HFVG_GATE_POLICY, then HFVG_RUN_DIR, then
+    examples/<project>/). Documented in docs/GATE-POLICY.md.
+
+    Args:
+        project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
+
+    Raises:
+        FileNotFoundError: HFVG_GATE_POLICY is set but the file does not exist (never a silent
+            fallback to the public example), or no policy exists in any location.
+        ValueError: invalid project name, unreadable JSON or a policy that fails validation.
+    """
+    paths = policy_search_paths(project)
+    for source, policy_path in paths:
+        if source == "HFVG_GATE_POLICY" and not policy_path.is_file():
+            raise FileNotFoundError(
+                f"HFVG_GATE_POLICY points to {policy_path}, which does not exist; refusing to fall back "
+                "to another policy (unset HFVG_GATE_POLICY to use the run dir / examples lookup)"
+            )
+        if policy_path.is_file():
+            try:
+                return GatePolicy(policy_path)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"gate policy {policy_path} ({source}) is not valid JSON: {e}") from None
+            except AssertionError as e:
+                raise ValueError(f"gate policy {policy_path} ({source}) failed validation: {e}") from None
+    raise FileNotFoundError(
+        "HARNESS-GATES.json not found. Searched:\n"
+        + "\n".join(f"  - {p} ({src})" for src, p in paths)
+        + "\nSet HFVG_GATE_POLICY to the policy file or HFVG_RUN_DIR to the run directory."
+    )

@@ -252,11 +252,14 @@ async def test_g1_plan_dry_run_no_real_api_calls(monkeypatch):
         # Call with dry_run=True
         plan = await compute_g1_plan_activity("ep99", shots, dry_run=True)
         
-        # Should return placeholder estimates
+        # Round 7 B4: the same per-call estimates the dry submits reserve (hfvg.estimates), not the
+        # old flat 1.0 / 5.0 placeholder: $0.06 dry still (1.12 credits) + Kling 5 s at $0.056/s.
         assert len(plan["shots"]) == 2
         assert plan["shots"][0]["shot_id"] == "A01"
-        assert plan["shots"][0]["still_credits"] == 1.0
+        assert plan["shots"][0]["still_credits"] == 1.12
         assert plan["shots"][0]["clip_credits"] == 5.0
+        assert plan["shots"][0]["still_usd_micros"] == 60_000
+        assert plan["shots"][0]["clip_usd_micros"] == 280_000
         
         # Verify NO API calls were made
         assert still_estimate_route.call_count == 0

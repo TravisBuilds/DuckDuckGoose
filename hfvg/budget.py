@@ -148,6 +148,56 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+BALANCE_MAX_AGE_ENV = "HFVG_BALANCE_MAX_AGE_HOURS"
+DEFAULT_BALANCE_MAX_AGE_HOURS = 24.0
+
+
+def balance_max_age_hours() -> float:
+    """How old the manually recorded Higgsfield balance may be before live jobs are refused
+    (HFVG_BALANCE_MAX_AGE_HOURS, default 24). Invalid values fail loudly (never "no limit")."""
+    raw = os.getenv(BALANCE_MAX_AGE_ENV, "").strip()
+    if not raw:
+        return DEFAULT_BALANCE_MAX_AGE_HOURS
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"{BALANCE_MAX_AGE_ENV} must be a number of hours, got {raw!r}") from None
+    if not value > 0 or value != value or value == float("inf"):
+        raise ValueError(f"{BALANCE_MAX_AGE_ENV} must be a positive finite number of hours, got {raw!r}")
+    return value
+
+
+def balance_freshness(status: dict[str, Any], now: datetime | None = None,
+                      max_age_hours: float | None = None) -> dict[str, Any]:
+    """Is the manual balance (get_balance_status()) recorded and recent enough for a live job?
+
+    Returns {"ok", "reason", "set_at", "age_hours", "max_age_hours"}."""
+    max_age = balance_max_age_hours() if max_age_hours is None else float(max_age_hours)
+    out: dict[str, Any] = {"ok": False, "set_at": status.get("set_at"), "age_hours": None,
+                           "max_age_hours": max_age}
+    if status.get("manual_balance_usd_micros") is None or not status.get("set_at"):
+        out["reason"] = ("GC.01: no manual Higgsfield balance recorded; record it first "
+                         "(`hfvg budget set-balance <usd>` or POST /api/budget/balance)")
+        return out
+    try:
+        set_at = datetime.fromisoformat(str(status["set_at"]))
+    except ValueError:
+        out["reason"] = f"GC.01: unreadable balance timestamp {status['set_at']!r}; record the balance again"
+        return out
+    if set_at.tzinfo is None:
+        set_at = set_at.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    age = (now - set_at).total_seconds() / 3600.0
+    out["age_hours"] = round(age, 2)
+    if age > max_age:
+        out["reason"] = (f"GC.01: the manual Higgsfield balance was recorded {age:.1f} h ago "
+                         f"(at {status['set_at']}), older than {max_age:g} h ({BALANCE_MAX_AGE_ENV}); "
+                         "check the balance and record it again before any paid job")
+        return out
+    out.update({"ok": True, "reason": f"balance recorded {age:.1f} h ago (max {max_age:g} h)"})
+    return out
+
+
 class BudgetLedger:
     """Per-line dollar ledger (integer micro-dollars) with 80% stop and GC.01 headroom."""
 
@@ -517,13 +567,12 @@ class BudgetLedger:
 
                 # GC.01 headroom against the manually entered balance
                 balance = await self._balance_status(db, settings)
-                if balance["manual_balance_usd_micros"] is None:
-                    if require_balance:
-                        raise ValueError(
-                            "GC.01: no manual Higgsfield balance recorded; set it "
-                            "(POST /api/budget/balance) before any paid job"
-                        )
-                else:
+                if require_balance:
+                    # live: a balance must be recorded AND recent (HFVG_BALANCE_MAX_AGE_HOURS)
+                    fresh = balance_freshness(balance)
+                    if not fresh["ok"]:
+                        raise ValueError(fresh["reason"])
+                if balance["manual_balance_usd_micros"] is not None:
                     balance_after_hold = balance["balance_remaining_usd_micros"] - amount
                     if balance_after_hold < settings.gc01_headroom_usd_micros:
                         raise ValueError(

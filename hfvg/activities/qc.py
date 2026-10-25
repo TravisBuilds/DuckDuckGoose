@@ -11,6 +11,12 @@ from pathlib import Path
 from temporalio import activity
 
 from hfvg.config import config
+from hfvg.qc.clip_constraints import (
+    FAIL as CONSTRAINT_FAIL,
+    PASS as CONSTRAINT_PASS,
+    evaluate_clip_constraints,
+    get_constraint_checker,
+)
 
 
 @activity.defn
@@ -347,10 +353,17 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
+    # Per-shot qc_fail_if (shots.json): free-text failure conditions checked on every clip.
+    constraints = list((rubric or {}).get("qc_fail_if") or [])
+
     # DRY_RUN forces dry mode (kill switch)
     if dry_run_env:
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-        return {"passed": True, "issues": []}
+        if not constraints:
+            return {"passed": True, "issues": []}
+        # Dry clips are placeholders: the constraints are recorded per clip as not checked
+        dry = await evaluate_clip_constraints(None, None, constraints, dry_run=True)
+        return {"passed": True, "issues": [], "constraints": dry}
     
     # Fail closed: if episode_id is missing, cannot verify live mode, so escalate
     if not episode_id:
@@ -462,6 +475,24 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
             activity.logger.info(f"Motion QC passed for {shot_id} (stillgate {motion['verdict']})")
             issues = [f"stillgate WATCH: low motion (peak_fd={motion['peak_fd']}, mean_fd={motion['mean_fd']})"] \
                 if motion["verdict"] == "WATCH" else []
+            if constraints:
+                # Fail closed: no checker / no file / low confidence -> NEEDS_REVIEW (escalate),
+                # a violated condition -> FAIL; never a silent pass.
+                checked = await evaluate_clip_constraints(
+                    get_constraint_checker(), str(temp_video), constraints,
+                    {"episode_id": episode_id, "shot_id": shot_id,
+                     "prompt": (rubric or {}).get("prompt"), "duration": expected_duration},
+                )
+                if checked["status"] == CONSTRAINT_FAIL:
+                    activity.logger.warning(f"qc_fail_if FAIL for {shot_id}: {checked['reason']}")
+                    return {"passed": False, "issues": issues + [f"qc_fail_if violated: {checked['reason']}"],
+                            "escalate": False, "motion": motion, "constraints": checked}
+                if checked["status"] != CONSTRAINT_PASS:
+                    activity.logger.warning(f"qc_fail_if NEEDS_REVIEW for {shot_id}: {checked['reason']}")
+                    return {"passed": False, "issues": issues + [f"qc_fail_if needs review: {checked['reason']}"],
+                            "escalate": True,
+                            "motion": motion, "constraints": checked}
+                return {"passed": True, "issues": issues, "motion": motion, "constraints": checked}
             return {"passed": True, "issues": issues, "motion": motion}
         else:
             activity.logger.warning(f"Motion QC failed for {shot_id}: {qc_result['issues']}")
@@ -506,8 +537,14 @@ async def check_assembly_qc(
     manifest: dict,
     episode_id: str,
     shot_meta_by_id: dict | None = None,
+    continuity_hard_checks: list | None = None,
 ) -> dict:
     """QC of the mute picture edit, run before G_FINAL_CUT.
+
+    continuity_hard_checks (shots.json top level, hfvg.qc.continuity): which continuity checks are
+    HARD (blocking) vs ADVISORY (reported, verdict WATCH at worst). None -> default (headcount hard,
+    the size / order checks not run). When the episode declares the key, the size / order checks
+    run on every shot through the ContinuityChecker interface (unverified -> NEEDS_REVIEW when hard).
 
     - Motion (stillgate G4.10) per shot window of the assembled edit (FAIL / WATCH / PASS).
     - Animal count (shot_meta.count) and duck presence (shot_meta.duck) per shot, through the
@@ -519,17 +556,23 @@ async def check_assembly_qc(
     produces a passing edit or a human accepts the QC result. DRY_RUN placeholder edits (nothing
     rendered) return verdict DRY_RUN and are not blocking.
     """
+    from hfvg.qc import continuity as cont
+
     activity.heartbeat({"stage": "assembly_qc", "episode": episode_id})
     clips = list((manifest or {}).get("clips") or [])
+    policy = cont.continuity_policy(continuity_hard_checks)
     if (manifest or {}).get("dry_run"):
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
         return {"verdict": "DRY_RUN", "blocking": False, "escalate": False,
                 "reason": "dry run: placeholder clips, no edit rendered, nothing to check",
-                "motion_results": [], "animal_results": []}
+                "motion_results": [], "animal_results": [], "continuity_policy": policy,
+                "continuity_results": []}
 
-    def result(verdict: str, reason: str, motion=None, animals=None) -> dict:
+    def result(verdict: str, reason: str, motion=None, animals=None, continuity_rows=None) -> dict:
         motion = motion or []
         animals = animals or []
+        continuity_rows = continuity_rows or []
+        hard_animals = cont.HEADCOUNT in policy["hard"]
         return {
             "verdict": verdict,
             "blocking": verdict in ASSEMBLY_BLOCKING_VERDICTS,
@@ -537,10 +580,17 @@ async def check_assembly_qc(
             "reason": reason,
             "motion_results": motion,
             "animal_results": animals,
+            "continuity_policy": policy,
+            "continuity_results": continuity_rows,
             "failed_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "FAIL"}
-                                   | {a["shot_id"] for a in animals if a["status"] == "FAIL"}),
-            "review_shots": sorted({a["shot_id"] for a in animals if a["status"] == "NEEDS_REVIEW"}),
-            "watch_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "WATCH"}),
+                                   | {a["shot_id"] for a in animals if hard_animals and a["status"] == "FAIL"}
+                                   | {c["shot_id"] for c in continuity_rows if c["hard"] and c["status"] == "FAIL"}),
+            "review_shots": sorted({a["shot_id"] for a in animals if hard_animals and a["status"] == "NEEDS_REVIEW"}
+                                   | {c["shot_id"] for c in continuity_rows
+                                      if c["hard"] and c["status"] == "NEEDS_REVIEW"}),
+            "watch_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "WATCH"}
+                                  | {a["shot_id"] for a in animals if not hard_animals and a["status"] != "PASS"}
+                                  | {c["shot_id"] for c in continuity_rows if not c["hard"] and c["status"] != "PASS"}),
         }
 
     if not assembly_path or not Path(assembly_path).is_file() or not clips:
@@ -566,12 +616,42 @@ async def check_assembly_qc(
         res = await check_shot_animals(counter, clip.get("source") or assembly_path, metas.get(sid))
         animals.append({"shot_id": sid, **res})
 
+    # Size / order continuity checks: only when the episode declares continuity_hard_checks.
+    checker_rows: list[dict] = []
+    if policy["source"] == "episode":
+        activity.heartbeat({"stage": "assembly_qc_continuity", "episode": episode_id})
+        checker = cont.get_continuity_checker()
+        for clip in clips:
+            sid = clip["id"]
+            for check in cont.CHECKER_CHECKS:
+                try:
+                    r = await cont.run_checker_check(checker, clip.get("source") or assembly_path, check,
+                                                     {"shot_id": sid, "shot_meta": metas.get(sid)})
+                except Exception as e:  # a checker error is never a pass
+                    r = {"check": check, "status": cont.NEEDS_REVIEW, "reason": f"{check}: checker error: {str(e)[:200]}"}
+                checker_rows.append({"shot_id": sid, **r})
+    continuity = cont.classify(checker_rows, policy)
+    continuity_rows = continuity["results"]
+    hard_animals = cont.HEADCOUNT in policy["hard"]
+
     fails = [f"{m['shot_id']} still-only (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
              for m in motion if m["verdict"] == "FAIL"]
-    fails += [f"{a['shot_id']}: {a['reason']}" for a in animals if a["status"] == "FAIL"]
-    reviews = [f"{a['shot_id']}: {a['reason']}" for a in animals if a["status"] == "NEEDS_REVIEW"]
+    reviews: list[str] = []
     watches = [f"{m['shot_id']} low motion (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
                for m in motion if m["verdict"] == "WATCH"]
+    for a in animals:  # headcount: hard by default; advisory when the episode says so
+        if a["status"] == "PASS":
+            continue
+        line = f"{a['shot_id']}: {a['reason']}"
+        if not hard_animals:
+            watches.append(f"{line} (advisory headcount)")
+        elif a["status"] == "FAIL":
+            fails.append(line)
+        else:
+            reviews.append(line)
+    fails += [f"{c['shot_id']}: {c['reason']}" for c in continuity["hard_fail"]]
+    reviews += [f"{c['shot_id']}: {c['reason']}" for c in continuity["hard_review"]]
+    watches += [f"{c['shot_id']}: {c['reason']} (advisory)" for c in continuity["advisory"]]
     if fails:
         verdict, reason = "FAIL", "; ".join(fails + reviews)
     elif reviews:
@@ -581,4 +661,4 @@ async def check_assembly_qc(
     else:
         verdict, reason = "PASS", "all shots passed motion and animal checks"
     activity.logger.info(f"Assembly QC {episode_id}: {verdict}: {reason}")
-    return result(verdict, reason, motion, animals)
+    return result(verdict, reason, motion, animals, continuity_rows)

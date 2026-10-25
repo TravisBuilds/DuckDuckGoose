@@ -72,6 +72,14 @@ def generated_path(episode_id: str, kind: str, asset_id: str, key: str, ext: str
     return audio_mix.episode_dir(episode_id) / "audio" / "generated" / kind / f"{safe}_{key[:16]}.{ext}"
 
 
+DRY_VO_CHARS_PER_S = 15.0  # dry stand-in VO length: the planned text at a typical speaking rate
+
+
+def dry_vo_seconds(script: str | None) -> float:
+    """B7: the dry stand-in VO line length estimated from the line's characters (0.8-12 s)."""
+    return round(max(0.8, min(12.0, len(script or "") / DRY_VO_CHARS_PER_S)), 3)
+
+
 async def _stand_in(path: Path, seconds: float, freq: int) -> None:
     """Synthetic DRY_RUN stand-in (sine tone) - never a provider call."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +224,7 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
     if _dry_run():
         out = generated_path(episode_id, "vo", line_id, key, "wav")
         if not out.is_file():
-            await _stand_in(out, max(0.8, min(12.0, len(script or "") / 15.0)), 440)
+            await _stand_in(out, dry_vo_seconds(script), 440)
         return _result(out, source="dry_run_stand_in", dry=True, line_id=line_id)
     if not script:
         raise _missing(f"VO line {line_id} has neither a locked file nor text")
@@ -362,23 +370,45 @@ async def mix_and_deliver(episode_id: str, mute_path: str, plan: dict[str, Any],
     picture (the dry assembly writes no file) returns the deterministic paths flagged dry_run."""
     _beat({"stage": "mix_start", "episode": episode_id})
     mute = Path(mute_path) if mute_path else None
+    picture_stand_in = False
     if mute is None or not mute.is_file():
-        if _dry_run():
-            return _dry_manifest(episode_id, mute_path, "picture is a dry-run stand-in (no file)")
-        raise _missing(f"Mute picture not found for {episode_id}: {mute_path}", "MissingPicture")
+        if not _dry_run():
+            raise _missing(f"Mute picture not found for {episode_id}: {mute_path}", "MissingPicture")
+        if not picture_duration or picture_duration <= 0:
+            return _dry_manifest(episode_id, mute_path, "picture is a dry-run stand-in (no file, no length)")
     if not plan.get("vo", {}).get("lines") and not plan.get("music") and not plan.get("sfx"):
         if _dry_run():
             return _dry_manifest(episode_id, mute_path, "no audio plan in dry run")
         raise _missing(f"Audio plan for {episode_id} has no VO, music or SFX", "InvalidAudioPlan")
+    if mute is None or not mute.is_file():
+        # B7: the dry assembly renders nothing; a black stand-in picture of the PLANNED length lets
+        # VO placement, ducking, subtitles and loudness run for real (manifest stays dry_run).
+        mute = await _stand_in_picture(episode_id, float(picture_duration))
+        picture_stand_in = True
     try:
         manifest = await audio_mix.mix_and_deliver(episode_id, str(mute), plan,
                                                    picture_duration=picture_duration, heartbeat=_beat)
     except AudioInputError as e:
         raise _missing(str(e), type(e).__name__) from None
-    stand_ins = sorted(plan.get("dry_inputs") or [])
+    stand_ins = sorted(plan.get("dry_inputs") or []) + (["picture"] if picture_stand_in else [])
     if stand_ins:
         manifest = {**manifest, "dry_run": True, "dry_reason": f"stand-in inputs: {stand_ins}"}
     return manifest
+
+
+async def _stand_in_picture(episode_id: str, seconds: float) -> Path:
+    """DRY_RUN black mute picture (540x960, 24 fps) of exactly the planned picture length."""
+    out = audio_mix.episode_dir(episode_id) / "dry" / f"mute_standin_{int(round(seconds * 1000))}ms.mp4"
+    if out.is_file():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.stem + ".part" + out.suffix)
+    await audio_mix.run_cmd(
+        ["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i",
+         f"color=c=black:s=540x960:r=24:d={seconds:.3f}", "-c:v", "libx264", "-preset", "ultrafast",
+         "-pix_fmt", "yuv420p", "-an", str(tmp)], "dry-run stand-in picture")
+    os.replace(tmp, out)
+    return out
 
 
 @activity.defn

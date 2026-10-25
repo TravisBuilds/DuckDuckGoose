@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.models import EpisodeState, PipelineStage
     from hfvg.workflows.posting import PostingWorkflow
     from hfvg.episode_parser import build_prompt_from_shot
+    from hfvg.pre_approved import pre_approved_still_map
     # ShotWorkflow is referenced by name string, not imported
 
 
@@ -58,6 +59,7 @@ class EpisodeWorkflowV2:
             idea="",
         )
         self.policy = None
+        self.pre_approved_stills: dict = {}  # {shot_id: spec} (hfvg.pre_approved)
         self.passed_gates: list[str] = []  # Track which gates have been passed
         
         # Three human gates (collapsed from 15)
@@ -387,15 +389,20 @@ class EpisodeWorkflowV2:
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
-        anchor_shot_ids = {a["anchor_shot_id"] for a in anchor_stills}
-        if anchor_shot_ids:
-            workflow.logger.info(f"Skipping anchor shots (already approved): {sorted(anchor_shot_ids)}")
-        
-        # Filter out anchor shots
-        shots_to_generate = [s for s in shots if s["shot_id"] not in anchor_shot_ids]
-        
-        # Launch still generation for all shots (except anchors)
-        workflow.logger.info(f"Launching still generation for {len(shots_to_generate)} shots (skipped {len(anchor_shot_ids)} anchors)...")
+        # Pre-approved start stills (shots.json pre_approved_still, or the anchor shot of an anchor
+        # row): launched like every other shot, minus the still spend (hfvg.pre_approved). Before
+        # the patch anchor shots were skipped entirely (no clip, no clip-only retry).
+        if workflow.patched("pre-approved-stills-v1"):
+            self.pre_approved_stills = pre_approved_still_map(shots, anchor_stills)
+            shots_to_generate = list(shots)
+            if self.pre_approved_stills:
+                workflow.logger.info(
+                    f"Pre-approved start stills (no still spend): {sorted(self.pre_approved_stills)}")
+        else:
+            self.pre_approved_stills = {}
+            anchor_shot_ids = {a["anchor_shot_id"] for a in anchor_stills}
+            shots_to_generate = [s for s in shots if s["shot_id"] not in anchor_shot_ids]
+        workflow.logger.info(f"Launching {len(shots_to_generate)} shot workflows...")
         shot_workflow_handles = []
         shot_completion_status = {}  # Track completion: {shot_id: {"done": bool, "success": bool, "error": str?}}
         
@@ -474,6 +481,12 @@ class EpisodeWorkflowV2:
                 f"Starting {shot_id} with attempt={total_attempt} (shot_attempts={actual_attempts}, override={override})"
             )
             
+            # Pre-approved start still (or none): the child skips the still submit when set
+            if shot_id in self.pre_approved_stills:
+                shot_plan["pre_approved_still"] = dict(self.pre_approved_stills[shot_id])
+            else:
+                shot_plan.pop("pre_approved_still", None)
+
             # Add parent workflow ID to shot_plan for retry_still_ready signaling
             shot_plan["parent_workflow_id"] = workflow.info().workflow_id
             
@@ -579,6 +592,7 @@ class EpisodeWorkflowV2:
         
         workflow.logger.info("Awaiting all clip completions...")
         results = []
+        collected: list[tuple[str, object]] = []
         # Use shot_results to get latest handle (includes retries)
         for shot in shots:
             shot_id = shot["shot_id"]
@@ -596,8 +610,15 @@ class EpisodeWorkflowV2:
             
             result = await handle
             results.append(result)
+            collected.append((shot_id, result))
         
         workflow.logger.info(f"All {len(results)} clips completed")
+        if workflow.patched("assembly-latest-outcomes-v1"):
+            # The background tracker records the same result, but may run after this coroutine
+            # resumes: record it here so the first edit already includes the last shot to finish
+            # (before, the first G_FINAL_CUT edit could miss it and was only rebuilt as stale).
+            for shot_id, result in collected:
+                self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
         
         # ================================================================
         # Picture Assembly (Round 3): mute 9:16 edit of the approved clips + QC
@@ -943,9 +964,12 @@ class EpisodeWorkflowV2:
                 for shot in self.assembly_shots:
                     if shot["shot_id"] in paths:
                         metas[shot["shot_id"]] = shot.get("shot_meta") or {}
+                # Per-episode continuity_hard_checks (shots.json); absent -> the 4-arg call as before
+                hard_checks = ((self.parsed_beatmap or {}).get("episode_options") or {}).get("continuity_hard_checks")
                 qc = await workflow.execute_activity(
                     check_assembly_qc,
-                    args=[result["assembly_path"], result["manifest"], episode_id, metas],
+                    args=[result["assembly_path"], result["manifest"], episode_id, metas]
+                    + ([hard_checks] if hard_checks is not None else []),
                     start_to_close_timeout=timedelta(minutes=15),
                     heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
@@ -975,9 +999,27 @@ class EpisodeWorkflowV2:
             self.state.stage = PipelineStage.PICTURE_LOCK
             workflow.logger.info(f"[PICTURE LOCK] mute edit QC {qc['verdict']}")
 
+    def _picture_seconds(self) -> float:
+        """Mute-picture length: the rendered edit's total_duration, else the sum of the manifest's
+        trimmed segments (dry assembly), else the planned trim windows. Never a flat default."""
+        manifest = self.state.assembly_manifest or {}
+        total = float(manifest.get("total_duration") or 0.0)
+        if total > 0:
+            return round(total, 3)
+        segs = [float(c.get("seg_s") or 0.0) for c in manifest.get("clips") or []]
+        if segs and sum(segs) > 0:
+            return round(sum(segs), 3)
+        planned = 0.0
+        for shot in self.assembly_shots:
+            duration = float((shot.get("params") or {}).get("duration", 5.0))
+            trim = shot.get("trim") or {}
+            planned += max(0.0, float(trim.get("out", duration)) - float(trim.get("in", 0.0)))
+        return round(planned, 3)
+
     def _assembly_view(self) -> dict:
         return {
             "path": self.state.assembly_path,
+            "picture_seconds": self._picture_seconds() if self.assembly_sig is not None else None,
             "manifest": dict(self.state.assembly_manifest or {}),
             "qc": dict(self.state.assembly_qc or {}),
             "acceptance": dict(self.state.assembly_acceptance) if self.state.assembly_acceptance else None,
@@ -1073,7 +1115,10 @@ class EpisodeWorkflowV2:
         if aqc.get("verdict") == "NO_CLIPS" or not path:
             qc = {"verdict": "NO_PICTURE", "reason": "no assembled picture to deliver (see assembly QC)"}
         else:
-            picture_s = float((self.state.assembly_manifest or {}).get("total_duration") or 0.0) or 60.0
+            picture_s = self._picture_seconds()
+            # Dry: the planned length drives the stand-in picture and the music bed. Live: the
+            # rendered picture is probed (None keeps the 4-arg semantics unchanged).
+            picture_arg = picture_s if (self.state.assembly_manifest or {}).get("dry_run") else None
             policy = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
                                  maximum_interval=timedelta(seconds=10))
             try:
@@ -1084,7 +1129,7 @@ class EpisodeWorkflowV2:
                 plan = await self._resolve_audio_inputs(episode_id, plan, picture_s)
                 self.delivery_phase = PipelineStage.FINAL_MIX.value
                 manifest = await workflow.execute_activity(
-                    mix_and_deliver, args=[episode_id, path, plan, None],
+                    mix_and_deliver, args=[episode_id, path, plan, picture_arg],
                     start_to_close_timeout=timedelta(minutes=60), heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=policy,
                 )
@@ -1092,7 +1137,7 @@ class EpisodeWorkflowV2:
                 self.state.delivery_paths = dict(manifest.get("paths") or {})
                 self.delivery_phase = PipelineStage.DELIVERY.value
                 qc = await workflow.execute_activity(
-                    check_delivery_qc, args=[episode_id, manifest, plan, None],
+                    check_delivery_qc, args=[episode_id, manifest, plan, picture_arg],
                     start_to_close_timeout=timedelta(minutes=15), heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=policy,
                 )
@@ -1352,6 +1397,13 @@ class EpisodeWorkflowV2:
                 non_retryable=True
             )
         
+        # Pre-approved start still: a retry after a failure (e.g. file fixed) reuses it; a retry
+        # after the owner REJECTED it at G2 generates a new still (normal paid path).
+        if shot_id in self.pre_approved_stills and self.state.shot_decisions.get(shot_id) != "rejected":
+            shot_plan["pre_approved_still"] = dict(self.pre_approved_stills[shot_id])
+        else:
+            shot_plan.pop("pre_approved_still", None)
+
         # Pass attempt number and version into shot_plan
         actual_attempts = self.state.shot_attempts[shot_id]
         shot_plan["attempt"] = actual_attempts
@@ -1483,17 +1535,20 @@ class EpisodeWorkflowV2:
         n = self.end_backfills.get(shot_id, 0) + 1
         workflow_id = f"{self.state.episode_id}-shot-{shot_id}-end{n}"
         self.state.pending_retries[shot_id] = workflow_id   # blocks G2 and duplicate calls meanwhile
-        try:
-            start = await workflow.execute_activity(
-                "resolve_landed_start_still",
-                args=[self.state.episode_id, shot_id, attempt, attempt],
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        except Exception as e:
-            self.state.pending_retries.pop(shot_id, None)
-            cause = getattr(e, "cause", None) or e
-            raise ApplicationError(f"Cannot backfill {shot_id}_end: {cause}", non_retryable=True)
+        pre_approved = self.pre_approved_stills.get(shot_id)
+        start = None
+        if not pre_approved:
+            try:
+                start = await workflow.execute_activity(
+                    "resolve_landed_start_still",
+                    args=[self.state.episode_id, shot_id, attempt, attempt],
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                self.state.pending_retries.pop(shot_id, None)
+                cause = getattr(e, "cause", None) or e
+                raise ApplicationError(f"Cannot backfill {shot_id}_end: {cause}", non_retryable=True)
 
         shot_plan = dict(plan)
         if "prompt" not in shot_plan:
@@ -1504,7 +1559,12 @@ class EpisodeWorkflowV2:
         shot_plan["attempt"] = attempt
         shot_plan["version"] = attempt
         shot_plan["parent_workflow_id"] = workflow.info().workflow_id
-        shot_plan["reuse_start_still"] = {"url": start["url"], "job_id": start["job_id"]}
+        if pre_approved:
+            # the pre-approved start is free to re-prepare; only the _end still is paid
+            shot_plan["pre_approved_still"] = dict(pre_approved)
+        else:
+            shot_plan.pop("pre_approved_still", None)
+            shot_plan["reuse_start_still"] = {"url": start["url"], "job_id": start["job_id"]}
         failed_before = [fs for fs in self.state.failed_shots if fs["shot_id"] == shot_id]
         try:
             handle = await workflow.start_child_workflow(
@@ -1698,7 +1758,14 @@ class EpisodeWorkflowV2:
             "assembly": self._assembly_view(),
             "delivery": self._delivery_view(),
             "shot_outcomes": {
-                k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url")}
+                k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url"),
+                    "pre_approved": bool(v.get("pre_approved")),
+                    "qc_constraints": v.get("qc_constraints")}
                 for k, v in self.shot_outcomes.items()
+            },
+            "pre_approved_stills": {
+                k: {"source": v.get("source"), "approved_by": v.get("approved_by"), "path": v.get("path"),
+                    "sha256": v.get("sha256")}
+                for k, v in self.pre_approved_stills.items()
             },
         }
