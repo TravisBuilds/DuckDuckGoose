@@ -117,15 +117,50 @@ def load_policy(project: str | None = None) -> GatePolicy:
     """
     Load gate policy for a project.
     
+    Search order for HARNESS-GATES.json:
+    1. HFVG_GATE_POLICY environment variable (absolute path)
+    2. Current directory (run/project dir)
+    3. examples/{project}/ directory (fallback)
+    
     Args:
         project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
     
     Returns:
         GatePolicy instance
+        
+    Raises:
+        FileNotFoundError: If policy file not found in any location
+        ValueError: If project name is invalid
     """
     if project is None:
         project = os.getenv("HFVG_PROJECT", "demo")
     if not _PROJECT_RE.fullmatch(project or ""):
         raise ValueError(f"invalid HFVG_PROJECT / project name {project!r} (letters, digits, '.', '_', '-')")
-    policy_path = Path(__file__).parent.parent / "examples" / project / "HARNESS-GATES.json"
-    return GatePolicy(policy_path)
+    
+    # Search order: env var, current dir, examples dir
+    search_paths = []
+    
+    # 1. Check HFVG_GATE_POLICY environment variable
+    env_path = os.getenv("HFVG_GATE_POLICY")
+    if env_path:
+        search_paths.append(Path(env_path))
+    
+    # 2. Check current/run directory
+    search_paths.append(Path.cwd() / "HARNESS-GATES.json")
+    
+    # 3. Check examples directory (fallback)
+    examples_path = Path(__file__).parent.parent / "examples" / project / "HARNESS-GATES.json"
+    search_paths.append(examples_path)
+    
+    # Try each path in order
+    for policy_path in search_paths:
+        if policy_path.exists():
+            return GatePolicy(policy_path)
+    
+    # No policy found - fail with helpful message
+    raise FileNotFoundError(
+        f"HARNESS-GATES.json not found for project '{project}'. Searched:\n" +
+        "\n".join(f"  - {p}" for p in search_paths) +
+        "\n\nSet HFVG_GATE_POLICY environment variable to specify a custom path, " +
+        "or place HARNESS-GATES.json in the current directory."
+    )
