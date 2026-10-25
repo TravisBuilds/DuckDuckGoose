@@ -120,87 +120,121 @@ async def test_lint_route_requires_auth(test_db_api, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_file_download_path_containment(test_db_api, monkeypatch):
-    """M-314: File download route prevents directory traversal (G-UI-1 path containment)."""
-    await create_episode(test_db_api, "ep99")
-    
+async def test_file_download_path_containment(test_db_api, monkeypatch, tmp_path):
+    """M-314: the review-file route serves only whitelisted files that resolve INSIDE the episode
+    directory (G-UI-1): a real file is served, a symlink escaping the episode dir (also via a sibling
+    whose name merely starts with the episode id) is 403, an unknown type 400, a bad id 400."""
+    episodes = tmp_path / "episodes"
+    monkeypatch.setenv("EPISODES_DIR", str(episodes))
+    delivery = episodes / "ep99" / "delivery"
+    delivery.mkdir(parents=True)
+    (delivery / "ep99_subs.mp4").write_bytes(b"master-with-subs")
+    sibling = episodes / "ep990"  # str.startswith(".../ep99") would wrongly admit this
+    sibling.mkdir()
+    (sibling / "secret.mp4").write_bytes(b"other-episode")
+    (delivery / "ep99_phone.mp4").symlink_to(sibling / "secret.mp4")
+    outside = tmp_path / "outside.srt"
+    outside.write_text("not yours")
+    (delivery / "ep99.srt").symlink_to(outside)
+
     client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
-    
-    # Try to download a file (will 404 since file doesn't exist, but should not allow traversal)
-    # The route validates episode_id format and checks path containment before checking existence
-    
-    # Valid file type but non-existent file should give 404
-    response = client.get("/api/episodes/ep99/files/master_subs", cookies=cookies)
-    assert response.status_code in [404, 500], f"Expected 404 or 500 for non-existent file, got {response.status_code}"
-    
-    # The key test: invalid episode_id format should be rejected
-    # FastAPI normalizes paths, so "../../../etc" becomes "etc" which then fails validate_episode_id
-    response = client.get("/api/episodes/etc/files/master_subs", cookies=cookies)
-    assert response.status_code == 400, "Should reject invalid episode_id format (etc instead of ep##)"
+
+    ok = client.get("/api/episodes/ep99/files/master_subs", cookies=cookies)
+    assert ok.status_code == 200 and ok.content == b"master-with-subs"
+    assert ok.headers["content-type"].startswith("video/mp4")
+    assert client.get("/api/episodes/ep99/files/phone", cookies=cookies).status_code == 403
+    assert client.get("/api/episodes/ep99/files/subtitles_srt", cookies=cookies).status_code == 403
+    assert client.get("/api/episodes/ep99/files/master_nosubs", cookies=cookies).status_code == 404
+    listing = client.get("/api/episodes/ep99/files", cookies=cookies).json()["files"]
+    assert listing["master_subs"]["available"] is True
+    assert listing["phone"]["available"] is False and listing["subtitles_srt"]["available"] is False
+    download = client.get("/api/episodes/ep99/files/master_subs?download=true", cookies=cookies)
+    assert download.status_code == 200 and "attachment" in download.headers["content-disposition"]
+    # FastAPI normalizes "../../etc" away; what is left fails the episode-id format
+    assert client.get("/api/episodes/etc/files/master_subs", cookies=cookies).status_code == 400
+    client.cookies.clear()
+    assert client.get("/api/episodes/ep99/files/master_subs").status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_file_route_whitelist(test_db_api, monkeypatch, tmp_path):
+    """M-321: only the five review file types are served; anything else (a real file in the episode
+    dir included, e.g. the private shots.json or the database) is 400 before any path is built."""
+    episodes = tmp_path / "episodes"
+    monkeypatch.setenv("EPISODES_DIR", str(episodes))
+    (episodes / "ep99").mkdir(parents=True)
+    (episodes / "ep99" / "shots.json").write_text("{}")
+
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    import api.main as api_main
+
+    assert set(api_main.REVIEW_FILE_TYPES) == {"master_subs", "master_nosubs", "phone", "subtitles_srt", "mute_edit"}
+    for bad in ("shots.json", "shots", "assembly_mute", "master_phone", "mix_wav", "manifest"):
+        r = client.get(f"/api/episodes/ep99/files/{bad}", cookies=cookies)
+        assert r.status_code == 400, (bad, r.status_code)
+        assert "Invalid file_type" in r.json()["detail"]
+
+
+# Routes reachable without credentials. Kept deliberately small and explicit: adding one means
+# editing this list AND api/main.py PUBLIC_ROUTES (the test asserts they are identical).
+PUBLIC_ALLOWLIST = {
+    ("GET", "/"),
+    ("GET", "/api/health"),
+    ("GET", "/gates"),
+    ("POST", "/api/login"),
+    ("POST", "/api/logout"),
+}
+# FastAPI's own documentation routes (not APIRoute; they expose the schema, no data).
+FRAMEWORK_DOC_PATHS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+
+
+def _concrete_path(path: str) -> str:
+    import re
+    fill = {"episode_id": "ep99", "shot_id": "A01", "file_type": "master_subs", "workflow_id": "ep99-canary",
+            "job_id": "job-1", "alert_id": "1", "line_name": "L1", "gate_id": "g1_shot_plan"}
+    return re.sub(r"\{([a-z_]+)(:[^}]*)?\}", lambda m: fill.get(m.group(1), "x1"), path)
 
 
 @pytest.mark.asyncio
 async def test_all_mutating_routes_require_auth(test_db_api, monkeypatch):
-    """M-315: Enumerate all non-GET routes and verify they require authentication (G-AUTH-1)."""
+    """M-315: EVERY route (GET included) answers 401 without credentials and with a forged cookie,
+    except the small explicit allowlist (G-AUTH-1). No 422 (auth runs before validation), no
+    swallowed exceptions: an unexpected status or a crash fails the test."""
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
-    
+
+    from fastapi.routing import APIRoute
     from fastapi.testclient import TestClient
-    from api.main import app
     from unittest.mock import MagicMock
     import api.main as api_main
-    
-    # Mock temporal client
-    mock_client = MagicMock()
-    api_main.temporal_client = mock_client
-    
-    client = TestClient(app)
-    
-    # Allowlist: routes that don't require auth (login, health check)
-    allowlist = [
-        ("GET", "/"),
-        ("GET", "/api/health"),
-        ("POST", "/api/login"),
-    ]
-    
-    # Get all routes from the app
-    mutating_routes_checked = 0
-    for route in app.routes:
-        if hasattr(route, 'methods') and hasattr(route, 'path'):
-            for method in route.methods:
-                if method == "GET":
-                    continue  # Only check mutating routes
-                
-                # Check if in allowlist
-                if (method, route.path) in allowlist:
-                    continue
-                
-                # Try to call the route without auth
-                path = route.path.replace("{episode_id}", "ep99").replace("{shot_id}", "A01").replace("{file_type}", "master")
-                
-                try:
-                    if method == "POST":
-                        response = client.post(path, json={})
-                    elif method == "PUT":
-                        response = client.put(path, json={})
-                    elif method == "DELETE":
-                        response = client.delete(path)
-                    elif method == "PATCH":
-                        response = client.patch(path, json={})
-                    else:
-                        continue
-                    
-                    # Key assertion: all non-allowlisted mutating routes should require auth
-                    assert response.status_code in [401, 403, 422], \
-                        f"{method} {route.path} should require auth, got {response.status_code}"
-                    mutating_routes_checked += 1
-                except Exception:
-                    # Some routes may fail for other reasons (missing params, etc.)
-                    # That's fine - we're checking auth, not functionality
-                    pass
-    
-    # Sanity check: we should have checked at least some routes
-    assert mutating_routes_checked >= 5, f"Should have checked at least 5 mutating routes, only checked {mutating_routes_checked}"
+
+    api_main.temporal_client = MagicMock()  # any handler reaching Temporal would be a failure anyway
+    assert set(api_main.PUBLIC_ROUTES) == PUBLIC_ALLOWLIST
+
+    client = TestClient(api_main.app, raise_server_exceptions=True)
+    checked = []
+    for route in api_main.app.routes:
+        if not isinstance(route, APIRoute):
+            assert route.path in FRAMEWORK_DOC_PATHS, f"unexpected non-API route {route.path}"
+            continue
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+            if (method, route.path) in PUBLIC_ALLOWLIST:
+                continue
+            url = _concrete_path(route.path)
+            for cookies in ({}, {"studio_admin_token": "v1.9999999999.forgedforgedforged1.AAAA"},
+                            {"studio_admin_token": "0123456789abcdef0123456789abcdef"}):
+                client.cookies.clear()
+                response = client.request(method, url, json={}, cookies=cookies)
+                assert response.status_code == 401, (
+                    f"{method} {route.path} without valid credentials -> {response.status_code}")
+            checked.append((method, route.path))
+    client.cookies.clear()
+    assert client.post("/api/episodes", json={}, headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert ("POST", "/api/lint") in checked and ("GET", "/api/episodes/{episode_id}/files/{file_type}") in checked
+    every = {(m, r.path) for r in api_main.app.routes if isinstance(r, APIRoute)
+             for m in r.methods - {"HEAD", "OPTIONS"}}
+    assert set(checked) == every - PUBLIC_ALLOWLIST  # nothing skipped
+    assert len(checked) >= 35, f"only {len(checked)} routes enumerated"
 
 
 @pytest.mark.asyncio

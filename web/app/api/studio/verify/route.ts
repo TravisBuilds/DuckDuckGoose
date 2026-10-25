@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
  * Verify session cookie by calling an authenticated backend endpoint.
  * 
  * This route is used by the Next.js frontend to check if the user has a valid
- * session cookie. It proxies to the backend's /api/episodes/{episode_id}/gates
- * endpoint which requires authentication.
+ * session cookie. It proxies to the backend's /api/models
+ * endpoint (not tied to any episode).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Test the session cookie against an authenticated backend endpoint
-    // Using a simple endpoint that requires authentication but has minimal side effects
-    const response = await fetch(`${apiUrl}/api/episodes/ep04/gates`, {
+    // GET /api/models: authenticated, read-only, not tied to any episode
+    const response = await fetch(`${apiUrl}/api/models`, {
       headers: {
         'Cookie': `studio_admin_token=${cookie.value}`,
       },

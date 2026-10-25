@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { sessionKeyFromEnv, verifySessionToken } from './lib/session.mjs';
 
 /**
- * Middleware to protect studio routes with HMAC-validated session tokens.
- * 
- * Server-side session validation with constant-time comparison.
+ * Protect studio routes (G-AUTH-1): the studio_admin_token cookie must be a session token the API
+ * signed (HMAC-SHA256, constant-time compare) and not expired. Verified here with Web Crypto
+ * (Edge-runtime compatible, lib/session.mjs) using the same SESSION_SECRET / ADMIN_SECRET as the API.
+ * A missing, forged or expired cookie, or a server without a configured key, redirects to /login
+ * (fail closed). The API additionally checks its session table, so logout revokes immediately.
  * Public marketing pages (/, /archetypes, /pricing) are always accessible.
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public marketing pages and login
@@ -22,22 +25,21 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Protect studio routes with server-side session validation
   if (pathname.startsWith('/studio')) {
-    const adminCookie = request.cookies.get('studio_admin_token');
-    
-    if (!adminCookie || !adminCookie.value) {
-      // Redirect to login
+    const token = request.cookies.get('studio_admin_token')?.value;
+    const key = await sessionKeyFromEnv(process.env);
+    const verdict = await verifySessionToken(token, key);
+    if (!verdict.ok) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
+      url.search = '';
       url.searchParams.set('from', pathname);
-      return NextResponse.redirect(url);
+      if (token) url.searchParams.set('reason', verdict.reason === 'expired' ? 'expired' : 'invalid');
+      if (!key) console.error('studio middleware: SESSION_SECRET / ADMIN_SECRET not configured; refusing all sessions');
+      const response = NextResponse.redirect(url);
+      if (token) response.cookies.delete('studio_admin_token');
+      return response;
     }
-    
-    // Session validation happens server-side on every API call
-    // The token is HMAC-signed and verified with constant-time comparison
-    // If the token is invalid/expired, API calls will return 401/403
-    // and the client will redirect to login
   }
 
   return NextResponse.next();

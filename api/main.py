@@ -36,7 +36,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -80,48 +80,106 @@ DRY_RUN_DEFAULT = os.getenv("DRY_RUN", "true").lower() == "true"
 # Global Temporal client
 temporal_client: TemporalClient | None = None
 
-# Session management - stored in DB to survive restart
+# Session management (G-AUTH-1): HMAC-signed, expiring tokens, also stored in DB (revocation).
+#
+# Token format: "v1.<expires_unix>.<nonce>.<sig>" with sig = base64url(HMAC-SHA256(key, "v1.<exp>.<nonce>"))
+# (no padding). The key is SESSION_SECRET (>= 32 chars) when set, otherwise derived from ADMIN_SECRET as
+# HMAC-SHA256(ADMIN_SECRET, SESSION_KEY_CONTEXT). The Next.js middleware verifies the same token with
+# Web Crypto (web/lib/session.mjs) using the same env vars, so a forged or expired cookie never reaches
+# a studio page. The API additionally requires the DB row (logout revokes it).
+SESSION_TTL_SECONDS = 86400
+SESSION_KEY_CONTEXT = b"hfvg-studio-session-v1"
+_SESSION_NONCE_RE = r"[A-Za-z0-9_-]{16,64}"
+
+
+def session_signing_key() -> bytes:
+    """Signing key for session tokens (fail closed: raises ValueError when not configured)."""
+    import hmac as _hmac
+
+    dedicated = os.getenv("SESSION_SECRET", "")
+    if dedicated:
+        if len(dedicated) < 32:
+            raise ValueError("SESSION_SECRET must be at least 32 characters")
+        return dedicated.encode()
+    return _hmac.new(get_admin_secret().encode(), SESSION_KEY_CONTEXT, hashlib.sha256).digest()
+
+
+def _b64url(raw: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def sign_session_token(expires_at: int, nonce: str, key: bytes | None = None) -> str:
+    """Build a signed session token (see format above)."""
+    import hmac as _hmac
+
+    payload = f"v1.{int(expires_at)}.{nonce}"
+    sig = _hmac.new(key if key is not None else session_signing_key(), payload.encode(), hashlib.sha256).digest()
+    return f"{payload}.{_b64url(sig)}"
+
+
+def check_session_signature(token: str, now: float | None = None, key: bytes | None = None) -> bool:
+    """True only for a well-formed, correctly signed (constant-time compare), unexpired token."""
+    import re
+    import time
+
+    if not isinstance(token, str) or len(token) > 256:
+        return False
+    parts = token.split(".")
+    if len(parts) != 4 or parts[0] != "v1" or not re.fullmatch(r"[0-9]{1,12}", parts[1]):
+        return False
+    if not re.fullmatch(_SESSION_NONCE_RE, parts[2]):
+        return False
+    try:
+        expected = sign_session_token(int(parts[1]), parts[2], key)
+    except ValueError:
+        return False  # no key configured: fail closed
+    if not secrets.compare_digest(expected.encode(), token.encode()):
+        return False
+    return int(parts[1]) > (time.time() if now is None else now)
+
+
+async def _ensure_sessions_table(db) -> None:
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+
+
 async def create_session() -> str:
-    """Create a new session and store in database."""
+    """Create a signed session token (24 h expiry) and store it in the database."""
     import aiosqlite
-    
-    token = secrets.token_urlsafe(32)
-    
+    import time
+
+    expires_at = int(time.time()) + SESSION_TTL_SECONDS
+    token = sign_session_token(expires_at, secrets.token_urlsafe(24))
+
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # Create sessions table if not exists
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                token TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            )
-        """)
-        
-        # Insert session (24 hour expiry)
+        await _ensure_sessions_table(db)
         await db.execute(
             """INSERT INTO sessions (token, created_at, expires_at)
-               VALUES (?, datetime('now'), datetime('now', '+1 day'))""",
-            (token,)
+               VALUES (?, datetime('now'), datetime(?, 'unixepoch'))""",
+            (token, expires_at)
         )
         await db.commit()
-    
+
     return token
 
 
 async def verify_session_token(token: str) -> bool:
-    """Verify a session token from database."""
+    """Verify a session token: HMAC signature + expiry first (no DB hit for forgeries), then the DB row
+    (a logged-out / revoked session is refused even while its signature is still valid)."""
     import aiosqlite
-    
+
+    if not check_session_signature(token):
+        return False
     try:
         async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL
-                )
-            """)
-            
+            await _ensure_sessions_table(db)
             async with db.execute(
                 """SELECT token FROM sessions 
                    WHERE token = ? AND expires_at > datetime('now')""",
@@ -131,6 +189,15 @@ async def verify_session_token(token: str) -> bool:
                 return row is not None
     except Exception:
         return False
+
+
+async def revoke_session(token: str) -> None:
+    import aiosqlite
+
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await _ensure_sessions_table(db)
+        await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        await db.commit()
 
 
 @asynccontextmanager
@@ -154,7 +221,34 @@ async def lifespan(app: FastAPI):
             await temporal_client.close()
 
 
+# Routes reachable without a session cookie or Bearer secret (G-AUTH-1). Everything else is refused
+# with 401 by the app-wide guard below BEFORE request validation or the handler runs (secure by
+# default: a new route cannot forget its auth check). Handlers keep their own checks as well.
+PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/"),             # service banner
+    ("GET", "/api/health"),   # monitoring
+    ("GET", "/gates"),        # static gates page (no data; it calls the authenticated API)
+    ("POST", "/api/login"),
+    ("POST", "/api/logout"),  # idempotent: revokes the presented session, clears the cookie
+})
+
+
+async def require_auth_unless_public(
+    request: Request,
+    authorization: str | None = Header(None, include_in_schema=False),
+    studio_admin_token: str | None = Cookie(None, include_in_schema=False),
+):
+    """App-wide auth guard: every route not in PUBLIC_ROUTES needs a valid session or Bearer secret."""
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    method = "GET" if request.method == "HEAD" else request.method
+    if (method, path) in PUBLIC_ROUTES:
+        return
+    await verify_auth_unified(authorization, studio_admin_token)
+
+
 app = FastAPI(
+    dependencies=[Depends(require_auth_unless_public)],
     title="DuckDuckGoose Studio API",
     description="Backend API for the DuckDuckGoose video production console",
     version="1.0.0",
@@ -262,6 +356,12 @@ def episode_workflow_id(episode_id: str) -> str:
     return episode_id[: -len("-episode")] if episode_id.endswith("-episode") else episode_id
 
 
+# The one episode id format of the API, the workflow ids (ep04, children ep04-shot-A01) and the
+# episode directories (data/episodes/ep04/). StartEpisodeRequest enforces it, so no episode with
+# another id can be started through the API; every route (incl. the file route) uses the same check.
+EPISODE_ID_PATTERN = r"ep[0-9]{2}"  # ASCII digits only (\d also matches other scripts)
+
+
 def validate_episode_id(episode_id: str) -> str:
     """
     Validate episode ID format.
@@ -270,7 +370,8 @@ def validate_episode_id(episode_id: str) -> str:
     Prevents path traversal attacks.
     """
     import re
-    if not re.match(r"^ep\d{2}$", episode_id):
+    # fullmatch: re.match(r"^ep\d{2}$") also accepted a trailing newline ("ep04\n")
+    if not isinstance(episode_id, str) or not re.fullmatch(EPISODE_ID_PATTERN, episode_id):
         raise HTTPException(
             status_code=400,
             detail=f"Invalid episode_id format: {episode_id}. Must match ep## (e.g., ep04)"
@@ -279,7 +380,7 @@ def validate_episode_id(episode_id: str) -> str:
 
 
 class StartEpisodeRequest(BaseModel):
-    episode_id: str = Field(..., pattern=r"^ep\d{2}$", description="Episode ID (e.g., ep04)")
+    episode_id: str = Field(..., pattern=rf"^{EPISODE_ID_PATTERN}$", description="Episode ID (e.g., ep04)")
     beatmap_content: str | None = Field(None, description="Beatmap markdown content (optional)")
     dry_run: bool = Field(True, description="Run in dry-run mode (default: true, live requires explicit false)")
     shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
@@ -321,6 +422,17 @@ class EpisodeStateResponse(BaseModel):
     # "manifest", "qc": {"verdict", "blocking", "checks", ...}, "acceptance", "blocking", "due"}
     delivery: dict | None = None
     delivery_paths: dict | None = None
+    # Run-control view for the studio episode page (all straight from the workflow query)
+    current_gate: str | None = None
+    passed_gates: list[str] = []
+    shot_decisions: dict[str, str] = {}
+    pending_retries: list[str] = []
+    clip_retries: dict[str, int] = {}
+    pending_clip_retries: list[str] = []
+    final_cut_refusals: list = []
+    final_cut_rejections: list = []
+    failed_shots: list[str] = []
+    shot_outcomes: dict = {}
 
 
 class AssemblyAcceptRequest(BaseModel):
@@ -447,7 +559,9 @@ async def login(request: LoginRequest, response: Response):
     if not admin_secret or len(admin_secret) < 32:
         raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
     
-    if not request.admin_secret or request.admin_secret != admin_secret:
+    if not request.admin_secret or not secrets.compare_digest(
+        request.admin_secret.encode(), admin_secret.encode()
+    ):
         raise HTTPException(status_code=401, detail="Invalid admin secret")
     
     # Create session and set httpOnly cookie with session token (NOT the secret)
@@ -462,6 +576,18 @@ async def login(request: LoginRequest, response: Response):
     )
     
     return {"success": True, "message": "Logged in successfully"}
+
+
+@app.post("/api/logout")
+async def logout(response: Response, studio_admin_token: str | None = Cookie(None)):
+    """Revoke the session (DB row) and clear the cookie. Idempotent; no auth needed to log out."""
+    if studio_admin_token:
+        try:
+            await revoke_session(studio_admin_token)
+        except Exception as e:  # the cookie is cleared regardless
+            print(f"Session revoke failed: {e}")
+    response.delete_cookie(key="studio_admin_token", httponly=True, samesite="lax")
+    return {"success": True, "message": "Logged out"}
 
 
 @app.post("/api/episodes/upload")
@@ -656,6 +782,23 @@ async def upload_shots(
     }
 
 
+def uploaded_shots_problems(episode_id: str) -> list[str]:
+    """Validation + preflight errors of the episode's uploaded shots.json (empty = OK or none uploaded;
+    without one a dry run uses the beatmap and a live run is refused by the workflow)."""
+    from hfvg.preflight import preflight_plans
+    from hfvg.shot_data import ShotDataError, parse_shots
+
+    path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text())
+        parse_shots(raw)
+    except (ValueError, ShotDataError) as e:
+        return [f"invalid shots.json: {e}"]
+    return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
+
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
@@ -702,6 +845,15 @@ async def start_episode(
                        f"POST /api/episodes/upload before starting the episode."
             )
     
+    # G-UI-1: an uploaded shots.json must validate and pass preflight BEFORE anything starts (the new
+    # episode page shows the same report; this is the server-side refusal, not a UI-only check).
+    shots_problems = uploaded_shots_problems(request.episode_id)
+    if shots_problems:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
+        )
+
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
@@ -776,6 +928,16 @@ async def get_episode_state(
         assembly_path=(state.get("assembly") or {}).get("path"),
         delivery=state.get("delivery"),
         delivery_paths=(state.get("delivery") or {}).get("paths") or None,
+        current_gate=state.get("current_gate"),
+        passed_gates=list(state.get("passed_gates") or []),
+        shot_decisions=dict(state.get("shot_decisions") or {}),
+        pending_retries=list(state.get("pending_retries") or []),
+        clip_retries=dict(state.get("clip_retries") or {}),
+        pending_clip_retries=list(state.get("pending_clip_retries") or []),
+        final_cut_refusals=list(state.get("final_cut_refusals") or []),
+        final_cut_rejections=list(state.get("final_cut_rejections") or []),
+        failed_shots=list(state.get("failed_shots") or []),
+        shot_outcomes=dict(state.get("shot_outcomes") or {}),
     )
 
 
@@ -829,6 +991,40 @@ async def accept_delivery_qc(
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error sending acceptance: {str(e)}")
     return {"success": True, "episode_id": episode_id, "message": "Delivery QC acceptance sent"}
+
+
+def final_cut_blockers(state: dict) -> list[str]:
+    """Why G_FINAL_CUT cannot be approved right now (empty = allowed). Mirrors the workflow's own
+    approve_g_final_cut refusals: not parked at the gate, clip retry pending, blocking assembly QC
+    or blocking delivery QC without a reviewer acceptance."""
+    problems: list[str] = []
+    if state.get("current_gate") != "G_FINAL_CUT":
+        problems.append(f"not at G_FINAL_CUT (current: {state.get('current_gate')})")
+    if state.get("pending_clip_retries"):
+        problems.append(f"clip retry pending for: {', '.join(sorted(state['pending_clip_retries']))}")
+    assembly = state.get("assembly") or {}
+    if assembly.get("blocking"):
+        qc = assembly.get("qc") or {}
+        problems.append(f"assembly QC {qc.get('verdict')}: {qc.get('reason')} (accept it with a reason first)")
+    delivery = state.get("delivery") or {}
+    if delivery.get("blocking"):
+        qc = delivery.get("qc") or {}
+        problems.append(f"delivery QC {qc.get('verdict')}: {qc.get('reason')} (accept it with a reason first)")
+    return problems
+
+
+async def _audit(episode_id: str, action: str, details: str) -> None:
+    import aiosqlite
+
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+                (episode_id, action, details, "admin"),
+            )
+            await db.commit()
+    except Exception as e:  # the audit trail never blocks a reviewer action
+        print(f"Audit log write failed ({action}): {e}")
 
 
 @app.post("/api/episodes/{episode_id}/approve")
@@ -900,6 +1096,24 @@ async def approve_gate(
                         status_code=409,
                         detail=f"G2 approval refused: {str(cause)}"
                     )
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "gate_id": request.gate_id,
+                    "message": f"Approval sent for gate {request.gate_id}",
+                    "note": request.note,
+                }
+            elif request.gate_id.lower() in ("g_final_cut", "g3", "g3_final_cut"):
+                # G_FINAL_CUT is a signal and the workflow ignores it (final_cut_refusals) while QC
+                # blocks; refuse it HERE too so the caller gets a 409 instead of a silent no-op.
+                state = await handle.query("get_state")
+                problems = final_cut_blockers(state)
+                if problems:
+                    raise HTTPException(
+                        status_code=409, detail=f"G_FINAL_CUT approval refused: {'; '.join(problems)}"
+                    )
+                await handle.signal("approve_g_final_cut")
+                await _audit(episode_id, "approve_g_final_cut", request.note or "final cut approved")
                 return {
                     "success": True,
                     "episode_id": episode_id,
@@ -1261,7 +1475,17 @@ async def approve_still(
         except HTTPException:
             raise  # Re-raise our own 409
         except Exception as desc_err:
-            # If describe fails, try to send signal anyway (might work)
+            from temporalio.service import RPCError, RPCStatusCode
+            if (workflow_type == "canary" and isinstance(desc_err, RPCError)
+                    and desc_err.status == RPCStatusCode.NOT_FOUND):
+                # No canary for this shot: it is an episode shot, so this is the per-shot G2 decision
+                # "approve" (G-GATE-1 map) on the episode workflow; refusals (not at G2, retry pending,
+                # G2 already approved) come back as 409.
+                result = await _execute_episode_update(episode_id, "approve_shot", [shot_id], "Approve")
+                await _audit(episode_id, "approve_shot", f"Shot {shot_id} approved at G2")
+                return {"success": True, "shot_id": shot_id, "workflow_type": "episode",
+                        "message": result.get("message") if isinstance(result, dict) else "Shot approved"}
+            # If describe fails otherwise, try to send signal anyway (might work)
             pass
         
         # Send signal to ShotWorkflow (both canary and episode shots use ShotWorkflow)
@@ -2404,13 +2628,6 @@ async def set_ref_versions(
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
-
 @app.post("/api/lint")
 async def lint_prompt_endpoint(
     request: dict,
@@ -2690,167 +2907,265 @@ async def preflight_episode(
         "errors": errors,
         "warnings": warnings,
         "has_errors": bool(errors),
+        "cost_estimate": offline_cost_estimate(shots),
     }
+
+
+def offline_cost_estimate(shots: list[dict]) -> dict:
+    """Offline USD estimate for a shot list (no provider call): one still per shot (+1 for an end
+    frame) at the dry still rate and each clip from the configured per-second rate table (list price
+    before discount, hfvg.pricing.clip_estimate_usd_micros). Shots whose model has no rate are listed
+    as unpriced instead of being guessed."""
+    from hfvg.pricing import clip_estimate_usd_micros, micros_to_usd_str
+
+    per_shot: dict[str, dict] = {}
+    unpriced: list[str] = []
+    total = 0
+    for shot in shots:
+        sid = str(shot.get("id") or shot.get("shot_id") or "?")
+        stills = 2 if shot.get("end_frame") else 1
+        still_micros = stills * DRY_STILL_USD_MICROS
+        try:
+            clip_micros = clip_estimate_usd_micros(
+                str(shot.get("model") or ""), shot.get("tier"), float(shot.get("duration") or 0)
+            )
+        except (ValueError, TypeError) as e:
+            unpriced.append(f"{sid}: {e}")
+            per_shot[sid] = {"stills_usd_micros": still_micros, "clip_usd_micros": None}
+            total += still_micros
+            continue
+        per_shot[sid] = {"stills_usd_micros": still_micros, "clip_usd_micros": clip_micros}
+        total += still_micros + clip_micros
+    return {
+        "unit": "usd_micros",
+        "total_usd_micros": total,
+        "total_usd": micros_to_usd_str(total),
+        "per_shot": per_shot,
+        "unpriced": unpriced,
+        "source": "rate_table (list price before discount; first attempt only, no retries)",
+    }
+
+
+# ---------------------------------------------------------------- G-UI-1: review files, final cut, cap
+# Whitelisted reviewable files: file_type -> (where the path comes from, fallback location). Paths come
+# from the workflow's own deterministic layout (hfvg.audio_mix.delivery_paths / media.edit_dir) under
+# EPISODES_DIR/{episode_id}/; nothing from the request is ever joined into a path.
+REVIEW_FILE_TYPES: dict[str, tuple[str, str]] = {
+    "master_subs": ("delivery", "master_subs"),
+    "master_nosubs": ("delivery", "nosubs"),
+    "phone": ("delivery", "phone"),
+    "subtitles_srt": ("delivery", "srt"),
+    "mute_edit": ("edit", "mute_assembly.mp4"),
+}
+_REVIEW_MEDIA_TYPES = {".mp4": "video/mp4", ".srt": "application/x-subrip"}
+
+
+def review_file_path(episode_id: str, file_type: str) -> Path:
+    """Resolved path of a whitelisted review file, contained in the episode directory.
+
+    Raises HTTPException 400 (unknown type), 403 (escapes the episode dir, e.g. via a symlink) or
+    404 (not rendered). Containment is Path.is_relative_to on fully resolved paths, never a string
+    prefix test ("ep01" would otherwise also admit "ep011/...")."""
+    from hfvg.audio_mix import delivery_paths, episode_dir as _episode_dir
+
+    if file_type not in REVIEW_FILE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file_type: {file_type}. Allowed: {', '.join(REVIEW_FILE_TYPES)}",
+        )
+    root = _episode_dir(episode_id)
+    kind, key = REVIEW_FILE_TYPES[file_type]
+    if kind == "delivery":
+        candidate = Path(delivery_paths(episode_id)[key])
+    else:
+        candidate = root / "edit" / key
+    try:
+        root_resolved = root.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+    except (FileNotFoundError, OSError, RuntimeError):
+        raise HTTPException(status_code=404, detail=f"{file_type} not rendered for {episode_id}")
+    if not resolved.is_relative_to(root_resolved):
+        raise HTTPException(status_code=403, detail="File is outside the episode directory")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail=f"{file_type} not rendered for {episode_id}")
+    return resolved
+
+
+@app.get("/api/episodes/{episode_id}/files")
+async def list_review_files(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Which whitelisted review files exist for the episode (for previews and downloads)."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    episode_id = validate_episode_id(episode_workflow_id(episode_id))
+    files = {}
+    for file_type in REVIEW_FILE_TYPES:
+        try:
+            path = review_file_path(episode_id, file_type)
+            files[file_type] = {"available": True, "size_bytes": path.stat().st_size,
+                                "url": f"/api/episodes/{episode_id}/files/{file_type}"}
+        except HTTPException as e:
+            files[file_type] = {"available": False, "reason": e.detail}
+    return {"episode_id": episode_id, "files": files}
 
 
 @app.get("/api/episodes/{episode_id}/files/{file_type}")
-async def download_file(
+async def get_review_file(
     episode_id: str,
     file_type: str,
+    download: bool = False,
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """
-    Download episode files with path containment protection (G-UI-1).
-    
-    Supported file_type values:
-    - master_subs: delivery master with subtitles
-    - master_nosubs: delivery master without subtitles
-    - master_phone: phone-optimized delivery
-    - assembly_mute: mute picture edit
-    
-    Path containment: validates that resolved path stays within episode directory.
-    No directory traversal attacks via ../ or symlinks.
-    
-    Requires: Authorization header with admin secret OR session cookie.
-    """
+    """Authenticated preview / download of a whitelisted episode file (delivery master with or without
+    subs, phone version, subtitles, mute edit). Range requests are served (video seeking)."""
     await verify_auth_unified(authorization, studio_admin_token)
-    validate_episode_id(episode_id)
-    
-    # Map file types to expected paths (relative to episode artifacts directory)
-    artifacts_root = Path(os.getenv("ARTIFACTS_DIR", "./data/artifacts"))
-    episode_dir = artifacts_root / episode_id
-    
-    # Ensure episode directory exists
-    if not episode_dir.exists():
-        raise HTTPException(status_code=404, detail=f"No artifacts found for episode {episode_id}")
-    
-    # Resolve the canonical episode directory path (no symlinks)
-    episode_dir_canonical = episode_dir.resolve()
-    
-    # Map file types to expected filenames/patterns
-    file_mapping = {
-        "master_subs": "delivery_master_subs.mp4",
-        "master_nosubs": "delivery_master_nosubs.mp4",
-        "master_phone": "delivery_phone.mp4",
-        "assembly_mute": "mute_edit.mp4",
-    }
-    
-    if file_type not in file_mapping:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file_type: {file_type}. Allowed: {', '.join(file_mapping.keys())}"
-        )
-    
-    # Build the file path
-    filename = file_mapping[file_type]
-    file_path = episode_dir / filename
-    
-    # Path containment check: resolve and verify it's within episode directory
-    try:
-        file_path_canonical = file_path.resolve()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid file path: {e}")
-    
-    # Security check: must be within episode directory (no directory traversal)
-    if not str(file_path_canonical).startswith(str(episode_dir_canonical)):
-        raise HTTPException(
-            status_code=403,
-            detail="Path traversal detected: file must be within episode directory"
-        )
-    
-    # Check if file exists
-    if not file_path_canonical.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"File not found: {file_type} for episode {episode_id}"
-        )
-    
-    # Audit log
-    import aiosqlite
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """INSERT INTO audit_log (episode_id, action, details, user)
-               VALUES (?, ?, ?, ?)""",
-            (episode_id, "download_file", f"Downloaded {file_type}", "admin")
-        )
-        await db.commit()
-    
+    episode_id = validate_episode_id(episode_workflow_id(episode_id))
+    path = review_file_path(episode_id, file_type)
+    if download:
+        await _audit(episode_id, "download_file", f"Downloaded {file_type}")
     return FileResponse(
-        path=file_path_canonical,
-        filename=filename,
-        media_type="video/mp4",
+        path=path,
+        media_type=_REVIEW_MEDIA_TYPES.get(path.suffix, "application/octet-stream"),
+        filename=path.name if download else None,
+        content_disposition_type="attachment" if download else "inline",
     )
 
 
-class GFinalCutRequest(BaseModel):
-    verdict: str = Field(..., pattern="^(approve|reject)$", description="approve or reject")
-    reason: str = Field("", max_length=1000, description="Optional reason for rejection")
+class FinalCutRejectRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000)
 
 
-@app.post("/api/episodes/{episode_id}/g_final_cut")
-async def approve_reject_g_final_cut(
+@app.post("/api/episodes/{episode_id}/final-cut/reject")
+async def reject_final_cut(
     episode_id: str,
-    request: GFinalCutRequest,
+    request: FinalCutRejectRequest,
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """
-    Approve or reject G_FINAL_CUT gate (final delivery review).
-    
-    This sends the approval signal to the episode workflow, which allows
-    the workflow to proceed past the final gate and complete.
-    
-    Requires: Authorization header with admin secret OR session cookie.
-    """
+    """Reject the final cut at G_FINAL_CUT with a reason (approval goes through POST .../approve with
+    gate_id g_final_cut). The gate stays held; fix with a clip retry, then approve again."""
     await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
-    
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="A rejection reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
-    
-    workflow_id = episode_workflow_id(episode_id)
-    
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
     try:
-        handle = temporal_client.get_workflow_handle(workflow_id)
-        
-        if request.verdict == "approve":
-            # Send approval signal
-            await handle.signal("approve_g_final_cut")
-            action = "approve"
-            message = "G_FINAL_CUT approved"
-        else:
-            # Send rejection signal
-            await handle.signal("reject_g_final_cut", request.reason)
-            action = "reject"
-            message = f"G_FINAL_CUT rejected: {request.reason}"
-        
-        # Audit log
-        import aiosqlite
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute(
-                """INSERT INTO audit_log (episode_id, action, details, user)
-                   VALUES (?, ?, ?, ?)""",
-                (episode_id, f"g_final_cut_{action}", message, "admin")
-            )
-            await db.commit()
-        
-        return {
-            "success": True,
-            "episode_id": episode_id,
-            "verdict": request.verdict,
-            "message": message,
-        }
-        
+        state = await handle.query("get_state")
     except Exception as e:
         from temporalio.service import RPCError, RPCStatusCode
         if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No workflow found for episode {episode_id}"
-            )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error sending G_FINAL_CUT verdict: {str(e)}"
-        )
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error querying workflow: {e}")
+    if state.get("current_gate") != "G_FINAL_CUT":
+        raise HTTPException(status_code=409, detail=f"Not at G_FINAL_CUT (current: {state.get('current_gate')})")
+    await handle.signal("reject_g_final_cut", request.reason.strip())
+    await _audit(episode_id, "reject_g_final_cut", request.reason.strip())
+    return {"success": True, "episode_id": episode_id, "message": "Final cut rejected", "reason": request.reason.strip()}
 
+
+class RaiseCapRequest(BaseModel):
+    new_cap: int = Field(..., gt=0, description="New credit cap for the run (credits)")
+
+
+@app.post("/api/episodes/{episode_id}/raise-cap")
+async def raise_credit_cap(
+    episode_id: str,
+    request: RaiseCapRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Raise the run's credit cap and resume shots paused at the cap (workflow signal raise_credit_cap).
+    Only upward: a cap at or below the current one is refused."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    from hfvg.credit_ledger import CreditLedger
+
+    try:
+        status = await CreditLedger(DATABASE_PATH).get_episode_status(episode_id)
+        current = status["cap_credits"] or None  # 0 = no credit line yet
+    except Exception:
+        current = None
+    if current is not None and request.new_cap <= current:
+        raise HTTPException(status_code=409, detail=f"New cap {request.new_cap} must exceed the current cap {current}")
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+    try:
+        await handle.signal("raise_credit_cap", request.new_cap)
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error raising cap: {e}")
+    await _audit(episode_id, "raise_credit_cap", f"cap raised to {request.new_cap} (was {current})")
+    return {"success": True, "episode_id": episode_id, "new_cap": request.new_cap, "previous_cap": current}
+
+
+@app.get("/api/episodes/{episode_id}/credits")
+async def get_credit_status(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Credit line of the run (cap, spent, reserved, pause threshold): drives the cap-raise control."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    from hfvg.credit_ledger import CreditLedger
+
+    ledger = CreditLedger(DATABASE_PATH)
+    await ledger.init_db()
+    return {"episode_id": episode_id, **(await ledger.get_episode_status(episode_id))}
+
+
+@app.get("/api/episodes/{episode_id}/shot-states")
+async def get_shot_states(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Per-shot child workflow state for review: still / clip status and the G-REC-1 moderation ladder
+    (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        state = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query("get_state")
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error querying workflow: {e}")
+    out: dict[str, dict] = {}
+    for shot_id, wf_id in sorted((state.get("shot_workflow_ids") or {}).items()):
+        try:
+            child = await temporal_client.get_workflow_handle(wf_id).query("get_state")
+        except Exception as e:
+            out[shot_id] = {"available": False, "workflow_id": wf_id, "reason": str(e)[:200]}
+            continue
+        moderation = child.get("moderation") or {}
+        out[shot_id] = {
+            "available": True,
+            "workflow_id": wf_id,
+            "still_status": child.get("still_status"),
+            "clip_status": child.get("clip_status"),
+            "still_error": child.get("still_error"),
+            "clip_error": child.get("clip_error"),
+            "moderation": {phase: {"steps": list((m or {}).get("steps") or []),
+                                   "retry": (m or {}).get("retry")}
+                           for phase, m in moderation.items()},
+            "moderation_escalation": child.get("moderation_escalation"),
+        }
+    return {"episode_id": episode_id, "shots": out}
+
+
+if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
