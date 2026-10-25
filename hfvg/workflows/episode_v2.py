@@ -906,12 +906,34 @@ class EpisodeWorkflowV2:
                 continue
             params = shot.get("params") or {}
             duration = float(params.get("duration", 5.0))
+            
+            # Support both legacy trim dict and new trim_head_s/trim_tail_s
             trim = shot.get("trim") or {}
+            trim_head_s = shot.get("trim_head_s", 0.0)
+            trim_tail_s = shot.get("trim_tail_s", 0.0)
+            
+            # If new-style trims are present, use them; otherwise fall back to legacy trim dict
+            if trim_head_s > 0 or trim_tail_s > 0:
+                trim_in = float(trim_head_s)
+                trim_out = duration - float(trim_tail_s)
+                # Validate trims don't exceed clip duration
+                if trim_in < 0 or trim_out > duration or trim_in >= trim_out:
+                    workflow.logger.warning(
+                        f"Shot {sid}: invalid trims (head={trim_head_s}s, tail={trim_tail_s}s, duration={duration}s), "
+                        f"using full clip"
+                    )
+                    trim_in = 0.0
+                    trim_out = duration
+            else:
+                # Legacy trim dict support
+                trim_in = float(trim.get("in", 0.0))
+                trim_out = float(trim.get("out", duration))
+            
             entries.append({
                 "shot_id": sid,
                 "duration": duration,
-                "trim_in": float(trim.get("in", 0.0)),
-                "trim_out": float(trim.get("out", duration)),
+                "trim_in": trim_in,
+                "trim_out": trim_out,
             })
             paths[sid] = path
         return entries, paths, missing, excluded
