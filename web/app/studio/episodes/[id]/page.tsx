@@ -5,6 +5,7 @@ import { use } from 'react';
 import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
+import EpisodeRunPanel from '@/components/EpisodeRunPanel';
 
 interface EpisodeState {
   episode_id: string;
@@ -441,6 +442,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Run control: gates, per-shot decisions, retries, cap, QC, final cut (G-UI-1) */}
+        <EpisodeRunPanel episodeId={episodeId} onChanged={loadEpisodeData} />
+
         {/* Gates and Controls */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           {/* Live Mode */}

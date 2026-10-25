@@ -529,7 +529,7 @@ test_mutation 5 "Idempotent retry (no double-charge)" \
 test_mutation 6 "Auth fail-closed (no default secret)" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_auth_fail_closed" \
-    sed -i 's/if not authorization:/if False:  # MUTATED/'
+    sed -i -e 's/if not authorization:/if False:  # MUTATED/' -e 's/^    if (method, path) in PUBLIC_ROUTES:$/    if True:  # MUTATED: bypass the app-wide guard so the handler check is what is tested/'
 
 # 7. Ledger math
 test_mutation 7 "Ledger math (reserve, commit, release)" \
@@ -564,7 +564,7 @@ test_mutation 10 "Approval update reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i 's/if not request.admin_secret or request.admin_secret != admin_secret:/if False:  # MUTATED/'
+    sed -i 's/^    if not request.admin_secret or not secrets.compare_digest($/    if False and secrets.compare_digest(  # MUTATED/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -2370,6 +2370,162 @@ test_mutation 312 "VO generation preflights text length" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_round4_activities.py::test_preflight_refuses_over_limit_before_any_spend" \
     sed -i 's/^    _preflight(model, text=script)$/    pass  # MUTATED/'
+
+# 313: G-AUTH-1: POST /api/lint requires authentication
+test_mutation 313 "lint route requires auth" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_lint_route_requires_auth" \
+    sed -i -e 's/^    ("POST", "\/api\/login"),$/&\n    ("POST", "\/api\/lint"),/' -e '/^async def lint_prompt_endpoint/,/^    return {"problems"/s/^    await verify_auth_unified(authorization, studio_admin_token)$/    pass  # MUTATED/'
+
+# 314: G-UI-1: review file route path containment (resolved is_relative_to)
+test_mutation 314 "file route path containment" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_file_download_path_containment" \
+    sed -i 's/^    if not resolved.is_relative_to(root_resolved):$/    if False:  # MUTATED/'
+
+# 315: G-AUTH-1: app-wide auth guard (only the PUBLIC_ROUTES allowlist skips auth)
+test_mutation 315 "global auth guard" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_all_mutating_routes_require_auth" \
+    sed -i 's/^    if (method, path) in PUBLIC_ROUTES:$/    if method != "GET" or path.startswith("\/api\/episodes"):  # MUTATED/'
+
+# 316: G-AUTH-1: approve workflow lookup query parenthesised
+test_mutation 316 "approve query parentheses" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_approve_lookup_query_is_parenthesised" \
+    sed -i 's/(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType/WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-" AND WorkflowType/'
+
+# 317: G-AUTH-1: web middleware verifier checks the HMAC
+test_mutation 317 "middleware HMAC check" \
+    "web/lib/session.mjs" \
+    "tests/test_round5_guards.py::test_web_middleware_session_verifier_unit_tests" \
+    sed -i "s/^  if (!timingSafeEqual(expected, token)) return { ok: false, reason: 'bad-signature' };$/  \/\/ MUTATED: signature not checked/"
+
+# 318: G-AUTH-1: web middleware verifier checks expiry
+test_mutation 318 "middleware expiry check" \
+    "web/lib/session.mjs" \
+    "tests/test_round5_guards.py::test_web_middleware_session_verifier_unit_tests" \
+    sed -i "s/^  if (!(Number(parts\[1\]) > nowSeconds)) return { ok: false, reason: 'expired' };$/  \/\/ MUTATED: expiry not checked/"
+
+# 319: G-AUTH-1: web middleware compare is constant-time over both lengths
+test_mutation 319 "middleware compare folds length" \
+    "web/lib/session.mjs" \
+    "tests/test_round5_guards.py::test_web_middleware_session_verifier_unit_tests" \
+    sed -i 's/^  let diff = x.length ^ y.length;$/  let diff = 0;  \/\/ MUTATED/; s/^  const n = Math.max(x.length, y.length);$/  const n = Math.min(x.length, y.length);/'
+
+# 320: G-AUTH-1: API session signature compare
+test_mutation 320 "API token signature check" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_session_signature_check_rejects_forgery_expiry_and_malformed" \
+    sed -i 's/^    if not secrets.compare_digest(expected.encode(), token.encode()):$/    if False:  # MUTATED/'
+
+# 321: G-AUTH-1: API session token expiry from the signed payload
+test_mutation 321 "API token expiry" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_api_refuses_forged_expired_and_revoked_sessions" \
+    sed -i 's/^    return int(parts\[1\]) > (time.time() if now is None else now)$/    return True  # MUTATED/'
+
+# 322: G-AUTH-1: logout revokes the session row
+test_mutation 322 "logout revokes session" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_api_refuses_forged_expired_and_revoked_sessions" \
+    sed -i 's/^        await db.execute("DELETE FROM sessions WHERE token = ?", (token,))$/        pass  # MUTATED/'
+
+# 323: G-AUTH-1: API verifies the signature before trusting the DB row
+test_mutation 323 "signature checked before DB" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_api_refuses_forged_expired_and_revoked_sessions" \
+    sed -i '/^async def verify_session_token/,/^async def revoke_session/s/^    if not check_session_signature(token):$/    if False:  # MUTATED/'
+
+# 324: G-AUTH-1: web middleware verifies the token (not cookie presence)
+test_mutation 324 "middleware uses verifier" \
+    "web/middleware.ts" \
+    "tests/test_round5_guards.py::test_web_middleware_uses_the_verifier" \
+    sed -i 's/verifySessionToken(token, key)/({ ok: Boolean(token) })/'
+
+# 325: G-UI-1: review file route whitelist
+test_mutation 325 "file route whitelist" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_file_route_whitelist" \
+    sed -i 's/^    "mute_edit": ("edit", "mute_assembly.mp4"),$/&\n    "shots.json": ("edit", "..\/shots.json"),/'
+
+# 326: G-UI-1: start refuses an invalid uploaded shots.json before the workflow starts
+test_mutation 326 "start refuses bad shots" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_start_refuses_invalid_uploaded_shots_before_starting" \
+    sed -i 's/^    if shots_problems:$/    if False:  # MUTATED/'
+
+# 327: G-UI-1: approve G_FINAL_CUT refused (409) while assembly QC blocks
+test_mutation 327 "final approve refused on assembly QC" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_final_cut_approve_refused_while_blocked" \
+    sed -i '/^def final_cut_blockers/,/^    return problems/s/^    if assembly.get("blocking"):$/    if False:  # MUTATED/'
+
+# 328: G-UI-1: approve G_FINAL_CUT refused (409) while delivery QC blocks
+test_mutation 328 "final approve refused on delivery QC" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_final_cut_approve_refused_while_blocked" \
+    sed -i '/^def final_cut_blockers/,/^    return problems/s/^    if delivery.get("blocking"):$/    if False:  # MUTATED/'
+
+# 329: G-UI-1: approve G_FINAL_CUT route enforces the blockers
+test_mutation 329 "final approve enforces blockers" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_final_cut_approve_refused_while_blocked" \
+    sed -i 's/^                problems = final_cut_blockers(state)$/                problems = []  # MUTATED/'
+
+# 330: G-UI-1: final-cut reject refused off-gate
+test_mutation 330 "final reject off-gate 409" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_final_cut_reject_route" \
+    sed -i '/^async def reject_final_cut/,/^class RaiseCapRequest/s/^    if state.get("current_gate") != "G_FINAL_CUT":$/    if False:  # MUTATED/'
+
+# 331: G-UI-1: raise-cap only upward
+test_mutation 331 "raise cap only upward" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_raise_cap_route_only_upward" \
+    sed -i 's/^    if current is not None and request.new_cap <= current:$/    if False:  # MUTATED/'
+
+# 332: G-UI-1: episode id fullmatch (no trailing newline / longer ids)
+test_mutation 332 "episode id fullmatch" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_episode_id_format_is_exact" \
+    sed -i 's/re.fullmatch(EPISODE_ID_PATTERN, episode_id)/re.match(EPISODE_ID_PATTERN, episode_id)/'
+
+# 333: G-UI-1: episode id ASCII digits only
+test_mutation 333 "episode id ascii digits" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_episode_id_format_is_exact" \
+    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}"/EPISODE_ID_PATTERN = r"ep\\d{2}"/'
+
+# 334: G-UI-1: cap raise is applied while parked at G_FINAL_CUT
+test_mutation 334 "cap raise at final gate" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round5_guards.py::test_dry_run_final_gate_actions_real_workflow" \
+    sed -i 's/^                lambda: self.state.new_credit_cap > 0 or (not self.pending_clip_retries and ($/                lambda: (not self.pending_clip_retries and (/'
+
+# 335: G-UI-1: per-shot G2 approve records the decision
+test_mutation 335 "per-shot approve recorded" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round5_guards.py::test_dry_run_final_gate_actions_real_workflow" \
+    sed -i 's/^        self.state.shot_decisions\[shot_id\] = "approved"$/        pass  # MUTATED/'
+
+# 336: G-UI-1: final-cut reject recorded and approval withdrawn
+test_mutation 336 "final reject recorded" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round5_guards.py::test_dry_run_final_gate_actions_real_workflow" \
+    sed -i '/^    def reject_g_final_cut/,/^    def accept_assembly_qc/s/^        self.final_cut_rejections.append({$/        [].append({/'
+
+# 337: G-AUTH-1: login compares the admin secret in constant time
+test_mutation 337 "login constant-time compare" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_login_compares_secret_in_constant_time" \
+    sed -i 's/^    if not request.admin_secret or not secrets.compare_digest($/    if not request.admin_secret or request.admin_secret != admin_secret or not (  # MUTATED/'
+
+# 338: G-UI-1: preflight reports the offline cost estimate
+test_mutation 338 "preflight cost estimate" \
+    "api/main.py" \
+    "tests/test_round5_guards.py::test_preflight_reports_offline_cost_estimate" \
+    sed -i 's/"cost_estimate": /"cost_estimate_unused": /'
 
 # Print final summary
 print_summary

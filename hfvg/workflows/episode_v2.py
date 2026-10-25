@@ -81,6 +81,7 @@ class EpisodeWorkflowV2:
         self.pending_clip_retries: dict[str, str] = {}  # shot_id -> clip-retry workflow id
         self.clip_retry_log: list[dict] = []  # audit: one row per clip retry started
         self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
+        self.final_cut_rejections: list[dict] = []  # G_FINAL_CUT reviewer rejections (reason, versions)
         self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
         self.delivery_version: int = 0
         self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
@@ -591,26 +592,7 @@ class EpisodeWorkflowV2:
             if not handle:
                 continue
             # Process credit cap raise before each handle check
-            while self.state.credit_cap_raised and self.state.new_credit_cap > 0:
-                workflow.logger.info(f"Processing credit cap raise to {self.state.new_credit_cap}")
-                
-                # Update the ledger cap via activity
-                await workflow.execute_activity(
-                    update_credit_cap_activity,
-                    args=[self.state.episode_id, self.state.new_credit_cap],
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-                
-                # Forward signal to all shot workflows
-                for cap_shot_id, shot_handle in self.shot_results.items():
-                    try:
-                        await shot_handle.signal("resume_after_cap_raise")
-                        workflow.logger.info(f"Signaled cap raise to shot {cap_shot_id}")
-                    except Exception as e:
-                        workflow.logger.warning(f"Failed to signal shot {cap_shot_id}: {e}")
-                
-                # Clear flag
-                self.state.new_credit_cap = 0
+            await self._process_cap_raise()
             
             result = await handle
             results.append(result)
@@ -637,12 +619,16 @@ class EpisodeWorkflowV2:
         self.state.current_gate = "G_FINAL_CUT"
         while True:
             await workflow.wait_condition(
-                lambda: not self.pending_clip_retries and (
+                lambda: self.state.new_credit_cap > 0 or (not self.pending_clip_retries and (
                     self._assembly_stale() or self._delivery_due() or (
                         self.approved_g_final_cut and not self._assembly_blocking()
                         and not self._delivery_blocking())
-                )
+                ))
             )
+            if self.state.new_credit_cap > 0:
+                # A clip retry parked at the credit cap must be resumable here too (else the gate deadlocks)
+                await self._process_cap_raise()
+                continue
             if self._assembly_stale():
                 workflow.logger.info("[PICTURE LOCK] clips changed since the last edit; re-assembling")
                 await self._run_picture_assembly(episode_id)
@@ -845,6 +831,26 @@ class EpisodeWorkflowV2:
         problem = self._reject_problem(shot_id)
         if problem:
             raise ApplicationError(f"Cannot reject {shot_id}: {problem}", non_retryable=True)
+
+    @workflow.update
+    async def approve_shot(self, shot_id: str) -> dict:
+        """Per-shot G2 decision "approve" (G-GATE-1 map): record the shot as approved, undoing an earlier
+        reject_shot of the same still. Same preconditions as reject_shot (parked at G2, G2 not yet
+        approved, no retry pending for the shot). G2 approval itself is still approve_g2_scene_stills."""
+        problem = self._reject_problem(shot_id)
+        if problem:
+            raise ApplicationError(f"Cannot approve {shot_id}: {problem}", non_retryable=True)
+        self.state.shot_decisions[shot_id] = "approved"
+        self.rejection_reasons.pop(shot_id, None)
+        workflow.logger.info(f"Shot {shot_id} approved at G2")
+        return {"success": True, "shot_id": shot_id, "action": "approved",
+                "message": f"Shot {shot_id} approved (goes to clips when G2 is approved)"}
+
+    @approve_shot.validator
+    def validate_approve_shot(self, shot_id: str):
+        problem = self._reject_problem(shot_id)
+        if problem:
+            raise ApplicationError(f"Cannot approve {shot_id}: {problem}", non_retryable=True)
     
     # ---------------------------------------------------------------- picture assembly helpers
     def _assembly_plan(self) -> tuple[list[dict], dict[str, str], list[str], list[dict]]:
@@ -1166,6 +1172,24 @@ class EpisodeWorkflowV2:
         self.approved_g_final_cut = True
 
     @workflow.signal
+    def reject_g_final_cut(self, reason: str):
+        """Reviewer rejects the final cut at G_FINAL_CUT: recorded with the edit / delivery versions it
+        applies to; any earlier approval is withdrawn and the gate stays held. The fix is a clip retry
+        (rebuilds the edit and the delivery) or a new delivery; then approve again."""
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            self.final_cut_refusals.append("final cut rejection ignored: not parked at G_FINAL_CUT")
+            return
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("final cut rejection ignored: a reason is required")
+            return
+        self.approved_g_final_cut = False
+        self.final_cut_rejections.append({
+            "reason": reason.strip(), "edit_version": self.assembly_version,
+            "delivery_version": self.delivery_version,
+        })
+        workflow.logger.warning(f"Final cut rejected by reviewer: {reason}")
+
+    @workflow.signal
     def accept_assembly_qc(self, reason: str):
         """Human review of a blocking mute-edit QC verdict (FAIL / NEEDS_REVIEW): accept it with a
         reason so G_FINAL_CUT can be approved. Applies to the current edit only (a rebuild resets it)."""
@@ -1191,6 +1215,29 @@ class EpisodeWorkflowV2:
         self.state.credit_cap_raised = True
         self.state.new_credit_cap = new_cap
     
+    async def _process_cap_raise(self) -> None:
+        """Apply a pending raise_credit_cap: update the ledger cap, resume every shot child (including
+        clip-retry children) parked at the cap. Called from the clip loop and the G_FINAL_CUT loop."""
+        while self.state.credit_cap_raised and self.state.new_credit_cap > 0:
+            new_cap = self.state.new_credit_cap
+            workflow.logger.info(f"Processing credit cap raise to {new_cap}")
+            await workflow.execute_activity(
+                update_credit_cap_activity,
+                args=[self.state.episode_id, new_cap],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+            handles = dict(self.shot_results)
+            for retry_shot_id, retry_wf_id in self.pending_clip_retries.items():
+                handles[f"{retry_shot_id}-clipretry"] = workflow.get_external_workflow_handle(retry_wf_id)
+            for cap_shot_id, shot_handle in handles.items():
+                try:
+                    await shot_handle.signal("resume_after_cap_raise")
+                    workflow.logger.info(f"Signaled cap raise to shot {cap_shot_id}")
+                except Exception as e:
+                    workflow.logger.warning(f"Failed to signal shot {cap_shot_id}: {e}")
+            if self.state.new_credit_cap == new_cap:  # a newer raise that arrived meanwhile loops again
+                self.state.new_credit_cap = 0
+
     @workflow.signal
     def retry_still_ready(self, shot_id: str, attempt: int):
         """
@@ -1646,6 +1693,8 @@ class EpisodeWorkflowV2:
             "pending_clip_retries": list(self.pending_clip_retries),
             "clip_retry_log": [dict(r) for r in self.clip_retry_log],
             "final_cut_refusals": list(self.final_cut_refusals),
+            "final_cut_rejections": [dict(r) for r in self.final_cut_rejections],
+            "shot_workflow_ids": {k: h.id for k, h in self.shot_results.items()},
             "assembly": self._assembly_view(),
             "delivery": self._delivery_view(),
             "shot_outcomes": {

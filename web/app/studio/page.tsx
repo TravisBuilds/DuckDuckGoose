@@ -124,12 +124,6 @@ export default function StudioHomePage() {
               >
                 Start New Episode
               </Link>
-              <Link
-                href="/studio/episodes/ep04"
-                className="block px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-center hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                View Episode 04
-              </Link>
             </div>
           </div>
         </div>
