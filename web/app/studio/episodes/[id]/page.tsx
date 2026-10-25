@@ -391,6 +391,146 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  const handleRetryClip = async (shotId: string) => {
+    const reason = prompt('Retry reason:');
+    if (!reason) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/shots/${shotId}/retry-clip`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (!response.ok) throw new Error('Retry failed');
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Retry failed');
+    }
+  };
+
+  const handleApproveG1 = async () => {
+    if (!confirm('Approve G1 shot plan? This will allow the workflow to proceed with generation.')) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gate_id: 'g1_shot_plan' }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Approval failed' }));
+        throw new Error(error.detail || 'Approval failed');
+      }
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'G1 approval failed');
+    }
+  };
+
+  const handleApproveG2 = async () => {
+    if (!confirm('Approve G2 scene stills? This will proceed to clip generation.')) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gate_id: 'g2_scene_stills' }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Approval failed' }));
+        throw new Error(error.detail || 'Approval failed');
+      }
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'G2 approval failed');
+    }
+  };
+
+  const handleAcceptAssemblyQC = async () => {
+    const reason = prompt('Reason for accepting blocking assembly QC verdict:');
+    if (!reason) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/assembly/accept`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (!response.ok) throw new Error('Accept failed');
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Accept assembly QC failed');
+    }
+  };
+
+  const handleAcceptDeliveryQC = async () => {
+    const reason = prompt('Reason for accepting blocking delivery QC verdict:');
+    if (!reason) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/delivery/accept`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (!response.ok) throw new Error('Accept failed');
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Accept delivery QC failed');
+    }
+  };
+
+  const handleGFinalCut = async (verdict: 'approve' | 'reject') => {
+    const confirmMsg = verdict === 'approve'
+      ? 'Approve G_FINAL_CUT? This will complete the episode workflow.'
+      : 'Reject G_FINAL_CUT? This will mark the delivery as rejected.';
+    
+    if (!confirm(confirmMsg)) return;
+
+    let reason = '';
+    if (verdict === 'reject') {
+      reason = prompt('Rejection reason:') || '';
+      if (!reason) return;
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/g_final_cut`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict, reason }),
+      });
+
+      if (!response.ok) throw new Error('G_FINAL_CUT action failed');
+      await loadEpisodeData();
+      alert(`G_FINAL_CUT ${verdict}d successfully`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'G_FINAL_CUT action failed');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -441,6 +581,20 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Stall Alerts Banner */}
+        {state && state.active_stall_alerts > 0 && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2">
+              <span className="text-yellow-800 dark:text-yellow-200 font-semibold">
+                ⚠️ {state.active_stall_alerts} Active Stall Alert{state.active_stall_alerts > 1 ? 's' : ''}
+              </span>
+            </div>
+            <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+              One or more jobs have stalled. Check the workflow status or run reconciliation.
+            </p>
+          </div>
+        )}
+
         {/* Gates and Controls */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           {/* Live Mode */}
@@ -639,6 +793,236 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
+        {/* Gate Approvals */}
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
+          {/* G1 Approval */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h2 className="text-lg font-semibold mb-4">G1: Shot Plan</h2>
+            {state?.approvals?.g1_shot_plan ? (
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <span className="font-semibold">Approved</span>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Shot plan and cost estimates must be approved before generation.
+                </p>
+                <button
+                  onClick={handleApproveG1}
+                  className="w-full px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
+                >
+                  Approve G1
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* G2 Approval */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h2 className="text-lg font-semibold mb-4">G2: Scene Stills</h2>
+            {state?.approvals?.g2_scene_stills ? (
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <span className="font-semibold">Approved</span>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  All scene stills must be reviewed and approved before clip generation.
+                </p>
+                <button
+                  onClick={handleApproveG2}
+                  className="w-full px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
+                >
+                  Approve G2
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Assembly QC */}
+        {state?.assembly && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">Picture Assembly QC</h2>
+            
+            {state.assembly.qc && (
+              <div className={`p-4 rounded-lg mb-4 ${
+                state.assembly.qc.verdict === 'PASS'
+                  ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                  : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+              }`}>
+                <p className={`font-semibold ${
+                  state.assembly.qc.verdict === 'PASS'
+                    ? 'text-green-800 dark:text-green-200'
+                    : 'text-red-800 dark:text-red-200'
+                }`}>
+                  Verdict: {state.assembly.qc.verdict}
+                </p>
+                {state.assembly.qc.reason && (
+                  <p className="text-sm mt-1 text-gray-700 dark:text-gray-300">
+                    {state.assembly.qc.reason}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {state.assembly_path && (
+              <div className="mb-4">
+                <a
+                  href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/episodes/${episodeId}/files/assembly_mute`}
+                  className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+                  download
+                >
+                  Download Mute Edit
+                </a>
+              </div>
+            )}
+
+            {state.assembly.blocking && (
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <p className="text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
+                  Blocking QC Issue
+                </p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                  This issue blocks G_FINAL_CUT approval. Accept with reason to proceed anyway.
+                </p>
+                <button
+                  onClick={handleAcceptAssemblyQC}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm font-semibold hover:bg-yellow-700"
+                >
+                  Accept Assembly QC with Reason
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Delivery QC */}
+        {state?.delivery && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">Delivery QC</h2>
+            
+            {state.delivery.qc && (
+              <div className={`p-4 rounded-lg mb-4 ${
+                state.delivery.qc.verdict === 'PASS'
+                  ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                  : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+              }`}>
+                <p className={`font-semibold ${
+                  state.delivery.qc.verdict === 'PASS'
+                    ? 'text-green-800 dark:text-green-200'
+                    : 'text-red-800 dark:text-red-200'
+                }`}>
+                  Verdict: {state.delivery.qc.verdict}
+                </p>
+                {state.delivery.qc.reason && (
+                  <p className="text-sm mt-1 text-gray-700 dark:text-gray-300">
+                    {state.delivery.qc.reason}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {state.delivery_paths && (
+              <div className="space-y-2 mb-4">
+                <h3 className="text-sm font-semibold">Download Delivery Files:</h3>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/episodes/${episodeId}/files/master_subs`}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700"
+                    download
+                  >
+                    Master (with subs)
+                  </a>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/episodes/${episodeId}/files/master_nosubs`}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700"
+                    download
+                  >
+                    Master (no subs)
+                  </a>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/episodes/${episodeId}/files/master_phone`}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700"
+                    download
+                  >
+                    Phone
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {state.delivery.blocking && (
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <p className="text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
+                  Blocking QC Issue
+                </p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                  This issue blocks G_FINAL_CUT approval. Accept with reason to proceed anyway.
+                </p>
+                <button
+                  onClick={handleAcceptDeliveryQC}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm font-semibold hover:bg-yellow-700"
+                >
+                  Accept Delivery QC with Reason
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* G_FINAL_CUT Gate */}
+        {state?.delivery_paths && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">G_FINAL_CUT: Final Delivery Approval</h2>
+            
+            {state.delivery_paths && (
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Preview the delivery master before final approval:
+                </p>
+                <video
+                  controls
+                  className="w-full max-w-2xl rounded border border-gray-300 dark:border-gray-600 mb-4"
+                  src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/episodes/${episodeId}/files/master_subs`}
+                >
+                  Your browser does not support video playback.
+                </video>
+              </div>
+            )}
+
+            {state?.approvals?.g_final_cut ? (
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <span className="font-semibold">G_FINAL_CUT Approved - Episode Complete</span>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleGFinalCut('approve')}
+                  className="px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700"
+                >
+                  Approve G_FINAL_CUT
+                </button>
+                <button
+                  onClick={() => handleGFinalCut('reject')}
+                  className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+                >
+                  Reject G_FINAL_CUT
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Model limits + per-shot preflight */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6" data-testid="model-limits-card">
           <h2 className="text-lg font-semibold mb-1">Model Limits &amp; Preflight</h2>
@@ -776,11 +1160,19 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   {shot.clip_url && (
                     <div>
                       <div className="text-xs font-semibold mb-1">Clip:</div>
-                      <video 
-                        src={shot.clip_url} 
-                        controls
-                        className="w-64 rounded border border-gray-300 dark:border-gray-600"
-                      />
+                      <div className="flex items-start gap-3">
+                        <video 
+                          src={shot.clip_url} 
+                          controls
+                          className="w-64 rounded border border-gray-300 dark:border-gray-600"
+                        />
+                        <button
+                          onClick={() => handleRetryClip(shot.shot_id)}
+                          className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700"
+                        >
+                          Retry Clip
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

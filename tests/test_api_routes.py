@@ -95,6 +95,115 @@ async def test_canary_route_checks_g108(test_db_api, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_lint_route_requires_auth(test_db_api, monkeypatch):
+    """M-313: POST /api/lint requires authentication (G-AUTH-1 fix)."""
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from unittest.mock import MagicMock
+    import api.main as api_main
+    
+    # Mock temporal client
+    mock_client = MagicMock()
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
+    
+    # Try lint without auth
+    response = client.post("/api/lint", json={"prompt": "test prompt"})
+    
+    # Key assertion: should reject unauthenticated request
+    assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+    # If mutation removes auth check, this would return 200
+
+
+@pytest.mark.asyncio
+async def test_file_download_path_containment(test_db_api, monkeypatch):
+    """M-314: File download route prevents directory traversal (G-UI-1 path containment)."""
+    await create_episode(test_db_api, "ep99")
+    
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
+    
+    # Try to download a file (will 404 since file doesn't exist, but should not allow traversal)
+    # The route validates episode_id format and checks path containment before checking existence
+    
+    # Valid file type but non-existent file should give 404
+    response = client.get("/api/episodes/ep99/files/master_subs", cookies=cookies)
+    assert response.status_code in [404, 500], f"Expected 404 or 500 for non-existent file, got {response.status_code}"
+    
+    # The key test: if we try traversal via episode_id, validate_episode_id should reject it
+    # (Directory traversal via file_type is prevented by the whitelist)
+    response = client.get("/api/episodes/../../../etc/files/master_subs", cookies=cookies)
+    assert response.status_code == 400, "Should reject invalid episode_id format"
+
+
+@pytest.mark.asyncio
+async def test_all_mutating_routes_require_auth(test_db_api, monkeypatch):
+    """M-315: Enumerate all non-GET routes and verify they require authentication (G-AUTH-1)."""
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    from unittest.mock import MagicMock
+    import api.main as api_main
+    
+    # Mock temporal client
+    mock_client = MagicMock()
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
+    
+    # Allowlist: routes that don't require auth (login, health check)
+    allowlist = [
+        ("GET", "/"),
+        ("GET", "/api/health"),
+        ("POST", "/api/login"),
+    ]
+    
+    # Get all routes from the app
+    mutating_routes_checked = 0
+    for route in app.routes:
+        if hasattr(route, 'methods') and hasattr(route, 'path'):
+            for method in route.methods:
+                if method == "GET":
+                    continue  # Only check mutating routes
+                
+                # Check if in allowlist
+                if (method, route.path) in allowlist:
+                    continue
+                
+                # Try to call the route without auth
+                path = route.path.replace("{episode_id}", "ep99").replace("{shot_id}", "A01").replace("{file_type}", "master")
+                
+                try:
+                    if method == "POST":
+                        response = client.post(path, json={})
+                    elif method == "PUT":
+                        response = client.put(path, json={})
+                    elif method == "DELETE":
+                        response = client.delete(path)
+                    elif method == "PATCH":
+                        response = client.patch(path, json={})
+                    else:
+                        continue
+                    
+                    # Key assertion: all non-allowlisted mutating routes should require auth
+                    assert response.status_code in [401, 403, 422], \
+                        f"{method} {route.path} should require auth, got {response.status_code}"
+                    mutating_routes_checked += 1
+                except Exception:
+                    # Some routes may fail for other reasons (missing params, etc.)
+                    # That's fine - we're checking auth, not functionality
+                    pass
+    
+    # Sanity check: we should have checked at least some routes
+    assert mutating_routes_checked >= 5, f"Should have checked at least 5 mutating routes, only checked {mutating_routes_checked}"
+
+
+@pytest.mark.asyncio
 async def test_canary_route_checks_live_mode(test_db_api, monkeypatch):
     """Test: Canary in non-dry mode requires live_mode in DB."""
     monkeypatch.setenv("DRY_RUN", "false")

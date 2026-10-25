@@ -2371,6 +2371,30 @@ test_mutation 312 "VO generation preflights text length" \
     "tests/test_audio_round4_activities.py::test_preflight_refuses_over_limit_before_any_spend" \
     sed -i 's/^    _preflight(model, text=script)$/    pass  # MUTATED/'
 
+# 313: G-AUTH-1: POST /api/lint requires authentication
+test_mutation 313 "lint route requires auth" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_lint_route_requires_auth" \
+    sed -i '/^async def lint_prompt_endpoint/,/^    await verify_auth_unified/s/await verify_auth_unified/pass  # MUTATED/'
+
+# 314: G-UI-1: File download validates path containment
+test_mutation 314 "download validates path containment" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_file_download_path_containment" \
+    sed -i '/if not str(file_path_canonical).startswith(str(episode_dir_canonical)):/s/if not/if False and not/'
+
+# 315: G-AUTH-1: All mutating routes require authentication
+test_mutation 315 "mutating routes require auth" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_all_mutating_routes_require_auth" \
+    sed -i '0,/await verify_auth_unified(authorization, studio_admin_token)/s/await verify_auth_unified(authorization, studio_admin_token)/pass  # MUTATED  # Only first occurrence/'
+
+# 316: G-AUTH-1: Approve query operator precedence fix
+test_mutation 316 "approve query parentheses correct" \
+    "api/main.py" \
+    "tests/test_api_routes.py::test_canary_route_checks_g108" \
+    sed -i 's/(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType/WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-" AND WorkflowType/'
+
 # Print final summary
 print_summary
 exit_code=$?

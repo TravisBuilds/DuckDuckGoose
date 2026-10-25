@@ -853,8 +853,9 @@ async def approve_gate(
         # Find the EpisodeWorkflowV2 only (not child shot workflows)
         # Episode workflow ID is just the episode_id (e.g., "ep14")
         # Shot workflows have IDs like "ep14-shot-A01" which we must exclude
+        # Fixed G-AUTH-1: parenthesise the OR to bind correctly with AND
         workflows = temporal_client.list_workflows(
-            f'WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-" AND WorkflowType = "EpisodeWorkflowV2"'
+            f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
         )
         
         async for workflow_info in workflows:
@@ -2411,9 +2412,15 @@ if __name__ == "__main__":
 
 
 @app.post("/api/lint")
-async def lint_prompt_endpoint(request: dict):
+async def lint_prompt_endpoint(
+    request: dict,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
     """
     Lint a prompt for violations.
+    
+    Requires: Authorization header with admin secret OR session cookie.
     
     Args:
         request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool), optional "episode_id" (str)
@@ -2421,6 +2428,8 @@ async def lint_prompt_endpoint(request: dict):
     Returns:
         dict with "problems" list
     """
+    await verify_auth_unified(authorization, studio_admin_token)
+    
     from hfvg.prompt_lint import lint_violations, load_lint_kit
     
     prompt = request.get("prompt", "")
@@ -2682,4 +2691,166 @@ async def preflight_episode(
         "warnings": warnings,
         "has_errors": bool(errors),
     }
+
+
+@app.get("/api/episodes/{episode_id}/files/{file_type}")
+async def download_file(
+    episode_id: str,
+    file_type: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Download episode files with path containment protection (G-UI-1).
+    
+    Supported file_type values:
+    - master_subs: delivery master with subtitles
+    - master_nosubs: delivery master without subtitles
+    - master_phone: phone-optimized delivery
+    - assembly_mute: mute picture edit
+    
+    Path containment: validates that resolved path stays within episode directory.
+    No directory traversal attacks via ../ or symlinks.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    # Map file types to expected paths (relative to episode artifacts directory)
+    artifacts_root = Path(os.getenv("ARTIFACTS_DIR", "./data/artifacts"))
+    episode_dir = artifacts_root / episode_id
+    
+    # Ensure episode directory exists
+    if not episode_dir.exists():
+        raise HTTPException(status_code=404, detail=f"No artifacts found for episode {episode_id}")
+    
+    # Resolve the canonical episode directory path (no symlinks)
+    episode_dir_canonical = episode_dir.resolve()
+    
+    # Map file types to expected filenames/patterns
+    file_mapping = {
+        "master_subs": "delivery_master_subs.mp4",
+        "master_nosubs": "delivery_master_nosubs.mp4",
+        "master_phone": "delivery_phone.mp4",
+        "assembly_mute": "mute_edit.mp4",
+    }
+    
+    if file_type not in file_mapping:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file_type: {file_type}. Allowed: {', '.join(file_mapping.keys())}"
+        )
+    
+    # Build the file path
+    filename = file_mapping[file_type]
+    file_path = episode_dir / filename
+    
+    # Path containment check: resolve and verify it's within episode directory
+    try:
+        file_path_canonical = file_path.resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid file path: {e}")
+    
+    # Security check: must be within episode directory (no directory traversal)
+    if not str(file_path_canonical).startswith(str(episode_dir_canonical)):
+        raise HTTPException(
+            status_code=403,
+            detail="Path traversal detected: file must be within episode directory"
+        )
+    
+    # Check if file exists
+    if not file_path_canonical.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"File not found: {file_type} for episode {episode_id}"
+        )
+    
+    # Audit log
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "download_file", f"Downloaded {file_type}", "admin")
+        )
+        await db.commit()
+    
+    return FileResponse(
+        path=file_path_canonical,
+        filename=filename,
+        media_type="video/mp4",
+    )
+
+
+class GFinalCutRequest(BaseModel):
+    verdict: str = Field(..., pattern="^(approve|reject)$", description="approve or reject")
+    reason: str = Field("", max_length=1000, description="Optional reason for rejection")
+
+
+@app.post("/api/episodes/{episode_id}/g_final_cut")
+async def approve_reject_g_final_cut(
+    episode_id: str,
+    request: GFinalCutRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Approve or reject G_FINAL_CUT gate (final delivery review).
+    
+    This sends the approval signal to the episode workflow, which allows
+    the workflow to proceed past the final gate and complete.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    workflow_id = episode_workflow_id(episode_id)
+    
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        
+        if request.verdict == "approve":
+            # Send approval signal
+            await handle.signal("approve_g_final_cut")
+            action = "approve"
+            message = "G_FINAL_CUT approved"
+        else:
+            # Send rejection signal
+            await handle.signal("reject_g_final_cut", request.reason)
+            action = "reject"
+            message = f"G_FINAL_CUT rejected: {request.reason}"
+        
+        # Audit log
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """INSERT INTO audit_log (episode_id, action, details, user)
+                   VALUES (?, ?, ?, ?)""",
+                (episode_id, f"g_final_cut_{action}", message, "admin")
+            )
+            await db.commit()
+        
+        return {
+            "success": True,
+            "episode_id": episode_id,
+            "verdict": request.verdict,
+            "message": message,
+        }
+        
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No workflow found for episode {episode_id}"
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error sending G_FINAL_CUT verdict: {str(e)}"
+        )
 
