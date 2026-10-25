@@ -1028,17 +1028,15 @@ async def test_canary_live_prompt_lint_refuses_before_estimate_and_reserve(test_
 
 @pytest.mark.asyncio
 async def test_lint_endpoint_returns_violations(test_db_api, monkeypatch):
-    """Test: POST /api/lint returns lint violations for invalid prompts."""
-    from api.main import app
-    from httpx import AsyncClient, ASGITransport
-    
-    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    """Test: POST /api/lint returns lint violations for invalid prompts (requires auth)."""
+    # Now requires authentication (G-AUTH-1 fix)
+    client, cookies = await get_authenticated_client(test_db_api, monkeypatch)
     
     # Test with a prompt that has violations
-    response = await client.post("/api/lint", json={
+    response = client.post("/api/lint", json={
         "prompt": "Missing count clause here",
         "live": False
-    })
+    }, cookies=cookies)
     
     assert response.status_code == 200
     data = response.json()
