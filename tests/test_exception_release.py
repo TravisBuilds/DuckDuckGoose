@@ -145,6 +145,7 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    monkeypatch.setenv("ACTIVE_POLL_INTERVAL_SECONDS", "0.01")  # Fast polling for tests
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     

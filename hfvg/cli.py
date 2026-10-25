@@ -499,7 +499,7 @@ def set_anchor(episode_id: str, anchor_shot_id: str, target_shots: str, file_pat
         hfvg set-anchor ep05 A01 --for A02,A03,A04
         
         # Use external file as anchor
-        hfvg set-anchor ep05 A01 --for A02,A03,A04 --file /path/to/still.png --approved-by "Travis approved via Studio"
+        hfvg set-anchor ep05 A01 --for A02,A03,A04 --file /path/to/still.png --approved-by "Approved via Studio"
     """
     import httpx
     import os

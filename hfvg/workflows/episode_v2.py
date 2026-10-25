@@ -1,4 +1,4 @@
-"""EpisodeWorkflow V2: Handbook-compliant workflow with steps 0-7 and Travis approval points."""
+"""EpisodeWorkflow V2: Handbook-compliant workflow with steps 0-7 and project owner approval points."""
 
 import asyncio
 from datetime import timedelta
@@ -40,7 +40,7 @@ class EpisodeWorkflowV2:
     """
     Episode workflow following Mid-Mountain Rest HARNESS-HANDBOOK v1.1.
     
-    Steps 0-7 with 15 Travis approval points:
+    Steps 0-7 with 15 project owner approval points:
     0. Bible (asset registry, playbook)
     1. Story (pitch pick, beatmap, credit plan)
     2. Stills (refs, drafts, finals with character locks)
@@ -217,7 +217,7 @@ class EpisodeWorkflowV2:
         # Load gate policy via activity (not deterministic in workflow)
         policy_data = await workflow.execute_activity(
             load_gate_policy_activity,
-            args=["mid-mountain-rest"],
+            args=[],
             start_to_close_timeout=timedelta(seconds=10),
         )
         # Store policy data as dict (we only need the data, not GatePolicy methods)

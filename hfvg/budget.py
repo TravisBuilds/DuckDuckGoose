@@ -150,7 +150,7 @@ class BudgetLedger:
 
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or config.DB_PATH
-        self.policy = load_policy("mid-mountain-rest")
+        self.policy = load_policy()
 
     # ------------------------------------------------------------------ schema
 

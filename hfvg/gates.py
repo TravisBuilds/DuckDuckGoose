@@ -1,6 +1,7 @@
-"""Gate policy loader for HARNESS-GATES.json (Mid-Mountain Rest HARNESS-HANDBOOK v1.1)."""
+"""Gate policy loader for HARNESS-GATES.json."""
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ class GatePolicy:
     Expected structure (v1.1):
     - 71 total gates
     - 69 blocking gates (blocking = 'yes')
-    - 15 Travis approval points
+    - 15 project owner approval points
     - check_type distribution: code 31, judge 26, human 14
     """
     
@@ -27,7 +28,7 @@ class GatePolicy:
         self.series = self.data.get("series")
         self.harness = self.data.get("harness")
         self.gates = self.data.get("gates", [])
-        self.travis_approval_points = self.data.get("travis_approval_points", [])
+        self.owner_approval_points = self.data.get("travis_approval_points", [])
         self.budgets = self.data.get("budgets", {})
         self.rules = self.data.get("rules", {})
         
@@ -52,13 +53,13 @@ class GatePolicy:
             if check_type in check_type_counts:
                 check_type_counts[check_type] += 1
         
-        # Count Travis approval points
-        travis_approvals = len(self.travis_approval_points)
+        # Count owner approval points
+        owner_approvals = len(self.owner_approval_points)
         
         # Validate expected counts for v1.1
         assert total_gates == 71, f"Expected 71 gates, got {total_gates}"
         assert blocking_gates == 69, f"Expected 69 blocking gates, got {blocking_gates}"
-        assert travis_approvals == 15, f"Expected 15 Travis approval points, got {travis_approvals}"
+        assert owner_approvals == 15, f"Expected 15 owner approval points, got {owner_approvals}"
         assert check_type_counts["code"] == 31, f"Expected 31 code gates, got {check_type_counts['code']}"
         assert check_type_counts["judge"] == 26, f"Expected 26 judge gates, got {check_type_counts['judge']}"
         assert check_type_counts["human"] == 14, f"Expected 14 human gates, got {check_type_counts['human']}"
@@ -77,8 +78,8 @@ class GatePolicy:
         return gate and gate.get("blocking") == "yes"
     
     def requires_travis_approval(self, gate_id: str) -> bool:
-        """Check if gate requires Travis approval."""
-        return gate_id in self.travis_approval_points
+        """Check if gate requires project owner approval."""
+        return gate_id in self.owner_approval_points
     
     def get_gates_for_step(self, step: str) -> list[dict[str, Any]]:
         """Get all gates for a specific step."""
@@ -108,15 +109,17 @@ class GatePolicy:
         return self.budgets.get("unit_prices", {})
 
 
-def load_policy(project: str = "mid-mountain-rest") -> GatePolicy:
+def load_policy(project: str | None = None) -> GatePolicy:
     """
     Load gate policy for a project.
     
     Args:
-        project: Project name (default: mid-mountain-rest)
+        project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
     
     Returns:
         GatePolicy instance
     """
+    if project is None:
+        project = os.getenv("HFVG_PROJECT", "demo")
     policy_path = Path(__file__).parent.parent / "examples" / project / "HARNESS-GATES.json"
     return GatePolicy(policy_path)

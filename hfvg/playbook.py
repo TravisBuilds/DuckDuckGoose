@@ -59,8 +59,8 @@ class PlaybookValidator:
         Validate draft-first tier enforcement (§5.6).
         
         Rules:
-        - Travis only sees drafts that passed QC
-        - Finals rendered only for Travis-approved shots
+        - Project owner only sees drafts that passed QC
+        - Finals rendered only for owner-approved shots
         - No exploratory finals
         """
         errors = []
@@ -69,14 +69,14 @@ class PlaybookValidator:
         if shot.get("tier") == "final" and not shot.get("draft_approved"):
             errors.append(
                 f"Shot {shot.get('shot_id')}: Cannot render final without "
-                f"Travis approval of draft. Draft-first rule (§5.6.2)."
+                f"Project owner approval of draft. Draft-first rule (§5.6.2)."
             )
         
         # Check if draft passed QC
         if shot.get("tier") == "draft" and not shot.get("qc_passed"):
             errors.append(
                 f"Shot {shot.get('shot_id')}: Draft must pass QC before "
-                f"showing to Travis. Draft-first rule (§5.6.1)."
+                f"showing to project owner. Draft-first rule (§5.6.1)."
             )
         
         return errors

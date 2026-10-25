@@ -1526,9 +1526,9 @@ async def await_job_enforced(
     released = False  # Track if we've already released to prevent double release
     
     try:
-        # Phase 1: Active polling (5s intervals, up to 500s ~100 polls)
+        # Phase 1: Active polling (injected interval for tests, default 5s, up to 500s ~100 polls)
         max_active_polls = 100
-        active_poll_interval = 5.0
+        active_poll_interval = float(os.getenv("ACTIVE_POLL_INTERVAL_SECONDS", "5.0"))
         retries_5xx = 0
         max_retries_5xx = 3
         
