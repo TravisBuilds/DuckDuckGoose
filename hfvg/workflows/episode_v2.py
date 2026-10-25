@@ -404,12 +404,13 @@ class EpisodeWorkflowV2:
                     workflow.logger.info(f"Retry child {shot_id} completed, cleared from pending_retries")
                 
                 # Check if result indicates failure (Issue B: shot returns failed dict instead of raising)
-                if isinstance(result, dict) and result.get("status") == "failed":
+                if isinstance(result, dict) and result.get("status") in ("failed", "blocked"):
+                    # "blocked" = content block escalated to human review (G-REC-1): no asset landed
                     error_detail = result.get("error", "Unknown error")
                     shot_completion_status[shot_id] = {"done": True, "success": False, "error": error_detail}
                     self.state.failed_shots.append({
                         "shot_id": shot_id,
-                        "status": "failed",
+                        "status": "needs_review" if result.get("needs_review") else "failed",
                         "reason": error_detail
                     })
                     workflow.logger.error(f"Shot {shot_id} failed: {error_detail}")
@@ -1006,11 +1007,11 @@ class EpisodeWorkflowV2:
                     workflow.logger.info(f"Retry child {shot_id} completed, cleared from pending_retries")
                     
                     # Check if result indicates failure
-                    if isinstance(result, dict) and result.get("status") == "failed":
+                    if isinstance(result, dict) and result.get("status") in ("failed", "blocked"):
                         error_detail = result.get("error", "Unknown error")
                         self.state.failed_shots.append({
                             "shot_id": shot_id,
-                            "status": "failed",
+                            "status": "needs_review" if result.get("needs_review") else "failed",
                             "reason": error_detail
                         })
                         workflow.logger.error(f"Retry shot {shot_id} failed: {error_detail}")

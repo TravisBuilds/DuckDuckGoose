@@ -22,7 +22,8 @@ from hfvg.activities.moderation_recovery import attempt_moderation_recovery
 from hfvg.activities.reconcile import (
     get_pending_reconcile_jobs,
     detect_stalled_jobs,
-    mark_job_stalled,
+    land_late_asset,
+    record_reconcile_outcome,
 )
 from hfvg.activities.workflow_support import (
     load_gate_policy_activity,
@@ -73,5 +74,6 @@ __all__ = [
     "attempt_moderation_recovery",
     "get_pending_reconcile_jobs",
     "detect_stalled_jobs",
-    "mark_job_stalled",
+    "land_late_asset",
+    "record_reconcile_outcome",
 ]

@@ -348,10 +348,10 @@ class HiggsfieldProvider(GenerationProvider):
                 progress=0.0,
                 error=result.get("error", "Generation failed"),
             )
-        elif status_str == "canceled":
+        elif status_str in ("canceled", "cancelled"):
             return ProviderJob(
                 job_id=job_id,
-                status=ProviderJobStatus.FAILED,
+                status=ProviderJobStatus.CANCELED,
                 progress=0.0,
                 error="Job canceled",
             )

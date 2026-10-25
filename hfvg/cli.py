@@ -696,103 +696,106 @@ def preflight(episode_id: str, shots_path: str | None):
 
 
 @cli.command()
-@click.option("--max-jobs", default=100, help="Maximum number of jobs to reconcile")
-def reconcile(max_jobs: int):
+@click.option("--max-jobs", default=100, show_default=True, help="Maximum number of jobs per pass")
+@click.option("--threshold", default=None, type=int,
+              help="Stall threshold in minutes (default STALL_THRESHOLD_MINUTES, 45)")
+@click.option("--schedule", "schedule", is_flag=True,
+              help="Create/update the Temporal Schedule (every RECONCILE_INTERVAL_MINUTES) instead of one pass")
+@click.option("--interval", default=None, type=int, help="Schedule interval in minutes (with --schedule)")
+def reconcile(max_jobs: int, threshold: int | None, schedule: bool, interval: int | None):
     """
-    Reconcile pending_reconcile jobs: re-poll provider status, land late assets, commit/release budget.
-    
-    This runs the reconciler workflow once. For continuous reconciliation, schedule this via cron
-    or use Temporal's schedule feature.
-    
+    Stall watchdog + reconciler: route stalled jobs, re-poll pending_reconcile jobs by job id,
+    land late assets (download, normalize, attach), commit or release budget (idempotent).
+
+    Runs one pass through the worker (fixed workflow id, so two passes never overlap), or with
+    --schedule creates the recurring Temporal Schedule (the worker also does this on start).
+
     Example:
         hfvg reconcile
-        hfvg reconcile --max-jobs 50
+        hfvg reconcile --schedule --interval 15
     """
+    from hfvg.temporal_converter import temporal_data_converter
+    from hfvg.workflows.reconcile import (
+        RECONCILE_SCHEDULE_ID,
+        RECONCILE_WORKFLOW_ID,
+        ensure_reconcile_schedule,
+    )
+
     async def run_reconcile():
         client = await Client.connect(
             config.TEMPORAL_HOST,
             namespace=config.TEMPORAL_NAMESPACE,
+            data_converter=temporal_data_converter,
         )
-        
-        workflow_id = f"reconcile-{asyncio.get_running_loop().time():.0f}"
-        
-        click.echo(f"Starting reconciliation workflow (max_jobs={max_jobs})...")
-        
+        if schedule:
+            await ensure_reconcile_schedule(client, config.TASK_QUEUE, interval, max_jobs)
+            click.echo(f"✓ Schedule {RECONCILE_SCHEDULE_ID} ensured")
+            return
+        from temporalio.common import WorkflowIDConflictPolicy
+        workflow_id = f"{RECONCILE_WORKFLOW_ID}-manual"
+        click.echo(f"Starting reconciliation pass {workflow_id} (max_jobs={max_jobs})...")
         handle = await client.start_workflow(
             ReconcilePendingJobsWorkflow.run,
-            max_jobs,
+            args=[max_jobs, threshold],
             id=workflow_id,
             task_queue=config.TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
-        
-        click.echo(f"Workflow started: {workflow_id}")
-        click.echo("Waiting for completion...")
-        
         result = await handle.result()
-        
-        click.echo("\n✓ Reconciliation complete:")
-        click.echo(f"  Total jobs: {result['total']}")
-        click.echo(f"  Completed: {result['completed']}")
-        click.echo(f"  Failed: {result['failed']}")
-        click.echo(f"  Still pending: {result['still_pending']}")
-        
-        if result['errors']:
-            click.echo(f"\n⚠  {len(result['errors'])} errors:")
-            for err in result['errors'][:5]:
-                click.echo(f"    Job {err['job_id']}: {err['error']}")
-            if len(result['errors']) > 5:
-                click.echo(f"    ... and {len(result['errors']) - 5} more")
-    
+        click.echo(format_reconcile_summary(result))
+
     asyncio.run(run_reconcile())
 
 
+def format_reconcile_summary(result: dict) -> str:
+    lines = [
+        "✓ Reconciliation pass complete:",
+        f"  Stalled (routed): {len(result.get('stalled', []))}",
+        f"  Jobs: {result['total']}  committed: {result['committed']}  released: {result['released']}",
+        f"  Late assets landed: {result['landed']}  land failed: {result['land_failed']}",
+        f"  Still pending: {result['still_pending']}",
+    ]
+    for err in result.get("errors", [])[:5]:
+        lines.append(f"  ⚠ {err['job_id']}: {err['error']}")
+    return "\n".join(lines)
+
+
 @cli.command()
-@click.option("--threshold", default=45, help="Minutes without progress to consider stalled")
-def stalled(threshold: int):
+@click.option("--threshold", default=None, type=int,
+              help="Minutes without ledger progress (default STALL_THRESHOLD_MINUTES, 45)")
+@click.option("--route", is_flag=True, help="Also raise alerts and route stalled jobs to the reconciler")
+def stalled(threshold: int | None, route: bool):
     """
-    Detect and report stalled jobs (jobs with no progress beyond threshold).
-    
-    This queries the database for jobs that have been in 'reserved' status for longer
-    than the threshold without completion.
-    
+    Report stalled jobs ('reserved' with no ledger progress beyond the threshold).
+
+    Read-only by default; --route records the stall alerts and hands the jobs to the reconciler
+    (the scheduled reconciler does the same on every pass).
+
     Example:
         hfvg stalled
-        hfvg stalled --threshold 60
+        hfvg stalled --threshold 60 --route
     """
+    from hfvg.activities.reconcile import find_stalled_jobs, raise_stall_alerts, stall_threshold_minutes
+
     async def check_stalled():
-        from hfvg.activities.reconcile import detect_stalled_jobs
-        from hfvg.budget import BudgetLedger
-        
-        # Initialize ledger
         db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        
-        click.echo(f"Checking for stalled jobs (threshold={threshold} minutes)...")
-        
-        # Import and call the activity directly (not through Temporal)
-        from temporalio import activity
-        from unittest.mock import MagicMock
-        
-        # Mock activity context for direct call
-        activity.info = lambda: MagicMock()
-        activity.logger = MagicMock()
-        
-        stalled_jobs = await detect_stalled_jobs(threshold)
-        
-        if not stalled_jobs:
-            click.echo("\n✓ No stalled jobs found")
+        limit = threshold if threshold is not None else stall_threshold_minutes()
+        click.echo(f"Checking for stalled jobs (threshold={limit} minutes)...")
+        if route:
+            jobs = await raise_stall_alerts(db_path, limit, route=True)
+        else:
+            jobs = await find_stalled_jobs(db_path, limit)
+        if not jobs:
+            click.echo("✓ No stalled jobs found")
             return
-        
-        click.echo(f"\n⚠  Found {len(stalled_jobs)} stalled job(s):")
-        for job in stalled_jobs:
+        click.echo(f"⚠  Found {len(jobs)} stalled job(s):")
+        for job in jobs:
             click.echo(
-                f"  {job['job_type']} {job['shot_id']} (job {job['job_id']}): "
-                f"stalled for {job['minutes_stalled']} minutes"
+                f"  {job['job_type']} {job['episode_id']}/{job['shot_id']} (job {job['job_id']}): "
+                f"no progress for {job['minutes_stalled']} minutes"
+                + (" - routed to reconciler" if job.get("routed") else "")
             )
-        
-        click.echo(
-            f"\nRun 'hfvg reconcile' to attempt recovery of these jobs."
-        )
-    
+        if not route:
+            click.echo("Run 'hfvg stalled --route' or 'hfvg reconcile' to recover them.")
+
     asyncio.run(check_stalled())

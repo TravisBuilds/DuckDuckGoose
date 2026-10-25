@@ -244,6 +244,65 @@ Develop your own characters with unique traits:
 7. **Antler clause** when an antler character is present
 8. **Duck clause** when the duck is present
 
+## Moderation Recovery Ladder
+
+When a provider **content-blocks** a still or clip (provider status `nsfw`/`blocked`, classified
+`content_block`), the harness recovers one bounded, budget-checked, audited rung at a time
+(`hfvg/activities/moderation_recovery.py`). A `canceled` or `failed` job is a provider failure,
+not a content block, and never enters the ladder.
+
+1. **Neutral reword**: deterministic, whole-word, case-insensitive. It only *removes* the benign
+   descriptors listed below, or swaps them for the plain neutral word shown. It never adds
+   spelling tricks, euphemisms, codes, synonyms of the trigger word or new content: every word in
+   the reworded prompt is a word of the original prompt or one of the replacement words below.
+   If none of the listed words is present the rung is skipped (an identical prompt is never
+   resubmitted).
+2. **Fallback model** (clips only): re-route to `MODERATION_FALLBACK_MODELS` (default
+   `seedance:kling`), validated with the routing planner and the model_caps preflight; any
+   routing/preflight error refuses the rung.
+3. **Human review**: the shot is flagged `needs_review` with the provider's **exact** message.
+
+A prompt containing a hard-stop term is **never** rewritten (that would be rephrasing prohibited
+content to get past the filter, see "No Filter Evasion"): it goes straight to human review.
+
+Every paid rung is pre-checked against the USD round ledger (round and episode 80% stops,
+`MAX_PAID_RETRIES_PER_SHOT_PER_ROUND`, default 1) and the resubmit takes its own `-m{n}` job id
+and round hold. Each decision is written to `audit_log`: `moderation_block`, `moderation_reword`,
+`moderation_reword_skipped`, `moderation_fallback`, `moderation_fallback_refused`,
+`moderation_budget_refused`, `moderation_escalated`.
+
+### Neutralized words
+
+Harmless words that trip filters on ordinary scenes (a duck in the rain is "wet", a film shoot,
+a "killer" view). Keep the list short and boring; nothing here may be a euphemism for
+prohibited content.
+
+| Word | Replacement |
+|---|---|
+| `wet` | (removed) |
+| `soaked` | (removed) |
+| `soaking` | (removed) |
+| `drenched` | (removed) |
+| `dripping` | (removed) |
+| `damp` | (removed) |
+| `moist` | (removed) |
+| `sweaty` | (removed) |
+| `steamy` | `misty` |
+| `bare` | (removed) |
+| `barefoot` | (removed) |
+| `exposed` | (removed) |
+| `revealing` | (removed) |
+| `skin-tight` | (removed) |
+| `bloody` | (removed) |
+| `gory` | (removed) |
+| `killer` | (removed) |
+| `shoot` | `film` |
+| `shooting` | `filming` |
+
+### Hard-stop terms (never rewritten, always human review)
+
+`erotic`, `explicit`, `fetish`, `intimate`, `lingerie`, `naked`, `nude`, `nudity`, `provocative`, `seductive`, `sensual`, `sexual`, `sexy`, `topless`, `undressed`
+
 ## Questions?
 
 If you're unsure whether content violates this policy:

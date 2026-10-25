@@ -357,8 +357,11 @@ class KlingVideoProvider(GenerationProvider):
             status = ProviderJobStatus.COMPLETED
         elif status_str == "failed":
             status = ProviderJobStatus.FAILED
-        elif status_str in ("blocked", "nsfw", "canceled"):
+        elif status_str in ("blocked", "nsfw"):
             status = ProviderJobStatus.BLOCKED
+        elif status_str in ("canceled", "cancelled"):
+            # Canceled before processing (refunded): a terminal failure, never a moderation block
+            status = ProviderJobStatus.CANCELED
         elif status_str == "in_progress":
             status = ProviderJobStatus.PROCESSING
         else:  # "queued"

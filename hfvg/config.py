@@ -161,6 +161,16 @@ class Config:
     # this for its fail-fast refusal; the USD ledger (hfvg.budget) enforces the same env value at
     # the paid submit. Per-round cap: ROUND_CAP_USD (default 10.00, 80% stop) in hfvg.budget.
     MAX_PAID_RETRIES_PER_SHOT_PER_ROUND: int = int(os.getenv("MAX_PAID_RETRIES_PER_SHOT_PER_ROUND", "1"))
+
+    # Recovery (Round 2). Read again at call time by hfvg.activities.reconcile (env wins).
+    # Stall watchdog: a 'reserved' job with no ledger progress for this long raises a stall alert
+    # and is routed to the reconciler. Default 45 min > the shot workflow's ~30 min poll window.
+    STALL_THRESHOLD_MINUTES: int = int(os.getenv("STALL_THRESHOLD_MINUTES", "45"))
+    # Reconciler Temporal Schedule interval, and whether the worker creates the schedule on start.
+    RECONCILE_INTERVAL_MINUTES: int = int(os.getenv("RECONCILE_INTERVAL_MINUTES", "15"))
+    RECONCILE_SCHEDULE_ENABLED: bool = os.getenv("RECONCILE_SCHEDULE_ENABLED", "true").lower() == "true"
+    # Moderation ladder fallback routing ("from:to,..."; clip routing aliases)
+    MODERATION_FALLBACK_MODELS: str = os.getenv("MODERATION_FALLBACK_MODELS", "seedance:kling")
     
     # Placeholder image URL for G1 clip estimates (pricing doesn't depend on image content)
     # Must be a valid public image URL that the provider can access

@@ -1,197 +1,183 @@
-"""Reconciler workflow: reconcile pending_reconcile jobs.
+"""ReconcilePendingJobsWorkflow: stall watchdog + reconciler, run on a Temporal Schedule.
 
-A scheduled Temporal workflow that:
-1. Finds all jobs with status='pending_reconcile'
-2. Re-polls provider job status by job_id
-3. Lands late assets (download, normalize, attach to shot)
-4. Commits or releases the budget (idempotent, never double-charges)
-5. Updates job status to prevent double-processing
+One run:
+1. Watchdog: ``detect_stalled_jobs`` alerts on ``reserved`` jobs with no ledger progress for
+   STALL_THRESHOLD_MINUTES and routes them to step 2 (status -> pending_reconcile).
+2. For each ``pending_reconcile`` job: re-poll by harness job id (``poll_job_status``).
+   - completed -> ``commit_job_budget`` + ``commit_credits_activity`` (both idempotent per job id:
+     a job the shot workflow already committed is never charged twice), then ``land_late_asset``
+     (download, normalize, attach).
+   - failed / blocked / canceled -> ``release_job_budget`` + ``release_credits_activity``
+     (idempotent; a committed job is never released).
+   - still running -> left pending for the next scheduled run.
+3. Late assets whose landing failed earlier are re-landed (no re-poll, no second commit).
 
-Runs on a cron schedule (default: every 15 minutes).
+Schedule: :func:`ensure_reconcile_schedule` creates/updates the Temporal Schedule
+``RECONCILE_SCHEDULE_ID`` (every RECONCILE_INTERVAL_MINUTES, overlap SKIP); the worker calls it on
+start (RECONCILE_SCHEDULE_ENABLED) and ``hfvg reconcile --schedule`` does too.
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
-from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg.activities.credit_activities import commit_credits_activity, release_credits_activity
+    from hfvg.activities.reconcile import (
+        MAX_LAND_ATTEMPTS,
+        detect_stalled_jobs,
+        get_pending_reconcile_jobs,
+        land_late_asset,
+        record_reconcile_outcome,
+    )
     from hfvg.activities.studio_generation import (
         commit_job_budget,
         poll_job_status,
         release_job_budget,
     )
-    from hfvg.activities.save_assets import save_asset_locally
-    from hfvg.activities.credit_activities import (
-        commit_credits_activity,
-        release_credits_activity,
-    )
+
+RECONCILE_WORKFLOW_ID = "hfvg-reconcile-pending-jobs"
+RECONCILE_SCHEDULE_ID = "hfvg-reconcile-schedule"
+
+_TERMINAL_FAILURES = ("failed", "blocked", "canceled")
 
 
-@workflow.defn(name="ReconcilePendingJobsWorkflow")
+@workflow.defn
 class ReconcilePendingJobsWorkflow:
-    """Reconcile all pending_reconcile jobs."""
-    
+    """Watchdog + reconciler pass over the per-job USD ledger. Safe to run repeatedly."""
+
+    def __init__(self) -> None:
+        self.summary: dict = {}
+
+    @workflow.query
+    def get_summary(self) -> dict:
+        return self.summary
+
     @workflow.run
-    async def run(self, max_jobs: int = 100) -> dict[str, Any]:
-        """
-        Reconcile pending jobs.
-        
-        Args:
-            max_jobs: Maximum number of jobs to process in one run
-        
-        Returns:
-            dict with reconciliation statistics
-        """
-        workflow.logger.info(f"Starting reconciliation run (max_jobs={max_jobs})")
-        
-        retry_policy = RetryPolicy(
-            maximum_attempts=3,
-            non_retryable_error_types=["InsufficientCreditsError"],
-        )
-        
-        # Get pending jobs
-        from hfvg.activities.reconcile import get_pending_reconcile_jobs
-        
-        pending_jobs = await workflow.execute_activity(
-            get_pending_reconcile_jobs,
-            args=[max_jobs],
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
-        )
-        
-        workflow.logger.info(
-            f"Found {len(pending_jobs)} pending_reconcile jobs to process"
-        )
-        
-        stats = {
-            "total": len(pending_jobs),
-            "completed": 0,
-            "failed": 0,
-            "still_pending": 0,
-            "errors": [],
-        }
-        
-        for job in pending_jobs:
-            job_id = job["job_id"]
-            episode_id = job["episode_id"]
-            shot_id = job["shot_id"]
-            job_type = job["job_type"]
-            line_name = job["line_name"]
-            reserved_amount = job["reserved_amount"]
-            
-            workflow.logger.info(
-                f"Reconciling job {job_id} ({job_type} for {episode_id}/{shot_id})"
-            )
-            
+    async def run(self, max_jobs: int = 100, stall_threshold_minutes: int | None = None) -> dict:
+        quick = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1))
+        summary = {"total": 0, "committed": 0, "released": 0, "landed": 0, "land_failed": 0,
+                   "still_pending": 0, "stalled": [], "errors": []}
+        self.summary = summary
+
+        # 1. Stall watchdog: alert + route stalled jobs to this reconciler pass
+        stalled = await workflow.execute_activity(
+            detect_stalled_jobs, args=[stall_threshold_minutes],
+            start_to_close_timeout=timedelta(minutes=1), retry_policy=quick)
+        summary["stalled"] = [s["job_id"] for s in stalled]
+
+        # 2/3. Work list
+        jobs = await workflow.execute_activity(
+            get_pending_reconcile_jobs, args=[max_jobs],
+            start_to_close_timeout=timedelta(minutes=1), retry_policy=quick)
+        summary["total"] = len(jobs)
+
+        for job in jobs:
             try:
-                # Re-poll provider status
-                status_result = await workflow.execute_activity(
-                    poll_job_status,
-                    args=[job_id, job_type, episode_id],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=retry_policy,
-                )
-                
-                status = status_result["status"]
-                
-                if status == "completed":
-                    # Job completed - commit budget and save asset
-                    workflow.logger.info(f"Job {job_id} completed late, committing")
-                    
-                    # Commit budget
+                if job["phase"] == "land":
+                    await self._land(job, job["output_url"], summary, quick)
+                    continue
+                status = await workflow.execute_activity(
+                    poll_job_status, args=[job["job_id"], job["job_type"], job["episode_id"]],
+                    start_to_close_timeout=timedelta(seconds=60), retry_policy=quick)
+                state = status["status"]
+                if state == "completed":
                     await workflow.execute_activity(
                         commit_job_budget,
-                        args=[
-                            episode_id, shot_id, job_id, job_type,
-                            line_name, reserved_amount,
-                            status_result.get("cost"),
-                        ],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    # Commit credits
+                        args=[job["episode_id"], job["shot_id"], job["job_id"], job["job_type"],
+                              job["line_name"], job["usd_micros"], None],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                     await workflow.execute_activity(
-                        commit_credits_activity,
-                        args=[episode_id, job_id],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    # Save asset locally
-                    if "output_url" in status_result:
-                        try:
-                            await workflow.execute_activity(
-                                save_asset_locally,
-                                args=[
-                                    episode_id, shot_id,
-                                    status_result["output_url"],
-                                    job_type, 1
-                                ],
-                                start_to_close_timeout=timedelta(minutes=10),
-                                retry_policy=retry_policy,
-                            )
-                            workflow.logger.info(
-                                f"Late asset saved for {job_id}"
-                            )
-                        except Exception as e:
-                            workflow.logger.warning(
-                                f"Failed to save late asset for {job_id}: {e}"
-                            )
-                    
-                    stats["completed"] += 1
-                    
-                elif status in ("failed", "blocked", "canceled"):
-                    # Job failed - release budget
-                    workflow.logger.info(
-                        f"Job {job_id} {status}, releasing budget"
-                    )
-                    
-                    error_details = status_result.get("error", "no details")
-                    reason = f"reconcile: {status}: {error_details}"
-                    
+                        commit_credits_activity, args=[job["episode_id"], job["job_id"]],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+                    summary["committed"] += 1
+                    await workflow.execute_activity(
+                        record_reconcile_outcome, args=[job, "committed", status.get("output_url") or ""],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+                    await self._land(job, status["output_url"], summary, quick)
+                elif state in _TERMINAL_FAILURES:
+                    reason = f"reconciled {state}: {status.get('error') or ''}".strip()
                     await workflow.execute_activity(
                         release_job_budget,
-                        args=[
-                            episode_id, shot_id, job_id, job_type,
-                            line_name, reserved_amount, reason,
-                        ],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    # Release credits
+                        args=[job["episode_id"], job["shot_id"], job["job_id"], job["job_type"],
+                              job["line_name"], job["usd_micros"], reason],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                     await workflow.execute_activity(
-                        release_credits_activity,
-                        args=[episode_id, job_id, reason],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    stats["failed"] += 1
-                    
+                        release_credits_activity, args=[job["episode_id"], job["job_id"], reason],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+                    summary["released"] += 1
+                    await workflow.execute_activity(
+                        record_reconcile_outcome, args=[job, "released", reason],
+                        start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                 else:
-                    # Still pending - leave it for next run
-                    workflow.logger.info(
-                        f"Job {job_id} still {status}, leaving for next run"
-                    )
-                    stats["still_pending"] += 1
-                    
-            except Exception as e:
-                workflow.logger.error(
-                    f"Error reconciling job {job_id}: {e}"
-                )
-                stats["errors"].append({
-                    "job_id": job_id,
-                    "error": str(e),
-                })
-        
-        workflow.logger.info(
-            f"Reconciliation run complete: {stats['completed']} completed, "
-            f"{stats['failed']} failed, {stats['still_pending']} still pending, "
-            f"{len(stats['errors'])} errors"
-        )
-        
-        return stats
+                    summary["still_pending"] += 1
+            except ActivityError as e:
+                summary["errors"].append({"job_id": job["job_id"], "error": str(e.cause or e)})
+        self.summary = summary
+        return summary
+
+    async def _land(self, job: dict, url: str | None, summary: dict, quick: RetryPolicy) -> None:
+        if not url:
+            summary["land_failed"] += 1
+            summary["errors"].append({"job_id": job["job_id"], "error": "completed without an output URL"})
+            return
+        landed = await workflow.execute_activity(
+            land_late_asset, args=[job, url],
+            start_to_close_timeout=timedelta(minutes=10), retry_policy=quick)
+        if landed.get("landed"):
+            summary["landed"] += 1
+            await workflow.execute_activity(
+                record_reconcile_outcome, args=[job, "landed", landed.get("local_path") or ""],
+                start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+        else:
+            summary["land_failed"] += 1
+            abandoned = int(landed.get("attempts") or 0) >= MAX_LAND_ATTEMPTS
+            await workflow.execute_activity(
+                record_reconcile_outcome,
+                args=[job, "land_abandoned" if abandoned else "land_failed", landed.get("error") or ""],
+                start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+
+
+async def ensure_reconcile_schedule(client, task_queue: str, interval_minutes: int | None = None,
+                                    max_jobs: int = 100):
+    """Create (or update) the Temporal Schedule that runs the reconciler every
+    ``interval_minutes`` (default RECONCILE_INTERVAL_MINUTES env, 15). Overlap: SKIP (one pass
+    at a time). Returns the schedule handle."""
+    import os
+
+    from temporalio.client import (
+        Schedule,
+        ScheduleActionStartWorkflow,
+        ScheduleAlreadyRunningError,
+        ScheduleIntervalSpec,
+        SchedulePolicy,
+        ScheduleSpec,
+        ScheduleUpdate,
+    )
+    from temporalio.client import ScheduleOverlapPolicy
+
+    minutes = interval_minutes if interval_minutes is not None else int(
+        os.getenv("RECONCILE_INTERVAL_MINUTES", "15"))
+    if minutes <= 0:
+        raise ValueError(f"RECONCILE_INTERVAL_MINUTES must be positive, got {minutes}")
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            ReconcilePendingJobsWorkflow.run, args=[max_jobs, None],
+            id=RECONCILE_WORKFLOW_ID, task_queue=task_queue),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=minutes))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+    try:
+        return await client.create_schedule(RECONCILE_SCHEDULE_ID, schedule)
+    except ScheduleAlreadyRunningError:
+        handle = client.get_schedule_handle(RECONCILE_SCHEDULE_ID)
+
+        async def _update(_input):
+            return ScheduleUpdate(schedule=schedule)
+
+        await handle.update(_update)
+        return handle

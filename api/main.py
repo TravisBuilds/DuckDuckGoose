@@ -312,6 +312,7 @@ class EpisodeStateResponse(BaseModel):
     approvals: dict[str, bool]
     shots_count: int
     estimates_available: bool | None = None  # From G1 plan - None if G1 not yet computed
+    active_stall_alerts: int = 0  # Stall watchdog alerts not yet resolved (GET .../stalls)
 
 
 class ShotStatus(BaseModel):
@@ -741,12 +742,20 @@ async def get_episode_state(
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error querying workflow: {str(e)}")
     
+    from hfvg.activities.reconcile import list_stall_alerts
+    try:
+        active_stalls = [a for a in await list_stall_alerts(DATABASE_PATH, state["episode_id"])
+                         if a["status"] != "resolved"]
+    except Exception as e:  # the workflow state stays readable even if the DB is unavailable
+        print(f"Stall alerts unavailable for {state['episode_id']}: {e}")
+        active_stalls = []
     return EpisodeStateResponse(
         episode_id=state["episode_id"],
         stage=state.get("stage"),
         approvals=state.get("approvals", {}),
         shots_count=state.get("shots", 0),
         estimates_available=state.get("g1_plan", {}).get("estimates_available"),
+        active_stall_alerts=len(active_stalls),
     )
 
 
@@ -926,6 +935,52 @@ async def get_job_ledger(
     ledger = BudgetLedger(DATABASE_PATH)
     jobs = await ledger.get_jobs(episode_id)
     return {"episode_id": episode_id, "unit": "usd_micros", "jobs": jobs}
+
+
+async def _stall_alerts_response(episode_id: str | None, status: str | None) -> dict:
+    from hfvg.activities.reconcile import list_stall_alerts, stall_threshold_minutes
+
+    if status is not None and status not in ("open", "routed", "resolved"):
+        raise HTTPException(status_code=422, detail="status must be open, routed or resolved")
+    alerts = await list_stall_alerts(DATABASE_PATH, episode_id, status)
+    active = [a for a in alerts if a["status"] != "resolved"]
+    return {
+        "episode_id": episode_id,
+        "threshold_minutes": stall_threshold_minutes(),
+        "active_count": len(active),
+        "alerts": alerts,
+    }
+
+
+@app.get("/api/stalls")
+async def get_stall_alerts(
+    status: str | None = None,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Stall watchdog alerts across episodes (jobs with no progress for STALL_THRESHOLD_MINUTES;
+    routed to the reconciler). Requires: Authorization header with admin secret OR session cookie."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    return await _stall_alerts_response(None, status)
+
+
+@app.get("/api/episodes/{episode_id}/stalls")
+async def get_episode_stall_alerts(
+    episode_id: str,
+    status: str | None = None,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Stall watchdog alerts for one episode. Requires: admin secret OR session cookie."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
+    return await _stall_alerts_response(episode_id, status)
 
 
 @app.post("/api/episodes/{episode_id}/jobs/{job_id}/verdict")

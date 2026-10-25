@@ -295,9 +295,16 @@ async def submit_still_job_enforced(
     missing_refs: list[str] | None = None,
     attempt: int = 1,
     lead_ref: str | None = None,
+    moderation_retry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
+
+    moderation_retry: set by the moderation recovery ladder ({"n": rung number, "step": ...}) when
+    a content-blocked still is resubmitted with a neutral reword (the caller passes the reworded
+    prompt). The job id gets a deterministic ``-m{n}`` suffix (never colliding with the blocked
+    job, -r or -c ids) and, live, the paid resubmit is authorized against the G2 still round with
+    retry key ``m{n}`` right before the provider call (G-BUD-1 per-round rule).
 
     lead_ref: optional reference placed FIRST, e.g. the shot's start still when generating its _end
     frame. Adds -lead<sha8 of the start still> to the job id. When the lead plus anchor plus planned
@@ -465,6 +472,8 @@ async def submit_still_job_enforced(
     lead_suffix = f"-lead{lead_sha8}" if lead_sha8 else ""
     anchor_suffix = f"-anchor{anchor['sha256'][:8]}" if anchor_used else ""
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{lead_suffix}{anchor_suffix}"
+    if moderation_retry:
+        job_id += f"-m{int(moderation_retry['n'])}"
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -596,6 +605,11 @@ async def submit_still_job_enforced(
             await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
                                         budget_amount, f"r{attempt - 1}")
             round_hold_key = job_id
+        elif moderation_retry:
+            # G-REC-1: a paid moderation resubmit is a paid retry of this shot in its G2 round
+            await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
+                                        budget_amount, f"m{int(moderation_retry['n'])}")
+            round_hold_key = job_id
 
         # Submit to provider
         provider_job_id = await provider.submit_image(
@@ -677,9 +691,16 @@ async def submit_clip_job_enforced(
     bitrate_mode: str | None = None,
     missing_refs: list[str] | None = None,
     clip_retry: dict[str, Any] | None = None,
+    moderation_retry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
+
+    moderation_retry: set by the moderation recovery ladder ({"n": rung number, "step":
+        "reword"|"fallback"}) when a content-blocked clip is resubmitted (the caller passes the
+        reworded prompt / fallback model). Adds a deterministic ``-m{n}`` job id suffix and, live,
+        authorizes the paid resubmit against the G3 clip round with retry key ``m{n}`` before the
+        provider call. (Not combined with clip_retry's authorization: one paid retry, one hold.)
 
     clip_retry: set by EpisodeWorkflowV2.retry_clip ({"n": retry number, ...}). The job id gets a
         deterministic ``-c{n}`` suffix (idempotent per retry, never colliding with the original
@@ -803,6 +824,8 @@ async def submit_clip_job_enforced(
     job_id = f"clip-{episode_id}-{shot_id}-v{version}"
     if clip_retry:
         job_id += f"-c{int(clip_retry['n'])}"
+    if moderation_retry:
+        job_id += f"-m{int(moderation_retry['n'])}"
     
     # Generate idempotency key from hash of actual request parameters
     # This ensures identical requests dedupe but different requests don't collide
@@ -947,10 +970,15 @@ async def submit_clip_job_enforced(
         
         # G-BUD-1: a paid clip RETRY must fit the G3 clip round (cap + per-shot limit), before submit
         round_hold_key = None
-        if clip_retry:
+        paid_retry_key = None
+        if moderation_retry:
+            paid_retry_key = f"m{int(moderation_retry['n'])}"
+        elif clip_retry:
+            paid_retry_key = f"c{int(clip_retry['n'])}"
+        if paid_retry_key:
             try:
                 await _authorize_paid_retry(ledger, episode_id, ROUND_G3_CLIPS, shot_id, job_id,
-                                            estimated_cost, f"c{int(clip_retry['n'])}")
+                                            estimated_cost, paid_retry_key)
             except ApplicationError:
                 await ledger.release(episode_id, line_name, estimated_cost, "Round budget refused")
                 await credit_ledger.release_credits(episode_id, job_id, notes="Round budget refused")
@@ -1088,6 +1116,12 @@ async def resolve_landed_start_still(episode_id: str, shot_id: str, attempt: int
     return {"url": job.output_url, "job_id": start_job_id, "provider_job_id": provider_job_id}
 
 
+def failure_class(status: str) -> str | None:
+    """Classify a terminal provider status. ``content_block`` (provider nsfw/blocked) is the only
+    class that enters the moderation recovery ladder; ``canceled`` and ``provider_failure`` never do."""
+    return {"blocked": "content_block", "canceled": "canceled", "failed": "provider_failure"}.get(status)
+
+
 @activity.defn
 async def poll_job_status(
     job_id: str,
@@ -1209,6 +1243,10 @@ async def poll_job_status(
                 "cost": None,
                 "provider_raw": raw,
                 "provider_headers": hdrs,
+                # Distinct classification: only a moderation block enters the recovery ladder
+                "failure_class": failure_class(job_status.status.value),
+                # The provider's exact message (unmodified), for audit + human review
+                "provider_message": job_status.error,
             }
         
         # Return status without taking any budget actions for non-terminal states
@@ -1321,6 +1359,10 @@ async def release_job_budget(
         reason: Release reason
     """
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    # In dry mode submit never reserved (mirror of commit_job_budget): nothing to release
+    if os.getenv("DRY_RUN", "true").lower() == "true":
+        activity.logger.info(f"[DRY-RUN] Skipping release for {job_type} {shot_id} (no reservation was made)")
+        return
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     
@@ -1541,7 +1583,7 @@ async def await_job_enforced(
                     "cost": actual_cost,
                 }
             
-            elif job_status.status.value in ("failed", "blocked"):
+            elif job_status.status.value in ("failed", "blocked", "canceled"):
                 # Failed - release budget
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()

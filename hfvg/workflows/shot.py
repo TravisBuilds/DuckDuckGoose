@@ -68,6 +68,14 @@ class ShotWorkflow:
         self.end_still_status = "pending"  # For end-frame shots
         self.end_still_url: str | None = None
         self.end_still_error: str | None = None
+        # G-REC-1 moderation recovery ladder, per phase: rungs taken, reworded prompt / fallback
+        # model in force, the pending paid resubmit ({"n", "step"}) and the audit-style log.
+        self.moderation: dict = {
+            "still": {"steps": [], "prompt": None, "model": None, "retry": None, "log": []},
+            "clip": {"steps": [], "prompt": None, "model": None, "retry": None, "log": []},
+        }
+        self.moderation_escalation: dict | None = None  # set when a block is escalated to a human
+        self._last_submit: dict = {}  # kind -> job_info of the latest submit (for the ladder)
 
     @workflow.signal
     def stills_approved(self):
@@ -131,6 +139,8 @@ class ShotWorkflow:
             "end_still_status": self.end_still_status,
             "end_still_url": self.end_still_url,
             "end_still_error": self.end_still_error,
+            "moderation": self.moderation,
+            "moderation_escalation": self.moderation_escalation,
         }
     
     async def _poll_job_to_completion(
@@ -263,8 +273,14 @@ class ShotWorkflow:
                 workflow.logger.error(f"Job {job_id} {status}, reservation and credits released")
                 
                 # Raise appropriate error with job_id and raw error
-                if status == "blocked":
-                    raise ContentBlockError(f"Provider blocked job {job_id}: {error_details}")
+                if status == "blocked" or status_result.get("failure_class") == "content_block":
+                    # ContentBlockError requires the provider; carry the provider's EXACT message
+                    raise ContentBlockError(
+                        f"Provider blocked job {job_id}: {error_details}",
+                        provider="higgsfield",
+                        provider_message=status_result.get("provider_message") or error_details,
+                        job_id=job_id,
+                    )
                 else:
                     raise RuntimeError(f"Job {job_id} {status}: {error_details}")
             
@@ -289,6 +305,90 @@ class ShotWorkflow:
             f"Job {job_id} polling exhausted after {max_polls} attempts (~30 min). "
             f"Reservation held, manual reconciliation required."
         )
+
+    async def _moderation_step(self, kind: str, shot_plan: dict, err: ContentBlockError,
+                               attempts_left: int) -> dict | None:
+        """One rung of the G-REC-1 moderation ladder for a content-blocked still/clip.
+
+        Returns None when the caller should resubmit (state now carries the reworded prompt /
+        fallback model and the ``moderation_retry`` {"n", "step"} for the new -m{n} job), or the
+        shot result dict when the block is escalated to human review (exact provider message)."""
+        mod = self.moderation[kind]
+        params = shot_plan.get("params", {})
+        last = self._last_submit.get(kind) or {}
+        provider_message = getattr(err, "provider_message", None) or str(err)
+        meta = shot_plan.get("shot_meta") or {}
+        characters = meta.get("characters") or []
+        request = {
+            "episode_id": self.episode_id,
+            "shot_id": self.shot_id,
+            "kind": kind,
+            "prompt": mod["prompt"] or shot_plan["prompt"],
+            "model": (mod["model"] or params.get("model", "kling")) if kind == "clip" else None,
+            "duration": params.get("duration", 5.0),
+            "tags": shot_plan.get("tags", []),
+            "count": len(characters) if isinstance(characters, (list, set, tuple)) else 1,
+            "tier": None,
+            "start_image_url": (self.still_asset or {}).get("url") if kind == "clip" else None,
+            "end_image_url": (self.end_image_url if params.get("end_frame") else None) if kind == "clip" else None,
+            "provider_message": provider_message,
+            "blocked_job_id": getattr(err, "job_id", None) or last.get("job_id"),
+            "amount_usd_micros": int(last.get("reserved_amount") or 0),
+            "steps_done": list(mod["steps"]),
+            "next_n": len(mod["steps"]) + 1,
+            "paid_retries_used": len(mod["steps"]),
+            "attempts_left": max(0, attempts_left),
+        }
+        try:
+            decision = await workflow.execute_activity(
+                attempt_moderation_recovery,
+                args=[request],
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError as ae:
+            decision = {"action": "escalate", "provider_message": provider_message, "log": [],
+                        "reason": f"moderation ladder error: {ae.cause or ae}"}
+        mod["log"].extend(decision.get("log") or [])
+        if decision["action"] in ("reword", "fallback"):
+            mod["steps"].append(decision["action"])
+            mod["retry"] = decision["retry"]
+            if decision["action"] == "reword":
+                mod["prompt"] = decision["prompt"]
+            else:
+                mod["model"] = decision["model"]
+            workflow.logger.info(
+                f"Moderation ladder {self.shot_id} {kind}: {decision['action']} -> resubmit "
+                f"m{decision['retry']['n']}")
+            return None
+
+        # Escalate to human review with the provider's exact message
+        self.moderation_escalation = {
+            "kind": kind,
+            "provider_message": provider_message,
+            "reason": decision.get("reason"),
+            "steps": list(mod["steps"]),
+            "blocked_job_id": request["blocked_job_id"],
+        }
+        self.status = "needs_review"
+        error = f"Content blocked ({kind}); escalated to human review. Provider: {provider_message}"
+        result = {
+            "shot_id": self.shot_id,
+            "status": "blocked",
+            "needs_review": True,
+            "error": error,
+            "provider_message": provider_message,
+            "moderation": self.moderation_escalation,
+            "recovery_log": list(mod["log"]),
+        }
+        if kind == "still":
+            self.still_status = "failed"
+            self.still_error = error
+        else:
+            self.clip_status = "failed"
+            self.clip_error = error
+            result["still_url"] = (self.still_asset or {}).get("url")
+        return result
 
     async def _generate_end_still(
         self,
@@ -465,10 +565,14 @@ class ShotWorkflow:
                 quality = params.get("quality", "medium")
                 aspect_ratio = params.get("aspect_ratio", "9:16")  # Default to 9:16
 
+                # The still prompt in force (a moderation reword replaces it for the still only)
+                still_prompt = self.moderation["still"]["prompt"] or shot_plan["prompt"]
+                still_mod_retry = self.moderation["still"]["retry"]
+
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
                     precheck_still_qc,
-                    args=[self.episode_id, self.shot_id, shot_plan["prompt"], params],
+                    args=[self.episode_id, self.shot_id, still_prompt, params],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=retry_policy,
                 )
@@ -502,7 +606,7 @@ class ShotWorkflow:
                                 args=[
                                     self.episode_id,
                                     self.shot_id,
-                                    shot_plan["prompt"],
+                                    still_prompt,
                                     self.version,
                                     refs,
                                     resolution,
@@ -512,7 +616,9 @@ class ShotWorkflow:
                                     shot_plan.get("shot_meta"),  # prompt lint metadata
                                     shot_plan.get("missing_refs", []),  # planned refs not on disk: live refuses
                                     self.version,  # attempt
-                                ],
+                                # G-REC-1: a moderation resubmit gets its own -m{n} job + G2 hold
+                                # (input-driven: unchanged args for every other history)
+                                ] + ([None, still_mod_retry] if still_mod_retry else []),
                                 start_to_close_timeout=timedelta(minutes=2),
                                 retry_policy=retry_policy,
                             )
@@ -543,6 +649,7 @@ class ShotWorkflow:
                                     "error": error_message,
                                 }
 
+                    self._last_submit["still"] = job_info
                     # Poll for completion using workflow-level polling loop (R1)
                     try:
                         poll_result = await self._poll_job_to_completion(
@@ -609,7 +716,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
-                            shot_plan["prompt"],  # Store the composed prompt
+                            still_prompt,  # Store the prompt actually generated (reworded if any)
                             True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
@@ -652,7 +759,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result},
                             attempt,
-                            shot_plan["prompt"],  # Store the composed prompt
+                            still_prompt,  # Store the prompt actually generated (reworded if any)
                             True,  # clear_clip - clear any stale clip_url from dry runs
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
@@ -690,7 +797,7 @@ class ShotWorkflow:
                             None,  # clip_url
                             {"still_qc": review_result, "human_approved": True},
                             attempt,
-                            shot_plan["prompt"],  # Store the composed prompt
+                            still_prompt,  # Store the prompt actually generated (reworded if any)
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=retry_policy,
@@ -714,80 +821,13 @@ class ShotWorkflow:
                     }
 
             except ContentBlockError as e:
-                workflow.logger.error(
-                    f"Content block on still: {e}, attempting recovery ladder"
-                )
-                
-                # G-REC-1: Attempt moderation recovery ladder
-                try:
-                    recovery_result = await workflow.execute_activity(
-                        attempt_moderation_recovery,
-                        args=[
-                            self.episode_id,
-                            self.shot_id,
-                            shot_plan["prompt"],
-                            shot_plan.get("model", "seedance-2.5"),
-                            str(e),
-                            "G2_STILLS",  # round_id
-                            5.0,  # duration (stills don't have duration, using default)
-                            config.Config.DRY_RUN,
-                        ],
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    if recovery_result["success"]:
-                        workflow.logger.info(
-                            f"Recovery succeeded via {recovery_result['step']}: "
-                            f"{', '.join(recovery_result['recovery_log'])}"
-                        )
-                        
-                        # If sanitization succeeded, retry with sanitized prompt
-                        if recovery_result["step"] == "sanitize":
-                            shot_plan["prompt"] = recovery_result["sanitized_prompt"]
-                            workflow.logger.info(
-                                f"Retrying still with sanitized prompt"
-                            )
-                            continue
-                        
-                        # If fallback model succeeded, retry with fallback
-                        elif recovery_result["step"] == "fallback":
-                            shot_plan["model"] = recovery_result["fallback_model"]
-                            workflow.logger.info(
-                                f"Retrying still with fallback model: "
-                                f"{recovery_result['fallback_model']}"
-                            )
-                            continue
-                    
-                    else:
-                        # Recovery failed, escalate to human review
-                        workflow.logger.error(
-                            f"Recovery exhausted, escalating: "
-                            f"{', '.join(recovery_result['recovery_log'])}"
-                        )
-                        self.still_status = "failed"
-                        self.still_error = (
-                            f"Content blocked, recovery exhausted: "
-                            f"{recovery_result['recovery_log'][-1]}"
-                        )
-                        return {
-                            "shot_id": self.shot_id,
-                            "status": "blocked",
-                            "error": f"Recovery exhausted: {str(e)}",
-                            "recovery_log": recovery_result["recovery_log"],
-                        }
-                        
-                except Exception as recovery_error:
-                    workflow.logger.error(
-                        f"Recovery ladder failed: {recovery_error}"
-                    )
-                    self.still_status = "failed"
-                    self.still_error = f"Content blocked, recovery failed: {str(e)}"
-                    return {
-                        "shot_id": self.shot_id,
-                        "status": "blocked",
-                        "error": str(e),
-                    }
+                # G-REC-1: a content block (only) enters the bounded moderation recovery ladder
+                workflow.logger.error(f"Content block on still: {e}, entering moderation ladder")
+                outcome = await self._moderation_step(
+                    "still", shot_plan, e, attempts_left=self.max_retries - attempt - 1)
+                if outcome is None:
+                    continue  # paid resubmit with the reworded prompt (new -m{n} job id)
+                return outcome
 
             # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
@@ -861,10 +901,19 @@ class ShotWorkflow:
                 # Use the end_image_url that was generated before Gate 2
                 end_image_url = self.end_image_url if params.get("end_frame") else None
 
+                # Prompt / model in force (a moderation reword or fallback replaces them for the clip)
+                mod_clip = self.moderation["clip"]
+                clip_prompt = mod_clip["prompt"] or shot_plan["prompt"]
+                clip_model = mod_clip["model"] or params.get("model", "kling")
+                clip_mod_retry = mod_clip["retry"]
+                if mod_clip["model"]:
+                    # QC must expect the FALLBACK model's native dimensions
+                    expected_dims = expected_clip_dims({**params, "model": clip_model})
+
                 # PRE-FLIGHT QC: Check before any paid generation
                 precheck = await workflow.execute_activity(
                     precheck_clip_qc,
-                    args=[self.episode_id, self.shot_id, shot_plan["prompt"], duration],
+                    args=[self.episode_id, self.shot_id, clip_prompt, duration],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=retry_policy,
                 )
@@ -890,17 +939,18 @@ class ShotWorkflow:
                                 self.episode_id,
                                 self.shot_id,
                                 self.still_asset["url"],  # start_image_url
-                                shot_plan["prompt"],
+                                clip_prompt,
                                 duration,
                                 self.version,
                                 None,  # tier (activity default)
                                 shot_plan.get("shot_meta"),  # prompt lint metadata
-                                params.get("model", "kling"),  # explicit routing
+                                mod_clip["model"] or params.get("model", "kling"),  # explicit routing (fallback model after a block; == clip_model)
                                 shot_plan.get("tags", []),
                                 end_image_url,
                                 None,  # bitrate_mode (activity default)
                                 shot_plan.get("missing_refs", []),
-                            ] + ([clip_retry] if clip_retry else []),
+                            ] + ([clip_retry, clip_mod_retry] if clip_mod_retry
+                                 else ([clip_retry] if clip_retry else [])),
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
                         )
@@ -932,6 +982,7 @@ class ShotWorkflow:
                                 "error": error_message,
                             }
 
+                self._last_submit["clip"] = job_info
                 # Poll for completion using workflow-level polling loop (R1)
                 try:
                     poll_result = await self._poll_job_to_completion(
@@ -1023,85 +1074,13 @@ class ShotWorkflow:
                     }
 
             except ContentBlockError as e:
-                workflow.logger.error(
-                    f"Content block on clip: {e}, attempting recovery ladder"
-                )
-                
-                # G-REC-1: Attempt moderation recovery ladder
-                try:
-                    recovery_result = await workflow.execute_activity(
-                        attempt_moderation_recovery,
-                        args=[
-                            self.episode_id,
-                            self.shot_id,
-                            shot_plan["clip_prompt"] if "clip_prompt" in shot_plan else shot_plan["prompt"],
-                            shot_plan.get("model", "seedance-2.5"),
-                            str(e),
-                            "G3_CLIPS",  # round_id
-                            shot_plan.get("duration", 5.0),
-                            config.Config.DRY_RUN,
-                        ],
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=retry_policy,
-                    )
-                    
-                    if recovery_result["success"]:
-                        workflow.logger.info(
-                            f"Recovery succeeded via {recovery_result['step']}: "
-                            f"{', '.join(recovery_result['recovery_log'])}"
-                        )
-                        
-                        # If sanitization succeeded, retry with sanitized prompt
-                        if recovery_result["step"] == "sanitize":
-                            if "clip_prompt" in shot_plan:
-                                shot_plan["clip_prompt"] = recovery_result["sanitized_prompt"]
-                            else:
-                                shot_plan["prompt"] = recovery_result["sanitized_prompt"]
-                            workflow.logger.info(
-                                f"Retrying clip with sanitized prompt"
-                            )
-                            continue
-                        
-                        # If fallback model succeeded, retry with fallback
-                        elif recovery_result["step"] == "fallback":
-                            shot_plan["model"] = recovery_result["fallback_model"]
-                            workflow.logger.info(
-                                f"Retrying clip with fallback model: "
-                                f"{recovery_result['fallback_model']}"
-                            )
-                            continue
-                    
-                    else:
-                        # Recovery failed, escalate to human review
-                        workflow.logger.error(
-                            f"Recovery exhausted, escalating: "
-                            f"{', '.join(recovery_result['recovery_log'])}"
-                        )
-                        self.clip_status = "failed"
-                        self.clip_error = (
-                            f"Content blocked, recovery exhausted: "
-                            f"{recovery_result['recovery_log'][-1]}"
-                        )
-                        return {
-                            "shot_id": self.shot_id,
-                            "status": "blocked",
-                            "still_url": self.still_asset["url"],
-                            "error": f"Recovery exhausted: {str(e)}",
-                            "recovery_log": recovery_result["recovery_log"],
-                        }
-                        
-                except Exception as recovery_error:
-                    workflow.logger.error(
-                        f"Recovery ladder failed: {recovery_error}"
-                    )
-                    self.clip_status = "failed"
-                    self.clip_error = f"Content blocked, recovery failed: {str(e)}"
-                    return {
-                        "shot_id": self.shot_id,
-                        "status": "blocked",
-                        "still_url": self.still_asset["url"],
-                        "error": str(e),
-                    }
+                # G-REC-1: a content block (only) enters the bounded moderation recovery ladder
+                workflow.logger.error(f"Content block on clip: {e}, entering moderation ladder")
+                outcome = await self._moderation_step(
+                    "clip", shot_plan, e, attempts_left=self.max_retries - attempt - 1)
+                if outcome is None:
+                    continue  # paid resubmit: reworded prompt or fallback model (new -m{n} job id)
+                return outcome
 
             # InsufficientCreditsError is now handled inside the submit loop with pause/resume
 
