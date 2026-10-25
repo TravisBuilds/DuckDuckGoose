@@ -65,9 +65,9 @@ class AssetRegistry:
         
         # Simple parser for the duck character lock
         # In production, this would be more robust
-        if "Quacked Concierge" in content:
+        if "Demo Duck" in content:
             self.characters["duck"] = CharacterLock(
-                name="Quacked Concierge (Mallard)",
+                name="Demo Duck (Mallard)",
                 locked_date="2026-09-20",
                 canonical_refs={
                     "apparel": "refs/apparel/concierge-mallard-tuque-v3/",

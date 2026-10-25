@@ -2545,6 +2545,24 @@ test_mutation 338 "preflight cost estimate" \
     "tests/test_round5_guards.py::test_preflight_reports_offline_cost_estimate" \
     sed -i 's/"cost_estimate": /"cost_estimate_unused": /'
 
+# 339: G-BRAND-1: HFVG_PROJECT config read from env with demo default
+test_mutation 339 "HFVG_PROJECT env var" \
+    "hfvg/gates.py" \
+    "tests/test_no_brand_content.py::test_hfvg_project_env_var_supported" \
+    sed -i 's/project = os.getenv("HFVG_PROJECT", "demo")/project = "mid-mountain-rest"  # MUTATED: hardcoded/'
+
+# 340: G-BRAND-1: Brand denylist test verifies term hash integrity
+test_mutation 340 "brand denylist integrity" \
+    "tests/test_no_brand_content.py" \
+    "tests/test_no_brand_content.py::test_denylist_integrity" \
+    sed -i 's/DENYLIST_HASH_PREFIX = "08e40aab8b04b1ce"/DENYLIST_HASH_PREFIX = "0000000000000000"  # MUTATED/'
+
+# 341: G-CI-2: Active poll interval injectable for tests
+test_mutation 341 "poll interval injection" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_exception_release.py::test_poll_502_releases_reservation" \
+    sed -i 's/active_poll_interval = float(os.getenv("ACTIVE_POLL_INTERVAL_SECONDS", "5.0"))/active_poll_interval = 5.0  # MUTATED: hardcoded/'
+
 # Print final summary
 print_summary
 

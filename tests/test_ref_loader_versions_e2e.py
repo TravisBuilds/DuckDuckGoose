@@ -198,14 +198,14 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
         return buf.getvalue()
     
     # Create a real file at the "real" location
-    real_file_path = real_refs_dir / "mochi.png"
+    real_file_path = real_refs_dir / "subject01.png"
     original_content = make_png()
     real_file_path.write_bytes(original_content)
     
     # Create v1 sidecar
-    real_sidecar = real_refs_dir / ".versions" / "mochi.json"
+    real_sidecar = real_refs_dir / ".versions" / "subject01.json"
     real_sidecar.parent.mkdir(parents=True, exist_ok=True)
-    real_sidecar.write_text(json.dumps({"version": 1, "ref_key": "mochi"}))
+    real_sidecar.write_text(json.dumps({"version": 1, "ref_key": "subject01"}))
     
     # Mock activity info
     original_info = temporalio.activity.info

@@ -38,7 +38,7 @@ with workflow.unsafe.imports_passed_through():
 @workflow.defn
 class EpisodeWorkflowV2:
     """
-    Episode workflow following Mid-Mountain Rest HARNESS-HANDBOOK v1.1.
+    Episode workflow following project handbook v1.1.
     
     Steps 0-7 with 15 project owner approval points:
     0. Bible (asset registry, playbook)
