@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -31,7 +32,7 @@ from hfvg.studio_db import approve_g2_shots, list_anchor_stills
 from hfvg.config import config
 from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
-from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow
+from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, ReconcilePendingJobsWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
 logging.basicConfig(level=logging.INFO)
@@ -83,7 +84,36 @@ PRODUCTION_ACTIVITIES = [
     init_episode_budget_lines_activity,
     acquire_run_lock,
     release_run_lock,
+    activities.attempt_moderation_recovery,
+    activities.get_pending_reconcile_jobs,
+    activities.detect_stalled_jobs,
+    activities.land_late_asset,
+    activities.record_reconcile_outcome,
 ]
+
+
+PRODUCTION_WORKFLOWS = [
+    EpisodeWorkflow,
+    EpisodeWorkflowV2,
+    ShotWorkflow,
+    PostingWorkflow,
+    ReconcilePendingJobsWorkflow,
+]
+
+
+async def setup_schedules(client, task_queue: str) -> bool:
+    """Create/update the reconciler + stall watchdog Temporal Schedule (idempotent).
+
+    Disabled with RECONCILE_SCHEDULE_ENABLED=false (then run ``hfvg reconcile`` yourself).
+    Returns True when the schedule was ensured."""
+    from hfvg.workflows.reconcile import RECONCILE_SCHEDULE_ID, ensure_reconcile_schedule
+
+    if os.getenv("RECONCILE_SCHEDULE_ENABLED", "true").lower() != "true":
+        logger.warning("RECONCILE_SCHEDULE_ENABLED is not true: reconciler schedule NOT created")
+        return False
+    await ensure_reconcile_schedule(client, task_queue)
+    logger.info(f"Reconcile schedule {RECONCILE_SCHEDULE_ID} ensured")
+    return True
 
 
 async def main():
@@ -103,9 +133,12 @@ async def main():
     worker = Worker(
         client,
         task_queue=config.TASK_QUEUE,
-        workflows=[EpisodeWorkflow, EpisodeWorkflowV2, ShotWorkflow, PostingWorkflow],
+        workflows=PRODUCTION_WORKFLOWS,
         activities=PRODUCTION_ACTIVITIES,
     )
+
+    # Reconciler + stall watchdog run on a Temporal Schedule (RECONCILE_INTERVAL_MINUTES)
+    await setup_schedules(client, config.TASK_QUEUE)
 
     logger.info("Worker running. Press Ctrl+C to exit.")
     await worker.run()

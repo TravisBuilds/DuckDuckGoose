@@ -223,7 +223,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
                     "provider_job_id": provider_job_id,
                     "error": None
                 }
-            elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED):
+            elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED,
+                                   ProviderJobStatus.CANCELED):
                 # Release on failure/nsfw/canceled/blocked
                 await ledger.release(episode_id, "L2_drafts", estimated_cost_micros, f"Smoke test {status.status}")
                 await credit_ledger.release_credits(episode_id, job_id, notes=f"Smoke test {status.status}")

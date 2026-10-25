@@ -13,9 +13,14 @@ class RetryableError(ApplicationError):
 class ContentBlockError(ApplicationError):
     """Content moderation block - non-retryable, requires recovery branch."""
 
-    def __init__(self, message: str, provider: str, *args, **kwargs):
+    def __init__(self, message: str, provider: str, *args, provider_message: str | None = None,
+                 job_id: str | None = None, **kwargs):
+        kwargs.setdefault("type", "ContentBlockError")
         super().__init__(message, *args, non_retryable=True, **kwargs)
         self.provider = provider
+        # The provider's exact moderation message (unmodified) and the blocked harness job id
+        self.provider_message = provider_message
+        self.job_id = job_id
 
 
 class QCFailedError(ApplicationError):

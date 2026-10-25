@@ -1903,6 +1903,151 @@ test_mutation 234 "Clip retry child reuses the approved still" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_reuses_approved_still_and_is_bounded" \
     sed -i 's/^        clip_only = shot_plan\.get("clip_only")/        clip_only = None  # MUTATED/'
 
+# Round 2 mutations: moderation recovery ladder (G-REC-1), reconciler (G-REC-2), stall watchdog (G-REC-3)
+
+# 235: G-REC-1a: Neutral reword rewrites only listed trigger words
+test_mutation 235 "Neutral reword rewrites only listed trigger words" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_first_rung_is_neutral_reword_and_audited" \
+    sed -i 's/^        if key not in NEUTRALIZE:$/        if True:  # MUTATED/'
+
+# 236: G-REC-1b: Hard-stop terms are never rewritten (straight to review)
+test_mutation 236 "Hard-stop terms are never rewritten (straight to review)" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_hard_stop_terms_escalate_without_rewrite" \
+    sed -i 's/^    if terms:$/    if False:  # MUTATED/'
+
+# 237: G-REC-1c: Per-shot-per-round paid retry cap counts ladder steps
+test_mutation 237 "Per-shot-per-round paid retry cap counts ladder steps" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_fallback_after_reword_when_budget_allows" \
+    sed -i 's/^    if used >= settings\.max_paid_retries_per_shot_per_round:$/    if False:  # MUTATED/'
+
+# 238: G-REC-1d: Ladder budget pre-check uses the per-round retry key
+test_mutation 238 "Ladder budget pre-check uses the per-round retry key" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_round_ledger_refuses_when_shot_already_used_its_paid_retry" \
+    sed -i 's/retry_key=f"m{n}", reason="moderation retry pre-check"/retry_key=None, reason="moderation retry pre-check"/'
+
+# 239: G-REC-1e: Fallback re-route validated against routing
+test_mutation 239 "Fallback re-route validated against routing" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_fallback_refused_by_routing" \
+    sed -i 's/^            errors = validate_fallback(request, fallback)$/            errors = []  # MUTATED/'
+
+# 240: G-REC-1f: Fallback re-route runs model_caps preflight
+test_mutation 240 "Fallback re-route runs model_caps preflight" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_fallback_refused_by_model_caps_preflight" \
+    sed -i 's/^    errors\.extend(preflight\.format_violation(v) for v in violations if v\.severity == "error")$/    errors.extend([])  # MUTATED/'
+
+# 241: G-REC-1g: Provider cancel is classified distinctly from a content block
+test_mutation 241 "Provider cancel is classified distinctly from a content block" \
+    "hfvg/providers/kling_video.py" \
+    "tests/test_moderation_recovery.py::TestClassification::test_kling_status_mapping" \
+    sed -i 's/^            status = ProviderJobStatus\.CANCELED$/            status = ProviderJobStatus.BLOCKED  # MUTATED/'
+
+# 242: G-REC-1h: Only content blocks enter the ladder (cancel does not)
+test_mutation 242 "Only content blocks enter the ladder (cancel does not)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_moderation_recovery.py::TestLadderInWorkflow::test_canceled_clip_never_enters_the_ladder" \
+    sed -i 's/if status == "blocked" or status_result/if status in ("blocked", "canceled") or status_result/'
+
+# 243: G-REC-1i: Moderation resubmit gets its own job id
+test_mutation 243 "Moderation resubmit gets its own job id" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_moderation_recovery.py::TestLiveModerationSubmit::test_moderation_resubmit_gets_own_job_id_and_round_hold" \
+    sed -i 's/^        job_id += f"-m{int(moderation_retry\[.n.\])}"$/        pass  # MUTATED/'
+
+# 244: G-REC-1j: Moderation resubmit takes a per-round paid retry hold
+test_mutation 244 "Moderation resubmit takes a per-round paid retry hold" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_moderation_recovery.py::TestLiveModerationSubmit::test_moderation_resubmit_gets_own_job_id_and_round_hold" \
+    sed -i 's/paid_retry_key = f"m{int(moderation_retry\[.n.\])}"/paid_retry_key = None  # MUTATED/'
+
+# 245: G-REC-1k: Workflow resubmits the reworded prompt
+test_mutation 245 "Workflow resubmits the reworded prompt" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_moderation_recovery.py::TestLadderInWorkflow::test_blocked_clip_reworded_and_resubmitted_once" \
+    sed -i 's/clip_prompt = mod_clip\["prompt"\] or shot_plan\["prompt"\]/clip_prompt = shot_plan["prompt"]  # MUTATED/'
+
+# 246: G-REC-1l: Workflow counts ladder steps already paid this round
+test_mutation 246 "Workflow counts ladder steps already paid this round" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_moderation_recovery.py::TestLadderInWorkflow::test_repeated_block_escalates_with_exact_provider_message" \
+    sed -i 's/"paid_retries_used": len(mod\["steps"\]),/"paid_retries_used": 0,  # MUTATED/'
+
+# 247: G-REC-1m: No attempts left escalates instead of retrying
+test_mutation 247 "No attempts left escalates instead of retrying" \
+    "hfvg/activities/moderation_recovery.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_no_attempts_left_escalates" \
+    sed -i 's/^    if not request\.get("attempts_left", 1):$/    if False:  # MUTATED/'
+
+# 248: G-REC-1n: Escalated (blocked) shot reported as needs_review by the episode
+test_mutation 248 "Escalated (blocked) shot reported as needs_review by the episode" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_moderation_recovery.py::TestLadderInWorkflow::test_repeated_block_escalates_with_exact_provider_message" \
+    sed -i 's/result\.get("status") in ("failed", "blocked")/result.get("status") in ("failed",)/g'
+
+# 249: G-REC-2a: Reconciler commits late completions
+test_mutation 249 "Reconciler commits late completions" \
+    "hfvg/workflows/reconcile.py" \
+    "tests/test_reconciler.py::TestReconcilerWorkflow::test_reconcile_commits_releases_lands_and_never_double_charges" \
+    sed -i 's/^                if state == "completed":$/                if state == "never":  # MUTATED/'
+
+# 250: G-REC-2b: Reconciler never re-polls committed jobs (no double charge)
+test_mutation 250 "Reconciler never re-polls committed jobs (no double charge)" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestReconcilerWorkflow::test_reconcile_commits_releases_lands_and_never_double_charges" \
+    sed -i "s/FROM job_ledger WHERE status = 'pending_reconcile' ORDER BY/FROM job_ledger WHERE status IN ('pending_reconcile', 'committed') ORDER BY/"
+
+# 251: G-REC-2c: Late content block / cancel releases the hold
+test_mutation 251 "Late content block / cancel releases the hold" \
+    "hfvg/workflows/reconcile.py" \
+    "tests/test_reconciler.py::TestReconcilerWorkflow::test_content_block_and_cancel_on_reconcile_release" \
+    sed -i 's/^_TERMINAL_FAILURES = ("failed", "blocked", "canceled")$/_TERMINAL_FAILURES = ("failed",)  # MUTATED/'
+
+# 252: G-REC-2d: Late asset never overwrites an existing asset
+test_mutation 252 "Late asset never overwrites an existing asset" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestLandLateAsset::test_never_overwrites_existing_asset" \
+    sed -i 's/^    attach = not is_end and (row is None or not row\[0\])$/    attach = True  # MUTATED/'
+
+# 253: G-REC-2e: Failed landings are retried by later passes
+test_mutation 253 "Failed landings are retried by later passes" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestReconcilerWorkflow::test_failed_landing_is_retried_without_recommit" \
+    sed -i 's/la\.attempts < ? AND/la.attempts < 0 + 0 * ? AND/'
+
+# 254: G-REC-2f: Late stills are normalized to PNG
+test_mutation 254 "Late stills are normalized to PNG" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestReconcilerWorkflow::test_failed_landing_is_retried_without_recommit" \
+    sed -i 's/^        return out\.getvalue(), "\.png"$/        return data, ext  # MUTATED/'
+
+# 255: G-REC-2g: Worker creates the reconcile schedule
+test_mutation 255 "Worker creates the reconcile schedule" \
+    "hfvg/worker.py" \
+    "tests/test_reconciler.py::TestScheduling::test_worker_creates_the_schedule_idempotently" \
+    sed -i 's/^    await ensure_reconcile_schedule(client, task_queue)$/    pass  # MUTATED/'
+
+# 256: G-REC-3a: Stall watchdog honours the threshold
+test_mutation 256 "Stall watchdog honours the threshold" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestStallWatchdog::test_threshold_alert_and_routing" \
+    sed -i 's/^        if minutes >= threshold_minutes:$/        if minutes >= 0:  # MUTATED/'
+
+# 257: G-REC-3b: Stall alert routes the job to the reconciler
+test_mutation 257 "Stall alert routes the job to the reconciler" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestStallWatchdog::test_threshold_alert_and_routing" \
+    sed -i 's/^            await ledger\.mark_job_status(job\["job_id"\], "pending_reconcile")$/            pass  # MUTATED/'
+
+# 258: G-REC-3c: Stall alert status filter in the API
+test_mutation 258 "Stall alert status filter in the API" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_reconciler.py::TestStallWatchdog::test_alerts_visible_in_api" \
+    sed -i 's/^        clauses\.append("status = ?")$/        clauses.append("? IS NOT NULL")  # MUTATED/'
 # Print final summary
 print_summary
 exit_code=$?

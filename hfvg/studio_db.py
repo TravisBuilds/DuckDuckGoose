@@ -89,6 +89,41 @@ async def init_studio_db(db_path: str = "./data/studio.db"):
             ON audit_log(episode_id)
         """)
         
+        # Stall watchdog alerts (Round 2): one row per stalled job; open -> routed -> resolved
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS stall_alerts (
+                job_id TEXT PRIMARY KEY,
+                episode_id TEXT NOT NULL,
+                shot_id TEXT,
+                job_type TEXT,
+                minutes_stalled INTEGER NOT NULL,
+                threshold_minutes INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                resolution TEXT,
+                detected_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_stall_alerts_episode ON stall_alerts(episode_id)")
+
+        # Late assets landed by the reconciler (Round 2): download -> normalize -> attach
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS late_assets (
+                job_id TEXT PRIMARY KEY,
+                episode_id TEXT NOT NULL,
+                shot_id TEXT,
+                job_type TEXT NOT NULL,
+                output_url TEXT NOT NULL,
+                local_path TEXT,
+                sha256 TEXT,
+                attached INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                error TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         # Smoke gate overrides table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS smoke_gate_overrides (

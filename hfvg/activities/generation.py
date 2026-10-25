@@ -261,8 +261,8 @@ async def await_job(job_id: str, job_type: str = "still") -> Asset:
                 provider="higgsfield"
             )
         
-        elif status.status == ProviderJobStatus.FAILED:
-            # Failed generation - retryable
+        elif status.status in (ProviderJobStatus.FAILED, ProviderJobStatus.CANCELED):
+            # Failed (or canceled before processing) generation - retryable; never a content block
             await ledger.update_job_status_by_job_id(job_id, "failed")
             raise RetryableError(f"Generation failed for job {job_id}: {status.error}")
         

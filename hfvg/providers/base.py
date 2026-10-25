@@ -13,7 +13,8 @@ class ProviderJobStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
-    BLOCKED = "blocked"  # Content moderation
+    BLOCKED = "blocked"  # Content moderation (provider "nsfw"/"blocked") -- the ONLY content-block status
+    CANCELED = "canceled"  # Canceled before processing (refunded); NOT a content block
 
 
 class ProviderJob(BaseModel):
