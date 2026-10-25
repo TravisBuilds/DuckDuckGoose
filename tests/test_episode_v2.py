@@ -78,7 +78,7 @@ class AttemptOverrideTestShot:
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Old 15-gate system - replaced by 3-gate system")
 async def test_episode_v2_approval_gates(tmp_path, monkeypatch):
-    """Test that workflow stops at each Travis approval gate."""
+    """Test that workflow stops at each Owner approval gate."""
     # Set up test database
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DB_PATH", db_path)

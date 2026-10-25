@@ -33,7 +33,7 @@ async def test_live_workflow_with_real_policy_succeeds(tmp_path, monkeypatch, re
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-1234567890123456789012345678")
     
     # Use real production gate policy
-    policy_path = Path(__file__).parent.parent / "examples" / "mid-mountain-rest" / "HARNESS-GATES.json"
+    policy_path = Path(__file__).parent.parent / "examples" / "demo" / "HARNESS-GATES.json"
     monkeypatch.setenv("GATE_POLICY_PATH", str(policy_path))
     
     monkeypatch.chdir(tmp_path)

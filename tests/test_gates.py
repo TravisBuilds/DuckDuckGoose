@@ -7,7 +7,7 @@ from hfvg.gates import load_policy
 
 def test_load_policy():
     """Test loading HARNESS-GATES.json v1.1."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Validate structure
     assert policy.schema_version == "1.1"
@@ -17,7 +17,7 @@ def test_load_policy():
     blocking_count = sum(1 for g in policy.gates if g.get("blocking") == "yes")
     assert blocking_count == 69
     
-    # Count Travis approval points
+    # Count Owner approval points
     assert len(policy.travis_approval_points) == 15
     
     # Count check_type distribution
@@ -34,7 +34,7 @@ def test_load_policy():
 
 def test_gate_lookup():
     """Test gate lookup methods."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Test get_gate
     g410 = policy.get_gate("G4.10")
@@ -54,7 +54,7 @@ def test_gate_lookup():
 
 def test_budgets():
     """Test budget configuration loading."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Test Higgsfield budget
     hf_budget = policy.get_higgsfield_budget("ep04")
@@ -91,7 +91,7 @@ def test_budgets():
 
 def test_step_filtering():
     """Test filtering gates by step."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Get gates for step 4 (mute)
     mute_gates = policy.get_gates_for_step("4-mute")

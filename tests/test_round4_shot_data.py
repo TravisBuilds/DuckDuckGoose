@@ -32,7 +32,7 @@ TRAILING_PROMPT = "Synthetic prompt A. Exactly 2 animals in frame. Real-time spe
 
 def _shot(sid="A01", **kw):
     shot = {
-        "id": sid, "count": 2, "characters": ["Birch", "Duck"], "wet": False, "exterior": True,
+        "id": sid, "count": 2, "characters": ["Stag03", "Duck"], "wet": False, "exterior": True,
         "water": False, "model": "kling", "duration": 4, "end_frame": False,
         "antler_character": True, "duck_present": True, "aspect_ratio": "9:16",
         "prompt": TRAILING_PROMPT, "ref_keys": ["r_have", "r_new"],
@@ -78,7 +78,7 @@ def test_shot_meta_filled_from_shots_json(data_env):
     plans = load_shot_plans("ep98", require=True)
     meta = plans["A01"]["shot_meta"]
     assert meta["count"] == 2
-    assert meta["characters"] == ["Birch", "Duck"]
+    assert meta["characters"] == ["Stag03", "Duck"]
     assert meta["antler"] is True and meta["duck"] is True
     assert meta["wet"] is False and meta["exterior"] is True
     assert plans["A01"]["tags"] == []
@@ -792,7 +792,7 @@ async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_
                 "missing_refs": ["missing_ref1"],  # M-86 tests this
                 "shot_meta": {
                     "count": 1,
-                    "characters": ["Birch"],
+                    "characters": ["Stag03"],
                     "antler_character": True,
                     "duck_present": False,
                     "wet": False,

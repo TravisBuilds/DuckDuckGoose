@@ -396,11 +396,11 @@ These are queryable from the credit and job ledgers.
 
 ## Episode 4 Readiness Checklist
 
-This is the **order of first real production run** for episode 4 of "Mid-Mountain Rest / Quacked Concierge Peak Glow Up".
+This is the **order of first real production run** for episode 4 of "Demo Project / Demo Duck Peak Glow Up".
 
-### Phase 0: Setup (Travis)
+### Phase 0: Setup (Owner)
 
-**What Travis Must Provide:**
+**What Owner Must Provide:**
 
 1. **API Credentials**
    ```bash
@@ -486,7 +486,7 @@ DRY_RUN=false hfvg canary \
 - Check account has credits
 - Check network can reach api.higgsfield.ai
 
-### Phase 2: Episode 4 Document Prep (Travis)
+### Phase 2: Episode 4 Document Prep (Owner)
 
 **Before starting the harness:**
 
@@ -533,8 +533,8 @@ hfvg query-state ep04-<guests>
 7. Report pre-production cost
 
 **Manual Approval:**
-- Travis reviews character ABs
-- Travis approves or requests regeneration
+- Owner reviews character ABs
+- Owner approves or requests regeneration
 - Once approved: `hfvg approve ep04-<guests> pre-production`
 
 ### Phase 4: Still Drafts (G2 in Credit Plan)
@@ -559,8 +559,8 @@ hfvg query-strip ep04-<guests>
 5. Annotate cuts (last frame A vs first frame B)
 
 **Manual Approval:**
-- Travis reviews draft strip
-- Travis marks shots for revision or approval
+- Owner reviews draft strip
+- Owner marks shots for revision or approval
 - `hfvg approve ep04-<guests> stills`
 
 ### Phase 5: Final Stills (G3 in Credit Plan)
@@ -594,7 +594,7 @@ hfvg query-strip ep04-<guests>
 4. Assemble draft mute
 
 **Manual Approval:**
-- Travis reviews draft mute shot-by-shot
+- Owner reviews draft mute shot-by-shot
 - `hfvg approve ep04-<guests> video-drafts`
 
 ### Phase 7: Finals & Finalize (G5 in Credit Plan)
@@ -612,7 +612,7 @@ hfvg query-strip ep04-<guests>
 - Assemble picture lock mute
 
 **Manual Approval:**
-- Travis reviews final mute
+- Owner reviews final mute
 - `hfvg approve ep04-<guests> picture-lock`
 
 ### Phase 8: Audio (G6 in Credit Plan)
@@ -631,7 +631,7 @@ hfvg query-strip ep04-<guests>
 5. Burn hard subs
 
 **Manual Approval:**
-- Travis reviews mixed episode
+- Owner reviews mixed episode
 - `hfvg approve ep04-<guests> mix`
 
 ### Phase 9: Hand-Off Package
@@ -650,7 +650,7 @@ hfvg export ep04-<guests>
 4. Asset manifest
 5. Distribution metadata
 
-**Travis distributes manually** (never automated posting per hard rule).
+**Owner distributes manually** (never automated posting per hard rule).
 
 ---
 

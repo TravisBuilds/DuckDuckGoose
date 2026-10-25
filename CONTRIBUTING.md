@@ -295,15 +295,15 @@ git secrets --scan
 
 ### Example Private Content in This Repo:
 
-Located in `examples/mid-mountain-rest/` (`HARNESS-GATES.json`):
-- The owner's private "Quacked Concierge / Mid-Mountain Rest" series gate policy
-- Loaded by code and tests (`hfvg/gates.py` `load_policy("mid-mountain-rest")`, called from
+Located in `examples/demo/` (`HARNESS-GATES.json`):
+- The owner's private "Demo Duck / Demo Project" series gate policy
+- Loaded by code and tests (`hfvg/gates.py` `load_policy("demo")`, called from
   `hfvg/workflows/episode_v2.py`; `tests/test_workflow_live_with_real_policy.py`), so it
   cannot simply be deleted; do not copy it or use it as a template
 
 Located in `fixtures/ep05/` (`BEATMAP.md`, `CONTINUITY.md`, `VO-AUDIO.md`):
 - The owner's private Ep05 "Yuzu Bath" episode: brand name, named characters
-  (Rowan, Hazel, Mochi, DUCK-AB02), private asset paths and a draft Japanese VO script
+  (Subject02, Subject04, Subject01, DUCK-AB02), private asset paths and a draft Japanese VO script
 - Used by tests (`tests/test_episode_parser.py`); for examples use the synthetic
   `tests/fixtures/sample_beatmap.md`
 

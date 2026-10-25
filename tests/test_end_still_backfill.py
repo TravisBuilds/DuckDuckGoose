@@ -26,7 +26,7 @@ START_URL = "https://d3u0tzju9qaucj.cloudfront.net/out/a02-r3-start.jpeg"
 
 def _shot():
     return {"shot_id": "A02", "prompt": START, "end_prompt": END, "duration": 3.0, "params": {"end_frame": True},
-            "refs": ["refs/duck.png", "refs/family.png", "refs/mochi.png", "refs/pool.png"],
+            "refs": ["refs/duck.png", "refs/family.png", "refs/subject01.png", "refs/pool.png"],
             "shot_meta": {"count": 0, "characters": [], "wet": False}}
 
 

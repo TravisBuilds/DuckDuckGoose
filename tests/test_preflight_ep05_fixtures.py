@@ -35,7 +35,7 @@ async def test_preflight_passes_with_ep05_shaped_fixtures(tmp_path, monkeypatch)
 Duck arrives at the backyard pool, excited.
 
 ## A02
-Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Family, Pool).
+Duck family gathers around the pool (6 characters: Duck, Subject02, Subject04, Subject01, Family, Pool).
 """)
     
     # 2. shots.json with A02 having 5 refs (at Grok Image 2.0 effective cap of 5)
@@ -63,8 +63,8 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
                 "end_frame": False,
                 "ref_keys": [
                     "r_duck",
-                    "r_hazel",
-                    "r_mochi",
+                    "r_subject04",
+                    "r_subject01",
                     "r_family",
                     "r_pool"
                 ]  # 5 refs, at Grok Image 2.0 effective cap of 5
@@ -80,9 +80,9 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
             ],
             "A02": [
                 {"key": "r_duck", "path": "data/episodes/ep05/refs/duck.png"},
-                {"key": "r_rowan", "path": "data/episodes/ep05/refs/rowan.png"},
-                {"key": "r_hazel", "path": "data/episodes/ep05/refs/hazel.png"},
-                {"key": "r_mochi", "path": "data/episodes/ep05/refs/mochi.png"},
+                {"key": "r_subject02", "path": "data/episodes/ep05/refs/subject02.png"},
+                {"key": "r_subject04", "path": "data/episodes/ep05/refs/subject04.png"},
+                {"key": "r_subject01", "path": "data/episodes/ep05/refs/subject01.png"},
                 {"key": "r_family", "path": "data/episodes/ep05/refs/family.png"},
                 {"key": "r_pool", "path": "data/episodes/ep05/refs/pool.png"}
             ]
@@ -92,7 +92,7 @@ Duck family gathers around the pool (6 characters: Duck, Rowan, Hazel, Mochi, Fa
     # 4. Create actual ref files (preflight checks they exist)
     refs_dir = ep_dir / "refs"
     refs_dir.mkdir(exist_ok=True)
-    for ref_name in ["duck", "rowan", "hazel", "mochi", "family", "pool"]:
+    for ref_name in ["duck", "subject02", "subject04", "subject01", "family", "pool"]:
         # Create minimal valid PNG
         from PIL import Image
         img = Image.new('RGB', (64, 64), color='blue')
@@ -167,9 +167,9 @@ Shot with too many refs (9 > 8 cap).
                 "end_frame": False,
                 "ref_keys": [
                     "r_duck",
-                    "r_rowan",
-                    "r_hazel",
-                    "r_mochi",
+                    "r_subject02",
+                    "r_subject04",
+                    "r_subject01",
                     "r_family",
                     "r_pool"
                 ]  # 6 refs: one over the effective cap of 5 (the count that failed live)
@@ -182,7 +182,7 @@ Shot with too many refs (9 > 8 cap).
         "per_shot": {
             "A01": [
                 {"key": f"r_{name}", "path": f"data/episodes/ep05/refs/{name}.png"}
-                for name in ["duck", "rowan", "hazel", "mochi", "family", "pool", "tree", "bench", "fence"]
+                for name in ["duck", "subject02", "subject04", "subject01", "family", "pool", "tree", "bench", "fence"]
             ]
         }
     }))
@@ -191,7 +191,7 @@ Shot with too many refs (9 > 8 cap).
     refs_dir = ep_dir / "refs"
     refs_dir.mkdir(exist_ok=True)
     from PIL import Image
-    for ref_name in ["duck", "rowan", "hazel", "mochi", "family", "pool", "tree", "bench", "fence"]:
+    for ref_name in ["duck", "subject02", "subject04", "subject01", "family", "pool", "tree", "bench", "fence"]:
         img = Image.new('RGB', (64, 64), color='blue')
         img.save(refs_dir / f"{ref_name}.png")
     

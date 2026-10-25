@@ -16,7 +16,7 @@ def temp_series_dir():
         series_path = Path(tmpdir)
         
         # Create CHARACTER-LOCK.md
-        lock_content = """# Quacked Concierge Peak Glow Up
+        lock_content = """# Demo Duck Peak Glow Up
 
 **Locked 2026-09-20 (v3 short-bill remake)**
 
@@ -72,7 +72,7 @@ def test_load_character_locks(temp_series_dir):
     assert "duck" in registry.characters
     char = registry.characters["duck"]
     assert isinstance(char, CharacterLock)
-    assert char.name == "Quacked Concierge (Mallard)"
+    assert char.name == "Demo Duck (Mallard)"
     assert char.locked_date == "2026-09-20"
 
 

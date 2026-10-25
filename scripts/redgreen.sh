@@ -2563,6 +2563,66 @@ test_mutation 341 "poll interval injection" \
     "tests/test_exception_release.py::test_poll_502_releases_reservation" \
     sed -i 's/active_poll_interval = float(os.getenv("ACTIVE_POLL_INTERVAL_SECONDS", "5.0"))/active_poll_interval = 5.0  # MUTATED: hardcoded/'
 
+# 342: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_voiceover
+test_mutation 342 "elevenlabs voiceover credential check" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_credentials.py::test_generate_voiceover_refuses_missing_elevenlabs_key_before_reservation" \
+    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+
+# 343: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_sfx
+test_mutation 343 "elevenlabs sfx credential check" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_credentials.py::test_generate_sfx_refuses_missing_elevenlabs_key_before_reservation" \
+    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+
+# 344: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_music
+test_mutation 344 "elevenlabs music credential check" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_credentials.py::test_generate_music_refuses_missing_elevenlabs_key_before_reservation" \
+    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+
+# 345: G-AUD-KEY: Higgsfield credentials checked before reservation in submit_still_job_enforced
+test_mutation 345 "higgsfield still credential check" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_higgsfield_credentials.py::test_check_higgsfield_credentials_refuses_missing_key" \
+    sed -i '/^    # Check credentials BEFORE any reservation or provider call$/,/^    _check_higgsfield_credentials()$/d'
+
+# 346: G-AUD-KEY: Higgsfield credentials checked before reservation in submit_clip_job_enforced
+test_mutation 346 "higgsfield clip credential check" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_higgsfield_credentials.py::test_check_higgsfield_credentials_refuses_missing_key" \
+    sed -i '/^    # Check credentials BEFORE any reservation or provider call$/,/^    _check_higgsfield_credentials()$/d'
+
+# 347: G-AUD-COST: Provider extracts character-cost header
+test_mutation 347 "provider extracts character-cost header" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
+    sed -i '/character_cost_header = headers.get("character-cost")/s/.*/        character_cost_header = None  # MUTANT: skip header extraction/'
+
+# 348: G-AUD-COST: Activities use actual credits for commit
+test_mutation 348 "activities commit actual credits" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
+    sed -i '/if credits_used is not None and cost_from_header:/,/actual = credits_to_usd_micros(credits_used)/c\    actual = usd_micros  # MUTANT: skip actual cost from credits'
+
+# 349: G-AUD-COST: Budget ledger persists characters and credits
+test_mutation 349 "ledger persists characters and credits" \
+    "hfvg/budget.py" \
+    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
+    sed -i 's/characters, credits_used, created_at, updated_at)/created_at, updated_at)  # MUTANT: drop columns/'
+
+# 350: G-AUD-COST: Commit updates characters and credits on job_ledger
+test_mutation 350 "commit updates job ledger with credits" \
+    "hfvg/budget.py" \
+    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
+    sed -i '/UPDATE job_ledger.*SET status = .committed., usd_micros = ., characters/,/WHERE job_id = ?/c\                        await db.execute("""\n                            UPDATE job_ledger SET status = '\''committed'\'', usd_micros = ?, updated_at = ?\n                            WHERE job_id = ?\n                        """, (actual, now, job_id))  # MUTANT: skip credits/chars'
+
+# 351: G-AUD-COST: Estimate credits fallback is conservative
+test_mutation 351 "estimate_credits fallback" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_fallback_when_character_cost_header_absent" \
+    sed -i '/def estimate_credits/,/return.*/ { /return/s/.*/    return 0.0  # MUTANT: broken estimate/ }'
+
 # Print final summary
 print_summary
 

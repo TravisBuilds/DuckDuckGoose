@@ -55,6 +55,29 @@ from hfvg.routing import plan_route
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
 
 
+def _check_higgsfield_credentials() -> None:
+    """Verify Higgsfield API key before any spend/reservation. Raises non-retryable error if missing."""
+    dry_run_env = os.getenv("DRY_RUN", "false").lower() == "true"
+    if dry_run_env:
+        return  # Dry run doesn't need credentials
+    api_key = os.getenv("HIGGSFIELD_API_KEY")
+    if not api_key:
+        raise ApplicationError(
+            "HIGGSFIELD_API_KEY environment variable is required for live Higgsfield generation. "
+            "Set the API key before starting live studio generation activities.",
+            type="MissingCredentials",
+            non_retryable=True
+        )
+    # Validate format (must be "id:secret")
+    if ":" not in api_key:
+        raise ApplicationError(
+            "HIGGSFIELD_API_KEY must be in format 'id:secret'. "
+            "Check your API key format.",
+            type="InvalidCredentials",
+            non_retryable=True
+        )
+
+
 async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> tuple[str, str]:
     """Return (local file path, sha256 of its bytes) for an _end frame's lead ref (the shot's start
     still). The sha names the job id (-lead<sha8>), so the id follows the exact start still sent.

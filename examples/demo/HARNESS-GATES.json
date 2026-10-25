@@ -17,9 +17,9 @@
   ],
   "rules": {
     "blocking": "A blocking gate must be PASS before the next step (or the next job of the same kind) starts.",
-    "approver": "'harness' = automatic QC by DuckDuckGoose; 'Travis' = explicit approval logged in STATUS.md with CEST time; 'harness + Travis' = harness check then Travis decision.",
-    "default_external_actions": "HOLD (never post/upload/send without explicit Travis order)",
-    "check_type": "code = deterministic script decides; judge = vision/LLM model decides under judge_policy; human = Travis decides (logged in STATUS with CEST time). 'assist' names the secondary check."
+    "approver": "'harness' = automatic QC by DuckDuckGoose; 'Owner' = explicit approval logged in STATUS.md with CEST time; 'harness + Owner' = harness check then Owner decision.",
+    "default_external_actions": "HOLD (never post/upload/send without explicit Owner order)",
+    "check_type": "code = deterministic script decides; judge = vision/LLM model decides under judge_policy; human = Owner decides (logged in STATUS with CEST time). 'assist' names the secondary check."
   },
   "travis_approval_points": [
     "GX.01",
@@ -109,7 +109,7 @@
         "higgsfield_cap_usd": 60,
         "elevenlabs_target_usd": 0.7,
         "elevenlabs_cap_usd": 0.8,
-        "status": "pending Travis confirmation"
+        "status": "pending Owner confirmation"
       },
       "ep04_lines_app_usd": {
         "L1_refs": 5.7,
@@ -167,10 +167,10 @@
       "gate_id": "GX.01",
       "step": "all",
       "name": "Never post / upload / hand off",
-      "check": "No social post, TikTok publish, Grower/Social message, Drive upload or external send unless Travis explicitly ordered that specific action for that file (logged in STATUS with CEST time).",
-      "fail_criteria": "Any external post/upload/send/handoff without a logged explicit Travis order.",
+      "check": "No social post, TikTok publish, Grower/Social message, Drive upload or external send unless Owner explicitly ordered that specific action for that file (logged in STATUS with CEST time).",
+      "fail_criteria": "Any external post/upload/send/handoff without a logged explicit Owner order.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "always",
       "check_type": "human",
       "assist": "code (default-deny on every external action)"
@@ -179,11 +179,11 @@
       "gate_id": "GX.02",
       "step": "all",
       "name": "QC first",
-      "check": "Everything shown to Travis (strip, mute, mix) has passed every AUTO gate of its step, with the QC table attached.",
-      "fail_criteria": "Material reaches Travis with a failing or unrun blocking gate.",
+      "check": "Everything shown to Owner (strip, mute, mix) has passed every AUTO gate of its step, with the QC table attached.",
+      "fail_criteria": "Material reaches Owner with a failing or unrun blocking gate.",
       "blocking": "yes",
       "approver": "harness",
-      "when": "before every Travis review",
+      "when": "before every Owner review",
       "check_type": "code"
     },
     {
@@ -205,9 +205,9 @@
       "step": "all",
       "name": "Budget line stop",
       "check": "Track spend per CREDIT-PLAN line and per round.",
-      "fail_criteria": "Spend reaches 80% of a line/round cap without a stop+report; any spend beyond 100% without Travis; episode total above hard cap.",
+      "fail_criteria": "Spend reaches 80% of a line/round cap without a stop+report; any spend beyond 100% without Owner; episode total above hard cap.",
       "blocking": "yes",
-      "approver": "harness + Travis",
+      "approver": "harness + Owner",
       "when": "continuous",
       "thresholds": {
         "stop_fraction": 0.8,
@@ -224,7 +224,7 @@
         }
       },
       "check_type": "code",
-      "assist": "Travis decides any spend beyond 100% of a line or above the cap"
+      "assist": "Owner decides any spend beyond 100% of a line or above the cap"
     },
     {
       "gate_id": "GC.03",
@@ -246,7 +246,7 @@
       "gate_id": "GC.04",
       "step": "all",
       "name": "Draft-first / finals only on approval",
-      "check": "Finals (2k stills, Seedance finalize) are created only for Travis-approved shots; no video before strip approval.",
+      "check": "Finals (2k stills, Seedance finalize) are created only for Owner-approved shots; no video before strip approval.",
       "fail_criteria": "Any final or video job for a shot without the required approval.",
       "blocking": "yes",
       "approver": "harness",
@@ -268,10 +268,10 @@
       "gate_id": "GC.06",
       "step": "all",
       "name": "Reserve draws reported",
-      "check": "Any move of credits between lines or reserve draw is reported to Travis before spending.",
+      "check": "Any move of credits between lines or reserve draw is reported to Owner before spending.",
       "fail_criteria": "Reserve spent without a report/approval.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "on reserve draw",
       "check_type": "human",
       "assist": "code (default-deny on any reserve draw / line move)"
@@ -347,9 +347,9 @@
       "step": "1-story",
       "name": "Pick 1 of 3 pitches",
       "check": "PITCHES.md with 3 storylines (species, logline, want, climax on real behaviour, duck service role, species fact, set feasibility).",
-      "fail_criteria": "Fewer than 3 pitches or no Travis pick logged.",
+      "fail_criteria": "Fewer than 3 pitches or no Owner pick logged.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "pre-production",
       "check_type": "human"
     },
@@ -368,10 +368,10 @@
       "gate_id": "G1.03",
       "step": "1-story",
       "name": "Beat map locked with transitions",
-      "check": "BEATMAP.md row per shot: length, gen length, model, WET/DRY tag, who+count, duck role, action in/out, trajectory for grabs, transition to next, TOD, props; function-only room words; Travis lock + open questions answered.",
-      "fail_criteria": "Missing transition/trajectory/model/tag; d\u00e9cor words in room descriptions; no Travis lock.",
+      "check": "BEATMAP.md row per shot: length, gen length, model, WET/DRY tag, who+count, duck role, action in/out, trajectory for grabs, transition to next, TOD, props; function-only room words; Owner lock + open questions answered.",
+      "fail_criteria": "Missing transition/trajectory/model/tag; d\u00e9cor words in room descriptions; no Owner lock.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "before any credit spend",
       "thresholds": {
         "runtime_s": [
@@ -386,7 +386,7 @@
         "fps": 24
       },
       "check_type": "human",
-      "assist": "code (row completeness + d\u00e9cor-word lint) before Travis"
+      "assist": "code (row completeness + d\u00e9cor-word lint) before Owner"
     },
     {
       "gate_id": "G1.04",
@@ -457,19 +457,19 @@
       "check": "CREDIT-PLAN.md lines with budget and 80% stop; totals within Ep04 target/cap.",
       "fail_criteria": "Plan over cap or lines without stops.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "with beat map lock",
       "check_type": "human",
-      "assist": "code (sums, stops, caps) before Travis"
+      "assist": "code (sums, stops, caps) before Owner"
     },
     {
       "gate_id": "G2.01",
       "step": "2-stills",
       "name": "New identity refs approved",
-      "check": "New guest ABs/head sheets/turnarounds, room masters (with _qc vs-world sheet), duck variants pass drift/height check and Travis approval.",
+      "check": "New guest ABs/head sheets/turnarounds, room masters (with _qc vs-world sheet), duck variants pass drift/height check and Owner approval.",
       "fail_criteria": "Drafts use a ref that isn't approved or fails resort-match.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "after refs, before drafts",
       "check_type": "human"
     },
@@ -660,9 +660,9 @@
       "step": "2-stills",
       "name": "Edit-order stills strip approval",
       "check": "Strip of every still in edit order with beat text, duck role, TOD, per-cut transition notes, QC verdicts, open notes.",
-      "fail_criteria": "No strip, or video started before Travis approval.",
+      "fail_criteria": "No strip, or video started before Owner approval.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "before any video",
       "check_type": "human"
     },
@@ -1048,7 +1048,7 @@
       "check": "Flag shots that read inconsistently (humanoid-looking tiny animals, wrong duck, ghosts) or don't move the story; propose cuts; re-check neighbouring cuts and VO references.",
       "fail_criteria": "Known-inconsistent shot left in without flag; cut leaves a dangling reference.",
       "blocking": "no",
-      "approver": "harness + Travis",
+      "approver": "harness + Owner",
       "when": "every mute",
       "rubric": {
         "flag_triggers": [
@@ -1058,7 +1058,7 @@
           "set-up whose pay-off reads alone (Ep03 C03/C04)",
           "shot flagged WATCH by 2+ gates"
         ],
-        "note": "human gate: harness proposes, Travis decides"
+        "note": "human gate: harness proposes, Owner decides"
       },
       "check_type": "human"
     },
@@ -1087,11 +1087,11 @@
     {
       "gate_id": "G4.08",
       "step": "4-mute",
-      "name": "Travis mute review",
-      "check": "Travis notes logged verbatim with CEST time; fixes surgical; re-QC.",
+      "name": "Owner mute review",
+      "check": "Owner notes logged verbatim with CEST time; fixes surgical; re-QC.",
       "fail_criteria": "Notes not logged or fixed without re-QC.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "each mute round",
       "check_type": "human"
     },
@@ -1099,10 +1099,10 @@
       "gate_id": "G4.09",
       "step": "4-mute",
       "name": "Picture lock",
-      "check": "Travis picture-locks the mute; after lock no picture change without Travis reopening (new version).",
+      "check": "Owner picture-locks the mute; after lock no picture change without Owner reopening (new version).",
       "fail_criteria": "Audio work before lock; picture altered after lock.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "before Step 5",
       "check_type": "human",
       "assist": "code (picture MD5 frozen after lock)"
@@ -1115,7 +1115,7 @@
       "fail_criteria": "FAIL (still-only): peak_fd < 3.0 AND mean_fd < 0.15 -> route the shot back to Step 3 (re-animate from the SAME approved still at the SAME duration, prompt names continuous ambient motion; never 'nothing else moves'). WATCH: peak_fd < 6.0 OR mean_fd < 0.25 -> judge on a frame sheet; PASS only if real motion is visible.",
       "blocking": "yes",
       "approver": "harness",
-      "when": "every mute + every final picture (Travis rule 2026-10-04 22:21 CEST)",
+      "when": "every mute + every final picture (Owner rule 2026-10-04 22:21 CEST)",
       "thresholds": {
         "fail_peak_fd": 3.0,
         "fail_mean_fd": 0.15,
@@ -1174,11 +1174,11 @@
     {
       "gate_id": "G5.01",
       "step": "5-script",
-      "name": "Script lock: Travis approves the placed script before any audio",
-      "check": "VO-SCRIPT.md (JP + EN, per shot, in/out on locked picture) + timing JSON + draft SRT exist, AND Travis approval is logged in STATUS with CEST time. Conditional approvals (\"OK if timing checks out\"): the condition is checked by code and the result logged before any generation.",
+      "name": "Script lock: Owner approves the placed script before any audio",
+      "check": "VO-SCRIPT.md (JP + EN, per shot, in/out on locked picture) + timing JSON + draft SRT exist, AND Owner approval is logged in STATUS with CEST time. Conditional approvals (\"OK if timing checks out\"): the condition is checked by code and the result logged before any generation.",
       "fail_criteria": "Any ElevenLabs VO/music/SFX credit spent before the logged approval, or with an unchecked condition; script files missing.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "before Step 6",
       "merged_from": [
         "G5.01",
@@ -1233,7 +1233,7 @@
       "step": "6-audio",
       "name": "Music approach",
       "check": "ElevenLabs Music, instrumental Ghibli-style chamber score shaped to beats; ONE take by default; automation for beats; VO duck -4 dB (climax -7), floor -9, never gated; cadence resolves under the logo.",
-      "fail_criteria": "Second take without Travis OK; lyrical/English vocals; gated dropouts.",
+      "fail_criteria": "Second take without Owner OK; lyrical/English vocals; gated dropouts.",
       "blocking": "yes",
       "approver": "harness",
       "when": "music",
@@ -1386,11 +1386,11 @@
     {
       "gate_id": "G6.10",
       "step": "6-audio",
-      "name": "Travis mix approval / episode lock",
-      "check": "Travis approves or locks; notes -> pickups only, reuse stems.",
+      "name": "Owner mix approval / episode lock",
+      "check": "Owner approves or locks; notes -> pickups only, reuse stems.",
       "fail_criteria": "Delivery before lock.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "before Step 7",
       "check_type": "human",
       "assist": "code (G6.* all PASS before showing)"
@@ -1425,10 +1425,10 @@
       "gate_id": "G7.02",
       "step": "7-delivery",
       "name": "Drive upload (only on order)",
-      "check": "Upload to folder 1dCbQN4dYL8fl4Nn4uOmaAaqa5R_BLdnd as 'EpNN - <Title> (final).mp4' only when Travis orders it; link logged.",
+      "check": "Upload to folder 1dCbQN4dYL8fl4Nn4uOmaAaqa5R_BLdnd as 'EpNN - <Title> (final).mp4' only when Owner orders it; link logged.",
       "fail_criteria": "Upload without explicit order; wrong folder/name.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "after lock",
       "check_type": "human",
       "assist": "code (folder id + filename pattern)"
@@ -1437,10 +1437,10 @@
       "gate_id": "G7.03",
       "step": "7-delivery",
       "name": "Grower handoff (never post)",
-      "check": "Package (final, nosubs, review, title, JP/EN logline, @thequackedconcierge, Travis-set priority) prepared; sent only on Travis go; nobody posts without the lock.",
-      "fail_criteria": "Handoff sent without Travis go; any post.",
+      "check": "Package (final, nosubs, review, title, JP/EN logline, @thequackedconcierge, Owner-set priority) prepared; sent only on Owner go; nobody posts without the lock.",
+      "fail_criteria": "Handoff sent without Owner go; any post.",
       "blocking": "yes",
-      "approver": "Travis",
+      "approver": "Owner",
       "when": "after lock",
       "check_type": "human"
     },
@@ -1459,7 +1459,7 @@
   "version": "1.1",
   "updated": "2026-10-04T22:40+02:00",
   "changelog": [
-    "1.1 (2026-10-04 CEST): check_type code|judge|human on every gate (+assist); G4.10 no-still-only-shots frame-motion gate (Travis 22:21); G5.03 merged into G5.01; numeric thresholds added (G1.03/04, G3.01/03/06, G4.04/05/07, G6.01-03/05/06/08, G7.01, GC.02); judge rubrics + judge_policy; Higgsfield L5 60->0 (lines sum 1,000); units, ElevenLabs stop_fraction, unit prices, USD view; BARE retired as routing tag.",
+    "1.1 (2026-10-04 CEST): check_type code|judge|human on every gate (+assist); G4.10 no-still-only-shots frame-motion gate (Owner 22:21); G5.03 merged into G5.01; numeric thresholds added (G1.03/04, G3.01/03/06, G4.04/05/07, G6.01-03/05/06/08, G7.01, GC.02); judge rubrics + judge_policy; Higgsfield L5 60->0 (lines sum 1,000); units, ElevenLabs stop_fraction, unit prices, USD view; BARE retired as routing tag.",
     "1.0 (2026-10-04 22:13 CEST): first release, 71 gates."
   ],
   "judge_policy": {
@@ -1468,10 +1468,10 @@
     "ref_order": "swapped on run 2",
     "verdict": "keep the worse of the two runs",
     "confidence_escalate_below": 0.6,
-    "on_escalate": "fail closed -> human (Travis sees the crop)",
+    "on_escalate": "fail closed -> human (Owner sees the crop)",
     "output": "JSON per rubric item: pass|fail, confidence, one-line evidence",
     "calibration": "before Ep04 on Ep01-03 known fails/passes; 100% recall on known fails, <= 15% false fails",
-    "spend": "judge model cost is NOT in any Higgsfield/ElevenLabs line; log it separately (open question to Travis)"
+    "spend": "judge model cost is NOT in any Higgsfield/ElevenLabs line; log it separately (open question to Owner)"
   },
   "tags": {
     "routing": "WET/MUD/POOL/SOAK/UNDERWATER/splash -> Kling; DRY -> Seedance-eligible. BARE is retired as a routing tag (Ep02 blocks were image-driven by wet/mud content, not by the bare duck).",

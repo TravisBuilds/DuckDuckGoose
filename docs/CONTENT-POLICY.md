@@ -225,7 +225,7 @@ Develop your own characters with unique traits:
 
 ```
 ✅ "Quackers the Duck, a former spy turned chef"
-✅ "Detective Birch, a deer who solves forest mysteries"
+✅ "Detective Stag03, a deer who solves forest mysteries"
 ✅ "Captain Finley, a fish who explores the deep ocean"
 ```
 

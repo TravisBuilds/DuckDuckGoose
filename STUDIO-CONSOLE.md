@@ -40,7 +40,7 @@ This document tracks the implementation of the studio console for Episode 4 prod
 **Episode View**: `/studio/episodes/[id]`
 - Real-time episode state polling (3s)
 - **Budget meters** per line vs cap/stop with visual indicators
-- **Approval gates** with Approve buttons (15 Travis gates)
+- **Approval gates** with Approve buttons (15 Owner gates)
 - Shot list (stub - needs workflow integration)
 - Still strip review (stub)
 - Clip review with QC (stub)
@@ -56,7 +56,7 @@ This document tracks the implementation of the studio console for Episode 4 prod
 
 ### Existing Infrastructure (Already on main)
 
-- ✅ `hfvg/gates.py`: Gate policy loader (71 gates, 15 Travis approvals)
+- ✅ `hfvg/gates.py`: Gate policy loader (71 gates, 15 Owner approvals)
 - ✅ `hfvg/budget.py`: Per-line budget ledger with 80% stop
 - ✅ `hfvg/ledger.py`: Idempotent job tracking
 - ✅ `hfvg/workflows/episode_v2.py`: EpisodeWorkflowV2 with approval signals
@@ -103,7 +103,7 @@ This document tracks the implementation of the studio console for Episode 4 prod
 
 6. **Canary Action** (`POST /api/episodes/{id}/canary`)
    - Generate exactly 1 still + 1 clip for specified shot
-   - Let Travis verify before full round
+   - Let Owner verify before full round
    - Show cost estimate before triggering
 
 7. **Live Mode Enforcement**
@@ -243,9 +243,9 @@ From `CREDIT-PLAN_4753.md`:
 
 **Cloud API Hard Cap**: $60 (covers Higgsfield 1,250 cr + OpenAI vision + buffer)
 
-⚠️ **L2 and L3 planned totals sit above their 80% stops**. These are report points per BEATMAP §8. GC.06 line move report to Travis required.
+⚠️ **L2 and L3 planned totals sit above their 80% stops**. These are report points per BEATMAP §8. GC.06 line move report to Owner required.
 
-## 📝 Decisions Needed from Travis
+## 📝 Decisions Needed from Owner
 
 1. **Still model**: Which Higgsfield still model to use? (GPT Image 2 not available)
 2. **Episode data upload**: Console UI upload or mount from private path? (NOT committed to repo)
@@ -268,7 +268,7 @@ From `CREDIT-PLAN_4753.md`:
 
 ## 📚 References
 
-- **HARNESS-GATES v1.1**: `examples/mid-mountain-rest/HARNESS-GATES.json`
+- **HARNESS-GATES v1.1**: `examples/demo/HARNESS-GATES.json`
 - **Episode Parser**: `hfvg/episode_parser.py`
 - **Workflow**: `hfvg/workflows/episode_v2.py`
 - **Budget Ledger**: `hfvg/budget.py`

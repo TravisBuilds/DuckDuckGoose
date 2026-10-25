@@ -37,9 +37,9 @@ Higgsfield provides **two separate services** with **separate billing**:
    - **Separate billing system** from MCP app
    - Headless API with key-based auth
    - Official SDK: [`higgsfield-client`](https://github.com/higgsfield-ai/higgsfield-client) (PyPI package name: `higgsfield-client`)
-   - **Travis would need a separate Cloud API account**
+   - **Owner would need a separate Cloud API account**
 
-**Decision**: Use Higgsfield Cloud API for headless generation. This requires Travis to:
+**Decision**: Use Higgsfield Cloud API for headless generation. This requires Owner to:
 1. Create account at cloud.higgsfield.ai
 2. Purchase credits separately from app credits
 3. Generate API key + secret pair
@@ -80,7 +80,7 @@ client = AsyncClient(api_key="key-id:key-secret")
 Likely model paths (UNVERIFIED):
 - Image generation: `bytedance/seedream/v4/text-to-image` or similar
 - Video generation: Model path for Seedance 2.5 / Kling 3.0 not confirmed
-- **Travis must verify available models** in Cloud API dashboard
+- **Owner must verify available models** in Cloud API dashboard
 
 **Verified API methods** (from SDK source):
 
@@ -447,7 +447,7 @@ All claims in this document are verified against these sources:
 
 #### Image Generation (Must Configure from Console)
 - **GPT Image 2**: **Not found in public API model list**
-  - Travis must select a still image model from the [cloud.higgsfield.ai](https://cloud.higgsfield.ai) console
+  - Owner must select a still image model from the [cloud.higgsfield.ai](https://cloud.higgsfield.ai) console
   - Set `MODEL_PATH_GPT_IMAGE_2` environment variable to the verified model path
   - **Submission will fail fast** with clear error if not configured
 
@@ -465,7 +465,7 @@ export MODEL_PATH_SEEDANCE="bytedance/seedance-2.5/image-to-video" # Default
 export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Must configure from cloud.higgsfield.ai
 ```
 
-**Travis must**: Log into cloud.higgsfield.ai, select a still image model, and set `MODEL_PATH_GPT_IMAGE_2`.
+**Owner must**: Log into cloud.higgsfield.ai, select a still image model, and set `MODEL_PATH_GPT_IMAGE_2`.
 
 ### (b) Billing Separation: Cloud API vs MCP App
 
@@ -480,7 +480,7 @@ export MODEL_PATH_GPT_IMAGE_2="/path/from/console"  # Must configure from cloud.
 - **MCP Server** (higgsfield.ai): Plan credits (monthly/annual subscription)
 - **Cloud API** (cloud.higgsfield.ai): Pay-per-generation USD balance, top-up model
 
-**Implication**: Travis can either:
+**Implication**: Owner can either:
 1. Use Cloud API with a separate paid account (pay-per-generation)
 2. Continue using MCP plan credits via an operator bridge (see §8 below)
 
@@ -533,7 +533,7 @@ async for status in controller.poll_request_status():
 
 ✅ **APPROVED with caveats**: Use API key authentication for both providers.
 
-**Travis must provide:**
+**Owner must provide:**
 
 1. **Higgsfield Cloud API** (NEW account, separate from MCP)
    - Sign up at https://cloud.higgsfield.ai

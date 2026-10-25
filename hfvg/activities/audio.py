@@ -115,8 +115,9 @@ AUDIO_BUDGET_LINE = {"tts": "el_vo_takes", "sfx": "el_sfx", "music": "el_music_o
 
 async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, model: str,
                          usd_micros: int, call):
-    """Ledger reservation + AUDIO round cap around one provider call; commit or release."""
+    """Ledger reservation + AUDIO round cap around one provider call; commit actual from headers."""
     from hfvg.budget import BudgetLedger, RoundBudgetError
+    from hfvg.providers.elevenlabs import credits_to_usd_micros
     from hfvg.studio_db import enforce_smoke_test_gate
 
     await enforce_smoke_test_gate(_db_path(), episode_id, f"generate_{kind}")
@@ -139,23 +140,46 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         await ledger.release_round_hold(job_id)
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
-    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)
+    
+    # G-AUD-COST: No initial record_job here - wait for actual cost from provider
     try:
         result = await call()
     except BaseException:
         await ledger.release(episode_id, line, usd_micros, f"{kind} {asset_id} failed", job_id=job_id)
         raise
-    actual = int(round(result.get("cost_usd", 0) * 1_000_000)) or usd_micros
-    await ledger.commit(episode_id, line, usd_micros, actual, job_id, f"{kind} {asset_id}")
-    return {**result, "job_id": job_id, "usd_micros": actual, "budget_line": line}
+    
+    # G-AUD-COST: Extract actual cost from provider headers
+    credits_used = result.get("credits_used")
+    characters = result.get("characters")
+    cost_from_header = result.get("cost_from_header", False)
+    
+    # Calculate actual USD cost from credits if available
+    if credits_used is not None and cost_from_header:
+        actual = credits_to_usd_micros(credits_used)
+    else:
+        # Fallback to estimate
+        actual = int(round(result.get("cost_usd", 0) * 1_000_000)) or usd_micros
+    
+    # Record job with actual cost and commit
+    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, actual, 
+                           characters=characters, credits_used=credits_used)
+    await ledger.commit(episode_id, line, usd_micros, actual, job_id, f"{kind} {asset_id}",
+                       characters=characters, credits_used=credits_used)
+    
+    return {**result, "job_id": job_id, "usd_micros": actual, "budget_line": line,
+            "cost_from_header": cost_from_header}
 
 
-async def _provider_file(job_id: str, provider) -> tuple[str, float]:
+async def _provider_file(job_id: str, provider) -> tuple[str, float, dict[str, Any]]:
+    """Get job file path, cost USD, and metadata (credits_used, characters, cost_from_header)."""
     job = await provider.get_job_status(job_id)
     if not job.output_url or not job.output_url.startswith("file://"):
         raise RuntimeError(f"ElevenLabs job {job_id} has no durable file: {job.error or job.output_url}")
     from urllib.parse import unquote, urlparse
-    return unquote(urlparse(job.output_url).path), float(job.cost or 0.0)
+    path = unquote(urlparse(job.output_url).path)
+    cost_usd = float(job.cost or 0.0)
+    metadata = job.raw or {}
+    return path, cost_usd, metadata
 
 
 def _provider(out_dir: Path):
@@ -203,12 +227,13 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_audio(script, voice_id, model=model, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        path, cost, metadata = await _provider_file(job, provider)
+        return {"path": path, "cost_usd": cost, **metadata}
 
     spent = await _guarded_spend(episode_id, "tts", line_id, key, model, amount, call)
     return _result(out, source="generated", line_id=line_id, model=model, job_id=spent["job_id"],
-                   usd_micros=spent["usd_micros"], characters=len(script))
+                   usd_micros=spent["usd_micros"], characters=len(script), 
+                   cost_from_header=spent.get("cost_from_header", False))
 
 
 @activity.defn
@@ -244,11 +269,12 @@ async def generate_sfx(episode_id: str, description: str, duration: float | None
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_sfx(description, duration=duration, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        path, cost, metadata = await _provider_file(job, provider)
+        return {"path": path, "cost_usd": cost, **metadata}
 
     spent = await _guarded_spend(episode_id, "sfx", cue_id, key, "sound_generation", amount, call)
-    return _result(out, source="generated", cue_id=cue_id, job_id=spent["job_id"], usd_micros=spent["usd_micros"])
+    return _result(out, source="generated", cue_id=cue_id, job_id=spent["job_id"], 
+                   usd_micros=spent["usd_micros"], cost_from_header=spent.get("cost_from_header", False))
 
 
 @activity.defn
@@ -285,12 +311,12 @@ async def generate_music(episode_id: str, style: str, duration: float, model: st
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_music(style, float(duration), model=model, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        path, cost, metadata = await _provider_file(job, provider)
+        return {"path": path, "cost_usd": cost, **metadata}
 
     spent = await _guarded_spend(episode_id, "music", cue_id, key, model, amount, call)
     return _result(out, source="generated", cue_id=cue_id, model=model, job_id=spent["job_id"],
-                   usd_micros=spent["usd_micros"])
+                   usd_micros=spent["usd_micros"], cost_from_header=spent.get("cost_from_header", False))
 
 
 @activity.defn

@@ -641,7 +641,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     """
     Test Bug 1: Upload cache must key on ref's own version (from sidecar), not shot version.
     
-    A Mochi v3 still (shot version=3) using a ref that's v2 should cache with ref_version=2.
+    A Subject01 v3 still (shot version=3) using a ref that's v2 should cache with ref_version=2.
     If shot version were used, a v1 ref would be wrongly cached as v3 and reused for v1 shots.
     """
     # Create ref with version 2 sidecar
@@ -700,7 +700,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep99", cap_credits=10000)
     
-    # Submit still with Mochi v3 (shot version=3) but ref is v2
+    # Submit still with Subject01 v3 (shot version=3) but ref is v2
     result = await submit_still_job_enforced(
         episode_id="ep99",
         shot_id="A01",
@@ -709,7 +709,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
         resolution="1k",
         quality="high",
         aspect_ratio="16:9",
-        version=3,  # Shot is using Mochi v3
+        version=3,  # Shot is using Subject01 v3
         tier="final",
         shot_meta={"count": 1, "antler": False, "duck": False}
     )
@@ -824,30 +824,30 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     refs_dir.mkdir(parents=True, exist_ok=True)
     
     # Create a v3 ref on disk with sidecar
-    ref_file = refs_dir / "r_mochi.png"
-    ref_file.write_bytes(b"mochi-v3-content")
+    ref_file = refs_dir / "r_subject01.png"
+    ref_file.write_bytes(b"subject01-v3-content")
     
-    version_sidecar = refs_dir / ".versions" / "r_mochi.json"
+    version_sidecar = refs_dir / ".versions" / "r_subject01.json"
     version_sidecar.parent.mkdir(parents=True, exist_ok=True)
-    version_sidecar.write_text('{"version": 3, "ref_key": "r_mochi"}')
+    version_sidecar.write_text('{"version": 3, "ref_key": "r_subject01"}')
     
     # Also create archived v1 and v2
     v1_dir = refs_dir / "_v1"
     v1_dir.mkdir(parents=True, exist_ok=True)
-    (v1_dir / "r_mochi.png").write_bytes(b"mochi-v1")
+    (v1_dir / "r_subject01.png").write_bytes(b"subject01-v1")
     
     v2_dir = refs_dir / "_v2"
     v2_dir.mkdir(parents=True, exist_ok=True)
-    (v2_dir / "r_mochi.png").write_bytes(b"mochi-v2")
+    (v2_dir / "r_subject01.png").write_bytes(b"subject01-v2")
     
     # Create refs.json WITHOUT a versions map
     refs_json = ep_dir / "refs.json"
     refs_json.write_text(json.dumps({
         "to_generate": {
-            "r_mochi": str(ref_file)
+            "r_subject01": str(ref_file)
         },
         "prompts": {
-            "r_mochi": "A mochi character"
+            "r_subject01": "A subject01 character"
         }
         # NO "versions" key!
     }))
@@ -864,7 +864,7 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     
     # CRITICAL: version should be 3 (from sidecar), not 1
     assert ref["version"] == 3, f"Expected version 3 from sidecar, got {ref['version']}"
-    assert ref["key"] == "r_mochi"
+    assert ref["key"] == "r_subject01"
     assert ref["output_path"] == str(ref_file)
     
     # Test case 2: No sidecar but archived version exists
@@ -876,11 +876,11 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     
     refs_json.write_text(json.dumps({
         "to_generate": {
-            "r_mochi": str(ref_file),
+            "r_subject01": str(ref_file),
             "r_duck": str(ref2_file)
         },
         "prompts": {
-            "r_mochi": "A mochi character",
+            "r_subject01": "A subject01 character",
             "r_duck": "A duck character"
         }
     }))
