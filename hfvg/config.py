@@ -156,6 +156,11 @@ class Config:
 
     # Max retry attempts per shot (server-side enforcement)
     MAX_SHOT_RETRIES: int = int(os.getenv("MAX_SHOT_RETRIES", "1"))
+
+    # G-BUD-1: max PAID retries per shot per review round (G2 stills, G3 clips). The workflow uses
+    # this for its fail-fast refusal; the USD ledger (hfvg.budget) enforces the same env value at
+    # the paid submit. Per-round cap: ROUND_CAP_USD (default 10.00, 80% stop) in hfvg.budget.
+    MAX_PAID_RETRIES_PER_SHOT_PER_ROUND: int = int(os.getenv("MAX_PAID_RETRIES_PER_SHOT_PER_ROUND", "1"))
     
     # Placeholder image URL for G1 clip estimates (pricing doesn't depend on image content)
     # Must be a valid public image URL that the provider can access

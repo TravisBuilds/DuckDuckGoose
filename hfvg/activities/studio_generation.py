@@ -26,7 +26,13 @@ import httpx
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from hfvg.budget import BudgetLedger, REVISION_LINE
+from hfvg.budget import (
+    BudgetLedger,
+    REVISION_LINE,
+    ROUND_G2_STILLS,
+    ROUND_G3_CLIPS,
+    RoundBudgetError,
+)
 from hfvg.credit_ledger import CreditLedger
 from hfvg.config import config, max_refs_for, still_model_path
 from hfvg.pricing import (
@@ -240,6 +246,40 @@ def generate_idempotency_key(episode_id: str = None, shot_id: str = None, versio
     return hash_bytes.hex()[:32]
 
 
+async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id: str, shot_id: str,
+                                job_id: str, amount_usd_micros: int, retry_key: str) -> dict:
+    """G-BUD-1: authorize one PAID retry job against its review round right before the provider
+    submit (per-round 80% stop + max paid retries per shot per round, USD ledger). Refusal is a
+    non-retryable ApplicationError(type="RoundBudgetError"); the caller releases its other holds."""
+    base_shot = shot_id[:-4] if shot_id.endswith("_end") else shot_id
+    try:
+        return await ledger.authorize_round_spend(
+            episode_id, round_id, base_shot, job_id, amount_usd_micros,
+            retry_key=retry_key, reason=f"paid retry {retry_key}: {job_id}",
+        )
+    except RoundBudgetError as e:
+        raise ApplicationError(str(e), type="RoundBudgetError", non_retryable=True) from e
+
+
+@activity.defn
+async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: str, hold_key: str,
+                                      model: str, duration: float, retry_key: str) -> dict:
+    """Read-only pre-check for EpisodeWorkflowV2.retry_clip (before the retry child starts): would
+    this paid clip retry fit the round cap / per-shot retry limit / episode stop? Uses the offline
+    rate-table estimate (no provider call). Raises ApplicationError(type="RoundBudgetError")."""
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    ledger = BudgetLedger(db_path)
+    amount = clip_estimate_usd_micros(model, None, duration)
+    try:
+        result = await ledger.authorize_round_spend(
+            episode_id, round_id, shot_id, hold_key, amount, retry_key=retry_key,
+            reason=f"pre-check {retry_key}", dry_check=True,
+        )
+    except RoundBudgetError as e:
+        raise ApplicationError(str(e), type="RoundBudgetError", non_retryable=True) from e
+    return {**result, "estimate_usd_micros": amount}
+
+
 @activity.defn
 async def submit_still_job_enforced(
     episode_id: str,
@@ -440,6 +480,7 @@ async def submit_still_job_enforced(
     budget_reserved = False
     budget_line_name = None
     budget_amount = 0
+    round_hold_key = None
     
     try:
         # Upload local reference images to Higgsfield and get URLs
@@ -550,6 +591,12 @@ async def submit_still_job_enforced(
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
+        # G-BUD-1: a paid still RETRY (attempt > 1) must fit its G2 review round, before submit
+        if attempt > 1:
+            await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
+                                        budget_amount, f"r{attempt - 1}")
+            round_hold_key = job_id
+
         # Submit to provider
         provider_job_id = await provider.submit_image(
             prompt=prompt,
@@ -598,6 +645,8 @@ async def submit_still_job_enforced(
             await ledger.release(episode_id, budget_line_name, budget_amount, f"Provider error: {error_detail}")
         if credits_reserved:
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+        if round_hold_key:
+            await ledger.release_round_hold(round_hold_key)
         raise ValueError(error_detail) from e
     except Exception as e:
         # Release whatever has been reserved on any other error
@@ -605,6 +654,8 @@ async def submit_still_job_enforced(
             await ledger.release(episode_id, budget_line_name, budget_amount, f"Submit failed: {str(e)}")
         if credits_reserved:
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+        if round_hold_key:
+            await ledger.release_round_hold(round_hold_key)
         raise
     finally:
         await provider.close()
@@ -625,9 +676,14 @@ async def submit_clip_job_enforced(
     end_image_url: str | None = None,
     bitrate_mode: str | None = None,
     missing_refs: list[str] | None = None,
+    clip_retry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
+
+    clip_retry: set by EpisodeWorkflowV2.retry_clip ({"n": retry number, ...}). The job id gets a
+        deterministic ``-c{n}`` suffix (idempotent per retry, never colliding with the original
+        clip) and, live, the paid submit is authorized against the G3 clip round first (G-BUD-1).
     
     Args:
         model: explicit routing, "kling" (default) or "seedance". The planner refuses Seedance
@@ -745,6 +801,8 @@ async def submit_clip_job_enforced(
     
     # Generate harness job_id
     job_id = f"clip-{episode_id}-{shot_id}-v{version}"
+    if clip_retry:
+        job_id += f"-c{int(clip_retry['n'])}"
     
     # Generate idempotency key from hash of actual request parameters
     # This ensures identical requests dedupe but different requests don't collide
@@ -887,6 +945,18 @@ async def submit_clip_job_enforced(
         key_hash = hashlib.sha256(key_input.encode()).hexdigest()[:16]
         idempotency_key = f"{job_id}-{key_hash}"
         
+        # G-BUD-1: a paid clip RETRY must fit the G3 clip round (cap + per-shot limit), before submit
+        round_hold_key = None
+        if clip_retry:
+            try:
+                await _authorize_paid_retry(ledger, episode_id, ROUND_G3_CLIPS, shot_id, job_id,
+                                            estimated_cost, f"c{int(clip_retry['n'])}")
+            except ApplicationError:
+                await ledger.release(episode_id, line_name, estimated_cost, "Round budget refused")
+                await credit_ledger.release_credits(episode_id, job_id, notes="Round budget refused")
+                raise
+            round_hold_key = job_id
+
         # Submit to provider - wrapped to release reservations on ANY error
         try:
             if route.model == "seedance":
@@ -914,11 +984,15 @@ async def submit_clip_job_enforced(
             # Release both reservations before re-raising
             await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
+            if round_hold_key:
+                await ledger.release_round_hold(round_hold_key)
             raise ValueError(error_detail) from e
         except Exception as e:
             # Release both reservations on any other error
             await ledger.release(episode_id, line_name, estimated_cost, f"Submit failed: {str(e)}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Submit failed: {str(e)}")
+            if round_hold_key:
+                await ledger.release_round_hold(round_hold_key)
             raise
         
         # Post-submit success handling (provider accepted and will charge)
@@ -938,8 +1012,8 @@ async def submit_clip_job_enforced(
         )
         try:
             await ledger.record_job(
-                episode_id, job_id, shot_id, provider.model_path, tier, line_name,
-                estimated_cost,
+                episode_id, job_id, shot_id, provider.model_path, "retry" if clip_retry else tier,
+                line_name, estimated_cost,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold

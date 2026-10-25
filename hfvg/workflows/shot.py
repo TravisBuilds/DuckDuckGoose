@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.activities.save_assets import save_asset_locally
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
+    from hfvg.qc.clip_expect import ClipSpecError, expected_clip_dims
     from temporalio.exceptions import ActivityError, ApplicationError
     
     import os
@@ -48,6 +49,7 @@ class ShotWorkflow:
         self.version = 1
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
+        self.still_rejected_reason: str | None = None  # G2 rejection: never animated, never charged
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
@@ -71,6 +73,14 @@ class ShotWorkflow:
         """Signal from parent that this scene's stills have been approved."""
         self.stills_approved = True
     
+    @workflow.signal
+    def still_rejected(self, reason: str = ""):
+        """Signal from parent: this shot's still was REJECTED at G2. The shot ends without a clip
+        (no clip submit, no clip spend). Mutually exclusive with stills_approved for a shot."""
+        self.still_rejected_reason = reason or "rejected at G2"
+        # Release the G2 wait; the rejection is checked right after it, before any clip work.
+        self.stills_approved = True
+
     @workflow.signal
     def set_end_image(self, url: str):
         """Signal: the END-frame image URL for a start+end clip (Kling last_image_url)."""
@@ -108,6 +118,7 @@ class ShotWorkflow:
             "has_still": self.still_asset is not None,
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
+            "still_rejected": self.still_rejected_reason,
             "human_approved_still": self.human_approved_still,
             # Per-shot G2 status (Item 4)
             "still_status": self.still_status,
@@ -427,6 +438,23 @@ class ShotWorkflow:
             ],
         )
 
+        # Clip-only retry (EpisodeWorkflowV2.retry_clip, after G2): the still was already approved at
+        # G2 and is reused as-is - no still submit, no still spend, no second G2 wait.
+        # Input-driven (not patched): histories without clip_only replay unchanged.
+        clip_only = shot_plan.get("clip_only")
+        if clip_only:
+            self.still_asset = {"url": clip_only["still_url"], "cost": 0}
+            self.still_url = clip_only["still_url"]
+            self.still_status = "done"
+            self.end_image_url = clip_only.get("end_image_url")
+            self.stills_approved = True
+            workflow.logger.info(
+                f"Clip retry {clip_only.get('n')} for {self.shot_id}: reusing approved still {self.still_url}"
+            )
+            return await self._clip_phase(
+                shot_plan, {"passed": True, "reused_approved_still": True}, retry_policy, clip_retry=clip_only
+            )
+
         for attempt in range(self.max_retries):
             try:
                 # Extract parameters from shot plan
@@ -713,10 +741,51 @@ class ShotWorkflow:
         if not self.human_approved_still:
             await self._notify_parent_retry_still_ready(shot_plan)
 
-        # CRITICAL: Wait for parent to approve this scene's stills before generating clip
+        # CRITICAL: Wait for parent to approve (or reject) this scene's stills before generating clip
         workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
+        # (still_rejected also releases this wait, with still_rejected_reason set.)
         await workflow.wait_condition(lambda: self.stills_approved)
+        if self.still_rejected_reason is not None:
+            # G-GATE-1: a still rejected at G2 is never animated and never charged for a clip
+            workflow.logger.info(f"Still rejected at G2 for {self.shot_id}: {self.still_rejected_reason}")
+            self.status = "rejected"
+            self.clip_status = "skipped"
+            return {
+                "shot_id": self.shot_id,
+                "status": "rejected",
+                "still_url": self.still_asset["url"],
+                "reason": self.still_rejected_reason,
+            }
         workflow.logger.info(f"Stills approved, proceeding to clip generation")
+        return await self._clip_phase(shot_plan, review_result, retry_policy)
+
+    async def _clip_phase(self, shot_plan: dict, review_result: dict, retry_policy: RetryPolicy,
+                          clip_retry: dict | None = None) -> dict:
+        """Clip phase; the result also carries the end frame (if any) so a later clip retry can
+        reuse the exact approved start + end stills."""
+        result = await self._clip_phase_body(shot_plan, review_result, retry_policy, clip_retry)
+        if isinstance(result, dict) and self.end_image_url:
+            result.setdefault("end_image_url", self.end_image_url)
+        return result
+
+    async def _clip_phase_body(self, shot_plan: dict, review_result: dict, retry_policy: RetryPolicy,
+                               clip_retry: dict | None = None) -> dict:
+        """Clip -> QC -> record. ``clip_retry`` = {"n", "hold_key", ...} for a post-G2 clip retry
+        (a NEW deterministic job id; the paid submit is authorized against the round ledger)."""
+        # G-QC-1: derive the expected clip dimensions BEFORE any paid clip submit (fail closed).
+        clip_params = shot_plan.get("params", {})
+        try:
+            expected_dims = expected_clip_dims(clip_params)
+        except ClipSpecError as e:
+            self.clip_status = "failed"
+            self.clip_error = f"Clip pre-flight QC failed: {e}"
+            workflow.logger.error(f"{self.clip_error} ({self.shot_id}); no clip submitted")
+            return {
+                "shot_id": self.shot_id,
+                "status": "failed",
+                "still_url": self.still_asset["url"],
+                "error": self.clip_error,
+            }
 
         for attempt in range(self.max_retries):
             try:
@@ -765,7 +834,7 @@ class ShotWorkflow:
                                 end_image_url,
                                 None,  # bitrate_mode (activity default)
                                 shot_plan.get("missing_refs", []),
-                            ],
+                            ] + ([clip_retry] if clip_retry else []),
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
                         )
@@ -836,11 +905,11 @@ class ShotWorkflow:
                 except Exception as e:
                     workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
 
-                # Prepare rubric with expected clip parameters for motion QC
+                # Rubric with the expected clip dimensions derived before submit (G-QC-1)
                 clip_rubric = {
                     "duration": duration,
-                    "resolution": params.get("resolution", "1024x576"),
-                    "aspect_ratio": params.get("aspect_ratio", "16:9"),
+                    "resolution": expected_dims["resolution"],
+                    "aspect_ratio": expected_dims["aspect_ratio"],
                 }
                 
                 clip_qc = await workflow.execute_activity(
@@ -882,6 +951,7 @@ class ShotWorkflow:
                     return {
                         "shot_id": self.shot_id,
                         "status": "failed",
+                        "still_url": self.still_asset["url"],
                         "clip_url": self.clip_asset["url"],
                         "error": f"QC failed: {', '.join(clip_qc['issues'])}",
                     }

@@ -104,25 +104,23 @@ class HiggsfieldProvider(GenerationProvider):
         Returns:
             Provider request_id
         """
+        # G-MODEL-1: gpt_image_2 is not available on the API - refuse with a plain error, in dry-run
+        # too, so a dry run never hides a request that would fail live
+        if model == "gpt_image_2":
+            raise ValueError(
+                "gpt_image_2 is not available via the Higgsfield Cloud API. "
+                "Use model='soul_v2' (Higgsfield SOUL V2) or 'xai/grok-imagine-image-2.0' (Grok Image 2.0) instead. "
+                "See docs/MODEL-CAPS.md for available models."
+            )
+
         if self.dry_run:
             return self._mock_job_id("img")
 
         # Real API call
-        # Map model aliases to paths, with fallback to SOUL V2
+        # Map model aliases to paths
         # https://docs.higgsfield.ai/docs/models/soul-2/generate
         if model == "soul_v2":
             model_path = config.MODEL_PATH_SOUL_V2
-        elif model == "gpt_image_2":
-            # GPT Image 2 not in public API - fallback to SOUL V2
-            model_path = config.MODEL_PATH_GPT_IMAGE_2
-            if not model_path:
-                import warnings
-                warnings.warn(
-                    "GPT Image 2 not available via API. Falling back to SOUL V2 "
-                    "(higgsfield-ai/soul/v2/standard). "
-                    "Set MODEL_PATH_GPT_IMAGE_2 to override, or use model='soul_v2'."
-                )
-                model_path = config.MODEL_PATH_SOUL_V2
         else:
             model_path = model  # Use as-is if not a known alias
         

@@ -17,7 +17,8 @@ Routes:
 - POST /api/episodes/{episode_id}/approve: Send approval signal
 - GET /api/episodes/{episode_id}/shots: List shots with status
 - POST /api/episodes/{episode_id}/shots/{shot_id}/approve: Approve still
-- POST /api/episodes/{episode_id}/shots/{shot_id}/reject: Reject still
+- POST /api/episodes/{episode_id}/shots/{shot_id}/reject: Reject still (G2, per shot)
+- POST /api/episodes/{episode_id}/shots/{shot_id}/retry-clip: Bounded clip retry after G2
 - GET /api/episodes/{episode_id}/gates: Get gate status
 - GET /api/episodes/{episode_id}/budget: Get budget status
 - GET /api/episodes/{episode_id}/audit: Get audit trail
@@ -1169,32 +1170,111 @@ async def approve_still(
         raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
 
 
+async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
+    """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    workflow_id = episode_workflow_id(episode_id)
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        return await handle.execute_update(update, args=args)
+    except WorkflowUpdateFailedError as e:
+        if e.cause and isinstance(e.cause, ApplicationError):
+            raise HTTPException(status_code=409, detail=str(e.cause))
+        raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
+    except ApplicationError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
+
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/reject")
 async def reject_still(
     episode_id: str,
     shot_id: str,
     reason: str = Form(...),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Reject still for a shot.
-    
-    Requires: Cookie auth
+    Reject the still of one shot at G2 (G-GATE-1).
+
+    The workflow decides first (reject_shot update; refused -> 409, e.g. not parked at G2 or G2
+    already approved). Only an accepted rejection is persisted in studio.db, so the DB can never
+    say "rejected" for a shot whose still the workflow will still animate.
+
+    Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(episode_id)
-    
-    # Audit log
+
+    result = await _execute_episode_update(episode_id, "reject_shot", [shot_id, reason], "Reject")
+
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """UPDATE shots 
+               SET status = 'rejected', rejection_reason = ?, updated_at = datetime('now')
+               WHERE episode_id = ? AND shot_id = ?""",
+            (reason, episode_id, shot_id)
+        )
         await db.execute(
             """INSERT INTO audit_log (episode_id, action, details, user)
                VALUES (?, ?, ?, ?)""",
             (episode_id, "reject_still", f"Shot {shot_id} still rejected: {reason}", "admin")
         )
         await db.commit()
-    
-    return {"success": True, "shot_id": shot_id, "message": "Still rejected"}
+
+    return {"success": True, "shot_id": shot_id, "message": "Still rejected", "reason": reason,
+            "result": result}
+
+
+class RetryClipRequest(BaseModel):
+    reason: str = Field(..., min_length=1, description="Why the clip is being re-run (audited)")
+    prompt_override: str | None = None
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry-clip")
+async def retry_clip(
+    episode_id: str,
+    shot_id: str,
+    request: RetryClipRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    G-RETRY-1: re-run ONLY the clip of a shot after G2, reusing its approved still.
+
+    Bounded by MAX_PAID_RETRIES_PER_SHOT_PER_ROUND (default 1) and the per-round USD cap, both
+    checked before any paid submit; refusals -> 409. The retry has its own deterministic job id.
+
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+
+    result = await _execute_episode_update(
+        episode_id, "retry_clip", [shot_id, request.reason, request.prompt_override], "Clip retry"
+    )
+
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "retry_clip",
+             f"Shot {shot_id} clip retry {result.get('retry')} ({result.get('job_id')}): {request.reason}",
+             "admin")
+        )
+        await db.commit()
+
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
+            "message": f"Clip retry queued for shot {shot_id}"}
 
 
 """

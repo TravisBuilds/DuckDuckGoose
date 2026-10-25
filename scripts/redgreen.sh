@@ -1801,6 +1801,108 @@ test_mutation 218 "raising an override without the flag is silent" \
     "tests/test_model_caps_registry.py::test_override_can_lower_not_raise" \
     sed -i 's/            warnings.warn(msg, UserWarning, stacklevel=2)/            pass  # MUTATED/'
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUND 1 MUTATIONS: Gate correctness and spend safety (G-GATE-1, G-QC-1,
+# G-MODEL-1, G-RETRY-1, G-BUD-1). These must run BEFORE the summary.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 219: G-GATE-1a: a rejected shot is sent still_rejected, never stills_approved
+test_mutation 219 "Rejected shots are never released to clip generation" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_rejected_shot_never_reaches_clip_generation" \
+    sed -i 's/                    if self\.state\.shot_decisions\.get(shot\["shot_id"\]) != "rejected":/                    if True:  # MUTATED/'
+
+# 220: G-GATE-1b: G2 approval in the studio DB skips rejected/failed/blocked shots
+test_mutation 220 "G2 only approves shots that are still awaiting review" \
+    "hfvg/studio_db.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_studio_db_only_approves_pending_shots" \
+    sed -i "/AND status NOT IN ('rejected', 'failed', 'blocked', 'approved')/d"
+
+# 221: G-QC-1a: expected clip dims come from the shot params, not a 16:9 default
+test_mutation 221 "Clip QC derives expected dims from params (preflight refuses bad spec)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_gate_correctness_round1.py::TestClipQCDefaults::test_clip_qc_fails_loudly_without_resolution" \
+    sed -i 's/            expected_dims = expected_clip_dims(clip_params)/            expected_dims = {"resolution": "1024x576", "aspect_ratio": "16:9"}  # MUTATED/'
+
+# 222: G-MODEL-1a: gpt_image_2 raises a plain ValueError (dry-run included)
+test_mutation 222 "Higgsfield refuses gpt_image_2 instead of fallback" \
+    "hfvg/providers/higgsfield.py" \
+    "tests/test_gate_correctness_round1.py::TestModelDefaults::test_higgsfield_provider_refuses_gpt_image_2" \
+    sed -i '/if model == "gpt_image_2":/,/)/{ s/raise ValueError(/_mutated = str(  # MUTATED/; }'
+
+# 223: G-GATE-1c: reject_shot validator refuses unknown shots
+test_mutation 223 "reject_shot refuses shots not launched in the episode" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_reject_refused_outside_g2_and_for_unknown_shot" \
+    sed -i 's/            return "unknown shot (not launched in this episode)"/            pass  # MUTATED/'
+
+# 224: G-QC-1b: live clip QC never falls back to 1024x576 / 16:9
+test_mutation 224 "Live clip QC escalates when the rubric has no expected dims" \
+    "hfvg/activities/qc.py" \
+    "tests/test_gate_correctness_round1.py::TestClipQCDefaults::test_live_review_clip_without_dims_escalates" \
+    sed -i -e 's/expected_resolution = rubric.get("resolution")$/expected_resolution = rubric.get("resolution", "1024x576")/' -e 's/expected_aspect = rubric.get("aspect_ratio")$/expected_aspect = rubric.get("aspect_ratio", "16:9")/'
+
+# 225: G-BUD-1a: per-round 80% stop is enforced on the USD ledger
+test_mutation 225 "Round cap refuses a paid retry past the round stop" \
+    "hfvg/budget.py" \
+    "tests/test_gate_correctness_round1.py::TestBudgetUnification::test_round_cap_refuses_before_submit" \
+    sed -i 's/                if round_total + prior + delta > settings\.round_stop_usd_micros:/                if False:  # MUTATED/'
+
+# 226: G-BUD-1b: max paid retries per shot per round
+test_mutation 226 "At most N (default 1) paid retries per shot per round" \
+    "hfvg/budget.py" \
+    "tests/test_gate_correctness_round1.py::TestBudgetUnification::test_max_one_paid_retry_per_shot_per_round" \
+    sed -i 's/                    if other_retries >= limit:/                    if False:  # MUTATED/'
+
+# 227: G-BUD-1c: live clip retry is authorized (with its retry key) before the provider call
+test_mutation 227 "Live clip retry hold carries its retry key before submit" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_gate_correctness_round1.py::TestBudgetUnification::test_live_clip_retry_refused_before_provider_call" \
+    sed -i 's/            retry_key=retry_key, reason=f"paid retry/            retry_key=None, reason=f"paid retry/'
+
+# 228: G-RETRY-1a: retry_clip is bounded per shot per round
+test_mutation 228 "retry_clip refuses beyond the per-shot per-round limit" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_reuses_approved_still_and_is_bounded" \
+    sed -i 's/        if self\.clip_retries\.get(shot_id, 0) >= limit:/        if False:  # MUTATED/'
+
+# 229: G-RETRY-1b: retry_clip never animates a still rejected at G2
+test_mutation 229 "retry_clip refuses shots rejected at G2" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_for_rejected_shot" \
+    sed -i 's/            return "still was rejected at G2; a rejected still is never animated"/            pass  # MUTATED/'
+
+# 230: G-RETRY-1c: retry_clip budget pre-check prices the actual clip
+test_mutation 230 "retry_clip pre-check refuses when the round cap is exhausted" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_when_round_cap_exhausted" \
+    sed -i 's/^    amount = clip_estimate_usd_micros(model, None, duration)/    amount = 1  # MUTATED/'
+
+# 231: G-RETRY-1d: final cut approval waits for pending clip retries
+test_mutation 231 "Final cut approval is held while a clip retry is pending" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_final_cut_waits_for_pending_clip_retry_and_report_has_real_caps" \
+    sed -i 's/^        if self\.pending_clip_retries:$/        if False:  # MUTATED/'
+
+# 232: G-BUD-1d: run report caps come from the ledger, not a placeholder
+test_mutation 232 "Run report uses real ledger caps (no placeholder)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_final_cut_waits_for_pending_clip_retry_and_report_has_real_caps" \
+    sed -i 's/                    None,  # credits_cap: read from the credit ledger.*/                    total_credits * 2,  # MUTATED placeholder/'
+
+# 233: G-GATE-1d / G-RETRY-1e: API maps refused workflow updates to 409 (no DB write)
+test_mutation 233 "API returns 409 when the workflow refuses a reject/retry" \
+    "api/main.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_reject_still_persists_state_in_db" \
+    sed -i 's/^        raise HTTPException(status_code=409, detail=str(e))$/        return {"refused": str(e)}  # MUTATED/'
+
+# 234: G-RETRY-1f: a clip retry reuses the approved still (no new still submit)
+test_mutation 234 "Clip retry child reuses the approved still" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_reuses_approved_still_and_is_bounded" \
+    sed -i 's/^        clip_only = shot_plan\.get("clip_only")/        clip_only = None  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?
