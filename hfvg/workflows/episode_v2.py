@@ -9,7 +9,6 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from pathlib import Path
     from hfvg import budget
     from hfvg.config import config  # Non-deterministic module with os.getenv
     from hfvg.activities import (
@@ -622,12 +621,6 @@ class EpisodeWorkflowV2:
         await self._run_picture_assembly(episode_id)
         
         # ================================================================
-        # Audio & Delivery (Round 4): VO, music, SFX mix + loudnorm, subs, phone encode
-        # ================================================================
-        workflow.logger.info("=== AUDIO & DELIVERY ===")
-        await self._run_audio_delivery(episode_id)
-        
-        # ================================================================
         # GATE 3: FINAL CUT
         # ================================================================
         workflow.logger.info("=== GATE 3: FINAL CUT ===")
@@ -960,170 +953,6 @@ class EpisodeWorkflowV2:
                 workflow.logger.warning(f"[PICTURE LOCK] mute edit QC WATCH (review): {qc.get('reason')}")
             self.state.stage = PipelineStage.PICTURE_LOCK
             workflow.logger.info(f"[PICTURE LOCK] mute edit QC {qc['verdict']}")
-
-    async def _run_audio_delivery(self, episode_id: str) -> None:
-        """Run the audio mix and delivery encode after picture lock.
-
-        Requires:
-        - Mute video at self.state.assembly_path
-        - VO script with timing (for now: placeholder or pre-rendered VO)
-        - BGM/SFX/VOX config (for now: simplified; library reuse or generation)
-
-        Produces:
-        - Master delivery (with subs)
-        - Nosubs version
-        - Phone encode
-        - Delivery QC (loudness, true peak, duration, subs present)
-
-        Delivery QC blocking = FAIL/NEEDS_REVIEW holds G_FINAL_CUT."""
-        self.state.stage = "AUDIO_DELIVERY"
-        
-        # Check that mute edit exists and is not blocking
-        if not self.state.assembly_path or not Path(self.state.assembly_path).is_file():
-            qc = {"verdict": "FAIL", "reason": "Mute edit not found or not ready", "blocking": True}
-            self.state.delivery_qc = qc
-            workflow.logger.error(f"[DELIVERY] QC FAIL: {qc['reason']}")
-            return
-        
-        if (self.state.assembly_qc or {}).get("blocking"):
-            qc = {"verdict": "FAIL", "reason": "Mute edit QC is blocking", "blocking": True}
-            self.state.delivery_qc = qc
-            workflow.logger.error(f"[DELIVERY] QC FAIL: {qc['reason']}")
-            return
-        
-        # For Round 4: simplified implementation with placeholder VO
-        # In production: call generate_voiceover, generate_music, etc. here
-        
-        # Build VO lines (simplified: use episode metadata if present)
-        vo_lines: list[dict] = []
-        locked_vo_path = self.state.episode_metadata.get("locked_vo_path")
-        
-        if locked_vo_path:
-            # Use pre-rendered VO
-            workflow.logger.info(f"Using locked VO: {locked_vo_path}")
-            # For now: single line placeholder
-            vo_lines = [{
-                "path": locked_vo_path,
-                "in": 5.0,
-                "dur": 3.0,
-                "gain_db": 0.0
-            }]
-        else:
-            # Generate VO (stub for now)
-            workflow.logger.info("[DELIVERY] VO generation not yet configured; using silence")
-        
-        # BGM config (library reuse or generation stub)
-        bgm_config = self.state.episode_metadata.get("bgm_config") or {}
-        
-        # SFX and VOX (stubs)
-        sfx_cues = self.state.episode_metadata.get("sfx_cues") or []
-        vox_calls = self.state.episode_metadata.get("vox_calls") or []
-        
-        # Subtitle script (from VO lines or episode metadata)
-        subtitle_script = self.state.episode_metadata.get("subtitle_script") or []
-        
-        try:
-            from hfvg.activities.media import mix_audio_final
-            
-            delivery_result = await workflow.execute_activity(
-                mix_audio_final,
-                args=[
-                    episode_id,
-                    self.state.assembly_path,
-                    vo_lines,
-                    bgm_config,
-                    sfx_cues,
-                    vox_calls,
-                    subtitle_script,
-                    None  # output_dir
-                ],
-                start_to_close_timeout=timedelta(minutes=45),
-                heartbeat_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=5),
-                                         maximum_interval=timedelta(seconds=30)),
-            )
-            
-            self.state.delivery_paths = {
-                "master": delivery_result["master_path"],
-                "nosubs": delivery_result["nosubs_path"],
-                "phone": delivery_result["phone_path"],
-                "subs": delivery_result["subs_path"],
-            }
-            self.state.delivery_manifest = delivery_result["manifest"]
-            
-            # Run delivery QC
-            qc_data = delivery_result.get("qc", {})
-            qc = await self._check_delivery_qc(qc_data, delivery_result)
-            
-        except ActivityError as e:
-            qc = {"verdict": "NEEDS_REVIEW", "reason": f"Audio delivery failed: {e.cause or e}", "blocking": True}
-        
-        self.state.delivery_qc = qc
-        
-        if qc["blocking"]:
-            workflow.logger.error(f"[DELIVERY] QC {qc['verdict']}: {qc['reason']} (G_FINAL_CUT held)")
-            if self.approved_g_final_cut:
-                self.approved_g_final_cut = False
-                self.final_cut_refusals.append(f"approval withdrawn: delivery QC {qc['verdict']}: {qc['reason']}")
-        else:
-            workflow.logger.info(f"[DELIVERY] QC {qc['verdict']}")
-    
-    async def _check_delivery_qc(self, qc_data: dict, delivery_result: dict) -> dict:
-        """Check delivery QC: loudness, true peak, duration, subs present."""
-        from hfvg.activities.audio import LOUDNESS_TARGET_LUFS, LOUDNESS_TOLERANCE_LUFS, TRUE_PEAK_MAX_DBTP
-        
-        checks = []
-        blocking = False
-        verdict = "PASS"
-        
-        # Check loudness within tolerance
-        loudness = qc_data.get("loudness_lufs", 0.0)
-        target = qc_data.get("loudness_target", LOUDNESS_TARGET_LUFS)
-        if abs(loudness - target) > LOUDNESS_TOLERANCE_LUFS:
-            checks.append(f"loudness {loudness:.1f} LUFS out of target ({target} ± {LOUDNESS_TOLERANCE_LUFS})")
-            verdict = "FAIL"
-            blocking = True
-        
-        # Check true peak under ceiling
-        true_peak = qc_data.get("true_peak_dbtp", 0.0)
-        max_tp = qc_data.get("true_peak_max", TRUE_PEAK_MAX_DBTP)
-        if true_peak > max_tp:
-            checks.append(f"true peak {true_peak:.1f} dBTP exceeds {max_tp} dBTP")
-            verdict = "FAIL"
-            blocking = True
-        
-        # Check duration matches picture
-        delivery_dur = qc_data.get("duration", 0.0)
-        if self.state.assembly_manifest:
-            assembly_dur = self.state.assembly_manifest.get("total_duration", 0.0)
-            if abs(delivery_dur - assembly_dur) > 0.1:
-                checks.append(f"duration mismatch: audio {delivery_dur:.2f}s vs picture {assembly_dur:.2f}s")
-                verdict = "FAIL"
-                blocking = True
-        
-        # Check audio stream present
-        master_path = delivery_result.get("master_path")
-        if master_path and Path(master_path).is_file():
-            # Probe for audio stream (simplified check)
-            pass  # Would use ffprobe; skipped for now
-        
-        # Check subs present
-        subs_path = delivery_result.get("subs_path")
-        if not subs_path or not Path(subs_path).is_file():
-            checks.append("subtitle file missing")
-            verdict = "WATCH"
-        
-        reason = "; ".join(checks) if checks else "all checks passed"
-        
-        return {
-            "verdict": verdict,
-            "reason": reason,
-            "blocking": blocking,
-            "checks": checks,
-            "loudness_lufs": loudness,
-            "true_peak_dbtp": true_peak,
-            "duration": delivery_dur,
-        }
 
     def _assembly_view(self) -> dict:
         return {
