@@ -43,6 +43,7 @@ from hfvg.activities.workflow_support import (
 from hfvg.activities.g1_plan import compute_g1_plan_activity
 from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
 from hfvg.activities.preflight import preflight_validate_episode_activity
+from hfvg.activities.balance_check import check_higgsfield_balance_activity
 
 __all__ = [
     "acquire_run_lock",

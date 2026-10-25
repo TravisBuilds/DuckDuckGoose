@@ -1086,7 +1086,25 @@ class EpisodeWorkflowV2:
         if aqc.get("verdict") == "NO_CLIPS" or not path:
             qc = {"verdict": "NO_PICTURE", "reason": "no assembled picture to deliver (see assembly QC)"}
         else:
-            picture_s = float((self.state.assembly_manifest or {}).get("total_duration") or 0.0) or 60.0
+            # Calculate picture duration from assembly manifest
+            # In dry mode with placeholder clips, compute from shot plan durations
+            manifest_duration = float((self.state.assembly_manifest or {}).get("total_duration") or 0.0)
+            if manifest_duration > 0:
+                picture_s = manifest_duration
+            else:
+                # Dry mode fallback: sum shot durations from assembly plan
+                picture_s = 0.0
+                for shot in self.assembly_shots:
+                    params = shot.get("params") or {}
+                    duration = float(params.get("duration", 5.0))
+                    trim = shot.get("trim") or {}
+                    trim_in = float(trim.get("in", 0.0))
+                    trim_out = float(trim.get("out", duration))
+                    picture_s += (trim_out - trim_in)
+                if picture_s <= 0:
+                    picture_s = 60.0  # Final fallback
+                workflow.logger.info(f"Dry mode: calculated picture duration from shot plans: {picture_s}s")
+            
             policy = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
                                  maximum_interval=timedelta(seconds=10))
             try:
