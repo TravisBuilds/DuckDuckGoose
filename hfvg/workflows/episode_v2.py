@@ -117,7 +117,7 @@ class EpisodeWorkflowV2:
             for shot_id, attempt in attempt_overrides.items():
                 self.state.shot_attempt_overrides[shot_id] = attempt
         
-        # In live mode, check for required files before acquiring lock
+        # In live mode, check for required files and Higgsfield balance before acquiring lock
         if not dry_run:
             workflow.logger.info(f"Verifying required files in live mode...")
             try:
@@ -133,6 +133,24 @@ class EpisodeWorkflowV2:
                     "episode_id": episode_id,
                     "status": "failed",
                     "error": f"Missing required files in live mode: {str(e)}",
+                }
+            
+            # Check Higgsfield balance
+            workflow.logger.info(f"Checking Higgsfield balance...")
+            try:
+                balance_info = await workflow.execute_activity(
+                    "check_higgsfield_balance_activity",
+                    args=[episode_id],
+                    start_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                workflow.logger.info(f"Balance check passed: ${balance_info['balance_usd']:.2f} USD")
+            except Exception as e:
+                workflow.logger.error(f"Balance check failed: {e}")
+                return {
+                    "episode_id": episode_id,
+                    "status": "failed",
+                    "error": f"Higgsfield balance check failed: {str(e)}",
                 }
         
         # Acquire account-level run lock

@@ -91,4 +91,5 @@ __all__ = [
     "land_late_asset",
     "record_reconcile_outcome",
     "register_preapproved_still_activity",
+    "check_higgsfield_balance_activity",
 ]
