@@ -6,11 +6,29 @@
 # Treats syntax errors, SQL errors, and network failures as INVALID mutations.
 # Prints a summary table at the end.
 #
+# Supports sharding via environment variables:
+#   REDGREEN_SHARD=N REDGREEN_TOTAL_SHARDS=M ./redgreen.sh
+#   Runs mutations where (mutation_num % M) == (N - 1)
+#   Example: REDGREEN_SHARD=1 REDGREEN_TOTAL_SHARDS=4 runs mutations 1, 5, 9, 13, ...
+#
 
 set -eu  # Fail on undefined variables AND command errors
 
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
+
+# Sharding support
+SHARD_NUM="${REDGREEN_SHARD:-0}"
+TOTAL_SHARDS="${REDGREEN_TOTAL_SHARDS:-1}"
+
+if [ "$SHARD_NUM" -gt 0 ] && [ "$TOTAL_SHARDS" -gt 1 ]; then
+    echo "Running shard $SHARD_NUM of $TOTAL_SHARDS"
+    SHARD_MODULO=$((SHARD_NUM - 1))
+else
+    echo "Running all mutations (no sharding)"
+    SHARD_NUM=0
+    TOTAL_SHARDS=1
+fi
 
 # Load skip configuration
 SKIP_CONFIG="$WORKSPACE_ROOT/scripts/redgreen_skip.conf"
@@ -2529,6 +2547,20 @@ test_mutation 338 "preflight cost estimate" \
 
 # Print final summary
 print_summary
+
+# Save summary to file for CI artifact
+if [ "$SHARD_NUM" -gt 0 ]; then
+    SUMMARY_FILE="/tmp/redgreen-shard-${SHARD_NUM}-summary.txt"
+    {
+        echo "Shard $SHARD_NUM of $TOTAL_SHARDS"
+        echo "PASS: $PASS_COUNT"
+        echo "FAIL: $FAIL_COUNT"
+        echo "SKIP: $SKIP_COUNT"
+        echo "INVALID: $INVALID_COUNT"
+    } > "$SUMMARY_FILE"
+    echo "Summary written to $SUMMARY_FILE"
+fi
+
 exit_code=$?
 
 # Return to main workspace and verify it's clean
