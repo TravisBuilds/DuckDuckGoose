@@ -29,7 +29,27 @@ class GatePolicy:
         self.series = self.data.get("series")
         self.harness = self.data.get("harness")
         self.gates = self.data.get("gates", [])
-        self.owner_approval_points = self.data.get("owner_approval_points", [])
+        
+        # Handle owner_approval_points key (may also be named project_owner_approval_points in legacy files)
+        if "owner_approval_points" in self.data:
+            self.owner_approval_points = self.data["owner_approval_points"]
+        elif "project_owner_approval_points" in self.data:
+            # Legacy alias support
+            import warnings
+            warnings.warn(
+                f"HARNESS-GATES.json uses legacy key 'project_owner_approval_points'. "
+                f"Please rename to 'owner_approval_points' in {self.policy_path}",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            self.owner_approval_points = self.data["project_owner_approval_points"]
+        else:
+            raise ValueError(
+                f"HARNESS-GATES.json missing required key 'owner_approval_points' in {self.policy_path}. "
+                f"This field lists the gate IDs that require project owner approval. "
+                f"Schema: {{\"owner_approval_points\": [\"G1_SHOT_PLAN\", \"G2_SCENE_STILLS\", ...]}}"
+            )
+        
         self.budgets = self.data.get("budgets", {})
         self.rules = self.data.get("rules", {})
         
