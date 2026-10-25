@@ -24,6 +24,7 @@ from hfvg.activities.studio_generation import (
     commit_job_budget,
     release_job_budget,
     mark_job_pending_reconcile,
+    register_preapproved_still_activity,
 )
 from hfvg.activities.moderation_recovery import attempt_moderation_recovery
 from hfvg.activities.reconcile import (
@@ -88,4 +89,5 @@ __all__ = [
     "detect_stalled_jobs",
     "land_late_asset",
     "record_reconcile_outcome",
+    "register_preapproved_still_activity",
 ]

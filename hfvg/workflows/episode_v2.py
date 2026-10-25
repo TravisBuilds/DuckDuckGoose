@@ -380,22 +380,20 @@ class EpisodeWorkflowV2:
                 ]
                 self.missing_refs = self._collect_missing_refs(shots)
         
-        # Get list of anchor shots to skip (they're already approved)
+        # Get list of pre-approved stills (anchor stills) for shots
         anchor_stills = await workflow.execute_activity(
             list_anchor_stills,
             args=[episode_id],
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
-        anchor_shot_ids = {a["anchor_shot_id"] for a in anchor_stills}
-        if anchor_shot_ids:
-            workflow.logger.info(f"Skipping anchor shots (already approved): {sorted(anchor_shot_ids)}")
+        # Map: shot_id -> pre-approved still info
+        pre_approved_stills = {a["target_shot_id"]: a for a in anchor_stills}
+        if pre_approved_stills:
+            workflow.logger.info(f"Pre-approved stills for {len(pre_approved_stills)} shots: {sorted(pre_approved_stills.keys())}")
         
-        # Filter out anchor shots
-        shots_to_generate = [s for s in shots if s["shot_id"] not in anchor_shot_ids]
-        
-        # Launch still generation for all shots (except anchors)
-        workflow.logger.info(f"Launching still generation for {len(shots_to_generate)} shots (skipped {len(anchor_shot_ids)} anchors)...")
+        # Launch shot workflows for ALL shots (including pre-approved)
+        workflow.logger.info(f"Launching shot generation for {len(shots)} shots ({len(pre_approved_stills)} with pre-approved stills)...")
         shot_workflow_handles = []
         shot_completion_status = {}  # Track completion: {shot_id: {"done": bool, "success": bool, "error": str?}}
         
@@ -446,7 +444,7 @@ class EpisodeWorkflowV2:
                     "reason": error_detail,
                 })
         
-        for shot in shots_to_generate:
+        for shot in shots:
             shot_plan = shot.copy()
             shot_plan["dry_run"] = dry_run
             if "prompt" not in shot_plan:
@@ -470,9 +468,24 @@ class EpisodeWorkflowV2:
             total_attempt = actual_attempts
             shot_plan["attempt"] = total_attempt
             shot_plan["version"] = total_attempt
-            workflow.logger.info(
-                f"Starting {shot_id} with attempt={total_attempt} (shot_attempts={actual_attempts}, override={override})"
-            )
+            
+            # Check if this shot has a pre-approved still
+            if shot_id in pre_approved_stills:
+                pre_approved = pre_approved_stills[shot_id]
+                shot_plan["pre_approved_still"] = {
+                    "anchor_shot_id": pre_approved["anchor_shot_id"],
+                    "local_path": pre_approved["local_path"],
+                    "version": pre_approved["version"],
+                    "sha256": pre_approved.get("sha256"),
+                }
+                workflow.logger.info(
+                    f"Starting {shot_id} with pre-approved still from {pre_approved['anchor_shot_id']} "
+                    f"(attempt={total_attempt}, still spend skipped)"
+                )
+            else:
+                workflow.logger.info(
+                    f"Starting {shot_id} with attempt={total_attempt} (shot_attempts={actual_attempts}, override={override})"
+                )
             
             # Add parent workflow ID to shot_plan for retry_still_ready signaling
             shot_plan["parent_workflow_id"] = workflow.info().workflow_id

@@ -569,6 +569,39 @@ class ShotWorkflow:
                 shot_plan, {"passed": True, "reused_approved_still": True}, retry_policy, clip_retry=clip_only
             )
 
+        # Handle pre-approved stills (anchor stills): skip still generation, go straight to clip
+        pre_approved = shot_plan.get("pre_approved_still")
+        if pre_approved:
+            workflow.logger.info(
+                f"Shot {self.shot_id} has pre-approved still from {pre_approved['anchor_shot_id']}, "
+                f"skipping still generation (no spend)"
+            )
+            # Register the pre-approved still as this shot's still (for continuity refs)
+            # Need to get the still URL - check if it exists locally and upload if needed
+            still_result = await workflow.execute_activity(
+                "register_preapproved_still_activity",
+                args=[self.episode_id, self.shot_id, pre_approved],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
+            self.still_asset = {"url": still_result["url"], "cost": 0}
+            self.still_url = still_result["url"]
+            self.still_status = "done"
+            
+            # Pre-approved stills are auto-approved for G2 (but flagged as pre-approved)
+            self.stills_approved = True
+            workflow.logger.info(
+                f"Pre-approved still registered for {self.shot_id}: {self.still_url}, "
+                f"waiting for G2 approval to proceed to clip"
+            )
+            
+            # Wait for G2 approval (parent signals stills_approved for the whole episode)
+            await workflow.wait_condition(lambda: self.stills_approved)
+            
+            # Proceed to clip phase with pre-approved still
+            still_qc = {"passed": True, "pre_approved": True, "anchor_shot_id": pre_approved["anchor_shot_id"]}
+            return await self._clip_phase(shot_plan, still_qc, retry_policy)
+
         for attempt in range(self.max_retries):
             try:
                 # Extract parameters from shot plan

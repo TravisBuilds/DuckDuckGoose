@@ -50,6 +50,7 @@ from hfvg.still_refs import assemble_still_refs  # noqa: F401  (re-exported; the
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
+from hfvg.studio_db import init_studio_db
 
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
@@ -1773,3 +1774,82 @@ async def await_job_enforced(
     finally:
         if 'provider' in locals():
             await provider.close()
+
+
+@activity.defn
+async def register_preapproved_still_activity(
+    episode_id: str,
+    shot_id: str,
+    pre_approved: dict,
+) -> dict:
+    """
+    Register a pre-approved still for a shot.
+    
+    Takes a pre-approved still (from anchor_stills table), uploads it to provider storage
+    if needed, and returns the URL for use in clip generation.
+    
+    Args:
+        episode_id: Episode ID
+        shot_id: Shot ID  
+        pre_approved: Dict with anchor_shot_id, local_path, version, sha256
+        
+    Returns:
+        dict with url, local_path, anchor_shot_id
+    """
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    local_path = pre_approved["local_path"]
+    anchor_shot_id = pre_approved["anchor_shot_id"]
+    
+    # Check if file exists
+    if not Path(local_path).exists():
+        raise ApplicationError(
+            f"Pre-approved still for {shot_id} not found at {local_path}",
+            type="PreApprovedStillMissing",
+            non_retryable=True
+        )
+    
+    # For now, use the local path as the URL (provider will handle local files)
+    # In a real implementation, you'd upload to provider storage and get a URL
+    # For this fix, we'll use the file:// URL scheme for local files
+    url = f"file://{Path(local_path).absolute()}"
+    
+    # Record this in the shots table
+    await init_studio_db(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        record_id = f"{episode_id}-{shot_id}"
+        # Check if shot record exists
+        async with db.execute(
+            "SELECT id FROM shots WHERE id = ?",
+            (record_id,)
+        ) as cursor:
+            existing = await cursor.fetchone()
+        
+        if existing:
+            # Update existing record
+            await db.execute(
+                """UPDATE shots SET 
+                   still_url = ?,
+                   status = 'pre_approved_still',
+                   updated_at = datetime('now')
+                   WHERE id = ?""",
+                (url, record_id)
+            )
+        else:
+            # Insert new record
+            await db.execute(
+                """INSERT INTO shots 
+                   (id, episode_id, shot_id, status, still_url, created_at, updated_at)
+                   VALUES (?, ?, ?, 'pre_approved_still', ?, datetime('now'), datetime('now'))""",
+                (record_id, episode_id, shot_id, url)
+            )
+        await db.commit()
+    
+    activity.logger.info(
+        f"Registered pre-approved still for {shot_id} from {anchor_shot_id}: {local_path}"
+    )
+    
+    return {
+        "url": url,
+        "local_path": local_path,
+        "anchor_shot_id": anchor_shot_id,
+    }
