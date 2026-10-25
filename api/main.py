@@ -313,6 +313,14 @@ class EpisodeStateResponse(BaseModel):
     shots_count: int
     estimates_available: bool | None = None  # From G1 plan - None if G1 not yet computed
     active_stall_alerts: int = 0  # Stall watchdog alerts not yet resolved (GET .../stalls)
+    # Mute picture edit: {"path", "manifest", "qc": {"verdict", "blocking", "reason", ...},
+    # "acceptance", "blocking", "stale", "edit_version"}; None before the clips finished
+    assembly: dict | None = None
+    assembly_path: str | None = None
+
+
+class AssemblyAcceptRequest(BaseModel):
+    reason: str = Field(..., min_length=1, description="Why the blocking mute-edit QC verdict is accepted")
 
 
 class ShotStatus(BaseModel):
@@ -756,7 +764,35 @@ async def get_episode_state(
         shots_count=state.get("shots", 0),
         estimates_available=state.get("g1_plan", {}).get("estimates_available"),
         active_stall_alerts=len(active_stalls),
+        assembly=state.get("assembly"),
+        assembly_path=(state.get("assembly") or {}).get("path"),
     )
+
+
+@app.post("/api/episodes/{episode_id}/assembly/accept")
+async def accept_assembly_qc(
+    episode_id: str,
+    request: AssemblyAcceptRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Human review of a blocking mute-edit QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
+    so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("accept_assembly_qc", request.reason.strip())
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending acceptance: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Assembly QC acceptance sent"}
 
 
 @app.post("/api/episodes/{episode_id}/approve")

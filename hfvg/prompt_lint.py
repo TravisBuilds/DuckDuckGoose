@@ -152,6 +152,28 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> lis
     return problems
 
 
+# Clip (motion) prompt rules on top of the shared kit rules: a clip prompt must not freeze the scene
+# (named ambient motion instead) - HARNESS-GATES v1.1 "never end a video prompt with nothing else moves".
+CLIP_STATIC_PATTERNS = (
+    r"nothing\s+(?:else\s+)?moves",
+    r"everything\s+else\s+(?:is\s+)?(?:still|frozen|static)",
+    r"all\s+else\s+(?:is\s+)?(?:still|frozen|static)",
+    r"rest\s+(?:of\s+the\s+scene\s+)?(?:is\s+)?(?:frozen|still|static)",
+    r"\bfreeze[- ]?frame\b",
+    r"\bstill\s+image\b",
+)
+
+
+def clip_lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> list[str]:
+    """Violations of the CLIP (motion) prompt: every kit rule plus the motion rules."""
+    problems = lint_violations(prompt, shot_meta, kit)
+    for pattern in CLIP_STATIC_PATTERNS:
+        m = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if m:
+            problems.append(f"clip prompt freezes the scene ({m.group(0)!r}); name the ambient motion instead")
+    return problems
+
+
 def lint_prompt(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> None:
     """Raise PromptLintError if the prompt violates any rule."""
     problems = lint_violations(prompt, shot_meta, kit)
@@ -181,9 +203,9 @@ def load_lint_kit(episode_id: str) -> LintKit:
 
 
 def enforce_prompt_lint(
-    episode_id: str, prompt: str, shot_meta: dict[str, Any] | None, live: bool
+    episode_id: str, prompt: str, shot_meta: dict[str, Any] | None, live: bool, kind: str = "still"
 ) -> list[str]:
-    """The gate used before every paid submit.
+    """The gate used before every paid submit. kind="clip" adds the motion-prompt rules.
 
     Live: raises PromptLintError on any violation, missing kit or missing shot_meta (fail closed).
     Dry: logs warnings and returns the problems; never raises.
@@ -192,7 +214,8 @@ def enforce_prompt_lint(
         if shot_meta is None:
             raise PromptLintError("shot_meta is required for prompt lint")
         kit = load_lint_kit(episode_id)
-        problems = lint_violations(prompt, shot_meta, kit)
+        check = clip_lint_violations if kind == "clip" else lint_violations
+        problems = check(prompt, shot_meta, kit)
     except PromptLintError as e:
         problems = [str(e)]
     if problems and live:

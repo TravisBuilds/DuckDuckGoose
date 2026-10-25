@@ -47,6 +47,7 @@ class ShotWorkflow:
         self.still_asset: Asset | None = None
         self.end_still_asset: Asset | None = None  # END frame still (for end_frame=true shots)
         self.clip_asset: Asset | None = None
+        self.clip_local_path: str | None = None  # saved clip file (input to the mute picture edit)
         self.version = 1
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
@@ -306,6 +307,18 @@ class ShotWorkflow:
             f"Reservation held, manual reconciliation required."
         )
 
+    @staticmethod
+    def _submitted_base_prompt(kind: str, shot_plan: dict) -> str:
+        """The un-reworded prompt a still/clip submit uses: the clip uses its own clip_prompt when the
+        shot has one (it REPLACES the still prompt), else the still prompt."""
+        if kind == "clip" and shot_plan.get("clip_prompt"):
+            return shot_plan["clip_prompt"]
+        return shot_plan["prompt"]
+
+    def _clip_prompt_in_force(self, shot_plan: dict) -> str:
+        """Exact prompt submitted for the clip (moderation rewrites apply to THIS prompt)."""
+        return self.moderation["clip"]["prompt"] or self._submitted_base_prompt("clip", shot_plan)
+
     async def _moderation_step(self, kind: str, shot_plan: dict, err: ContentBlockError,
                                attempts_left: int) -> dict | None:
         """One rung of the G-REC-1 moderation ladder for a content-blocked still/clip.
@@ -323,7 +336,7 @@ class ShotWorkflow:
             "episode_id": self.episode_id,
             "shot_id": self.shot_id,
             "kind": kind,
-            "prompt": mod["prompt"] or shot_plan["prompt"],
+            "prompt": mod["prompt"] or self._submitted_base_prompt(kind, shot_plan),
             "model": (mod["model"] or params.get("model", "kling")) if kind == "clip" else None,
             "duration": params.get("duration", 5.0),
             "tags": shot_plan.get("tags", []),
@@ -904,15 +917,9 @@ class ShotWorkflow:
                 # Prompt / model in force (a moderation reword or fallback replaces them for the clip)
                 mod_clip = self.moderation["clip"]
                 
-                # Compose final clip prompt: base prompt + clip_prompt additions
-                base_prompt = mod_clip["prompt"] or shot_plan["prompt"]
-                clip_additions = shot_plan.get("clip_prompt", "")
-                
-                if clip_additions:
-                    # Append motion-specific clauses to base prompt
-                    clip_prompt = f"{base_prompt} {clip_additions}".strip()
-                else:
-                    clip_prompt = base_prompt
+                # Clip prompt in force: a moderation reword > the shot's own clip (motion) prompt >
+                # the still prompt (fallback only when no clip_prompt). Never still + clip appended.
+                clip_prompt = self._clip_prompt_in_force(shot_plan)
                 
                 clip_model = mod_clip["model"] or params.get("model", "kling")
                 clip_mod_retry = mod_clip["retry"]
@@ -1020,7 +1027,8 @@ class ShotWorkflow:
 
                 workflow.logger.info(f"Clip generated: {self.clip_asset['url']}")
                 
-                # Save clip locally
+                # Save clip locally (the mute picture edit assembles from this local file)
+                clip_local_path = None
                 try:
                     clip_local_path = await workflow.execute_activity(
                         save_asset_locally,
@@ -1031,6 +1039,7 @@ class ShotWorkflow:
                     workflow.logger.info(f"Clip saved locally to {clip_local_path}")
                 except Exception as e:
                     workflow.logger.warning(f"Failed to save clip locally: {e}, continuing")
+                self.clip_local_path = clip_local_path
 
                 # Rubric with the expected clip dimensions derived before submit (G-QC-1)
                 clip_rubric = {
@@ -1130,4 +1139,8 @@ class ShotWorkflow:
             "status": "completed",
             "still_url": self.still_asset["url"],
             "clip_url": self.clip_asset["url"],
+            # Local clip file for the mute picture edit (None when the save failed: the parent
+            # escalates that shot instead of silently dropping it from the edit)
+            "clip_path": self.clip_local_path,
+            "clip_motion": clip_qc.get("motion"),  # per-clip stillgate verdict (WATCH surfaces here)
         }

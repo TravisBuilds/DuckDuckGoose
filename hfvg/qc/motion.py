@@ -63,12 +63,14 @@ def _run_stillgate_analysis(mute_path: str | Path, manifest: dict[str, Any]) -> 
     W, H = 180, 320
     fps = 24
     
-    # Decode video to grayscale
+    # Decode video to grayscale, resampled to the analysis rate: segment windows are indexed as
+    # seconds * fps below, so the decoded stream MUST be at that rate (the picture edit is 30 fps;
+    # decoding it natively would shift every window after the first shot).
     cmd = [
         "ffmpeg",
         "-v", "error",
         "-i", str(mute_path),
-        "-vf", f"scale={W}:{H}",
+        "-vf", f"fps={fps},scale={W}:{H}",
         "-f", "rawvideo",
         "-pix_fmt", "gray",
         "-"

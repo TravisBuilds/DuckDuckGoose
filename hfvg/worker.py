@@ -53,6 +53,8 @@ PRODUCTION_ACTIVITIES = [
     activities.precheck_clip_qc,
     activities.review_still,
     activities.review_clip,
+    activities.assemble_mute_edit,
+    activities.check_assembly_qc,
     activities.trim_clips,
     activities.render_edit,
     activities.mix_audio,

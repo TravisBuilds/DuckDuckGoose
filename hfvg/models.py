@@ -120,6 +120,8 @@ class EpisodeState(BaseModel):
     output_paths: dict[str, dict] = Field(default_factory=dict)  # Local paths: {shot_id: {still_v1: path, clip_v1: path}}
     assembly_path: str | None = None  # Path to mute assembly video
     assembly_manifest: dict = Field(default_factory=dict)  # Assembly manifest with clips[] and metadata
+    assembly_qc: dict = Field(default_factory=dict)  # Latest mute-edit QC (verdict, blocking, reasons)
+    assembly_acceptance: dict | None = None  # Human acceptance of a blocking QC verdict (reason)
 
 
 class CreditTransaction(BaseModel):

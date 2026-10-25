@@ -447,8 +447,22 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
         )
         
         if qc_result["passed"]:
-            activity.logger.info(f"Motion QC passed for {shot_id}")
-            return {"passed": True, "issues": []}
+            # Per-clip stillgate (G4.10): a technically valid clip that is still-only is a FAIL
+            # (reroll, like any failed motion QC); WATCH passes but is reported for review.
+            motion = await asyncio.to_thread(clip_stillgate, str(temp_video), shot_id or "clip", expected_duration)
+            if motion["verdict"] == "FAIL":
+                activity.logger.warning(f"Stillgate FAIL for {shot_id}: {motion}")
+                return {
+                    "passed": False,
+                    "issues": [f"still-only clip (stillgate FAIL: peak_fd={motion['peak_fd']}, "
+                               f"mean_fd={motion['mean_fd']})"],
+                    "escalate": False,
+                    "motion": motion,
+                }
+            activity.logger.info(f"Motion QC passed for {shot_id} (stillgate {motion['verdict']})")
+            issues = [f"stillgate WATCH: low motion (peak_fd={motion['peak_fd']}, mean_fd={motion['mean_fd']})"] \
+                if motion["verdict"] == "WATCH" else []
+            return {"passed": True, "issues": issues, "motion": motion}
         else:
             activity.logger.warning(f"Motion QC failed for {shot_id}: {qc_result['issues']}")
             return {
@@ -474,85 +488,97 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
             pass
 
 
+def clip_stillgate(clip_path: str, shot_id: str, seg_s: float) -> dict:
+    """Stillgate on ONE clip (whole clip is one segment). Returns the per-shot stillgate row."""
+    from hfvg.qc.motion import check_motion
+
+    r = check_motion(clip_path, {"clips": [{"id": shot_id, "seg_s": float(seg_s)}], "dissolves": {}})[0]
+    return {"shot_id": r.shot_id, "t0": r.t0, "t1": r.t1, "mean_fd": r.mean_fd,
+            "peak_fd": r.peak_fd, "verdict": r.verdict}
+
+
+ASSEMBLY_BLOCKING_VERDICTS = ("FAIL", "NEEDS_REVIEW")
+
+
 @activity.defn
 async def check_assembly_qc(
     assembly_path: str,
     manifest: dict,
-    episode_id: str
+    episode_id: str,
+    shot_meta_by_id: dict | None = None,
 ) -> dict:
-    """
-    Run QC checks on the mute assembly.
-    
-    Checks:
-    - Motion analysis (stillgate per-shot)
-    - Duck presence (optional, configured per episode)
-    
-    Args:
-        assembly_path: Path to mute assembly video
-        manifest: Assembly manifest with clips[] and dissolves
-        episode_id: Episode identifier
-    
-    Returns:
-        dict with:
-            - verdict: PASS/WATCH/FAIL
-            - reason: str
-            - motion_results: list of MotionCheckResult
-            - duck_check: optional dict
+    """QC of the mute picture edit, run before G_FINAL_CUT.
+
+    - Motion (stillgate G4.10) per shot window of the assembled edit (FAIL / WATCH / PASS).
+    - Animal count (shot_meta.count) and duck presence (shot_meta.duck) per shot, through the
+      AnimalCounter interface (hfvg.qc.animal_count). No counter configured -> NEEDS_REVIEW.
+
+    Verdict (worst wins): FAIL (still-only shot or count/duck mismatch) > NEEDS_REVIEW (could not
+    verify: no checker, low confidence, QC error, missing edit) > WATCH (low motion, human look)
+    > PASS. FAIL and NEEDS_REVIEW are ``blocking``: the episode holds G_FINAL_CUT until a clip retry
+    produces a passing edit or a human accepts the QC result. DRY_RUN placeholder edits (nothing
+    rendered) return verdict DRY_RUN and are not blocking.
     """
     activity.heartbeat({"stage": "assembly_qc", "episode": episode_id})
-    
-    # In dry run, pass with fake results
-    if config.DRY_RUN:
+    clips = list((manifest or {}).get("clips") or [])
+    if (manifest or {}).get("dry_run"):
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
-        activity.logger.info(f"[DRY-RUN] Assembly QC for {episode_id}")
-        return {
-            "verdict": "PASS",
-            "reason": "Dry-run auto-pass",
-            "motion_results": [],
-        }
-    
-    # Run motion check
-    from hfvg.qc.motion import check_motion
-    
-    try:
-        motion_results = check_motion(assembly_path, manifest)
-        
-        # Analyze verdicts
-        failed_shots = [r for r in motion_results if r.is_fail()]
-        watch_shots = [r for r in motion_results if r.is_watch()]
-        
-        if failed_shots:
-            verdict = "FAIL"
-            reason = f"{len(failed_shots)} shot(s) failed motion check (still-only): {', '.join(r.shot_id for r in failed_shots)}"
-        elif watch_shots:
-            verdict = "WATCH"
-            reason = f"{len(watch_shots)} shot(s) need review: {', '.join(r.shot_id for r in watch_shots)}"
-        else:
-            verdict = "PASS"
-            reason = "All shots passed motion check"
-        
-        activity.logger.info(f"Assembly QC {verdict}: {reason}")
-        
+        return {"verdict": "DRY_RUN", "blocking": False, "escalate": False,
+                "reason": "dry run: placeholder clips, no edit rendered, nothing to check",
+                "motion_results": [], "animal_results": []}
+
+    def result(verdict: str, reason: str, motion=None, animals=None) -> dict:
+        motion = motion or []
+        animals = animals or []
         return {
             "verdict": verdict,
+            "blocking": verdict in ASSEMBLY_BLOCKING_VERDICTS,
+            "escalate": verdict == "NEEDS_REVIEW",
             "reason": reason,
-            "motion_results": [
-                {
-                    "shot_id": r.shot_id,
-                    "t0": r.t0,
-                    "t1": r.t1,
-                    "mean_fd": r.mean_fd,
-                    "peak_fd": r.peak_fd,
-                    "verdict": r.verdict,
-                }
-                for r in motion_results
-            ],
+            "motion_results": motion,
+            "animal_results": animals,
+            "failed_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "FAIL"}
+                                   | {a["shot_id"] for a in animals if a["status"] == "FAIL"}),
+            "review_shots": sorted({a["shot_id"] for a in animals if a["status"] == "NEEDS_REVIEW"}),
+            "watch_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "WATCH"}),
         }
-    
-    except Exception as e:
-        activity.logger.error(f"Assembly QC failed: {e}")
-        return {
-            "verdict": "FAIL",
-            "reason": f"QC error: {str(e)[:200]}",
-            "motion_results": [],
-        }
+
+    if not assembly_path or not Path(assembly_path).is_file() or not clips:
+        return result("NEEDS_REVIEW", f"mute edit missing or empty: {assembly_path}")
+
+    from hfvg.qc.animal_count import check_shot_animals, get_animal_counter
+    from hfvg.qc.motion import check_motion
+
+    try:
+        rows = await asyncio.to_thread(check_motion, assembly_path, manifest)
+    except Exception as e:  # could not analyse -> a human must look; never a silent pass
+        activity.logger.error(f"Assembly motion QC error for {episode_id}: {e}")
+        return result("NEEDS_REVIEW", f"motion QC error: {str(e)[:200]}")
+    motion = [{"shot_id": r.shot_id, "t0": r.t0, "t1": r.t1, "mean_fd": r.mean_fd,
+               "peak_fd": r.peak_fd, "verdict": r.verdict} for r in rows]
+
+    activity.heartbeat({"stage": "assembly_qc_animals", "episode": episode_id})
+    counter = get_animal_counter()
+    metas = shot_meta_by_id or {}
+    animals = []
+    for clip in clips:
+        sid = clip["id"]
+        res = await check_shot_animals(counter, clip.get("source") or assembly_path, metas.get(sid))
+        animals.append({"shot_id": sid, **res})
+
+    fails = [f"{m['shot_id']} still-only (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
+             for m in motion if m["verdict"] == "FAIL"]
+    fails += [f"{a['shot_id']}: {a['reason']}" for a in animals if a["status"] == "FAIL"]
+    reviews = [f"{a['shot_id']}: {a['reason']}" for a in animals if a["status"] == "NEEDS_REVIEW"]
+    watches = [f"{m['shot_id']} low motion (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
+               for m in motion if m["verdict"] == "WATCH"]
+    if fails:
+        verdict, reason = "FAIL", "; ".join(fails + reviews)
+    elif reviews:
+        verdict, reason = "NEEDS_REVIEW", "; ".join(reviews)
+    elif watches:
+        verdict, reason = "WATCH", "; ".join(watches)
+    else:
+        verdict, reason = "PASS", "all shots passed motion and animal checks"
+    activity.logger.info(f"Assembly QC {episode_id}: {verdict}: {reason}")
+    return result(verdict, reason, motion, animals)
