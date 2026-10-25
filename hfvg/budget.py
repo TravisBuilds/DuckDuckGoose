@@ -65,9 +65,12 @@ DEFAULT_LINE_CAPS_USD_MICROS = {
 }
 
 # ElevenLabs audio lines reserved by hfvg.activities.audio; created with these caps when the gate
-# policy has no ElevenLabs lines for the episode ($3.00 total: with the $44 above, still under $48 stop)
+# policy has no ElevenLabs lines for the episode ($3.50 total: with the $44 above, still under $48 stop).
+# Audio reservations are the documented credit upper bound (G-AUD-COST, up to 1 credit/char at
+# ELEVENLABS_USD_PER_CREDIT $0.0002 = $1.00 for a 5,000-character line), so the TTS line's stop
+# ($1.20 at 80%) must admit one maximum-length line.
 DEFAULT_AUDIO_LINE_CAPS_USD_MICROS = {
-    "el_vo_takes": 1_000_000,        # $1.00 - TTS (eleven_v3 $0.08 / 1k chars)
+    "el_vo_takes": 1_500_000,        # $1.50 - TTS (reserve <= $0.0002/char, commit from character-cost)
     "el_sfx": 500_000,               # $0.50 - sound effects ($0.12 / min)
     "el_music_one_take": 1_500_000,  # $1.50 - music ($0.15 / min)
 }
@@ -214,13 +217,14 @@ class BudgetLedger:
                 )
             """)
             
-            # G-AUD-COST: Add characters and credits_used columns for ElevenLabs audio tracking
+            # G-AUD-COST migration: provider-reported usage per job (ElevenLabs audio). characters =
+            # billed input characters (TTS), credits = the character-cost header, cost_source =
+            # "provider_header" or "estimate" (header missing: the committed amount is the estimate).
             async with db.execute("PRAGMA table_info(job_ledger)") as cur:
                 job_cols = {r[1] async for r in cur}
-            if "characters" not in job_cols:
-                await db.execute("ALTER TABLE job_ledger ADD COLUMN characters INTEGER")
-            if "credits_used" not in job_cols:
-                await db.execute("ALTER TABLE job_ledger ADD COLUMN credits_used REAL")
+            for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT")):
+                if col not in job_cols:
+                    await db.execute(f"ALTER TABLE job_ledger ADD COLUMN {col} {decl}")
             # G-BUD-1: per-round holds for paid retries (one row per paid job, keyed by job id).
             # status: held -> committed | released. A released (uncharged) hold does not count.
             await db.execute("""
@@ -553,8 +557,8 @@ class BudgetLedger:
 
     async def commit(self, episode_id: str, line_name: str, reserved_usd_micros: int,
                      actual_usd_micros: int | None = None, job_id: str | None = None,
-                     reason: str = "", characters: int | None = None, 
-                     credits_used: float | None = None) -> bool:
+                     reason: str = "", characters: int | None = None,
+                     credits: float | None = None, cost_source: str | None = None) -> bool:
         """
         Commit actual spend: release the hold, add the ACTUAL cost to spent.
 
@@ -563,6 +567,8 @@ class BudgetLedger:
         The hold released is clamped to what is really reserved, so it never goes negative.
 
         Idempotent per job id: a second commit/release for a job already finalized is a no-op.
+
+        characters / credits / cost_source (G-AUD-COST) are stored on the job row when given.
 
         Returns:
             True if applied, False if the job was already finalized (no-op).
@@ -620,19 +626,12 @@ class BudgetLedger:
                           f"Cost exceeded reserve by {micros_to_usd_str(overage)} USD: {reason}"))
 
                 if job_id:
-                    # G-AUD-COST: Update with actual cost and optionally characters/credits
-                    if characters is not None or credits_used is not None:
-                        await db.execute("""
-                            UPDATE job_ledger 
-                            SET status = 'committed', usd_micros = ?, characters = ?, 
-                                credits_used = ?, updated_at = ?
-                            WHERE job_id = ?
-                        """, (actual, characters, credits_used, now, job_id))
-                    else:
-                        await db.execute("""
-                            UPDATE job_ledger SET status = 'committed', usd_micros = ?, updated_at = ?
-                            WHERE job_id = ?
-                        """, (actual, now, job_id))
+                    await db.execute("""
+                        UPDATE job_ledger SET status = 'committed', usd_micros = ?, updated_at = ?,
+                            characters = COALESCE(?, characters), credits = COALESCE(?, credits),
+                            cost_source = COALESCE(?, cost_source)
+                        WHERE job_id = ?
+                    """, (actual, now, characters, credits, cost_source, job_id))
                     await self._finalize_round_hold(db, job_id, "committed", actual)
                 await db.commit()
                 return True
@@ -878,8 +877,7 @@ class BudgetLedger:
         return bool(row and row[0] in JOB_TERMINAL_STATUSES)
 
     async def record_job(self, episode_id: str, job_id: str, shot_id: str | None, model: str,
-                         tier: str, line_name: str, usd_micros: int, 
-                         characters: int | None = None, credits_used: float | None = None) -> bool:
+                         tier: str, line_name: str, usd_micros: int) -> bool:
         """Insert the per-job ledger row once the provider returned a job id (idempotent)."""
         if tier not in ("draft", "final", "retry", "revision"):
             raise ValueError(f"tier must be draft/final/retry/revision, got {tier!r}")
@@ -890,10 +888,9 @@ class BudgetLedger:
             cursor = await db.execute("""
                 INSERT OR IGNORE INTO job_ledger
                 (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, status,
-                 characters, credits_used, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?)
-            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, 
-                  characters, credits_used, now, now))
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
+            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, now, now))
             await db.commit()
             return cursor.rowcount == 1
 
@@ -923,19 +920,20 @@ class BudgetLedger:
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             async with db.execute("""
                 SELECT job_id, shot_id, model, tier, line_name, usd_micros, status, verdict, used,
-                       created_at, updated_at
+                       created_at, updated_at, characters, credits, cost_source
                 FROM job_ledger WHERE episode_id = ? ORDER BY created_at, rowid
             """, (episode_id,)) as cursor:
                 rows = await cursor.fetchall()
         jobs = []
         for (job_id, shot_id, model, tier, line_name, usd, status, verdict, used,
-             created_at, updated_at) in rows:
+             created_at, updated_at, characters, credits, cost_source) in rows:
             jobs.append({
                 "job_id": job_id, "shot_id": shot_id, "model": model, "tier": tier,
                 "line_name": line_name, "usd_micros": usd, "usd": micros_to_usd_str(usd),
                 "status": status, "verdict": verdict,
                 "used": "unused" if used == 0 else ("used" if used == 1 else None),
                 "created_at": created_at, "updated_at": updated_at,
+                "characters": characters, "credits": credits, "cost_source": cost_source,
             })
         return jobs
 

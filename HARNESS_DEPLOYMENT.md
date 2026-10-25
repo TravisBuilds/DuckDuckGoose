@@ -69,7 +69,7 @@ Internal automated gates (motion QC, duck identity, etc.) remain but don't block
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/TravisBuilds/DuckDuckGoose
+git clone https://github.com/<owner>/DuckDuckGoose
 cd DuckDuckGoose
 git checkout cursor/temporal-harness-end-to-end-b9be
 
@@ -204,7 +204,7 @@ temporal workflow start \
   --task-queue hfvg-tasks \
   --type EpisodeHarnessWorkflow \
   --workflow-id ep05-test \
-  --input '{"episode_id": "ep05", "beatmap_path": "./fixtures/ep05/BEATMAP.md", "cap_credits": 500, "is_canary": false, "dry_run": true}'
+  --input '{"episode_id": "ep05", "beatmap_path": "./fixtures/demo/BEATMAP.md", "cap_credits": 500, "is_canary": false, "dry_run": true}'
 
 # Query state
 temporal workflow query \
@@ -317,12 +317,12 @@ python3 -c "import asyncio; from hfvg.studio_db import init_studio_db; asyncio.r
 
 ## Brief Structure
 
-Ep05 brief lives in `fixtures/ep05/`:
+The synthetic demo brief lives in `fixtures/demo/` (your own briefs stay in a private repo):
 - `BEATMAP.md`: Shot list with timing, action, purpose, cost estimates
 - `CONTINUITY.md`: Character descriptions, set details, prop rules
 - `VO-AUDIO.md`: Voice-over script, music cues, SFX
 
-This structure is safe for public repo (original characters only).
+The demo content is neutral and synthetic; `tests/test_no_brand_content.py` keeps private names out.
 
 ## Next Steps
 

@@ -379,9 +379,14 @@ async def test_d_insufficient_credits_pauses_workflow(tmp_path):
                 task_queue="test-queue",
             )
 
-            # Wait for pause (short wait for test speed)
-            await asyncio.sleep(0.5)
+            # Wait (bounded) for the pause. G-CI-2: a fixed 0.5 s sleep lost the race under CI load
+            # (the activity had not yet raised InsufficientCredits when the query ran).
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 10
             paused = await handle.query(CreditPauseWorkflow.is_paused)
+            while not paused and loop.time() < deadline:
+                await asyncio.sleep(0.05)
+                paused = await handle.query(CreditPauseWorkflow.is_paused)
             assert paused
 
             # Add credits and resume

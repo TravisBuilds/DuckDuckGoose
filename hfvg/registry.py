@@ -70,7 +70,7 @@ class AssetRegistry:
                 name="Demo Duck (Mallard)",
                 locked_date="2026-09-20",
                 canonical_refs={
-                    "apparel": "refs/apparel/concierge-mallard-tuque-v3/",
+                    "apparel": "refs/apparel/host-hat-v3/",
                     "anatomy": "refs/ember-duck-ref/",
                 },
                 anatomy_notes="Short broad bill, pear-shaped body, nub wings",

@@ -60,7 +60,7 @@ This document tracks the implementation of the studio console for Episode 4 prod
 - ✅ `hfvg/budget.py`: Per-line budget ledger with 80% stop
 - ✅ `hfvg/ledger.py`: Idempotent job tracking
 - ✅ `hfvg/workflows/episode_v2.py`: EpisodeWorkflowV2 with approval signals
-- ✅ `hfvg/qc/motion.py`: G4.10 motion check (wraps stillgate.py)
+- ✅ `hfvg/qc/motion.py`: G4.10 motion check (stillgate thresholds, implemented in-repo)
 - ✅ `hfvg/qc/duck_identity.py`: Duck identity gate scaffold
 - ✅ `hfvg/qc/prompt_validation.py`: Prompt validation rules
 

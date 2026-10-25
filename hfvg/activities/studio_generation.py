@@ -54,13 +54,18 @@ from hfvg.routing import plan_route
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
 
+# Active-poll cadence for await_job_enforced (seconds). A module constant, read at
+# call time, so tests can shrink it with monkeypatch instead of an undocumented
+# environment knob (G-CI-2).
+ACTIVE_POLL_INTERVAL_S = 5.0
+
 
 def _check_higgsfield_credentials() -> None:
-    """Verify Higgsfield API key before any spend/reservation. Raises non-retryable error if missing."""
-    dry_run_env = os.getenv("DRY_RUN", "false").lower() == "true"
-    if dry_run_env:
-        return  # Dry run doesn't need credentials
-    api_key = os.getenv("HIGGSFIELD_API_KEY")
+    """G-AUD-KEY: refuse a live Higgsfield job without a usable key (non-retryable).
+
+    Called only on the live path, before the smoke-gate override log, round hold, reservation and
+    job row, so a missing or malformed key costs nothing and leaves no ledger rows."""
+    api_key = os.getenv("HIGGSFIELD_API_KEY", "").strip()
     if not api_key:
         raise ApplicationError(
             "HIGGSFIELD_API_KEY environment variable is required for live Higgsfield generation. "
@@ -68,8 +73,9 @@ def _check_higgsfield_credentials() -> None:
             type="MissingCredentials",
             non_retryable=True
         )
-    # Validate format (must be "id:secret")
-    if ":" not in api_key:
+    # Format id:secret (what every Higgsfield provider class splits on)
+    key_id, _, secret = api_key.partition(":")
+    if not key_id or not secret:
         raise ApplicationError(
             "HIGGSFIELD_API_KEY must be in format 'id:secret'. "
             "Check your API key format.",
@@ -355,13 +361,12 @@ async def submit_still_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
-    # Gate: Smoke test (live mode only, unless override)
+    # Gate: Smoke test (live mode only, unless override). G-AUD-KEY: the provider key is checked
+    # first, so a missing/malformed key writes no override log, hold, reservation or job row.
     if not dry_run_env:
+        _check_higgsfield_credentials()  # G-AUD-KEY still
         from hfvg.studio_db import enforce_smoke_test_gate
         await enforce_smoke_test_gate(db_path, episode_id, "submit_still_job_enforced")
-    
-    # Check credentials BEFORE any reservation or provider call
-    _check_higgsfield_credentials()
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
@@ -762,7 +767,12 @@ async def submit_clip_job_enforced(
     # Decision logic: DRY_RUN env can force dry, but never force live
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
     use_live = not dry_run_env and live_mode and g108_approved
-    
+
+    # G-AUD-KEY: a live clip checks the provider key first - before preflight, the smoke-gate
+    # override log, round hold, reservation and job row, so a missing key leaves nothing behind.
+    if use_live:
+        _check_higgsfield_credentials()  # G-AUD-KEY clip
+
     # Extract animal count from shot metadata (characters set)
     characters = (shot_meta or {}).get("characters", set())
     if isinstance(characters, (list, set)):
@@ -843,9 +853,6 @@ async def submit_clip_job_enforced(
     # Gate: Smoke test (live mode only)
     from hfvg.studio_db import enforce_smoke_test_gate
     await enforce_smoke_test_gate(db_path, episode_id, "submit_clip_job_enforced")
-    
-    # Check credentials BEFORE any reservation or provider call
-    _check_higgsfield_credentials()
     
     # Double-check: these should never happen due to use_live logic, but fail-safe
     if not live_mode:
@@ -1555,9 +1562,9 @@ async def await_job_enforced(
     released = False  # Track if we've already released to prevent double release
     
     try:
-        # Phase 1: Active polling (injected interval for tests, default 5s, up to 500s ~100 polls)
+        # Phase 1: Active polling (default 5s, up to 500s ~100 polls)
         max_active_polls = 100
-        active_poll_interval = float(os.getenv("ACTIVE_POLL_INTERVAL_SECONDS", "5.0"))
+        active_poll_interval = ACTIVE_POLL_INTERVAL_S
         retries_5xx = 0
         max_retries_5xx = 3
         

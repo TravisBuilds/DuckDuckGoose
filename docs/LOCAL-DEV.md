@@ -30,7 +30,7 @@ Complete guide to setting up, running, and testing the Hands-Free Video Generato
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/TravisBuilds/DuckDuckGoose.git
+git clone https://github.com/<owner>/DuckDuckGoose.git
 cd DuckDuckGoose
 ```
 
@@ -214,7 +214,18 @@ REQUIRE_FFMPEG=1 ./scripts/redgreen.sh
 
 # Without REQUIRE_FFMPEG=1 the motion QC tests are skipped
 ./scripts/redgreen.sh
+
+# One shard, the way CI runs it (4 shards; each writes one result row per id)
+REQUIRE_FFMPEG=1 REDGREEN_SHARD=2 REDGREEN_TOTAL_SHARDS=4 \
+  REDGREEN_RESULTS_FILE=/tmp/rg-2.tsv ./scripts/redgreen.sh
+
+# The CI summary check: the union of all shard files must run every declared id once
+python scripts/redgreen_coverage.py --markdown /tmp/redgreen-status.md /tmp/rg-*.tsv
 ```
+
+Mutations run in a git worktree of the HEAD **commit**, so commit before running them. The
+red-green status is not committed: CI publishes it as the `redgreen-status` artifact and in the
+`redgreen-summary` job summary.
 
 **Expected output:**
 ```

@@ -33,7 +33,7 @@ async def load_gate_policy_activity(project: str | None = None) -> dict:
         "series": policy.series,
         "harness": policy.harness,
         "gates": policy.gates,
-        "travis_approval_points": policy.owner_approval_points,
+        "owner_approval_points": policy.owner_approval_points,
         "budgets": policy.budgets,
         "rules": policy.rules,
     }

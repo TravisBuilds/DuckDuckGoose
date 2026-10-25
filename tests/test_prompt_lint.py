@@ -117,12 +117,12 @@ def test_banned_decor_list_is_configurable():
 # ---------------------------------------------------------------- antler / duck clauses
 
 def test_antler_clause_required_when_antler_character_present():
-    base = lint_ok("Stag01 stands")
-    err = _lint(base, characters=["Stag01"])
-    assert err is not None, "missing antler clause must be refused when Stag01 is present"
+    base = lint_ok("Stag03 stands")
+    err = _lint(base, characters=["Stag03"])
+    assert err is not None, "missing antler clause must be refused when Stag03 is present"
     assert "antler clause" in str(err)
     ok = f"{base}. {SYNTHETIC_LINT_KIT['antler_clause']}."
-    assert _lint(ok, characters=["Stag01"]) is None
+    assert _lint(ok, characters=["Stag03"]) is None
     assert _lint(base, characters=[]) is None
 
 
@@ -135,7 +135,7 @@ def test_duck_clause_required_when_duck_present():
 
 def test_kit_without_antler_clause_fails_closed_when_antler_character_present():
     kit = LintKit.from_dict({**SYNTHETIC_LINT_KIT, "antler_clause": ""})
-    err = capture(PromptLintError, lint_prompt, lint_ok("x"), lint_meta(characters=["Stag01"]), kit)
+    err = capture(PromptLintError, lint_prompt, lint_ok("x"), lint_meta(characters=["Stag03"]), kit)
     assert err is not None and "no antler_clause" in str(err)
 
 

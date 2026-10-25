@@ -6,10 +6,14 @@
 # Treats syntax errors, SQL errors, and network failures as INVALID mutations.
 # Prints a summary table at the end.
 #
-# Supports sharding via environment variables:
-#   REDGREEN_SHARD=N REDGREEN_TOTAL_SHARDS=M ./redgreen.sh
-#   Runs mutations where (mutation_num % M) == (N - 1)
-#   Example: REDGREEN_SHARD=1 REDGREEN_TOTAL_SHARDS=4 runs mutations 1, 5, 9, 13, ...
+# Sharding (CI runs 4 shards in parallel, see .github/workflows/test.yml):
+#   REDGREEN_SHARD=N REDGREEN_TOTAL_SHARDS=M bash scripts/redgreen.sh
+#   Every declared probe/mutation gets a 0-based ordinal in declaration order; shard N runs the
+#   ones with (ordinal % M) == N - 1 (round-robin, so shards stay balanced as mutations are added).
+#   Each run writes one "<id>\t<status>\t<reason>" line per probe/mutation it ran to
+#   REDGREEN_RESULTS_FILE (default /tmp/redgreen-results-shard-N-of-M.tsv). The CI summary job
+#   feeds all shard files to scripts/redgreen_coverage.py, which fails unless the union covers
+#   every declared id exactly once with PASS (or a SKIP listed in scripts/redgreen_skip.conf).
 #
 
 set -eu  # Fail on undefined variables AND command errors
@@ -17,18 +21,23 @@ set -eu  # Fail on undefined variables AND command errors
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
-# Sharding support
-SHARD_NUM="${REDGREEN_SHARD:-0}"
+SHARD_NUM="${REDGREEN_SHARD:-1}"
 TOTAL_SHARDS="${REDGREEN_TOTAL_SHARDS:-1}"
-
-if [ "$SHARD_NUM" -gt 0 ] && [ "$TOTAL_SHARDS" -gt 1 ]; then
-    echo "Running shard $SHARD_NUM of $TOTAL_SHARDS"
-    SHARD_MODULO=$((SHARD_NUM - 1))
-else
-    echo "Running all mutations (no sharding)"
-    SHARD_NUM=0
-    TOTAL_SHARDS=1
+if ! [[ "$SHARD_NUM" =~ ^[0-9]+$ && "$TOTAL_SHARDS" =~ ^[0-9]+$ ]] \
+   || [ "$TOTAL_SHARDS" -lt 1 ] || [ "$SHARD_NUM" -lt 1 ] || [ "$SHARD_NUM" -gt "$TOTAL_SHARDS" ]; then
+    echo "Invalid REDGREEN_SHARD=$SHARD_NUM / REDGREEN_TOTAL_SHARDS=$TOTAL_SHARDS (need 1 <= N <= M)" >&2
+    exit 2
 fi
+echo "Running shard $SHARD_NUM of $TOTAL_SHARDS"
+RESULTS_FILE="${REDGREEN_RESULTS_FILE:-/tmp/redgreen-results-shard-${SHARD_NUM}-of-${TOTAL_SHARDS}.tsv}"
+case "$RESULTS_FILE" in /*) ;; *) RESULTS_FILE="$WORKSPACE_ROOT/$RESULTS_FILE" ;; esac
+DECL_ORDINAL=-1
+
+# True when the next declared probe/mutation belongs to this shard (advances the ordinal).
+next_in_shard() {
+    DECL_ORDINAL=$((DECL_ORDINAL + 1))
+    [ $((DECL_ORDINAL % TOTAL_SHARDS)) -eq $((SHARD_NUM - 1)) ]
+}
 
 # Load skip configuration
 SKIP_CONFIG="$WORKSPACE_ROOT/scripts/redgreen_skip.conf"
@@ -93,6 +102,7 @@ NC='\033[0m'
 
 # Results tracking
 declare -a MUTATION_NAMES
+declare -a MUTATION_IDS
 declare -a MUTATION_RESULTS  # "PASS" or "FAIL"
 declare -a MUTATION_REASONS
 
@@ -195,6 +205,7 @@ test_probe() {
     shift 5
     local mutation_cmd=("$@")
     
+    next_in_shard || return 0
     log_test "$num" "$name"
     
     # Step 1: Run baseline (should pass)
@@ -204,6 +215,7 @@ test_probe() {
     if [ "$baseline_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Baseline fails")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -214,13 +226,14 @@ test_probe() {
     
     # Step 2: Apply mutation
     log_red "Applying mutation to $file..."
-    "${mutation_cmd[@]}" "$file" 2>/dev/null
+    "${mutation_cmd[@]}" "$file" 2>/dev/null || true  # a failing mutator is caught as "No file change"
     
     if ! git diff --quiet "$file"; then
         echo -e "${BLUE}Mutation applied (file changed)${NC}"
     else
         echo -e "${RED}✗ FAIL: Mutation did not change the file${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("No file change")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -237,6 +250,7 @@ test_probe() {
     if [ "$mutated_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Mutation caused syntax error${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Syntax error")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -246,6 +260,7 @@ test_probe() {
     if [ "$mutated_result" = "PASS" ]; then
         echo -e "${RED}✗ FAIL: Mutated test still passes${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Not detected")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -256,6 +271,7 @@ test_probe() {
     if [ "$mutated_result" != "$expected_class" ]; then
         echo -e "${RED}✗ FAIL: Expected $expected_class but got $mutated_result${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Wrong classification: $mutated_result")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -266,6 +282,7 @@ test_probe() {
     echo -e "${GREEN}━━━ ✓ PROBE VERIFICATION PASSED ━━━${NC}"
     
     MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
     MUTATION_RESULTS+=("PASS")
     MUTATION_REASONS+=("Correct classification")
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -280,6 +297,7 @@ test_mutation() {
     shift 4
     local mutation_cmd=("$@")
     
+    next_in_shard || return 0
     log_test "$num" "$name"
     
     # Check if this mutation should be skipped
@@ -287,6 +305,7 @@ test_mutation() {
         local skip_reason=$(get_skip_reason "$num")
         echo -e "${YELLOW}⊘ SKIP: $skip_reason${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("SKIP")
         MUTATION_REASONS+=("$skip_reason")
         SKIP_COUNT=$((SKIP_COUNT + 1))
@@ -301,6 +320,7 @@ test_mutation() {
     if [ "$baseline_result" = "INVALID" ]; then
         echo -e "${RED}✗ INVALID: Baseline test has errors (syntax/import/SQL)${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Baseline has errors")
         INVALID_COUNT=$((INVALID_COUNT + 1))
@@ -310,6 +330,7 @@ test_mutation() {
     if [ "$baseline_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Baseline fails")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -320,7 +341,7 @@ test_mutation() {
     
     # Step 2: Apply mutation
     log_red "Applying mutation to $file..."
-    "${mutation_cmd[@]}" "$file" 2>/dev/null
+    "${mutation_cmd[@]}" "$file" 2>/dev/null || true  # a failing mutator is caught as "No file change"
     
     # Verify mutation actually changed the file
     if ! git diff --quiet "$file"; then
@@ -328,6 +349,7 @@ test_mutation() {
     else
         echo -e "${RED}✗ INVALID: Mutation did not change the file${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("No file change")
         INVALID_COUNT=$((INVALID_COUNT + 1))
@@ -343,6 +365,7 @@ test_mutation() {
         echo -e "${RED}✗ INVALID: Mutation caused syntax error${NC}"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Syntax error")
         INVALID_COUNT=$((INVALID_COUNT + 1))
@@ -353,6 +376,7 @@ test_mutation() {
         echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Non-AssertionError")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -363,6 +387,7 @@ test_mutation() {
         echo -e "${RED}✗ FAIL: Mutated test still passes (mutation had no effect)${NC}"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Mutation ineffective")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -382,6 +407,7 @@ test_mutation() {
     if ! git diff --quiet "$file"; then
         echo -e "${RED}✗ FAIL: Mutation leaked - file not fully restored${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Restore incomplete")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -396,6 +422,7 @@ test_mutation() {
     if [ "$restored_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Restored test has errors${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Restore failed")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -405,6 +432,7 @@ test_mutation() {
     if [ "$restored_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Restored test does not pass${NC}"
         MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
         MUTATION_REASONS+=("Restore didn't fix")
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -415,6 +443,7 @@ test_mutation() {
     echo -e "${GREEN}━━━ ✓ RED-GREEN PROOF PASSED ━━━${NC}"
     
     MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
     MUTATION_RESULTS+=("PASS")
     MUTATION_REASONS+=("Red → Green confirmed")
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -453,7 +482,9 @@ print_summary() {
     echo -e "${RED}Failed: $FAIL_COUNT${NC}"
     echo ""
     
-    if [ $FAIL_COUNT -eq 0 ]; then
+    # An INVALID id (baseline/mutant could not even run: missing deps, syntax/import error) proved
+    # nothing, so it fails the shard too - a broken shard must not report green on its own.
+    if [ $FAIL_COUNT -eq 0 ] && [ $INVALID_COUNT -eq 0 ]; then
         echo -e "${GREEN}✓✓✓ ALL RED-GREEN PROOFS PASSED ✓✓✓${NC}"
         return 0
     else
@@ -935,8 +966,8 @@ test_mutation 67 "M-P3d Lint applies the banned-decor list" \
     "tests/test_prompt_lint.py::test_banned_decor_words_forbidden" \
     sed -i 's/^    for word in kit.banned_decor:/    for word in ():  # MUTATED/'
 
-# 68. M-P3e Lint requires the antler clause when Birch is present
-test_mutation 68 "M-P3e Lint requires the antler clause when Birch is present" \
+# 68. M-P3e Lint requires the antler clause when an antler character is present
+test_mutation 68 "M-P3e Lint requires the antler clause when an antler character is present" \
     "hfvg/prompt_lint.py" \
     "tests/test_prompt_lint.py::test_antler_clause_required_when_antler_character_present" \
     sed -i 's/^    if present \& {c.lower() for c in kit.antler_characters}:/    if False:  # MUTATED/'
@@ -2207,7 +2238,7 @@ test_mutation 281 "Preflight refuses deprecated models" \
 test_mutation 282 "Generated VO reused by content hash" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_round4_activities.py::test_live_generation_reserves_commits_and_reuses" \
-    sed -i 's/^    if out.is_file():  # content-hash reuse: already paid for$/    if False:  # MUTATED/'
+    sed -i 's/^    if out.is_file():  # content-hash reuse: already paid for (needs no key, spends nothing)$/    if False:  # MUTATED/'
 
 # 283: G-CAPS-1-4: A failed generation releases its ledger reservation
 test_mutation 283 "Failed audio generation releases the reservation" \
@@ -2221,11 +2252,11 @@ test_mutation 284 "Audio spend authorized against the AUDIO round cap" \
     "tests/test_audio_round4_activities.py::test_round_cap_refuses_audio_spend" \
     sed -i 's/^        await ledger.authorize_round_spend(episode_id, AUDIO_ROUND, /        0 and await ledger.authorize_round_spend(episode_id, AUDIO_ROUND, /'
 
-# 285: G-CAPS-1-6: Provider cost is character-based, never 0.0
+# 285: G-CAPS-1-6: Provider cost is character-based, never 0.0 (no-header path: the API estimate)
 test_mutation 285 "TTS job cost is the per-character price" \
     "hfvg/providers/elevenlabs.py" \
     "tests/test_audio_round4_activities.py::test_provider_tts_writes_durable_file_with_real_cost" \
-    sed -i 's/^        cost = estimate_usd("tts", {"model": model_id, "text": text})$/        cost = 0.0  # MUTATED/'
+    sed -i 's/^            cost = estimate_usd(job_type, params)$/            cost = 0.0  # MUTATED/'
 
 # 286: G-CAPS-1-7: Music uses the real compose endpoint body
 test_mutation 286 "Music request sends music_length_ms" \
@@ -2545,101 +2576,174 @@ test_mutation 338 "preflight cost estimate" \
     "tests/test_round5_guards.py::test_preflight_reports_offline_cost_estimate" \
     sed -i 's/"cost_estimate": /"cost_estimate_unused": /'
 
-# 339: G-BRAND-1: HFVG_PROJECT config read from env with demo default
-test_mutation 339 "HFVG_PROJECT env var" \
+# 339: G-BRAND-1: the policy project comes from HFVG_PROJECT (default demo), not a hardcoded name
+test_mutation 339 "HFVG_PROJECT read from env" \
     "hfvg/gates.py" \
-    "tests/test_no_brand_content.py::test_hfvg_project_env_var_supported" \
-    sed -i 's/project = os.getenv("HFVG_PROJECT", "demo")/project = "mid-mountain-rest"  # MUTATED: hardcoded/'
+    "tests/test_no_brand_content.py::test_hfvg_project_defaults_to_demo_and_is_read_from_env" \
+    sed -i 's/^        project = os.getenv("HFVG_PROJECT", "demo")$/        project = "demo"  # MUTATED: env ignored/'
 
-# 340: G-BRAND-1: Brand denylist test verifies term hash integrity
-test_mutation 340 "brand denylist integrity" \
+# 340: G-BRAND-1: the denylist matcher is case-insensitive
+test_mutation 340 "brand matcher case-insensitive" \
     "tests/test_no_brand_content.py" \
-    "tests/test_no_brand_content.py::test_denylist_integrity" \
-    sed -i 's/DENYLIST_HASH_PREFIX = "08e40aab8b04b1ce"/DENYLIST_HASH_PREFIX = "0000000000000000"  # MUTATED/'
+    "tests/test_no_brand_content.py::test_matcher_flags_content_and_file_names_case_insensitively" \
+    sed -i 's/^        lowered = data.lower()$/        lowered = data  # MUTATED: case-sensitive/'
 
-# 341: G-CI-2: Active poll interval injectable for tests
-test_mutation 341 "poll interval injection" \
+# 341: G-CI-2: the 5xx back-off sleeps the module poll interval (patchable), not a literal
+test_mutation 341 "poll interval from module constant" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_exception_release.py::test_poll_502_releases_reservation" \
-    sed -i 's/active_poll_interval = float(os.getenv("ACTIVE_POLL_INTERVAL_SECONDS", "5.0"))/active_poll_interval = 5.0  # MUTATED: hardcoded/'
+    sed -i 's/^        active_poll_interval = ACTIVE_POLL_INTERVAL_S$/        active_poll_interval = 5.0  # MUTATED: hardcoded/'
 
-# 342: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_voiceover
-test_mutation 342 "elevenlabs voiceover credential check" \
+# 342: G-AUD-KEY: TTS checks the ElevenLabs key before preflight/override log/hold/reservation
+test_mutation 342 "elevenlabs tts key check" \
     "hfvg/activities/audio.py" \
-    "tests/test_audio_credentials.py::test_generate_voiceover_refuses_missing_elevenlabs_key_before_reservation" \
-    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+    "tests/test_audio_credentials.py::test_missing_elevenlabs_key_refused_before_any_ledger_row[tts]" \
+    sed -i 's/^    _check_elevenlabs_credentials()  # G-AUD-KEY tts:.*$/    pass  # MUTATED/'
 
-# 343: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_sfx
-test_mutation 343 "elevenlabs sfx credential check" \
+# 343: G-AUD-KEY: SFX checks the ElevenLabs key first
+test_mutation 343 "elevenlabs sfx key check" \
     "hfvg/activities/audio.py" \
-    "tests/test_audio_credentials.py::test_generate_sfx_refuses_missing_elevenlabs_key_before_reservation" \
-    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+    "tests/test_audio_credentials.py::test_missing_elevenlabs_key_refused_before_any_ledger_row[sfx]" \
+    sed -i 's/^    _check_elevenlabs_credentials()  # G-AUD-KEY sfx:.*$/    pass  # MUTATED/'
 
-# 344: G-AUD-KEY: ElevenLabs credentials checked before reservation in generate_music
-test_mutation 344 "elevenlabs music credential check" \
+# 344: G-AUD-KEY: music checks the ElevenLabs key first
+test_mutation 344 "elevenlabs music key check" \
     "hfvg/activities/audio.py" \
-    "tests/test_audio_credentials.py::test_generate_music_refuses_missing_elevenlabs_key_before_reservation" \
-    sed -i '/^    # Check credentials BEFORE preflight\/reservation$/,/^    _check_elevenlabs_credentials()$/d'
+    "tests/test_audio_credentials.py::test_missing_elevenlabs_key_refused_before_any_ledger_row[music]" \
+    sed -i 's/^    _check_elevenlabs_credentials()  # G-AUD-KEY music:.*$/    pass  # MUTATED/'
 
-# 345: G-AUD-KEY: Higgsfield credentials checked before reservation in submit_still_job_enforced
-test_mutation 345 "higgsfield still credential check" \
+# 345: G-AUD-KEY: a live still checks the Higgsfield key before the smoke gate and any ledger row
+test_mutation 345 "higgsfield still key check" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_higgsfield_credentials.py::test_check_higgsfield_credentials_refuses_missing_key" \
-    sed -i '/^    # Check credentials BEFORE any reservation or provider call$/,/^    _check_higgsfield_credentials()$/d'
+    "tests/test_higgsfield_credentials.py::test_live_submit_without_usable_key_refused_before_any_ledger_row[still-malformed-no-colon-InvalidCredentials]" \
+    sed -i 's/^        _check_higgsfield_credentials()  # G-AUD-KEY still$/        pass  # MUTATED/'
 
-# 346: G-AUD-KEY: Higgsfield credentials checked before reservation in submit_clip_job_enforced
-test_mutation 346 "higgsfield clip credential check" \
+# 346: G-AUD-KEY: a live clip checks the Higgsfield key first
+test_mutation 346 "higgsfield clip key check" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_higgsfield_credentials.py::test_check_higgsfield_credentials_refuses_missing_key" \
-    sed -i '/^    # Check credentials BEFORE any reservation or provider call$/,/^    _check_higgsfield_credentials()$/d'
+    "tests/test_higgsfield_credentials.py::test_live_submit_without_usable_key_refused_before_any_ledger_row[clip-malformed-no-colon-InvalidCredentials]" \
+    sed -i 's/^        _check_higgsfield_credentials()  # G-AUD-KEY clip$/        pass  # MUTATED/'
 
-# 347: G-AUD-COST: Provider extracts character-cost header
-test_mutation 347 "provider extracts character-cost header" \
+# 347: G-AUD-COST: the character-cost header is read
+test_mutation 347 "character-cost header read" \
     "hfvg/providers/elevenlabs.py" \
-    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
-    sed -i '/character_cost_header = headers.get("character-cost")/s/.*/        character_cost_header = None  # MUTANT: skip header extraction/'
+    "tests/test_audio_cost.py::test_tts_commits_header_credits_and_releases_the_rest" \
+    sed -i 's/^        if str(k).lower() == CHARACTER_COST_HEADER:$/        if False:  # MUTATED/'
 
-# 348: G-AUD-COST: Activities use actual credits for commit
-test_mutation 348 "activities commit actual credits" \
+# 348: G-AUD-COST: commit the header credits x rate, not the reservation
+test_mutation 348 "commit header credits" \
     "hfvg/activities/audio.py" \
-    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
-    sed -i '/if credits_used is not None and cost_from_header:/,/actual = credits_to_usd_micros(credits_used)/c\    actual = usd_micros  # MUTANT: skip actual cost from credits'
+    "tests/test_audio_cost.py::test_tts_commits_header_credits_and_releases_the_rest" \
+    sed -i 's/^        actual = credits_to_usd_micros(float(credits))$/        actual = usd_micros  # MUTATED: commit the reservation/'
 
-# 349: G-AUD-COST: Budget ledger persists characters and credits
-test_mutation 349 "ledger persists characters and credits" \
+# 349: G-AUD-COST: the migration adds every usage column to job_ledger
+test_mutation 349 "job_ledger usage migration" \
     "hfvg/budget.py" \
-    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
-    sed -i 's/characters, credits_used, created_at, updated_at)/created_at, updated_at)  # MUTANT: drop columns/'
+    "tests/test_audio_cost.py::test_job_ledger_migration_adds_usage_columns_and_keeps_rows" \
+    sed -i 's/for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT")):/for col, decl in (("characters", "INTEGER"), ("credits", "REAL")):  # MUTATED/'
 
-# 350: G-AUD-COST: Commit updates characters and credits on job_ledger
-test_mutation 350 "commit updates job ledger with credits" \
+# 350: G-AUD-COST: commit stores the credits on the job row
+test_mutation 350 "commit stores credits" \
     "hfvg/budget.py" \
-    "tests/test_audio_cost.py::test_tts_extracts_character_cost_from_header" \
-    sed -i '/UPDATE job_ledger.*SET status = .committed., usd_micros = ., characters/,/WHERE job_id = ?/c\                        await db.execute("""\n                            UPDATE job_ledger SET status = '\''committed'\'', usd_micros = ?, updated_at = ?\n                            WHERE job_id = ?\n                        """, (actual, now, job_id))  # MUTANT: skip credits/chars'
+    "tests/test_audio_cost.py::test_tts_commits_header_credits_and_releases_the_rest" \
+    sed -i 's/credits = COALESCE(?, credits),$/credits = COALESCE(NULL * ?, credits),  -- MUTATED/'
 
-# 351: G-AUD-COST: Estimate credits fallback is conservative
-test_mutation 351 "estimate_credits fallback" \
+# 351: G-AUD-COST: without the header the estimate is committed and flagged cost_source=estimate
+test_mutation 351 "missing header flagged" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_cost.py::test_missing_header_commits_the_estimate_flagged" \
+    sed -i 's/^        cost_source = "estimate"$/        cost_source = COST_SOURCE_HEADER  # MUTATED: unflagged/'
+
+# 352: G-BRAND-1: the denylist keeps every required term
+test_mutation 352 "brand denylist complete" \
+    "tests/test_no_brand_content.py" \
+    "tests/test_no_brand_content.py::test_denylist_covers_the_required_terms" \
+    sed -i '/^    # owner \/ brand \/ project$/{n;d}'
+
+# 353: G-BRAND-1: HFVG_PROJECT must be a plain name (no path traversal)
+test_mutation 353 "HFVG_PROJECT name validated" \
+    "hfvg/gates.py" \
+    "tests/test_no_brand_content.py::test_hfvg_project_rejects_path_like_names[../demo]" \
+    sed -i 's/^    if not _PROJECT_RE.fullmatch(project or ""):$/    if False:  # MUTATED/'
+
+# 354: G-AUD-COST: the header name is matched case-insensitively
+test_mutation 354 "character-cost header case-insensitive" \
     "hfvg/providers/elevenlabs.py" \
-    "tests/test_audio_cost.py::test_fallback_when_character_cost_header_absent" \
-    sed -i '/def estimate_credits/,/return.*/ { /return/s/.*/    return 0.0  # MUTANT: broken estimate/ }'
+    "tests/test_audio_cost.py::test_character_cost_header_parsing" \
+    sed -i 's/^        if str(k).lower() == CHARACTER_COST_HEADER:$/        if str(k) == CHARACTER_COST_HEADER:  # MUTATED/'
 
-# Print final summary
-print_summary
+# 355: G-AUD-COST: the reservation is the larger of the API estimate and the credit upper bound
+test_mutation 355 "reservation upper bound" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_reservation_is_the_documented_upper_bound" \
+    sed -i 's/^    return max(estimate_usd_micros(job_type, params),$/    return min(estimate_usd_micros(job_type, params),  # MUTATED/'
 
-# Save summary to file for CI artifact
-if [ "$SHARD_NUM" -gt 0 ]; then
-    SUMMARY_FILE="/tmp/redgreen-shard-${SHARD_NUM}-summary.txt"
-    {
-        echo "Shard $SHARD_NUM of $TOTAL_SHARDS"
-        echo "PASS: $PASS_COUNT"
-        echo "FAIL: $FAIL_COUNT"
-        echo "SKIP: $SKIP_COUNT"
-        echo "INVALID: $INVALID_COUNT"
-    } > "$SUMMARY_FILE"
-    echo "Summary written to $SUMMARY_FILE"
-fi
+# 356: G-AUD-COST: the job row exists (reserved) during the provider call
+test_mutation 356 "job row recorded before the call" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_cost.py::test_job_row_is_reserved_during_the_provider_call" \
+    sed -i 's/^    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)$/    pass  # MUTATED/'
 
-exit_code=$?
+# 357: G-AUD-COST: ELEVENLABS_USD_PER_CREDIT fails closed on zero/negative
+test_mutation 357 "usd per credit fails closed" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_usd_per_credit_is_configurable_and_fails_closed" \
+    sed -i 's/^    if not math.isfinite(rate) or rate <= 0:$/    if not math.isfinite(rate):  # MUTATED/'
+
+# 358: G-AUD-COST: a bad rate is a non-retryable refusal before any ledger row
+test_mutation 358 "bad rate refused non-retryable" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_cost.py::test_bad_rate_refused_before_any_ledger_row" \
+    sed -i '/^def _reservation/,/^$/s/^    except ValueError as e:$/    except ZeroDivisionError as e:  # MUTATED/'
+
+# 359: G-AUD-COST: credits convert to micro-dollars rounding up
+test_mutation 359 "credits to usd rounds up" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_credits_to_usd_micros_rounds_up" \
+    sed -i 's/math.ceil(credits \* usd_per_credit() \* 1_000_000 - 1e-9)/int(credits * usd_per_credit() * 1_000_000)/'
+
+# 360: G-AUD-COST: the default rate is the highest paid-plan rate (never under-reserves)
+test_mutation 360 "default usd per credit" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_cost.py::test_default_usd_per_credit_is_the_highest_paid_plan_rate" \
+    sed -i 's/^DEFAULT_USD_PER_CREDIT = "0.0002"$/DEFAULT_USD_PER_CREDIT = "0.0001"  # MUTATED/'
+
+# 361: G-AUD-COST: an actual above the reservation is flagged, never hidden
+test_mutation 361 "over-reservation flagged" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_cost.py::test_header_above_the_reservation_is_committed_honestly" \
+    sed -i 's/^    over = actual > usd_micros$/    over = False  # MUTATED/'
+
+# 362: G-CI-1: the shard coverage check fails when a declared id never ran
+test_mutation 362 "coverage check catches a dropped id" \
+    "scripts/redgreen_coverage.py" \
+    "tests/test_redgreen_coverage.py::test_dropped_mutation_fails" \
+    sed -i 's/^    if missing:$/    if False:  # MUTATED/'
+
+# 363: G-CI-2: a rejected child records its own terminal status (late still_complete write race)
+test_mutation 363 "rejected child records 'rejected' after a late still_complete write" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_rejected_status_survives_a_late_still_complete_write" \
+    sed -i 's/^                    "rejected",$/                    "still_complete",  # MUTATED/'
+
+# 364: G-CI-1: an INVALID id fails the shard (not only FAIL)
+test_mutation 364 "redgreen summary fails a shard with INVALID ids" \
+    "scripts/redgreen.sh" \
+    "tests/test_redgreen_coverage.py::test_shard_summary_fails_on_invalid_ids" \
+    sed -i 's/^    if \[ \$FAIL_COUNT -eq 0 \] \&\& \[ \$INVALID_COUNT -eq 0 \]; then$/    if [ $FAIL_COUNT -eq 0 ]; then  # MUTATED/'
+
+# Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
+if print_summary; then exit_code=0; else exit_code=1; fi
+
+# Per-id results for scripts/redgreen_coverage.py (CI uploads this file as an artifact).
+mkdir -p "$(dirname "$RESULTS_FILE")"
+{
+    printf '# shard\t%s\t%s\t%s\t%s\n' "$SHARD_NUM" "$TOTAL_SHARDS" "$CURRENT_COMMIT" "$((DECL_ORDINAL + 1))"
+    for i in "${!MUTATION_IDS[@]}"; do
+        printf '%s\t%s\t%s\n' "${MUTATION_IDS[$i]}" "${MUTATION_RESULTS[$i]}" "${MUTATION_REASONS[$i]//$'\t'/ }"
+    done
+} > "$RESULTS_FILE"
+echo "Per-mutation results written to $RESULTS_FILE (${#MUTATION_IDS[@]} entries, declared ordinals: $((DECL_ORDINAL + 1)))"
 
 # Return to main workspace and verify it's clean
 cd "$WORKSPACE_ROOT"

@@ -18,7 +18,7 @@ def test_load_policy():
     assert blocking_count == 69
     
     # Count Owner approval points
-    assert len(policy.travis_approval_points) == 15
+    assert len(policy.owner_approval_points) == 15
     
     # Count check_type distribution
     check_types = {"code": 0, "judge": 0, "human": 0}
@@ -46,10 +46,10 @@ def test_gate_lookup():
     assert policy.is_blocking("G4.06") is False  # Non-blocking gate
     assert policy.is_blocking("G6.04") is False  # Non-blocking gate
     
-    # Test requires_travis_approval
-    assert policy.requires_travis_approval("G1.01") is True
-    assert policy.requires_travis_approval("G1.03") is True
-    assert policy.requires_travis_approval("G4.10") is False
+    # Test requires_owner_approval
+    assert policy.requires_owner_approval("G1.01") is True
+    assert policy.requires_owner_approval("G1.03") is True
+    assert policy.requires_owner_approval("G4.10") is False
 
 
 def test_budgets():

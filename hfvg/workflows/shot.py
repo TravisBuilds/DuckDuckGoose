@@ -869,6 +869,24 @@ class ShotWorkflow:
             workflow.logger.info(f"Still rejected at G2 for {self.shot_id}: {self.still_rejected_reason}")
             self.status = "rejected"
             self.clip_status = "skipped"
+            # The child records its own terminal status: its still_complete write can land after
+            # the parent's approve_g2_shots marked the row rejected (G2 decided while the still
+            # review was still finishing), so the DB must not be left at still_complete.
+            await workflow.execute_activity(
+                record_shot_result,
+                args=[
+                    os.getenv("DATABASE_PATH", "./data/studio.db"),
+                    self.episode_id,
+                    self.shot_id,
+                    "rejected",
+                    None,  # still_url (kept)
+                    None,  # clip_url
+                    None,  # qc_results (kept)
+                    attempt,
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=retry_policy,
+            )
             return {
                 "shot_id": self.shot_id,
                 "status": "rejected",

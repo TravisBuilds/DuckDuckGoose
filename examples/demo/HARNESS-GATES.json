@@ -21,7 +21,7 @@
     "default_external_actions": "HOLD (never post/upload/send without explicit Owner order)",
     "check_type": "code = deterministic script decides; judge = vision/LLM model decides under judge_policy; human = Owner decides (logged in STATUS with CEST time). 'assist' names the secondary check."
   },
-  "travis_approval_points": [
+  "owner_approval_points": [
     "GX.01",
     "GC.02",
     "GC.06",
@@ -286,11 +286,11 @@
       "approver": "harness",
       "when": "episode start",
       "refs": [
-        "refs/apparel/concierge-mallard-tuque-v3/",
-        "ep03-snow-monkeys/refs/duck-bare/",
+        "refs/apparel/host-hat-v3/",
+        "demo-ep03/refs/duck-bare/",
         "envs/facility/",
         "concept-art/",
-        "ep03-snow-monkeys/refs/world/media-ids.json",
+        "demo-ep03/refs/world/media-ids.json",
         "logo/locked/"
       ],
       "check_type": "code"
@@ -511,9 +511,9 @@
         "tuft_height_frac_of_head": 0.25
       },
       "refs": [
-        "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
-        "refs/apparel/concierge-mallard-tuque-v3/AB03.png",
-        "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+        "refs/apparel/host-hat-v3/AB02.png",
+        "refs/apparel/host-hat-v3/AB03.png",
+        "demo-ep03/refs/duck-bare/HOST-BARE-AB02.png"
       ],
       "rubric": {
         "see": "G4.02 scoring applied per still/frame"
@@ -552,7 +552,7 @@
       "step": "2-stills",
       "name": "STYLE-LOCK / background drift (still)",
       "check": "Side-by-side vs series refs; banned list; >= 2 series signatures (dome glazing, curved warm wood, LED strip, ring light, glass balustrade, round fire pit).",
-      "fail_criteria": "Any banned element (noren, glyphs, paper/stone/iron onsen lanterns, niwaki, boulder rims, stepping stones, bamboo, tatami, zabuton, shoji, ryokan panelling, arch tunnels, irori, tetsubin, celadon, lacquer, key paddles); < 2 signatures; reads as another spa. Exempt: flashback/pre-resort shots.",
+      "fail_criteria": "Any banned element (any item on the project STYLE-LOCK banned-decor list); < 2 signatures; reads as another spa. Exempt: flashback/pre-resort shots.",
       "blocking": "yes",
       "approver": "harness",
       "when": "every present-day draft + final",
@@ -563,7 +563,7 @@
         "items": [
           "1 No banned element (list in fail_criteria) anywhere in frame",
           "2 >= 2 series signatures visible (dome glazing, curved warm wood, LED strip, ring light, glass balustrade, round fire pit)",
-          "3 Materials/palette read as the same Mid-Mountain resort as the refs, not a ryokan/bathhouse/other spa",
+          "3 Materials/palette read as the same resort as the refs, not another location",
           "4 Room geometry matches its room master",
           "5 Lighting is consistent with the TOD lock"
         ],
@@ -572,14 +572,14 @@
           "concept-art/01-igloo-grid.jpg",
           "concept-art/02-living-room.jpg",
           "concept-art/03-kitchen.jpg",
-          "concept-art/04-bedroom-concierge-grid.jpg",
+          "concept-art/04-bedroom-grid.jpg",
           "envs/facility/FAC00-aerial.png ... FAC08-nightpath.png",
           "envs/ENV-canonical-sauna.png",
-          "ep03-snow-monkeys/stills/style3/SP-s1.png",
-          "ep03-snow-monkeys/stills/style3/DP-s1.png",
-          "ep03-snow-monkeys/stills/style3/LB-s1.png",
-          "ep03-snow-monkeys/stills/style3/CO-s1.png",
-          "ep03-snow-monkeys/refs/world/*.jpg (Ep01/Ep02 frames)"
+          "demo-ep03/stills/style3/SP-s1.png",
+          "demo-ep03/stills/style3/DP-s1.png",
+          "demo-ep03/stills/style3/LB-s1.png",
+          "demo-ep03/stills/style3/CO-s1.png",
+          "demo-ep03/refs/world/*.jpg (Ep01/Ep02 frames)"
         ]
       },
       "check_type": "judge"
@@ -624,8 +624,8 @@
         ],
         "pass_rule": "all items pass",
         "refs": [
-          "ep03-snow-monkeys/stills/finals4/B05-F1.png",
-          "ep03-snow-monkeys/stills/finals4/D07-F1.png"
+          "demo-ep03/stills/finals4/B05-F1.png",
+          "demo-ep03/stills/finals4/D07-F1.png"
         ]
       },
       "check_type": "judge"
@@ -686,12 +686,12 @@
         ],
         "pass_rule": "all applicable items pass",
         "refs": [
-          "ep03-snow-monkeys/stills/finals4/D07-F1.png",
-          "ep03-snow-monkeys/stills/finals4/E03-F1.png",
-          "ep03-snow-monkeys/stills/finals4/C01-F1.png",
-          "ep03-snow-monkeys/stills/finals4/D02-F1.png",
-          "ep03-snow-monkeys/refs/world/ep02-E04-underwater.jpg",
-          "ep03-snow-monkeys/refs/world/ep01-C05-pool.jpg"
+          "demo-ep03/stills/finals4/D07-F1.png",
+          "demo-ep03/stills/finals4/E03-F1.png",
+          "demo-ep03/stills/finals4/C01-F1.png",
+          "demo-ep03/stills/finals4/D02-F1.png",
+          "demo-ep03/refs/world/ep02-E04-underwater.jpg",
+          "demo-ep03/refs/world/ep01-C05-pool.jpg"
         ]
       },
       "check_type": "judge"
@@ -783,9 +783,9 @@
         "refs": "same as G2.03"
       },
       "refs": [
-        "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
-        "refs/apparel/concierge-mallard-tuque-v3/AB03.png",
-        "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+        "refs/apparel/host-hat-v3/AB02.png",
+        "refs/apparel/host-hat-v3/AB03.png",
+        "demo-ep03/refs/duck-bare/HOST-BARE-AB02.png"
       ],
       "rubric": {
         "see": "G4.02 scoring applied at first/mid/last (+ used-window frames)"
@@ -821,7 +821,7 @@
         "pass_rule": "DRIFT/watch passes only if 1 and 2-4 all pass; otherwise FAIL",
         "refs": [
           "bgdrift.py sheet first/mid/last",
-          "Ep03 O03-v2: sides 12.3 watch explained by push-in -> PASS (ep03-snow-monkeys/clips/step9/qc/)"
+          "Ep03 O03-v2: sides 12.3 watch explained by push-in -> PASS (demo-ep03/clips/step9/qc/)"
         ]
       },
       "check_type": "code",
@@ -866,7 +866,7 @@
         "note": "per-clip version of G4.10 over the used window"
       },
       "tools": [
-        "/workspace/stillgate.py",
+        "hfvg/qc/motion.py",
         "/workspace/vgate.py"
       ],
       "check_type": "code",
@@ -916,14 +916,14 @@
         ],
         "pass_rule": "all items pass in the used window",
         "refs": [
-          "ep03-snow-monkeys/stills/finals4/D07-F1.png",
-          "ep03-snow-monkeys/stills/finals4/E03-F1.png",
-          "ep03-snow-monkeys/stills/finals4/C01-F1.png",
-          "ep03-snow-monkeys/stills/finals4/D02-F1.png",
-          "ep03-snow-monkeys/refs/world/ep02-E04-underwater.jpg",
-          "ep03-snow-monkeys/refs/world/ep01-C05-pool.jpg",
-          "ep03-snow-monkeys/clips/step4/raw/D07-v1.mp4",
-          "ep03-snow-monkeys/clips/step4/raw/E03-v1.mp4"
+          "demo-ep03/stills/finals4/D07-F1.png",
+          "demo-ep03/stills/finals4/E03-F1.png",
+          "demo-ep03/stills/finals4/C01-F1.png",
+          "demo-ep03/stills/finals4/D02-F1.png",
+          "demo-ep03/refs/world/ep02-E04-underwater.jpg",
+          "demo-ep03/refs/world/ep01-C05-pool.jpg",
+          "demo-ep03/clips/step4/raw/D07-v1.mp4",
+          "demo-ep03/clips/step4/raw/E03-v1.mp4"
         ]
       },
       "check_type": "judge"
@@ -982,9 +982,9 @@
           "minor": "Ep03 F02 speculum, B03/E03 bill"
         },
         "refs": [
-          "refs/apparel/concierge-mallard-tuque-v3/AB02.png",
-          "refs/apparel/concierge-mallard-tuque-v3/AB03.png (dae1d7e4, canonical)",
-          "ep03-snow-monkeys/refs/duck-bare/DUCK-BARE-TUFT-AB02.png"
+          "refs/apparel/host-hat-v3/AB02.png",
+          "refs/apparel/host-hat-v3/AB03.png (dae1d7e4, canonical)",
+          "demo-ep03/refs/duck-bare/HOST-BARE-AB02.png"
         ],
         "pass_rule": "no major in the mute; every minor listed with crops"
       },
@@ -1036,7 +1036,7 @@
       "when": "mutes with flashbacks",
       "thresholds": {
         "saturation": 0.7,
-        "grade_recipe": "ep03-snow-monkeys/clips/step5/stitch_v4.py GRADE",
+        "grade_recipe": "demo-ep03/clips/step5/stitch_v4.py GRADE",
         "grade_outgoing_clip_only": true
       },
       "check_type": "code"
@@ -1129,7 +1129,7 @@
         "exclude": "dissolve overlap frames + 1 frame at each boundary"
       },
       "tools": [
-        "/workspace/stillgate.py"
+        "hfvg/qc/motion.py"
       ],
       "calibration": {
         "ep03_mute_v5": {
@@ -1165,7 +1165,7 @@
         "test": "the known still (Ep03 mute v5 O03) must FAIL; mute v6 must have no FAIL"
       },
       "refs": [
-        "ep03-snow-monkeys/mutes/ep03-mute-v6-stillgate.json",
+        "demo-ep03/mutes/ep03-mute-v6-stillgate.json",
         "PIPELINE-LESSONS.md#14"
       ],
       "check_type": "code",
@@ -1208,13 +1208,13 @@
       "gate_id": "G6.01",
       "step": "6-audio",
       "name": "VO voice settings",
-      "check": "ElevenLabs Sora 4sirbXwrtRlmPV80MJkQ, eleven_v3, [softly] [gently] [warm smile], atempo 0.90, peaks -2 dBFS; every line ASR-checked; pickups RMS-matched.",
+      "check": "ElevenLabs project voice (voice id from the project handbook), eleven_v3, the handbook's style tags and atempo, peaks -2 dBFS; every line ASR-checked; pickups RMS-matched.",
       "fail_criteria": "Other voice/model/tags; unchecked line; pickup level mismatch > 1 dB.",
       "blocking": "yes",
       "approver": "harness",
       "when": "VO generation",
       "thresholds": {
-        "voice_id": "4sirbXwrtRlmPV80MJkQ",
+        "voice_id": "demo-voice-id",
         "model": "eleven_v3",
         "tags": [
           "[softly]",
@@ -1437,7 +1437,7 @@
       "gate_id": "G7.03",
       "step": "7-delivery",
       "name": "Grower handoff (never post)",
-      "check": "Package (final, nosubs, review, title, JP/EN logline, @thequackedconcierge, Owner-set priority) prepared; sent only on Owner go; nobody posts without the lock.",
+      "check": "Package (final, nosubs, review, title, JP/EN logline, the project handle, Owner-set priority) prepared; sent only on Owner go; nobody posts without the lock.",
       "fail_criteria": "Handoff sent without Owner go; any post.",
       "blocking": "yes",
       "approver": "Owner",
@@ -1485,7 +1485,7 @@
       "judge": 26,
       "human": 14
     },
-    "travis_approval_points": 15
+    "owner_approval_points": 15
   },
   "retired_gate_ids": {
     "G5.03": "merged into G5.01 in v1.1"

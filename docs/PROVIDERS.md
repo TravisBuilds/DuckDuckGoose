@@ -182,8 +182,8 @@ client = ElevenLabs(api_key="your-api-key")
 
 # Text-to-speech (verified endpoint exists)
 audio_generator = client.text_to_speech.convert(
-    voice_id="4sirbXwrtRlmPV80MJkQ",  # Sora voice from playbook
-    text="きょうのお客様は、三世代のニホンザルのご家族です。",
+    voice_id="YOUR_VOICE_ID",  # any voice id from your ElevenLabs voice library
+    text="This is a short synthetic test line.",
     model_id="eleven_multilingual_v2"
 )
 
@@ -219,28 +219,43 @@ From SDK introspection, ElevenLabs client has these verified attributes:
 
 **⚠️ PARTIALLY VERIFIED**: Cost estimation not directly documented. The `usage` endpoint likely provides quota info.
 
-### Credit Costs
+### Cost tracking (G-AUD-COST)
 
-**UNVERIFIED** (from PIPELINE-LESSONS.md, not confirmed from docs):
-- TTS: ~30cr per minute (11_multilingual_v2)
-- Music: ~1,400cr per 95s
-- SFX: ~100cr per 5 beds
+Every live ElevenLabs call (TTS, SFX, music) is wrapped by `hfvg/activities/audio.py`:
 
-**Note**: ElevenLabs uses character-based pricing. 1 credit ≈ 1000 characters. Verify actual costs from dashboard.
+1. **Reserve** before the call (`reservation_usd_micros`): the larger of the official API price
+   estimate (TTS $0.08 / 1k characters, Flash $0.04; SFX $0.12 / min; music $0.15 / min) and the
+   documented **credit upper bound** x `ELEVENLABS_USD_PER_CREDIT`:
+   TTS 1 credit per character (multilingual v2 / v3; Flash/Turbo bill 0.5-1), SFX 40 credits per
+   second when the duration is set (200 per generation when automatic), music 900 credits per
+   minute (https://elevenlabs.io/pricing and the sound effects docs, checked 2026-10-25).
+2. **Commit the actual** from the `character-cost` response header (credits charged; a live
+   eleven_v3 request with 71 characters returned `character-cost: 28`): credits x
+   `ELEVENLABS_USD_PER_CREDIT`, rounded up to the micro-dollar. The unused part of the hold is
+   released. Because the reservation is the documented upper bound, the commit is <= the
+   reservation; if upstream ever bills more, the actual is still committed (never hidden), an
+   `overage_warning` transaction is written and the result carries `over_reservation: true`.
+3. **No header**: the API price estimate is committed and the job row is flagged
+   `cost_source = "estimate"` (with the header: `"provider_header"`).
 
-### Voice Selection (From Playbook)
+`job_ledger` stores `characters` (billed input characters, TTS), `credits` (the header value)
+and `cost_source` per job; older databases are migrated in place by `BudgetLedger.init_db()`.
 
-Series voice locks:
-- **Duck narrator**: Sora voice ID `4sirbXwrtRlmPV80MJkQ` (from CHARACTER-LOCK)
-- Settings: `[softly] [gently] [warm smile]`, atempo 0.90, ~4.2 mora/s
-- Language: Japanese (です/ます form), English hard-subs
+`ELEVENLABS_USD_PER_CREDIT` (default `0.0002`): USD per credit. The default is the highest
+per-credit price of any paid plan (Starter $6 / 30,000 credits; Creator $22 / 121k = 0.000182,
+Pro $99 / 600k, Scale $299 / 1.8M and Business $990 / 6M are cheaper), so the ledger never
+under-states spend. Set it to your plan price / included credits for exact accounting. A
+non-numeric, zero or negative value refuses the job (non-retryable `InvalidCostConfig`) before
+anything is reserved.
 
-### Credit Budget (From CREDIT-PLAN)
+A missing `ELEVENLABS_API_KEY` (or a missing / non `id:secret` `HIGGSFIELD_API_KEY`) refuses a
+live job non-retryably before preflight, the smoke-gate override log, the round hold, the
+reservation and the job row (G-AUD-KEY). Dry runs need no keys.
 
-Ep03 audio budget: ≤4,000 ElevenLabs credits
-- Picture lock required before any audio generation
-- One VO take pair + targeted retakes
-- Reuse series beds and SFX where possible
+### Voice selection
+
+Voice ids, voice settings and per-episode audio budgets are project data: keep them in the
+project's own handbook / plan files (see `examples/demo/`), not in this document.
 
 ---
 

@@ -9,6 +9,17 @@ from tests.lint_helpers import write_kit
 
 
 @pytest.fixture(autouse=True)
+def _restore_environ():
+    """G-CI-2: a test that writes os.environ directly (not via monkeypatch) must not leak keys,
+    DRY_RUN or cache dirs into later tests - restore the exact environment after every test."""
+    saved = dict(os.environ)
+    yield
+    if dict(os.environ) != saved:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_test_dirs(tmp_path, monkeypatch):
     """
     Isolate every test: chdir to tmp_path and point data/DB paths there.

@@ -30,7 +30,7 @@ async def test_e2e_gates_and_budget():
     
     assert len(policy.gates) == 71
     assert len([g for g in policy.gates if g.get("blocking") == "yes"]) == 69
-    assert len(policy.travis_approval_points) == 15
+    assert len(policy.owner_approval_points) == 15
     
     # Check check_type distribution
     check_types = {}
@@ -172,7 +172,7 @@ def test_e2e_no_auto_posting():
     policy = load_policy("demo")
     
     # GX.01 should be in approval points
-    assert "GX.01" in policy.travis_approval_points
+    assert "GX.01" in policy.owner_approval_points
     
     # Check GX.01 gate
     gx01 = policy.get_gate("GX.01")
@@ -206,10 +206,10 @@ def test_e2e_all_15_approval_points():
         "G7.03",  # Handoff package
     ]
     
-    assert len(policy.travis_approval_points) == 15
+    assert len(policy.owner_approval_points) == 15
     
     for gate_id in expected_approval_points:
-        assert gate_id in policy.travis_approval_points, f"Missing approval point: {gate_id}"
+        assert gate_id in policy.owner_approval_points, f"Missing approval point: {gate_id}"
         
         # Verify gate exists
         gate = policy.get_gate(gate_id)
@@ -229,12 +229,12 @@ def test_e2e_g409_picture_lock():
     assert "lock" in g409["check"].lower()
     
     # Should be after G4.08 (mute notes)
-    assert "G4.08" in policy.travis_approval_points
-    assert "G4.09" in policy.travis_approval_points
+    assert "G4.08" in policy.owner_approval_points
+    assert "G4.09" in policy.owner_approval_points
     
     # Picture lock comes before audio
-    g409_idx = policy.travis_approval_points.index("G4.09")
-    g501_idx = policy.travis_approval_points.index("G5.01")
+    g409_idx = policy.owner_approval_points.index("G4.09")
+    g501_idx = policy.owner_approval_points.index("G5.01")
     assert g409_idx < g501_idx, "Picture lock must come before script lock"
 
 

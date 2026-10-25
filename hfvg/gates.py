@@ -1,6 +1,7 @@
 """Gate policy loader for HARNESS-GATES.json."""
 
 import json
+import re
 import os
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ class GatePolicy:
         self.series = self.data.get("series")
         self.harness = self.data.get("harness")
         self.gates = self.data.get("gates", [])
-        self.owner_approval_points = self.data.get("travis_approval_points", [])
+        self.owner_approval_points = self.data.get("owner_approval_points", [])
         self.budgets = self.data.get("budgets", {})
         self.rules = self.data.get("rules", {})
         
@@ -77,7 +78,7 @@ class GatePolicy:
         gate = self.get_gate(gate_id)
         return gate and gate.get("blocking") == "yes"
     
-    def requires_travis_approval(self, gate_id: str) -> bool:
+    def requires_owner_approval(self, gate_id: str) -> bool:
         """Check if gate requires project owner approval."""
         return gate_id in self.owner_approval_points
     
@@ -109,6 +110,9 @@ class GatePolicy:
         return self.budgets.get("unit_prices", {})
 
 
+_PROJECT_RE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+
 def load_policy(project: str | None = None) -> GatePolicy:
     """
     Load gate policy for a project.
@@ -121,5 +125,7 @@ def load_policy(project: str | None = None) -> GatePolicy:
     """
     if project is None:
         project = os.getenv("HFVG_PROJECT", "demo")
+    if not _PROJECT_RE.fullmatch(project or ""):
+        raise ValueError(f"invalid HFVG_PROJECT / project name {project!r} (letters, digits, '.', '_', '-')")
     policy_path = Path(__file__).parent.parent / "examples" / project / "HARNESS-GATES.json"
     return GatePolicy(policy_path)

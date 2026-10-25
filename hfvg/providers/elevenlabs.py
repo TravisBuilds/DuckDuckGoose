@@ -60,8 +60,29 @@ SFX_DEFAULT_ESTIMATE_S = 30.0
 # Legacy credit estimates kept for the credit-based estimate_cost() contract.
 _LEGACY_CREDITS = {"tts_per_min": 30.0, "music_per_95s": 1400.0, "sfx_per_5s": 20.0}
 
-# USD per ElevenLabs credit (imported from budget.py)
-ELEVENLABS_CREDIT_USD_MICROS = 200  # $0.0002 per credit
+# G-AUD-COST: actual ElevenLabs spend is reported per request in the ``character-cost`` response
+# header (credits charged; a live eleven_v3 call sending 71 characters returned 28). Credits are
+# converted to USD at ELEVENLABS_USD_PER_CREDIT. The default is the highest per-credit price of
+# any paid plan (Starter: $6 / 30,000 credits = $0.0002; Creator $22/121k, Pro $99/600k, Scale
+# $299/1.8M and Business $990/6M are all cheaper per credit; https://elevenlabs.io/pricing,
+# checked 2026-10-25), so the ledger never under-states spend. Set it to your plan's
+# price / included credits (e.g. 0.000182 for Creator).
+USD_PER_CREDIT_ENV = "ELEVENLABS_USD_PER_CREDIT"
+DEFAULT_USD_PER_CREDIT = "0.0002"
+
+# Documented upper bounds of credits per request (https://elevenlabs.io/pricing and the sound
+# effects docs, checked 2026-10-25). Reservations use these, so the committed actual (from the
+# header) is <= the reservation: TTS at most 1 credit per character (multilingual v2 / v3; Flash
+# and Turbo bill 0.5-1); SFX 40 credits per second when the duration is set, 200 per generation
+# when it is automatic; music 900 credits per minute.
+MAX_CREDITS_PER_CHAR = 1.0
+SFX_CREDITS_PER_SECOND = 40.0
+SFX_AUTO_DURATION_CREDITS = 200.0
+MUSIC_CREDITS_PER_MINUTE = 900.0
+
+CHARACTER_COST_HEADER = "character-cost"
+COST_SOURCE_HEADER = "provider_header"
+COST_SOURCE_ESTIMATE = "estimate"
 
 
 class ElevenLabsError(RuntimeError):
@@ -72,40 +93,76 @@ def canonical_audio_model(model: str) -> str:
     return AUDIO_MODEL_ALIASES.get(model, model)
 
 
-def estimate_credits(job_type: str, params: dict[str, Any]) -> float:
-    """
-    Estimate ElevenLabs credits for a job, used as a conservative fallback.
-    
-    For TTS: characters map to credits based on character-cost patterns.
-    For SFX/music: use legacy estimates based on duration.
-    
-    This is a conservative estimate; actual costs come from response headers.
-    """
-    if job_type == "tts":
-        # Conservative: 1 credit per ~2.5 characters (observed pattern)
-        chars = len(params.get("text") or "")
-        return max(1.0, chars / 2.5)
-    if job_type == "sfx":
-        # Legacy: 20 credits per 5 seconds
-        seconds = float(params.get("duration") or SFX_DEFAULT_ESTIMATE_S)
-        return _LEGACY_CREDITS["sfx_per_5s"] * (seconds / 5.0)
-    if job_type == "music":
-        # Legacy: 1400 credits per 95 seconds
-        seconds = float(params.get("duration") or 0.0)
-        if seconds <= 0:
-            return 100.0  # Conservative fallback
-        return _LEGACY_CREDITS["music_per_95s"] * (seconds / 95.0)
-    raise ValueError(f"unknown ElevenLabs job type {job_type!r}")
+def usd_per_credit() -> float:
+    """USD per ElevenLabs credit from ELEVENLABS_USD_PER_CREDIT (default: Starter plan rate).
 
-
-def credits_to_usd(credits: float) -> float:
-    """Convert ElevenLabs credits to USD."""
-    return credits * ELEVENLABS_CREDIT_USD_MICROS / 1_000_000
+    Fails closed: a non-numeric, zero or negative value raises ValueError (a bad rate would make
+    every reservation and commit wrong)."""
+    raw = os.getenv(USD_PER_CREDIT_ENV, DEFAULT_USD_PER_CREDIT).strip()
+    try:
+        rate = float(raw)
+    except ValueError:
+        raise ValueError(f"{USD_PER_CREDIT_ENV} must be a number (USD per credit), got {raw!r}") from None
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError(f"{USD_PER_CREDIT_ENV} must be > 0, got {raw!r}")
+    return rate
 
 
 def credits_to_usd_micros(credits: float) -> int:
-    """Convert ElevenLabs credits to integer micro-dollars."""
-    return max(1, round(credits * ELEVENLABS_CREDIT_USD_MICROS))
+    """ElevenLabs credits -> integer micro-dollars at usd_per_credit(), rounded up (never below 1)."""
+    if credits < 0:
+        raise ValueError(f"credits must be >= 0, got {credits}")
+    return max(1, math.ceil(credits * usd_per_credit() * 1_000_000 - 1e-9))
+
+
+def max_credits(job_type: str, params: dict[str, Any]) -> float:
+    """Documented upper bound of the credits one request can be charged (see constants above)."""
+    if job_type == "tts":
+        chars = len(params.get("text") or "")
+        if chars == 0:
+            raise ValueError("TTS credit bound needs the text (cost is per character)")
+        return MAX_CREDITS_PER_CHAR * chars
+    if job_type == "sfx":
+        duration = params.get("duration")
+        if duration is None:
+            return SFX_AUTO_DURATION_CREDITS
+        return SFX_CREDITS_PER_SECOND * float(duration)
+    if job_type == "music":
+        seconds = float(params.get("duration") or 0.0)
+        if seconds <= 0:
+            raise ValueError("music credit bound needs a duration")
+        return MUSIC_CREDITS_PER_MINUTE * seconds / 60.0
+    raise ValueError(f"unknown ElevenLabs job type {job_type!r}")
+
+
+def reservation_usd_micros(job_type: str, params: dict[str, Any]) -> int:
+    """What to reserve before a call: the larger of the API USD estimate and the documented
+    credit upper bound at usd_per_credit(), so the actual from the header never exceeds it."""
+    return max(estimate_usd_micros(job_type, params),
+               credits_to_usd_micros(max_credits(job_type, params)))
+
+
+def parse_character_cost(headers: Any) -> float | None:
+    """Credits charged, from the ``character-cost`` response header (case-insensitive).
+
+    None when the header is absent or not a finite non-negative number (the caller then falls
+    back to the estimate and flags it)."""
+    if headers is None:
+        return None
+    value = None
+    for k, v in headers.items():
+        if str(k).lower() == CHARACTER_COST_HEADER:
+            value = v
+            break
+    if value is None:
+        return None
+    try:
+        credits = float(str(value).strip())
+    except ValueError:
+        return None
+    if not math.isfinite(credits) or credits < 0:
+        return None
+    return credits
 
 
 def estimate_usd(job_type: str, params: dict[str, Any]) -> float:
@@ -169,8 +226,8 @@ class ElevenLabsProvider(GenerationProvider):
         return {"xi-api-key": self.api_key or "", "Content-Type": "application/json"}
 
     async def _post_audio(self, path: str, body: dict[str, Any], params: dict[str, Any] | None,
-                          out_path: Path) -> tuple[Path, dict[str, str]]:
-        """Post audio request and return (output_path, response_headers)."""
+                          out_path: Path) -> httpx.Headers:
+        """POST, write the audio durably to out_path, return the response headers (cost metadata)."""
         async with httpx.AsyncClient(base_url=self.api_base, timeout=httpx.Timeout(300.0)) as client:
             resp = await client.post(path, json=body, params=params or None, headers=self._headers())
         if resp.status_code != 200:
@@ -181,8 +238,7 @@ class ElevenLabsProvider(GenerationProvider):
         tmp = out_path.with_suffix(out_path.suffix + ".part")
         tmp.write_bytes(resp.content)
         os.replace(tmp, out_path)
-        # Return path and headers (for character-cost extraction)
-        return out_path, dict(resp.headers)
+        return resp.headers
 
     def _out(self, out_path: str | Path | None, kind: str, key: dict[str, Any]) -> Path:
         if out_path:
@@ -195,32 +251,20 @@ class ElevenLabsProvider(GenerationProvider):
         self._jobs[job_id] = {"path": str(path.resolve()), "cost": cost_usd, **meta}
         return job_id
     
-    def _extract_actual_cost(self, headers: dict[str, str], estimated_chars: int, 
-                            kind: str) -> tuple[float, int, bool]:
-        """
-        Extract actual cost from ElevenLabs response headers.
-        
-        Returns:
-            (credits_used, characters_used, from_header)
-            - credits_used: actual credits charged (from header or estimate)
-            - characters_used: characters processed (from header or input)
-            - from_header: True if values came from header, False if fallback
-        """
-        # Try to extract character-cost header (credits charged)
-        character_cost_header = headers.get("character-cost") or headers.get("Character-Cost")
-        
-        if character_cost_header:
-            try:
-                credits_used = float(character_cost_header)
-                # For TTS, characters may be in a separate header; fall back to estimate
-                characters_used = estimated_chars  # Could extract from another header if available
-                return credits_used, characters_used, True
-            except (ValueError, TypeError):
-                pass
-        
-        # Fallback: estimate credits from characters (conservative)
-        credits_estimated = estimate_credits(kind, {"characters": estimated_chars, "text": "x" * estimated_chars})
-        return credits_estimated, estimated_chars, False
+    def _cost_meta(self, headers: Any, job_type: str, params: dict[str, Any],
+                   characters: int | None) -> tuple[float, dict[str, Any]]:
+        """(cost_usd, metadata) for one finished request.
+
+        With the character-cost header: cost is credits x usd_per_credit(), cost_source
+        "provider_header". Without it: the API USD estimate, cost_source "estimate" (flagged)."""
+        credits = parse_character_cost(headers)
+        if credits is not None:
+            cost = credits_to_usd_micros(credits) / 1_000_000
+            source = COST_SOURCE_HEADER
+        else:
+            cost = estimate_usd(job_type, params)
+            source = COST_SOURCE_ESTIMATE
+        return cost, {"credits": credits, "characters": characters, "cost_source": source}
 
     # ------------------------------------------------------------------ public API
 
@@ -239,21 +283,10 @@ class ElevenLabsProvider(GenerationProvider):
         if seed is not None:
             body["seed"] = seed
         path = self._out(out_path, "tts", {"t": text, "v": voice_id, "m": model_id, "s": settings, "seed": seed})
-        out_path, headers = await self._post_audio(f"/v1/text-to-speech/{voice_id}", body, 
-                                                     {"output_format": "mp3_44100_128"}, path)
-        
-        # Extract actual cost from response headers
-        credits_used, chars_used, from_header = self._extract_actual_cost(headers, len(text), "tts")
-        
-        # Store job with actual cost metrics
-        cost_usd = estimate_usd("tts", {"model": model_id, "text": text})  # Conservative estimate for now
-        return self._record("aud", out_path, cost_usd, {
-            "kind": "tts", 
-            "model": model_id, 
-            "characters": chars_used,
-            "credits_used": credits_used,
-            "cost_from_header": from_header
-        })
+        headers = await self._post_audio(f"/v1/text-to-speech/{voice_id}", body,
+                                         {"output_format": "mp3_44100_128"}, path)
+        cost, meta = self._cost_meta(headers, "tts", {"model": model_id, "text": text}, len(text))
+        return self._record("aud", path, cost, {"kind": "tts", "model": model_id, **meta})
 
     async def submit_sfx(self, text: str, duration: float | None = None, loop: bool = False,
                          prompt_influence: float | None = None, out_path: str | Path | None = None) -> str:
@@ -265,22 +298,10 @@ class ElevenLabsProvider(GenerationProvider):
             body["duration_seconds"] = float(duration)
         if prompt_influence is not None:
             body["prompt_influence"] = float(prompt_influence)
-        path_obj = self._out(out_path, "sfx", body)
-        out_path, headers = await self._post_audio("/v1/sound-generation", body, 
-                                                     {"output_format": "mp3_44100_128"}, path_obj)
-        
-        # Extract actual cost from response headers
-        estimated_chars = len(text)  # Rough estimate for SFX
-        credits_used, chars_used, from_header = self._extract_actual_cost(headers, estimated_chars, "sfx")
-        
-        cost_usd = estimate_usd("sfx", {"model": "sound_generation", "duration": duration})
-        return self._record("sfx", out_path, cost_usd, {
-            "kind": "sfx", 
-            "model": "sound_generation",
-            "credits_used": credits_used,
-            "characters": chars_used,
-            "cost_from_header": from_header
-        })
+        path = self._out(out_path, "sfx", body)
+        headers = await self._post_audio("/v1/sound-generation", body, {"output_format": "mp3_44100_128"}, path)
+        cost, meta = self._cost_meta(headers, "sfx", {"model": "sound_generation", "duration": duration}, None)
+        return self._record("sfx", path, cost, {"kind": "sfx", "model": "sound_generation", **meta})
 
     async def submit_music(self, prompt: str, duration: float, model: str = DEFAULT_MUSIC_MODEL,
                            force_instrumental: bool = True, seed: int | None = None,
@@ -295,21 +316,10 @@ class ElevenLabsProvider(GenerationProvider):
                                 "model_id": model_id, "force_instrumental": bool(force_instrumental)}
         if seed is not None:
             body["seed"] = seed
-        path_obj = self._out(out_path, "music", body)
-        out_path, headers = await self._post_audio("/v1/music", body, None, path_obj)
-        
-        # Extract actual cost from response headers
-        estimated_chars = len(prompt)  # Rough estimate for music
-        credits_used, chars_used, from_header = self._extract_actual_cost(headers, estimated_chars, "music")
-        
-        cost_usd = estimate_usd("music", {"model": model_id, "duration": duration})
-        return self._record("mus", out_path, cost_usd, {
-            "kind": "music", 
-            "model": model_id,
-            "credits_used": credits_used,
-            "characters": chars_used,
-            "cost_from_header": from_header
-        })
+        path = self._out(out_path, "music", body)
+        headers = await self._post_audio("/v1/music", body, None, path)
+        cost, meta = self._cost_meta(headers, "music", {"model": model_id, "duration": duration}, None)
+        return self._record("mus", path, cost, {"kind": "music", "model": model_id, **meta})
 
     async def get_job_status(self, job_id: str) -> ProviderJob:
         """Audio is synchronous upstream: a known job is complete with a durable file:// URI."""
@@ -321,19 +331,11 @@ class ElevenLabsProvider(GenerationProvider):
         if not job or not Path(job["path"]).is_file():
             return ProviderJob(job_id=job_id, status=ProviderJobStatus.FAILED, progress=0.0,
                                error="Unknown job or its audio file is missing")
-        # G-AUD-COST: Pass through credits and characters metadata via raw field
-        return ProviderJob(
-            job_id=job_id, 
-            status=ProviderJobStatus.COMPLETED, 
-            progress=1.0,
-            output_url=Path(job["path"]).as_uri(), 
-            cost=job["cost"],
-            raw={
-                "credits_used": job.get("credits_used"),
-                "characters": job.get("characters"),
-                "cost_from_header": job.get("cost_from_header", False)
-            }
-        )
+        # G-AUD-COST: the actual-cost metadata travels with the job (raw)
+        return ProviderJob(job_id=job_id, status=ProviderJobStatus.COMPLETED, progress=1.0,
+                           output_url=Path(job["path"]).as_uri(), cost=job["cost"],
+                           raw={"credits": job.get("credits"), "characters": job.get("characters"),
+                                "cost_source": job.get("cost_source", COST_SOURCE_ESTIMATE)})
 
     async def get_balance(self) -> float:
         """Remaining credits this period (character_limit - character_count)."""

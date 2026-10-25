@@ -26,7 +26,7 @@ def temp_series_dir():
 - Iridescent bottle-green mallard head
 
 ## Canonical refs
-- Apparel ABs: `refs/apparel/concierge-mallard-tuque-v3/AB02.png`
+- Apparel ABs: `refs/apparel/host-hat-v3/AB02.png`
 - Anatomy source: Ember Ep2
 """
         (series_path / "CHARACTER-LOCK.md").write_text(lock_content)
@@ -35,7 +35,7 @@ def temp_series_dir():
         apparel_dir = series_path / "refs" / "apparel"
         
         # Active lock (v3)
-        v3_dir = apparel_dir / "concierge-mallard-tuque-v3"
+        v3_dir = apparel_dir / "host-hat-v3"
         v3_dir.mkdir(parents=True)
         v3_media = {
             "media_ids": ["img_abc123", "img_def456"],
@@ -44,7 +44,7 @@ def temp_series_dir():
         (v3_dir / "media-ids.json").write_text(json.dumps(v3_media))
         
         # Superseded lock (v2)
-        v2_dir = apparel_dir / "concierge-mallard-tuque-v2"
+        v2_dir = apparel_dir / "host-hat-v2"
         v2_dir.mkdir(parents=True)
         v2_media = {
             "media_ids": ["img_old123"],
@@ -82,17 +82,17 @@ def test_load_apparel_locks(temp_series_dir):
     registry.load()
     
     # Should load both v2 and v3
-    assert "concierge-mallard-tuque-v3" in registry.locks
-    assert "concierge-mallard-tuque-v2" in registry.locks
+    assert "host-hat-v3" in registry.locks
+    assert "host-hat-v2" in registry.locks
     
     # v3 should not be superseded
-    v3_lock = registry.locks["concierge-mallard-tuque-v3"]
+    v3_lock = registry.locks["host-hat-v3"]
     assert not v3_lock.superseded
     assert v3_lock.version == "v3"
     assert len(v3_lock.media_ids) == 2
     
     # v2 should be superseded
-    v2_lock = registry.locks["concierge-mallard-tuque-v2"]
+    v2_lock = registry.locks["host-hat-v2"]
     assert v2_lock.superseded
 
 
@@ -117,7 +117,7 @@ def test_validate_shot_references_superseded(temp_series_dir):
     shot = {
         "shot_id": "A01",
         "refs": [
-            "refs/apparel/concierge-mallard-tuque-v2/AB02.png"
+            "refs/apparel/host-hat-v2/AB02.png"
         ]
     }
     
@@ -136,7 +136,7 @@ def test_validate_shot_references_valid(temp_series_dir):
     shot = {
         "shot_id": "A01",
         "refs": [
-            "refs/apparel/concierge-mallard-tuque-v3/AB02.png"
+            "refs/apparel/host-hat-v3/AB02.png"
         ]
     }
     
@@ -151,4 +151,4 @@ def test_get_active_locks(temp_series_dir):
     
     active = registry.get_active_locks()
     assert len(active) == 1
-    assert active[0].lock_id == "concierge-mallard-tuque-v3"
+    assert active[0].lock_id == "host-hat-v3"

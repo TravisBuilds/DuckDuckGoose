@@ -422,7 +422,7 @@ This is the **order of first real production run** for episode 4 of "Demo Projec
    ├── CHARACTER-LOCK.md              # Series identity lock
    ├── refs/
    │   ├── apparel/
-   │   │   ├── concierge-mallard-tuque-v3/
+   │   │   ├── host-hat-v3/
    │   │   │   ├── AB02.png ... AB05.png
    │   │   │   └── media-ids.json
    │   │   └── [other locked apparel]/
@@ -624,7 +624,7 @@ hfvg query-strip ep04-<guests>
 ```
 
 **What Runs:**
-1. Generate VO (Japanese, Sora voice)
+1. Generate VO (project voice from the handbook)
 2. Generate BGM (reuse series beds)
 3. Generate SFX
 4. Mix audio to picture
