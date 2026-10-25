@@ -70,34 +70,8 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     }
     # Estimates still run (free /estimate calls) so the plan shows costs next to the errors.
 
-    # In dry run, return placeholder estimates without real API calls
-    if dry_run:
-        for shot in shots:
-            shot_estimates.append({
-                "shot_id": shot["shot_id"],
-                "still_credits": 1.0,
-                "still_usd": "0.05",
-                "still_estimate_available": True,
-                "clip_credits": 5.0,
-                "clip_usd": "0.25",
-                "clip_estimate_available": True,
-                "total_credits": 6.0,
-                "total_usd": "0.30",
-            })
-        
-        return {
-            "shots": shot_estimates,
-            "total_still_credits": float(len(shots)),
-            "total_clip_credits": float(len(shots) * 5),
-            "total_credits": float(len(shots) * 6),
-            "total_still_usd": f"{len(shots) * 0.05:.2f}",
-            "total_clip_usd": f"{len(shots) * 0.25:.2f}",
-            "total_usd": f"{len(shots) * 0.30:.2f}",
-            "estimates_available": True,
-            **preflight_fields,
-        }
-    
-    # Live mode: make real provider calls
+    # Both dry and live modes: make real provider estimate calls (they're free)
+    # This ensures dry mode shows the same real per-call preflight estimates used for reservations
     still_provider = HiggsfieldStillProvider()
     
     try:
