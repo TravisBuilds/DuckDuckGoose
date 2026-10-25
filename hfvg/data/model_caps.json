@@ -1131,10 +1131,40 @@
     }
    ]
   },
-  "eleven_multilingual_v2": {
+  "eleven_v3": {
    "kind": "tts",
    "provider": "elevenlabs",
    "status": "active_default_tts",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "eleven_v3"
+   },
+   "limits": {
+    "text_max_chars": {
+     "value": 10000,
+     "basis": "upstream",
+     "sources": [
+      "el_models",
+      "el_pricing"
+     ],
+     "note": "About 10 minutes of audio; split longer text."
+    }
+   },
+   "cost": {
+    "unit": "1k_chars",
+    "usd": 0.08,
+    "sources": [
+     "el_pricing"
+    ]
+   },
+   "moderation": [],
+   "harness_note": "eleven_v3 is the current default TTS model. Used for Ep03/Ep05 VO with the Sora voice."
+  },
+  "eleven_multilingual_v2": {
+   "kind": "tts",
+   "provider": "elevenlabs",
+   "status": "active",
    "aliases": [],
    "upstream": {
     "vendor": "ElevenLabs",
@@ -1156,10 +1186,40 @@
     "usd": 0.08,
     "sources": [
      "el_pricing"
-    ],
-    "harness_table_note": "hfvg AUDIO_COSTS uses an estimated 30 cr/min; replace with per-character pricing."
+    ]
    },
    "moderation": []
+  },
+  "eleven_flash_v2_5": {
+   "kind": "tts",
+   "provider": "elevenlabs",
+   "status": "active",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "eleven_flash_v2_5",
+    "replacement_for": "eleven_turbo_v2_5"
+   },
+   "limits": {
+    "text_max_chars": {
+     "value": 40000,
+     "basis": "upstream",
+     "sources": [
+      "el_pricing",
+      "el_models"
+     ],
+     "note": "The pricing page lists 'Flash / Turbo: 40,000 character limit'. eleven_flash_v2_5 replaces the deprecated eleven_turbo_v2_5."
+    }
+   },
+   "cost": {
+    "unit": "1k_chars",
+    "usd": 0.04,
+    "sources": [
+     "el_pricing"
+    ]
+   },
+   "moderation": [],
+   "harness_note": "Replaces eleven_turbo_v2_5. Faster and lower cost than eleven_v3."
   },
   "eleven_turbo_v2_5": {
    "kind": "tts",
@@ -1266,18 +1326,95 @@
    },
    "moderation": []
   },
-  "eleven_music": {
+  "music_v1": {
    "kind": "music",
    "provider": "elevenlabs",
-   "status": "alias_invalid_upstream_id",
-   "aliases": [
-    "music_v1",
-    "music_v2",
-    "music_v2_5"
-   ],
+   "status": "active",
+   "aliases": [],
    "upstream": {
     "vendor": "ElevenLabs",
-    "model_id": "music_v1 (API default); music_v2, music_v2_5 also valid",
+    "model_id": "music_v1",
+    "endpoint": "POST /v1/music"
+   },
+   "limits": {
+    "duration_ms": {
+     "value": {
+      "min": 3000,
+      "max": 300000
+     },
+     "basis": "stricter_upstream_pages",
+     "sources": [
+      "el_music_api",
+      "el_music_cap",
+      "el_pricing"
+     ],
+     "upstream": [
+      [
+       3000,
+       600000
+      ],
+      [
+       3000,
+       300000
+      ]
+     ],
+     "note": "The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used."
+    },
+    "prompt_max_chars": {
+     "value": null,
+     "basis": "unknown",
+     "sources": [
+      "el_music_api"
+     ],
+     "note": "Not documented."
+    },
+    "lyrics": {
+     "value": {
+      "lines_per_section_max": 30,
+      "chars_per_line_max": 200,
+      "section_name_chars": [
+       1,
+       100
+      ]
+     },
+     "basis": "upstream",
+     "sources": [
+      "el_music_api"
+     ]
+    },
+    "exclusive_inputs": {
+     "value": "prompt XOR composition_plan; force_instrumental and music_length_ms only with prompt",
+     "basis": "upstream",
+     "sources": [
+      "el_music_api"
+     ]
+    }
+   },
+   "cost": {
+    "unit": "minute",
+    "usd": 0.15,
+    "sources": [
+     "el_pricing"
+    ],
+    "note": "Billed per generation."
+   },
+   "moderation": [
+    {
+     "quirk": "Uploaded reference audio (about 30 s) is screened for copyright before use.",
+     "sources": [
+      "el_music_cap"
+     ]
+    }
+   ]
+  },
+  "music_v2": {
+   "kind": "music",
+   "provider": "elevenlabs",
+   "status": "active",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "music_v2",
     "endpoint": "POST /v1/music"
    },
    "limits": {

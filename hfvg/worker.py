@@ -58,6 +58,7 @@ PRODUCTION_ACTIVITIES = [
     activities.trim_clips,
     activities.render_edit,
     activities.mix_audio,
+    activities.mix_audio_final,
     activities.generate_voiceover,
     activities.generate_sfx,
     activities.generate_music,

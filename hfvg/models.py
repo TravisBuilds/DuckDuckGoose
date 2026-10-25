@@ -122,6 +122,10 @@ class EpisodeState(BaseModel):
     assembly_manifest: dict = Field(default_factory=dict)  # Assembly manifest with clips[] and metadata
     assembly_qc: dict = Field(default_factory=dict)  # Latest mute-edit QC (verdict, blocking, reasons)
     assembly_acceptance: dict | None = None  # Human acceptance of a blocking QC verdict (reason)
+    episode_metadata: dict = Field(default_factory=dict)  # Episode config: locked_vo_path, bgm_config, etc.
+    delivery_paths: dict = Field(default_factory=dict)  # Delivery paths: master, nosubs, phone, subs
+    delivery_manifest: dict = Field(default_factory=dict)  # Delivery manifest with mix metadata
+    delivery_qc: dict = Field(default_factory=dict)  # Delivery QC: loudness, true peak, duration, subs
 
 
 class CreditTransaction(BaseModel):
