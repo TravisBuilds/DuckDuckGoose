@@ -136,7 +136,51 @@ async def generate_ref_activity(
                     f"Ref {ref_key} v{version} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
                 )
     
-    activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id}")
+    # Validate and set resolution default from model_caps
+    if resolution is None:
+        from hfvg import model_caps
+        registry = model_caps.get_registry()
+        try:
+            caps = registry.resolve(model)
+            res_limit = caps.limit("resolutions")
+            if res_limit and not res_limit.unknown and isinstance(res_limit.value, list):
+                # Pick highest allowed resolution
+                allowed = res_limit.value
+                # Sort by resolution height (assumes format like "720p", "1080p", "2k")
+                def res_height(r: str) -> int:
+                    if r.endswith("p"):
+                        return int(r[:-1])
+                    elif r == "2k":
+                        return 1440
+                    elif r == "4k":
+                        return 2160
+                    return 0
+                allowed_sorted = sorted(allowed, key=res_height, reverse=True)
+                resolution = allowed_sorted[0] if allowed_sorted else "1080p"
+                activity.logger.info(f"Using highest allowed resolution for {model}: {resolution}")
+            else:
+                # No resolution limit in caps, use safe default
+                resolution = "1080p"
+        except model_caps.UnknownModelError:
+            resolution = "1080p"
+    
+    # Validate resolution against model_caps
+    from hfvg import model_caps
+    registry = model_caps.get_registry()
+    try:
+        caps = registry.resolve(model)
+        res_limit = caps.limit("resolutions")
+        if res_limit and not res_limit.unknown and isinstance(res_limit.value, list):
+            allowed = res_limit.value
+            if resolution not in allowed:
+                raise ValueError(
+                    f"Resolution '{resolution}' not allowed for model {model}. "
+                    f"Allowed: {', '.join(allowed)}"
+                )
+    except model_caps.UnknownModelError:
+        activity.logger.warning(f"Model {model} not in registry, skipping resolution validation")
+    
+    activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id} at {resolution}")
     
     # Estimate credits
     # Refs use SOUL V2: higgsfield-ai/soul/v2/standard
