@@ -317,10 +317,18 @@ class EpisodeStateResponse(BaseModel):
     # "acceptance", "blocking", "stale", "edit_version"}; None before the clips finished
     assembly: dict | None = None
     assembly_path: str | None = None
+    # Audio + delivery: {"paths": {mix_wav, master_subs, nosubs, phone, ass, srt, manifest, stems...},
+    # "manifest", "qc": {"verdict", "blocking", "checks", ...}, "acceptance", "blocking", "due"}
+    delivery: dict | None = None
+    delivery_paths: dict | None = None
 
 
 class AssemblyAcceptRequest(BaseModel):
     reason: str = Field(..., min_length=1, description="Why the blocking mute-edit QC verdict is accepted")
+
+
+class DeliveryAcceptRequest(BaseModel):
+    reason: str = Field(..., min_length=1, description="Why the blocking delivery QC verdict is accepted")
 
 
 class ShotStatus(BaseModel):
@@ -766,6 +774,8 @@ async def get_episode_state(
         active_stall_alerts=len(active_stalls),
         assembly=state.get("assembly"),
         assembly_path=(state.get("assembly") or {}).get("path"),
+        delivery=state.get("delivery"),
+        delivery_paths=(state.get("delivery") or {}).get("paths") or None,
     )
 
 
@@ -793,6 +803,32 @@ async def accept_assembly_qc(
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error sending acceptance: {str(e)}")
     return {"success": True, "episode_id": episode_id, "message": "Assembly QC acceptance sent"}
+
+
+@app.post("/api/episodes/{episode_id}/delivery/accept")
+async def accept_delivery_qc(
+    episode_id: str,
+    request: DeliveryAcceptRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Human review of a blocking delivery QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
+    so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("accept_delivery_qc", request.reason.strip())
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending acceptance: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Delivery QC acceptance sent"}
 
 
 @app.post("/api/episodes/{episode_id}/approve")

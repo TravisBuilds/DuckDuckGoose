@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from hfvg.activities.media import assemble_mute_edit
     from hfvg.activities.qc import check_assembly_qc
+    from hfvg.activities.audio import check_delivery_qc, load_audio_plan, mix_and_deliver
     from hfvg.activities.credit_activities import update_credit_cap_activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.activities.g1_plan import compute_g1_plan_activity
@@ -80,6 +81,9 @@ class EpisodeWorkflowV2:
         self.pending_clip_retries: dict[str, str] = {}  # shot_id -> clip-retry workflow id
         self.clip_retry_log: list[dict] = []  # audit: one row per clip retry started
         self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
+        self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
+        self.delivery_version: int = 0
+        self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
     
     @workflow.run
     async def run(
@@ -619,6 +623,9 @@ class EpisodeWorkflowV2:
         workflow.logger.info("=== PICTURE ASSEMBLY ===")
         self.assembly_shots = list(shots)
         await self._run_picture_assembly(episode_id)
+        # Audio + delivery (Round 4): mix under the locked mute picture, deliverables + delivery QC
+        if self._delivery_due():
+            await self._run_delivery(episode_id)
         
         # ================================================================
         # GATE 3: FINAL CUT
@@ -631,12 +638,18 @@ class EpisodeWorkflowV2:
         while True:
             await workflow.wait_condition(
                 lambda: not self.pending_clip_retries and (
-                    self._assembly_stale() or (self.approved_g_final_cut and not self._assembly_blocking())
+                    self._assembly_stale() or self._delivery_due() or (
+                        self.approved_g_final_cut and not self._assembly_blocking()
+                        and not self._delivery_blocking())
                 )
             )
             if self._assembly_stale():
                 workflow.logger.info("[PICTURE LOCK] clips changed since the last edit; re-assembling")
                 await self._run_picture_assembly(episode_id)
+                continue
+            if self._delivery_due():
+                workflow.logger.info("[DELIVERY] picture changed or was accepted; rebuilding the delivery")
+                await self._run_delivery(episode_id)
                 continue
             break
         self.passed_gates.append("G_FINAL_CUT")
@@ -659,6 +672,8 @@ class EpisodeWorkflowV2:
             {"stage_name": "STILL_GENERATION", "status": "complete"},
             {"stage_name": "CLIP_GENERATION", "status": "complete"},
             {"stage_name": "MUTE_EDIT", "status": "complete"},
+            {"stage_name": "DELIVERY", "status": "complete",
+             "verdict": (self.state.delivery_qc or {}).get("verdict")},
         ]
         
         try:
@@ -965,6 +980,165 @@ class EpisodeWorkflowV2:
             "edit_version": self.assembly_version,
         }
 
+    # ---------------------------------------------------------------- audio + delivery (Round 4)
+    def _delivery_signature(self) -> list:
+        return [self.assembly_version, self.state.assembly_path]
+
+    def _delivery_due(self) -> bool:
+        """A delivery is (re)built for each usable picture: current (not stale), not blocking (or
+        accepted by a reviewer), and not already delivered for this edit version."""
+        if self.assembly_sig is None or self._assembly_stale() or self._assembly_blocking():
+            return False
+        return self.delivery_sig != self._delivery_signature()
+
+    def _delivery_blocking(self) -> bool:
+        qc = self.state.delivery_qc or {}
+        return bool(qc.get("blocking")) and self.state.delivery_acceptance is None
+
+    async def _resolve_audio_inputs(self, episode_id: str, plan: dict, picture_s: float) -> dict:
+        """Locked / library files or ElevenLabs generation for every VO line, SFX cue and music bed."""
+        policy = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
+                             maximum_interval=timedelta(seconds=10))
+        plan = dict(plan)
+        dry_inputs: list[str] = []
+        vo = dict(plan.get("vo") or {})
+        lines = []
+        for line in vo.get("lines") or []:
+            res = await workflow.execute_activity(
+                "generate_voiceover",
+                args=[episode_id, line.get("text") or "", vo.get("voice_id") or "", vo.get("model") or "eleven_v3",
+                      line["id"], line.get("path")],
+                start_to_close_timeout=timedelta(minutes=5), heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=policy,
+            )
+            if res.get("dry_run"):
+                dry_inputs.append(f"vo:{line['id']}")
+            lines.append({**line, "path": res["path"]})
+        vo["lines"] = lines
+        plan["vo"] = vo
+        cues = []
+        for cue in plan.get("sfx") or []:
+            res = await workflow.execute_activity(
+                "generate_sfx",
+                args=[episode_id, cue.get("prompt") or "", min(30.0, max(0.5, float(cue["dur"]))), cue["id"],
+                      cue.get("path")],
+                start_to_close_timeout=timedelta(minutes=5), heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=policy,
+            )
+            if res.get("dry_run"):
+                dry_inputs.append(f"sfx:{cue['id']}")
+            cues.append({**cue, "path": res["path"]})
+        plan["sfx"] = cues
+        if plan.get("music"):
+            music = dict(plan["music"])
+            length = min(300.0, max(3.0, picture_s - float(music.get("offset_s", 0.0))))
+            res = await workflow.execute_activity(
+                "generate_music",
+                args=[episode_id, music.get("prompt") or "", length, music.get("model") or "music_v1",
+                      music.get("id") or "music", music.get("path")],
+                start_to_close_timeout=timedelta(minutes=10), heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=policy,
+            )
+            if res.get("dry_run"):
+                dry_inputs.append("music")
+            music["path"] = res["path"]
+            plan["music"] = music
+        plan["dry_inputs"] = dry_inputs
+        return plan
+
+    async def _run_delivery(self, episode_id: str) -> None:
+        """Audio round + delivery for the current picture, then delivery QC.
+
+        A missing plan / input file, a mix error or an unverifiable QC is a blocking NEEDS_REVIEW;
+        a measured miss (loudness, true peak, duration, streams, subs, size) is a blocking FAIL.
+        Both hold G_FINAL_CUT until a passing rebuild or a human accept_delivery_qc(reason).
+        DRY_RUN (stand-in picture or inputs) is recorded and does not block."""
+        # state.stage stays PICTURE_LOCK (the picture is locked while audio is built); the audio
+        # round's own phase is reported in get_state()["delivery"]["phase"].
+        self.delivery_phase = PipelineStage.AUDIO.value
+        self.delivery_sig = self._delivery_signature()
+        self.delivery_version += 1
+        self.state.delivery_acceptance = None  # an acceptance applies to one delivery only
+        self.state.delivery_manifest = {}
+        self.state.delivery_paths = {}
+        aqc = self.state.assembly_qc or {}
+        path = self.state.assembly_path
+        qc: dict
+        if aqc.get("verdict") == "NO_CLIPS" or not path:
+            qc = {"verdict": "NO_PICTURE", "reason": "no assembled picture to deliver (see assembly QC)"}
+        else:
+            picture_s = float((self.state.assembly_manifest or {}).get("total_duration") or 0.0) or 60.0
+            policy = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
+                                 maximum_interval=timedelta(seconds=10))
+            try:
+                plan = await workflow.execute_activity(
+                    load_audio_plan, args=[episode_id, None],
+                    start_to_close_timeout=timedelta(minutes=1), retry_policy=policy,
+                )
+                plan = await self._resolve_audio_inputs(episode_id, plan, picture_s)
+                self.delivery_phase = PipelineStage.FINAL_MIX.value
+                manifest = await workflow.execute_activity(
+                    mix_and_deliver, args=[episode_id, path, plan, None],
+                    start_to_close_timeout=timedelta(minutes=60), heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=policy,
+                )
+                self.state.delivery_manifest = manifest
+                self.state.delivery_paths = dict(manifest.get("paths") or {})
+                self.delivery_phase = PipelineStage.DELIVERY.value
+                qc = await workflow.execute_activity(
+                    check_delivery_qc, args=[episode_id, manifest, plan, None],
+                    start_to_close_timeout=timedelta(minutes=15), heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=policy,
+                )
+            except ActivityError as e:
+                qc = {"verdict": "NEEDS_REVIEW", "reason": f"audio / delivery failed: {e.cause or e}"}
+        qc = dict(qc)
+        self.delivery_phase = "done"
+        qc["blocking"] = qc["verdict"] in ("FAIL", "NEEDS_REVIEW")
+        qc["delivery_version"] = self.delivery_version
+        qc["edit_version"] = self.assembly_version
+        qc.setdefault("reason", ", ".join(qc.get("failed") or []) or None)
+        self.state.delivery_qc = qc
+        for name, out in (self.state.delivery_paths or {}).items():
+            if name in ("master_subs", "nosubs", "phone", "mix_wav"):
+                self.state.output_paths.setdefault("delivery", {})[name] = out
+        if qc["blocking"]:
+            workflow.logger.error(f"[DELIVERY] QC {qc['verdict']}: {qc['reason']} (G_FINAL_CUT held)")
+            if self.approved_g_final_cut:  # an approval sent before this verdict does not count
+                self.approved_g_final_cut = False
+                self.final_cut_refusals.append(
+                    f"approval withdrawn: delivery QC {qc['verdict']}: {qc['reason']}")
+        else:
+            workflow.logger.info(f"[DELIVERY] QC {qc['verdict']}")
+
+    def _delivery_view(self) -> dict:
+        return {
+            "paths": dict(self.state.delivery_paths or {}),
+            "manifest": dict(self.state.delivery_manifest or {}),
+            "qc": dict(self.state.delivery_qc or {}),
+            "acceptance": dict(self.state.delivery_acceptance) if self.state.delivery_acceptance else None,
+            "blocking": self._delivery_blocking(),
+            "due": self._delivery_due(),
+            "delivery_version": self.delivery_version,
+            "phase": self.delivery_phase,
+        }
+
+    @workflow.signal
+    def accept_delivery_qc(self, reason: str):
+        """Human review of a blocking delivery QC verdict (FAIL / NEEDS_REVIEW): accept it with a
+        reason so G_FINAL_CUT can be approved. Applies to the current delivery only."""
+        qc = self.state.delivery_qc or {}
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("delivery QC acceptance ignored: a reason is required")
+            return
+        if not qc.get("blocking"):
+            self.final_cut_refusals.append("delivery QC acceptance ignored: no blocking verdict to accept")
+            return
+        self.state.delivery_acceptance = {
+            "reason": reason.strip(), "verdict": qc.get("verdict"), "delivery_version": self.delivery_version,
+        }
+        workflow.logger.warning(f"Delivery QC {qc.get('verdict')} accepted by reviewer: {reason}")
+
     @workflow.signal
     async def approve_g_final_cut(self):
         """Approve final cut (G_FINAL_CUT): After edit.
@@ -980,6 +1154,12 @@ class EpisodeWorkflowV2:
         if self._assembly_blocking():
             qc = self.state.assembly_qc
             refusal = f"assembly QC {qc.get('verdict')}: {qc.get('reason')}"
+            self.final_cut_refusals.append(refusal)
+            workflow.logger.warning(f"Final cut approval ignored: {refusal}")
+            return
+        if self._delivery_blocking():
+            dqc = self.state.delivery_qc
+            refusal = f"delivery QC {dqc.get('verdict')}: {dqc.get('reason')}"
             self.final_cut_refusals.append(refusal)
             workflow.logger.warning(f"Final cut approval ignored: {refusal}")
             return
@@ -1467,6 +1647,7 @@ class EpisodeWorkflowV2:
             "clip_retry_log": [dict(r) for r in self.clip_retry_log],
             "final_cut_refusals": list(self.final_cut_refusals),
             "assembly": self._assembly_view(),
+            "delivery": self._delivery_view(),
             "shot_outcomes": {
                 k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url")}
                 for k, v in self.shot_outcomes.items()

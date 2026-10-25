@@ -1,7 +1,7 @@
 # MODEL-CAPS: per-model limits, enforced before any spend
 
 Status: research and design only. Nothing is coded into the repo yet. Checked **2026-10-19** (Europe/Paris).
-Data file: `model_caps.json` (same folder; schema v1, 11 models, 36 cited sources). Raw doc snapshots: `sources/`.
+Data file: `model_caps.json` (same folder; schema v1, 16 models, 37 cited sources). Raw doc snapshots: `sources/`.
 Acceptance spec for the implementation: `ACCEPTANCE.md`.
 
 ## Why
@@ -47,10 +47,13 @@ not as a provider failure.
 
 | Harness key | Upstream model id | Limit | Cost (API list) | Note |
 |---|---|---|---|---|
-| `eleven_multilingual_v2` | eleven_multilingual_v2 | 10,000 chars/request (~10 min) | $0.08 / 1k chars | default TTS |
+| `eleven_v3` | eleven_v3 | 5,000 chars/request | $0.08 / 1k chars | default TTS (audio round VO) |
+| `eleven_multilingual_v2` | eleven_multilingual_v2 | 10,000 chars/request (~10 min) | $0.08 / 1k chars | |
+| `eleven_flash_v2_5` | eleven_flash_v2_5 | 40,000 chars | $0.04 / 1k chars | replacement for turbo |
 | `eleven_turbo_v2_5` | eleven_turbo_v2_5 (deprecated) | 40,000 chars | $0.04 / 1k chars | migrate to `eleven_flash_v2_5` |
 | `sound_generation` | eleven_text_to_sound_v2 | 0.5–30 s † (API ref 0.5, capabilities page 0.1) | $0.12/min; 40 credits/s when duration set | text max UNKNOWN |
-| `eleven_music` | **not a valid id**: music_v1 (default) / music_v2 / music_v2_5 | 3 s–5 min † (API ref allows 10 min; FAQ and pricing say 5) | $0.15/min | lyrics ≤30 lines/section, ≤200 chars/line |
+| `music_v1` / `music_v2` / `music_v2_5` | same (POST /v1/music; v1 is the API default) | 3 s–5 min † (API ref allows 10 min; FAQ and pricing say 5) | $0.15/min | one music rate on the pricing page |
+| `eleven_music` | **not a valid id**: legacy harness alias, mapped to music_v1 | 3 s–5 min † | $0.15/min | lyrics ≤30 lines/section, ≤200 chars/line |
 
 ## Per-model notes (the values that matter for preflight)
 
@@ -120,7 +123,8 @@ not as a provider failure.
 * ≤30 images / 10 videos / 10 audios / 50 total (both layers). The harness policy cap is 8. 6 aspects; 4–30 s.
 
 ### ElevenLabs
-* TTS character limits are from the models page and the API pricing page. `eleven_turbo_v2_5` is deprecated (use `eleven_flash_v2_5`).
+* TTS character limits are from the models page and the API pricing page (re-read 2026-10-25: eleven_v3 5,000; multilingual_v2 10,000; flash_v2_5 40,000). `eleven_turbo_v2_5` is deprecated (use `eleven_flash_v2_5`).
+* TTS endpoint `POST /v1/text-to-speech/{voice_id}` (text, model_id, voice_settings, seed); billed per character.
 * SFX endpoint `POST /v1/sound-generation`, model `eleven_text_to_sound_v2`: duration 0.5–30 s; loop only on v2; prompt_influence 0–1.
 * Music endpoint `POST /v1/music`: `music_length_ms` 3,000–600,000 per the API reference, but 5 minutes per the capabilities FAQ and pricing page,
   so 300,000 is used. prompt XOR composition_plan. Uploaded reference audio is screened for copyright.

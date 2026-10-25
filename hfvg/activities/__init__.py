@@ -1,6 +1,13 @@
 """Activity implementations."""
 
-from hfvg.activities.audio import generate_music, generate_sfx, generate_voiceover
+from hfvg.activities.audio import (
+    check_delivery_qc,
+    generate_music,
+    generate_sfx,
+    generate_voiceover,
+    load_audio_plan,
+    mix_and_deliver,
+)
 from hfvg.activities.generation import await_job, submit_clip_job, submit_still_job
 from hfvg.activities.media import assemble_mute_edit, mix_audio, render_edit, trim_clips
 from hfvg.activities.posting import post_to_platform
@@ -52,6 +59,9 @@ __all__ = [
     "trim_clips",
     "render_edit",
     "mix_audio",
+    "load_audio_plan",
+    "mix_and_deliver",
+    "check_delivery_qc",
     "generate_voiceover",
     "generate_sfx",
     "generate_music",

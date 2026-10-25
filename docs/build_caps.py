@@ -33,12 +33,15 @@ S={
  "el_sfx_cap":("https://elevenlabs.io/docs/overview/capabilities/sound-effects","ElevenLabs"),
  "el_music_api":("https://elevenlabs.io/docs/api-reference/music/compose","ElevenLabs"),
  "el_music_cap":("https://elevenlabs.io/docs/overview/capabilities/music","ElevenLabs"),
+ "el_tts_api":("https://elevenlabs.io/docs/api-reference/text-to-speech/convert","ElevenLabs"),
  "obs_ep05":("/workspace/fail-audit/FINDINGS.md + harness ledgers pr10-95e/216/0d9 (2026-10-18)","Harness live evidence (not a vendor doc)"),
  "obs_estimate":("/workspace/ep05-live/r3b (free /estimate, 2026-10-18)","Harness observation via Higgsfield /estimate"),
  "obs_kling_canary":("hfvg/config.py _load_rate_table comment (live canary 5 s = 0.28 USD)","Harness observation"),
  "harness_seedance_rates":("hfvg/config.py _load_rate_table comment (Higgsfield pricing text)","Harness config, vendor text not re-found today"),
 }
-sources={k:{"url":u,"publisher":p,"checked":D} for k,(u,p) in S.items()}
+# Re-read for Round 4 (eleven_v3 / flash_v2_5 / music ids, prices, endpoints)
+RECHECKED={"el_models":"2026-10-25","el_pricing":"2026-10-25","el_sfx_api":"2026-10-25","el_music_api":"2026-10-25","el_tts_api":"2026-10-25"}
+sources={k:{"url":u,"publisher":p,"checked":RECHECKED.get(k,D)} for k,(u,p) in S.items()}
 U=None
 def L(value,basis,src,note=None,hf=U,up=U):
     d={"value":value,"basis":basis,"sources":src}
@@ -198,10 +201,10 @@ M["bytedance/seedance-2.5/reference-to-video"]={
  "moderation":[{"quirk":"No real human faces in references (Seedance 2.x).","sources":["bp_video_task"]}],
 }
 M["eleven_multilingual_v2"]={
- "kind":"tts","provider":"elevenlabs","status":"active_default_tts","aliases":[],
+ "kind":"tts","provider":"elevenlabs","status":"active","aliases":[],
  "upstream":{"vendor":"ElevenLabs","model_id":"eleven_multilingual_v2"},
  "limits":{"text_max_chars":L(10000,"upstream",["el_models","el_pricing"],"About 10 minutes of audio; split longer text.")},
- "cost":{"unit":"1k_chars","usd":0.08,"sources":["el_pricing"],"harness_table_note":"hfvg AUDIO_COSTS uses an estimated 30 cr/min; replace with per-character pricing."},
+ "cost":{"unit":"1k_chars","usd":0.08,"sources":["el_pricing"],"harness_table_note":"hfvg AUDIO_COSTS bills this per-character price (estimate_usd)."},
  "moderation":[],
 }
 M["eleven_turbo_v2_5"]={
@@ -224,7 +227,7 @@ M["sound_generation"]={
  "moderation":[],
 }
 M["eleven_music"]={
- "kind":"music","provider":"elevenlabs","status":"alias_invalid_upstream_id","aliases":["music_v1","music_v2","music_v2_5"],
+ "kind":"music","provider":"elevenlabs","status":"alias_invalid_upstream_id","aliases":[],
  "upstream":{"vendor":"ElevenLabs","model_id":"music_v1 (API default); music_v2, music_v2_5 also valid","endpoint":"POST /v1/music"},
  "limits":{
   "duration_ms":L({"min":3000,"max":300000},"stricter_upstream_pages",["el_music_api","el_music_cap","el_pricing"],"The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used.",up=[[3000,600000],[3000,300000]]),
@@ -234,12 +237,42 @@ M["eleven_music"]={
  },
  "cost":{"unit":"minute","usd":0.15,"sources":["el_pricing"],"note":"Billed per generation."},
  "moderation":[{"quirk":"Uploaded reference audio (about 30 s) is screened for copyright before use.","sources":["el_music_cap"]}],
- "harness_note":"'eleven_music' is NOT a valid ElevenLabs model_id. Map it to music_v1 (or pin music_v2_5) before any live call.",
+ "harness_note":"'eleven_music' is NOT a valid ElevenLabs model_id. Legacy harness alias only: the provider maps it to music_v1 (AUDIO_MODEL_ALIASES) before any live call; the music_v1 / music_v2 / music_v2_5 rows are the real ids.",
 }
+M["eleven_v3"]={
+ "kind":"tts","provider":"elevenlabs","status":"active_default_tts","aliases":[],
+ "upstream":{"vendor":"ElevenLabs","model_id":"eleven_v3","endpoint":"POST /v1/text-to-speech/{voice_id}"},
+ "limits":{"text_max_chars":L(5000,"upstream",["el_models"],"The models page lists a 5,000 character limit for eleven_v3 (half of multilingual_v2); split longer text.")},
+ "cost":{"unit":"1k_chars","usd":0.08,"sources":["el_pricing"],"note":"Eleven v3 is billed per character at the same API rate as Multilingual v2."},
+ "moderation":[],
+ "harness_note":"Default VO model of the audio round (hfvg.activities.audio).",
+}
+M["eleven_flash_v2_5"]={
+ "kind":"tts","provider":"elevenlabs","status":"active","aliases":[],
+ "upstream":{"vendor":"ElevenLabs","model_id":"eleven_flash_v2_5","endpoint":"POST /v1/text-to-speech/{voice_id}"},
+ "limits":{"text_max_chars":L(40000,"upstream",["el_models","el_pricing"],"About 40 minutes of audio.")},
+ "cost":{"unit":"1k_chars","usd":0.04,"sources":["el_pricing"]},
+ "moderation":[],
+}
+MUSIC_LIMITS=lambda: {
+  "duration_ms":L({"min":3000,"max":300000},"stricter_upstream_pages",["el_music_api","el_music_cap","el_pricing"],"The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used.",up=[[3000,600000],[3000,300000]]),
+  "prompt_max_chars":UNK("Not documented.",["el_music_api"]),
+  "exclusive_inputs":L("prompt XOR composition_plan; force_instrumental and music_length_ms only with prompt","upstream",["el_music_api"]),
+}
+for _mid,_status,_fmt in (("music_v1","active_default_music","mp3_44100_128"),("music_v2","active","mp3_48000_192"),("music_v2_5","active",None)):
+    M[_mid]={
+     "kind":"music","provider":"elevenlabs","status":_status,"aliases":[],
+     "upstream":{"vendor":"ElevenLabs","model_id":_mid,"endpoint":"POST /v1/music",
+                 "default_output_format":_fmt if _fmt else "unknown (not listed on the compose page)"},
+     "limits":MUSIC_LIMITS(),
+     "cost":{"unit":"minute","usd":0.15,"sources":["el_pricing"],"note":"Billed per generation; the API pricing page lists one music rate (not per model version)."},
+     "moderation":[],
+    }
 out={"schema_version":1,"checked":D,"recheck_interval_days":30,
  "precedence":"When Higgsfield and the upstream vendor differ, value = the stricter one (basis says which). 'unknown' = no official value: preflight never refuses on it, only shows it.",
  "shared":{"higgsfield":{"upload_content_types":HF_IMG+["audio/wav","audio/x-wav","video/mp4"],"upload_url_ttl_s":3600,"output_retention_days_min":7,
    "failed_or_nsfw_charged":False,"concurrency_error":"400 'Maximum number of concurrent requests (N) has been reached'","sources":["hf_uploads","hf_billing","hf_errors","hf_rate"]}},
  "models":M,"sources":sources}
-json.dump(out,open("/workspace/model-caps/model_caps.json","w"),indent=1)
+import sys
+json.dump(out,open(sys.argv[1] if len(sys.argv)>1 else "/workspace/model-caps/model_caps.json","w"),indent=1)
 print(len(M),"models",len(sources),"sources")

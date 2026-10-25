@@ -626,24 +626,21 @@ test_mutation 20 "Still approve route sends signal" \
 # NEW MUTATIONS (Fixes #1-#8): PR #7 safety protections
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 23. EXPECTED SKIP: Audio stages not implemented (PR #8 stub)
-# Lines 447-450 in episode_v2.py: generate_voiceover, generate_music, mix_audio are placeholder activities.
-# Behavior to test: picture lock approval required before audio generation.
-# Cannot test until PR #8 implements audio stages. Test is marked @pytest.mark.skip.
-test_mutation 23 "M-23 SKIP: Audio stages not implemented (PR #8)" \
+# 23. Audio stages (Round 4, G-AUD-1b): audio/mix/delivery runs only once the picture is
+# assembled, current and not blocked by assembly QC (the old picture-lock gate G4.09 was removed in the
+# 3-gate system; its test stays skipped and untouched). Intent: picture lock required before audio.
+test_mutation 23 "M-23: Audio waits for a locked (non-blocking) picture" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_episode_v2.py::test_episode_v2_picture_lock_blocks_audio" \
-    true  # Expected skip - no mutation needed
+    "tests/test_audio_delivery_workflow.py::TestDeliveryInEpisode::test_audio_waits_for_picture_lock" \
+    sed -i 's/^        if self.assembly_sig is None or self._assembly_stale() or self._assembly_blocking():$/        if self.assembly_sig is None or self._assembly_stale():  # MUTATED/'
 
-# 24. EXPECTED SKIP: Delivery stage not implemented (PR #8 stub)
-# Line 60 in episode_v2.py docstring: "Delivery (encode, Drive, Grower handoff - HOLD by default)"
-# Lines 466-467: placeholder comment, no actual delivery implementation.
-# Behavior to test: delivery hold prevents auto-posting without approval.
-# Cannot test until PR #8 implements delivery stage. Test is marked @pytest.mark.skip.
-test_mutation 24 "M-24 SKIP: Delivery stage not implemented (PR #8)" \
+# 24. Delivery (Round 4, G-AUD-1b): the delivered master never auto-proceeds; G_FINAL_CUT still needs
+# a human approval after a passing delivery QC (GX.01 was removed in the 3-gate system; its test stays
+# skipped and untouched). Intent: delivery hold prevents auto-posting without approval.
+test_mutation 24 "M-24: Delivery holds at G_FINAL_CUT until a human approves" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_episode_v2.py::test_episode_v2_gx01_hold" \
-    true  # Expected skip - no mutation needed
+    "tests/test_audio_delivery_workflow.py::TestDeliveryInEpisode::test_delivery_pass_holds_for_final_cut_approval" \
+    sed -i 's/^                        self.approved_g_final_cut and not self._assembly_blocking()$/                        not self._assembly_blocking()  # MUTATED/'
 
 # 25. Stills approved wait (retargeted from human-approved check)
 test_mutation 25 "Workflow waits for parent stills_approved signal" \
@@ -2169,6 +2166,210 @@ test_mutation 278 "Assembly plan uses the shot's trim_in" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
     sed -i 's/^                "trim_in": float(trim\.get("in", 0\.0)),$/                "trim_in": 0.0,  # MUTATED/'
+
+# 279: G-CAPS-1-1: Preflight refuses over-limit requests before spend
+test_mutation 279 "Preflight enforces model_caps limits" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_preflight_refuses_over_limit_before_any_spend" \
+    sed -i 's/^        if value < lo or value > hi:$/        if False:  # MUTATED/'
+
+# 280: G-CAPS-1-2: eleven_v3 char limit is the documented 5,000
+test_mutation 280 "eleven_v3 caps limit is 5000" \
+    "hfvg/data/model_caps.json" \
+    "tests/test_audio_round4_activities.py::test_caps_rows_match_official_numbers_and_costs" \
+    sed -i 's/^     "value": 5000,$/     "value": 10000,/'
+
+# 281: G-CAPS-1-3: Deprecated models are refused before spend
+test_mutation 281 "Preflight refuses deprecated models" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_preflight_refuses_over_limit_before_any_spend" \
+    sed -i 's/^    if caps.status in ("deprecated_upstream",):$/    if False:  # MUTATED/'
+
+# 282: G-AUD-1b-1: Generated audio is reused by content hash (never paid twice)
+test_mutation 282 "Generated VO reused by content hash" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_live_generation_reserves_commits_and_reuses" \
+    sed -i 's/^    if out.is_file():  # content-hash reuse: already paid for$/    if False:  # MUTATED/'
+
+# 283: G-CAPS-1-4: A failed generation releases its ledger reservation
+test_mutation 283 "Failed audio generation releases the reservation" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_live_generation_failure_releases_hold" \
+    sed -i 's/^        await ledger.release(episode_id, line, usd_micros, f"{kind} {asset_id} failed", job_id=job_id)$/        pass  # MUTATED/'
+
+# 284: G-CAPS-1-5: Audio spend is authorized against the AUDIO round cap
+test_mutation 284 "Audio spend authorized against the AUDIO round cap" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_round_cap_refuses_audio_spend" \
+    sed -i 's/^        await ledger.authorize_round_spend(episode_id, AUDIO_ROUND, /        0 and await ledger.authorize_round_spend(episode_id, AUDIO_ROUND, /'
+
+# 285: G-CAPS-1-6: Provider cost is character-based, never 0.0
+test_mutation 285 "TTS job cost is the per-character price" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_round4_activities.py::test_provider_tts_writes_durable_file_with_real_cost" \
+    sed -i 's/^        cost = estimate_usd("tts", {"model": model_id, "text": text})$/        cost = 0.0  # MUTATED/'
+
+# 286: G-CAPS-1-7: Music uses the real compose endpoint body
+test_mutation 286 "Music request sends music_length_ms" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_round4_activities.py::test_provider_music_uses_compose_endpoint" \
+    sed -i 's/"music_length_ms": int(round(duration \* 1000)),/"duration_seconds": duration,/'
+
+# 287: G-CAPS-1-8: Provider returns a durable file URI
+test_mutation 287 "Job status returns the written file URI" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_round4_activities.py::test_provider_tts_writes_durable_file_with_real_cost" \
+    sed -i 's#output_url=Path(job\["path"\]).as_uri(), cost=job\["cost"\]#output_url=f"/tmp/{job_id}.mp3", cost=job["cost"]#'
+
+# 288: G-AUD-1b-2: Missing audio inputs are non-retryable live
+test_mutation 288 "Missing audio input errors are non-retryable" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_missing_inputs_are_non_retryable_live" \
+    sed -i 's/^    return ApplicationError(msg, type=kind, non_retryable=True)$/    return ApplicationError(msg, type=kind, non_retryable=False)/'
+
+# 289: G-AUD-1b-3: A live episode without an audio plan fails loudly
+test_mutation 289 "Missing audio plan raises live" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_missing_inputs_are_non_retryable_live" \
+    sed -i 's/^        raise _missing(f"No audio plan for {episode_id}: {p}", "MissingAudioPlan")$/        return {"plan_found": False}  # MUTATED/'
+
+# 290: G-AUD-1b-4: VO placement enforces the minimum gap
+test_mutation 290 "VO placement rejects gaps under the minimum" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_mix_audio_vo_gap_validation" \
+    sed -i 's/^        if gap < min_gap_s - 1e-6:$/        if False:  # MUTATED/'
+
+# 291: G-AUD-1b-5: The VO minimum gap setting is validated (0.3-0.4 s)
+test_mutation 291 "Min VO gap validated to 0.3-0.4 s" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_vo_gap_constant" \
+    sed -i 's/^    return _num(value, "min_vo_gap_s", lo, hi)$/    return float(value)  # MUTATED/'
+
+# 292: G-AUD-1b-6: Music is ducked under VO
+test_mutation 292 "Music bed gets the duck envelope" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_music_is_ducked_under_vo" \
+    sed -i 's/^                music\[off:\] = bed \* env\[off:, None\]$/                music[off:] = bed  # MUTATED/'
+
+# 293: G-AUD-1b-7: Pickup lines are RMS-matched
+test_mutation 293 "VO pickup RMS match applied" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_mix_audio_final_basic" \
+    sed -i 's/^        auto = pickup_gains(levels) if levels else {}$/        auto = {}  # MUTATED/'
+
+# 294: G-AUD-1b-8: loudnorm JSON values must be finite
+test_mutation 294 "loudnorm parse rejects non-finite values" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_loudnorm_json_parse_is_real_and_strict" \
+    sed -i 's/^        if not math.isfinite(out\[k\]):$/        if False:  # MUTATED/'
+
+# 295: G-AUD-1b-9: Delivery QC checks the true-peak ceiling
+test_mutation 295 "Delivery QC true-peak ceiling" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_delivery_qc_fails_on_measured_misses" \
+    sed -i 's/m\["true_peak_dbtp"\] <= loud\["tp_ceiling_dbtp"\], m\["true_peak_dbtp"\],/True, m["true_peak_dbtp"],/'
+
+# 296: G-AUD-1b-10: Delivery QC checks loudness tolerance
+test_mutation 296 "Delivery QC loudness tolerance" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_delivery_qc_fails_on_measured_misses" \
+    sed -i 's/abs(m\["integrated_lufs"\] - loud\["target_lufs"\]) <= loud\["tolerance_lu"\],/True,/'
+
+# 297: G-AUD-1b-11: Delivery QC checks duration vs picture
+test_mutation 297 "Delivery QC duration vs picture" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_delivery_qc_fails_on_measured_misses" \
+    sed -i 's/abs(dur - pic) <= DURATION_TOLERANCE_S,/True,/'
+
+# 298: G-AUD-1b-12: Delivery QC requires an AAC audio stream
+test_mutation 298 "Delivery QC audio stream" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_delivery_qc_requires_audio_stream" \
+    sed -i 's/bool(a) and a\[0\].get("codec_name") == "aac",/True,/'
+
+# 299: G-AUD-1b-13: Delivery QC checks written subtitle timing
+test_mutation 299 "Delivery QC subtitle timing" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_delivery_qc_fails_on_measured_misses" \
+    sed -i 's/bool(found) and dev <= CUE_TOLERANCE_S,/True,/'
+
+# 300: G-AUD-1b-14: Over-size phone encode gets one re-encode
+test_mutation 300 "Phone encode re-encodes once when over size" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_phone_over_size_gets_one_reencode" \
+    sed -i 's/^        if size > max_bytes:$/        if False:  # MUTATED/'
+
+# 301: G-AUD-1b-15: Delivery reuse key hashes every input file
+test_mutation 301 "Delivery input key includes file hashes" \
+    "hfvg/audio_mix.py" \
+    "tests/test_audio_delivery.py::test_mix_audio_idempotent_reuse" \
+    sed -i 's/^    hashes = {p: sha256_file(p) for p in inputs}$/    hashes = {p: "same" for p in inputs}  # MUTATED/'
+
+# 302: G-AUD-1b-16: Final cut approval refused while delivery QC blocks
+test_mutation 302 "Final cut refused on blocking delivery QC" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_audio_delivery_workflow.py::TestDeliveryInEpisode::test_delivery_failure_blocks_final_cut_until_accepted" \
+    sed -i 's/^        if self._delivery_blocking():$/        if False:  # MUTATED/'
+
+# 303: G-AUD-1b-17: Delivery FAIL / NEEDS_REVIEW is blocking
+test_mutation 303 "Delivery QC verdict sets blocking" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_audio_delivery_workflow.py::TestDeliveryInEpisode::test_delivery_failure_blocks_final_cut_until_accepted" \
+    sed -i '/self.delivery_phase = "done"/{n;s/.*/        qc["blocking"] = False  # MUTATED/}'
+
+# 304: G-AUD-1b-18: Delivery QC acceptance needs a reason
+test_mutation 304 "Delivery acceptance requires a reason" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_audio_delivery_workflow.py::TestDeliveryInEpisode::test_delivery_failure_blocks_final_cut_until_accepted" \
+    sed -i '/def accept_delivery_qc/,/a reason is required/s/if not (reason or "").strip():/if False:  # MUTATED/'
+
+# 305: G-AUD-1b-19: API delivery accept sends the delivery signal
+test_mutation 305 "API delivery accept signal" \
+    "api/main.py" \
+    "tests/test_audio_delivery_workflow.py::test_state_exposes_delivery_and_accept_sends_signal" \
+    sed -i 's/await handle.signal("accept_delivery_qc", request.reason.strip())/await handle.signal("accept_assembly_qc", request.reason.strip())/'
+
+# 306: G-AUD-1b-20: Production worker registers mix_and_deliver
+test_mutation 306 "Worker registers mix_and_deliver" \
+    "hfvg/worker.py" \
+    "tests/test_audio_delivery_workflow.py::test_worker_registers_audio_delivery_activities" \
+    sed -i '/^    activities.mix_and_deliver,$/d'
+
+# 307: G-CAPS-1-9: TTS cost estimate needs the text
+test_mutation 307 "TTS estimate refuses missing text" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_round4_activities.py::test_char_based_cost_never_zero" \
+    sed -i 's/^        if chars == 0:$/        if False:  # MUTATED/'
+
+# 308: G-AUD-1b-21: Offline mix CLI never generates
+test_mutation 308 "hfvg mix refuses generation offline" \
+    "hfvg/cli.py" \
+    "tests/test_audio_delivery_workflow.py::test_cli_mix_on_episode_dir" \
+    sed -i 's/^            if not dry_run:$/            if False:  # MUTATED/'
+
+# 309: G-AUD-1b-22: CLI stand-in delivery is DRY_RUN, not PASS
+test_mutation 309 "hfvg mix --dry-run verdict is DRY_RUN" \
+    "hfvg/cli.py" \
+    "tests/test_audio_delivery_workflow.py::test_cli_mix_on_episode_dir" \
+    sed -i '/if dry_inputs and qc.get("verdict") == "PASS":/s/if dry_inputs and/if False and/'
+
+# 310: G-CAPS-1-10: Live ElevenLabs provider requires an API key
+test_mutation 310 "Live provider requires an API key" \
+    "hfvg/providers/elevenlabs.py" \
+    "tests/test_audio_round4_activities.py::test_live_provider_requires_api_key" \
+    sed -i 's/^        if not self.dry_run and not self.api_key:$/        if False:  # MUTATED/'
+
+# 311: G-AUD-1b-23: Stand-in audio never reports PASS
+test_mutation 311 "Stand-in inputs give DRY_RUN not PASS" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_delivery.py::test_stand_in_inputs_are_never_a_pass" \
+    sed -i 's/"verdict": "DRY_RUN" if qc\["verdict"\] == "PASS" else qc\["verdict"\],/"verdict": qc["verdict"],/'
+
+# 312: G-CAPS-1-11: TTS preflight runs before the spend
+test_mutation 312 "VO generation preflights text length" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio_round4_activities.py::test_preflight_refuses_over_limit_before_any_spend" \
+    sed -i 's/^    _preflight(model, text=script)$/    pass  # MUTATED/'
 
 # Print final summary
 print_summary

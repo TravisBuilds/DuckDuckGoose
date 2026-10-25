@@ -44,7 +44,8 @@ DEFAULT_MAX_PAID_RETRIES_PER_SHOT_PER_ROUND = 1
 # Review rounds (one per human review gate that can trigger paid redo work)
 ROUND_G2_STILLS = "G2_STILLS"   # still retries while parked at G2 (retry_shot / retry_end_still)
 ROUND_G3_CLIPS = "G3_CLIPS"     # clip retries after G2 (retry_clip)
-REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS)
+ROUND_AUDIO = "AUDIO"           # ElevenLabs VO / SFX / music generation for the delivery (G-AUD-1b)
+REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS, ROUND_AUDIO)
 
 # Importable default constants (micro-dollars)
 EPISODE_CAP_USD_MICROS = usd_to_micros(DEFAULT_EPISODE_CAP_USD)
@@ -61,6 +62,14 @@ DEFAULT_LINE_CAPS_USD_MICROS = {
     "L2_drafts": 8_000_000,          # $8.00 - draft stills
     "L3_final_stills": 16_000_000,   # $16.00 - final stills
     "L4_video": 16_000_000,          # $16.00 - video clips
+}
+
+# ElevenLabs audio lines reserved by hfvg.activities.audio; created with these caps when the gate
+# policy has no ElevenLabs lines for the episode ($3.00 total: with the $44 above, still under $48 stop)
+DEFAULT_AUDIO_LINE_CAPS_USD_MICROS = {
+    "el_vo_takes": 1_000_000,        # $1.00 - TTS (eleven_v3 $0.08 / 1k chars)
+    "el_sfx": 500_000,               # $0.50 - sound effects ($0.12 / min)
+    "el_music_one_take": 1_500_000,  # $1.50 - music ($0.15 / min)
 }
 
 # Legacy plan import only: 1 Higgsfield app credit = 0.0475 USD (HARNESS-GATES.json usd.basis)
@@ -301,6 +310,18 @@ class BudgetLedger:
                 stop = compute_stop_usd_micros(cap, settings.stop_percent)
                 await self._insert_line(db, episode_id, "elevenlabs", f"el_{line_name}", cap, stop)
 
+            await db.commit()
+
+    async def ensure_audio_line(self, episode_id: str, line_name: str) -> None:
+        """Create an ElevenLabs audio line with its default cap if the policy did not (no-op otherwise)."""
+        if line_name not in DEFAULT_AUDIO_LINE_CAPS_USD_MICROS:
+            raise ValueError(f"{line_name} is not an audio budget line")
+        await self.init_db()
+        settings = get_budget_settings()
+        cap = DEFAULT_AUDIO_LINE_CAPS_USD_MICROS[line_name]
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await self._insert_line(db, episode_id, "elevenlabs", line_name, cap,
+                                    compute_stop_usd_micros(cap, settings.stop_percent))
             await db.commit()
 
     async def init_episode_budget_from_plan(self, episode_id: str, credit_plan: dict):
