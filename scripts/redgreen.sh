@@ -2760,3 +2760,57 @@ else
 fi
 
 exit $exit_code
+
+# 365: B1: pre-approved shots skip still generation but go through clip
+test_mutation 365 "pre-approved still skips generation" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_anchor_still.py" \
+    sed -i 's/if shot_id in pre_approved_stills:/if False:  # MUTATED/'
+
+# 366: B2: gate policy path resolved from HFVG_GATE_POLICY env var
+test_mutation 366 "gate policy env var" \
+    "hfvg/gates.py" \
+    "tests/test_gate_policy_path.py" \
+    sed -i 's/env_path = os.getenv("HFVG_GATE_POLICY")/env_path = None  # MUTATED/'
+
+# 367: B3: owner_approval_points key missing causes clear error
+test_mutation 367 "owner approval points required" \
+    "hfvg/gates.py" \
+    "tests/test_gate_policy_schema.py" \
+    sed -i 's/raise ValueError(/pass; return  # MUTATED; raise ValueError(/'
+
+# 368: B4: G1 dry mode uses real provider estimates
+test_mutation 368 "G1 real estimates in dry mode" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_g1_estimates.py" \
+    sed -i 's/# Both dry and live modes/if dry_run: return {"shots": [], "total_credits": 0}  # MUTATED\n    /'
+
+# 369: B5: prompt lint runs in preflight
+test_mutation 369 "prompt lint in preflight" \
+    "hfvg/activities/preflight.py" \
+    "tests/test_preflight_lint.py" \
+    sed -i 's/violations = lint_violations(/violations = []  # MUTATED; lint_violations(/'
+
+# 370: B6: ref resolution validated against model caps
+test_mutation 370 "ref resolution validation" \
+    "hfvg/activities/ref_generation.py" \
+    "tests/test_ref_resolution.py" \
+    sed -i 's/if resolution not in allowed:/if False:  # MUTATED/'
+
+# 371: B7: dry mode audio duration from plan
+test_mutation 371 "dry mode audio plan duration" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_audio_dry_mode.py" \
+    sed -i 's/picture_s += (trim_out - trim_in)/picture_s += 5.0  # MUTATED/'
+
+# 372: B8: balance check required in live mode
+test_mutation 372 "balance check live mode" \
+    "hfvg/activities/balance_check.py" \
+    "tests/test_balance_check.py" \
+    sed -i 's/if not row:/if False:  # MUTATED/'
+
+# 373: Trims: trim_head_s validated against duration
+test_mutation 373 "trim validation" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_trims.py" \
+    sed -i 's/if trim_in < 0 or trim_out > duration/if False  # MUTATED/'
