@@ -2048,6 +2048,56 @@ test_mutation 258 "Stall alert status filter in the API" \
     "hfvg/activities/reconcile.py" \
     "tests/test_reconciler.py::TestStallWatchdog::test_alerts_visible_in_api" \
     sed -i 's/^        clauses\.append("status = ?")$/        clauses.append("? IS NOT NULL")  # MUTATED/'
+# Round 3 mutations: picture assembly, motion QC, clip prompts (G-AUD-1a, G-QC-2, G-PROMPT-1)
+
+# 259: G-AUD-1a-1: Assembly saves the path to state
+test_mutation 259 "Assembly path is saved to workflow state" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::test_assemble_mute_edit_basic" \
+    sed -i 's/^            self\.state\.assembly_path = assembly_result\["assembly_path"\]$/            pass  # MUTATED/'
+
+# 260: G-AUD-1a-2: Assembly rejects missing clips
+test_mutation 260 "Assembly refuses when clips are missing" \
+    "hfvg/activities/media.py" \
+    "tests/test_picture_assembly_round3.py::test_assemble_mute_edit_basic" \
+    sed -i 's/^    missing = \[sid for sid in (s\["shot_id"\] for s in shots) if sid not in clip_paths\]$/    missing = []  # MUTATED/'
+
+# 261: G-AUD-1a-3: Assembly is idempotent
+test_mutation 261 "Assembly reuses existing file (idempotency)" \
+    "hfvg/activities/media.py" \
+    "tests/test_picture_assembly_round3.py::test_assemble_mute_edit_idempotent" \
+    sed -i 's/^    if assembly_path\.exists():$/    if False:  # MUTATED/'
+
+# 262: G-QC-2a: Motion check runs on assembly
+test_mutation 262 "Assembly QC calls motion check" \
+    "hfvg/activities/qc.py" \
+    "tests/test_picture_assembly_round3.py::test_assembly_qc_integration" \
+    sed -i 's/^        motion_results = check_motion(assembly_path, manifest)$/        motion_results = []  # MUTATED/'
+
+# 263: G-QC-2b: Stillgate integrated (no external path)
+test_mutation 263 "Motion check uses integrated stillgate (not /workspace/stillgate.py)" \
+    "hfvg/qc/motion.py" \
+    "tests/test_picture_assembly_round3.py::test_motion_check_stillgate_direct" \
+    sed -i 's/^        raw_results = _run_stillgate_analysis(mute_path, manifest)$/        raise FileNotFoundError("/workspace/stillgate.py")  # MUTATED/'
+
+# 264: G-PROMPT-1a: Clip prompt is parsed from shots.json
+test_mutation 264 "shots.json clip_prompt field is parsed" \
+    "hfvg/shot_data.py" \
+    "tests/test_picture_assembly_round3.py::test_shot_data_clip_prompt_parsing" \
+    sed -i 's/^            "clip_prompt": clip_prompt\.strip() if clip_prompt else ""/            "clip_prompt": ""  # MUTATED/'
+
+# 265: G-PROMPT-1b: Clip prompt is composed with base prompt
+test_mutation 265 "Clip prompt is appended to base prompt for final composition" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_picture_assembly_round3.py::test_shot_data_clip_prompt_parsing" \
+    sed -i 's/^                if clip_additions:$/                if False:  # MUTATED/'
+
+# 266: G-PROMPT-1c: Preflight runs on the FINAL composed prompt
+test_mutation 266 "Preflight validates the final composed clip prompt (not just base)" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_picture_assembly_round3.py::test_shot_data_clip_prompt_parsing" \
+    sed -i 's/^        clip_violations = preflight\.preflight_shot($/        clip_violations = []  # MUTATED; preflight.preflight_shot(/'
+
 # Print final summary
 print_summary
 exit_code=$?

@@ -22,6 +22,8 @@ with workflow.unsafe.imports_passed_through():
         render_edit,
         trim_clips,
     )
+    from hfvg.activities.media import assemble_mute_edit
+    from hfvg.activities.qc import check_assembly_qc
     from hfvg.activities.credit_activities import update_credit_cap_activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.activities.g1_plan import compute_g1_plan_activity
@@ -609,13 +611,85 @@ class EpisodeWorkflowV2:
         workflow.logger.info(f"All {len(results)} clips completed")
         
         # ================================================================
-        # Edit & Audio (stubbed - from separate PR #8)
+        # Picture Assembly (Round 3)
         # ================================================================
-        workflow.logger.info("=== EDIT & AUDIO ===")
+        workflow.logger.info("=== PICTURE ASSEMBLY ===")
         self.state.stage = PipelineStage.MUTE_EDIT
         
-        # Placeholder for edit and audio stages
-        workflow.logger.info("[PLACEHOLDER] Edit and audio stages from PR #8")
+        # Collect clip paths from approved shots
+        clip_paths = {}
+        approved_shots = []
+        for shot in shots:
+            shot_id = shot["shot_id"]
+            
+            # Skip rejected shots
+            if self.state.shot_decisions.get(shot_id) == "rejected":
+                workflow.logger.info(f"Skipping assembly for rejected shot {shot_id}")
+                continue
+            
+            # Get clip path from output_paths
+            shot_paths = self.state.output_paths.get(shot_id, {})
+            clip_path = shot_paths.get("clip_v1")
+            
+            if clip_path:
+                clip_paths[shot_id] = clip_path
+                approved_shots.append(shot)
+                workflow.logger.info(f"Including shot {shot_id} in assembly: {clip_path}")
+            else:
+                workflow.logger.warning(f"No clip path found for shot {shot_id}")
+        
+        if not approved_shots:
+            workflow.logger.warning("No approved clips for assembly, skipping picture lock")
+        else:
+            # Assemble mute edit
+            workflow.logger.info(f"Assembling {len(approved_shots)} clips into mute edit")
+            
+            assembly_result = await workflow.execute_activity(
+                assemble_mute_edit,
+                args=[episode_id, approved_shots, clip_paths, None],
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                ),
+            )
+            
+            self.state.assembly_path = assembly_result["assembly_path"]
+            self.state.assembly_manifest = assembly_result["manifest"]
+            workflow.logger.info(
+                f"Assembly complete: {assembly_result['assembly_path']} "
+                f"({assembly_result['duration']:.2f}s)"
+            )
+            
+            # Run assembly QC (motion check, duck presence)
+            workflow.logger.info("Running assembly QC checks")
+            
+            qc_result = await workflow.execute_activity(
+                check_assembly_qc,
+                args=[
+                    assembly_result["assembly_path"],
+                    assembly_result["manifest"],
+                    episode_id,
+                ],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                ),
+            )
+            
+            workflow.logger.info(f"Assembly QC: {qc_result['verdict']}")
+            
+            if qc_result["verdict"] == "FAIL":
+                workflow.logger.error(f"Assembly QC failed: {qc_result['reason']}")
+                # Continue anyway for now (escalate in future)
+            elif qc_result["verdict"] == "WATCH":
+                workflow.logger.warning(f"Assembly QC warning: {qc_result['reason']}")
+            
+            self.state.stage = PipelineStage.PICTURE_LOCK
+            workflow.logger.info("[PICTURE LOCK] Assembly QC complete")
         
         # ================================================================
         # GATE 3: FINAL CUT

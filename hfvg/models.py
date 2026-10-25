@@ -118,6 +118,8 @@ class EpisodeState(BaseModel):
     shot_decisions: dict[str, str] = Field(default_factory=dict)  # shot_id -> ShotDecision for G2 per-shot approve/reject/retry
     g1_plan: dict = Field(default_factory=dict)  # G1 credit plan (per-shot and total credits/USD)
     output_paths: dict[str, dict] = Field(default_factory=dict)  # Local paths: {shot_id: {still_v1: path, clip_v1: path}}
+    assembly_path: str | None = None  # Path to mute assembly video
+    assembly_manifest: dict = Field(default_factory=dict)  # Assembly manifest with clips[] and metadata
 
 
 class CreditTransaction(BaseModel):

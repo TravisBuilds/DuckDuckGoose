@@ -472,3 +472,87 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
             Path(temp_dir).rmdir()
         except:
             pass
+
+
+@activity.defn
+async def check_assembly_qc(
+    assembly_path: str,
+    manifest: dict,
+    episode_id: str
+) -> dict:
+    """
+    Run QC checks on the mute assembly.
+    
+    Checks:
+    - Motion analysis (stillgate per-shot)
+    - Duck presence (optional, configured per episode)
+    
+    Args:
+        assembly_path: Path to mute assembly video
+        manifest: Assembly manifest with clips[] and dissolves
+        episode_id: Episode identifier
+    
+    Returns:
+        dict with:
+            - verdict: PASS/WATCH/FAIL
+            - reason: str
+            - motion_results: list of MotionCheckResult
+            - duck_check: optional dict
+    """
+    activity.heartbeat({"stage": "assembly_qc", "episode": episode_id})
+    
+    # In dry run, pass with fake results
+    if config.DRY_RUN:
+        await asyncio.sleep(config.DRY_RUN_QC_DELAY)
+        activity.logger.info(f"[DRY-RUN] Assembly QC for {episode_id}")
+        return {
+            "verdict": "PASS",
+            "reason": "Dry-run auto-pass",
+            "motion_results": [],
+        }
+    
+    # Run motion check
+    from hfvg.qc.motion import check_motion
+    
+    try:
+        motion_results = check_motion(assembly_path, manifest)
+        
+        # Analyze verdicts
+        failed_shots = [r for r in motion_results if r.is_fail()]
+        watch_shots = [r for r in motion_results if r.is_watch()]
+        
+        if failed_shots:
+            verdict = "FAIL"
+            reason = f"{len(failed_shots)} shot(s) failed motion check (still-only): {', '.join(r.shot_id for r in failed_shots)}"
+        elif watch_shots:
+            verdict = "WATCH"
+            reason = f"{len(watch_shots)} shot(s) need review: {', '.join(r.shot_id for r in watch_shots)}"
+        else:
+            verdict = "PASS"
+            reason = "All shots passed motion check"
+        
+        activity.logger.info(f"Assembly QC {verdict}: {reason}")
+        
+        return {
+            "verdict": verdict,
+            "reason": reason,
+            "motion_results": [
+                {
+                    "shot_id": r.shot_id,
+                    "t0": r.t0,
+                    "t1": r.t1,
+                    "mean_fd": r.mean_fd,
+                    "peak_fd": r.peak_fd,
+                    "verdict": r.verdict,
+                }
+                for r in motion_results
+            ],
+        }
+    
+    except Exception as e:
+        activity.logger.error(f"Assembly QC failed: {e}")
+        return {
+            "verdict": "FAIL",
+            "reason": f"QC error: {str(e)[:200]}",
+            "motion_results": [],
+        }

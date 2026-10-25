@@ -903,7 +903,17 @@ class ShotWorkflow:
 
                 # Prompt / model in force (a moderation reword or fallback replaces them for the clip)
                 mod_clip = self.moderation["clip"]
-                clip_prompt = mod_clip["prompt"] or shot_plan["prompt"]
+                
+                # Compose final clip prompt: base prompt + clip_prompt additions
+                base_prompt = mod_clip["prompt"] or shot_plan["prompt"]
+                clip_additions = shot_plan.get("clip_prompt", "")
+                
+                if clip_additions:
+                    # Append motion-specific clauses to base prompt
+                    clip_prompt = f"{base_prompt} {clip_additions}".strip()
+                else:
+                    clip_prompt = base_prompt
+                
                 clip_model = mod_clip["model"] or params.get("model", "kling")
                 clip_mod_retry = mod_clip["retry"]
                 if mod_clip["model"]:

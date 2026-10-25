@@ -86,9 +86,15 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             if not end_prompt.strip():
                 raise ShotDataError(f"shots.json shot {sid}: empty end_prompt")
         
+        # Optional clip_prompt for motion-specific clauses (separate from still prompt)
+        clip_prompt = item.get("clip_prompt", "")
+        if clip_prompt is not None and not isinstance(clip_prompt, str):
+            raise ShotDataError(f"shots.json shot {sid}: clip_prompt must be string, got {type(clip_prompt)}")
+        
         ref_keys = _require(item, "ref_keys", list, sid)
         out[sid] = {
-            "prompt": prompt,  # AS-IS: never recomposed
+            "prompt": prompt,  # AS-IS: never recomposed (for stills)
+            "clip_prompt": clip_prompt.strip() if clip_prompt else "",  # Motion-specific additions for clips
             "end_prompt": end_prompt,  # Optional: for _end still when end_frame=true
             "shot_meta": {
                 "count": count,

@@ -770,7 +770,10 @@ async def submit_clip_job_enforced(
             )
 
         # Preflight: validate the clip against the model's documented limits BEFORE any upload,
-        # estimate or reserve. Raises PreflightError (non-retryable).
+        # estimate or reserve. The prompt parameter here is already the FINAL composed prompt
+        # (base + clip_prompt additions) as passed by the caller, so this validates the actual
+        # string that will be submitted to the provider (Kling truncates >2500 chars).
+        # Raises PreflightError (non-retryable).
         from hfvg import preflight, model_caps
         clip_violations = preflight.preflight_shot(
             {"id": shot_id, "clip_prompt": prompt, "duration": duration,
