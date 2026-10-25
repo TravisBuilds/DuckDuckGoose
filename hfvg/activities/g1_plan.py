@@ -5,7 +5,11 @@ from pathlib import Path
 
 from temporalio import activity
 
+from hfvg.estimates import dry_shot_estimate, seedance_resolution
+from hfvg.pre_approved import pre_approved_ids
+from hfvg.pricing import micros_to_usd_str
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
+from hfvg.shot_data import picture_seconds
 
 
 async def _anchors(episode_id: str, shots: list[dict]) -> dict[str, str]:
@@ -24,6 +28,83 @@ async def _anchors(episode_id: str, shots: list[dict]) -> dict[str, str]:
             return {}
         if anchor:
             out[sid] = anchor["local_path"]
+    return out
+
+
+async def _pre_approved_ids(episode_id: str, shots: list[dict]) -> set[str]:
+    """Shots whose start still is pre-approved (shots.json or anchor rows; hfvg.pre_approved)."""
+    anchors: list[dict] = []
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    if Path(db_path).exists():
+        from hfvg.studio_db import list_anchor_stills
+        try:
+            anchors = await list_anchor_stills(episode_id)
+        except Exception:
+            anchors = []
+    return pre_approved_ids(shots, anchors)
+
+
+def _dry_plan(shots: list[dict], pre_approved: set[str], extra: dict) -> dict:
+    """G1 plan for a dry run from the per-call estimates the dry submits reserve."""
+    rows = []
+    total_still = total_clip = 0
+    any_unpriced = False
+    for shot in shots:
+        sid = shot["shot_id"]
+        est = dry_shot_estimate(shot, pre_approved=sid in pre_approved)
+        clip_micros = est["clip_usd_micros"]
+        any_unpriced = any_unpriced or clip_micros is None
+        total_still += est["still_usd_micros"]
+        total_clip += clip_micros or 0
+        rows.append({
+            "shot_id": sid,
+            "pre_approved": est["pre_approved"],
+            "stills": est["stills"],
+            "still_credits": round(est["still_credits"], 2),
+            "still_usd": micros_to_usd_str(est["still_usd_micros"]),
+            "still_usd_micros": est["still_usd_micros"],
+            "still_estimate_available": True,
+            "clip_credits": round(est["clip_credits"], 2),
+            "clip_usd": micros_to_usd_str(clip_micros or 0),
+            "clip_usd_micros": clip_micros,
+            "clip_estimate_available": clip_micros is not None,
+            "total_credits": round(est["still_credits"] + est["clip_credits"], 2),
+            "total_usd": micros_to_usd_str(est["still_usd_micros"] + (clip_micros or 0)),
+        })
+    return {
+        "shots": rows,
+        "total_still_credits": round(sum(r["still_credits"] for r in rows), 2),
+        "total_clip_credits": round(sum(r["clip_credits"] for r in rows), 2),
+        "total_credits": round(sum(r["total_credits"] for r in rows), 2),
+        "total_still_usd": micros_to_usd_str(total_still),
+        "total_clip_usd": micros_to_usd_str(total_clip),
+        "total_usd": micros_to_usd_str(total_still + total_clip),
+        "total_usd_micros": total_still + total_clip,
+        "estimates_available": not any_unpriced,
+        "estimate_source": "dry per-call estimates (same values the dry submits reserve)",
+        **extra,
+    }
+
+
+def _moderation_preview(shots: list[dict], pre_approved: set[str]) -> dict:
+    """B5: what the moderation lint will decide at each paid submit (evaluated as dry here, so a
+    hard rule shows "would_refuse" at G1 instead of surprising the run later)."""
+    from hfvg.moderation_lint import ModerationLintError, evaluate
+    out: dict[str, dict] = {}
+    for shot in shots:
+        sid = shot["shot_id"]
+        params = shot.get("params") or {}
+        row: dict = {}
+        try:
+            if sid not in pre_approved:
+                row["still"] = evaluate(sid, shot.get("prompt", ""), shot.get("shot_meta"), kind="still",
+                                        refs=shot.get("refs"), live=False)
+            row["clip"] = evaluate(sid, shot.get("clip_prompt") or shot.get("prompt", ""), shot.get("shot_meta"),
+                                   kind="clip", model=params.get("model", "kling"), tags=shot.get("tags"),
+                                   live=False)
+        except ModerationLintError as e:  # invalid HFVG_PLAYBOOK_HARD_RULES
+            row = {"error": str(e)}
+        out[sid] = row
     return out
 
 
@@ -46,7 +127,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     Args:
         episode_id: Episode ID
         shots: List of shot plans from beatmap
-        dry_run: If True, return placeholder estimates without real API calls
+        dry_run: If True, the dry per-call estimates (hfvg.estimates) without any network call
         
     Returns:
         dict with:
@@ -70,8 +151,16 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     }
     # Estimates still run (free /estimate calls) so the plan shows costs next to the errors.
 
-    # Both dry and live modes: make real provider estimate calls (they're free)
-    # This ensures dry mode shows the same real per-call preflight estimates used for reservations
+    pre_approved = await _pre_approved_ids(episode_id, shots)
+    preflight_fields["pre_approved_stills"] = sorted(pre_approved)
+    preflight_fields["picture_seconds"] = picture_seconds(shots)
+    preflight_fields["moderation_lint"] = _moderation_preview(shots, pre_approved)
+
+    # Dry run: the same per-call estimates the dry submits reserve (hfvg.estimates), no network.
+    if dry_run:
+        return _dry_plan(shots, pre_approved, preflight_fields)
+
+    # Live mode: make real provider calls
     still_provider = HiggsfieldStillProvider()
     
     try:
@@ -90,17 +179,18 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             # Estimate still cost
             still_estimate_available = True
             still_credits = 0.0
-            still_usd = 0.0
+            still_micros = 0
             try:
-                # Estimate start frame still
-                usd_micros, credits = await still_provider.estimate_usd_and_credits(
-                    prompt=prompt,
-                    resolution=resolution,
-                    quality=quality,
-                    aspect_ratio=aspect_ratio,
-                )
-                still_credits = credits
-                still_usd = usd_micros / 1_000_000
+                # Estimate start frame still (none for a pre-approved start still: no submit)
+                if shot_id not in pre_approved:
+                    usd_micros, credits = await still_provider.estimate_usd_and_credits(
+                        prompt=prompt,
+                        resolution=resolution,
+                        quality=quality,
+                        aspect_ratio=aspect_ratio,
+                    )
+                    still_credits = credits
+                    still_micros = int(usd_micros)
                 
                 # If end_frame is True, estimate end frame still too
                 if end_frame:
@@ -113,7 +203,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                         aspect_ratio=aspect_ratio,
                     )
                     still_credits += end_credits
-                    still_usd += (end_usd_micros / 1_000_000)
+                    still_micros += int(end_usd_micros)
                     
             except Exception as e:
                 activity.logger.warning(f"Still estimate failed for {shot_id}: {e}")
@@ -129,13 +219,14 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             
             clip_estimate_available = True
             clip_credits = 0.0
-            clip_usd = 0.0
+            clip_micros = 0
             try:
                 if model == "seedance":
                     # Seedance doesn't use image URLs for estimates
+                    # the resolution the submit routes to (tier), never the still resolution
                     usd_micros, credits = await clip_provider.estimate_usd_and_credits(
                         duration=int(duration),
-                        resolution=resolution,
+                        resolution=seedance_resolution(params.get("tier")),
                     )
                 else:
                     # Kling and others require valid image URLs
@@ -154,7 +245,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                         end_image_url=last_image_url,
                     )
                 clip_credits = credits
-                clip_usd = usd_micros / 1_000_000
+                clip_micros = int(usd_micros)
             except Exception as e:
                 activity.logger.warning(f"Clip estimate failed for {shot_id}: {e}")
                 clip_estimate_available = False
@@ -163,14 +254,18 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
             
             shot_estimates.append({
                 "shot_id": shot_id,
+                "pre_approved": shot_id in pre_approved,
                 "still_credits": round(still_credits, 2),
-                "still_usd": f"{still_usd:.2f}",
+                # the same provider /estimate values the live submit reserves (integer usd micros)
+                "still_usd": micros_to_usd_str(still_micros),
+                "still_usd_micros": still_micros,
                 "still_estimate_available": still_estimate_available,
                 "clip_credits": round(clip_credits, 2),
-                "clip_usd": f"{clip_usd:.2f}",
+                "clip_usd": micros_to_usd_str(clip_micros),
+                "clip_usd_micros": clip_micros,
                 "clip_estimate_available": clip_estimate_available,
                 "total_credits": round(still_credits + clip_credits, 2),
-                "total_usd": f"{still_usd + clip_usd:.2f}",
+                "total_usd": micros_to_usd_str(still_micros + clip_micros),
             })
     
     finally:
@@ -186,18 +281,19 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     total_still_credits = sum(s["still_credits"] for s in shot_estimates)
     total_clip_credits = sum(s["clip_credits"] for s in shot_estimates)
     total_credits = total_still_credits + total_clip_credits
-    total_still_usd = sum(float(s["still_usd"]) for s in shot_estimates)
-    total_clip_usd = sum(float(s["clip_usd"]) for s in shot_estimates)
-    total_usd = total_still_usd + total_clip_usd
+    total_still = sum(s["still_usd_micros"] for s in shot_estimates)
+    total_clip = sum(s["clip_usd_micros"] for s in shot_estimates)
     
     return {
         "shots": shot_estimates,
         "total_still_credits": round(total_still_credits, 2),
         "total_clip_credits": round(total_clip_credits, 2),
         "total_credits": round(total_credits, 2),
-        "total_still_usd": f"{total_still_usd:.2f}",
-        "total_clip_usd": f"{total_clip_usd:.2f}",
-        "total_usd": f"{total_usd:.2f}",
+        "total_still_usd": micros_to_usd_str(total_still),
+        "total_clip_usd": micros_to_usd_str(total_clip),
+        "total_usd": micros_to_usd_str(total_still + total_clip),
+        "total_usd_micros": total_still + total_clip,
+        "estimate_source": "provider /estimate per call (same values the live submits reserve)",
         "estimates_available": not any_unavailable,  # False if any estimate failed
         **preflight_fields,  # preflight, preflight_errors, dry_run (workflow validation)
     }

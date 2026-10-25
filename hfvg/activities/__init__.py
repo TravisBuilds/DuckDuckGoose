@@ -24,7 +24,6 @@ from hfvg.activities.studio_generation import (
     commit_job_budget,
     release_job_budget,
     mark_job_pending_reconcile,
-    register_preapproved_still_activity,
 )
 from hfvg.activities.moderation_recovery import attempt_moderation_recovery
 from hfvg.activities.reconcile import (
@@ -43,7 +42,7 @@ from hfvg.activities.workflow_support import (
 from hfvg.activities.g1_plan import compute_g1_plan_activity
 from hfvg.activities.run_lock import acquire_run_lock, release_run_lock
 from hfvg.activities.preflight import preflight_validate_episode_activity
-from hfvg.activities.balance_check import check_higgsfield_balance_activity
+from hfvg.activities.pre_approved import prepare_pre_approved_still_activity
 
 __all__ = [
     "acquire_run_lock",
@@ -90,6 +89,5 @@ __all__ = [
     "detect_stalled_jobs",
     "land_late_asset",
     "record_reconcile_outcome",
-    "register_preapproved_still_activity",
-    "check_higgsfield_balance_activity",
+    "prepare_pre_approved_still_activity",
 ]

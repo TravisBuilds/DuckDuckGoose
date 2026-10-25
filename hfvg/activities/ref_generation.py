@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from temporalio import activity
 
+from hfvg.defaults import REF_MODEL_PATH, REF_RESOLUTION
+
 from hfvg.config import config
 from hfvg.credit_ledger import CreditLedger
 from hfvg.providers.higgsfield import HiggsfieldProvider
@@ -52,7 +54,7 @@ async def generate_ref_activity(
     output_path: str,
     version: int = 1,
     model: str = "soul_v2",
-    resolution: str | None = None,
+    resolution: str = REF_RESOLUTION,
 ) -> dict:
     """
     Generate a reference image (character sheet, lineup, etc.).
@@ -69,6 +71,14 @@ async def generate_ref_activity(
     Returns:
         dict with status, job_id, output_path, credits_used
     """
+    # B6: the requested resolution must be one the ref model accepts (model_caps), checked first
+    # (before the reuse check, any reserve or provider call).
+    from hfvg import model_caps
+    from hfvg.defaults import check_value
+    why = check_value(model_caps.get_registry().resolve(REF_MODEL_PATH), "resolution", resolution)
+    if why:
+        raise ValueError(f"Ref {ref_key}: resolution {resolution!r} refused for {REF_MODEL_PATH}: {why}")
+
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     
@@ -136,55 +146,11 @@ async def generate_ref_activity(
                     f"Ref {ref_key} v{version} exists but fails QC: {qc_result.get('reason')}. Regenerating..."
                 )
     
-    # Validate and set resolution default from model_caps
-    if resolution is None:
-        from hfvg import model_caps
-        registry = model_caps.get_registry()
-        try:
-            caps = registry.resolve(model)
-            res_limit = caps.limit("resolutions")
-            if res_limit and not res_limit.unknown and isinstance(res_limit.value, list):
-                # Pick highest allowed resolution
-                allowed = res_limit.value
-                # Sort by resolution height (assumes format like "720p", "1080p", "2k")
-                def res_height(r: str) -> int:
-                    if r.endswith("p"):
-                        return int(r[:-1])
-                    elif r == "2k":
-                        return 1440
-                    elif r == "4k":
-                        return 2160
-                    return 0
-                allowed_sorted = sorted(allowed, key=res_height, reverse=True)
-                resolution = allowed_sorted[0] if allowed_sorted else "1080p"
-                activity.logger.info(f"Using highest allowed resolution for {model}: {resolution}")
-            else:
-                # No resolution limit in caps, use safe default
-                resolution = "1080p"
-        except model_caps.UnknownModelError:
-            resolution = "1080p"
-    
-    # Validate resolution against model_caps
-    from hfvg import model_caps
-    registry = model_caps.get_registry()
-    try:
-        caps = registry.resolve(model)
-        res_limit = caps.limit("resolutions")
-        if res_limit and not res_limit.unknown and isinstance(res_limit.value, list):
-            allowed = res_limit.value
-            if resolution not in allowed:
-                raise ValueError(
-                    f"Resolution '{resolution}' not allowed for model {model}. "
-                    f"Allowed: {', '.join(allowed)}"
-                )
-    except model_caps.UnknownModelError:
-        activity.logger.warning(f"Model {model} not in registry, skipping resolution validation")
-    
-    activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id} at {resolution}")
+    activity.logger.info(f"Generating ref {ref_key} v{version} for {episode_id}")
     
     # Estimate credits
     # Refs use SOUL V2: higgsfield-ai/soul/v2/standard
-    model_path = "higgsfield-ai/soul/v2/standard"
+    model_path = REF_MODEL_PATH
     from hfvg.credit_pricing import estimate_ref_credits
     estimated_credits = estimate_ref_credits(model_path)
     

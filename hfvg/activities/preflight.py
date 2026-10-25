@@ -224,53 +224,13 @@ async def preflight_validate_episode_activity(
                     f"(still model: {still_model})"
                 )
     
-    # 7. Prompt lint and routing check for each shot
-    from hfvg.prompt_lint import load_lint_kit, lint_violations
-    from hfvg.routing import RoutingError, plan_route
-    
-    try:
-        lint_kit = load_lint_kit(episode_id)
-    except Exception as e:
-        problems.append(f"Failed to load prompt lint kit: {e}")
-        lint_kit = None
-    
-    for shot_id, shot_data in shots_data.items():
-        if shots_subset and shot_id not in shots_subset:
-            continue
-        
-        prompt = shot_data.get("prompt", "")
-        model = shot_data.get("model", "kling")
-        duration = shot_data.get("duration", 5.0)
-        
-        # Prompt lint check
-        if lint_kit and prompt:
-            shot_meta = shot_data.get("shot_meta", {})
-            violations = lint_violations(prompt, shot_meta, lint_kit)
-            if violations:
-                for violation in violations:
-                    problems.append(f"Shot {shot_id} prompt lint: {violation}")
-        
-        # Routing check - validate that the model can handle the shot
-        try:
-            tags = shot_data.get("tags", [])
-            count = shot_data.get("shot_meta", {}).get("count", 1) if isinstance(shot_data.get("shot_meta"), dict) else 1
-            plan_route({
-                "model": model,
-                "tier": "draft" if shot_data.get("tier") == "draft" else "final",
-                "duration": duration,
-                "tags": tags,
-                "count": count,
-            })
-        except RoutingError as e:
-            problems.append(f"Shot {shot_id} routing error: {e}")
-    
-    # 8. Live mode: check API key
+    # 7. Live mode: check API key
     if is_live:
         api_key = os.getenv("HIGGSFIELD_API_KEY")
         if not api_key:
             problems.append("Live mode requires HIGGSFIELD_API_KEY environment variable")
     
-    # 9. Validate budget configuration (preflight runs BEFORE budget init)
+    # 8. Validate budget configuration (preflight runs BEFORE budget init)
     # Ensure schema exists and config is valid, but don't query lines that don't exist yet
     from hfvg.budget import BudgetLedger, DEFAULT_LINE_CAPS_USD_MICROS, get_budget_settings
     from hfvg.pricing import micros_to_usd_str
@@ -299,6 +259,24 @@ async def preflight_validate_episode_activity(
             f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
         )
     
+    # 8b. Playbook moderation lint config (B5): unknown hard-rule names fail loudly in every mode
+    from hfvg.moderation_lint import ModerationLintError, hard_rules
+    try:
+        hard_rules()
+    except ModerationLintError as e:
+        problems.append(str(e))
+
+    # 9. Live mode: a manual Higgsfield balance must be recorded and recent (GC.01, B8). There is
+    # no balance endpoint, so a stale entry would let GC.01 headroom pass on an old number.
+    if is_live:
+        from hfvg.budget import balance_freshness
+        try:
+            fresh = balance_freshness(await ledger.get_balance_status())
+        except ValueError as e:  # invalid HFVG_BALANCE_MAX_AGE_HOURS
+            fresh = {"ok": False, "reason": str(e)}
+        if not fresh["ok"]:
+            problems.append(fresh["reason"])
+
     # Raise if any problems found
     if problems:
         raise PreflightError(

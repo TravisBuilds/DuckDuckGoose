@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         release_credits_activity,
     )
     from hfvg.activities.save_assets import save_asset_locally
+    from hfvg.activities.pre_approved import prepare_pre_approved_still_activity
     from hfvg.activities.moderation_recovery import attempt_moderation_recovery
     from hfvg.errors import ContentBlockError, InsufficientCreditsError
     from hfvg.models import Asset, GenerationRequest
@@ -77,6 +78,11 @@ class ShotWorkflow:
         }
         self.moderation_escalation: dict | None = None  # set when a block is escalated to a human
         self._last_submit: dict = {}  # kind -> job_info of the latest submit (for the ladder)
+        self.pre_approved: dict | None = None  # pre-approved start still spec (hfvg.pre_approved)
+        # B5 moderation-risk lint decision per paid submit kind (recorded by the submit activities)
+        self.moderation_lint: dict = {}
+        self.qc_constraints: dict | None = None
+        self.qc_constraints_by_clip: list[dict] = []  # every checked clip's qc_fail_if rows, in order
 
     @workflow.signal
     def stills_approved(self):
@@ -129,6 +135,10 @@ class ShotWorkflow:
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
             "still_rejected": self.still_rejected_reason,
+            "pre_approved": self.pre_approved,
+            "moderation_lint": self.moderation_lint,
+            "qc_constraints": self.qc_constraints,
+            "qc_constraints_by_clip": list(self.qc_constraints_by_clip),
             "human_approved_still": self.human_approved_still,
             # Per-shot G2 status (Item 4)
             "still_status": self.still_status,
@@ -447,6 +457,7 @@ class ShotWorkflow:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=retry_policy,
                 )
+                self._record_lint("end_still", job_info)
                 break  # Success
             except ActivityError as e:
                 if e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientCreditsError":
@@ -562,6 +573,8 @@ class ShotWorkflow:
             self.still_status = "done"
             self.end_image_url = clip_only.get("end_image_url")
             self.stills_approved = True
+            if shot_plan.get("pre_approved_still"):
+                self.pre_approved = dict(shot_plan["pre_approved_still"])
             workflow.logger.info(
                 f"Clip retry {clip_only.get('n')} for {self.shot_id}: reusing approved still {self.still_url}"
             )
@@ -569,38 +582,12 @@ class ShotWorkflow:
                 shot_plan, {"passed": True, "reused_approved_still": True}, retry_policy, clip_retry=clip_only
             )
 
-        # Handle pre-approved stills (anchor stills): skip still generation, go straight to clip
+        # Pre-approved start still (hfvg.pre_approved): no still submit, no still spend; the still
+        # is recorded as this shot's G2 still (flagged pre_approved) and the shot waits for G2 like
+        # every other shot. Input-driven (not patched): histories without the key replay unchanged.
         pre_approved = shot_plan.get("pre_approved_still")
         if pre_approved:
-            workflow.logger.info(
-                f"Shot {self.shot_id} has pre-approved still from {pre_approved['anchor_shot_id']}, "
-                f"skipping still generation (no spend)"
-            )
-            # Register the pre-approved still as this shot's still (for continuity refs)
-            # Need to get the still URL - check if it exists locally and upload if needed
-            still_result = await workflow.execute_activity(
-                "register_preapproved_still_activity",
-                args=[self.episode_id, self.shot_id, pre_approved],
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=retry_policy,
-            )
-            self.still_asset = {"url": still_result["url"], "cost": 0}
-            self.still_url = still_result["url"]
-            self.still_status = "done"
-            
-            # Pre-approved stills are auto-approved for G2 (but flagged as pre-approved)
-            self.stills_approved = True
-            workflow.logger.info(
-                f"Pre-approved still registered for {self.shot_id}: {self.still_url}, "
-                f"waiting for G2 approval to proceed to clip"
-            )
-            
-            # Wait for G2 approval (parent signals stills_approved for the whole episode)
-            await workflow.wait_condition(lambda: self.stills_approved)
-            
-            # Proceed to clip phase with pre-approved still
-            still_qc = {"passed": True, "pre_approved": True, "anchor_shot_id": pre_approved["anchor_shot_id"]}
-            return await self._clip_phase(shot_plan, still_qc, retry_policy)
+            return await self._run_pre_approved(shot_plan, pre_approved, retry_policy)
 
         for attempt in range(self.max_retries):
             try:
@@ -668,6 +655,7 @@ class ShotWorkflow:
                                 start_to_close_timeout=timedelta(minutes=2),
                                 retry_policy=retry_policy,
                             )
+                            self._record_lint("still", job_info)
                             break  # Success, exit retry loop
                         except ActivityError as e:
                             # Check if wrapped error is InsufficientCreditsError
@@ -892,7 +880,12 @@ class ShotWorkflow:
         # (Escalated retries already notified above, before their own wait.)
         if not self.human_approved_still:
             await self._notify_parent_retry_still_ready(shot_plan)
+        return await self._g2_wait_then_clip(shot_plan, review_result, retry_policy, attempt)
 
+    async def _g2_wait_then_clip(self, shot_plan: dict, review_result: dict, retry_policy: RetryPolicy,
+                                 attempt: int) -> dict:
+        """Wait for the G2 decision on this shot's still, then: rejected -> record + end (no clip);
+        approved -> clip phase. Shared by generated and pre-approved stills (same commands)."""
         # CRITICAL: Wait for parent to approve (or reject) this scene's stills before generating clip
         workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
         # (still_rejected also releases this wait, with still_rejected_reason set.)
@@ -929,6 +922,71 @@ class ShotWorkflow:
         workflow.logger.info(f"Stills approved, proceeding to clip generation")
         return await self._clip_phase(shot_plan, review_result, retry_policy)
 
+    def _record_lint(self, kind: str, job_info: object) -> None:
+        """B5: keep the submit's moderation-lint decision in state (latest per kind)."""
+        if isinstance(job_info, dict) and job_info.get("moderation_lint") is not None:
+            self.moderation_lint[kind] = job_info["moderation_lint"]
+
+    async def _run_pre_approved(self, shot_plan: dict, spec: dict, retry_policy: RetryPolicy) -> dict:
+        """Pre-approved start still -> (end still if end_frame) -> G2 wait -> clip phase."""
+        params = shot_plan.get("params", {})
+        self.pre_approved = dict(spec)
+        try:
+            prepared = await workflow.execute_activity(
+                prepare_pre_approved_still_activity,
+                args=[self.episode_id, self.shot_id, spec, self.version],
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=retry_policy,
+            )
+        except ActivityError as e:
+            error_message = str(e.cause) if e.cause else str(e)
+            self.still_status = "failed"
+            self.still_error = error_message
+            workflow.logger.error(f"Pre-approved still for {self.shot_id} unusable: {error_message}")
+            return {"shot_id": self.shot_id, "status": "failed", "error": error_message}
+        url = prepared["local_path"]
+        self.still_asset = {"url": url, "cost": 0}
+        self.still_url = url
+        self.still_status = "done"
+        self.still_error = None
+        review_result = {
+            "passed": True,
+            "issues": [],
+            "pre_approved": True,
+            "source": prepared.get("source"),
+            "approved_by": prepared.get("approved_by"),
+            "sha256": prepared.get("sha256"),
+            "source_path": prepared.get("source_path"),
+        }
+        self.pre_approved.update({"local_path": url, "sha256": prepared.get("sha256")})
+        workflow.logger.info(f"Pre-approved still for {self.shot_id}: {url} (still spend skipped)")
+        await workflow.execute_activity(
+            record_shot_result,
+            args=[
+                os.getenv("DATABASE_PATH", "./data/studio.db"),
+                self.episode_id,
+                self.shot_id,
+                "still_complete",
+                url,
+                None,  # clip_url
+                {"still_qc": review_result},
+                0,
+                shot_plan.get("prompt"),
+                True,  # clear_clip
+            ],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+        if params.get("end_frame"):
+            end_fail = await self._produce_end_still(
+                shot_plan, shot_plan.get("refs", []), params.get("resolution", "1k"),
+                params.get("quality", "medium"), params.get("aspect_ratio", "9:16"), retry_policy,
+            )
+            if end_fail:
+                return end_fail
+        await self._notify_parent_retry_still_ready(shot_plan)
+        return await self._g2_wait_then_clip(shot_plan, review_result, retry_policy, 0)
+
     async def _clip_phase(self, shot_plan: dict, review_result: dict, retry_policy: RetryPolicy,
                           clip_retry: dict | None = None) -> dict:
         """Clip phase; the result also carries the end frame (if any) so a later clip retry can
@@ -936,6 +994,8 @@ class ShotWorkflow:
         result = await self._clip_phase_body(shot_plan, review_result, retry_policy, clip_retry)
         if isinstance(result, dict) and self.end_image_url:
             result.setdefault("end_image_url", self.end_image_url)
+        if isinstance(result, dict) and self.pre_approved:
+            result.setdefault("pre_approved", True)
         return result
 
     async def _clip_phase_body(self, shot_plan: dict, review_result: dict, retry_policy: RetryPolicy,
@@ -1022,6 +1082,7 @@ class ShotWorkflow:
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
                         )
+                        self._record_lint("clip", job_info)
                         break  # Success, exit retry loop
                     except ActivityError as e:
                         # Check if wrapped error is InsufficientCreditsError
@@ -1098,6 +1159,10 @@ class ShotWorkflow:
                     "resolution": expected_dims["resolution"],
                     "aspect_ratio": expected_dims["aspect_ratio"],
                 }
+                # Per-shot qc_fail_if: checked on every clip (input-driven: absent -> rubric unchanged)
+                if shot_plan.get("qc_fail_if"):
+                    clip_rubric["qc_fail_if"] = list(shot_plan["qc_fail_if"])
+                    clip_rubric["prompt"] = clip_prompt
                 
                 clip_qc = await workflow.execute_activity(
                     review_clip,
@@ -1106,6 +1171,13 @@ class ShotWorkflow:
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
                 )
+                if clip_qc.get("constraints") is not None:
+                    self.qc_constraints = clip_qc["constraints"]
+                    self.qc_constraints_by_clip.append({
+                        "clip_url": self.clip_asset.get("url"), "attempt": attempt + 1,
+                        "clip_retry": (clip_retry or {}).get("n"),
+                        **clip_qc["constraints"],
+                    })
 
                 if clip_qc["passed"]:
                     workflow.logger.info(f"Clip passed QC on attempt {attempt + 1}")
@@ -1125,6 +1197,7 @@ class ShotWorkflow:
                         "still_url": self.still_asset["url"],
                         "clip_url": self.clip_asset["url"],
                         "error": f"Clip QC failed - escalated to human review: {', '.join(clip_qc['issues'])}",
+                        "qc_constraints": clip_qc.get("constraints"),
                     }
                 else:
                     # QC failed without escalation (shouldn't happen in live; review always escalates)
@@ -1141,6 +1214,7 @@ class ShotWorkflow:
                         "still_url": self.still_asset["url"],
                         "clip_url": self.clip_asset["url"],
                         "error": f"QC failed: {', '.join(clip_qc['issues'])}",
+                        "qc_constraints": clip_qc.get("constraints"),
                     }
 
             except ContentBlockError as e:
@@ -1194,4 +1268,5 @@ class ShotWorkflow:
             # escalates that shot instead of silently dropping it from the edit)
             "clip_path": self.clip_local_path,
             "clip_motion": clip_qc.get("motion"),  # per-clip stillgate verdict (WATCH surfaces here)
+            "qc_constraints": clip_qc.get("constraints"),  # per-clip qc_fail_if rows (None: none declared)
         }

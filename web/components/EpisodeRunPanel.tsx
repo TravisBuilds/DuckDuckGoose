@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
+import { balanceDisplay, parseBalanceInput } from '@/lib/balance.mjs';
+import type { HiggsfieldBalance } from '@/lib/balance.mjs';
 
 /**
  * Drives a whole episode run from the studio (G-UI-1): G1 approval, per-shot G2 decisions,
@@ -46,11 +48,13 @@ interface ShotState {
   clip_error?: string | null;
   moderation?: Record<string, { steps: string[]; retry: unknown }>;
   moderation_escalation?: unknown;
+  pre_approved?: boolean;
   reason?: string;
 }
 interface Credits {
   cap_credits: number; spent_credits: number; reserved_credits: number; available_credits: number;
   pause_threshold: number; pause_needed: boolean; over_cap: boolean;
+  higgsfield_balance?: HiggsfieldBalance | null;
 }
 interface StallAlert { job_id: string; shot_id: string | null; job_type: string; minutes_stalled: number; status: string }
 interface FileInfo { available: boolean; size_bytes?: number; url?: string; reason?: string }
@@ -144,6 +148,7 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
   const [state, setState] = useState<RunState | null>(null);
   const [shotStates, setShotStates] = useState<Record<string, ShotState>>({});
   const [credits, setCredits] = useState<Credits | null>(null);
+  const [newBalance, setNewBalance] = useState('');
   const [stalls, setStalls] = useState<StallAlert[]>([]);
   const [files, setFiles] = useState<Record<string, FileInfo>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -252,6 +257,18 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
             {credits.pause_needed && <span className="ml-2 text-red-700 font-semibold" data-testid="cap-paused">at cap: shots paused</span>}
           </p>
         ) : <p className="text-sm text-gray-500">No credit line yet.</p>}
+        {(() => {
+          const bd = balanceDisplay(credits?.higgsfield_balance);
+          const tone = bd.tone === 'ok' ? 'text-green-700' : bd.tone === 'warn' ? 'text-amber-700' : 'text-red-700';
+          return <p className={`text-sm mt-1 ${tone}`} data-testid="higgsfield-balance" data-tone={bd.tone}>{bd.text}</p>;
+        })()}
+        <div className="mt-2 flex gap-2">
+          <input data-testid="new-balance" value={newBalance} onChange={(e) => setNewBalance(e.target.value.replace(/[^0-9.]/g, ''))}
+            placeholder="Balance (USD)" className="w-48 px-2 py-1 border rounded text-sm bg-white dark:bg-gray-900" />
+          <button data-testid="record-balance" disabled={busy || parseBalanceInput(newBalance) === null}
+            onClick={() => act('Record balance', () => postJson('/api/budget/balance', { balance_usd: parseBalanceInput(newBalance), note: 'studio credits panel' }).then(() => setNewBalance('')))}
+            className={`${btn} bg-gray-700 text-white`}>Record balance</button>
+        </div>
         <div className="mt-2 flex gap-2">
           <input data-testid="new-cap" value={newCap} onChange={(e) => setNewCap(e.target.value.replace(/[^0-9]/g, ''))}
             placeholder="New cap (credits)" className="w-48 px-2 py-1 border rounded text-sm bg-white dark:bg-gray-900" />
@@ -282,6 +299,7 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
               <div key={sid} className="border rounded p-3" data-testid={`shot-${sid}`}>
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   <strong>{sid}</strong>
+                  {ss?.pre_approved && <span data-testid={`shot-${sid}-pre-approved`} className="px-1 rounded bg-blue-100 text-blue-800 text-xs">pre-approved still</span>}
                   <span>still: <span data-testid={`shot-${sid}-still`}>{ss?.still_status ?? state.shot_outcomes[sid]?.status ?? '—'}</span></span>
                   <span>clip: <span data-testid={`shot-${sid}-clip`}>{ss?.clip_status ?? '—'}</span></span>
                   {decision && <span data-testid={`shot-${sid}-decision`} className="font-semibold">{decision}</span>}

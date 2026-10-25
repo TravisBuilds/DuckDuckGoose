@@ -11,7 +11,16 @@ from temporalio import activity
 
 from hfvg.episode_parser import parse_beatmap as _parse_beatmap
 from hfvg.gates import load_policy as _load_policy, GatePolicy
-from hfvg.shot_data import load_shot_plans, merge_into_shots, resolve_refs
+from hfvg.shot_data import (
+    _read_json,
+    load_episode_options,
+    load_shot_plans,
+    merge_into_shots,
+    parse_shots,
+    pre_approved_still_paths,
+    resolve_refs,
+    shots_json_path,
+)
 
 
 @activity.defn
@@ -76,13 +85,19 @@ async def parse_beatmap_activity(
         require = live_data_required(require_shot_data)
         plans = load_shot_plans(episode_id, require)
         shots = merge_into_shots(episode_id, shots, plans, require)
+        # Episode-level shots.json options (continuity_hard_checks); input-driven for the workflow
+        return {"shots": shots, "episode_options": load_episode_options(episode_id)}
     return {"shots": shots}
 
 
 @activity.defn
 async def recheck_refs_activity(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dict:
     """G2.01 re-check: which refs exist on disk NOW (files may have been produced since planning)."""
-    return resolve_refs(episode_id, ref_keys_by_shot)
+    pre_paths: dict[str, str] = {}
+    path = shots_json_path(episode_id)
+    if path.is_file():  # refs.json may point at a shot's pre-approved still (pre_approved_still_of)
+        pre_paths = pre_approved_still_paths(episode_id, parse_shots(_read_json(path, "shots.json")))
+    return resolve_refs(episode_id, ref_keys_by_shot, pre_paths)
 
 
 @activity.defn

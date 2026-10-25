@@ -408,12 +408,16 @@ from temporalio import workflow as wf_module
 class StubShotWorkflowForAnchorTest:
     @wf_module.run
     async def run(self, episode_id: str, shot_plan: dict):
-        return {"status": "completed"}
+        return {"status": "completed", "shot_id": shot_plan["shot_id"],
+                "pre_approved_still": shot_plan.get("pre_approved_still")}
 
 
 @pytest.mark.asyncio
-async def test_episode_workflow_skips_anchor_shots(tmp_path, monkeypatch):
-    """Test that episode workflow skips regenerating shots used as anchors."""
+async def test_episode_workflow_launches_anchor_shot_as_pre_approved(tmp_path, monkeypatch):
+    """Round 7 B1: the anchor shot is NOT skipped any more (the old behaviour left it without a
+    clip). Its approved still is its pre-approved start still: the shot is launched (so it gets a
+    clip, QC, retry and assembly) with ``pre_approved_still`` (source anchor) in its plan, so its
+    ShotWorkflow skips the still spend."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -558,10 +562,13 @@ A second shot (uses A01 as anchor).
             # Terminate before completing
             await handle.terminate()
     
-    # Verify: A02 should have been started, but NOT A01 (it's the anchor)
-    # The workflow state tracks shots - count should be 1 (A02 only, A01 skipped as anchor)
+    # Both shots are launched; A01 (the anchor) carries its approved still as pre-approved.
     num_shots = final_state.get("shots", 0)
-    assert num_shots == 1, f"Expected 1 shot (A02 only), got {num_shots}. Full state: {final_state}"
+    assert num_shots == 2, f"Expected 2 shots (anchor A01 launched too), got {num_shots}. State: {final_state}"
+    pre = final_state.get("pre_approved_stills") or {}
+    assert set(pre) == {"A01"}, pre
+    assert pre["A01"]["source"] == "anchor", pre
+    assert pre["A01"]["sha256"] == sha256, pre
 
 
 @pytest.mark.asyncio

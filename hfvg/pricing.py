@@ -98,7 +98,8 @@ def clip_estimate_usd_micros(model: str, tier: str | None, seconds: int | float)
     one rate. Never touches the network.
     """
     if model == "seedance":
-        resolution = "480p" if tier == "draft" else "1080p"
+        from hfvg.routing import SEEDANCE_TIER_RESOLUTION
+        resolution = SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]
         return rate_table_estimate("seedance-2.5", resolution, seconds).usd_micros
     if model == "kling":
         return rate_table_estimate("kling-3.0-pro", None, seconds).usd_micros

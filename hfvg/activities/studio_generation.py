@@ -44,13 +44,18 @@ from hfvg.pricing import (
 )
 from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
 from hfvg.prompt_lint import enforce_prompt_lint
+from hfvg import moderation_lint
 
 
 from hfvg.still_refs import assemble_still_refs  # noqa: F401  (re-exported; the rule lives in one place)
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, SeedanceVideoProvider
 from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
-from hfvg.studio_db import init_studio_db
+from hfvg.estimates import clip_call_usd_micros, still_call_usd_micros
+
+# Dry-run placeholder stills/clips are written here, relative to the worker cwd (the run dir);
+# the studio still route serves stills from it too.
+DRY_RUN_OUTPUT_DIR = Path("./data/dry_run_outputs")
 
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
@@ -372,6 +377,10 @@ async def submit_still_job_enforced(
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
+        # B5: playbook moderation lint (dry never refuses; a hard violation records would_refuse)
+        lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)
+        if lint_record["decision"] != "pass":
+            activity.logger.warning(f"[DRY-RUN] moderation lint {shot_id}: {lint_record['decision']}")
         if missing_refs:
             activity.logger.warning(
                 f"[DRY-RUN] {shot_id}: refs not on disk (live would hold at G2.01): {sorted(missing_refs)}"
@@ -383,7 +392,9 @@ async def submit_still_job_enforced(
         return {
             "job_id": job_id,
             "line_name": "L2_drafts",
-            "reserved_amount": DRY_STILL_USD_MICROS,
+            # the same per-call estimate the G1 plan shows (hfvg.estimates)
+            "reserved_amount": still_call_usd_micros(),
+            "moderation_lint": lint_record,
         }
     
     # Check DB for live mode and G1.08 (DRY_RUN=false, so check requirements)
@@ -408,6 +419,8 @@ async def submit_still_job_enforced(
     
     # Prompt lint gate: refuses before provider init, estimate, reserve
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
+    # B5: playbook moderation lint, same position (hard rules refuse before estimate/reserve)
+    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True)
     
     # Refs gate: a shot never runs without its planned refs, and refs are never silently dropped
     if missing_refs:
@@ -680,6 +693,7 @@ async def submit_still_job_enforced(
             "provider_job_id": provider_job_id,
             "line_name": budget_line_name,
             "reserved_amount": budget_amount,
+            "moderation_lint": lint_record,
         }
     
     except httpx.HTTPStatusError as e:
@@ -795,6 +809,11 @@ async def submit_clip_job_enforced(
     # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
     # Clip lint runs on the FINAL submitted clip prompt (clip_prompt or reword), with the motion rules
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live, kind="clip")
+    # B5: playbook moderation lint + moderation-risk routing check on the routed model
+    # (live: a hard violation refuses before estimate/reserve; dry: recorded, never refuses)
+    lint_record = moderation_lint.evaluate(
+        shot_id, prompt, shot_meta, kind="clip", model=route.model, tags=tags, live=use_live,
+    )
     
     if use_live:
         # A shot never runs without its planned refs or its END frame
@@ -843,7 +862,9 @@ async def submit_clip_job_enforced(
         return {
             "job_id": job_id,
             "line_name": "L4_video",
-            "reserved_amount": clip_estimate_usd_micros(route.model, tier, duration),
+            # the same per-call estimate the G1 plan shows (hfvg.estimates)
+            "reserved_amount": clip_call_usd_micros(route.model, tier, duration),
+            "moderation_lint": lint_record,
         }
     
     # Live mode: all checks passed (DRY_RUN=false, live_mode=true, g108_approved=true)
@@ -1099,6 +1120,7 @@ async def submit_clip_job_enforced(
             "provider_job_id": provider_job_id,  # Also return provider job_id for polling
             "line_name": line_name,
             "reserved_amount": estimated_cost,
+            "moderation_lint": lint_record,
         }
         
     finally:
@@ -1210,7 +1232,7 @@ async def poll_job_status(
         await asyncio.sleep(0.1)
         
         # Create real placeholder file
-        output_dir = Path("./data/dry_run_outputs")
+        output_dir = DRY_RUN_OUTPUT_DIR
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Use job_id in filename (it already contains episode and shot info)
@@ -1505,7 +1527,7 @@ async def await_job_enforced(
         await asyncio.sleep(0.2)
         
         # Create real placeholder file
-        output_dir = Path("./data/dry_run_outputs")
+        output_dir = DRY_RUN_OUTPUT_DIR
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Use job_id in filename (it already contains episode and shot info)
@@ -1774,82 +1796,3 @@ async def await_job_enforced(
     finally:
         if 'provider' in locals():
             await provider.close()
-
-
-@activity.defn
-async def register_preapproved_still_activity(
-    episode_id: str,
-    shot_id: str,
-    pre_approved: dict,
-) -> dict:
-    """
-    Register a pre-approved still for a shot.
-    
-    Takes a pre-approved still (from anchor_stills table), uploads it to provider storage
-    if needed, and returns the URL for use in clip generation.
-    
-    Args:
-        episode_id: Episode ID
-        shot_id: Shot ID  
-        pre_approved: Dict with anchor_shot_id, local_path, version, sha256
-        
-    Returns:
-        dict with url, local_path, anchor_shot_id
-    """
-    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-    local_path = pre_approved["local_path"]
-    anchor_shot_id = pre_approved["anchor_shot_id"]
-    
-    # Check if file exists
-    if not Path(local_path).exists():
-        raise ApplicationError(
-            f"Pre-approved still for {shot_id} not found at {local_path}",
-            type="PreApprovedStillMissing",
-            non_retryable=True
-        )
-    
-    # For now, use the local path as the URL (provider will handle local files)
-    # In a real implementation, you'd upload to provider storage and get a URL
-    # For this fix, we'll use the file:// URL scheme for local files
-    url = f"file://{Path(local_path).absolute()}"
-    
-    # Record this in the shots table
-    await init_studio_db(db_path)
-    async with aiosqlite.connect(db_path) as db:
-        record_id = f"{episode_id}-{shot_id}"
-        # Check if shot record exists
-        async with db.execute(
-            "SELECT id FROM shots WHERE id = ?",
-            (record_id,)
-        ) as cursor:
-            existing = await cursor.fetchone()
-        
-        if existing:
-            # Update existing record
-            await db.execute(
-                """UPDATE shots SET 
-                   still_url = ?,
-                   status = 'pre_approved_still',
-                   updated_at = datetime('now')
-                   WHERE id = ?""",
-                (url, record_id)
-            )
-        else:
-            # Insert new record
-            await db.execute(
-                """INSERT INTO shots 
-                   (id, episode_id, shot_id, status, still_url, created_at, updated_at)
-                   VALUES (?, ?, ?, 'pre_approved_still', ?, datetime('now'), datetime('now'))""",
-                (record_id, episode_id, shot_id, url)
-            )
-        await db.commit()
-    
-    activity.logger.info(
-        f"Registered pre-approved still for {shot_id} from {anchor_shot_id}: {local_path}"
-    )
-    
-    return {
-        "url": url,
-        "local_path": local_path,
-        "anchor_shot_id": anchor_shot_id,
-    }

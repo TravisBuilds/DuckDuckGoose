@@ -23,6 +23,9 @@ async def test_preflight_passes_with_ep05_shaped_fixtures(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     
     await init_studio_db(db_path)
+    # Round 7 B8: live preflight requires a fresh manual Higgsfield balance (GC.01).
+    from hfvg.budget import BudgetLedger
+    await BudgetLedger(db_path).set_manual_balance(50_000_000, set_by="test")
     
     # Set up ep05 directory with real-shaped fixtures
     ep_dir = tmp_path / "data" / "episodes" / "ep05"
@@ -141,6 +144,9 @@ async def test_preflight_fails_when_refs_exceed_still_model_cap(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     
     await init_studio_db(db_path)
+    # Round 7 B8: live preflight requires a fresh manual Higgsfield balance (GC.01).
+    from hfvg.budget import BudgetLedger
+    await BudgetLedger(db_path).set_manual_balance(50_000_000, set_by="test")
     
     # Set up ep05 directory
     ep_dir = tmp_path / "data" / "episodes" / "ep05"
@@ -244,6 +250,9 @@ async def test_preflight_accepts_beatmap_md_not_txt(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     
     await init_studio_db(db_path)
+    # Round 7 B8: live preflight requires a fresh manual Higgsfield balance (GC.01).
+    from hfvg.budget import BudgetLedger
+    await BudgetLedger(db_path).set_manual_balance(50_000_000, set_by="test")
     
     ep_dir = tmp_path / "data" / "episodes" / "ep99"
     ep_dir.mkdir(parents=True, exist_ok=True)

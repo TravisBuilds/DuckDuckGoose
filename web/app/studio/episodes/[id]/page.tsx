@@ -23,6 +23,16 @@ interface Shot {
   clip_url: string | null;
   prompt: string;
   retries: number;
+  pre_approved?: boolean;
+}
+
+/** A local still (pre-approved, copied into the episode outputs) is served by the authenticated
+ * preview route; remote stills are shown as-is. */
+function stillSrc(episodeId: string, shot: Shot): string {
+  const url = shot.still_url || '';
+  if (/^https?:\/\//.test(url)) return url;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return `${apiUrl}/api/episodes/${encodeURIComponent(episodeId)}/shots/${encodeURIComponent(shot.shot_id)}/still`;
 }
 
 // All budget amounts are integer usd_micros (1 USD = 1_000_000); display with formatUsd()
@@ -752,10 +762,17 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
                   {shot.still_url && (
                     <div className="mb-3">
-                      <div className="text-xs font-semibold mb-1">Still:</div>
+                      <div className="text-xs font-semibold mb-1">
+                        Still:
+                        {shot.pre_approved && (
+                          <span data-testid={`still-${shot.shot_id}-pre-approved`} className="ml-2 px-1 rounded bg-blue-100 text-blue-800">
+                            pre-approved (no still spend)
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
                         <img 
-                          src={shot.still_url} 
+                          src={stillSrc(episodeId, shot)}
                           alt={shot.shot_id}
                           className="w-32 h-32 object-cover rounded border border-gray-300 dark:border-gray-600"
                         />

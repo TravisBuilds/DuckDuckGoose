@@ -119,3 +119,86 @@ PreflightError: Invalid model configs:
 ```
 PreflightError: Live mode requires HIGGSFIELD_API_KEY environment variable
 ```
+
+## Round 7 shot and episode options (`shots.json`)
+
+### Pre-approved start stills (`pre_approved_still`)
+
+Any number of shots may carry a start still the owner already approved, for example from an
+earlier run:
+
+```json
+{"shot_id": "A01", "pre_approved_still": "A01.jpeg", ...}
+{"shot_id": "A02", "pre_approved_still": {"path": "stills/A02.jpg", "sha256": "<64 hex>", "approved_by": "owner"}, ...}
+```
+
+- The value is a local path, either absolute or relative to the episode directory. URLs and `file:`
+  are refused. The file must exist, and if `sha256` is given it must match.
+- The shot **skips the still spend**: there is no still estimate and no still reservation, and G1
+  shows $0 for it. The approved still is recorded as the shot's G2 still, flagged
+  `pre_approved: true`, and is still **shown at G2**.
+- After that, the shot goes through clip generation, motion QC, clip-only retry and assembly like
+  every other shot.
+- A refs.json entry `{"key": "...", "pre_approved_still_of": "A01"}` resolves to that shot's
+  pre-approved still, so it can be a continuity ref for other shots.
+
+### Trims (`trim_head_s` / `trim_tail_s`)
+
+`trim_head_s` / `trim_tail_s` are the seconds cut from the start and end of the clip. They map
+onto the existing `trim_in` / `trim_out` window, so do not use both forms on one shot.
+
+- Both values must be numbers >= 0, and together they must be shorter than the shot duration.
+- Assembly checks the window again against the real probed clip duration and refuses a trim that
+  exceeds the clip.
+- The planned picture length (G1) and the assembled picture length (assembly manifest) are both
+  reported as `picture_seconds`.
+
+### Clip QC constraints (`qc_fail_if`)
+
+`qc_fail_if` is a list of free-text failure conditions per shot, for example
+`["the prop ends in water", "the prop vanishes"]`. Each one is checked on every clip of the shot by a
+`ClipConstraintChecker` (`hfvg.qc.clip_constraints`). The result is recorded per clip (the shot
+outcome `qc_constraints` and `qc_constraints_by_clip` in the ShotWorkflow state).
+
+- A violated constraint is a FAIL: the shot fails, and nothing is rerolled automatically.
+- The check **fails closed**. No configured checker, a missing clip, a checker error or low
+  confidence all give `NEEDS_REVIEW`, and the shot is escalated to a human. None of these is ever a
+  silent pass.
+- Dry-run placeholder clips are recorded as `DRY_RUN` (not checked).
+- Constraints are checked after motion QC passes.
+- No real checker ships in this package.
+
+### Continuity hard vs advisory checks (`continuity_hard_checks`, top level)
+
+```json
+{"continuity_hard_checks": ["relative_size", "headcount"], "shots": [...]}
+```
+
+The checks are `headcount`, `relative_size` and `left_to_right_order`. The listed checks are hard:
+
+- A FAIL makes the assembly verdict FAIL.
+- A check that nothing could verify is NEEDS_REVIEW.
+
+Every unlisted check is advisory and gives WATCH at worst. Without the key, only `headcount` is
+hard (the earlier behaviour), and the size and order checks are not run.
+
+### Dry-mode audio lengths
+
+In dry runs, audio placement, ducking and loudness are checked against planned lengths:
+
+- Each VO line runs about 15 characters per second, clamped to 0.8 to 12 s (`dry_vo_seconds`).
+- Music matches the planned picture length, after trims.
+
+Live delivery without a real picture refuses.
+
+## Round 7 environment
+
+| Variable | Meaning |
+|---|---|
+| `HFVG_GATE_POLICY` / `HFVG_RUN_DIR` | Where the gate policy is loaded from (see docs/GATE-POLICY.md). |
+| `HFVG_BALANCE_MAX_AGE_HOURS` | Maximum age of the manually recorded Higgsfield balance (default 24). If the balance is missing or older, live preflight and live reservations refuse. Record it with `hfvg budget set-balance <usd>` (`hfvg budget show-balance` shows it) or `POST /api/budget/balance` (admin auth). The Studio credits panel shows the balance and how fresh it is. |
+| `HFVG_PLAYBOOK_HARD_RULES` | Comma-separated playbook rules (`duck_role`, `animal_poses`, `same_resort`, `moderation_routing`) that are made **hard**. By default every rule is advisory: the moderation lint runs before every paid still and clip submit, and its decision is recorded in the shot state (`moderation_lint`), but it never blocks. A live hard violation refuses before estimate, reservation or provider call. A dry run records `would_refuse`. Unknown names fail preflight. |
+| `HFVG_PLAYBOOK_WORLD_REFS` | Comma-separated locked world ref keys for the `same_resort` rule. Without it, that rule is not evaluated. |
+
+`duck_role` only judges shots that explicitly declare `duck_present`. A shot without the key
+makes no claim either way.

@@ -1030,13 +1030,13 @@ test_mutation 77 "M-R4i end_frame flag from shots.json" \
 test_mutation 78 "M-R4j dry clip reservation uses real model and duration" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_reservation_uses_model_and_duration" \
-    sed -i 's/clip_estimate_usd_micros(route.model, tier, duration)/clip_estimate_usd_micros("kling", tier, 5)  # MUTATED/'
+    sed -i 's/clip_call_usd_micros(route.model, tier, duration),$/clip_call_usd_micros("kling", tier, 5),  # MUTATED/'
 
 # 79. M-R4k Seedance draft estimate uses the 480p rate
 test_mutation 79 "M-R4k Seedance draft estimate uses the 480p rate" \
     "hfvg/pricing.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_estimates_use_real_model_and_duration" \
-    sed -i 's/^        resolution = "480p" if tier == "draft" else "1080p"$/        resolution = "1080p"  # MUTATED/'
+    sed -i 's/^        resolution = SEEDANCE_TIER_RESOLUTION\["draft" if tier == "draft" else "final"\]$/        resolution = SEEDANCE_TIER_RESOLUTION["final"]  # MUTATED/'
 
 # 80. M-R4l Live start+end shot without end image is refused
 test_mutation 80 "M-R4l Live start+end shot without end image is refused" \
@@ -1108,7 +1108,7 @@ test_mutation 90 "M-R4v Workflow passes missing refs to the clip activity" \
 test_mutation 91 "M-R4w End-frame generation succeeds in both dry and live modes" \
     "hfvg/workflows/shot.py" \
     "tests/test_round4_shot_data.py::test_shot_workflow_end_frame_dry_gets_placeholder_and_live_waits_for_signal" \
-    sed -i '/Generate end-frame still if required/,/end_image_url = end_still_result\["url"\]/{ /if params\.get("end_frame"):/s/.*/                    if False:  # MUTATED/; }'
+    sed -i '/Generate end-frame still if required/,/if params\.get("end_frame"):/{ /if params\.get("end_frame"):/s/.*/                    if False:  # MUTATED/; }'
 
 # 92. M-R4x End-image URL is stored from the end-frame still result
 test_mutation 92 "M-R4x End-image URL is stored from the end-frame still result" \
@@ -2580,7 +2580,7 @@ test_mutation 338 "preflight cost estimate" \
 test_mutation 339 "HFVG_PROJECT read from env" \
     "hfvg/gates.py" \
     "tests/test_no_brand_content.py::test_hfvg_project_defaults_to_demo_and_is_read_from_env" \
-    sed -i 's/^        project = os.getenv("HFVG_PROJECT", "demo")$/        project = "demo"  # MUTATED: env ignored/'
+    sed -i 's/^    active = os.getenv("HFVG_PROJECT", "demo")$/    active = "demo"  # MUTATED: env ignored/'
 
 # 340: G-BRAND-1: the denylist matcher is case-insensitive
 test_mutation 340 "brand matcher case-insensitive" \
@@ -2732,6 +2732,168 @@ test_mutation 364 "redgreen summary fails a shard with INVALID ids" \
     "tests/test_redgreen_coverage.py::test_shard_summary_fails_on_invalid_ids" \
     sed -i 's/^    if \[ \$FAIL_COUNT -eq 0 \] \&\& \[ \$INVALID_COUNT -eq 0 \]; then$/    if [ $FAIL_COUNT -eq 0 ]; then  # MUTATED/'
 
+# ---------------------------------------------------------------- Round 7 (PR #21)
+# 365: B1: a pre-approved start still skips the still submit / spend
+test_mutation 365 "pre-approved still skips the still spend" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^        if pre_approved:$/        if False:  # MUTATED/'
+
+# 366: B2: HFVG_GATE_POLICY is searched first
+test_mutation 366 "gate policy env var wins" \
+    "hfvg/gates.py" \
+    "tests/test_round7_gate_policy.py::test_hfvg_gate_policy_wins_over_run_dir_and_examples" \
+    sed -i 's/^            paths.append(("HFVG_GATE_POLICY", Path(env_path)))$/            pass  # MUTATED/'
+
+# 367: B3: a policy without owner_approval_points fails loudly (no silent empty default)
+test_mutation 367 "owner approval points required" \
+    "hfvg/gates.py" \
+    "tests/test_round7_gate_policy.py::test_missing_owner_approval_points_fails_loudly" \
+    sed -i -e 's/^        if legacy is None:$/        if False:  # MUTATED/' -e 's/^        value = data\[legacy\]$/        value = data.get(legacy, [])  # MUTATED/'
+
+# 368: B4: G1 shows the per-call dry estimate the dry submits reserve (pre-approved: no still)
+test_mutation 368 "G1 real per-call estimates (pre-approved still not priced)" \
+    "hfvg/estimates.py" \
+    "tests/test_round7_estimates.py::test_dry_g1_total_equals_the_dry_reservations_made" \
+    sed -i 's/^        "start_still": not pre_approved,$/        "start_still": True,  # MUTATED/'
+
+# 369: B5: the moderation lint runs before every live still submit (hard rule refuses)
+test_mutation 369 "moderation lint before live still submit" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round7_moderation_lint.py::test_live_hard_violation_refuses_before_estimate_reserve_and_submit" \
+    sed -i 's/^    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True)$/    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)  # MUTATED/'
+
+# 370: B6: every declared code default is allowed by model_caps
+test_mutation 370 "ref resolution default validated against model_caps" \
+    "hfvg/defaults.py" \
+    "tests/test_round7_code_defaults.py::test_declared_defaults_are_allowed_by_model_caps" \
+    sed -i 's/^REF_RESOLUTION = "1080p"$/REF_RESOLUTION = "2k"  # MUTATED/'
+
+# 371: B7: dry VO stand-ins follow the planned text length
+test_mutation 371 "dry mode VO length from the plan" \
+    "hfvg/activities/audio.py" \
+    "tests/test_round7_audio_dry.py::test_dry_delivery_is_measured_on_a_planned_length_stand_in" \
+    sed -i 's/^            await _stand_in(out, dry_vo_seconds(script), 440)$/            await _stand_in(out, 2.0, 440)  # MUTATED/'
+
+# 372: B8: live preflight refuses a missing / stale manual balance
+test_mutation 372 "balance freshness in live preflight" \
+    "hfvg/activities/preflight.py" \
+    "tests/test_round7_balance.py::test_live_preflight_refuses_missing_or_stale_balance" \
+    sed -i 's/^        if not fresh\["ok"\]:$/        if False:  # MUTATED/'
+
+# 373: trims: trim_head_s maps onto trim_in
+test_mutation 373 "trim head maps onto trim_in" \
+    "hfvg/shot_data.py" \
+    "tests/test_round7_trims.py::test_head_and_tail_map_onto_the_trim_window" \
+    sed -i 's/^        trim_in, trim_out = head, float(duration) - tail$/        trim_in, trim_out = 0.0, float(duration) - tail  # MUTATED/'
+
+# 374: B1 old bug: pre-approved / anchor shots are launched (animated), not skipped
+test_mutation 374 "pre-approved shots are launched for a clip" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^            shots_to_generate = list(shots)$/            shots_to_generate = [s for s in shots if s["shot_id"] not in self.pre_approved_stills]  # MUTATED/'
+
+# 375: B1 old bug: clip-only retry of a pre-approved shot is allowed
+test_mutation 375 "clip-only retry of a pre-approved shot" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^        if shot_id in self.pending_clip_retries:$/        if shot_id in self.pre_approved_stills or shot_id in self.pending_clip_retries:  # MUTATED/'
+
+# 376: B1: pre_approved_still_of resolves to the shot's pre-approved still (continuity ref)
+test_mutation 376 "pre-approved still usable as a continuity ref" \
+    "hfvg/shot_data.py" \
+    "tests/test_round7_pre_approved.py::test_pre_approved_still_of_requires_a_pre_approved_shot" \
+    sed -i 's/^                ref_path = pre_approved_paths\[of\]$/                ref_path = ""  # MUTATED/'
+
+# 377: B5: playbook rules are advisory unless configured hard
+test_mutation 377 "moderation lint advisory by default" \
+    "hfvg/moderation_lint.py" \
+    "tests/test_round7_moderation_lint.py::test_missing_no_duck_phrase_is_advisory_by_default_even_live" \
+    sed -i 's/^    rules = {name: {"violations": msgs, "hard": name in hard} for name, msgs in found.items()}$/    rules = {name: {"violations": msgs, "hard": True} for name, msgs in found.items()}  # MUTATED/'
+
+# 378: B5: the moderation lint runs before every live clip submit
+test_mutation 378 "moderation lint before live clip submit" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_round7_moderation_lint.py::test_live_hard_violation_refuses_before_estimate_reserve_and_submit" \
+    sed -i 's/^        shot_id, prompt, shot_meta, kind="clip", model=route.model, tags=tags, live=use_live,$/        shot_id, prompt, shot_meta, kind="clip", model=route.model, tags=tags, live=False,  # MUTATED/'
+
+# 379: B6: the source scan catches an undeclared literal default
+test_mutation 379 "code default scan catches an undeclared resolution" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round7_code_defaults.py::test_every_literal_default_in_code_is_a_declared_value" \
+    sed -i '0,/^                resolution = params.get("resolution", "1k")$/s//                resolution = params.get("resolution", "4k")  # MUTATED/'
+
+# 380: B8: the stale-balance rule
+test_mutation 380 "stale balance is not fresh" \
+    "hfvg/budget.py" \
+    "tests/test_round7_balance.py::test_freshness_rules" \
+    sed -i 's/^    if age > max_age:$/    if False:  # MUTATED/'
+
+# 381: B8: a live reservation refuses a missing / stale balance
+test_mutation 381 "live reserve requires a fresh balance" \
+    "hfvg/budget.py" \
+    "tests/test_round7_balance.py::test_live_reserve_refuses_a_stale_balance_dry_does_not" \
+    sed -i 's/^                    if not fresh\["ok"\]:$/                    if False:  # MUTATED/'
+
+# 382: trims: head + tail must be shorter than the clip
+test_mutation 382 "trim longer than the clip refused" \
+    "hfvg/shot_data.py" \
+    "tests/test_round7_trims.py::test_invalid_trims_fail_loudly" \
+    sed -i 's/^        if head + tail >= duration:$/        if False:  # MUTATED/'
+
+# 383: trims reach the assembly (pre-approved shots included)
+test_mutation 383 "trims applied in assembly" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^                "trim_in": float(trim.get("in", 0.0)),$/                "trim_in": 0.0,  # MUTATED/'
+
+# 384: QC constraints: no checker -> NEEDS_REVIEW (fail closed, never a silent pass)
+test_mutation 384 "qc_fail_if without checker needs review" \
+    "hfvg/qc/clip_constraints.py" \
+    "tests/test_round7_qc_constraints.py::test_no_checker_is_needs_review_for_every_declared_constraint" \
+    sed -i '0,/^            rows.append({"constraint": c, "status": NEEDS_REVIEW,$/s//            rows.append({"constraint": c, "status": PASS,  # MUTATED/'
+
+# 385: QC constraints: a violated constraint fails the clip (no auto reroll)
+test_mutation 385 "qc_fail_if violation fails the clip" \
+    "hfvg/activities/qc.py" \
+    "tests/test_round7_qc_constraints.py::test_live_clip_violated_constraint_fails_and_clean_clip_passes" \
+    sed -i 's/^                if checked\["status"\] == CONSTRAINT_FAIL:$/                if False:  # MUTATED/'
+
+# 386: QC constraints: qc_fail_if reaches the clip review of every clip
+test_mutation 386 "qc_fail_if passed to the clip QC" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^                if shot_plan.get("qc_fail_if"):$/                if False:  # MUTATED/'
+
+# 387: continuity: unlisted checks are advisory (WATCH), listed checks are hard
+test_mutation 387 "continuity hard vs advisory split" \
+    "hfvg/qc/continuity.py" \
+    "tests/test_round7_qc_constraints.py::TestContinuityHardVsAdvisory::test_hard_size_fail_blocks_advisory_order_fail_only_watches" \
+    sed -i 's/^    rows = \[{\*\*r, "hard": r\["check"\] in hard} for r in results\]$/    rows = [{**r, "hard": True} for r in results]  # MUTATED/'
+
+# 388: continuity: a hard check nothing could verify is NEEDS_REVIEW
+test_mutation 388 "unverified hard continuity check needs review" \
+    "hfvg/activities/qc.py" \
+    "tests/test_round7_qc_constraints.py::TestContinuityHardVsAdvisory::test_hard_check_without_checker_needs_review" \
+    sed -i '/for c in continuity\["hard_review"\]/s/^    reviews += .*$/    pass  # MUTATED/'
+
+# 389: continuity_hard_checks reaches the assembly QC
+test_mutation 389 "continuity_hard_checks passed to assembly QC" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
+    sed -i 's/^                hard_checks = ((self.parsed_beatmap or {}).get("episode_options") or {}).get("continuity_hard_checks")$/                hard_checks = None  # MUTATED/'
+
+# 390: the G2 still route serves episode outputs only
+test_mutation 390 "still route containment" \
+    "api/main.py" \
+    "tests/test_round7_still_route.py::test_still_route_serves_episode_outputs_only_behind_auth" \
+    sed -i 's/^    inside = path.is_relative_to(root) or path.is_relative_to(dry_root)$/    inside = True  # MUTATED/'
+
+test_mutation 391 "dry placeholder stills served at G2" \
+    "api/main.py" \
+    "tests/test_round7_still_route.py::test_still_route_serves_dry_placeholder_stills_from_the_run_dir" \
+    sed -i 's/^    inside = path.is_relative_to(root) or path.is_relative_to(dry_root)$/    inside = path.is_relative_to(root)  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
@@ -2760,57 +2922,3 @@ else
 fi
 
 exit $exit_code
-
-# 365: B1: pre-approved shots skip still generation but go through clip
-test_mutation 365 "pre-approved still skips generation" \
-    "hfvg/workflows/episode_v2.py" \
-    "tests/test_anchor_still.py" \
-    sed -i 's/if shot_id in pre_approved_stills:/if False:  # MUTATED/'
-
-# 366: B2: gate policy path resolved from HFVG_GATE_POLICY env var
-test_mutation 366 "gate policy env var" \
-    "hfvg/gates.py" \
-    "tests/test_gate_policy_path.py" \
-    sed -i 's/env_path = os.getenv("HFVG_GATE_POLICY")/env_path = None  # MUTATED/'
-
-# 367: B3: owner_approval_points key missing causes clear error
-test_mutation 367 "owner approval points required" \
-    "hfvg/gates.py" \
-    "tests/test_gate_policy_schema.py" \
-    sed -i 's/raise ValueError(/pass; return  # MUTATED; raise ValueError(/'
-
-# 368: B4: G1 dry mode uses real provider estimates
-test_mutation 368 "G1 real estimates in dry mode" \
-    "hfvg/activities/g1_plan.py" \
-    "tests/test_g1_estimates.py" \
-    sed -i 's/# Both dry and live modes/if dry_run: return {"shots": [], "total_credits": 0}  # MUTATED\n    /'
-
-# 369: B5: prompt lint runs in preflight
-test_mutation 369 "prompt lint in preflight" \
-    "hfvg/activities/preflight.py" \
-    "tests/test_preflight_lint.py" \
-    sed -i 's/violations = lint_violations(/violations = []  # MUTATED; lint_violations(/'
-
-# 370: B6: ref resolution validated against model caps
-test_mutation 370 "ref resolution validation" \
-    "hfvg/activities/ref_generation.py" \
-    "tests/test_ref_resolution.py" \
-    sed -i 's/if resolution not in allowed:/if False:  # MUTATED/'
-
-# 371: B7: dry mode audio duration from plan
-test_mutation 371 "dry mode audio plan duration" \
-    "hfvg/workflows/episode_v2.py" \
-    "tests/test_audio_dry_mode.py" \
-    sed -i 's/picture_s += (trim_out - trim_in)/picture_s += 5.0  # MUTATED/'
-
-# 372: B8: balance check required in live mode
-test_mutation 372 "balance check live mode" \
-    "hfvg/activities/balance_check.py" \
-    "tests/test_balance_check.py" \
-    sed -i 's/if not row:/if False:  # MUTATED/'
-
-# 373: Trims: trim_head_s validated against duration
-test_mutation 373 "trim validation" \
-    "hfvg/workflows/episode_v2.py" \
-    "tests/test_trims.py" \
-    sed -i 's/if trim_in < 0 or trim_out > duration/if False  # MUTATED/'
