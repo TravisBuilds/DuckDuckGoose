@@ -53,9 +53,18 @@ def make_noise(path: Path, seconds: float, volume_db: float = -20.0) -> Path:
     return path
 
 
-def episode(tmp_path: Path, ep: str = "ep01", seconds: float = 6.0, vo_db=(-4.0, -12.0)) -> tuple[Path, dict]:
+# Encoder speed profile for tests: the same filtergraphs, two-pass phone encode and subtitle burn,
+# only x264's speed preset changes (plan keys master.preset / phone.preset). CI runners have 2 vCPUs,
+# where the production presets on a 1080x1920 picture cost ~8 s per mix. The production defaults
+# themselves are exercised at full resolution by test_mix_audio_final_basic.
+FAST_ENCODE = {"master": {"preset": "ultrafast"}, "phone": {"preset": "ultrafast"}}
+TEST_SIZE = "432x768"  # 9:16, a multiple of 16
+
+
+def episode(tmp_path: Path, ep: str = "ep01", seconds: float = 6.0, vo_db=(-4.0, -12.0),
+            size: str = TEST_SIZE, fast: bool = True) -> tuple[Path, dict]:
     root = Path(os.environ.get("EPISODES_DIR", tmp_path / "data" / "episodes")) / ep
-    mute = make_picture(root / "edit" / "mute_assembly.mp4", seconds)
+    mute = make_picture(root / "edit" / "mute_assembly.mp4", seconds, size=size)
     make_tone(root / "audio" / "vo" / "L01.wav", 1.2, 300, vo_db[0])
     make_tone(root / "audio" / "vo" / "L02.wav", 1.0, 360, vo_db[1])
     make_noise(root / "audio" / "lib" / "bed.wav", 4.0, -18.0)
@@ -68,6 +77,7 @@ def episode(tmp_path: Path, ep: str = "ep01", seconds: float = 6.0, vo_db=(-4.0,
         ]},
         "music": {"path": "audio/lib/bed.wav", "loop": True},
         "sfx": [{"id": "S01", "at": 4.3, "dur": 0.6, "path": "audio/lib/hit.wav"}],
+        **(FAST_ENCODE if fast else {}),
     }
     (root / "audio" / "audio_plan.json").write_text(json.dumps(raw))
     return mute, audio_mix.load_plan_file(root / "audio" / "audio_plan.json")
@@ -148,7 +158,10 @@ def test_loudnorm_json_parse_is_real_and_strict():
 
 @pytest.mark.timeout(240)
 async def test_mix_audio_final_basic(tmp_path):
-    mute, plan = episode(tmp_path)
+    # production picture size and the production encoder defaults (no FAST_ENCODE)
+    mute, plan = episode(tmp_path, size="1080x1920", fast=False)
+    assert plan["phone"]["preset"] == audio_mix.DEFAULT_PHONE["preset"]
+    assert plan["master"]["preset"] == audio_mix.DEFAULT_MASTER["preset"]
     m = await mix_and_deliver("ep01", str(mute), plan)
     paths = audio_mix.delivery_paths("ep01")
     for name in ("manifest", "mix_wav", "nosubs", "master_subs", "phone", "srt", "ass", "vo_stem"):

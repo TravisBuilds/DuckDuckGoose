@@ -9,7 +9,7 @@ on:
 jobs:
   test-python:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -35,17 +35,20 @@ jobs:
         pip install -e ".[dev]"
 
     - name: Run tests
-      timeout-minutes: 5
+      timeout-minutes: 15
       env:
         REQUIRE_FFMPEG: "1"
       run: |
-        pytest tests/ -v --tb=short --timeout=30
+        pytest tests/ -v --tb=short --timeout=30 --durations=30 --junitxml=test-results/junit.xml
 
-    - name: Test report
+    # Report from the main run's JUnit XML (no second pytest run).
+    - name: Upload test report
       if: always()
-      timeout-minutes: 3
-      run: |
-        pytest tests/ --tb=line -q || true
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-junit
+        path: test-results/junit.xml
+        if-no-files-found: warn
 
   test-web:
     runs-on: ubuntu-latest
@@ -82,7 +85,7 @@ jobs:
 
   redgreen:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
     - uses: actions/checkout@v4

@@ -67,3 +67,6 @@ logs/
 Thumbs.db
 data/
 !hfvg/data/
+
+# CI JUnit report (pytest --junitxml)
+test-results/

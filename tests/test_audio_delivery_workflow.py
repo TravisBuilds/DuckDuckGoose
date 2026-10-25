@@ -13,7 +13,7 @@ from temporalio.testing import WorkflowEnvironment
 
 from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
 from tests.lint_helpers import lint_ok
-from tests.test_audio_delivery import make_noise, make_tone
+from tests.test_audio_delivery import FAST_ENCODE, TEST_SIZE, make_noise, make_tone
 from tests.test_moderation_recovery import Harness, _wait, dry_env  # noqa: F401
 from tests.test_picture_assembly_round3 import MOVING, ClipFactory, _to_final_cut, _worker, needs_ffmpeg, no_counter  # noqa: F401
 
@@ -28,7 +28,7 @@ def write_audio(tmp_path: Path, ep: str, l2_at: float = 2.5) -> Path:
     plan = {"min_vo_gap_s": 0.4,
             "vo": {"lines": [{"id": "L01", "at": 0.5, "path": "audio/vo/L01.wav", "text": "First line."},
                              {"id": "L02", "at": l2_at, "path": "audio/vo/L02.wav", "text": "Second line."}]},
-            "music": {"path": "audio/lib/bed.wav"}}
+            "music": {"path": "audio/lib/bed.wav"}, **FAST_ENCODE}
     (root / "audio" / "audio_plan.json").write_text(json.dumps(plan))
     return root
 
@@ -181,7 +181,7 @@ def test_cli_mix_on_episode_dir(tmp_path):
     from tests.test_audio_delivery import make_picture
 
     root = write_audio(tmp_path, "ep76")
-    make_picture(root / "edit" / "mute_assembly.mp4", 6.0)
+    make_picture(root / "edit" / "mute_assembly.mp4", 6.0, size=TEST_SIZE)
     runner = CliRunner()
     res = runner.invoke(cli, ["mix", str(root), "--json"])
     assert res.exit_code == 0, res.output
