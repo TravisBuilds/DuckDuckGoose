@@ -216,8 +216,8 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
         # Generate v2 in dry mode (should NOT touch real file)
         result = await generate_ref_activity(
             episode_id="ep99",
-            ref_key="mochi",
-            prompt="Mochi character v2",
+            ref_key="subject01",
+            prompt="Subject01 character v2",
             output_path=str(real_file_path),
             version=2,
         )
@@ -231,7 +231,7 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
             "Dry mode MODIFIED the real file (should never touch it)"
         
         # Real file should NOT be moved to _v1/ in dry mode
-        real_v1_archive = real_refs_dir / "_v1" / "mochi.png"
+        real_v1_archive = real_refs_dir / "_v1" / "subject01.png"
         assert not real_v1_archive.exists(), \
             f"Dry mode archived real file to {real_v1_archive} (should only affect scratch)"
         
