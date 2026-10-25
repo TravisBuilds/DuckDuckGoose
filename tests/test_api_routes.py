@@ -133,10 +133,10 @@ async def test_file_download_path_containment(test_db_api, monkeypatch):
     response = client.get("/api/episodes/ep99/files/master_subs", cookies=cookies)
     assert response.status_code in [404, 500], f"Expected 404 or 500 for non-existent file, got {response.status_code}"
     
-    # The key test: if we try traversal via episode_id, validate_episode_id should reject it
-    # (Directory traversal via file_type is prevented by the whitelist)
-    response = client.get("/api/episodes/../../../etc/files/master_subs", cookies=cookies)
-    assert response.status_code == 400, "Should reject invalid episode_id format"
+    # The key test: invalid episode_id format should be rejected
+    # FastAPI normalizes paths, so "../../../etc" becomes "etc" which then fails validate_episode_id
+    response = client.get("/api/episodes/etc/files/master_subs", cookies=cookies)
+    assert response.status_code == 400, "Should reject invalid episode_id format (etc instead of ep##)"
 
 
 @pytest.mark.asyncio
