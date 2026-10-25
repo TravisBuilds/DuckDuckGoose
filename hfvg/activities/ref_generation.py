@@ -52,7 +52,7 @@ async def generate_ref_activity(
     output_path: str,
     version: int = 1,
     model: str = "soul_v2",
-    resolution: str = "2k",
+    resolution: str | None = None,
 ) -> dict:
     """
     Generate a reference image (character sheet, lineup, etc.).

@@ -270,7 +270,7 @@ async def preflight_validate_episode_activity(
         if not api_key:
             problems.append("Live mode requires HIGGSFIELD_API_KEY environment variable")
     
-    # 8. Validate budget configuration (preflight runs BEFORE budget init)
+    # 9. Validate budget configuration (preflight runs BEFORE budget init)
     # Ensure schema exists and config is valid, but don't query lines that don't exist yet
     from hfvg.budget import BudgetLedger, DEFAULT_LINE_CAPS_USD_MICROS, get_budget_settings
     from hfvg.pricing import micros_to_usd_str
