@@ -11,6 +11,47 @@ interface EpisodeState {
   stage: string | null;
   approvals: Record<string, boolean>;
   shots_count: number;
+  estimates_available?: boolean | null;
+  active_stall_alerts?: number;
+  assembly?: {
+    path?: string;
+    manifest?: any;
+    qc?: {
+      verdict?: string;
+      blocking?: boolean;
+      reason?: string;
+      [key: string]: any;
+    };
+    acceptance?: any;
+    blocking?: boolean;
+    stale?: boolean;
+    edit_version?: number;
+  } | null;
+  assembly_path?: string | null;
+  delivery?: {
+    paths?: {
+      master_subs?: string;
+      master_nosubs?: string;
+      phone?: string;
+      [key: string]: any;
+    };
+    manifest?: any;
+    qc?: {
+      verdict?: string;
+      blocking?: boolean;
+      checks?: any;
+      [key: string]: any;
+    };
+    acceptance?: any;
+    blocking?: boolean;
+    due?: string;
+  } | null;
+  delivery_paths?: {
+    master_subs?: string;
+    master_nosubs?: string;
+    phone?: string;
+    [key: string]: any;
+  } | null;
 }
 
 interface Shot {
@@ -582,7 +623,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stall Alerts Banner */}
-        {state && state.active_stall_alerts > 0 && (
+        {state && state.active_stall_alerts && state.active_stall_alerts > 0 && (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
             <div className="flex items-center gap-2">
               <span className="text-yellow-800 dark:text-yellow-200 font-semibold">
