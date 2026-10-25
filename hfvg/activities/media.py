@@ -14,10 +14,42 @@ from temporalio.exceptions import ApplicationError
 from hfvg.config import config
 
 
+def _safe_heartbeat(details: dict):
+    """Heartbeat only if in activity context."""
+    try:
+        _safe_heartbeat(details)
+    except RuntimeError:
+        pass  # Not in activity context (e.g., unit tests)
+
+
+def _content_hash(data: str | bytes) -> str:
+    """SHA256 content hash for reuse keys."""
+    if isinstance(data, str):
+        data = data.encode()
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
 EDIT_FORMAT_VERSION = 1  # bump when the normalization below changes (invalidates cached edits)
 MUTE_EDIT_NAME = "mute_assembly.mp4"
 MUTE_MANIFEST_NAME = "assembly_manifest.json"
+
+# Audio constants from audio.py
+SAMPLE_RATE = 48000
+VO_BUS_GAIN_DB = -2.5
+MASTER_GAIN_DB = 4.7
+ALIMITER_CEILING = 0.86
+LOUDNESS_TARGET_LUFS = -12.5
+LOUDNESS_TOLERANCE_LUFS = 1.0
+TRUE_PEAK_MAX_DBTP = -0.5
+PHONE_MAX_MB = 50
+
+
+def delivery_dir(episode_id: str, output_dir: str | None = None) -> Path:
+    """Deterministic directory for delivery artifacts."""
+    if output_dir:
+        return Path(output_dir)
+    return Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "delivery"
 # A generated clip may run a few frames short of its nominal duration; a trim_out within this
 # tolerance is clamped to the real clip end, beyond it the trim is refused (escalated).
 TRIM_TOLERANCE_S = 0.15
@@ -107,7 +139,7 @@ async def assemble_mute_edit(
 
     Returns {"assembly_path", "manifest", "duration", "input_key", "reused", "dry_run"}.
     """
-    activity.heartbeat({"stage": "assembly_start", "shots": len(shots)})
+    _safe_heartbeat({"stage": "assembly_start", "shots": len(shots)})
     entries = _plan_entries(shots, clip_paths)
     out_dir = edit_dir(episode_id, output_dir)
     assembly_path = out_dir / MUTE_EDIT_NAME
@@ -146,7 +178,7 @@ async def assemble_mute_edit(
         )
 
     # Input key: content + trims + order + format
-    activity.heartbeat({"stage": "hashing_inputs", "shots": len(entries)})
+    _safe_heartbeat({"stage": "hashing_inputs", "shots": len(entries)})
     key_src = []
     for e in entries:
         e["sha256"] = await asyncio.to_thread(_sha256, Path(e["clip_path"]))
@@ -177,7 +209,7 @@ async def assemble_mute_edit(
         normalized: list[Path] = []
         for idx, e in enumerate(entries):
             sid = e["shot_id"]
-            activity.heartbeat({"stage": "normalizing_clip", "shot": sid, "progress": f"{idx + 1}/{len(entries)}"})
+            _safe_heartbeat({"stage": "normalizing_clip", "shot": sid, "progress": f"{idx + 1}/{len(entries)}"})
             src_dur = await _probe_duration(Path(e["clip_path"]))
             trim_in, trim_out = e["trim_in"], e["trim_out"]
             if trim_out > src_dur + TRIM_TOLERANCE_S or trim_in >= src_dur:
@@ -202,7 +234,7 @@ async def assemble_mute_edit(
                 "source": e["clip_path"], "source_sha256": e["sha256"],
             })
 
-        activity.heartbeat({"stage": "concatenating", "clips": len(normalized)})
+        _safe_heartbeat({"stage": "concatenating", "clips": len(normalized)})
         concat_list = tmp / "concat.txt"
         concat_list.write_text("".join(f"file '{p.resolve()}'\n" for p in normalized))
         partial = tmp / MUTE_EDIT_NAME
@@ -223,7 +255,7 @@ async def assemble_mute_edit(
     tmp_manifest = manifest_path.with_suffix(".json.tmp")
     tmp_manifest.write_text(json.dumps(manifest, indent=2))
     os.replace(tmp_manifest, manifest_path)
-    activity.heartbeat({"stage": "assembly_done", "duration": total})
+    _safe_heartbeat({"stage": "assembly_done", "duration": total})
     activity.logger.info(f"Mute edit assembled: {assembly_path} ({total:.2f}s, {len(manifest_clips)} shots)")
     return {"assembly_path": str(assembly_path), "manifest": manifest, "duration": total,
             "input_key": input_key, "reused": False, "dry_run": False}
@@ -236,7 +268,7 @@ async def trim_clips(clip_urls: list[str], edit_decisions: dict) -> str:
 
     Returns URL of trimmed output.
     """
-    activity.heartbeat({"stage": "trimming", "clips": len(clip_urls)})
+    _safe_heartbeat({"stage": "trimming", "clips": len(clip_urls)})
 
     if config.DRY_RUN:
         await asyncio.sleep(config.DRY_RUN_MEDIA_DELAY)
@@ -253,7 +285,7 @@ async def render_edit(trimmed_url: str, transitions: dict) -> str:
 
     Returns URL of picture-locked output.
     """
-    activity.heartbeat({"stage": "rendering_edit"})
+    _safe_heartbeat({"stage": "rendering_edit"})
 
     if config.DRY_RUN:
         await asyncio.sleep(config.DRY_RUN_MEDIA_DELAY)
@@ -261,6 +293,23 @@ async def render_edit(trimmed_url: str, transitions: dict) -> str:
         return "https://example.com/edits/picture-lock.mp4"
 
     raise NotImplementedError("Use assemble_mute_edit for real implementation")
+
+
+@activity.defn
+async def mix_audio(video_url: str, audio_tracks: list[str]) -> str:
+    """
+    Mix audio tracks (VO, SFX, music) with video (legacy signature).
+
+    Returns URL of final mixed output.
+    """
+    _safe_heartbeat({"stage": "mixing_audio", "tracks": len(audio_tracks)})
+
+    if config.DRY_RUN:
+        await asyncio.sleep(config.DRY_RUN_MEDIA_DELAY)
+        activity.logger.info(f"[DRY-RUN] Mixed {len(audio_tracks)} audio tracks")
+        return "https://example.com/final/mixed.mp4"
+
+    raise NotImplementedError("Use mix_audio_final for real implementation")
 
 
 @activity.defn
@@ -299,7 +348,7 @@ async def mix_audio_final(
         "reused": bool
     }
     """
-    activity.heartbeat({"stage": "mix_start", "vo_lines": len(vo_lines)})
+    _safe_heartbeat({"stage": "mix_start", "vo_lines": len(vo_lines)})
     
     mute = Path(mute_video_path)
     if not mute.is_file():
@@ -322,7 +371,7 @@ async def mix_audio_final(
         )
     
     # Validate VO line gaps
-    activity.heartbeat({"stage": "validating_vo_gaps"})
+    _safe_heartbeat({"stage": "validating_vo_gaps"})
     sorted_lines = sorted(vo_lines, key=lambda x: x["in"])
     for i in range(len(sorted_lines) - 1):
         gap = sorted_lines[i + 1]["in"] - (sorted_lines[i]["in"] + sorted_lines[i]["dur"])
@@ -343,7 +392,7 @@ async def mix_audio_final(
             )
     
     # Input key for idempotence
-    activity.heartbeat({"stage": "computing_input_key"})
+    _safe_heartbeat({"stage": "computing_input_key"})
     key_data = {
         "mute_sha256": await asyncio.to_thread(_sha256, mute),
         "vo_lines": [[ln["path"], ln["in"], ln["dur"], ln.get("gain_db", 0.0)] for ln in vo_lines],
@@ -377,7 +426,7 @@ async def mix_audio_final(
             }
     
     # Build the mix
-    activity.heartbeat({"stage": "building_vo_bus"})
+    _safe_heartbeat({"stage": "building_vo_bus"})
     with tempfile.TemporaryDirectory(dir=str(out_dir)) as tmpdir:
         tmp = Path(tmpdir)
         
@@ -412,7 +461,7 @@ async def mix_audio_final(
         )
         
         # Build VO activity envelope for ducking (80/150ms dilation)
-        activity.heartbeat({"stage": "computing_vo_activity"})
+        _safe_heartbeat({"stage": "computing_vo_activity"})
         import numpy as np
         N = int(round(T * SAMPLE_RATE))
         t = np.arange(N) / SAMPLE_RATE
@@ -427,7 +476,7 @@ async def mix_audio_final(
         # BGM with ducking
         bgm_stem = tmp / "bgm.wav"
         if bgm_config and bgm_config.get("path"):
-            activity.heartbeat({"stage": "processing_bgm"})
+            _safe_heartbeat({"stage": "processing_bgm"})
             bgm_path = Path(bgm_config["path"])
             if not bgm_path.is_file():
                 raise ApplicationError(f"BGM file not found: {bgm_path}", non_retryable=True)
@@ -472,7 +521,7 @@ async def mix_audio_final(
         ], "ffmpeg VOX placeholder")
         
         # Mix all stems
-        activity.heartbeat({"stage": "mixing_stems"})
+        _safe_heartbeat({"stage": "mixing_stems"})
         mix_raw = tmp / "mix_raw.wav"
         await _run_ffmpeg([
             "ffmpeg", "-y", "-loglevel", "error",
@@ -486,7 +535,7 @@ async def mix_audio_final(
         ], "ffmpeg mix stems")
         
         # Loudnorm pass 1: measure
-        activity.heartbeat({"stage": "loudnorm_pass1"})
+        _safe_heartbeat({"stage": "loudnorm_pass1"})
         out = await _run_ffmpeg([
             "ffmpeg", "-nostats", "-i", str(mix_raw),
             "-af", "loudnorm=print_format=json",
@@ -501,7 +550,7 @@ async def mix_audio_final(
         measured_i, measured_tp, measured_lra, measured_thresh, offset = match.groups()
         
         # Pass 2: apply normalization
-        activity.heartbeat({"stage": "loudnorm_pass2"})
+        _safe_heartbeat({"stage": "loudnorm_pass2"})
         mix_normalized = tmp / "mix_normalized.wav"
         await _run_ffmpeg([
             "ffmpeg", "-y", "-loglevel", "error", "-i", str(mix_raw),
@@ -513,7 +562,7 @@ async def mix_audio_final(
         ], "ffmpeg loudnorm pass2")
         
         # QC: measure final loudness and true peak
-        activity.heartbeat({"stage": "qc_loudness"})
+        _safe_heartbeat({"stage": "qc_loudness"})
         qc_out = await _run_ffmpeg([
             "ffmpeg", "-nostats", "-i", str(mix_normalized),
             "-af", "loudnorm=print_format=json",
@@ -536,7 +585,7 @@ async def mix_audio_final(
         }
         
         # Build subtitles (ASS)
-        activity.heartbeat({"stage": "building_subtitles"})
+        _safe_heartbeat({"stage": "building_subtitles"})
         subs_ass = out_dir / f"{episode_id}_en.ass"
         subs_srt = out_dir / f"{episode_id}_en.srt"
         
@@ -585,7 +634,7 @@ async def mix_audio_final(
             subs_srt.write_text("")
         
         # Mux: nosubs
-        activity.heartbeat({"stage": "muxing_nosubs"})
+        _safe_heartbeat({"stage": "muxing_nosubs"})
         nosubs_path = out_dir / f"{episode_id}_nosubs.mp4"
         await _run_ffmpeg([
             "ffmpeg", "-y", "-loglevel", "error",
@@ -596,7 +645,7 @@ async def mix_audio_final(
         ], "ffmpeg mux nosubs")
         
         # Burn subs
-        activity.heartbeat({"stage": "burning_subs"})
+        _safe_heartbeat({"stage": "burning_subs"})
         await _run_ffmpeg([
             "ffmpeg", "-y", "-loglevel", "error",
             "-i", str(nosubs_path),
@@ -606,7 +655,7 @@ async def mix_audio_final(
         ], "ffmpeg burn subs")
         
         # Phone encode
-        activity.heartbeat({"stage": "phone_encode"})
+        _safe_heartbeat({"stage": "phone_encode"})
         phone_path = out_dir / f"{episode_id}_phone.mp4"
         await _run_ffmpeg([
             "ffmpeg", "-y", "-loglevel", "error",

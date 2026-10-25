@@ -15,6 +15,14 @@ from temporalio.exceptions import ApplicationError
 from hfvg.config import config
 
 
+def _safe_heartbeat(details: dict):
+    """Heartbeat only if in activity context."""
+    try:
+        activity.heartbeat(details)
+    except RuntimeError:
+        pass  # Not in activity context (e.g., unit tests)
+
+
 MIN_VO_GAP_S = 0.3  # Minimum gap between VO lines (0.3-0.4s per spec)
 VO_DUCK_DB = -4.0  # BGM duck under VO
 SFX_BED_DUCK_DB = -3.0  # SFX bed duck under VO
@@ -82,7 +90,7 @@ async def generate_voiceover(
     
     Returns: file:// URI of the VO audio.
     """
-    activity.heartbeat({"stage": "voiceover_start"})
+    _safe_heartbeat({"stage": "voiceover_start"})
     
     if locked_audio_path:
         # Use pre-rendered/locked VO
@@ -102,7 +110,7 @@ async def generate_voiceover(
         dest = out_dir / f"vo_{src.name}"
         
         if not dest.exists():
-            activity.heartbeat({"stage": "copying_locked_vo"})
+            _safe_heartbeat({"stage": "copying_locked_vo"})
             import shutil
             await asyncio.to_thread(shutil.copy2, src, dest)
         
@@ -143,7 +151,7 @@ async def generate_voiceover(
     chars = len(script)
     cost_usd = (chars / 1000.0) * 0.08  # Conservative estimate
     
-    activity.heartbeat({"stage": "reserving_budget", "chars": chars, "est_usd": cost_usd})
+    _safe_heartbeat({"stage": "reserving_budget", "chars": chars, "est_usd": cost_usd})
     reservation_id = await reserve_credits(episode_id, cost_usd, f"VO generation ({chars} chars)")
     
     try:
@@ -151,14 +159,14 @@ async def generate_voiceover(
         from hfvg.providers.elevenlabs import ElevenLabsProvider
         provider = ElevenLabsProvider(dry_run=False)
         
-        activity.heartbeat({"stage": "calling_elevenlabs", "model": model})
+        _safe_heartbeat({"stage": "calling_elevenlabs", "model": model})
         job_id = await provider.submit_audio(text=script, voice_id=voice_id, model=model)
         
         # Poll for completion
         import time
         start = time.time()
         while time.time() - start < 300:  # 5 min timeout
-            activity.heartbeat({"stage": "polling_elevenlabs", "job": job_id})
+            _safe_heartbeat({"stage": "polling_elevenlabs", "job": job_id})
             job = await provider.get_job_status(job_id)
             
             if job.status.value == "completed":
@@ -211,7 +219,7 @@ async def generate_sfx(episode_id: str, description: str, duration: float = 5.0)
     
     Returns: file:// URI of the generated SFX.
     """
-    activity.heartbeat({"stage": "generating_sfx", "desc": description[:50]})
+    _safe_heartbeat({"stage": "generating_sfx", "desc": description[:50]})
 
     if _dry_run():
         await asyncio.sleep(config.DRY_RUN_AUDIO_DELAY)
@@ -233,14 +241,14 @@ async def generate_sfx(episode_id: str, description: str, duration: float = 5.0)
         provider = ElevenLabsProvider(dry_run=False)
         
         # Call sound generation endpoint
-        activity.heartbeat({"stage": "calling_elevenlabs_sfx"})
+        _safe_heartbeat({"stage": "calling_elevenlabs_sfx"})
         job_id = await provider.submit_sfx(text=description, duration=duration)
         
         # Poll and download
         import time
         start = time.time()
         while time.time() - start < 300:
-            activity.heartbeat({"stage": "polling_sfx", "job": job_id})
+            _safe_heartbeat({"stage": "polling_sfx", "job": job_id})
             job = await provider.get_job_status(job_id)
             
             if job.status.value == "completed":
@@ -279,7 +287,7 @@ async def generate_music(episode_id: str, prompt: str, duration: float, model: s
     
     Returns: file:// URI of the generated music.
     """
-    activity.heartbeat({"stage": "generating_music", "duration": duration})
+    _safe_heartbeat({"stage": "generating_music", "duration": duration})
 
     if _dry_run():
         await asyncio.sleep(config.DRY_RUN_AUDIO_DELAY)
@@ -307,14 +315,14 @@ async def generate_music(episode_id: str, prompt: str, duration: float, model: s
         from hfvg.providers.elevenlabs import ElevenLabsProvider
         provider = ElevenLabsProvider(dry_run=False)
         
-        activity.heartbeat({"stage": "calling_elevenlabs_music"})
+        _safe_heartbeat({"stage": "calling_elevenlabs_music"})
         job_id = await provider.submit_music(prompt=prompt, duration_ms=int(duration * 1000), model=model)
         
         # Poll and download
         import time
         start = time.time()
         while time.time() - start < 600:  # 10 min timeout for music
-            activity.heartbeat({"stage": "polling_music", "job": job_id})
+            _safe_heartbeat({"stage": "polling_music", "job": job_id})
             job = await provider.get_job_status(job_id)
             
             if job.status.value == "completed":
