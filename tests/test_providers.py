@@ -89,8 +89,8 @@ async def test_elevenlabs_dry_run_audio():
     provider = ElevenLabsProvider(dry_run=True)
     
     job_id = await provider.submit_audio(
-        text="きょうのお客様は、三世代のニホンザルのご家族です。",
-        voice_id="4sirbXwrtRlmPV80MJkQ",
+        text="これはテスト用の短い文です。",  # synthetic non-ASCII line
+        voice_id="demo-voice-id",
         model="eleven_multilingual_v2"
     )
     

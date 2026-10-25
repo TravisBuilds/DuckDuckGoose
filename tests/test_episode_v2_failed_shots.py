@@ -58,14 +58,14 @@ class SuccessShotWorkflow:
 
 
 async def _wait_for_state(handle, pred, timeout=10.0):
-    """Poll get_state until predicate is true."""
+    """Poll get_state until predicate is true (faster polling for test efficiency)."""
     loop = asyncio.get_event_loop()
     end = loop.time() + timeout
     while loop.time() < end:
         state = await handle.query(EpisodeWorkflowV2.get_state)
         if pred(state):
             return state
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)  # Fast poll with time-skipping
     raise AssertionError(f"condition not reached; last state={state}")
 
 

@@ -10,6 +10,7 @@ This test verifies the full stack end-to-end:
 """
 
 import asyncio
+from datetime import timedelta
 import json
 import os
 import sys
@@ -162,9 +163,20 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
             # (Test Temporal doesn't support ListWorkflowExecutions, so we use direct handle)
             handle = env.client.get_workflow_handle(episode_id)
             
+            # G-CI-2: wait for each gate by polling state while advancing virtual time (fixed
+            # real-time sleeps followed by one query were flaky under CI load).
+            async def wait_for_gate(gate, budget_s=30.0):
+                loop = asyncio.get_running_loop()
+                end, st = loop.time() + budget_s, {}
+                while loop.time() < end:
+                    st = await handle.query("get_state")
+                    if st.get("current_gate") == gate:
+                        break
+                    await env.sleep(timedelta(seconds=1))
+                return st
+
             # Wait for G1 gate
-            await asyncio.sleep(1.0)
-            state = await handle.query("get_state")
+            state = await wait_for_gate("G1_SHOT_PLAN")
             assert state.get("current_gate") == "G1_SHOT_PLAN", f"Expected G1, got {state.get('current_gate')}"
             
             # Step 2: Approve G1_SHOT_PLAN (use execute_update for @workflow.update)
@@ -172,8 +184,7 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
             print(f"✓ G1_SHOT_PLAN approved")
             
             # Wait for stills generation and G2 gate
-            await asyncio.sleep(5.0)
-            state = await handle.query("get_state")
+            state = await wait_for_gate("G2_SCENE_STILLS")
             assert state.get("current_gate") == "G2_SCENE_STILLS", f"Expected G2, got {state.get('current_gate')}"
             
             # Step 3: Approve G2_SCENE_STILLS
@@ -181,17 +192,14 @@ async def test_api_to_g_final_cut_integration(tmp_path, monkeypatch):
             print(f"✓ G2_SCENE_STILLS approved")
             
             # Wait for clips generation and G_FINAL gate
-            await asyncio.sleep(5.0)
-            state = await handle.query("get_state")
+            state = await wait_for_gate("G_FINAL_CUT")
             assert state.get("current_gate") == "G_FINAL_CUT", f"Expected G_FINAL, got {state.get('current_gate')}"
             
             # Step 4: Approve G_FINAL_CUT
             await handle.signal("approve_g_final_cut")
             print(f"✓ G_FINAL_CUT approved")
             
-            # Wait for workflow completion
-            await asyncio.sleep(2.0)
-            
+            # Wait for workflow completion (handle.result() unlocks time skipping itself)
             # Get workflow handle and result (FAIL on timeout - no catch)
             handle = env.client.get_workflow_handle(episode_id)
             result = await asyncio.wait_for(handle.result(), timeout=10.0)

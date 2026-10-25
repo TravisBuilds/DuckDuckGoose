@@ -54,6 +54,35 @@ from hfvg.routing import plan_route
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
 
+# Active-poll cadence for await_job_enforced (seconds). A module constant, read at
+# call time, so tests can shrink it with monkeypatch instead of an undocumented
+# environment knob (G-CI-2).
+ACTIVE_POLL_INTERVAL_S = 5.0
+
+
+def _check_higgsfield_credentials() -> None:
+    """G-AUD-KEY: refuse a live Higgsfield job without a usable key (non-retryable).
+
+    Called only on the live path, before the smoke-gate override log, round hold, reservation and
+    job row, so a missing or malformed key costs nothing and leaves no ledger rows."""
+    api_key = os.getenv("HIGGSFIELD_API_KEY", "").strip()
+    if not api_key:
+        raise ApplicationError(
+            "HIGGSFIELD_API_KEY environment variable is required for live Higgsfield generation. "
+            "Set the API key before starting live studio generation activities.",
+            type="MissingCredentials",
+            non_retryable=True
+        )
+    # Format id:secret (what every Higgsfield provider class splits on)
+    key_id, _, secret = api_key.partition(":")
+    if not key_id or not secret:
+        raise ApplicationError(
+            "HIGGSFIELD_API_KEY must be in format 'id:secret'. "
+            "Check your API key format.",
+            type="InvalidCredentials",
+            non_retryable=True
+        )
+
 
 async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> tuple[str, str]:
     """Return (local file path, sha256 of its bytes) for an _end frame's lead ref (the shot's start
@@ -332,8 +361,10 @@ async def submit_still_job_enforced(
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
     
-    # Gate: Smoke test (live mode only, unless override)
+    # Gate: Smoke test (live mode only, unless override). G-AUD-KEY: the provider key is checked
+    # first, so a missing/malformed key writes no override log, hold, reservation or job row.
     if not dry_run_env:
+        _check_higgsfield_credentials()  # G-AUD-KEY still
         from hfvg.studio_db import enforce_smoke_test_gate
         await enforce_smoke_test_gate(db_path, episode_id, "submit_still_job_enforced")
     
@@ -736,7 +767,12 @@ async def submit_clip_job_enforced(
     # Decision logic: DRY_RUN env can force dry, but never force live
     # Only go live if: DRY_RUN=false AND DB live_mode=true AND DB g108_approved=true
     use_live = not dry_run_env and live_mode and g108_approved
-    
+
+    # G-AUD-KEY: a live clip checks the provider key first - before preflight, the smoke-gate
+    # override log, round hold, reservation and job row, so a missing key leaves nothing behind.
+    if use_live:
+        _check_higgsfield_credentials()  # G-AUD-KEY clip
+
     # Extract animal count from shot metadata (characters set)
     characters = (shot_meta or {}).get("characters", set())
     if isinstance(characters, (list, set)):
@@ -1526,9 +1562,9 @@ async def await_job_enforced(
     released = False  # Track if we've already released to prevent double release
     
     try:
-        # Phase 1: Active polling (5s intervals, up to 500s ~100 polls)
+        # Phase 1: Active polling (default 5s, up to 500s ~100 polls)
         max_active_polls = 100
-        active_poll_interval = 5.0
+        active_poll_interval = ACTIVE_POLL_INTERVAL_S
         retries_5xx = 0
         max_retries_5xx = 3
         

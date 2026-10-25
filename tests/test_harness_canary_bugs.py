@@ -21,7 +21,7 @@ from tests.fake_image_passthrough import passthrough_normalize
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
+async def test_still_submission_uploads_local_refs_to_urls(tmp_path, monkeypatch):
     """Test that local file paths are uploaded to Higgsfield and converted to URLs."""
     
     # Create a fake local reference image
@@ -68,11 +68,11 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
     
     # Setup test environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DRY_RUN"] = "false"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB with episode in live mode
@@ -153,7 +153,7 @@ async def test_still_submission_uploads_local_refs_to_urls(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_polls_provider_job_id_not_harness_id(tmp_path):
+async def test_polls_provider_job_id_not_harness_id(tmp_path, monkeypatch):
     """Test that polling uses the provider job id returned from submit, not the harness job id."""
     
     # Mock the Higgsfield API
@@ -187,11 +187,11 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
     
     # Setup test environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DRY_RUN"] = "false"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB
@@ -258,7 +258,7 @@ async def test_polls_provider_job_id_not_harness_id(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_failed_job_releases_reservations(tmp_path):
+async def test_failed_job_releases_reservations(tmp_path, monkeypatch):
     """Test that a provider 'failed' status releases both credit and USD reservations."""
     
     # Mock the Higgsfield API
@@ -275,11 +275,11 @@ async def test_failed_job_releases_reservations(tmp_path):
     
     # Setup test environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DRY_RUN"] = "false"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB
@@ -342,9 +342,9 @@ async def test_workflow_polls_with_provider_id_not_harness_id(tmp_path, monkeypa
     """
     # Setup test environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
@@ -430,10 +430,10 @@ async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
     import os
     
     # Setup test environment
-    os.environ["ADMIN_SECRET"] = "a" * 32
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
-    os.environ["DRY_RUN"] = "true"
+    monkeypatch.setenv("DRY_RUN", "true")
     
     # Create episode directory without BEATMAP.md
     episode_dir = tmp_path / "data" / "episodes" / "ep99"
@@ -472,15 +472,15 @@ async def test_post_episodes_requires_beatmap(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_balance_accepts_string_or_numeric(tmp_path):
+async def test_balance_accepts_string_or_numeric(tmp_path, monkeypatch):
     """Test that POST /api/budget/balance accepts both numeric and string balance_usd (issue #7)."""
     from fastapi.testclient import TestClient
     from api.main import app
     import os
     
     # Setup test environment
-    os.environ["ADMIN_SECRET"] = "a" * 32
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB
@@ -520,16 +520,16 @@ async def test_balance_accepts_string_or_numeric(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_clip_submit_persists_provider_job_mapping(tmp_path):
+async def test_clip_submit_persists_provider_job_mapping(tmp_path, monkeypatch):
     """Test that clip submit persists the provider job mapping for polling."""
     
     # Setup test environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DRY_RUN"] = "false"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB
@@ -637,11 +637,11 @@ async def test_clip_submit_persists_provider_job_mapping(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
+async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path, monkeypatch):
     """
     Test Bug 1: Upload cache must key on ref's own version (from sidecar), not shot version.
     
-    A Mochi v3 still (shot version=3) using a ref that's v2 should cache with ref_version=2.
+    A Subject01 v3 still (shot version=3) using a ref that's v2 should cache with ref_version=2.
     If shot version were used, a v1 ref would be wrongly cached as v3 and reused for v1 shots.
     """
     # Create ref with version 2 sidecar
@@ -671,11 +671,11 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     
     # Setup environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DRY_RUN"] = "false"
-    os.environ["SMOKE_TEST_OVERRIDE"] = "true"  # Bypass smoke test gate
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize DB
@@ -700,7 +700,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
     await credit_ledger.init_db()
     await credit_ledger.create_episode_line("ep99", cap_credits=10000)
     
-    # Submit still with Mochi v3 (shot version=3) but ref is v2
+    # Submit still with Subject01 v3 (shot version=3) but ref is v2
     result = await submit_still_job_enforced(
         episode_id="ep99",
         shot_id="A01",
@@ -709,7 +709,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
         resolution="1k",
         quality="high",
         aspect_ratio="16:9",
-        version=3,  # Shot is using Mochi v3
+        version=3,  # Shot is using Subject01 v3
         tier="final",
         shot_meta={"count": 1, "antler": False, "duck": False}
     )
@@ -741,7 +741,7 @@ async def test_upload_cache_keys_on_ref_version_not_shot_version(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_concurrent_uploads_deduplicated(tmp_path):
+async def test_concurrent_uploads_deduplicated(tmp_path, monkeypatch):
     """
     Test Bug 2: Concurrent shots uploading the same ref must not upload twice.
     
@@ -770,9 +770,9 @@ async def test_concurrent_uploads_deduplicated(tmp_path):
     
     # Setup environment
     import os
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-    os.environ["DATABASE_PATH"] = str(tmp_path / "test.db")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     # Initialize cache
@@ -807,7 +807,7 @@ async def test_concurrent_uploads_deduplicated(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
+async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path, monkeypatch):
     """
     Test Bug 3: refs.json without versions map should default to latest version on disk.
     
@@ -824,36 +824,36 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     refs_dir.mkdir(parents=True, exist_ok=True)
     
     # Create a v3 ref on disk with sidecar
-    ref_file = refs_dir / "r_mochi.png"
-    ref_file.write_bytes(b"mochi-v3-content")
+    ref_file = refs_dir / "r_subject01.png"
+    ref_file.write_bytes(b"subject01-v3-content")
     
-    version_sidecar = refs_dir / ".versions" / "r_mochi.json"
+    version_sidecar = refs_dir / ".versions" / "r_subject01.json"
     version_sidecar.parent.mkdir(parents=True, exist_ok=True)
-    version_sidecar.write_text('{"version": 3, "ref_key": "r_mochi"}')
+    version_sidecar.write_text('{"version": 3, "ref_key": "r_subject01"}')
     
     # Also create archived v1 and v2
     v1_dir = refs_dir / "_v1"
     v1_dir.mkdir(parents=True, exist_ok=True)
-    (v1_dir / "r_mochi.png").write_bytes(b"mochi-v1")
+    (v1_dir / "r_subject01.png").write_bytes(b"subject01-v1")
     
     v2_dir = refs_dir / "_v2"
     v2_dir.mkdir(parents=True, exist_ok=True)
-    (v2_dir / "r_mochi.png").write_bytes(b"mochi-v2")
+    (v2_dir / "r_subject01.png").write_bytes(b"subject01-v2")
     
     # Create refs.json WITHOUT a versions map
     refs_json = ep_dir / "refs.json"
     refs_json.write_text(json.dumps({
         "to_generate": {
-            "r_mochi": str(ref_file)
+            "r_subject01": str(ref_file)
         },
         "prompts": {
-            "r_mochi": "A mochi character"
+            "r_subject01": "A subject01 character"
         }
         # NO "versions" key!
     }))
     
     # Set environment
-    os.environ["EPISODES_DIR"] = str(tmp_path / "data" / "episodes")
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "data" / "episodes"))
     
     # Load refs
     refs = await load_refs_to_generate_activity("ep88", shots_subset=None, is_live=False)
@@ -864,7 +864,7 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     
     # CRITICAL: version should be 3 (from sidecar), not 1
     assert ref["version"] == 3, f"Expected version 3 from sidecar, got {ref['version']}"
-    assert ref["key"] == "r_mochi"
+    assert ref["key"] == "r_subject01"
     assert ref["output_path"] == str(ref_file)
     
     # Test case 2: No sidecar but archived version exists
@@ -876,11 +876,11 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
     
     refs_json.write_text(json.dumps({
         "to_generate": {
-            "r_mochi": str(ref_file),
+            "r_subject01": str(ref_file),
             "r_duck": str(ref2_file)
         },
         "prompts": {
-            "r_mochi": "A mochi character",
+            "r_subject01": "A subject01 character",
             "r_duck": "A duck character"
         }
     }))
@@ -893,12 +893,14 @@ async def test_refs_json_without_versions_defaults_to_latest_on_disk(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_deterministic_parallel_upload_dedupe_same_sha256_version():
+async def test_deterministic_parallel_upload_dedupe_same_sha256_version(tmp_path, monkeypatch):
     """
     Test that concurrent uploads with same (sha256, version) are deduplicated deterministically.
     
     The cache key is sha256+version, so two parallel uploads of the same file content
     and version should result in only ONE actual upload call, even under race conditions.
+    
+    Uses tmp_path for isolated cache to avoid cross-test race conditions.
     """
     import hashlib
     from pathlib import Path
@@ -909,74 +911,72 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version():
     import asyncio
     import os
     
-    # Create a ref
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ref_path = Path(tmpdir) / "refs" / "r_shared.png"
-        ref_path.parent.mkdir(parents=True, exist_ok=True)
-        ref_content = b"shared-ref-content-for-sha256"
-        ref_path.write_bytes(ref_content)
+    # Create a ref in tmp_path
+    ref_path = tmp_path / "refs" / "r_shared.png"
+    ref_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_content = b"shared-ref-content-for-sha256"
+    ref_path.write_bytes(ref_content)
+    
+    # Compute expected SHA256
+    expected_sha256 = hashlib.sha256(ref_content).hexdigest()
+    
+    db_path = str(tmp_path / "test.db")
+    
+    # Mock Higgsfield API
+    upload_call_count = {"count": 0}
+    
+    with respx.mock:
+        def mock_generate_upload_url(request):
+            upload_call_count["count"] += 1
+            return httpx.Response(200, json={
+                "upload_url": "http://mock.upload/put-shared",
+                "public_url": "http://mock.cdn/shared-ref.png",
+                "upload_headers": {"Content-Type": "image/png"}
+            })
         
-        # Compute expected SHA256
-        expected_sha256 = hashlib.sha256(ref_content).hexdigest()
+        respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
+        respx.put("http://mock.upload/put-shared").mock(return_value=httpx.Response(200, content=b""))
         
-        db_path = str(Path(tmpdir) / "test.db")
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
+        passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
-        # Mock Higgsfield API
-        upload_call_count = {"count": 0}
+        # Initialize cache with tmp_path-specific database
+        cache = UploadCache(db_path)
+        await cache.init_db()
         
-        with respx.mock:
-            def mock_generate_upload_url(request):
-                upload_call_count["count"] += 1
-                return httpx.Response(200, json={
-                    "upload_url": "http://mock.upload/put-shared",
-                    "public_url": "http://mock.cdn/shared-ref.png",
-                    "upload_headers": {"Content-Type": "image/png"}
-                })
-            
-            respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
-            respx.put("http://mock.upload/put-shared").mock(return_value=httpx.Response(200, content=b""))
-            
-            os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-            os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-            os.environ["DATABASE_PATH"] = db_path
-            passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
-            
-            # Initialize cache
-            cache = UploadCache(db_path)
-            await cache.init_db()
-            
-            provider = HiggsfieldStillProvider()
-            
-            # Launch 5 concurrent uploads of the same file and version
-            async def upload_task():
-                result = await provider.upload_reference(str(ref_path), version=1)
-                return result["public_url"]
-            
-            results = await asyncio.gather(*[upload_task() for _ in range(5)])
-            
-            # All should get the same URL
-            assert all(url == "http://mock.cdn/shared-ref.png" for url in results)
-            
-            # CRITICAL: Only ONE actual upload should have occurred
-            assert upload_call_count["count"] == 1, f"Expected 1 upload, got {upload_call_count['count']}"
-            
-            # Cache should have exactly one entry with the correct sha256
-            import aiosqlite
-            async with aiosqlite.connect(db_path) as db:
-                async with db.execute("SELECT file_sha256, file_version, public_url FROM upload_cache") as cursor:
-                    rows = await cursor.fetchall()
-            
-            assert len(rows) == 1, "Should have exactly one cache entry"
-            cached_sha256, cached_version, cached_url = rows[0]
-            assert cached_sha256 == expected_sha256
-            assert cached_version == 1
-            assert cached_url == "http://mock.cdn/shared-ref.png"
+        provider = HiggsfieldStillProvider()
+        
+        # Launch 5 concurrent uploads of the same file and version
+        async def upload_task():
+            result = await provider.upload_reference(str(ref_path), version=1)
+            return result["public_url"]
+        
+        results = await asyncio.gather(*[upload_task() for _ in range(5)])
+        
+        # All should get the same URL
+        assert all(url == "http://mock.cdn/shared-ref.png" for url in results)
+        
+        # CRITICAL: Only ONE actual upload should have occurred
+        assert upload_call_count["count"] == 1, f"Expected 1 upload, got {upload_call_count['count']}"
+        
+        # Cache should have exactly one entry with the correct sha256
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT file_sha256, file_version, public_url FROM upload_cache") as cursor:
+                rows = await cursor.fetchall()
+        
+        assert len(rows) == 1, "Should have exactly one cache entry"
+        cached_sha256, cached_version, cached_url = rows[0]
+        assert cached_sha256 == expected_sha256
+        assert cached_version == 1
+        assert cached_url == "http://mock.cdn/shared-ref.png"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
+async def test_reserve_includes_job_id_in_credit_ledger(tmp_path, monkeypatch):
     """
     Test that reserve_credits includes the job_id in the credit ledger.
     
@@ -986,7 +986,7 @@ async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
     from hfvg.credit_ledger import CreditLedger
     
     db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
+    monkeypatch.setenv("DATABASE_PATH", db_path)
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     
     ledger = CreditLedger(db_path)
@@ -1014,7 +1014,7 @@ async def test_reserve_includes_job_id_in_credit_ledger(tmp_path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_estimate_usd_and_credits_called_before_submit(tmp_path):
+async def test_estimate_usd_and_credits_called_before_submit(tmp_path, monkeypatch):
     """
     Test that estimate_usd_and_credits is called and used before submission.
     
@@ -1040,8 +1040,8 @@ async def test_estimate_usd_and_credits_called_before_submit(tmp_path):
         side_effect=capture_estimate
     )
     
-    os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-    os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+    monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
     
     provider = HiggsfieldStillProvider()
     

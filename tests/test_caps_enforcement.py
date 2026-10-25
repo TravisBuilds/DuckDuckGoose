@@ -130,7 +130,7 @@ async def test_end_still_over_cap_with_lead_refused_before_fetching_the_lead(tmp
     from tests.test_ref_cap_lead_anchor import START_URL, _setup
 
     db_path, refs, _, puts, est, sub = await _setup(tmp_path, monkeypatch)
-    planned = [refs[k] for k in ("duck", "family", "mochi", "pool", "extra")]
+    planned = [refs[k] for k in ("duck", "family", "subject01", "pool", "extra")]
     err = await acapture(ValueError, submit_still_job_enforced(
         "ep99", "A02_end", lint_ok("S"), 1, planned, "1k", "medium", "9:16", None, lint_meta(), [], 4, START_URL))
     assert isinstance(err, PreflightError), repr(err)
@@ -150,7 +150,7 @@ async def test_retry_end_still_over_cap_parks_shot_with_the_creator_message(tmp_
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     import tests.test_end_still_backfill as bf
 
-    five = ["refs/duck.png", "refs/family.png", "refs/mochi.png", "refs/pool.png", "refs/extra.png"]
+    five = ["refs/duck.png", "refs/family.png", "refs/subject01.png", "refs/pool.png", "refs/extra.png"]
 
     orig_shot = bf._shot
 

@@ -179,8 +179,26 @@ async def _to_g2(env, rec, tmp_path, episode_id, param_overrides=None, credit_ca
     await handle.execute_update("approve_g1_shot_plan")
     await _wait(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS", what="G2")
     await _until(lambda: {c[1] for c in rec.still_calls} >= {"A01", "A02"}, what="both stills submitted")
-    await asyncio.sleep(0.5)  # let the still review land before the human decision
+    # G-CI-2: wait (bounded) until both stills were reviewed and recorded in the studio DB before
+    # the human decision, instead of a fixed 0.5 s sleep that lost the race under CI load.
+    await _until_recorded(episode_id, {"A01", "A02"})
     return handle
+
+
+async def _until_recorded(episode_id, shot_ids, timeout=30.0):
+    db_path = os.environ["DATABASE_PATH"]
+    loop = asyncio.get_running_loop()
+    end, rows = loop.time() + timeout, {}
+    while loop.time() < end:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT shot_id, status FROM shots WHERE episode_id = ? AND still_url IS NOT NULL", (episode_id,)
+            ) as cur:
+                rows = dict(await cur.fetchall())
+        if shot_ids <= set(rows):
+            return rows
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"stills of {sorted(shot_ids)} not recorded; shots rows={rows}")
 
 
 async def _shot_result(env, workflow_id):
@@ -225,6 +243,68 @@ class TestPerShotG2Decisions:
                 async with aiosqlite.connect(episode_env) as db:
                     async with db.execute(
                         "SELECT shot_id, status FROM shots WHERE episode_id = 'ep91' ORDER BY shot_id"
+                    ) as cur:
+                        statuses = dict(await cur.fetchall())
+                assert statuses.get("A02") == "rejected", statuses
+                assert statuses.get("A01") != "rejected", statuses
+                await handle.signal("approve_g_final_cut")
+                await asyncio.wait_for(handle.result(), timeout=30)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(120)
+    async def test_rejected_status_survives_a_late_still_complete_write(self, episode_env, tmp_path):
+        """G-CI-2 root cause of the test_rejected_shot_never_reaches_clip_generation flake: the
+        human decides G2 while A02's still_complete write is still in flight, so that write lands
+        AFTER approve_g2_shots marked the row rejected. The child records its own terminal
+        'rejected' status, so a rejected shot never ends at still_complete in the studio DB."""
+        from hfvg.activities.shot_result import record_shot_result as real_record
+        from hfvg.studio_db import approve_g2_shots as real_approve
+        from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+        from hfvg.workflows.shot import ShotWorkflow
+
+        rec = Recorder()
+        g2_marked, held = asyncio.Event(), asyncio.Event()
+
+        @activity.defn(name="record_shot_result")
+        async def late_record(*args):
+            if args[2] == "A02" and args[3] == "still_complete":
+                held.set()
+                await asyncio.wait_for(g2_marked.wait(), timeout=30)
+            return await real_record(*args)
+
+        @activity.defn(name="approve_g2_shots")
+        async def approve(*args):
+            out = await real_approve(*args)
+            g2_marked.set()
+            return out
+
+        def name(a):
+            return getattr(a, "__temporal_activity_definition").name
+
+        acts = [a for a in _activities(rec) if name(a) not in {"record_shot_result", "approve_g2_shots"}]
+        async with await WorkflowEnvironment.start_local() as env:
+            async with Worker(env.client, task_queue=TASK_QUEUE, workflows=[EpisodeWorkflowV2, ShotWorkflow],
+                              activities=[*acts, late_record, approve]):
+                beatmap = _write_episode(tmp_path, "ep97")
+                handle = await env.client.start_workflow(
+                    "EpisodeWorkflowV2", args=["ep97", beatmap, True, None, None, None],
+                    id="ep97", task_queue=TASK_QUEUE,
+                )
+                await _wait(handle, lambda s: s["current_gate"] == "G1_SHOT_PLAN", what="G1")
+                await handle.execute_update("approve_g1_shot_plan")
+                await _wait(handle, lambda s: s["current_gate"] == "G2_SCENE_STILLS", what="G2")
+                await asyncio.wait_for(held.wait(), timeout=30)  # A02's still_complete write is in flight
+                result = await handle.execute_update("reject_shot", args=["A02", "off-model"])
+                assert result["action"] == "rejected"
+                await handle.execute_update("approve_g2_scene_stills")
+                a02 = await _shot_result(env, "ep97-shot-A02")
+                assert a02["status"] == "rejected", a02
+                assert rec.clips_for("A02") == []
+                await _wait(handle, lambda s: s["current_gate"] == "G_FINAL_CUT", what="G_FINAL_CUT")
+
+                async with aiosqlite.connect(episode_env) as db:
+                    async with db.execute(
+                        "SELECT shot_id, status FROM shots WHERE episode_id = 'ep97' ORDER BY shot_id"
                     ) as cur:
                         statuses = dict(await cur.fetchall())
                 assert statuses.get("A02") == "rejected", statuses

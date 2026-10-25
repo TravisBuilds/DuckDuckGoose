@@ -7,7 +7,7 @@ Tests:
 - Prompt validation rejects "nothing else moves"
 - G4.10 still-only detection
 - Duck identity gate runs with fakes
-- Workflow stops at each Travis approval point
+- Workflow stops at each Owner approval point
 - No auto-posting (GX.01 HOLD)
 """
 
@@ -26,11 +26,11 @@ from hfvg.qc.duck_identity import create_gate
 async def test_e2e_gates_and_budget():
     """E2E: Gate policy loads and budget system works."""
     # 1. Load HARNESS-GATES.json
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     assert len(policy.gates) == 71
     assert len([g for g in policy.gates if g.get("blocking") == "yes"]) == 69
-    assert len(policy.travis_approval_points) == 15
+    assert len(policy.owner_approval_points) == 15
     
     # Check check_type distribution
     check_types = {}
@@ -82,7 +82,7 @@ async def test_e2e_gates_and_budget():
 
 def test_e2e_kling_default_routing():
     """E2E: Verify Kling is default model."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Check unit prices
     prices = policy.get_unit_prices()
@@ -169,24 +169,24 @@ async def test_e2e_duck_identity_gate():
 
 def test_e2e_no_auto_posting():
     """E2E: Verify GX.01 HOLD policy is enforced."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # GX.01 should be in approval points
-    assert "GX.01" in policy.travis_approval_points
+    assert "GX.01" in policy.owner_approval_points
     
     # Check GX.01 gate
     gx01 = policy.get_gate("GX.01")
     assert gx01 is not None
     assert gx01["check_type"] == "human"
-    assert gx01["approver"] == "Travis"
+    assert gx01["approver"] == "Owner"
     
     # Verify it's about external actions
     assert "post" in gx01["check"].lower() or "external" in gx01["check"].lower()
 
 
 def test_e2e_all_15_approval_points():
-    """E2E: Verify all 15 Travis approval points are present."""
-    policy = load_policy("mid-mountain-rest")
+    """E2E: Verify all 15 Owner approval points are present."""
+    policy = load_policy("demo")
     
     expected_approval_points = [
         "GX.01",  # External actions HOLD
@@ -206,10 +206,10 @@ def test_e2e_all_15_approval_points():
         "G7.03",  # Handoff package
     ]
     
-    assert len(policy.travis_approval_points) == 15
+    assert len(policy.owner_approval_points) == 15
     
     for gate_id in expected_approval_points:
-        assert gate_id in policy.travis_approval_points, f"Missing approval point: {gate_id}"
+        assert gate_id in policy.owner_approval_points, f"Missing approval point: {gate_id}"
         
         # Verify gate exists
         gate = policy.get_gate(gate_id)
@@ -219,7 +219,7 @@ def test_e2e_all_15_approval_points():
 
 def test_e2e_g409_picture_lock():
     """E2E: Verify G4.09 picture lock gate is blocking."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     g409 = policy.get_gate("G4.09")
     assert g409 is not None
@@ -229,12 +229,12 @@ def test_e2e_g409_picture_lock():
     assert "lock" in g409["check"].lower()
     
     # Should be after G4.08 (mute notes)
-    assert "G4.08" in policy.travis_approval_points
-    assert "G4.09" in policy.travis_approval_points
+    assert "G4.08" in policy.owner_approval_points
+    assert "G4.09" in policy.owner_approval_points
     
     # Picture lock comes before audio
-    g409_idx = policy.travis_approval_points.index("G4.09")
-    g501_idx = policy.travis_approval_points.index("G5.01")
+    g409_idx = policy.owner_approval_points.index("G4.09")
+    g501_idx = policy.owner_approval_points.index("G5.01")
     assert g409_idx < g501_idx, "Picture lock must come before script lock"
 
 

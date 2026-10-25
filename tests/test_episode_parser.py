@@ -58,13 +58,12 @@ def episode3_beatmap_synthetic():
 
 @pytest.fixture
 def episode5_beatmap():
-    """Path to episode 5 beatmap (from repo root, not CWD)."""
-    # Tests run in tmp_path via autouse fixture, so find repo root
+    """Path to demo episode beatmap (from repo root, not CWD)."""
     test_file = Path(__file__)
-    repo_root = test_file.parent.parent  # /workspace
-    beatmap_path = repo_root / "fixtures" / "ep05" / "BEATMAP.md"
+    repo_root = test_file.parent.parent
+    beatmap_path = repo_root / "fixtures" / "demo" / "BEATMAP.md"
     if not beatmap_path.exists():
-        pytest.skip(f"fixtures/ep05/BEATMAP.md not available at {beatmap_path}")
+        pytest.skip(f"fixtures/demo/BEATMAP.md not available at {beatmap_path}")
     return beatmap_path
 
 
@@ -122,11 +121,11 @@ def test_parse_beatmap_episode3(episode3_beatmap_synthetic):
 
 
 def test_parse_beatmap_episode5(episode5_beatmap):
-    """Test parsing episode 5 beatmap (4 shots)."""
+    """Test parsing demo episode beatmap (4 shots)."""
     shots = parse_beatmap(episode5_beatmap)
     
-    # Ep05 has 4 shots
-    assert len(shots) == 4, f"Expected 4 shots from ep05, got {len(shots)}"
+    # Demo episode has 4 shots
+    assert len(shots) == 4, f"Expected 4 shots from demo episode, got {len(shots)}"
     
     # Check field presence for first shot
     first = shots[0]

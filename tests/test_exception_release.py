@@ -145,6 +145,19 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", test_episode)
+    # G-CI-2: shrink the poll cadence through the module constant and record every
+    # back-off sleep, so the test is fast without real waiting and still proves the
+    # retry path sleeps for the configured interval (not a hard-coded one).
+    import hfvg.activities.studio_generation as sg
+    monkeypatch.setattr(sg, "ACTIVE_POLL_INTERVAL_S", 0.01)
+    real_sleep = asyncio.sleep
+    slept = []
+
+    async def recording_sleep(delay, *args, **kwargs):
+        slept.append(delay)
+        await real_sleep(0)
+
+    monkeypatch.setattr(sg.asyncio, "sleep", recording_sleep)
     passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     
@@ -191,6 +204,8 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
             assert mock_provider.get_job_status.call_count == 4, \
                 f"Should retry 3 times after initial failure (4 total calls), got {mock_provider.get_job_status.call_count}"
             
+            assert slept == [0.01, 0.01, 0.01], f"5xx back-off must sleep the configured interval, got {slept}"
+
             # Check reservation was released by the exception handler
             status_after = await ledger.get_line_status("ep99", "L2_drafts")
             reserved_after = status_after["reserved"]

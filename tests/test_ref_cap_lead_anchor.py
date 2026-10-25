@@ -3,7 +3,7 @@
 Live evidence (hfvg/config.py): every instant "Generation failed" on the still model came with 6-7
 refs and every success had <=5. Rule: when a lead ref (the shot's start still, for _end frames) is
 present and the set is over the cap, the A01 anchor is dropped FIRST, so A02_end becomes
-start, duck, family, mochi, pool. If still over the cap: refuse before any spend; never drop others.
+start, duck, family, subject01, pool. If still over the cap: refuse before any spend; never drop others.
 """
 import hashlib
 import io
@@ -21,7 +21,7 @@ GROK = "xai/grok-imagine-image-2.0"
 START_URL = "https://d3u0tzju9qaucj.cloudfront.net/out/a02-start.jpeg"
 COLORS = {
     "start": (200, 120, 40), "anchor": (250, 250, 250), "duck": (0, 200, 0), "family": (0, 0, 200),
-    "mochi": (200, 0, 200), "pool": (0, 200, 200), "extra": (120, 120, 0),
+    "subject01": (200, 0, 200), "pool": (0, 200, 200), "extra": (120, 120, 0),
 }
 
 
@@ -52,7 +52,7 @@ async def _setup(tmp_path, monkeypatch, *, anchor=True):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("MODEL_MAX_REFS_JSON", raising=False)
     monkeypatch.delenv("MODEL_PATH_STILL", raising=False)
-    refs = {k: _png(tmp_path / "refs" / f"{k}.png", COLORS[k]) for k in ("duck", "family", "mochi", "pool", "extra")}
+    refs = {k: _png(tmp_path / "refs" / f"{k}.png", COLORS[k]) for k in ("duck", "family", "subject01", "pool", "extra")}
     anchor_sha = None
     if anchor:
         a = _png(tmp_path / "anchors" / "A01.png", COLORS["anchor"])
@@ -104,10 +104,10 @@ async def _ok(shot, planned, lead):
 @respx.mock
 async def test_end_still_drops_anchor_first_when_lead_pushes_over_cap(tmp_path, monkeypatch):
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
-    planned = [refs[k] for k in ("duck", "family", "mochi", "pool")]
+    planned = [refs[k] for k in ("duck", "family", "subject01", "pool")]
     out = await _ok("A02_end", planned, START_URL)
     assert sub.call_count == 1
-    assert _sent(sub, puts) == ["start", "duck", "family", "mochi", "pool"], _sent(sub, puts)
+    assert _sent(sub, puts) == ["start", "duck", "family", "subject01", "pool"], _sent(sub, puts)
     # the id describes what was sent: lead suffix, and no anchor suffix once the anchor is dropped
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}", out
 
@@ -116,8 +116,8 @@ async def test_end_still_drops_anchor_first_when_lead_pushes_over_cap(tmp_path, 
 @respx.mock
 async def test_end_still_keeps_anchor_after_lead_when_within_cap(tmp_path, monkeypatch):
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
-    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "mochi")], START_URL)
-    assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "mochi"], _sent(sub, puts)
+    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "subject01")], START_URL)
+    assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "subject01"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}-anchor{anchor_sha[:8]}", out
 
 
@@ -127,7 +127,7 @@ async def test_end_still_still_over_cap_after_anchor_drop_is_refused_before_spen
     from hfvg.budget import BudgetLedger
 
     db_path, refs, _, puts, est, sub = await _setup(tmp_path, monkeypatch)
-    planned = [refs[k] for k in ("duck", "family", "mochi", "pool", "extra")]
+    planned = [refs[k] for k in ("duck", "family", "subject01", "pool", "extra")]
     err = await acapture(ValueError, _submit("A02_end", planned, START_URL))
     from hfvg.preflight import PreflightError
     assert isinstance(err, PreflightError) and err.non_retryable, repr(err)
@@ -141,8 +141,8 @@ async def test_end_still_still_over_cap_after_anchor_drop_is_refused_before_spen
 @respx.mock
 async def test_start_still_keeps_anchor_first_at_cap(tmp_path, monkeypatch):
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
-    out = await _ok("A02", [refs[k] for k in ("duck", "family", "mochi", "pool")], None)
-    assert _sent(sub, puts) == ["anchor", "duck", "family", "mochi", "pool"], _sent(sub, puts)
+    out = await _ok("A02", [refs[k] for k in ("duck", "family", "subject01", "pool")], None)
+    assert _sent(sub, puts) == ["anchor", "duck", "family", "subject01", "pool"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02-r3-anchor{anchor_sha[:8]}", out
 
 
@@ -150,7 +150,7 @@ async def test_start_still_keeps_anchor_first_at_cap(tmp_path, monkeypatch):
 @respx.mock
 async def test_start_still_never_drops_anchor_without_a_lead(tmp_path, monkeypatch):
     _, refs, _, puts, est, sub = await _setup(tmp_path, monkeypatch)
-    planned = [refs[k] for k in ("duck", "family", "mochi", "pool", "extra")]
+    planned = [refs[k] for k in ("duck", "family", "subject01", "pool", "extra")]
     err = await acapture(ValueError, _submit("A02", planned, None))
     assert err is not None, f"over-cap start still (no lead) was submitted, sent {_sent(sub, puts) if sub.call_count else []}"
     from hfvg.preflight import PreflightError
@@ -163,8 +163,8 @@ async def test_start_still_never_drops_anchor_without_a_lead(tmp_path, monkeypat
 @respx.mock
 async def test_end_still_without_anchor_keeps_lead_first(tmp_path, monkeypatch):
     _, refs, _, puts, _, sub = await _setup(tmp_path, monkeypatch, anchor=False)
-    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "mochi", "pool")], START_URL)
-    assert _sent(sub, puts) == ["start", "duck", "family", "mochi", "pool"], _sent(sub, puts)
+    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "subject01", "pool")], START_URL)
+    assert _sent(sub, puts) == ["start", "duck", "family", "subject01", "pool"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}", out
 
 
@@ -174,6 +174,6 @@ async def test_cap_is_configurable_per_model_and_keeps_anchor_when_raised(tmp_pa
     _, refs, anchor_sha, puts, _, sub = await _setup(tmp_path, monkeypatch)
     monkeypatch.setenv("MODEL_MAX_REFS_JSON", json.dumps({GROK: 6}))
     monkeypatch.setenv("MODEL_CAPS_ALLOW_RAISE", "1")  # raising above the documented cap needs the explicit flag
-    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "mochi", "pool")], START_URL)
-    assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "mochi", "pool"], _sent(sub, puts)
+    out = await _ok("A02_end", [refs[k] for k in ("duck", "family", "subject01", "pool")], START_URL)
+    assert _sent(sub, puts) == ["start", "anchor", "duck", "family", "subject01", "pool"], _sent(sub, puts)
     assert out["job_id"] == f"still-ep99-A02_end-r3-lead{START_SHA8}-anchor{anchor_sha[:8]}", out

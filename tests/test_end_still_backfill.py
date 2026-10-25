@@ -26,7 +26,7 @@ START_URL = "https://d3u0tzju9qaucj.cloudfront.net/out/a02-r3-start.jpeg"
 
 def _shot():
     return {"shot_id": "A02", "prompt": START, "end_prompt": END, "duration": 3.0, "params": {"end_frame": True},
-            "refs": ["refs/duck.png", "refs/family.png", "refs/mochi.png", "refs/pool.png"],
+            "refs": ["refs/duck.png", "refs/family.png", "refs/subject01.png", "refs/pool.png"],
             "shot_meta": {"count": 0, "characters": [], "wet": False}}
 
 
@@ -214,7 +214,9 @@ async def _ledger(tmp_path, monkeypatch, rows, provider_rows):
     await CreditLedger(db).init_db()
     async with aiosqlite.connect(db) as c:
         for job_id, shot, status in rows:
-            await c.execute("INSERT INTO job_ledger VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            await c.execute("INSERT INTO job_ledger (job_id, episode_id, shot_id, model, tier, line_name, "
+                            "usd_micros, status, verdict, used, created_at, updated_at) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (job_id, "ep05", shot, "xai/grok-imagine-image-2.0", "draft", "L2_drafts", 60000, status,
                              None, None, "t", "t"))
         for job_id, pid in provider_rows:

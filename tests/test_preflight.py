@@ -228,7 +228,7 @@ async def test_preflight_catches_too_many_refs_for_model(tmp_path, monkeypatch):
             "model": "kling",
             "duration": 3,
             "end_frame": False,
-            "ref_keys": ["r_duck", "r_family", "r_rowan", "r_hazel", "r_mochi", "r_pool", "r_tree", "r_bench", "r_scene"]  # 9 refs
+            "ref_keys": ["r_duck", "r_family", "r_subject02", "r_subject04", "r_subject01", "r_pool", "r_tree", "r_bench", "r_scene"]  # 9 refs
         }]
     }))
     (base_path / "refs.json").write_text(json.dumps({"per_shot": {"A01": []}}))

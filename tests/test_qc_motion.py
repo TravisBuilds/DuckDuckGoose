@@ -5,7 +5,7 @@ from hfvg.qc.motion import create_manifest, MotionCheckResult
 
 
 def test_create_manifest():
-    """Test manifest creation for stillgate.py."""
+    """Test manifest creation for the stillgate analysis."""
     clips = [
         {"id": "A01", "seg_s": 3.75},
         {"id": "A02", "seg_s": 4.75},
@@ -41,7 +41,7 @@ def test_motion_check_result():
 
 
 def test_motion_check_thresholds():
-    """Test motion check threshold logic (from stillgate.py spec)."""
+    """Test motion check threshold logic (from the stillgate spec)."""
     # FAIL: peak < 3.0 AND mean < 0.15
     # WATCH: peak < 6.0 OR mean < 0.25
     

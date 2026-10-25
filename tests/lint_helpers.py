@@ -7,7 +7,7 @@ SYNTHETIC_LINT_KIT = {
     "realtime_pattern": r"real-time.{0,40}no slow motion",
     "locked_camera_clause": "locked-off tripod, no camera movement",
     "antler_clause": "synthetic antler clause: two full antlers visible",
-    "antler_characters": ["Birch"],
+    "antler_characters": ["Stag03"],
     "duck_clause": "synthetic duck clause: one duck on the water",
     "duck_characters": ["Duck"],
     "banned_decor": ["gazebo", "lantern"],

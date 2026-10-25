@@ -380,7 +380,9 @@ async def test_escalated_retry_signals_ready_only_after_end_still_lands(tmp_path
                     return st, True
             except Exception:
                 pass
-            await asyncio.sleep(0.05)
+            # G-CI-2: advance virtual time (queries never unlock time skipping, so the
+            # ShotWorkflow's ~5s poll sleeps otherwise run in real time).
+            await env.sleep(timedelta(seconds=1))
         return st, False
 
     async with await WorkflowEnvironment.start_time_skipping() as env:

@@ -39,6 +39,19 @@ def _db_path() -> str:
     return os.getenv("DATABASE_PATH", "./data/studio.db")
 
 
+def _check_elevenlabs_credentials() -> None:
+    """Verify ElevenLabs API key before any spend/reservation. Raises non-retryable error if missing."""
+    if _dry_run():
+        return  # Dry run doesn't need credentials
+    if not os.getenv("ELEVENLABS_API_KEY", "").strip():
+        raise ApplicationError(
+            "ELEVENLABS_API_KEY environment variable is required for live ElevenLabs audio generation. "
+            "Set the API key before starting live audio activities.",
+            type="MissingCredentials",
+            non_retryable=True
+        )
+
+
 def _beat(details: dict) -> None:
     try:
         activity.heartbeat(details)
@@ -96,13 +109,27 @@ def _preflight(model: str, *, text: str | None = None, duration_s: float | None 
                            "(no spend made)", "PreflightRefused")
 
 
+def _reservation(fn, kind: str, params: dict[str, Any]) -> int:
+    """The pre-call reservation; a bad ELEVENLABS_USD_PER_CREDIT is a non-retryable refusal."""
+    try:
+        return fn(kind, params)
+    except ValueError as e:
+        raise _missing(f"{kind} cost estimate refused: {e} (no spend made)", "InvalidCostConfig") from None
+
+
 AUDIO_BUDGET_LINE = {"tts": "el_vo_takes", "sfx": "el_sfx", "music": "el_music_one_take"}
 
 
 async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, model: str,
-                         usd_micros: int, call):
-    """Ledger reservation + AUDIO round cap around one provider call; commit or release."""
+                         usd_micros: int, call, *, estimate_micros: int | None = None):
+    """Ledger reservation + AUDIO round cap around one provider call; commit the actual or release.
+
+    usd_micros is the reservation (provider.reservation_usd_micros: an upper bound). The commit is
+    the actual from the provider's character-cost header (credits x ELEVENLABS_USD_PER_CREDIT);
+    without the header it falls back to estimate_micros (API price estimate) and the job row is
+    flagged cost_source="estimate". The unused part of the hold is released by commit()."""
     from hfvg.budget import BudgetLedger, RoundBudgetError
+    from hfvg.providers.elevenlabs import COST_SOURCE_HEADER, credits_to_usd_micros
     from hfvg.studio_db import enforce_smoke_test_gate
 
     await enforce_smoke_test_gate(_db_path(), episode_id, f"generate_{kind}")
@@ -125,23 +152,43 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         await ledger.release_round_hold(job_id)
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
+    # The job row exists (status reserved) for the whole provider call, as for every paid job.
     await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)
     try:
         result = await call()
     except BaseException:
         await ledger.release(episode_id, line, usd_micros, f"{kind} {asset_id} failed", job_id=job_id)
         raise
-    actual = int(round(result.get("cost_usd", 0) * 1_000_000)) or usd_micros
-    await ledger.commit(episode_id, line, usd_micros, actual, job_id, f"{kind} {asset_id}")
-    return {**result, "job_id": job_id, "usd_micros": actual, "budget_line": line}
+
+    credits = result.get("credits")
+    if result.get("cost_source") == COST_SOURCE_HEADER and credits is not None:
+        actual = credits_to_usd_micros(float(credits))
+        cost_source = COST_SOURCE_HEADER
+    else:
+        actual = estimate_micros if estimate_micros is not None else usd_micros
+        cost_source = "estimate"
+        activity.logger.warning(f"{kind} {asset_id}: no character-cost header; committing the estimate "
+                                f"({actual} usd_micros), flagged cost_source=estimate")
+    over = actual > usd_micros
+    if over:  # never hidden: commit() spends the actual and logs an overage transaction
+        activity.logger.warning(f"{kind} {asset_id}: actual {actual} usd_micros exceeds the reservation "
+                                f"{usd_micros}; check ELEVENLABS_USD_PER_CREDIT / upstream pricing")
+    await ledger.commit(episode_id, line, usd_micros, actual, job_id, f"{kind} {asset_id}",
+                        characters=result.get("characters"), credits=credits, cost_source=cost_source)
+    return {**result, "job_id": job_id, "usd_micros": actual, "reserved_usd_micros": usd_micros,
+            "budget_line": line, "cost_source": cost_source, "over_reservation": over}
 
 
-async def _provider_file(job_id: str, provider) -> tuple[str, float]:
+async def _provider_file(job_id: str, provider) -> dict[str, Any]:
+    """The finished job's durable file path, cost and cost metadata (credits/characters/cost_source)."""
     job = await provider.get_job_status(job_id)
     if not job.output_url or not job.output_url.startswith("file://"):
         raise RuntimeError(f"ElevenLabs job {job_id} has no durable file: {job.error or job.output_url}")
     from urllib.parse import unquote, urlparse
-    return unquote(urlparse(job.output_url).path), float(job.cost or 0.0)
+    raw = job.raw or {}
+    return {"path": unquote(urlparse(job.output_url).path), "cost_usd": float(job.cost or 0.0),
+            "credits": raw.get("credits"), "characters": raw.get("characters"),
+            "cost_source": raw.get("cost_source")}
 
 
 def _provider(out_dir: Path):
@@ -175,22 +222,27 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
         raise _missing(f"VO line {line_id} has neither a locked file nor text")
     if not voice_id:
         raise _missing(f"VO line {line_id} needs a voice_id to generate")
+    
     out = generated_path(episode_id, "vo", line_id, key)
-    if out.is_file():  # content-hash reuse: already paid for
+    if out.is_file():  # content-hash reuse: already paid for (needs no key, spends nothing)
         return _result(out, source="generated_reused", line_id=line_id, model=model)
+    _check_elevenlabs_credentials()  # G-AUD-KEY tts: before preflight, override log, holds, reservation
     _preflight(model, text=script)
-    from hfvg.providers.elevenlabs import estimate_usd_micros
-    amount = estimate_usd_micros("tts", {"model": model, "text": script})
+    from hfvg.providers.elevenlabs import estimate_usd_micros, reservation_usd_micros
+    params = {"model": model, "text": script}
+    amount = _reservation(reservation_usd_micros, "tts", params)
 
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_audio(script, voice_id, model=model, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        return await _provider_file(job, provider)
 
-    spent = await _guarded_spend(episode_id, "tts", line_id, key, model, amount, call)
+    spent = await _guarded_spend(episode_id, "tts", line_id, key, model, amount, call,
+                                 estimate_micros=estimate_usd_micros("tts", params))
     return _result(out, source="generated", line_id=line_id, model=model, job_id=spent["job_id"],
-                   usd_micros=spent["usd_micros"], characters=len(script))
+                   usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
+                   characters=len(script), credits=spent.get("credits"), cost_source=spent["cost_source"],
+                   over_reservation=spent["over_reservation"])
 
 
 @activity.defn
@@ -212,21 +264,27 @@ async def generate_sfx(episode_id: str, description: str, duration: float | None
         return _result(out, source="dry_run_stand_in", dry=True, cue_id=cue_id)
     if not description:
         raise _missing(f"SFX cue {cue_id} has neither a library file nor a prompt")
+    
     out = generated_path(episode_id, "sfx", cue_id, key)
     if out.is_file():
         return _result(out, source="generated_reused", cue_id=cue_id)
+    _check_elevenlabs_credentials()  # G-AUD-KEY sfx: before preflight, override log, holds, reservation
     _preflight("sound_generation", duration_s=duration)
-    from hfvg.providers.elevenlabs import estimate_usd_micros
-    amount = estimate_usd_micros("sfx", {"model": "sound_generation", "duration": duration})
+    from hfvg.providers.elevenlabs import estimate_usd_micros, reservation_usd_micros
+    params = {"model": "sound_generation", "duration": duration}
+    amount = _reservation(reservation_usd_micros, "sfx", params)
 
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_sfx(description, duration=duration, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        return await _provider_file(job, provider)
 
-    spent = await _guarded_spend(episode_id, "sfx", cue_id, key, "sound_generation", amount, call)
-    return _result(out, source="generated", cue_id=cue_id, job_id=spent["job_id"], usd_micros=spent["usd_micros"])
+    spent = await _guarded_spend(episode_id, "sfx", cue_id, key, "sound_generation", amount, call,
+                                 estimate_micros=estimate_usd_micros("sfx", params))
+    return _result(out, source="generated", cue_id=cue_id, job_id=spent["job_id"],
+                   usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
+                   credits=spent.get("credits"), cost_source=spent["cost_source"],
+                   over_reservation=spent["over_reservation"])
 
 
 @activity.defn
@@ -250,21 +308,27 @@ async def generate_music(episode_id: str, style: str, duration: float, model: st
         return _result(out, source="dry_run_stand_in", dry=True, cue_id=cue_id)
     if not style:
         raise _missing("Music cue has neither a library file nor a prompt")
+    
     out = generated_path(episode_id, "music", cue_id, key)
     if out.is_file():
         return _result(out, source="generated_reused", cue_id=cue_id, model=model)
+    _check_elevenlabs_credentials()  # G-AUD-KEY music: before preflight, override log, holds, reservation
     _preflight(model, music_length_ms=int(round(float(duration) * 1000)))
-    amount = estimate_usd_micros("music", {"model": model, "duration": duration})
+    from hfvg.providers.elevenlabs import reservation_usd_micros
+    params = {"model": model, "duration": duration}
+    amount = _reservation(reservation_usd_micros, "music", params)
 
     async def call():
         provider = _provider(out.parent)
         job = await provider.submit_music(style, float(duration), model=model, out_path=out)
-        path, cost = await _provider_file(job, provider)
-        return {"path": path, "cost_usd": cost}
+        return await _provider_file(job, provider)
 
-    spent = await _guarded_spend(episode_id, "music", cue_id, key, model, amount, call)
+    spent = await _guarded_spend(episode_id, "music", cue_id, key, model, amount, call,
+                                 estimate_micros=estimate_usd_micros("music", params))
     return _result(out, source="generated", cue_id=cue_id, model=model, job_id=spent["job_id"],
-                   usd_micros=spent["usd_micros"])
+                   usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
+                   credits=spent.get("credits"), cost_source=spent["cost_source"],
+                   over_reservation=spent["over_reservation"])
 
 
 @activity.defn

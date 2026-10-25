@@ -13,7 +13,7 @@ from tests.fake_image_passthrough import passthrough_normalize
 
 
 @pytest.mark.asyncio
-async def test_upload_cache_reuses_url_across_submits(tmp_path):
+async def test_upload_cache_reuses_url_across_submits(tmp_path, monkeypatch):
     """Test that the same file is only uploaded once and the cached URL is reused."""
     
     # Create a test image file
@@ -74,9 +74,9 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
         
         # Setup provider
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-        os.environ["DATABASE_PATH"] = db_path
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
         passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
@@ -108,7 +108,7 @@ async def test_upload_cache_reuses_url_across_submits(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upload_cache_reupload_on_head_failure(tmp_path):
+async def test_upload_cache_reupload_on_head_failure(tmp_path, monkeypatch):
     """Test that cached URL is re-uploaded when HEAD check returns 404."""
     
     # Create a test image file
@@ -151,9 +151,9 @@ async def test_upload_cache_reupload_on_head_failure(tmp_path):
         
         # Setup provider
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-        os.environ["DATABASE_PATH"] = db_path
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
         passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
@@ -175,7 +175,7 @@ async def test_upload_cache_reupload_on_head_failure(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upload_cache_different_version_uploads_separately(tmp_path):
+async def test_upload_cache_different_version_uploads_separately(tmp_path, monkeypatch):
     """Test that different versions of the same file are cached separately."""
     
     # Create a test image file
@@ -218,9 +218,9 @@ async def test_upload_cache_different_version_uploads_separately(tmp_path):
         
         # Setup provider
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-        os.environ["DATABASE_PATH"] = db_path
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
         passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()
@@ -238,7 +238,7 @@ async def test_upload_cache_different_version_uploads_separately(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upload_cache_reupload_on_head_403(tmp_path):
+async def test_upload_cache_reupload_on_head_403(tmp_path, monkeypatch):
     """Test that cached URL is re-uploaded when HEAD check returns 403 (forbidden)."""
     
     # Create a test image file
@@ -281,9 +281,9 @@ async def test_upload_cache_reupload_on_head_403(tmp_path):
         
         # Setup provider
         import os
-        os.environ["HIGGSFIELD_API_KEY"] = "test_id:test_secret"
-        os.environ["HIGGSFIELD_BASE_URL"] = "http://mock.api"
-        os.environ["DATABASE_PATH"] = db_path
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
         passthrough_normalize()  # fake image bytes (test-only, restored by conftest)
         
         provider = HiggsfieldStillProvider()

@@ -11,7 +11,7 @@ async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monke
     End-to-end: refs.json with versions {family:2} -> loader -> generate_ref_activity:
     - Loader reads versions map and sets family version to 2
     - family regenerated as v2 (in scratch, dry mode doesn't archive real files)
-    - rowan (no versions entry) reused as v1
+    - subject02 (no versions entry) reused as v1
     Test MUST fail if loader ignores the versions map.
     """
     from hfvg.activities.ref_generation import load_refs_to_generate_activity, generate_ref_activity
@@ -56,28 +56,28 @@ async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monke
     family_sidecar.parent.mkdir(parents=True, exist_ok=True)
     family_sidecar.write_text(json.dumps({"version": 1, "ref_key": "family"}))
     
-    # Pre-create rowan v1 (no versions entry = stays v1)
-    rowan_v1_content = make_png()
-    rowan_path = refs_dir / "rowan.png"
-    rowan_path.write_bytes(rowan_v1_content)
+    # Pre-create subject02 v1 (no versions entry = stays v1)
+    subject02_v1_content = make_png()
+    subject02_path = refs_dir / "subject02.png"
+    subject02_path.write_bytes(subject02_v1_content)
     
-    rowan_sidecar = refs_dir / ".versions" / "rowan.json"
-    rowan_sidecar.write_text(json.dumps({"version": 1, "ref_key": "rowan"}))
+    subject02_sidecar = refs_dir / ".versions" / "subject02.json"
+    subject02_sidecar.write_text(json.dumps({"version": 1, "ref_key": "subject02"}))
     
     # Create refs.json with versions map
     refs_json = episode_dir / "refs.json"
     refs_json.write_text(json.dumps({
         "to_generate": {
             "family": str(family_path),
-            "rowan": str(rowan_path),
+            "subject02": str(subject02_path),
         },
         "prompts": {
             "family": "Family portrait",
-            "rowan": "Rowan character",
+            "subject02": "Subject02 character",
         },
         "versions": {
             "family": 2,  # Bump family to v2
-            # rowan not in versions = default v1
+            # subject02 not in versions = default v1
         }
     }))
     
@@ -94,16 +94,16 @@ async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monke
         assert len(refs_to_gen) == 2, f"Expected 2 refs, got {len(refs_to_gen)}"
         
         family_spec = next((r for r in refs_to_gen if r["key"] == "family"), None)
-        rowan_spec = next((r for r in refs_to_gen if r["key"] == "rowan"), None)
+        subject02_spec = next((r for r in refs_to_gen if r["key"] == "subject02"), None)
         
         assert family_spec is not None, "family not in to_generate"
-        assert rowan_spec is not None, "rowan not in to_generate"
+        assert subject02_spec is not None, "subject02 not in to_generate"
         
         # THIS IS THE KEY ASSERTION: loader must read version 2 from versions map
         assert family_spec["version"] == 2, \
             f"Loader FAILED to read versions map: family should be v2, got v{family_spec['version']}"
-        assert rowan_spec["version"] == 1, \
-            f"rowan should default to v1, got v{rowan_spec['version']}"
+        assert subject02_spec["version"] == 1, \
+            f"subject02 should default to v1, got v{subject02_spec['version']}"
         
         # Step 2: Generate family v2 (should archive v1 and regenerate)
         result_family = await generate_ref_activity(
@@ -132,28 +132,28 @@ async def test_loader_reads_versions_map_and_generates_correctly(tmp_path, monke
         assert actual_v2_path.exists(), \
             f"family v2 not created at {actual_v2_path}"
         
-        # Step 3: Generate rowan v1 (should reuse)
-        result_rowan = await generate_ref_activity(
+        # Step 3: Generate subject02 v1 (should reuse)
+        result_subject02 = await generate_ref_activity(
             episode_id="ep99",
-            ref_key=rowan_spec["key"],
-            prompt=rowan_spec["prompt"],
-            output_path=rowan_spec["output_path"],
-            version=rowan_spec["version"],
+            ref_key=subject02_spec["key"],
+            prompt=subject02_spec["prompt"],
+            output_path=subject02_spec["output_path"],
+            version=subject02_spec["version"],
         )
         
-        assert result_rowan["status"] == "reused", \
-            f"rowan v1 should be reused, got {result_rowan['status']}"
-        assert result_rowan["credits_used"] == 0, \
+        assert result_subject02["status"] == "reused", \
+            f"subject02 v1 should be reused, got {result_subject02['status']}"
+        assert result_subject02["credits_used"] == 0, \
             "reused ref should cost 0 credits"
         
-        # Verify rowan was NOT archived (version matched)
-        rowan_v1_archive = refs_dir / "_v1" / "rowan.png"
-        assert not rowan_v1_archive.exists(), \
-            f"rowan should not be archived, but found {rowan_v1_archive}"
+        # Verify subject02 was NOT archived (version matched)
+        subject02_v1_archive = refs_dir / "_v1" / "subject02.png"
+        assert not subject02_v1_archive.exists(), \
+            f"subject02 should not be archived, but found {subject02_v1_archive}"
         
-        # Verify rowan content unchanged (still at original location)
-        assert rowan_path.read_bytes() == rowan_v1_content, \
-            "rowan content should be unchanged"
+        # Verify subject02 content unchanged (still at original location)
+        assert subject02_path.read_bytes() == subject02_v1_content, \
+            "subject02 content should be unchanged"
         
     finally:
         temporalio.activity.info = original_info
@@ -198,14 +198,14 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
         return buf.getvalue()
     
     # Create a real file at the "real" location
-    real_file_path = real_refs_dir / "mochi.png"
+    real_file_path = real_refs_dir / "subject01.png"
     original_content = make_png()
     real_file_path.write_bytes(original_content)
     
     # Create v1 sidecar
-    real_sidecar = real_refs_dir / ".versions" / "mochi.json"
+    real_sidecar = real_refs_dir / ".versions" / "subject01.json"
     real_sidecar.parent.mkdir(parents=True, exist_ok=True)
-    real_sidecar.write_text(json.dumps({"version": 1, "ref_key": "mochi"}))
+    real_sidecar.write_text(json.dumps({"version": 1, "ref_key": "subject01"}))
     
     # Mock activity info
     original_info = temporalio.activity.info
@@ -216,8 +216,8 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
         # Generate v2 in dry mode (should NOT touch real file)
         result = await generate_ref_activity(
             episode_id="ep99",
-            ref_key="mochi",
-            prompt="Mochi character v2",
+            ref_key="subject01",
+            prompt="Subject01 character v2",
             output_path=str(real_file_path),
             version=2,
         )
@@ -231,7 +231,7 @@ async def test_dry_mode_never_archives_outside_scratch(tmp_path, monkeypatch):
             "Dry mode MODIFIED the real file (should never touch it)"
         
         # Real file should NOT be moved to _v1/ in dry mode
-        real_v1_archive = real_refs_dir / "_v1" / "mochi.png"
+        real_v1_archive = real_refs_dir / "_v1" / "subject01.png"
         assert not real_v1_archive.exists(), \
             f"Dry mode archived real file to {real_v1_archive} (should only affect scratch)"
         

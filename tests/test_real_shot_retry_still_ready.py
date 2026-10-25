@@ -92,7 +92,9 @@ async def test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land(tmp_p
                     return st, True
             except Exception:
                 pass
-            await asyncio.sleep(0.05)
+            # G-CI-2: queries alone never unlock time skipping, so the ShotWorkflow's ~5s poll
+            # sleeps used to run in REAL time (flaky under CI load). Advance virtual time instead.
+            await env.sleep(timedelta(seconds=1))
         return st, False
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -111,7 +113,7 @@ async def test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land(tmp_p
 
                 # pending_retries must clear on its own once the retry still(s) land (no G2 needed)
                 # (each retry still's first poll says "processing" -> ShotWorkflow sleeps ~5s of
-                # real time: queries do not unlock time skipping, so allow ~2x5s plus slack)
+                # workflow time, which wait() skips with env.sleep)
                 st, ok = await wait(h, lambda s: not s.get("pending_retries"), budget=30.0)
                 assert ok, f"real ShotWorkflow retry never cleared pending_retries (G2 deadlock): {st.get('pending_retries')}"
                 landed = [e[1] for e in log if e[0] == "landed"]
@@ -122,7 +124,7 @@ async def test_real_shot_workflow_retry_unblocks_g2_after_both_stills_land(tmp_p
                 await h.execute_update(EpisodeWorkflowV2.approve_g2_scene_stills)
                 end = time.time() + 10
                 while time.time() < end and not any(e[0] == "submit_clip" for e in log):
-                    await asyncio.sleep(0.05)
+                    await env.sleep(timedelta(seconds=1))
                 assert any(e[0] == "submit_clip" for e in log), f"clip never started after G2: {log}"
             finally:
                 for wid in ("ep05", "ep05-shot-A02-retry1"):

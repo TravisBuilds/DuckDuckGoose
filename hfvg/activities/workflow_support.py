@@ -15,12 +15,12 @@ from hfvg.shot_data import load_shot_plans, merge_into_shots, resolve_refs
 
 
 @activity.defn
-async def load_gate_policy_activity(project: str = "mid-mountain-rest") -> dict:
+async def load_gate_policy_activity(project: str | None = None) -> dict:
     """
     Load gate policy from filesystem (activity for workflow).
     
     Args:
-        project: Project name
+        project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
     
     Returns:
         Policy data as dict (serializable)
@@ -33,7 +33,7 @@ async def load_gate_policy_activity(project: str = "mid-mountain-rest") -> dict:
         "series": policy.series,
         "harness": policy.harness,
         "gates": policy.gates,
-        "travis_approval_points": policy.travis_approval_points,
+        "owner_approval_points": policy.owner_approval_points,
         "budgets": policy.budgets,
         "rules": policy.rules,
     }

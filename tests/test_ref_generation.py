@@ -71,7 +71,7 @@ async def test_live_mode_fails_if_needed_ref_unavailable(tmp_path, monkeypatch):
         "per_shot": {
             "A01": [
                 {"key": "r_duck", "path": "/nonexistent/duck.png", "exists": False},
-                {"key": "r_birch", "path": "/nonexistent/birch.png", "exists": False}
+                {"key": "r_stag03", "path": "/nonexistent/stag03.png", "exists": False}
             ]
         },
         "to_generate": {
@@ -84,8 +84,8 @@ async def test_live_mode_fails_if_needed_ref_unavailable(tmp_path, monkeypatch):
     
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
     
-    # r_birch is needed but not in to_generate and not on disk
-    with pytest.raises(ValueError, match="r_birch.*neither on disk nor in to_generate"):
+    # r_stag03 is needed but not in to_generate and not on disk
+    with pytest.raises(ValueError, match="r_stag03.*neither on disk nor in to_generate"):
         await load_refs_to_generate_activity("ep99", is_live=True)
 
 
@@ -102,11 +102,11 @@ async def test_to_generate_map_format(tmp_path, monkeypatch):
         "per_shot": {},
         "to_generate": {
             "r_duck": "/fake/duck.png",
-            "r_birch": "/fake/birch.png"
+            "r_stag03": "/fake/stag03.png"
         },
         "prompts": {
             "r_duck": "Duck character sheet",
-            "r_birch": "Birch character sheet"
+            "r_stag03": "Stag03 character sheet"
         }
     }))
     
@@ -276,7 +276,7 @@ async def test_load_refs_to_generate_with_refs(tmp_path, monkeypatch):
         "episode_id": "ep99",
         "per_shot": {
             "A01": [{"key": "r_duck", "path": "/fake/duck.png"}],
-            "A02": [{"key": "r_birch", "path": "/fake/birch.png"}]
+            "A02": [{"key": "r_stag03", "path": "/fake/stag03.png"}]
         },
         "to_generate": [
             {
@@ -287,9 +287,9 @@ async def test_load_refs_to_generate_with_refs(tmp_path, monkeypatch):
                 "version": 1
             },
             {
-                "key": "r_birch",
-                "prompt": "Birch character sheet",
-                "output_path": "/fake/birch.png",
+                "key": "r_stag03",
+                "prompt": "Stag03 character sheet",
+                "output_path": "/fake/stag03.png",
                 "type": "character_sheet",
                 "version": 1
             }
@@ -301,7 +301,7 @@ async def test_load_refs_to_generate_with_refs(tmp_path, monkeypatch):
     result = await load_refs_to_generate_activity("ep99")
     assert len(result) == 2
     assert result[0]["key"] == "r_duck"
-    assert result[1]["key"] == "r_birch"
+    assert result[1]["key"] == "r_stag03"
 
 
 @pytest.mark.asyncio
@@ -316,7 +316,7 @@ async def test_load_refs_filters_by_shots_subset(tmp_path, monkeypatch):
         "episode_id": "ep99",
         "per_shot": {
             "A01": [{"key": "r_duck", "path": "/fake/duck.png"}],
-            "A02": [{"key": "r_birch", "path": "/fake/birch.png"}],
+            "A02": [{"key": "r_stag03", "path": "/fake/stag03.png"}],
             "A03": [{"key": "r_lineup", "path": "/fake/lineup.png"}]
         },
         "to_generate": [
@@ -327,9 +327,9 @@ async def test_load_refs_filters_by_shots_subset(tmp_path, monkeypatch):
                 "type": "character_sheet"
             },
             {
-                "key": "r_birch",
-                "prompt": "Birch character sheet",
-                "output_path": "/fake/birch.png",
+                "key": "r_stag03",
+                "prompt": "Stag03 character sheet",
+                "output_path": "/fake/stag03.png",
                 "type": "character_sheet"
             },
             {
@@ -343,11 +343,11 @@ async def test_load_refs_filters_by_shots_subset(tmp_path, monkeypatch):
     
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
     
-    # Only A01 and A02 in subset, so only r_duck and r_birch needed
+    # Only A01 and A02 in subset, so only r_duck and r_stag03 needed
     result = await load_refs_to_generate_activity("ep99", shots_subset=["A01", "A02"])
     assert len(result) == 2
     keys = {r["key"] for r in result}
-    assert keys == {"r_duck", "r_birch"}
+    assert keys == {"r_duck", "r_stag03"}
 
 
 @pytest.mark.asyncio

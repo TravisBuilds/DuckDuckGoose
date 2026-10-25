@@ -18,6 +18,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -93,6 +95,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -100,6 +104,13 @@ jobs:
         node-version: '20'
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
+
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('web/package-lock.json') }}
 
     - name: Install Python dependencies
       run: |
@@ -110,7 +121,11 @@ jobs:
       working-directory: web
       run: |
         npm ci
-        npx playwright install --with-deps chromium
+        if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium   # browsers restored from cache; OS libs only
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Build Next.js (production build, the E2E runs `next start`)
       working-directory: web
@@ -137,8 +152,15 @@ jobs:
         retention-days: 7
 
   redgreen:
+    # G-CI-1: every probe/mutation declared in scripts/redgreen.sh gets an ordinal; shard N runs
+    # the ordinals with ordinal % 4 == N-1 and writes one result row per id. redgreen-summary
+    # checks that the union of the shards ran every declared id exactly once.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     steps:
     - uses: actions/checkout@v4
@@ -147,6 +169,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install system dependencies
       run: |
@@ -158,10 +182,72 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Run red-green mutation tests
+    - name: Run red-green mutation tests (shard ${{ matrix.shard }}/4)
       env:
         REQUIRE_FFMPEG: "1"
+        REDGREEN_SHARD: ${{ matrix.shard }}
+        REDGREEN_TOTAL_SHARDS: "4"
+        REDGREEN_RESULTS_FILE: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
       run: |
         find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
         rm -rf .pytest_cache 2>/dev/null || true
         bash scripts/redgreen.sh
+
+    - name: Upload shard results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: redgreen-results-shard-${{ matrix.shard }}
+        path: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
+        if-no-files-found: error
+
+  redgreen-summary:
+    # The red-green status is this job's artifact + step summary; no numbers are committed.
+    runs-on: ubuntu-latest
+    needs: redgreen
+    if: always()
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Download all shard results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: redgreen-results-shard-*
+        path: redgreen-results
+        merge-multiple: true
+
+    - name: Check the shard union covers every declared probe/mutation
+      env:
+        EXPECTED_SHA: ${{ github.sha }}
+      run: |
+        shopt -s nullglob
+        files=(redgreen-results/*.tsv)
+        status=0
+        python scripts/redgreen_coverage.py --markdown redgreen-status.md \
+          --expect-commit "$EXPECTED_SHA" --expect-shards 4 "${files[@]:-/nonexistent}" || status=$?
+        cat redgreen-status.md >> "$GITHUB_STEP_SUMMARY" || true
+        exit $status
+
+    - name: Upload red-green status
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: redgreen-status
+        path: |
+          redgreen-status.md
+          redgreen-results/
+        if-no-files-found: warn
+
+    - name: Fail if any shard failed
+      if: needs.redgreen.result != 'success'
+      env:
+        RESULT: ${{ needs.redgreen.result }}
+      run: |
+        echo "redgreen shards result: $RESULT"
+        exit 1

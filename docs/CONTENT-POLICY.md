@@ -180,13 +180,12 @@ Use the synthetic `tests/fixtures/sample_beatmap.md` as a neutral example.
 
 ### Private Content (not for reuse)
 
-`fixtures/ep05/` (BEATMAP.md, CONTINUITY.md, VO-AUDIO.md) and `examples/mid-mountain-rest/`
-(HARNESS-GATES.json) are the owner's private "Quacked Concierge / Mid-Mountain Rest" series:
-original but branded content with named characters (Rowan, Hazel, Mochi, DUCK-AB02), private
-asset paths and a draft VO script. They are kept because tests and gate code load them.
+`fixtures/demo/` (BEATMAP.md, CONTINUITY.md, VO-AUDIO.md) and `examples/demo/`
+(HARNESS-GATES.json) contain neutral demonstration content for testing and examples.
+These are generic templates safe for public distribution.
 
 **DO NOT:**
-- Copy content from `examples/mid-mountain-rest/` or `fixtures/ep05/`
+- Add private or proprietary content to tracked files
 - Use it as a template for your own episodes
 - Assume it follows all content policy guidelines
 
@@ -226,7 +225,7 @@ Develop your own characters with unique traits:
 
 ```
 ✅ "Quackers the Duck, a former spy turned chef"
-✅ "Detective Birch, a deer who solves forest mysteries"
+✅ "Detective Stag03, a deer who solves forest mysteries"
 ✅ "Captain Finley, a fish who explores the deep ocean"
 ```
 

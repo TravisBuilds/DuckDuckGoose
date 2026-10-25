@@ -7,7 +7,7 @@ from hfvg.gates import load_policy
 
 def test_load_policy():
     """Test loading HARNESS-GATES.json v1.1."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Validate structure
     assert policy.schema_version == "1.1"
@@ -17,8 +17,8 @@ def test_load_policy():
     blocking_count = sum(1 for g in policy.gates if g.get("blocking") == "yes")
     assert blocking_count == 69
     
-    # Count Travis approval points
-    assert len(policy.travis_approval_points) == 15
+    # Count Owner approval points
+    assert len(policy.owner_approval_points) == 15
     
     # Count check_type distribution
     check_types = {"code": 0, "judge": 0, "human": 0}
@@ -34,7 +34,7 @@ def test_load_policy():
 
 def test_gate_lookup():
     """Test gate lookup methods."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Test get_gate
     g410 = policy.get_gate("G4.10")
@@ -46,15 +46,15 @@ def test_gate_lookup():
     assert policy.is_blocking("G4.06") is False  # Non-blocking gate
     assert policy.is_blocking("G6.04") is False  # Non-blocking gate
     
-    # Test requires_travis_approval
-    assert policy.requires_travis_approval("G1.01") is True
-    assert policy.requires_travis_approval("G1.03") is True
-    assert policy.requires_travis_approval("G4.10") is False
+    # Test requires_owner_approval
+    assert policy.requires_owner_approval("G1.01") is True
+    assert policy.requires_owner_approval("G1.03") is True
+    assert policy.requires_owner_approval("G4.10") is False
 
 
 def test_budgets():
     """Test budget configuration loading."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Test Higgsfield budget
     hf_budget = policy.get_higgsfield_budget("ep04")
@@ -91,7 +91,7 @@ def test_budgets():
 
 def test_step_filtering():
     """Test filtering gates by step."""
-    policy = load_policy("mid-mountain-rest")
+    policy = load_policy("demo")
     
     # Get gates for step 4 (mute)
     mute_gates = policy.get_gates_for_step("4-mute")

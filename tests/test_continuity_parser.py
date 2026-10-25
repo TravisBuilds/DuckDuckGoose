@@ -27,7 +27,7 @@ def test_prompt_kit_resolves_characters(tmp_path):
         "aspect_ratio": "9:16",
         "characters": {
             "M1": {"description": "Large brown moose with wide antlers"},
-            "B": {"description": "Young birch moose, slender build"},
+            "B": {"description": "Young stag03 moose, slender build"},
         },
         "sets": {}
     }
@@ -52,7 +52,7 @@ def test_prompt_kit_resolves_characters(tmp_path):
     
     # Must contain character descriptions, not bare codes
     assert "Large brown moose with wide antlers" in prompt
-    assert "Young birch moose, slender build" in prompt
+    assert "Young stag03 moose, slender build" in prompt
     assert "M1" not in prompt  # Code should not appear bare
     assert "B" not in prompt or " B " not in prompt  # Code should not appear bare
 
@@ -123,8 +123,8 @@ def test_get_character_refs():
         prompt_kit = {
             "characters": {
                 "M1": {"description": "Moose", "ref": "M1.png"},
-                "B": {"description": "Birch", "ref": "B.jpg"},
-                "W": {"description": "Willow"},  # No ref
+                "B": {"description": "Stag03", "ref": "B.jpg"},
+                "W": {"description": "Subject05"},  # No ref
             }
         }
         

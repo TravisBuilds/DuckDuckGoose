@@ -293,19 +293,15 @@ git secrets --scan
 - Customer episode data (unless anonymized and approved)
 - Private creative assets (character designs, storyboards)
 
-### Example Private Content in This Repo:
+### Demo content in this repo
 
-Located in `examples/mid-mountain-rest/` (`HARNESS-GATES.json`):
-- The owner's private "Quacked Concierge / Mid-Mountain Rest" series gate policy
-- Loaded by code and tests (`hfvg/gates.py` `load_policy("mid-mountain-rest")`, called from
-  `hfvg/workflows/episode_v2.py`; `tests/test_workflow_live_with_real_policy.py`), so it
-  cannot simply be deleted; do not copy it or use it as a template
-
-Located in `fixtures/ep05/` (`BEATMAP.md`, `CONTINUITY.md`, `VO-AUDIO.md`):
-- The owner's private Ep05 "Yuzu Bath" episode: brand name, named characters
-  (Rowan, Hazel, Mochi, DUCK-AB02), private asset paths and a draft Japanese VO script
-- Used by tests (`tests/test_episode_parser.py`); for examples use the synthetic
-  `tests/fixtures/sample_beatmap.md`
+`examples/demo/HARNESS-GATES.json` (the gate policy loaded by `load_policy("demo")`, the default
+`HFVG_PROJECT`) and `fixtures/demo/` (`BEATMAP.md`, `CONTINUITY.md`, `VO-AUDIO.md`, parsed by
+`tests/test_episode_parser.py` and `tests/test_preflight_demo_fixtures.py`) are neutral synthetic
+content that keeps the structure the code and tests rely on (gate counts, approval points, shot
+table columns, tags). Real projects live outside this repo; point the harness at one with
+`HFVG_PROJECT` (the policy is read from `examples/<HFVG_PROJECT>/HARNESS-GATES.json`). `tests/test_no_brand_content.py` fails if a denylisted
+private name or path shows up in any tracked file or file name.
 
 ### If You Need Examples:
 

@@ -63,12 +63,12 @@ async def test_set_anchor_still_with_approved_by(tmp_path):
     
     await set_anchor_still(
         db_path, "ep99", "A01", ["A02"],
-        str(anchor_file), 0, sha256, "Travis approved via Studio"
+        str(anchor_file), 0, sha256, "Owner approved via Studio"
     )
     
     anchor = await get_anchor_still(db_path, "ep99", "A02")
     assert anchor is not None
-    assert anchor["approved_by"] == "Travis approved via Studio"
+    assert anchor["approved_by"] == "Owner approved via Studio"
 
 
 @pytest.mark.asyncio

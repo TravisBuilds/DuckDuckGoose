@@ -200,7 +200,7 @@ async def test_budget_stop_enforcement(episode_with_budget, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     # Enable live mode AND G1.08
     await set_live_mode(db_path, episode_id, True)
@@ -332,7 +332,7 @@ async def test_activity_level_enforcement(episode_with_budget, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")  # Bypass smoke test gate
     monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-key")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "test-id:test-secret")
     
     # Approve G1.08 first (so we test live mode enforcement at activity level)
     from hfvg.studio_db import approve_g108

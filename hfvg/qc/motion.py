@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-# Thresholds from the original stillgate.py
+# Thresholds from the original stillgate tool (G4.10)
 FAIL_PEAK = 3.0
 FAIL_MEAN = 0.15
 WATCH_PEAK = 6.0
@@ -220,7 +220,7 @@ def check_motion_with_json(mute_path: str | Path, manifest_path: str | Path,
 
 def create_manifest(clips: list[dict[str, Any]], dissolves: dict[str, float] | None = None) -> dict[str, Any]:
     """
-    Create a manifest dict for stillgate.py.
+    Create a manifest dict for the stillgate analysis.
     
     Args:
         clips: List of clip dicts with 'id' and 'seg_s' (duration in seconds)

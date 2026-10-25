@@ -80,12 +80,12 @@ Defines which references need to be generated. Supports two formats:
 {
   "to_generate": {
     "r_duck_sheet": "data/episodes/ep04/refs/duck_sheet.png",
-    "r_birch_sheet": "data/episodes/ep04/refs/birch_sheet.png",
+    "r_stag03_sheet": "data/episodes/ep04/refs/stag03_sheet.png",
     "r_lineup": "data/episodes/ep04/refs/lineup.png"
   },
   "prompts": {
     "r_duck_sheet": "Duck character sheet, full body, front and side view, white background, character design",
-    "r_birch_sheet": "Birch moose character sheet, full body, front and side view, white background",
+    "r_stag03_sheet": "Stag03 moose character sheet, full body, front and side view, white background",
     "r_lineup": "All characters in a lineup, side by side, same scale, white background"
   }
 }
@@ -192,7 +192,7 @@ The new version gets a unique job ID: `ref-ep04-r_duck_sheet-v2`
       {"key": "r_lineup", "path": "data/episodes/ep04/refs/lineup.png", "exists": false}
     ],
     "A02": [
-      {"key": "r_birch_sheet", "path": "data/episodes/ep04/refs/birch_sheet.png", "exists": false},
+      {"key": "r_stag03_sheet", "path": "data/episodes/ep04/refs/stag03_sheet.png", "exists": false},
       {"key": "r_lineup", "path": "data/episodes/ep04/refs/lineup.png", "exists": false}
     ],
     "A03": [
@@ -201,13 +201,13 @@ The new version gets a unique job ID: `ref-ep04-r_duck_sheet-v2`
   },
   "to_generate": {
     "r_duck_sheet": "data/episodes/ep04/refs/duck_sheet.png",
-    "r_birch_sheet": "data/episodes/ep04/refs/birch_sheet.png",
+    "r_stag03_sheet": "data/episodes/ep04/refs/stag03_sheet.png",
     "r_lineup": "data/episodes/ep04/refs/lineup.png"
   },
   "prompts": {
     "r_duck_sheet": "Duck character, orange beak and feet, white body with grey-blue back, character sheet with front and side view, white background, detailed feathers",
-    "r_birch_sheet": "Birch the moose, large brown antlers, tan-brown fur, kind eyes, character sheet with front and side view, white background, character design",
-    "r_lineup": "Duck and Birch standing side by side at same scale for height comparison, both facing forward, white background"
+    "r_stag03_sheet": "Stag03 the moose, large brown antlers, tan-brown fur, kind eyes, character sheet with front and side view, white background, character design",
+    "r_lineup": "Duck and Stag03 standing side by side at same scale for height comparison, both facing forward, white background"
   }
 }
 ```
