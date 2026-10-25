@@ -821,6 +821,9 @@ async def submit_clip_job_enforced(
     from hfvg.studio_db import enforce_smoke_test_gate
     await enforce_smoke_test_gate(db_path, episode_id, "submit_clip_job_enforced")
     
+    # Check credentials BEFORE any reservation or provider call
+    _check_higgsfield_credentials()
+    
     # Double-check: these should never happen due to use_live logic, but fail-safe
     if not live_mode:
         raise ValueError(
