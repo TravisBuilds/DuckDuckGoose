@@ -799,3 +799,95 @@ def stalled(threshold: int | None, route: bool):
             click.echo("Run 'hfvg stalled --route' or 'hfvg reconcile' to recover them.")
 
     asyncio.run(check_stalled())
+
+
+def _mix_episode_dir(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool) -> dict:
+    """Offline audio round + delivery for one episode directory (locked / library inputs only).
+
+    Returns {"manifest", "qc"}. Generation needs the workflow (budget ledger + round caps);
+    --dry-run substitutes sine stand-ins for inputs that would be generated."""
+    from pathlib import Path
+
+    from hfvg import audio_mix
+    from hfvg.activities.audio import _stand_in
+
+    root = Path(episode_dir).resolve()
+    if not root.is_dir():
+        raise click.ClickException(f"episode dir not found: {root}")
+    episode_id = root.name
+    plan_path = Path(plan_file) if plan_file else audio_mix.audio_plan_path(episode_id, root)
+    mute_path = Path(mute) if mute else root / "edit" / "mute_assembly.mp4"
+    if not mute_path.is_file():
+        raise click.ClickException(f"mute picture not found: {mute_path} (run the mute edit first or pass --mute)")
+
+    async def run() -> dict:
+        try:
+            plan = audio_mix.load_plan_file(plan_path)
+        except audio_mix.AudioInputError as e:
+            raise click.ClickException(str(e))
+        stand_ins = root / "audio" / "dry_stand_ins"
+        dry_inputs: list[str] = []
+        needs: list[tuple[str, dict, float, int]] = []
+        for line in plan["vo"]["lines"]:
+            if not line.get("path"):
+                needs.append((f"vo:{line['id']}", line, max(0.5, len(line.get("text") or "") / 15.0), 440))
+        for cue in plan["sfx"]:
+            if not cue.get("path"):
+                needs.append((f"sfx:{cue['id']}", cue, max(0.5, cue["dur"]), 880))
+        if plan.get("music") and not plan["music"].get("path"):
+            needs.append(("music", plan["music"], 30.0, 220))
+        for name, item, seconds, freq in needs:
+            if not dry_run:
+                raise click.ClickException(
+                    f"{name} has no locked/library file; generation runs only inside the episode workflow "
+                    "(budget ledger + round caps). Add a path to the plan or use --dry-run.")
+            out = stand_ins / f"{name.replace(':', '_')}.wav"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            await _stand_in(out, seconds, freq)
+            item["path"] = str(out)
+            dry_inputs.append(name)
+        plan["dry_inputs"] = dry_inputs
+        try:
+            manifest = await audio_mix.mix_and_deliver(episode_id, str(mute_path), plan, root=root)
+            qc = await audio_mix.delivery_qc(manifest, plan)
+        except audio_mix.AudioInputError as e:
+            raise click.ClickException(str(e))
+        if dry_inputs and qc.get("verdict") == "PASS":
+            qc = {**qc, "verdict": "DRY_RUN", "blocking": False, "stand_ins": dry_inputs}
+        return {"manifest": manifest, "qc": qc}
+
+    return asyncio.run(run())
+
+
+@cli.command("mix")
+@click.argument("episode_dir", type=click.Path(file_okay=False))
+@click.option("--mute", "mute", default=None, help="Mute picture (default EPISODE_DIR/edit/mute_assembly.mp4)")
+@click.option("--plan", "plan_file", default=None, help="Audio plan (default EPISODE_DIR/audio/audio_plan.json)")
+@click.option("--dry-run", is_flag=True, help="Sine stand-ins for inputs that would be generated")
+@click.option("--json", "as_json", is_flag=True, help="Print manifest + QC as JSON")
+def mix(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool, as_json: bool):
+    """Mix + deliver one episode dir offline: VO placement, ducking, two-pass loudnorm,
+    subtitle burn, phone encode, delivery QC. Outputs under EPISODE_DIR/delivery/.
+    Exit code 1 when delivery QC FAILs.
+
+    Example:
+        hfvg mix ./data/episodes/ep01
+        hfvg deliver ./data/episodes/ep01 --dry-run
+    """
+    result = _mix_episode_dir(episode_dir, mute, plan_file, dry_run)
+    qc, manifest = result["qc"], result["manifest"]
+    if as_json:
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(f"Delivery {'reused' if manifest.get('reused') else 'built'}: {manifest['paths']['dir']}")
+        for name in ("master_subs", "nosubs", "phone", "mix_wav", "srt"):
+            click.echo(f"  {name}: {manifest['paths'][name]}")
+        click.echo(f"Delivery QC: {qc['verdict']}")
+        for c in qc.get("checks") or []:
+            if not c.get("ok"):
+                click.echo(f"  ✗ {c.get('name')}: {c.get('value')} (limit {c.get('limit')})")
+    if qc.get("blocking"):
+        raise SystemExit(1)
+
+
+cli.add_command(mix, name="deliver")

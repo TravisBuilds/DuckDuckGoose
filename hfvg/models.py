@@ -24,6 +24,7 @@ class PipelineStage(str, Enum):
     PICTURE_LOCK = "picture_lock"
     AUDIO = "audio"
     FINAL_MIX = "final_mix"
+    DELIVERY = "delivery"
     POST_APPROVAL = "post_approval"
     COMPLETE = "complete"
 
@@ -122,6 +123,10 @@ class EpisodeState(BaseModel):
     assembly_manifest: dict = Field(default_factory=dict)  # Assembly manifest with clips[] and metadata
     assembly_qc: dict = Field(default_factory=dict)  # Latest mute-edit QC (verdict, blocking, reasons)
     assembly_acceptance: dict | None = None  # Human acceptance of a blocking QC verdict (reason)
+    delivery_paths: dict = Field(default_factory=dict)  # Deterministic delivery outputs (mix, masters, phone, subs)
+    delivery_manifest: dict = Field(default_factory=dict)  # Mix/delivery manifest (input_key, loudnorm, cues)
+    delivery_qc: dict = Field(default_factory=dict)  # Latest delivery QC (verdict, blocking, checks)
+    delivery_acceptance: dict | None = None  # Human acceptance of a blocking delivery QC verdict (reason)
 
 
 class CreditTransaction(BaseModel):

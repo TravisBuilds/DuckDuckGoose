@@ -138,12 +138,13 @@ def _configured_model_ids():
     from hfvg.config import config, still_model_path
     from hfvg.credit_pricing import CLIP_CREDITS_PER_SECOND, REF_CREDITS, STILL_CREDITS
     from hfvg.preflight import DEFAULT_CLIP_PATHS, clip_model_path
-    from hfvg.providers.elevenlabs import AUDIO_COSTS
+    from hfvg.providers.elevenlabs import AUDIO_COSTS, AUDIO_MODEL_ALIASES
     from hfvg.providers.higgsfield import MODEL_COSTS
 
     ids = {still_model_path(), config.MODEL_PATH_SOUL_V2, config.MODEL_PATH_SEEDANCE, config.MODEL_PATH_KLING}
     ids |= {clip_model_path(alias) for alias in DEFAULT_CLIP_PATHS}   # params.model routing aliases
     ids |= set(AUDIO_COSTS) | set(STILL_CREDITS) | set(CLIP_CREDITS_PER_SECOND) | set(REF_CREDITS)
+    ids |= set(AUDIO_MODEL_ALIASES)   # legacy audio ids still accepted (mapped before any call)
     ids |= {key[0] for key in MODEL_COSTS}
     return {m for m in ids if m} - set(NOT_MODEL_IDS)
 

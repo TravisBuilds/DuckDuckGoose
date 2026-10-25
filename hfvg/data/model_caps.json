@@ -1134,7 +1134,7 @@
   "eleven_multilingual_v2": {
    "kind": "tts",
    "provider": "elevenlabs",
-   "status": "active_default_tts",
+   "status": "active",
    "aliases": [],
    "upstream": {
     "vendor": "ElevenLabs",
@@ -1157,7 +1157,7 @@
     "sources": [
      "el_pricing"
     ],
-    "harness_table_note": "hfvg AUDIO_COSTS uses an estimated 30 cr/min; replace with per-character pricing."
+    "harness_table_note": "hfvg AUDIO_COSTS bills this per-character price (estimate_usd)."
    },
    "moderation": []
   },
@@ -1270,11 +1270,7 @@
    "kind": "music",
    "provider": "elevenlabs",
    "status": "alias_invalid_upstream_id",
-   "aliases": [
-    "music_v1",
-    "music_v2",
-    "music_v2_5"
-   ],
+   "aliases": [],
    "upstream": {
     "vendor": "ElevenLabs",
     "model_id": "music_v1 (API default); music_v2, music_v2_5 also valid",
@@ -1350,7 +1346,251 @@
      ]
     }
    ],
-   "harness_note": "'eleven_music' is NOT a valid ElevenLabs model_id. Map it to music_v1 (or pin music_v2_5) before any live call."
+   "harness_note": "'eleven_music' is NOT a valid ElevenLabs model_id. Legacy harness alias only: the provider maps it to music_v1 (AUDIO_MODEL_ALIASES) before any live call; the music_v1 / music_v2 / music_v2_5 rows are the real ids."
+  },
+  "eleven_v3": {
+   "kind": "tts",
+   "provider": "elevenlabs",
+   "status": "active_default_tts",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "eleven_v3",
+    "endpoint": "POST /v1/text-to-speech/{voice_id}"
+   },
+   "limits": {
+    "text_max_chars": {
+     "value": 5000,
+     "basis": "upstream",
+     "sources": [
+      "el_models"
+     ],
+     "note": "The models page lists a 5,000 character limit for eleven_v3 (half of multilingual_v2); split longer text."
+    }
+   },
+   "cost": {
+    "unit": "1k_chars",
+    "usd": 0.08,
+    "sources": [
+     "el_pricing"
+    ],
+    "note": "Eleven v3 is billed per character at the same API rate as Multilingual v2."
+   },
+   "moderation": [],
+   "harness_note": "Default VO model of the audio round (hfvg.activities.audio)."
+  },
+  "eleven_flash_v2_5": {
+   "kind": "tts",
+   "provider": "elevenlabs",
+   "status": "active",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "eleven_flash_v2_5",
+    "endpoint": "POST /v1/text-to-speech/{voice_id}"
+   },
+   "limits": {
+    "text_max_chars": {
+     "value": 40000,
+     "basis": "upstream",
+     "sources": [
+      "el_models",
+      "el_pricing"
+     ],
+     "note": "About 40 minutes of audio."
+    }
+   },
+   "cost": {
+    "unit": "1k_chars",
+    "usd": 0.04,
+    "sources": [
+     "el_pricing"
+    ]
+   },
+   "moderation": []
+  },
+  "music_v1": {
+   "kind": "music",
+   "provider": "elevenlabs",
+   "status": "active_default_music",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "music_v1",
+    "endpoint": "POST /v1/music",
+    "default_output_format": "mp3_44100_128"
+   },
+   "limits": {
+    "duration_ms": {
+     "value": {
+      "min": 3000,
+      "max": 300000
+     },
+     "basis": "stricter_upstream_pages",
+     "sources": [
+      "el_music_api",
+      "el_music_cap",
+      "el_pricing"
+     ],
+     "upstream": [
+      [
+       3000,
+       600000
+      ],
+      [
+       3000,
+       300000
+      ]
+     ],
+     "note": "The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used."
+    },
+    "prompt_max_chars": {
+     "value": null,
+     "basis": "unknown",
+     "sources": [
+      "el_music_api"
+     ],
+     "note": "Not documented."
+    },
+    "exclusive_inputs": {
+     "value": "prompt XOR composition_plan; force_instrumental and music_length_ms only with prompt",
+     "basis": "upstream",
+     "sources": [
+      "el_music_api"
+     ]
+    }
+   },
+   "cost": {
+    "unit": "minute",
+    "usd": 0.15,
+    "sources": [
+     "el_pricing"
+    ],
+    "note": "Billed per generation; the API pricing page lists one music rate (not per model version)."
+   },
+   "moderation": []
+  },
+  "music_v2": {
+   "kind": "music",
+   "provider": "elevenlabs",
+   "status": "active",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "music_v2",
+    "endpoint": "POST /v1/music",
+    "default_output_format": "mp3_48000_192"
+   },
+   "limits": {
+    "duration_ms": {
+     "value": {
+      "min": 3000,
+      "max": 300000
+     },
+     "basis": "stricter_upstream_pages",
+     "sources": [
+      "el_music_api",
+      "el_music_cap",
+      "el_pricing"
+     ],
+     "upstream": [
+      [
+       3000,
+       600000
+      ],
+      [
+       3000,
+       300000
+      ]
+     ],
+     "note": "The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used."
+    },
+    "prompt_max_chars": {
+     "value": null,
+     "basis": "unknown",
+     "sources": [
+      "el_music_api"
+     ],
+     "note": "Not documented."
+    },
+    "exclusive_inputs": {
+     "value": "prompt XOR composition_plan; force_instrumental and music_length_ms only with prompt",
+     "basis": "upstream",
+     "sources": [
+      "el_music_api"
+     ]
+    }
+   },
+   "cost": {
+    "unit": "minute",
+    "usd": 0.15,
+    "sources": [
+     "el_pricing"
+    ],
+    "note": "Billed per generation; the API pricing page lists one music rate (not per model version)."
+   },
+   "moderation": []
+  },
+  "music_v2_5": {
+   "kind": "music",
+   "provider": "elevenlabs",
+   "status": "active",
+   "aliases": [],
+   "upstream": {
+    "vendor": "ElevenLabs",
+    "model_id": "music_v2_5",
+    "endpoint": "POST /v1/music",
+    "default_output_format": "unknown (not listed on the compose page)"
+   },
+   "limits": {
+    "duration_ms": {
+     "value": {
+      "min": 3000,
+      "max": 300000
+     },
+     "basis": "stricter_upstream_pages",
+     "sources": [
+      "el_music_api",
+      "el_music_cap",
+      "el_pricing"
+     ],
+     "upstream": [
+      [
+       3000,
+       600000
+      ],
+      [
+       3000,
+       300000
+      ]
+     ],
+     "note": "The API reference allows 3,000-600,000 ms; the capabilities FAQ and pricing page say 5 minutes max. 300,000 is used."
+    },
+    "prompt_max_chars": {
+     "value": null,
+     "basis": "unknown",
+     "sources": [
+      "el_music_api"
+     ],
+     "note": "Not documented."
+    },
+    "exclusive_inputs": {
+     "value": "prompt XOR composition_plan; force_instrumental and music_length_ms only with prompt",
+     "basis": "upstream",
+     "sources": [
+      "el_music_api"
+     ]
+    }
+   },
+   "cost": {
+    "unit": "minute",
+    "usd": 0.15,
+    "sources": [
+     "el_pricing"
+    ],
+    "note": "Billed per generation; the API pricing page lists one music rate (not per model version)."
+   },
+   "moderation": []
   }
  },
  "sources": {
@@ -1487,17 +1727,17 @@
   "el_models": {
    "url": "https://elevenlabs.io/docs/overview/models",
    "publisher": "ElevenLabs",
-   "checked": "2026-10-19"
+   "checked": "2026-10-25"
   },
   "el_pricing": {
    "url": "https://elevenlabs.io/pricing/api",
    "publisher": "ElevenLabs",
-   "checked": "2026-10-19"
+   "checked": "2026-10-25"
   },
   "el_sfx_api": {
    "url": "https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert",
    "publisher": "ElevenLabs",
-   "checked": "2026-10-19"
+   "checked": "2026-10-25"
   },
   "el_sfx_cap": {
    "url": "https://elevenlabs.io/docs/overview/capabilities/sound-effects",
@@ -1507,12 +1747,17 @@
   "el_music_api": {
    "url": "https://elevenlabs.io/docs/api-reference/music/compose",
    "publisher": "ElevenLabs",
-   "checked": "2026-10-19"
+   "checked": "2026-10-25"
   },
   "el_music_cap": {
    "url": "https://elevenlabs.io/docs/overview/capabilities/music",
    "publisher": "ElevenLabs",
    "checked": "2026-10-19"
+  },
+  "el_tts_api": {
+   "url": "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
+   "publisher": "ElevenLabs",
+   "checked": "2026-10-25"
   },
   "obs_ep05": {
    "url": "/workspace/fail-audit/FINDINGS.md + harness ledgers pr10-95e/216/0d9 (2026-10-18)",
