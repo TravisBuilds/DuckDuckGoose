@@ -224,7 +224,47 @@ async def preflight_validate_episode_activity(
                     f"(still model: {still_model})"
                 )
     
-    # 7. Live mode: check API key
+    # 7. Prompt lint and routing check for each shot
+    from hfvg.prompt_lint import load_lint_kit, lint_violations
+    from hfvg.routing import RoutingError, plan_route
+    
+    try:
+        lint_kit = load_lint_kit(episode_id)
+    except Exception as e:
+        problems.append(f"Failed to load prompt lint kit: {e}")
+        lint_kit = None
+    
+    for shot_id, shot_data in shots_data.items():
+        if shots_subset and shot_id not in shots_subset:
+            continue
+        
+        prompt = shot_data.get("prompt", "")
+        model = shot_data.get("model", "kling")
+        duration = shot_data.get("duration", 5.0)
+        
+        # Prompt lint check
+        if lint_kit and prompt:
+            shot_meta = shot_data.get("shot_meta", {})
+            violations = lint_violations(prompt, shot_meta, lint_kit)
+            if violations:
+                for violation in violations:
+                    problems.append(f"Shot {shot_id} prompt lint: {violation}")
+        
+        # Routing check - validate that the model can handle the shot
+        try:
+            tags = shot_data.get("tags", [])
+            count = shot_data.get("shot_meta", {}).get("count", 1) if isinstance(shot_data.get("shot_meta"), dict) else 1
+            plan_route({
+                "model": model,
+                "tier": "draft" if shot_data.get("tier") == "draft" else "final",
+                "duration": duration,
+                "tags": tags,
+                "count": count,
+            })
+        except RoutingError as e:
+            problems.append(f"Shot {shot_id} routing error: {e}")
+    
+    # 8. Live mode: check API key
     if is_live:
         api_key = os.getenv("HIGGSFIELD_API_KEY")
         if not api_key:
