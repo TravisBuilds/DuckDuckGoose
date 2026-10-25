@@ -86,9 +86,33 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             if not end_prompt.strip():
                 raise ShotDataError(f"shots.json shot {sid}: empty end_prompt")
         
+        # Optional clip_prompt: the motion prompt for the clip. When present it REPLACES the still
+        # prompt for the clip submit (never appended to it); absent -> the clip uses the still prompt.
+        clip_prompt = item.get("clip_prompt")
+        if clip_prompt is not None:
+            if not isinstance(clip_prompt, str):
+                raise ShotDataError(f"shots.json shot {sid}: clip_prompt must be string, got {clip_prompt!r}")
+            if not clip_prompt.strip():
+                raise ShotDataError(f"shots.json shot {sid}: empty clip_prompt (omit the key to reuse the still prompt)")
+            clip_prompt = clip_prompt.strip()
+
+        # Optional per-shot trim for the mute picture edit (seconds into the generated clip)
+        trim_in = item.get("trim_in", 0)
+        trim_out = item.get("trim_out", duration)
+        for key, value in (("trim_in", trim_in), ("trim_out", trim_out)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ShotDataError(f"shots.json shot {sid}: {key} must be a number, got {value!r}")
+        if not (0 <= trim_in < trim_out <= duration):
+            raise ShotDataError(
+                f"shots.json shot {sid}: trim must satisfy 0 <= trim_in < trim_out <= duration "
+                f"(got trim_in={trim_in}, trim_out={trim_out}, duration={duration})"
+            )
+
         ref_keys = _require(item, "ref_keys", list, sid)
         out[sid] = {
             "prompt": prompt,  # AS-IS: never recomposed
+            # (the still prompt; the clip uses clip_prompt when present)
+            "clip_prompt": clip_prompt,  # None -> clip reuses the still prompt; else replaces it
             "end_prompt": end_prompt,  # Optional: for _end still when end_frame=true
             "shot_meta": {
                 "count": count,
@@ -106,6 +130,7 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
                 "aspect_ratio": str(item.get("aspect_ratio", "9:16")),
                 "end_frame": end_frame,
             },
+            "trim": {"in": float(trim_in), "out": float(trim_out)},
             "tags": ["wet"] if wet else [],
             "ref_keys": [str(k) for k in ref_keys],
         }
@@ -188,6 +213,8 @@ def merge_into_shots(
         new = dict(shot)
         new["prompt"] = plan["prompt"]
         new["end_prompt"] = plan.get("end_prompt")  # Optional: for _end still
+        new["clip_prompt"] = plan.get("clip_prompt")  # Optional: replaces prompt for the clip only
+        new["trim"] = dict(plan.get("trim") or {"in": 0.0, "out": float(plan["params"]["duration"])})
         new["shot_meta"] = plan["shot_meta"]
         new["params"] = {**dict(shot.get("params") or {}), **plan["params"]}
         new["tags"] = sorted(set(shot.get("tags") or []) | set(plan["tags"]))

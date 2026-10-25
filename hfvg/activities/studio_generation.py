@@ -756,7 +756,8 @@ async def submit_clip_job_enforced(
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
     
     # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
-    enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live)
+    # Clip lint runs on the FINAL submitted clip prompt (clip_prompt or reword), with the motion rules
+    enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live, kind="clip")
     
     if use_live:
         # A shot never runs without its planned refs or its END frame
@@ -770,7 +771,11 @@ async def submit_clip_job_enforced(
             )
 
         # Preflight: validate the clip against the model's documented limits BEFORE any upload,
-        # estimate or reserve. Raises PreflightError (non-retryable).
+        # estimate or reserve. The prompt parameter is the FINAL clip prompt exactly as submitted:
+        # the shot's clip_prompt (which REPLACES the still prompt), the still prompt when there is no
+        # clip_prompt, or a moderation reword of it. So the model limit (Kling: 2500 chars) is checked
+        # on the string the provider receives.
+        # Raises PreflightError (non-retryable).
         from hfvg import preflight, model_caps
         clip_violations = preflight.preflight_shot(
             {"id": shot_id, "clip_prompt": prompt, "duration": duration,

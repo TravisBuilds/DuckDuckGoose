@@ -6,7 +6,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from hfvg import budget
@@ -22,6 +22,8 @@ with workflow.unsafe.imports_passed_through():
         render_edit,
         trim_clips,
     )
+    from hfvg.activities.media import assemble_mute_edit
+    from hfvg.activities.qc import check_assembly_qc
     from hfvg.activities.credit_activities import update_credit_cap_activity
     from hfvg.activities.studio_generation import check_live_mode_and_g108
     from hfvg.activities.g1_plan import compute_g1_plan_activity
@@ -71,6 +73,9 @@ class EpisodeWorkflowV2:
         self.rejection_reasons: dict[str, str] = {}  # shot_id -> reason (G2 reject_shot)
         self.launched_shot_plans: dict[str, dict] = {}  # shot_id -> plan of the latest still child
         self.shot_outcomes: dict[str, dict] = {}  # shot_id -> result of the latest finished child
+        self.assembly_shots: list[dict] = []  # shot plans in edit order (set when clips are done)
+        self.assembly_sig: list | None = None  # clip outcomes the current mute edit was built from
+        self.assembly_version: int = 0
         self.clip_retries: dict[str, int] = {}  # shot_id -> paid clip retries started (G3 round)
         self.pending_clip_retries: dict[str, str] = {}  # shot_id -> clip-retry workflow id
         self.clip_retry_log: list[dict] = []  # audit: one row per clip retry started
@@ -609,21 +614,31 @@ class EpisodeWorkflowV2:
         workflow.logger.info(f"All {len(results)} clips completed")
         
         # ================================================================
-        # Edit & Audio (stubbed - from separate PR #8)
+        # Picture Assembly (Round 3): mute 9:16 edit of the approved clips + QC
         # ================================================================
-        workflow.logger.info("=== EDIT & AUDIO ===")
-        self.state.stage = PipelineStage.MUTE_EDIT
-        
-        # Placeholder for edit and audio stages
-        workflow.logger.info("[PLACEHOLDER] Edit and audio stages from PR #8")
+        workflow.logger.info("=== PICTURE ASSEMBLY ===")
+        self.assembly_shots = list(shots)
+        await self._run_picture_assembly(episode_id)
         
         # ================================================================
         # GATE 3: FINAL CUT
         # ================================================================
         workflow.logger.info("=== GATE 3: FINAL CUT ===")
+        # Clip retries (G-RETRY-1) may run while parked here; approval only counts once none is pending,
+        # the mute edit is up to date with the latest clips (a landed retry rebuilds it) and its QC is
+        # not blocking (FAIL / NEEDS_REVIEW hold the gate until a passing rebuild or a human accept).
         self.state.current_gate = "G_FINAL_CUT"
-        # Clip retries (G-RETRY-1) may run while parked here; approval only counts once none is pending
-        await workflow.wait_condition(lambda: self.approved_g_final_cut and not self.pending_clip_retries)
+        while True:
+            await workflow.wait_condition(
+                lambda: not self.pending_clip_retries and (
+                    self._assembly_stale() or (self.approved_g_final_cut and not self._assembly_blocking())
+                )
+            )
+            if self._assembly_stale():
+                workflow.logger.info("[PICTURE LOCK] clips changed since the last edit; re-assembling")
+                await self._run_picture_assembly(episode_id)
+                continue
+            break
         self.passed_gates.append("G_FINAL_CUT")
         workflow.logger.info("[APPROVED G_FINAL] Final cut approved")
         
@@ -816,6 +831,140 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot reject {shot_id}: {problem}", non_retryable=True)
     
+    # ---------------------------------------------------------------- picture assembly helpers
+    def _assembly_plan(self) -> tuple[list[dict], dict[str, str], list[str], list[dict]]:
+        """Edit plan from the LATEST shot outcomes, in shot order: completed, non-rejected shots with
+        their trims. Returns (entries, clip_paths, completed shots without a local clip, excluded)."""
+        entries: list[dict] = []
+        paths: dict[str, str] = {}
+        missing: list[str] = []
+        excluded: list[dict] = []
+        for shot in self.assembly_shots:
+            sid = shot["shot_id"]
+            outcome = self.shot_outcomes.get(sid) or {}
+            if self.state.shot_decisions.get(sid) == "rejected" or outcome.get("status") == "rejected":
+                excluded.append({"shot_id": sid, "status": "rejected"})
+                continue
+            if outcome.get("status") != "completed":
+                excluded.append({"shot_id": sid, "status": outcome.get("status") or "missing"})
+                continue
+            path = outcome.get("clip_path")
+            if not path:
+                missing.append(sid)
+                continue
+            params = shot.get("params") or {}
+            duration = float(params.get("duration", 5.0))
+            trim = shot.get("trim") or {}
+            entries.append({
+                "shot_id": sid,
+                "duration": duration,
+                "trim_in": float(trim.get("in", 0.0)),
+                "trim_out": float(trim.get("out", duration)),
+            })
+            paths[sid] = path
+        return entries, paths, missing, excluded
+
+    def _assembly_signature(self) -> list:
+        sig = []
+        for shot in self.assembly_shots:
+            o = self.shot_outcomes.get(shot["shot_id"]) or {}
+            sig.append([shot["shot_id"], o.get("status"), o.get("clip_url"), o.get("clip_path"),
+                        self.state.shot_decisions.get(shot["shot_id"])])
+        return sig
+
+    def _assembly_stale(self) -> bool:
+        """The clips changed (e.g. a clip retry landed) since the edit was last assembled."""
+        return self.assembly_sig is not None and self._assembly_signature() != self.assembly_sig
+
+    def _assembly_blocking(self) -> bool:
+        qc = self.state.assembly_qc or {}
+        return bool(qc.get("blocking")) and self.state.assembly_acceptance is None
+
+    async def _run_picture_assembly(self, episode_id: str) -> None:
+        """Assemble the mute edit from the approved clips, run its QC and record both in state.
+
+        Never silently skipped: a completed shot without a local clip, an assembly error or a QC that
+        cannot verify (e.g. no animal checker) end in a blocking NEEDS_REVIEW verdict; a still-only
+        shot or an animal count / duck mismatch is a blocking FAIL. WATCH is recorded for the
+        reviewer. NO_CLIPS (every shot rejected/failed, each already escalated) and DRY_RUN
+        (placeholder clips) are recorded verdicts, not passes on pixels, and do not block."""
+        self.state.stage = PipelineStage.MUTE_EDIT
+        self.assembly_sig = self._assembly_signature()
+        self.assembly_version += 1
+        self.state.assembly_acceptance = None  # an acceptance applies to one edit only
+        entries, paths, missing, excluded = self._assembly_plan()
+        for sid, path in paths.items():
+            self.state.output_paths.setdefault(sid, {})["clip"] = path
+        qc: dict
+        result: dict | None = None
+        if missing:
+            qc = {"verdict": "NEEDS_REVIEW",
+                  "reason": f"completed shot(s) without a local clip file: {', '.join(missing)}"}
+        elif not entries:
+            # Every shot was rejected or failed (each already escalated per shot in failed_shots):
+            # nothing to edit. Recorded and shown at G_FINAL_CUT; not a QC verdict on pixels.
+            qc = {"verdict": "NO_CLIPS",
+                  "reason": "no approved clips to assemble (all shots rejected/failed; see failed_shots)"}
+        else:
+            workflow.logger.info(f"Assembling {len(entries)} clips into the mute edit")
+            try:
+                result = await workflow.execute_activity(
+                    assemble_mute_edit,
+                    args=[episode_id, entries, paths, None],
+                    start_to_close_timeout=timedelta(minutes=30),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
+                                             maximum_interval=timedelta(seconds=10)),
+                )
+                self.state.assembly_path = result["assembly_path"]
+                self.state.assembly_manifest = result["manifest"]
+                metas = {}
+                for shot in self.assembly_shots:
+                    if shot["shot_id"] in paths:
+                        metas[shot["shot_id"]] = shot.get("shot_meta") or {}
+                qc = await workflow.execute_activity(
+                    check_assembly_qc,
+                    args=[result["assembly_path"], result["manifest"], episode_id, metas],
+                    start_to_close_timeout=timedelta(minutes=15),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
+                                             maximum_interval=timedelta(seconds=10)),
+                )
+            except ActivityError as e:
+                qc = {"verdict": "NEEDS_REVIEW", "reason": f"mute edit / QC failed: {e.cause or e}"}
+        qc = dict(qc)
+        qc["blocking"] = qc["verdict"] in ("FAIL", "NEEDS_REVIEW")
+        qc["escalate"] = qc["verdict"] == "NEEDS_REVIEW" or bool(qc.get("escalate"))
+        qc["excluded_shots"] = excluded
+        qc["clip_watch_shots"] = sorted(
+            sid for sid in paths
+            if ((self.shot_outcomes.get(sid) or {}).get("clip_motion") or {}).get("verdict") == "WATCH"
+        )
+        qc["edit_version"] = self.assembly_version
+        self.state.assembly_qc = qc
+        if qc["blocking"]:
+            workflow.logger.error(f"[PICTURE LOCK] mute edit QC {qc['verdict']}: {qc['reason']} (G_FINAL_CUT held)")
+            if self.approved_g_final_cut:  # an approval sent before this verdict does not count
+                self.approved_g_final_cut = False
+                self.final_cut_refusals.append(
+                    f"approval withdrawn: assembly QC {qc['verdict']}: {qc['reason']}")
+        else:
+            if qc["verdict"] == "WATCH" or qc["clip_watch_shots"]:
+                workflow.logger.warning(f"[PICTURE LOCK] mute edit QC WATCH (review): {qc.get('reason')}")
+            self.state.stage = PipelineStage.PICTURE_LOCK
+            workflow.logger.info(f"[PICTURE LOCK] mute edit QC {qc['verdict']}")
+
+    def _assembly_view(self) -> dict:
+        return {
+            "path": self.state.assembly_path,
+            "manifest": dict(self.state.assembly_manifest or {}),
+            "qc": dict(self.state.assembly_qc or {}),
+            "acceptance": dict(self.state.assembly_acceptance) if self.state.assembly_acceptance else None,
+            "blocking": self._assembly_blocking(),
+            "stale": self._assembly_stale(),
+            "edit_version": self.assembly_version,
+        }
+
     @workflow.signal
     async def approve_g_final_cut(self):
         """Approve final cut (G_FINAL_CUT): After edit.
@@ -828,7 +977,29 @@ class EpisodeWorkflowV2:
             self.final_cut_refusals.append(f"clip retry pending for: {pending}")
             workflow.logger.warning(f"Final cut approval ignored: clip retry pending for {pending}")
             return
+        if self._assembly_blocking():
+            qc = self.state.assembly_qc
+            refusal = f"assembly QC {qc.get('verdict')}: {qc.get('reason')}"
+            self.final_cut_refusals.append(refusal)
+            workflow.logger.warning(f"Final cut approval ignored: {refusal}")
+            return
         self.approved_g_final_cut = True
+
+    @workflow.signal
+    def accept_assembly_qc(self, reason: str):
+        """Human review of a blocking mute-edit QC verdict (FAIL / NEEDS_REVIEW): accept it with a
+        reason so G_FINAL_CUT can be approved. Applies to the current edit only (a rebuild resets it)."""
+        qc = self.state.assembly_qc or {}
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("assembly QC acceptance ignored: a reason is required")
+            return
+        if not qc.get("blocking"):
+            self.final_cut_refusals.append("assembly QC acceptance ignored: no blocking verdict to accept")
+            return
+        self.state.assembly_acceptance = {
+            "reason": reason.strip(), "verdict": qc.get("verdict"), "edit_version": self.assembly_version,
+        }
+        workflow.logger.warning(f"Assembly QC {qc.get('verdict')} accepted by reviewer: {reason}")
     
     @workflow.signal
     def raise_credit_cap(self, new_cap: int):
@@ -1217,6 +1388,9 @@ class EpisodeWorkflowV2:
             )
         if prompt_override:
             shot_plan["prompt"] = prompt_override
+            # the override is the prompt for the re-run CLIP: it replaces the shot's clip_prompt too
+            # (otherwise clip_prompt would win and the override would be silently ignored)
+            shot_plan["clip_prompt"] = prompt_override
         shot_plan["parent_workflow_id"] = workflow.info().workflow_id
         shot_plan["clip_only"] = {
             "n": n,
@@ -1292,6 +1466,7 @@ class EpisodeWorkflowV2:
             "pending_clip_retries": list(self.pending_clip_retries),
             "clip_retry_log": [dict(r) for r in self.clip_retry_log],
             "final_cut_refusals": list(self.final_cut_refusals),
+            "assembly": self._assembly_view(),
             "shot_outcomes": {
                 k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url")}
                 for k, v in self.shot_outcomes.items()

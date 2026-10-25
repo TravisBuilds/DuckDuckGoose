@@ -1969,7 +1969,7 @@ test_mutation 244 "Moderation resubmit takes a per-round paid retry hold" \
 test_mutation 245 "Workflow resubmits the reworded prompt" \
     "hfvg/workflows/shot.py" \
     "tests/test_moderation_recovery.py::TestLadderInWorkflow::test_blocked_clip_reworded_and_resubmitted_once" \
-    sed -i 's/clip_prompt = mod_clip\["prompt"\] or shot_plan\["prompt"\]/clip_prompt = shot_plan["prompt"]  # MUTATED/'
+    sed -i 's/^        return self\.moderation\["clip"\]\["prompt"\] or self\._submitted_base_prompt("clip", shot_plan)$/        return self._submitted_base_prompt("clip", shot_plan)  # MUTATED/'
 
 # 246: G-REC-1l: Workflow counts ladder steps already paid this round
 test_mutation 246 "Workflow counts ladder steps already paid this round" \
@@ -2048,6 +2048,128 @@ test_mutation 258 "Stall alert status filter in the API" \
     "hfvg/activities/reconcile.py" \
     "tests/test_reconciler.py::TestStallWatchdog::test_alerts_visible_in_api" \
     sed -i 's/^        clauses\.append("status = ?")$/        clauses.append("? IS NOT NULL")  # MUTATED/'
+# Round 3 mutations: picture assembly, motion QC, clip prompts (G-AUD-1a, G-QC-2, G-PROMPT-1)
+
+# 259: G-AUD-1a-1: Assembly path is saved to workflow state
+test_mutation 259 "Mute edit path is saved to workflow state (and exposed)" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
+    sed -i 's/^                self\.state\.assembly_path = result\["assembly_path"\]$/                pass  # MUTATED/'
+
+# 260: G-AUD-1a-2: A completed shot without a local clip escalates (never edited around)
+test_mutation 260 "Completed shot without a local clip -> NEEDS_REVIEW" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_completed_shot_without_local_clip_escalates" \
+    sed -i 's/^        if missing:$/        if False:  # MUTATED/'
+
+# 261: G-AUD-1a-3: Assembly is idempotent (up-to-date edit reused)
+test_mutation 261 "Up-to-date mute edit is reused (idempotency)" \
+    "hfvg/activities/media.py" \
+    "tests/test_picture_assembly_round3.py::TestAssembleMuteEdit::test_assemble_mute_edit_idempotent" \
+    sed -i 's/^        if old\.get("input_key") == input_key and old\.get("size_bytes") == assembly_path\.stat()\.st_size:$/        if False:  # MUTATED/'
+
+# 262: G-QC-2a: Motion check runs on the assembly
+test_mutation 262 "Assembly QC runs the stillgate on the mute edit" \
+    "hfvg/activities/qc.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyQC::test_still_only_shot_fails" \
+    sed -i 's/^        rows = await asyncio\.to_thread(check_motion, assembly_path, manifest)$/        rows = []  # MUTATED/'
+
+# 263: G-QC-2b: Stillgate decodes at its analysis fps (30 fps edit windows)
+test_mutation 263 "Stillgate resamples to its analysis fps before windowing" \
+    "hfvg/qc/motion.py" \
+    "tests/test_picture_assembly_round3.py::TestStillgate::test_stillgate_windows_use_analysis_fps_on_30fps_edit" \
+    sed -i 's/^        "-vf", f"fps={fps},scale={W}:{H}",$/        "-vf", f"scale={W}:{H}",  # MUTATED/'
+
+# 264: G-PROMPT-1a: Clip prompt is parsed from shots.json
+test_mutation 264 "shots.json clip_prompt field is parsed" \
+    "hfvg/shot_data.py" \
+    "tests/test_picture_assembly_round3.py::TestShotData::test_shot_data_clip_prompt_parsing" \
+    sed -i 's/^            "clip_prompt": clip_prompt,  # None.*$/            "clip_prompt": None,  # MUTATED/'
+
+# 265: G-PROMPT-1b: Clip prompt REPLACES the still prompt for the clip submit
+test_mutation 265 "Clip submit uses clip_prompt alone (not still prompt)" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_picture_assembly_round3.py::TestClipPromptInWorkflow::test_clip_prompt_replaces_still_prompt" \
+    sed -i 's/^        if kind == "clip" and shot_plan\.get("clip_prompt"):$/        if False:  # MUTATED/'
+
+# 266: G-PROMPT-1c: Preflight runs on the FINAL submitted clip prompt
+test_mutation 266 "Live clip submit preflights the final clip prompt" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_picture_assembly_round3.py::TestClipPromptLimits::test_submit_clip_preflights_final_prompt" \
+    sed -i 's/^        clip_violations = preflight\.preflight_shot($/        clip_violations = [] and preflight.preflight_shot(  # MUTATED/'
+
+# 267: G-AUD-1a-4: Edit input key covers clip content (a changed clip rebuilds)
+test_mutation 267 "Mute edit key includes clip content hash" \
+    "hfvg/activities/media.py" \
+    "tests/test_picture_assembly_round3.py::TestAssembleMuteEdit::test_assemble_mute_edit_idempotent" \
+    sed -i 's/^        key_src\.append(\[e\["shot_id"\], e\["sha256"\], e\["trim_in"\], e\["trim_out"\]\])$/        key_src.append([e["shot_id"], e["trim_in"], e["trim_out"]])  # MUTATED/'
+
+# 268: G-PROMPT-1d: merge_into_shots carries clip_prompt
+test_mutation 268 "merge_into_shots carries clip_prompt to the plan" \
+    "hfvg/shot_data.py" \
+    "tests/test_picture_assembly_round3.py::TestShotData::test_merge_carries_clip_prompt_and_trim" \
+    sed -i 's/^        new\["clip_prompt"\] = plan\.get("clip_prompt").*$/        pass  # MUTATED/'
+
+# 269: G-QC-2c: NEEDS_REVIEW (no checker) blocks G_FINAL_CUT
+test_mutation 269 "Assembly NEEDS_REVIEW verdict is blocking" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
+    sed -i 's/^        qc\["blocking"\] = qc\["verdict"\] in ("FAIL", "NEEDS_REVIEW")$/        qc["blocking"] = qc["verdict"] in ("FAIL",)  # MUTATED/'
+
+# 270: G-QC-2d: Final cut approval refused while assembly QC is blocking
+test_mutation 270 "approve_g_final_cut refuses a blocking assembly verdict" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
+    sed -i 's/^        if self\._assembly_blocking():$/        if False:  # MUTATED/'
+
+# 271: G-QC-2e: An early approval is withdrawn by a blocking verdict
+test_mutation 271 "Blocking assembly verdict withdraws an earlier approval" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_still_only_fail_blocks_until_clip_retry_rebuilds" \
+    sed -i 's/^            if self\.approved_g_final_cut:  # an approval sent before this verdict does not count$/            if False:  # MUTATED/'
+
+# 272: G-QC-2f: Per-clip stillgate in review_clip fails a still-only clip
+test_mutation 272 "review_clip fails a still-only clip (per-clip stillgate)" \
+    "hfvg/activities/qc.py" \
+    "tests/test_picture_assembly_round3.py::TestStillgate::test_live_review_clip_runs_stillgate_per_clip" \
+    sed -i 's/^            if motion\["verdict"\] == "FAIL":$/            if False:  # MUTATED/'
+
+# 273: G-QC-2g: No animal checker escalates (never a silent pass)
+test_mutation 273 "No animal checker -> NEEDS_REVIEW" \
+    "hfvg/qc/animal_count.py" \
+    "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_no_checker_escalates_never_passes" \
+    sed -i 's/^        "status": NEEDS_REVIEW,$/        "status": PASS,  # MUTATED/'
+
+# 274: G-AUD-1a-5: API exposes the mute edit path
+test_mutation 274 "Episode state API exposes assembly_path" \
+    "api/main.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyAPI::test_state_exposes_assembly_and_accept_sends_signal" \
+    sed -i 's/^        assembly_path=(state\.get("assembly") or {})\.get("path"),$/        assembly_path=None,  # MUTATED/'
+
+# 275: G-PROMPT-1e: Clip submit lints with the clip (motion) rules
+test_mutation 275 "Clip lint uses the motion rules for kind=clip" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_picture_assembly_round3.py::TestClipPromptLimits::test_submit_clip_lints_final_prompt_with_clip_rules" \
+    sed -i 's/^        check = clip_lint_violations if kind == "clip" else lint_violations$/        check = lint_violations  # MUTATED/'
+
+# 276: G-AUD-1a-6: Worker registers the assembly activities
+test_mutation 276 "Production worker registers assemble_mute_edit" \
+    "hfvg/worker.py" \
+    "tests/test_picture_assembly_round3.py::test_worker_registers_assembly_activities" \
+    sed -i '/^    activities\.assemble_mute_edit,$/d'
+
+# 277: G-PROMPT-1f: Moderation rewords the clip prompt actually submitted
+test_mutation 277 "Clip moderation reword starts from the submitted clip prompt" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_picture_assembly_round3.py::TestClipPromptInWorkflow::test_moderation_rewords_the_submitted_clip_prompt" \
+    sed -i 's/^            "prompt": mod\["prompt"\] or self\._submitted_base_prompt(kind, shot_plan),$/            "prompt": mod["prompt"] or shot_plan["prompt"],  # MUTATED/'
+
+# 278: G-AUD-1a-7: Per-shot trims come from the shot plan
+test_mutation 278 "Assembly plan uses the shot's trim_in" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
+    sed -i 's/^                "trim_in": float(trim\.get("in", 0\.0)),$/                "trim_in": 0.0,  # MUTATED/'
+
 # Print final summary
 print_summary
 exit_code=$?
