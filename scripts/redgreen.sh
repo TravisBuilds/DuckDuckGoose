@@ -2550,7 +2550,7 @@ test_mutation 333 "episode id ascii digits" \
 test_mutation 334 "cap raise at final gate" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round5_guards.py::test_dry_run_final_gate_actions_real_workflow" \
-    sed -i 's/^                lambda: self.state.new_credit_cap > 0 or (not self.pending_clip_retries and ($/                lambda: (not self.pending_clip_retries and (/'
+    sed -i 's/lambda: self.state.new_credit_cap > 0 or (not (self.pending_clip_retries or self.pending_recompose) and (/lambda: (not (self.pending_clip_retries or self.pending_recompose) and (/'
 
 # 335: G-UI-1: per-shot G2 approve records the decision
 test_mutation 335 "per-shot approve recorded" \
@@ -2682,7 +2682,7 @@ test_mutation 355 "reservation upper bound" \
 test_mutation 356 "job row recorded before the call" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_cost.py::test_job_row_is_reserved_during_the_provider_call" \
-    sed -i 's/^    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)$/    pass  # MUTATED/'
+    sed -i 's/if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):/pass  # MUTATED/'
 
 # 357: G-AUD-COST: ELEVENLABS_USD_PER_CREDIT fails closed on zero/negative
 test_mutation 357 "usd per credit fails closed" \
@@ -2845,7 +2845,7 @@ test_mutation 382 "trim longer than the clip refused" \
 test_mutation 383 "trims applied in assembly" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
-    sed -i 's/^                "trim_in": float(trim.get("in", 0.0)),$/                "trim_in": 0.0,  # MUTATED/'
+    sed -i 's/"trim_in": float(override.get("trim_in", trim.get("in", 0.0))),/"trim_in": 0.0,  # MUTATED/'
 
 # 384: QC constraints: no checker -> NEEDS_REVIEW (fail closed, never a silent pass)
 test_mutation 384 "qc_fail_if without checker needs review" \
