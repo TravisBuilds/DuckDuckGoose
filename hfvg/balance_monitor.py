@@ -97,6 +97,31 @@ class BalanceMonitor:
         warnings = []
         errors = []
         
+        # Task 14: In DRY_RUN mode, skip network calls and return mock data
+        dry_run = os.getenv("DRY_RUN", "true").lower() in ("true", "1")
+        if dry_run:
+            return BalanceCheckResult(
+                timestamp=timestamp,
+                providers={
+                    "elevenlabs": ProviderBalance(
+                        provider="elevenlabs",
+                        balance_usd=None,
+                        source="manual",
+                        age_seconds=0.0,
+                        details={"note": "DRY_RUN mode - no network calls"},
+                    ),
+                    "higgsfield": ProviderBalance(
+                        provider="higgsfield",
+                        balance_usd=Decimal("100.00"),
+                        source="manual",
+                        age_seconds=0.0,
+                        details={"note": "DRY_RUN mode - no network calls"},
+                    ),
+                },
+                warnings=["DRY_RUN mode - no actual balance checks performed"],
+                errors=[],
+            )
+        
         # Check ElevenLabs
         try:
             el_balance = await self._check_elevenlabs_balance()

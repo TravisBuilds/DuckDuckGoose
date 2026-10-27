@@ -157,3 +157,73 @@ async def test_balance_check_with_mock(tmp_path):
         assert result.providers["elevenlabs"].balance_usd == Decimal("50.00")
         assert result.providers["higgsfield"].balance_usd == Decimal("100.00")
         assert len(result.errors) == 0
+
+
+def test_balance_cli_fresh_db(tmp_path, monkeypatch):
+    """Task 14: hfvg balance works on fresh DB without manual init."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    db_path = str(tmp_path / "fresh.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    
+    # Don't initialize DB - the command should handle it
+    # Run balance command
+    result = subprocess.run(
+        [sys.executable, "-m", "hfvg.cli", "balance"],
+        capture_output=True,
+        text=True
+    )
+    
+    # Should exit zero (no "no such table" error)
+    assert result.returncode == 0, f"CLI should handle fresh DB, stderr: {result.stderr}"
+    assert "no such table" not in result.stderr.lower()
+
+
+def test_balance_cli_dry_run_with_1(tmp_path, monkeypatch):
+    """Task 14: DRY_RUN=1 works the same as DRY_RUN=true."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DRY_RUN", "1")  # Use "1" instead of "true"
+    db_path = str(tmp_path / "studio.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    
+    # Run balance command
+    result = subprocess.run(
+        [sys.executable, "-m", "hfvg.cli", "balance"],
+        capture_output=True,
+        text=True
+    )
+    
+    # Should exit zero and indicate dry run
+    assert result.returncode == 0, f"CLI should work with DRY_RUN=1, stderr: {result.stderr}"
+    assert "DRY_RUN" in result.stderr.upper() or "dry" in result.stderr.lower()
+
+
+@pytest.mark.asyncio
+async def test_balance_check_no_network_calls_in_dry_run(tmp_path, respx_mock):
+    """Task 14: Balance check makes no network calls in DRY_RUN mode."""
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    
+    db_path = str(tmp_path / "test.db")
+    await init_balance_tables(db_path)
+    
+    # Set DRY_RUN via monkeypatch
+    import os
+    original_dry_run = os.environ.get("DRY_RUN")
+    os.environ["DRY_RUN"] = "true"
+    
+    try:
+        monitor = BalanceMonitor(db_path)
+        
+        # respx_mock will fail if any HTTP requests are made
+        result = await monitor.check_all_balances()
+        
+        # Verify result is returned but marked as DRY_RUN
+        assert "elevenlabs" in result.providers
+        assert "higgsfield" in result.providers
+        assert len(result.warnings) > 0
+        assert any("DRY_RUN" in w for w in result.warnings)
+    finally:
+        if original_dry_run is None:
+            os.environ.pop("DRY_RUN", None)
+        else:
+            os.environ["DRY_RUN"] = original_dry_run

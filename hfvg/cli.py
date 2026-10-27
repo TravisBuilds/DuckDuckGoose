@@ -1005,7 +1005,8 @@ def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_
 def check_balance(json_output: bool):
     """Check provider balance status."""
     import sys
-    from hfvg.balance_monitor import BalanceMonitor
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    from hfvg.budget import BudgetLedger
     
     # Use DATABASE_PATH env var directly (consistent with other commands)
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
@@ -1015,6 +1016,11 @@ def check_balance(json_output: bool):
         click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
     
     async def _check():
+        # Task 14: Initialize DB tables first to avoid "no such table" errors
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await init_balance_tables(db_path)
+        
         monitor = BalanceMonitor(db_path)
         result = await monitor.check_all_balances()
         return result
