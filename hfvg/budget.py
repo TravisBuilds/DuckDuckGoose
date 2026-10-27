@@ -638,9 +638,12 @@ class BudgetLedger:
         if row is None:
             return status
         balance, set_at, set_by, note, after_txn_id = row
+        # Task 10: Only count Higgsfield spend (exclude el_* ElevenLabs lines)
         async with db.execute("""
-            SELECT COALESCE(SUM(amount), 0) FROM budget_transactions
-            WHERE txn_type = 'commit' AND txn_id > ?
+            SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt
+            JOIN budget_lines bl ON bt.line_id = bl.line_id
+            WHERE bt.txn_type = 'commit' AND bt.txn_id > ?
+            AND bl.line_name NOT LIKE 'el_%'
         """, (after_txn_id,)) as cur:
             spent_since = (await cur.fetchone())[0]
         status.update({

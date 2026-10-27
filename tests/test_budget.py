@@ -338,6 +338,36 @@ async def test_gc01_counts_spend_since_balance_entry():
 
 
 @pytest.mark.asyncio
+async def test_balance_status_excludes_elevenlabs_spend():
+    """Task 10: Balance status only counts Higgsfield spend, excludes el_* ElevenLabs lines."""
+    ledger, path = create_test_ledger()
+    try:
+        # Set up Higgsfield line and ElevenLabs line
+        await ledger.set_line("ep88", "L1_video", 50_000_000)
+        await ledger.set_line("ep88", "el_narration", 20_000_000)
+        
+        # Set manual balance
+        await ledger.set_manual_balance(100_000_000, "test", "balance 100.00")
+        
+        # Commit spend on Higgsfield line
+        await ledger.reserve("ep88", "L1_video", 3_000_000)
+        await ledger.commit("ep88", "L1_video", 3_000_000, 3_000_000)
+        
+        # Commit spend on ElevenLabs line
+        await ledger.reserve("ep88", "el_narration", 2_000_000)
+        await ledger.commit("ep88", "el_narration", 2_000_000, 2_000_000)
+        
+        # Balance status should only count Higgsfield spend (3.00), not ElevenLabs (2.00)
+        status = await ledger.get_balance_status()
+        assert status["manual_balance_usd_micros"] == 100_000_000
+        assert status["spent_since_entry_usd_micros"] == 3_000_000, \
+            "Should only count Higgsfield L1_video spend, not el_narration"
+        assert status["balance_remaining_usd_micros"] == 97_000_000  # 100.00 - 3.00
+    finally:
+        _cleanup(path)
+
+
+@pytest.mark.asyncio
 async def test_live_preflight_requires_manual_balance():
     """require_balance=True (live paid jobs) fails closed when no manual balance exists."""
     ledger, path = create_test_ledger()
