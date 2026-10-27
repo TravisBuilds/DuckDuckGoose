@@ -5,7 +5,7 @@
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [x] 4. clip_estimate resolution for Seedance
-- [x] 12. 403 handling resumable (body match, workflow pause)
+- [x] 12. 403 handling resumable (body match, workflow pause, resume endpoint, test) [7d3ebb7]
 - [x] 11. Balance gate scoping (provider-specific, DRY_RUN guard, remove default key, stale=warn)
 - [x] 8. config.get_higgsfield fixes (use real env vars, log redacted exceptions)
 - [x] 10. budget.py Higgsfield-only gating
@@ -15,6 +15,9 @@
 - [x] 5. Edit recipe partial (fps, recipe, tail_hold_s, dissolves, dry-run)
 - [x] 7. Duplicates removal (episode_v2.py and audio_mix.py)
 - [x] 9. test path fixture (appears already fixed or different issue)
+
+## CI
+- [x] ffmpeg apt retry and cache [17cb166]
 
 ## GAPs
 - [ ] GAP-32: Recompose meta/headcount endpoint
