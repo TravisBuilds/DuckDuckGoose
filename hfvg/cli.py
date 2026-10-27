@@ -1007,7 +1007,12 @@ def check_balance(json_output: bool):
     import sys
     from hfvg.balance_monitor import BalanceMonitor
     
-    db_path = config.get_database_path()
+    # Use DATABASE_PATH env var directly (consistent with other commands)
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Honor DRY_RUN - balance checks are read-only but respect the flag
+    if config.DRY_RUN:
+        click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
     
     async def _check():
         monitor = BalanceMonitor(db_path)
@@ -1027,7 +1032,11 @@ def check_balance(json_output: bool):
     
     for provider, balance in result.providers.items():
         click.echo(f"{provider.upper()}:")
-        click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        # Handle None balance (unknown/error states like 401)
+        if balance.balance_usd is not None:
+            click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        else:
+            click.echo(f"  Balance: Unknown (see details)")
         click.echo(f"  Source: {balance.source}")
         if balance.age_seconds > 0:
             age_hours = balance.age_seconds / 3600
