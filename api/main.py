@@ -1025,6 +1025,32 @@ async def request_delivery_rebuild(
     return {"success": True, "episode_id": episode_id, "message": "Delivery rebuild requested"}
 
 
+@app.post("/api/episodes/{episode_id}/assembly/rebuild")
+async def request_edit_rebuild(
+    episode_id: str,
+    request: AssemblyAcceptRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (reason
+    required). Picture only, no generation; the delivery is rebuilt for the new edit."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("request_edit_rebuild", request.reason.strip())
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error requesting edit rebuild: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Edit rebuild requested"}
+
+
 def final_cut_blockers(state: dict) -> list[str]:
     """Why G_FINAL_CUT cannot be approved right now (empty = allowed). Mirrors the workflow's own
     approve_g_final_cut refusals: not parked at the gate, clip retry pending, blocking assembly QC
