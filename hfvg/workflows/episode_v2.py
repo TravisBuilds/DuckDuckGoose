@@ -1179,7 +1179,14 @@ class EpisodeWorkflowV2:
             return "no clip outcome for this shot"
         if self.state.shot_decisions.get(shot_id) == "rejected":
             return "still was rejected at G2"
-        if outcome.get("status") != "needs_review":
+        # A clip that LANDED (paid) but failed a technical clip QC check ("QC failed: ...", e.g. a
+        # provider returning 720x1276 for 720x1280) is terminal without escalation; a reviewer may
+        # keep it the same way as a needs_review clip instead of paying for a retry.
+        fail_reason = str(outcome.get("error") or next(
+            (fs.get("reason") or fs.get("error") or "" for fs in self.state.failed_shots
+             if isinstance(fs, dict) and fs.get("shot_id") == shot_id), ""))
+        landed_qc_fail = outcome.get("status") == "failed" and fail_reason.startswith("QC failed:")
+        if outcome.get("status") != "needs_review" and not landed_qc_fail:
             return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
         if not outcome.get("clip_url"):
             return "no clip landed for this shot"
@@ -1752,7 +1759,14 @@ class EpisodeWorkflowV2:
             return "no clip outcome for this shot"
         if self.state.shot_decisions.get(shot_id) == "rejected":
             return "still was rejected at G2"
-        if outcome.get("status") != "needs_review":
+        # A clip that LANDED (paid) but failed a technical clip QC check ("QC failed: ...", e.g. a
+        # provider returning 720x1276 for 720x1280) is terminal without escalation; a reviewer may
+        # keep it the same way as a needs_review clip instead of paying for a retry.
+        fail_reason = str(outcome.get("error") or next(
+            (fs.get("reason") or fs.get("error") or "" for fs in self.state.failed_shots
+             if isinstance(fs, dict) and fs.get("shot_id") == shot_id), ""))
+        landed_qc_fail = outcome.get("status") == "failed" and fail_reason.startswith("QC failed:")
+        if outcome.get("status") != "needs_review" and not landed_qc_fail:
             return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
         if not outcome.get("clip_url"):
             return "no clip landed for this shot"
