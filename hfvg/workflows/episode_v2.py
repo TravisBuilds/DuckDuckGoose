@@ -2536,6 +2536,26 @@ class EpisodeWorkflowV2:
             raise ApplicationError(f"Cannot edit {shot_id}: {problem}", non_retryable=True)
 
     @workflow.query
+    def recompose_still_plans(self) -> dict:
+        """GAP-32: per shot, its LATEST recompose still (version, shot_meta it must match, state) so the
+        headcount check can run on recompose stills too (they are not G2 still versions)."""
+        out = {}
+        for sid, plan in self.recompose_plans.items():
+            version = plan.get("version")
+            pending = self.pending_recompose.get(sid)
+            if pending is not None and pending.get("version") == version:
+                state = {"still_ready": bool(pending.get("still_ready")), "decision": pending.get("decision"),
+                         "finished": False}
+            else:
+                last = next((r for r in reversed(self.recompose_log)
+                             if r.get("shot_id") == sid and r.get("version") == version), {})
+                state = {"still_ready": bool(last.get("still_url")), "decision": last.get("decision"),
+                         "finished": True, "status": last.get("status")}
+            out[sid] = {"version": version, "n": (plan.get("recompose") or {}).get("n"),
+                        "shot_meta": dict(plan.get("shot_meta") or {}), **state}
+        return out
+
+    @workflow.query
     def retry_prompt_plan(self, shot_id: str, prompt_append: str | None = None) -> dict:
         """GAP-15: the prompts a retry_shot(shot_id, prompt_append) child WOULD submit (still, and
         clip: the shot's clip_prompt if it has one, else the amended still prompt) so the API can
@@ -2561,6 +2581,21 @@ class EpisodeWorkflowV2:
         if self.parsed_beatmap and self.parsed_beatmap.get("shots"):
             self.parsed_beatmap["shots"] = merge(self.parsed_beatmap["shots"])
         return merge(shots)
+
+    @workflow.query
+    def recompose_still_plans(self) -> dict[str, dict]:
+        """GAP-32: return a dict of shots with pending recompose stills, for the headcount endpoint."""
+        return {
+            shot_id: {
+                "workflow_id": rc.get("workflow_id"),
+                "version": rc.get("version"),
+                "still_ready": rc.get("still_ready", False),
+                "decision": rc.get("decision"),
+                "shot_meta": self.recompose_plans.get(shot_id, {}).get("shot_meta"),
+                "finished": False,
+            }
+            for shot_id, rc in self.pending_recompose.items()
+        }
 
     @workflow.query
     def get_state(self) -> dict:

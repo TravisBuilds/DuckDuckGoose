@@ -65,3 +65,30 @@ def test_recompose_problem_checks_shot_meta():
     assert problem is not None
     assert "shot_meta" in problem
     assert "invalid" in problem
+
+
+def test_recompose_still_plans_query():
+    """recompose_still_plans returns shot metadata for headcount check."""
+    workflow = EpisodeWorkflowV2()
+    
+    # Empty when no recomposes
+    assert workflow.recompose_still_plans() == {}
+    
+    # Returns plan with metadata
+    workflow.recompose_plans["A01"] = {
+        "version": 3,
+        "shot_meta": {"count": 2, "duck": True},
+        "recompose": {"n": 1}
+    }
+    workflow.pending_recompose["A01"] = {
+        "version": 3,
+        "still_ready": True,
+        "decision": None
+    }
+    
+    plans = workflow.recompose_still_plans()
+    assert "A01" in plans
+    assert plans["A01"]["version"] == 3
+    assert plans["A01"]["shot_meta"] == {"count": 2, "duck": True}
+    assert plans["A01"]["still_ready"] is True
+    assert plans["A01"]["finished"] is False

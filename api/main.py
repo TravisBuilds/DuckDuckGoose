@@ -2076,6 +2076,47 @@ class RecomposeRequest(BaseModel):
                                    "(only count, characters, duck); lint, headcount and clip QC follow it")
 
 
+@app.get("/api/episodes/{episode_id}/recompose-headcount")
+async def get_recompose_headcount(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-32: the GAP-27 headcount check on each shot's latest RECOMPOSE still (not a G2 still version,
+    so /g2-headcount never saw it) against the cast that recompose declared. Read-only, no spend. Record
+    a reviewer count first with POST /shots/{shot}/headcount {version: <recompose version>}."""
+    from hfvg.qc.g2_headcount import (
+        FAIL as _FAIL, NEEDS_REVIEW as _NR, ReviewerHeadcountCounter, _still_for, check_still_headcount,
+        load_headcounts,
+    )
+    from hfvg.qc.animal_count import get_animal_counter
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        plans = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query(
+            "recompose_still_plans") or {}
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"recompose headcount unavailable (fails closed): {e}")
+    reviewer = ReviewerHeadcountCounter(
+        load_headcounts(episode_id, os.getenv("EPISODES_DIR", "./data/episodes")), get_animal_counter())
+    out_root = Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs"
+    shots = {}
+    for sid in sorted(plans):
+        row = plans[sid] or {}
+        v = row.get("version")
+        path = _still_for(out_root / sid, v)
+        res = await check_still_headcount(reviewer, path, row.get("shot_meta"))
+        res.update({"version": v, "still": str(path) if path else None, "decision": row.get("decision"),
+                    "still_ready": row.get("still_ready")})
+        shots[sid] = res
+    statuses = {r["status"] for r in shots.values()}
+    status = _FAIL if _FAIL in statuses else (_NR if _NR in statuses or not shots else "PASS")
+    return {"status": status, "failing": sorted(s for s, r in shots.items() if r["status"] == _FAIL),
+            "shots": shots}
+
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose")
 async def recompose_shot(
     episode_id: str,
