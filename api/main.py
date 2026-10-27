@@ -2072,6 +2072,8 @@ class RecomposeRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="The NEW still prompt (replaces the shot's prompt)")
     ref_keys: list[str] = Field(..., min_length=1, description="Explicit refs (refs/<key>.png); replaces the plan's")
     clip_prompt: str | None = Field(None, description="Clip prompt for the new still (default: the still prompt)")
+    shot_meta: dict | None = Field(None, description="GAP-32: change the cast of the new composition "
+                                   "(only count, characters, duck); lint, headcount and clip QC follow it")
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose")
@@ -2100,9 +2102,14 @@ async def recompose_shot(
         raise HTTPException(status_code=422, detail="duplicate ref keys")
     from hfvg import preflight as _pf
     from hfvg.config import max_refs_for, still_model_path
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as _EW
     cap = max_refs_for(still_model_path())
     if len(refs) > cap:
         raise HTTPException(status_code=409, detail=f"{len(refs)} refs > still model cap {cap}")
+    # GAP-32: validate shot_meta
+    meta_problem = _EW.recompose_meta_problem(request.shot_meta)
+    if meta_problem:
+        raise HTTPException(status_code=422, detail=f"invalid shot_meta: {meta_problem}")
     clip_model = "kling"
     shot_meta = None
     if temporal_client:
@@ -2113,6 +2120,9 @@ async def recompose_shot(
             shot_meta = plan.get("shot_meta")
         except Exception:
             pass
+    # GAP-32: merge request shot_meta with existing (request overrides)
+    if request.shot_meta and shot_meta is not None:
+        shot_meta = {**shot_meta, **request.shot_meta}
     clip_prompt = request.clip_prompt or request.prompt
     bad = _pf.prompt_limit_violations(shot_id, still_prompt=request.prompt,
                                       clip_prompt=clip_prompt,
@@ -2129,7 +2139,8 @@ async def recompose_shot(
                             + "; ".join(problems))
     result = await _execute_episode_update(
         episode_id, "recompose_shot",
-        [shot_id, request.reason.strip(), request.prompt, refs, list(request.ref_keys), request.clip_prompt],
+        [shot_id, request.reason.strip(), request.prompt, refs, list(request.ref_keys), request.clip_prompt]
+        + ([dict(request.shot_meta)] if request.shot_meta else []),
         "Recompose")
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:

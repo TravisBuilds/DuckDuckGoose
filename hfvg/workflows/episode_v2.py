@@ -2232,11 +2232,25 @@ class EpisodeWorkflowV2:
         return (result.get("status") == "failed" and not result.get("still_url")
                 and any(k in err for k in cls.PRE_SPEND_REFUSALS))
 
+    @classmethod
+    def recompose_meta_problem(cls, shot_meta: dict | None) -> str | None:
+        """GAP-32: validate shot_meta keys for a recompose (only count, characters, duck allowed)."""
+        if shot_meta is None:
+            return None
+        if not isinstance(shot_meta, dict):
+            return "shot_meta must be an object"
+        allowed = {"count", "characters", "duck"}
+        bad = set(shot_meta.keys()) - allowed
+        if bad:
+            return f"shot_meta keys {sorted(bad)} not allowed (only {sorted(allowed)})"
+        return None
+
     def recompose_allowance(self, shot_id: str) -> int:
         """GAP-39: effective recompose limit including grants."""
         return self.MAX_RECOMPOSES_PER_SHOT + int(self.recompose_grants.get(shot_id, 0))
 
-    def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list) -> str | None:
+    def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list,
+                          shot_meta: dict | None = None) -> str | None:
         """Why recompose_shot is not allowed right now (None = allowed). No side effects."""
         if not (self.approved_g2_scene_stills and "G2_SCENE_STILLS" in self.passed_gates):
             return "G2 not approved yet; use retry_shot for stills before G2"
@@ -2262,18 +2276,22 @@ class EpisodeWorkflowV2:
         if self.recompose_counts.get(shot_id, 0) >= allowed:
             return (f"max recomposes per shot ({allowed}) reached"
                     + ("" if allowed > self.MAX_RECOMPOSES_PER_SHOT else "; a reviewer can grant one more with grant_recompose"))
+        meta_problem = self.recompose_meta_problem(shot_meta)
+        if meta_problem:
+            return f"invalid shot_meta: {meta_problem}"
         return None
 
     @workflow.update
     async def recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
-                             ref_keys: list | None = None, clip_prompt: str | None = None) -> dict:
+                             ref_keys: list | None = None, clip_prompt: str | None = None,
+                             shot_meta: dict | None = None) -> dict:
         """GAP-21: re-shoot one shot after G2 with a NEW composition: a new still prompt (replaces the
         old one, not appended) and an explicit ref list (replaces the planned refs). Runs a normal
         ShotWorkflow child {ep}-shot-{shot}-recompose{n} with a fresh version (new deterministic
         still/clip job ids), so every paid guard applies. Its still PARKS for recompose_decision
         (e.g. a headcount check); the clip is only made after an approve. Final cut is held meanwhile.
         """
-        problem = self._recompose_problem(shot_id, reason, prompt, refs)
+        problem = self._recompose_problem(shot_id, reason, prompt, refs, shot_meta)
         if problem:
             raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
         ep = self.state.episode_id
@@ -2345,8 +2363,9 @@ class EpisodeWorkflowV2:
 
     @recompose_shot.validator
     def validate_recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
-                                ref_keys: list | None = None, clip_prompt: str | None = None):
-        problem = self._recompose_problem(shot_id, reason, prompt, refs)
+                                ref_keys: list | None = None, clip_prompt: str | None = None,
+                                shot_meta: dict | None = None):
+        problem = self._recompose_problem(shot_id, reason, prompt, refs, shot_meta)
         if problem:
             raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
 
