@@ -131,18 +131,28 @@ async def test_no_edit_plan_keeps_hard_cuts(tmp_path, monkeypatch):
     assert res["duration"] == pytest.approx(2.0)
 
 
-def test_ep05full_spec_stages_cleanly():
-    full = "/workspace/location_a-rest/ep05-full/shots.json"
-    if not os.path.exists(full):
-        pytest.skip("Studio package not present")
-    spec = json.load(open(full))
+def test_ep05full_spec_stages_cleanly(tmp_path):
+    """Task 9: Use in-repo fixture instead of hardcoded /workspace path."""
+    # Create a minimal spec with reuse and dissolves
+    spec = {
+        "shots": [
+            {"id": "A01", "prompt": "shot 1", "count": 1, "trim_head_s": 0.5, "reuse": {"clip": "/tmp/a01.mp4", "sha256": "abc123"}, "screen_s": 4.5},
+            {"id": "A02", "prompt": "shot 2", "count": 1, "reuse": {"clip": "/tmp/a02.mp4", "sha256": "def456"}, "screen_s": 3.0},
+            {"id": "A03", "prompt": "shot 3", "count": 1, "reuse": {"clip": "/tmp/a03.mp4", "sha256": "ghi789"}, "screen_s": 4.0},
+            {"id": "F11", "prompt": "shot F11", "count": 1, "model": "kling", "duration": 5, "screen_s": 5.0},
+            {"id": "A04", "prompt": "shot 4", "count": 1, "reuse": {"clip": "/tmp/a04.mp4", "sha256": "jkl012"}, "screen_s": 10.0},
+        ],
+        "dissolves": {
+            "A03->F11": 1.0
+        }
+    }
     plan = edit_plan_from_spec(spec)
     assert sorted(plan["reuse"]) == ["A01", "A02", "A03", "A04"]
     assert plan["dissolves"] == {"A03->F11": 1.0}
     assert plan["reuse"]["A01"]["trim_in"] == 0.5 and plan["reuse"]["A04"]["trim_out"] == 10.0
-    assert len(generation_spec(spec)["shots"]) == 19
+    assert len(generation_spec(spec)["shots"]) == 1  # Only F11 needs generation
     screen = sum(s["screen_s"] for s in spec["shots"]) - 1.0
-    assert screen == pytest.approx(117.0)
+    assert screen == pytest.approx(25.5)  # 4.5 + 3.0 + 4.0 + 5.0 + 10.0 - 1.0 (dissolve)
 
 
 # ── BEATMAP: Studio table with an extra "N" column and "kling" model names ──
