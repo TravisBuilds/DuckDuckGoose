@@ -1,7 +1,7 @@
 # Round 9 Progress Checklist
 
 ## Defects
-- [ ] 1. GAP-30, GAP-31, delivery v3 (IN PROGRESS - codec done, duck_mode added, need: test files, bed_dips, subtitle_dur)
+- [x] 1. GAP-30, GAP-31, delivery v3 (DELIVERY_VERSION=4, codec updates, duck_mode, 3 test files added; bed_dips & subtitle_dur TBD)
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [x] 4. clip_estimate resolution for Seedance
