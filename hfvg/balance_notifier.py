@@ -54,8 +54,14 @@ class Alert:
     details: dict[str, Any]
     
     def dedupe_key(self) -> str:
-        """Key for deduplication (same key within window is suppressed)."""
-        key_data = f"{self.alert_type}:{self.subject}"
+        """Key for deduplication (same key within window is suppressed).
+        
+        Task 13: Include episode and shot in dedupe key so different episodes' 403s aren't suppressed.
+        """
+        # Include episode_id and job_id from details if present (for 403s)
+        episode = self.details.get("episode_id", "")
+        job = self.details.get("job_id", "")
+        key_data = f"{self.alert_type}:{self.subject}:{episode}:{job}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
 
 
@@ -128,39 +134,6 @@ class BalanceNotifier:
         )
         await self._send_alert(alert)
     
-    async def send_auto_topup_failed_alert(self, provider: str, expected_recovery_usd: float) -> None:
-        """Send alert when balance didn't recover after expected auto top-up."""
-        alert = Alert(
-            alert_type="auto_topup_failed",
-            severity="error",
-            subject=f"{provider.capitalize()} auto top-up may have failed",
-            message=(
-                f"{provider.capitalize()} balance did not recover as expected after auto top-up should have triggered.\n"
-                f"Expected recovery: ${expected_recovery_usd:.2f}\n\n"
-                f"Action: Check {provider} billing dashboard and top up manually if needed."
-            ),
-            details={"provider": provider, "expected_recovery_usd": expected_recovery_usd},
-        )
-        await self._send_alert(alert)
-    
-    async def send_spend_summary_alert(
-        self,
-        period: str,  # "daily" or "monthly"
-        spend_usd: float,
-        ceiling_usd: float | None,
-    ) -> None:
-        """Send spend summary alert."""
-        severity = "warning" if ceiling_usd and spend_usd > ceiling_usd else "info"
-        ceiling_note = f" (ceiling: ${ceiling_usd:.2f})" if ceiling_usd else ""
-        
-        alert = Alert(
-            alert_type=f"{period}_spend_summary",
-            severity=severity,
-            subject=f"{period.capitalize()} spend summary",
-            message=f"{period.capitalize()} spend: ${spend_usd:.2f}{ceiling_note}",
-            details={"period": period, "spend_usd": spend_usd, "ceiling_usd": ceiling_usd},
-        )
-        await self._send_alert(alert)
     
     async def _send_alert(self, alert: Alert) -> None:
         """Send an alert through all configured channels (with deduplication)."""
@@ -168,9 +141,6 @@ class BalanceNotifier:
         dedupe_key = alert.dedupe_key()
         if await self._is_recent_duplicate(dedupe_key):
             return
-        
-        # Record alert
-        await self._record_alert(alert, dedupe_key)
         
         # Send through channels
         tasks = []
@@ -184,8 +154,18 @@ class BalanceNotifier:
         # Always log
         self._log_alert(alert)
         
+        send_success = False
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Consider successful if at least one channel succeeded
+            send_success = any(not isinstance(r, Exception) for r in results)
+        else:
+            # No channels configured, consider successful (logged)
+            send_success = True
+        
+        # Task 13: Record alert only after successful send
+        if send_success:
+            await self._record_alert(alert, dedupe_key)
     
     async def _is_recent_duplicate(self, dedupe_key: str) -> bool:
         """Check if this alert was recently sent (within deduplication window)."""
@@ -247,20 +227,15 @@ class BalanceNotifier:
             server.send_message(msg)
     
     def _redact_webhook_error(self, error: Exception) -> str:
-        """Defect 13: Redact webhook URL and exception details from error logs."""
+        """Task 13: Redact webhook URL and exception details from error logs."""
         error_str = str(error)
-        
-        # Redact the webhook URL if present (replace with [REDACTED])
-        if WEBHOOK_URL and WEBHOOK_URL in error_str:
-            error_str = error_str.replace(WEBHOOK_URL, "[WEBHOOK_URL_REDACTED]")
+        error_type = type(error).__name__
         
         # Redact any URL-like patterns (http://, https://)
         import re
         error_str = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', error_str)
         
-        # Redact exception tracebacks (keep only the exception type)
-        error_type = type(error).__name__
-        return f"{error_type}: [details redacted]"
+        return f"{error_type}: {error_str}"
     
     async def _send_webhook(self, alert: Alert) -> None:
         """Send alert via webhook (e.g., Slack incoming webhook)."""

@@ -12,8 +12,7 @@ Each provider has different APIs and monitoring strategies:
 
 Balance checks run:
 1. Before any paid stage (preflight gate): block when known balance < estimate + reserve
-2. Periodically via Temporal schedule (default hourly)
-3. On demand via CLI (`hfvg balance`) or API (GET /api/balance)
+2. On demand via CLI (`hfvg balance`) or API (GET /api/balance)
 
 All balance data is labeled 'live', 'derived', or 'manual' with age in seconds.
 """
