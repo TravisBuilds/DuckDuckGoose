@@ -578,20 +578,23 @@ async def submit_still_job_enforced(
         )
         
         # Defect 8: Balance preflight gate before any reserve/submit
-        from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
-        balance_monitor = BalanceMonitor(db_path)
-        passed, reason = await balance_monitor.check_preflight_balance(
-            provider="higgsfield",
-            estimate_usd_micros=estimated_cost,
-            auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
-        )
-        if not passed:
-            raise ApplicationError(
-                f"Balance check failed: {reason}",
-                type="InsufficientBalance",
-                non_retryable=True,
+        # No-op in DRY_RUN mode or with unknown/missing balance - only blocks on known balance below need
+        dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+        if not dry_run_env:
+            from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+            balance_monitor = BalanceMonitor(db_path)
+            passed, reason = await balance_monitor.check_preflight_balance(
+                provider="higgsfield",
+                estimate_usd_micros=estimated_cost,
+                auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
             )
-        activity.logger.info(f"Balance preflight passed: {reason}")
+            if not passed:
+                raise ApplicationError(
+                    f"Balance check failed: {reason}",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                )
+            activity.logger.info(f"Balance preflight passed: {reason}")
         
         # Reserve credits AFTER upload/estimate succeed
         credit_result = await credit_ledger.reserve_credits(
@@ -990,20 +993,23 @@ async def submit_clip_job_enforced(
         )
         
         # Defect 8: Balance preflight gate before any reserve/submit
-        from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
-        balance_monitor = BalanceMonitor(db_path)
-        passed, reason = await balance_monitor.check_preflight_balance(
-            provider="higgsfield",
-            estimate_usd_micros=estimated_cost,
-            auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
-        )
-        if not passed:
-            raise ApplicationError(
-                f"Balance check failed: {reason}",
-                type="InsufficientBalance",
-                non_retryable=True,
+        # No-op in DRY_RUN mode or with unknown/missing balance - only blocks on known balance below need
+        dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+        if not dry_run_env:
+            from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+            balance_monitor = BalanceMonitor(db_path)
+            passed, reason = await balance_monitor.check_preflight_balance(
+                provider="higgsfield",
+                estimate_usd_micros=estimated_cost,
+                auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
             )
-        activity.logger.info(f"Balance preflight passed: {reason}")
+            if not passed:
+                raise ApplicationError(
+                    f"Balance check failed: {reason}",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                )
+            activity.logger.info(f"Balance preflight passed: {reason}")
         
         # Reserve budget from L4_video (revision tier draws on the revision reserve)
         tier = tier or "final"

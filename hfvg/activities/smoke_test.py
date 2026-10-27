@@ -107,6 +107,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         )
         
         # Defect 8: Balance preflight gate before any reserve/submit
+        # Smoke tests always run (no DRY_RUN check), but gate should be lenient
         from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
         balance_monitor = BalanceMonitor(db_path)
         passed, reason = await balance_monitor.check_preflight_balance(
@@ -115,6 +116,7 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
         )
         if not passed:
+            # For smoke tests, return failure rather than raising
             return {
                 "passed": False,
                 "provider_job_id": None,
