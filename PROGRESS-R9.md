@@ -1,7 +1,7 @@
 # Round 9 Progress Checklist
 
 ## Defects
-- [ ] 1. GAP-30, GAP-31, delivery v3 (duck window mode, MAX_LOUDNESS_RESTORE, codec_safe_pcm, 3 test files)
+- [ ] 1. GAP-30, GAP-31, delivery v3 (IN PROGRESS - codec updates done, need: duck_mode in sfx, test files, bed_dips, subtitle_dur)
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [ ] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [ ] 4. clip_estimate resolution for Seedance
