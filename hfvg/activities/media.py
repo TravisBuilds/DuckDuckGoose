@@ -15,6 +15,7 @@ from hfvg.config import config
 
 
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
+EDIT_FPS_ALLOWED = [24, 30]  # GAP-33: allowed edit frame rates
 EDIT_FORMAT_VERSION = 1  # bump when the normalization below changes (invalidates cached edits)
 MUTE_EDIT_NAME = "mute_assembly.mp4"
 MUTE_MANIFEST_NAME = "assembly_manifest.json"
@@ -225,7 +226,9 @@ async def assemble_mute_edit(
         if recipe["xfade_s"] * 2 >= shortest:
             raise ApplicationError(f"edit recipe xfade_s {recipe['xfade_s']} too long for a {shortest:.2f}s shot",
                                    type="InvalidEditRecipe", non_retryable=True)
-    fps = recipe["fps"] if recipe else EDIT_FPS
+    # GAP-33: edit plan fps (default 30, may be 24 to match generated clips without judder)
+    from hfvg.edit_plan import edit_fps as get_edit_fps
+    fps = recipe["fps"] if recipe else get_edit_fps(edit_plan)
 
 
     missing = [e["shot_id"] for e in entries if not Path(e["clip_path"]).is_file()]
