@@ -1030,13 +1030,13 @@ test_mutation 77 "M-R4i end_frame flag from shots.json" \
 test_mutation 78 "M-R4j dry clip reservation uses real model and duration" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_reservation_uses_model_and_duration" \
-    sed -i 's/clip_call_usd_micros(route.model, tier, duration),$/clip_call_usd_micros("kling", tier, 5),  # MUTATED/'
+    sed -i 's/clip_call_usd_micros(route.model, tier, duration, route.resolution),$/clip_call_usd_micros("kling", tier, 5, "720p"),  # MUTATED/'
 
 # 79. M-R4k Seedance draft estimate uses the 480p rate
 test_mutation 79 "M-R4k Seedance draft estimate uses the 480p rate" \
-    "hfvg/pricing.py" \
+    "hfvg/routing.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_estimates_use_real_model_and_duration" \
-    sed -i 's/^        resolution = SEEDANCE_TIER_RESOLUTION\["draft" if tier == "draft" else "final"\]$/        resolution = SEEDANCE_TIER_RESOLUTION["final"]  # MUTATED/'
+    sed -i 's/^    return SEEDANCE_TIER_RESOLUTION\["draft" if tier == "draft" else "final"\]$/    return SEEDANCE_TIER_RESOLUTION["final"]  # MUTATED/'
 
 # 80. M-R4l Live start+end shot without end image is refused
 test_mutation 80 "M-R4l Live start+end shot without end image is refused" \
