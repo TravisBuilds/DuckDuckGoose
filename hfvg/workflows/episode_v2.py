@@ -107,7 +107,8 @@ class EpisodeWorkflowV2:
         self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
         self.final_cut_rejections: list[dict] = []  # G_FINAL_CUT reviewer rejections (reason, versions)
         self.delivery_rebuilds: list[dict] = []  # reviewer-requested delivery rebuilds (audio plan edits)
-        self.edit_rebuilds: list[dict] = []  # GAP-29: reviewer-requested mute-edit rebuilds (edit_plan.json edits)
+        self.edit_rebuilds: list[dict] = []
+        self.assembly_rebuilds: list[dict] = []  # GAP-29: reviewer-requested mute-edit rebuilds (edit_plan.json edits)
         self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
         self.delivery_version: int = 0
         self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
@@ -1301,6 +1302,20 @@ class EpisodeWorkflowV2:
             return
         self.edit_rebuilds.append({"reason": reason.strip(), "after_edit_version": self.assembly_version})
         workflow.logger.warning(f"[PICTURE LOCK] edit rebuild requested by reviewer: {reason}")
+
+    @workflow.signal
+    def request_assembly_rebuild(self, reason: str):
+        """Re-assemble the mute edit from the same clips after an edit-recipe change (e.g. a longer
+        SH10 tail hold to absorb VO drift). No generation spend. The new edit's QC hold and the
+        delivery run again. Ignored without a reason, before the first edit or after G_FINAL_CUT."""
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("assembly rebuild ignored: a reason is required")
+            return
+        if "G_FINAL_CUT" in self.passed_gates or self.assembly_sig is None:
+            self.final_cut_refusals.append("assembly rebuild ignored: no edit yet or G_FINAL_CUT passed")
+            return
+        self.assembly_rebuilds.append({"reason": reason.strip(), "after_assembly_version": self.assembly_version})
+        workflow.logger.warning(f"[PICTURE LOCK] re-assembly requested by reviewer: {reason}")
 
     def _assembly_blocking(self) -> bool:
         qc = self.state.assembly_qc or {}

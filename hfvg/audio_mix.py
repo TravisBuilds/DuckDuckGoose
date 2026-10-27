@@ -1311,6 +1311,9 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
     gap = (manifest.get("placement") or {}).get("min_gap_s")
     if gap is not None:
         add("vo_min_gap", gap >= plan["min_vo_gap_s"] - 1e-6, gap, plan["min_vo_gap_s"])
+    logo_m, logo_p = manifest.get("logo") or {}, plan.get("logo") or {}
+    if logo_p.get("min_hold_s") is not None and logo_m.get("hold_s") is not None:
+        add("logo_hold", logo_m["hold_s"] >= logo_p["min_hold_s"] - 1e-6, logo_m["hold_s"], logo_p["min_hold_s"])
     failed = [c for c in checks if not c["ok"]]
     verdict = "FAIL" if failed else "PASS"
     return {"verdict": verdict, "blocking": verdict in ("FAIL", "NEEDS_REVIEW"), "checks": checks,
