@@ -271,10 +271,12 @@ async def assemble_mute_edit(
                 f"({e['sha256'][:12]} != {e['expected_sha256'][:12]}); refusing to splice",
                 type="ReuseChecksumMismatch", non_retryable=True)
         key_src.append([e["shot_id"], e["sha256"], e["trim_in"], e["trim_out"]])
-    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT],
+    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, fps, EDIT_PIX_FMT],
                "inputs": key_src}
     if dissolves:
         key_obj["dissolves"] = [[a, b, d] for a, b, d in dissolves]
+    if recipe:
+        key_obj["recipe"] = recipe
     input_key = hashlib.sha256(json.dumps(key_obj, sort_keys=True).encode()).hexdigest()
 
     if assembly_path.is_file() and manifest_path.is_file():
@@ -292,6 +294,12 @@ async def assemble_mute_edit(
     vf = (f"fps={EDIT_FPS},scale={EDIT_WIDTH}:{EDIT_HEIGHT}:force_original_aspect_ratio=decrease,"
           f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
           f"tpad=stop_mode=clone:stop_duration=1")
+    if recipe:
+        vf = (f"setpts={recipe['speed']:g}*PTS,fps={fps},"
+              f"scale={EDIT_WIDTH}:{EDIT_HEIGHT}:flags={recipe['scale_flags']}:force_original_aspect_ratio=decrease,"
+              f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+              + (f"{recipe['post_vf']}," if recipe["post_vf"] else "")
+              + "tpad=stop_mode=clone:stop_duration=1")
     manifest_clips: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(dir=str(out_dir)) as tmpdir:
         tmp = Path(tmpdir)
@@ -312,14 +320,15 @@ async def assemble_mute_edit(
             await _run([
                 "ffmpeg", "-y", "-v", "error",
                 "-ss", f"{trim_in:.3f}", "-i", e["clip_path"],
-                "-vf", vf, "-frames:v", str(frames), "-r", str(EDIT_FPS),
+                "-vf", vf, "-frames:v", str(frames), "-r", str(fps),
                 "-pix_fmt", EDIT_PIX_FMT, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-video_track_timescale", "15360", "-an", str(norm),
             ], f"ffmpeg normalize {sid}")
             normalized.append(norm)
             clip_row = {
                 "id": sid, "seg_s": round(frames / fps, 6), "frames": frames,
-                "trim_in": trim_in, "trim_out": round(trim_in + frames / EDIT_FPS, 6),
+                "trim_in": trim_in,
+                "trim_out": round(trim_in + frames / fps / (recipe["speed"] if recipe else 1.0), 6),
                 "source": e["clip_path"], "source_sha256": e["sha256"],
             }
             if e.get("reused"):
@@ -328,49 +337,88 @@ async def assemble_mute_edit(
             manifest_clips.append(clip_row)
 
         # Cross-dissolves (edit plan): merge OUT and IN into one xfade segment, chain-safe.
-        pairs = {(a, b): d for a, b, d in dissolves}
-        segments: list[list] = []  # [path, frames, last_shot_id]
-        for idx, (norm, c) in enumerate(zip(normalized, manifest_clips)):
-            if segments and (segments[-1][2], c["id"]) in pairs:
-                d = pairs[(segments[-1][2], c["id"])]
-                prev_path, prev_frames, prev_id = segments[-1]
-                d_frames = round(d * EDIT_FPS)
-                if not (0 < d_frames < min(prev_frames, c["frames"])):
-                    raise ApplicationError(f"Dissolve {prev_id}->{c['id']} ({d}s) longer than a shot",
-                                           type="DissolveOutOfRange", non_retryable=True)
-                activity.heartbeat({"stage": "dissolve", "pair": f"{prev_id}->{c['id']}"})
-                out_frames = prev_frames + c["frames"] - d_frames
-                merged = tmp / f"x{idx:03d}_{prev_id}_{c['id']}.mp4"
-                offset = (prev_frames - d_frames) / EDIT_FPS
-                await _run([
-                    "ffmpeg", "-y", "-v", "error", "-i", str(prev_path), "-i", str(norm),
-                    "-filter_complex",
-                    f"[0:v][1:v]xfade=transition=fade:duration={d_frames / EDIT_FPS:.6f}:offset={offset:.6f},"
-                    f"format={EDIT_PIX_FMT}",
-                    "-frames:v", str(out_frames), "-r", str(EDIT_FPS), "-pix_fmt", EDIT_PIX_FMT,
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                    "-video_track_timescale", "15360", "-an", str(merged),
-                ], f"ffmpeg dissolve {prev_id}->{c['id']}")
-                segments[-1] = [merged, out_frames, c["id"]]
-            else:
-                segments.append([norm, c["frames"], c["id"]])
-        normalized = [seg[0] for seg in segments]
+        # (skipped when recipe drives crossfades)
+        if not recipe:
+            pairs = {(a, b): d for a, b, d in dissolves}
+            segments: list[list] = []  # [path, frames, last_shot_id]
+            for idx, (norm, c) in enumerate(zip(normalized, manifest_clips)):
+                if segments and (segments[-1][2], c["id"]) in pairs:
+                    d = pairs[(segments[-1][2], c["id"])]
+                    prev_path, prev_frames, prev_id = segments[-1]
+                    d_frames = round(d * EDIT_FPS)
+                    if not (0 < d_frames < min(prev_frames, c["frames"])):
+                        raise ApplicationError(f"Dissolve {prev_id}->{c['id']} ({d}s) longer than a shot",
+                                               type="DissolveOutOfRange", non_retryable=True)
+                    activity.heartbeat({"stage": "dissolve", "pair": f"{prev_id}->{c['id']}"})
+                    out_frames = prev_frames + c["frames"] - d_frames
+                    merged = tmp / f"x{idx:03d}_{prev_id}_{c['id']}.mp4"
+                    offset = (prev_frames - d_frames) / EDIT_FPS
+                    await _run([
+                        "ffmpeg", "-y", "-v", "error", "-i", str(prev_path), "-i", str(norm),
+                        "-filter_complex",
+                        f"[0:v][1:v]xfade=transition=fade:duration={d_frames / EDIT_FPS:.6f}:offset={offset:.6f},"
+                        f"format={EDIT_PIX_FMT}",
+                        "-frames:v", str(out_frames), "-r", str(EDIT_FPS), "-pix_fmt", EDIT_PIX_FMT,
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                        "-video_track_timescale", "15360", "-an", str(merged),
+                    ], f"ffmpeg dissolve {prev_id}->{c['id']}")
+                    segments[-1] = [merged, out_frames, c["id"]]
+                else:
+                    segments.append([norm, c["frames"], c["id"]])
+            normalized = [seg[0] for seg in segments]
 
         activity.heartbeat({"stage": "concatenating", "clips": len(normalized)})
         concat_list = tmp / "concat.txt"
         concat_list.write_text("".join(f"file '{p.resolve()}'\n" for p in normalized))
         partial = tmp / MUTE_EDIT_NAME
-        await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                    "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
+        if recipe and (recipe["xfade_s"] > 0 or recipe["tail_hold_s"] > 0):
+            segs = [c["seg_s"] for c in manifest_clips]
+            x = recipe["xfade_s"]
+            chain, last = [], "[0:v]"
+            if x > 0:
+                for i, off in enumerate(xfade_offsets(segs, x), 1):
+                    chain.append(f"{last}[{i}:v]xfade=transition=fade:duration={x:g}:offset={off:.6f}[x{i}]")
+                    last = f"[x{i}]"
+                inputs = normalized
+            else:
+                inputs = [partial.with_name("hardcut.mp4")]
+                await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                            "-c", "copy", str(inputs[0])], "ffmpeg concat")
+            chain.append(f"{last}tpad=stop_mode=clone:stop_duration={recipe['tail_hold_s']:g},"
+                         f"fps={fps},format={EDIT_PIX_FMT}[out]")
+            cmd = ["ffmpeg", "-y", "-v", "error"]
+            for p in inputs:
+                cmd += ["-i", str(p)]
+            total_frames = round(recipe_total_s(segs, recipe) * fps)
+            await _run(cmd + ["-filter_complex", ";".join(chain), "-map", "[out]", "-frames:v", str(total_frames),
+                              "-r", str(fps), "-c:v", "libx264", "-profile:v", "high", "-preset", "medium",
+                              "-b:v", f"{recipe['video_kbps']}k", "-maxrate", f"{recipe['max_video_kbps']}k",
+                              "-bufsize", f"{recipe['max_video_kbps'] * 2}k", "-pix_fmt", EDIT_PIX_FMT,
+                              "-an", "-movflags", "+faststart", str(partial)], "ffmpeg crossfade stitch")
+        else:
+            await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                        "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
         os.replace(partial, assembly_path)  # atomic: a crash never leaves a half-written edit
 
     total = round(sum(c["seg_s"] for c in manifest_clips)
                   - sum(round(d * EDIT_FPS) / EDIT_FPS for *_x, d in dissolves), 6)
+    manifest_dissolves: dict[str, float] = {}
+    if recipe:
+        total = recipe_total_s([c["seg_s"] for c in manifest_clips], recipe)
+        if recipe["xfade_s"] > 0:
+            manifest_dissolves = {c["id"]: recipe["xfade_s"] for c in manifest_clips[:-1]}
+        t = 0.0
+        for c in manifest_clips:
+            c["start_s"] = round(t, 6)
+            c["end_s"] = round(t + c["seg_s"], 6)
+            t = c["end_s"] - manifest_dissolves.get(c["id"], 0.0)
+    else:
+        manifest_dissolves = {a: round(round(d * EDIT_FPS) / EDIT_FPS, 6) for a, _b, d in dissolves}
+    
     manifest = {
         "episode_id": episode_id,
         "clips": manifest_clips,
-        # {outgoing shot id: seconds} (hfvg.qc.motion timeline format); hard cuts when empty
-        "dissolves": {a: round(round(d * EDIT_FPS) / EDIT_FPS, 6) for a, _b, d in dissolves},
+        "dissolves": manifest_dissolves,
         "dissolve_pairs": {f"{a}->{b}": d for a, b, d in dissolves},
         "edit_plan": ({"reused_shots": [c["id"] for c in manifest_clips if c.get("reused")], **plan_notes}
                       if edit_plan else None),
