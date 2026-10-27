@@ -107,6 +107,7 @@ class EpisodeWorkflowV2:
         self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
         self.final_cut_rejections: list[dict] = []  # G_FINAL_CUT reviewer rejections (reason, versions)
         self.delivery_rebuilds: list[dict] = []  # reviewer-requested delivery rebuilds (audio plan edits)
+        self.edit_rebuilds: list[dict] = []  # GAP-29: reviewer-requested mute-edit rebuilds (edit_plan.json edits)
         self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
         self.delivery_version: int = 0
         self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
