@@ -1,7 +1,7 @@
 # Round 9 Progress Checklist
 
 ## Defects
-- [x] 1. GAP-30, GAP-31, delivery v3 (DELIVERY_VERSION=4, codec updates, duck_mode, 3 test files added; bed_dips & subtitle_dur TBD)
+- [x] 1. GAP-30, GAP-31, delivery v3 (DELIVERY_VERSION=4, codec updates, duck_mode, 3 test files added)
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [x] 4. clip_estimate resolution for Seedance
@@ -14,7 +14,7 @@
 - [ ] 6. shot.py clip_path for non-escalated QC-fail
 - [ ] 5. Edit recipe partial (fps, recipe, tail_hold_s, dissolves, dry-run)
 - [ ] 7. Duplicates removal (episode_v2.py and audio_mix.py)
-- [ ] 9. test_ep05full_edit_plan.py fixture
+- [ ] 9. test path fixture (appears already fixed or different issue)
 
 ## GAPs
 - [ ] GAP-32: Recompose meta/headcount endpoint
