@@ -91,6 +91,11 @@ async def test_higgsfield_balance_derived_from_manual(test_db):
     
     # Add some committed spend
     await ledger.init_episode_budget("test_ep")
+    # Increase L1_refs cap for this test
+    async with aiosqlite.connect(test_db) as db:
+        await db.execute("UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
+                         (10_000_000, "test_ep", "L1_refs"))
+        await db.commit()
     await ledger.reserve("test_ep", "L1_refs", 5_000_000, "test reservation", job_id="job1")
     await ledger.commit("test_ep", "L1_refs", 5_000_000, 5_000_000, "job1", "test commit")
     

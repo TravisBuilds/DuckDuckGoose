@@ -183,9 +183,9 @@ class BalanceMonitor:
         
         # Convert to USD estimate (using default rate)
         from hfvg.providers.elevenlabs import DEFAULT_USD_PER_CREDIT, MAX_CREDITS_PER_CHAR
-        usd_per_credit = Decimal(os.getenv("ELEVENLABS_USD_PER_CREDIT", DEFAULT_USD_PER_CREDIT))
+        usd_per_credit = Decimal(os.getenv("ELEVENLABS_USD_PER_CREDIT", str(DEFAULT_USD_PER_CREDIT)))
         # Character limit is in terms of credits, roughly
-        remaining_usd = Decimal(remaining_chars) * MAX_CREDITS_PER_CHAR * usd_per_credit
+        remaining_usd = Decimal(remaining_chars) * Decimal(str(MAX_CREDITS_PER_CHAR)) * usd_per_credit
         
         return ProviderBalance(
             provider="elevenlabs",
@@ -222,6 +222,7 @@ class BalanceMonitor:
         manual_usd = Decimal(manual_usd_micros) / MICROS_PER_USD
         
         # Get committed spend since manual entry  
+        # Defect 14: only Higgsfield spend (L1-L4 video lines, L7_revision), NOT ElevenLabs (el_*)
         # The after_txn_id in manual_balance tells us which transactions were already accounted for
         async with aiosqlite.connect(self.db_path) as db:
             # Get transactions after the manual entry's after_txn_id
@@ -231,8 +232,10 @@ class BalanceMonitor:
             after_txn_id = after_txn_id[0] if after_txn_id else 0
             
             ledger_row = await (await db.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM budget_transactions "
-                "WHERE txn_type = 'commit' AND txn_id > ?",
+                "SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt "
+                "JOIN budget_lines bl ON bt.episode_id = bl.episode_id AND bt.line_name = bl.line_name "
+                "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? "
+                "AND bl.line_name NOT LIKE 'el_%'",
                 (after_txn_id,)
             )).fetchone()
             ledger_spend_micros = ledger_row[0] if ledger_row else 0
