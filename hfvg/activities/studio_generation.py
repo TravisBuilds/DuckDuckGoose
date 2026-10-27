@@ -577,6 +577,22 @@ async def submit_still_job_enforced(
             f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits"
         )
         
+        # Defect 8: Balance preflight gate before any reserve/submit
+        from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+        balance_monitor = BalanceMonitor(db_path)
+        passed, reason = await balance_monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=estimated_cost,
+            auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
+        )
+        if not passed:
+            raise ApplicationError(
+                f"Balance check failed: {reason}",
+                type="InsufficientBalance",
+                non_retryable=True,
+            )
+        activity.logger.info(f"Balance preflight passed: {reason}")
+        
         # Reserve credits AFTER upload/estimate succeed
         credit_result = await credit_ledger.reserve_credits(
             episode_id, job_id, estimated_credits,
@@ -709,10 +725,49 @@ async def submit_still_job_enforced(
         }
     
     except httpx.HTTPStatusError as e:
-        # Capture provider error details (especially 422 idempotency conflicts)
+        # Capture provider error details (especially 422 idempotency conflicts and 403 insufficient balance)
         error_detail = f"Provider {e.response.status_code}: {e.response.text}"
         activity.logger.error(f"Provider error for {job_id}: {error_detail}")
-        # Release whatever has been reserved
+        
+        # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
+        if e.response.status_code == 403:
+            # Release whatever has been reserved
+            if budget_reserved:
+                await ledger.release(episode_id, budget_line_name, budget_amount, f"403 Insufficient balance: {error_detail}")
+            if credits_reserved:
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"403 Insufficient balance: {error_detail}")
+            if round_hold_key:
+                await ledger.release_round_hold(round_hold_key)
+            
+            # Record the stop for alerting
+            from hfvg.balance_monitor import BalanceMonitor
+            balance_monitor = BalanceMonitor(db_path)
+            await balance_monitor.record_403_stop(
+                provider="higgsfield",
+                episode_id=episode_id,
+                job_id=job_id,
+                error_message=error_detail,
+            )
+            
+            # Defect 10: Send 403 stop alert via notifier
+            from hfvg.balance_notifier import BalanceNotifier
+            notifier = BalanceNotifier(db_path)
+            await notifier.send_403_stop_alert(
+                provider="higgsfield",
+                episode_id=episode_id,
+                job_id=job_id,
+                error_message=error_detail,
+            )
+            
+            # Raise non-retryable error to pause the workflow resumably
+            raise ApplicationError(
+                f"Higgsfield 403 Insufficient Balance: {error_detail}. "
+                f"Reservations released. Top up your Higgsfield balance and resume the workflow.",
+                type="InsufficientBalance",
+                non_retryable=True,
+            ) from e
+        
+        # Release whatever has been reserved for other HTTP errors
         if budget_reserved:
             await ledger.release(episode_id, budget_line_name, budget_amount, f"Provider error: {error_detail}")
         if credits_reserved:
@@ -934,6 +989,22 @@ async def submit_clip_job_enforced(
             f"{micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits ({duration}s)"
         )
         
+        # Defect 8: Balance preflight gate before any reserve/submit
+        from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+        balance_monitor = BalanceMonitor(db_path)
+        passed, reason = await balance_monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=estimated_cost,
+            auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
+        )
+        if not passed:
+            raise ApplicationError(
+                f"Balance check failed: {reason}",
+                type="InsufficientBalance",
+                non_retryable=True,
+            )
+        activity.logger.info(f"Balance preflight passed: {reason}")
+        
         # Reserve budget from L4_video (revision tier draws on the revision reserve)
         tier = tier or "final"
         revision = tier == "revision"
@@ -1084,10 +1155,47 @@ async def submit_clip_job_enforced(
                     end_image_url=end_image_url,
                 )
         except httpx.HTTPStatusError as e:
-            # Capture provider error details (especially 422 idempotency conflicts)
+            # Capture provider error details (especially 422 idempotency conflicts and 403 insufficient balance)
             error_detail = f"Provider {e.response.status_code}: {e.response.text}"
             activity.logger.error(f"Provider error for {job_id}: {error_detail}")
-            # Release both reservations before re-raising
+            
+            # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
+            if e.response.status_code == 403:
+                # Release both reservations
+                await ledger.release(episode_id, line_name, estimated_cost, f"403 Insufficient balance: {error_detail}")
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"403 Insufficient balance: {error_detail}")
+                if round_hold_key:
+                    await ledger.release_round_hold(round_hold_key)
+                
+                # Record the stop for alerting
+                from hfvg.balance_monitor import BalanceMonitor
+                balance_monitor = BalanceMonitor(db_path)
+                await balance_monitor.record_403_stop(
+                    provider="higgsfield",
+                    episode_id=episode_id,
+                    job_id=job_id,
+                    error_message=error_detail,
+                )
+                
+                # Defect 10: Send 403 stop alert via notifier
+                from hfvg.balance_notifier import BalanceNotifier
+                notifier = BalanceNotifier(db_path)
+                await notifier.send_403_stop_alert(
+                    provider="higgsfield",
+                    episode_id=episode_id,
+                    job_id=job_id,
+                    error_message=error_detail,
+                )
+                
+                # Raise non-retryable error to pause the workflow resumably
+                raise ApplicationError(
+                    f"Higgsfield 403 Insufficient Balance: {error_detail}. "
+                    f"Reservations released. Top up your Higgsfield balance and resume the workflow.",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                ) from e
+            
+            # Release both reservations before re-raising for other HTTP errors
             await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
             if round_hold_key:

@@ -246,6 +246,22 @@ class BalanceNotifier:
                 server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
     
+    def _redact_webhook_error(self, error: Exception) -> str:
+        """Defect 13: Redact webhook URL and exception details from error logs."""
+        error_str = str(error)
+        
+        # Redact the webhook URL if present (replace with [REDACTED])
+        if WEBHOOK_URL and WEBHOOK_URL in error_str:
+            error_str = error_str.replace(WEBHOOK_URL, "[WEBHOOK_URL_REDACTED]")
+        
+        # Redact any URL-like patterns (http://, https://)
+        import re
+        error_str = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', error_str)
+        
+        # Redact exception tracebacks (keep only the exception type)
+        error_type = type(error).__name__
+        return f"{error_type}: [details redacted]"
+    
     async def _send_webhook(self, alert: Alert) -> None:
         """Send alert via webhook (e.g., Slack incoming webhook)."""
         try:
@@ -266,7 +282,9 @@ class BalanceNotifier:
                 resp = await client.post(WEBHOOK_URL, json=payload)
                 resp.raise_for_status()
         except Exception as e:
-            self._log_alert_error(f"Webhook send failed: {e}")
+            # Defect 13: Redact webhook URL and exception details
+            redacted_error = self._redact_webhook_error(e)
+            self._log_alert_error(f"Webhook send failed: {redacted_error}")
     
     def _severity_color(self, severity: str) -> str:
         """Map severity to Slack attachment color."""

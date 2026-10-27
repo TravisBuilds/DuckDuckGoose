@@ -106,6 +106,22 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             aspect_ratio="1:1"
         )
         
+        # Defect 8: Balance preflight gate before any reserve/submit
+        from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+        balance_monitor = BalanceMonitor(db_path)
+        passed, reason = await balance_monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=estimated_cost_micros,
+            auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
+        )
+        if not passed:
+            return {
+                "passed": False,
+                "provider_job_id": None,
+                "error": f"Balance check failed: {reason}"
+            }
+        activity.logger.info(f"Smoke test balance preflight passed: {reason}")
+        
         # Reserve from budget ledger (pass episode_id, line_name, amount, reason)
         ledger = BudgetLedger(db_path)
         await ledger.init_db()

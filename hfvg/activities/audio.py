@@ -146,6 +146,23 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
     line = AUDIO_BUDGET_LINE[kind]
     await ledger.ensure_audio_line(episode_id, line)
     job_id = f"el-{episode_id}-{kind}-{asset_id}-{key[:12]}"
+    
+    # Defect 8: Balance preflight gate before any reserve/submit
+    from hfvg.balance_monitor import BalanceMonitor, ELEVENLABS_AUTO_TOPUP_ENABLED
+    balance_monitor = BalanceMonitor(_db_path())
+    passed, reason = await balance_monitor.check_preflight_balance(
+        provider="elevenlabs",
+        estimate_usd_micros=usd_micros,
+        auto_topup_enabled=ELEVENLABS_AUTO_TOPUP_ENABLED,
+    )
+    if not passed:
+        raise ApplicationError(
+            f"Balance check failed: {reason}",
+            type="InsufficientBalance",
+            non_retryable=True,
+        )
+    activity.logger.info(f"Balance preflight passed for {kind} {asset_id}: {reason}")
+    
     try:
         await ledger.authorize_round_spend(episode_id, AUDIO_ROUND, f"{kind}:{asset_id}", job_id, usd_micros,
                                            reason=f"{kind} {asset_id} ({model})")

@@ -67,3 +67,72 @@ Duration: 3 seconds
     
     # Should exit zero on valid episode
     assert result.returncode == 0, f"CLI should exit zero on valid episode, stderr: {result.stderr}, stdout: {result.stdout}"
+
+
+def test_balance_cli_dry_run(tmp_path, monkeypatch):
+    """Test: hfvg balance in DRY_RUN mode."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "studio.db"))
+    
+    # Run balance command
+    result = subprocess.run(
+        [sys.executable, "-m", "hfvg.cli", "balance"],
+        capture_output=True,
+        text=True
+    )
+    
+    # Should exit zero
+    assert result.returncode == 0, f"CLI should exit zero in DRY_RUN, stderr: {result.stderr}"
+    
+    # Should indicate dry run
+    assert "DRY_RUN" in result.stdout.upper() or "dry" in result.stdout.lower(), \
+        f"Output should indicate DRY_RUN mode: {result.stdout}"
+
+
+@pytest.mark.asyncio
+async def test_balance_check_with_mock(tmp_path):
+    """Test: balance check returns balance data with mocked providers."""
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    from unittest.mock import AsyncMock, patch
+    from decimal import Decimal
+    
+    db_path = str(tmp_path / "test.db")
+    
+    # Initialize tables
+    await init_balance_tables(db_path)
+    
+    monitor = BalanceMonitor(db_path)
+    
+    # Mock the check methods to return test data
+    with patch.object(monitor, '_check_elevenlabs_balance', new_callable=AsyncMock) as mock_el, \
+         patch.object(monitor, '_check_higgsfield_balance', new_callable=AsyncMock) as mock_hf:
+        
+        # Mock ElevenLabs response
+        from hfvg.balance_monitor import ProviderBalance
+        mock_el.return_value = ProviderBalance(
+            provider="elevenlabs",
+            balance_usd=Decimal("50.00"),
+            source="live",
+            age_seconds=0.0,
+            details={}
+        )
+        
+        # Mock Higgsfield response
+        mock_hf.return_value = ProviderBalance(
+            provider="higgsfield",
+            balance_usd=Decimal("100.00"),
+            source="derived",
+            age_seconds=3600.0,
+            details={}
+        )
+        
+        # Check balances
+        result = await monitor.check_all_balances()
+        
+        # Verify
+        assert "elevenlabs" in result.providers
+        assert "higgsfield" in result.providers
+        assert result.providers["elevenlabs"].balance_usd == Decimal("50.00")
+        assert result.providers["higgsfield"].balance_usd == Decimal("100.00")
+        assert len(result.errors) == 0

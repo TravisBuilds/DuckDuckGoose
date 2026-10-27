@@ -108,8 +108,16 @@ class BalanceMonitor:
                 balance_usd = float(el_balance.balance_usd)
                 if balance_usd < BALANCE_CRITICAL_THRESHOLD_USD:
                     errors.append(f"ElevenLabs balance critically low: ${balance_usd:.2f} < ${BALANCE_CRITICAL_THRESHOLD_USD:.2f}")
+                    # Defect 10: Send critical balance alert
+                    from hfvg.balance_notifier import BalanceNotifier
+                    notifier = BalanceNotifier(self.db_path)
+                    await notifier.send_critical_balance_alert("elevenlabs", balance_usd, BALANCE_CRITICAL_THRESHOLD_USD)
                 elif balance_usd < BALANCE_LOW_THRESHOLD_USD:
                     warnings.append(f"ElevenLabs balance low: ${balance_usd:.2f} < ${BALANCE_LOW_THRESHOLD_USD:.2f}")
+                    # Defect 10: Send low balance alert
+                    from hfvg.balance_notifier import BalanceNotifier
+                    notifier = BalanceNotifier(self.db_path)
+                    await notifier.send_low_balance_alert("elevenlabs", balance_usd, BALANCE_LOW_THRESHOLD_USD)
             elif "error" in el_balance.details:
                 # Unknown balance (e.g. 401) - warn but don't treat as critical
                 warnings.append(f"ElevenLabs balance check: {el_balance.details['error']}")
@@ -130,11 +138,23 @@ class BalanceMonitor:
                     f"Higgsfield balance is stale ({age_hours:.1f}h > {HIGGSFIELD_BALANCE_MAX_AGE_HOURS}h): "
                     f"${balance_usd:.2f} from manual entry"
                 )
+                # Defect 10: Send stale balance alert
+                from hfvg.balance_notifier import BalanceNotifier
+                notifier = BalanceNotifier(self.db_path)
+                await notifier.send_stale_balance_alert("higgsfield", age_hours, HIGGSFIELD_BALANCE_MAX_AGE_HOURS)
             
             if balance_usd < BALANCE_CRITICAL_THRESHOLD_USD:
                 errors.append(f"Higgsfield balance critically low: ${balance_usd:.2f} < ${BALANCE_CRITICAL_THRESHOLD_USD:.2f}")
+                # Defect 10: Send critical balance alert
+                from hfvg.balance_notifier import BalanceNotifier
+                notifier = BalanceNotifier(self.db_path)
+                await notifier.send_critical_balance_alert("higgsfield", balance_usd, BALANCE_CRITICAL_THRESHOLD_USD)
             elif balance_usd < BALANCE_LOW_THRESHOLD_USD:
                 warnings.append(f"Higgsfield balance low: ${balance_usd:.2f} < ${BALANCE_LOW_THRESHOLD_USD:.2f}")
+                # Defect 10: Send low balance alert
+                from hfvg.balance_notifier import BalanceNotifier
+                notifier = BalanceNotifier(self.db_path)
+                await notifier.send_low_balance_alert("higgsfield", balance_usd, BALANCE_LOW_THRESHOLD_USD)
             
             # Check for disagreement between ledger and usage API
             details = hf_balance.details
@@ -327,7 +347,10 @@ class BalanceMonitor:
         estimate_usd_micros: int,
         auto_topup_enabled: bool = False,
     ) -> tuple[bool, str]:
-        """Preflight balance gate: block if balance < estimate + reserve.
+        """Preflight balance gate: block if KNOWN balance < estimate + reserve.
+        
+        Defect 8: None/unknown balance NEVER blocks (permission errors, etc).
+        Only block when we have a numeric balance that's too low.
         
         Returns:
             (passed, reason): True if check passed, False + reason if blocked.
@@ -340,6 +363,11 @@ class BalanceMonitor:
             return False, f"Balance unavailable for {provider}"
         
         balance = result.providers[provider]
+        
+        # Defect 8: None (unknown) balance never blocks
+        if balance.balance_usd is None:
+            return True, f"{provider} balance unknown (never blocks): {balance.details.get('error', 'no error')}"
+        
         estimate_usd = Decimal(estimate_usd_micros) / MICROS_PER_USD
         reserve = estimate_usd * Decimal(BALANCE_RESERVE_PERCENT) / Decimal("100")
         required = estimate_usd + reserve
