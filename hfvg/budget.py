@@ -1078,6 +1078,19 @@ class BudgetLedger:
             await db.commit()
             return cursor.rowcount == 1
 
+    async def reopen_released_job(self, job_id: str) -> bool:
+        """A new attempt re-reserved for a job id whose earlier attempt was RELEASED (activity retry).
+
+        Without this the job row stays 'released', release() treats the failure of the new attempt
+        as already finalized, and the new hold leaks. Committed jobs are never reopened."""
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            cursor = await db.execute(
+                "UPDATE job_ledger SET status = 'reserved', updated_at = ? "
+                "WHERE job_id = ? AND status = 'released'", (_now_iso(), job_id))
+            await db.commit()
+            return cursor.rowcount == 1
+
     async def mark_job_status(self, job_id: str, status: str):
         """Set a non-terminal job status such as 'pending_reconcile' (never overrides terminal)."""
         await self.init_db()

@@ -815,6 +815,8 @@ async def submit_clip_job_enforced(
         "duration": duration,
         "tags": tags or [],
         "count": animal_count,
+        # per-shot Seedance resolution override (shots.json seedance_resolution; Kling ignores it)
+        "resolution": (shot_meta or {}).get("seedance_resolution"),
     })
     if route.model == "seedance" and duration != int(duration):
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
@@ -876,7 +878,7 @@ async def submit_clip_job_enforced(
             "job_id": job_id,
             "line_name": "L4_video",
             # the same per-call estimate the G1 plan shows (hfvg.estimates)
-            "reserved_amount": clip_call_usd_micros(route.model, tier, duration),
+            "reserved_amount": clip_call_usd_micros(route.model, tier, duration, route.resolution),
             "moderation_lint": lint_record,
         }
     
