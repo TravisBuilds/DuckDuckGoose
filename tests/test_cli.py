@@ -106,9 +106,9 @@ def test_balance_cli_dry_run(tmp_path, monkeypatch):
     # Should exit zero with balance data available
     assert result.returncode == 0, f"CLI should exit zero in DRY_RUN, stderr: {result.stderr}"
     
-    # Should indicate dry run
-    assert "DRY_RUN" in result.stdout.upper() or "dry" in result.stdout.lower(), \
-        f"Output should indicate DRY_RUN mode: {result.stdout}"
+    # Should indicate dry run (DRY_RUN message is in stderr)
+    assert "DRY_RUN" in result.stderr.upper() or "dry" in result.stderr.lower(), \
+        f"Output should indicate DRY_RUN mode in stderr: {result.stderr}"
 
 
 @pytest.mark.asyncio
