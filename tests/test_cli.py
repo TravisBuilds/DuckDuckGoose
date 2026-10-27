@@ -112,8 +112,9 @@ def test_balance_cli_dry_run(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_balance_check_with_mock(tmp_path):
+async def test_balance_check_with_mock(tmp_path, monkeypatch):
     """Test: balance check returns balance data with mocked providers."""
+    monkeypatch.setenv("DRY_RUN", "false")
     from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
     from unittest.mock import AsyncMock, patch
     from decimal import Decimal
