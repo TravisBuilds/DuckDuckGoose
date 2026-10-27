@@ -18,6 +18,15 @@ from hfvg.qc.clip_constraints import (
     get_constraint_checker,
 )
 
+# Resolution tolerance: providers round output dims to codec-friendly multiples
+# (live Seedance 2.5 720p 9:16 returns 720x1276 for 720x1280)
+RESOLUTION_TOLERANCE_FRAC = 0.01  # per side: 1% (12.8 px on 1280)
+
+
+def _dims_close(w: int, h: int, ew: int, eh: int, frac: float = RESOLUTION_TOLERANCE_FRAC) -> bool:
+    """True when each side is within ``frac`` of the expected size."""
+    return abs(w - ew) <= ew * frac and abs(h - eh) <= eh * frac
+
 
 @activity.defn
 async def precheck_still_qc(episode_id: str, shot_id: str, prompt: str, params: dict) -> dict:
