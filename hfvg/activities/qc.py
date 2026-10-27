@@ -250,7 +250,11 @@ async def check_motion_qc(
                 actual_height = stream["height"]
                 expected_width, expected_height = map(int, expected_resolution.split("x"))
                 
-                if actual_width != expected_width or actual_height != expected_height:
+                # Providers round output dims to codec-friendly multiples (live Seedance 2.5 720p 9:16
+                # returns 720x1276 for 720x1280): a few pixels are not a defect - the edit scales and
+                # pads to the delivery frame. Fail only beyond RESOLUTION_TOLERANCE_FRAC per side
+                # (the aspect check below still applies).
+                if not _dims_close(actual_width, actual_height, expected_width, expected_height):
                     issues.append(f"Resolution {actual_width}x{actual_height} doesn't match expected {expected_resolution}")
                 
                 # Check aspect ratio (allow small tolerance)
