@@ -358,16 +358,15 @@ class BalanceMonitor:
         """
         result = await self.check_all_balances()
         
+        # No-op when provider not found or has no recorded balance
         if provider not in result.providers:
-            if auto_topup_enabled:
-                return True, f"Balance check skipped for {provider} with auto top-up enabled"
-            return False, f"Balance unavailable for {provider}"
+            return (True, f"Balance unavailable for {provider}, gate is no-op")
         
         balance = result.providers[provider]
         
-        # Defect 8: None (unknown) balance never blocks
+        # Defect 8: None (unknown) balance never blocks (gate is no-op)
         if balance.balance_usd is None:
-            return True, f"{provider} balance unknown (never blocks): {balance.details.get('error', 'no error')}"
+            return (True, f"{provider} balance unknown (gate is no-op): {balance.details.get('error', 'no error')}")
         
         estimate_usd = Decimal(estimate_usd_micros) / MICROS_PER_USD
         reserve = estimate_usd * Decimal(BALANCE_RESERVE_PERCENT) / Decimal("100")
@@ -378,26 +377,26 @@ class BalanceMonitor:
             age_hours = balance.age_seconds / 3600
             if age_hours > HIGGSFIELD_BALANCE_MAX_AGE_HOURS:
                 if not auto_topup_enabled:
-                    return False, (
+                    return (False, (
                         f"Higgsfield balance is stale ({age_hours:.1f}h > {HIGGSFIELD_BALANCE_MAX_AGE_HOURS}h): "
                         f"${balance.balance_usd:.2f}. Update it via POST /api/budget/balance"
-                    )
+                    ))
         
         # Check balance sufficiency
         if balance.balance_usd < required:
             if auto_topup_enabled:
                 # With auto top-up, only warn but allow
-                return True, (
+                return (True, (
                     f"WARNING: {provider} balance ${balance.balance_usd:.2f} < required ${required:.2f} "
                     f"(estimate ${estimate_usd:.2f} + {BALANCE_RESERVE_PERCENT}% reserve), "
                     f"but auto top-up is enabled"
-                )
-            return False, (
+                ))
+            return (False, (
                 f"{provider} balance insufficient: ${balance.balance_usd:.2f} < required ${required:.2f} "
                 f"(estimate ${estimate_usd:.2f} + {BALANCE_RESERVE_PERCENT}% reserve)"
-            )
+            ))
         
-        return True, f"{provider} balance OK: ${balance.balance_usd:.2f} >= ${required:.2f}"
+        return (True, f"{provider} balance OK: ${balance.balance_usd:.2f} >= ${required:.2f}")
     
     async def record_403_stop(
         self,
