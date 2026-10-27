@@ -610,8 +610,9 @@ def fade(x: np.ndarray, fade_in_s: float, fade_out_s: float) -> np.ndarray:
     return x * g[:, None]
 
 
-async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bool = False) -> np.ndarray:
-    """Decode to float32 stereo at SR; pad/trim to n samples when given."""
+async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bool = False,
+                 afilter: str | None = None) -> np.ndarray:
+    """Decode to float32 stereo at SR; pad/trim to n samples when given (optional ffmpeg -af)."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin"]
     if loop:
         cmd += ["-stream_loop", "-1"]
@@ -620,6 +621,8 @@ async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bo
     cmd += ["-i", path]
     if n is not None:
         cmd += ["-t", f"{n / SR:.6f}"]
+    if afilter:
+        cmd += ["-af", afilter]
     cmd += ["-vn", "-ac", "2", "-ar", str(SR), "-f", "f32le", "pipe:1"]
     out, _ = await run_cmd(cmd, f"decode {Path(path).name}")
     x = np.frombuffer(out, dtype="<f4").reshape(-1, 2).astype(np.float32)
@@ -815,8 +818,16 @@ def write_ass(cues: list[dict], path: str, subs: dict) -> None:
            f"0,0,0,0,100,100,0,0,1,4,1,2,80,80,{int(subs['margin_v'])},1\n\n[Events]\n")
         + "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     style = subs["ass_style"].split(":", 1)[1].split(",")[0].strip() if subs.get("ass_style") else "Default"
+    # Optional whole-line fade (ms, in/out) and edge blur (soft shadow) as ASS override tags.
+    tags = ""
+    if subs.get("fade_ms"):
+        f = int(_num(subs["fade_ms"], "subtitles.fade_ms", 0, 2000))
+        tags += f"\\fad({f},{f})"
+    if subs.get("blur"):
+        tags += f"\\blur{_num(subs['blur'], 'subtitles.blur', 0, 10):g}"
+    prefix = "{" + tags + "}" if tags else ""
     rows = [f"Dialogue: 0,{_ass_time(c['start'])},{_ass_time(c['end'])},{style},,0,0,0,,"
-            + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
+            + prefix + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
     Path(path).write_text(head + "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
 
 
@@ -1116,7 +1127,9 @@ async def mix_and_deliver(
             if start >= n:
                 raise PlacementError(f"sfx {c['id']} starts at {c['at']}s, after picture end {total_s:.2f}s")
             cn = min(int(round(c["dur"] * SR)), n - start)
-            clip = await decode(c["path"], cn, c["src_start_s"], loop=c["loop"])
+            lp = c.get("lowpass_hz")
+            clip = await decode(c["path"], cn, c["src_start_s"], loop=c["loop"],
+                                afilter=f"lowpass=f={lp:g},lowpass=f={lp:g}" if lp else None)
             ref = rms_db(clip) if c["norm"] == "rms" else peak_db(clip)
             g = c["level_db"] - ref if ref > -100 else 0.0
             clip = fade(clip * db_to_lin(g), c["fade_in_s"], c["fade_out_s"])
@@ -1124,7 +1137,9 @@ async def mix_and_deliver(
                 depth = 1.0 - db_to_lin(c["duck_db"])
                 clip = clip * (1.0 - depth * act[start:start + cn])[:, None]
             sfx[start:start + cn] += clip
-            sfx_info.append({"id": c["id"], "gain_db": round(g, 2), "ducked": c["duck_db"] < 0})
+            sfx_info.append({"id": c["id"], "gain_db": round(g, 2), "ducked": c["duck_db"] < 0,
+                             "at": c["at"], "dur": round(cn / SR, 4), "src_start_s": c["src_start_s"],
+                             "lowpass_hz": lp})
 
         stems = {"vo": vo_wav, "music": str(work / "music.wav"), "sfx": str(work / "sfx.wav")}
         await write_wav(music, stems["music"])
