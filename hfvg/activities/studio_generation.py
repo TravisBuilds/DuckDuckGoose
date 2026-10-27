@@ -734,7 +734,8 @@ async def submit_still_job_enforced(
         activity.logger.error(f"Provider error for {job_id}: {error_detail}")
         
         # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
-        if e.response.status_code == 403:
+        # Check response body to distinguish balance errors from other 403s (e.g. auth/permission)
+        if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():
             # Release whatever has been reserved
             if budget_reserved:
                 await ledger.release(episode_id, budget_line_name, budget_amount, f"403 Insufficient balance: {error_detail}")
@@ -1167,7 +1168,8 @@ async def submit_clip_job_enforced(
             activity.logger.error(f"Provider error for {job_id}: {error_detail}")
             
             # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
-            if e.response.status_code == 403:
+            # Check response body to distinguish balance errors from other 403s (e.g. auth/permission)
+            if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():
                 # Release both reservations
                 await ledger.release(episode_id, line_name, estimated_cost, f"403 Insufficient balance: {error_detail}")
                 await credit_ledger.release_credits(episode_id, job_id, notes=f"403 Insufficient balance: {error_detail}")

@@ -5,7 +5,7 @@
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [x] 4. clip_estimate resolution for Seedance
-- [ ] 12. 403 handling resumable (body match, workflow pause)
+- [x] 12. 403 handling resumable (body match, workflow pause)
 - [ ] 11. Balance gate scoping (provider-specific, DRY_RUN guard, remove default key, stale=warn)
 - [ ] 8. config.get_higgsfield fixes (use real env vars, log redacted exceptions)
 - [ ] 10. budget.py Higgsfield-only gating
