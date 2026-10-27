@@ -2682,7 +2682,7 @@ test_mutation 355 "reservation upper bound" \
 test_mutation 356 "job row recorded before the call" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_cost.py::test_job_row_is_reserved_during_the_provider_call" \
-    sed -i 's/if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):/pass  # MUTATED/'
+    sed -i '/^    if not await ledger\.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):$/,/^        await ledger\.reopen_released_job(job_id).*$/{d;}'
 
 # 357: G-AUD-COST: ELEVENLABS_USD_PER_CREDIT fails closed on zero/negative
 test_mutation 357 "usd per credit fails closed" \
