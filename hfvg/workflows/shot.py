@@ -59,9 +59,10 @@ class ShotWorkflow:
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
+        self.balance_resumed = False  # Signal that balance was topped up
         self.end_still_requested = False  # generate_end_still signal (backfill for runs started before the fix)
         self.end_prompt_override: str | None = None
-        self.status = "running"  # Status: running, paused_cap, completed, failed
+        self.status = "running"  # Status: running, paused_cap, paused_insufficient_balance, completed, failed
         
         # Per-shot G2 status tracking (Item 4)
         self.still_status = "pending"  # pending/done/failed
@@ -158,6 +159,11 @@ class ShotWorkflow:
     def resume_after_cap_raise(self):
         """Signal from parent that credit cap was raised, resume paused shot."""
         self.cap_raised = True
+
+    @workflow.signal
+    def resume_balance(self):
+        """Signal from endpoint after balance top-up, resume paused shot."""
+        self.balance_resumed = True
     
     @workflow.query
     def get_status(self) -> str:
@@ -515,6 +521,13 @@ class ShotWorkflow:
                     workflow.logger.info(f"Cap raised, retrying end still {self.shot_id}")
                     self.status = "running"
                     self.cap_raised = False
+                elif e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientBalance":
+                    workflow.logger.warning(f"Insufficient balance for end still {self.shot_id}, pausing")
+                    self.status = "paused_insufficient_balance"
+                    await workflow.wait_condition(lambda: self.balance_resumed)
+                    workflow.logger.info(f"Balance resumed, retrying end still {self.shot_id}")
+                    self.status = "running"
+                    self.balance_resumed = False
                 else:
                     raise
         
@@ -738,6 +751,18 @@ class ShotWorkflow:
                                 workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
                                 self.status = "running"
                                 self.cap_raised = False  # Reset for potential future pauses
+                                # Loop will retry with same job_id (idempotent)
+                            elif e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientBalance":
+                                # Provider balance insufficient - pause and wait for balance top-up
+                                workflow.logger.warning(f"Insufficient balance for {self.shot_id}, pausing")
+                                self.status = "paused_insufficient_balance"
+                            
+                                # Wait for balance top-up signal
+                                await workflow.wait_condition(lambda: self.balance_resumed)
+                            
+                                workflow.logger.info(f"Balance resumed, retrying {self.shot_id}")
+                                self.status = "running"
+                                self.balance_resumed = False  # Reset for potential future pauses
                                 # Loop will retry with same job_id (idempotent)
                             else:
                                 # Other activity error - set failed status with cause
@@ -1171,6 +1196,18 @@ class ShotWorkflow:
                             workflow.logger.info(f"Cap raised, retrying {self.shot_id}")
                             self.status = "running"
                             self.cap_raised = False  # Reset for potential future pauses
+                            # Loop will retry with same job_id (idempotent)
+                        elif e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientBalance":
+                            # Provider balance insufficient - pause and wait for balance top-up
+                            workflow.logger.warning(f"Insufficient balance for {self.shot_id}, pausing")
+                            self.status = "paused_insufficient_balance"
+                            
+                            # Wait for balance top-up signal
+                            await workflow.wait_condition(lambda: self.balance_resumed)
+                            
+                            workflow.logger.info(f"Balance resumed, retrying {self.shot_id}")
+                            self.status = "running"
+                            self.balance_resumed = False  # Reset for potential future pauses
                             # Loop will retry with same job_id (idempotent)
                         else:
                             # Other activity error - set failed status with cause

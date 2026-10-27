@@ -1718,6 +1718,22 @@ class EpisodeWorkflowV2:
                 self.state.new_credit_cap = 0
 
     @workflow.signal
+    async def resume_balance(self):
+        """Resume all shot children after balance top-up when paused_insufficient_balance."""
+        workflow.logger.info("Processing balance resume signal")
+        handles = dict(self.shot_results)
+        for retry_shot_id, retry_wf_id in self.pending_clip_retries.items():
+            handles[f"{retry_shot_id}-clipretry"] = workflow.get_external_workflow_handle(retry_wf_id)
+        for rc_shot_id, rc in self.pending_recompose.items():
+            handles[f"{rc_shot_id}-recompose"] = workflow.get_external_workflow_handle(rc["workflow_id"])
+        for shot_id, shot_handle in handles.items():
+            try:
+                await shot_handle.signal("resume_balance")
+                workflow.logger.info(f"Signaled balance resume to shot {shot_id}")
+            except Exception as e:
+                workflow.logger.warning(f"Failed to signal shot {shot_id}: {e}")
+
+    @workflow.signal
     def retry_still_ready(self, shot_id: str, attempt: int):
         """
         Signal from retry child: its still has landed (produced and available for review).

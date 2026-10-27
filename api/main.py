@@ -999,6 +999,28 @@ async def accept_delivery_qc(
     return {"success": True, "episode_id": episode_id, "message": "Delivery QC acceptance sent"}
 
 
+@app.post("/api/episodes/{episode_id}/resume-balance")
+async def resume_balance(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Resume episode and shots after balance top-up when paused_insufficient_balance."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("resume_balance")
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending resume signal: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Resume balance signal sent"}
+
+
 @app.post("/api/episodes/{episode_id}/delivery/rebuild")
 async def request_delivery_rebuild(
     episode_id: str,
