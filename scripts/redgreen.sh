@@ -695,7 +695,7 @@ test_mutation 24 "M-24: Delivery holds at G_FINAL_CUT until a human approves" \
 test_mutation 25 "Workflow waits for parent stills_approved signal" \
     "hfvg/workflows/shot.py" \
     "tests/test_shot_live.py::test_shot_workflow_human_approval_proceeds_to_clip" \
-    sed -i 's/await workflow.wait_condition(lambda: self.stills_approved)/# await workflow.wait_condition(lambda: self.stills_approved)  # MUTATED/'
+    sed -i 's/await workflow.wait_condition(self._released)/# await workflow.wait_condition(self._released)  # MUTATED/'
 
 # 26. Idempotent release (clamp to current reserved)
 test_mutation 26 "Idempotent release clamps to reserved" \
@@ -904,7 +904,7 @@ test_mutation 56 "M-P2b Seedance refuses duration 3 (min 4 s)" \
 test_mutation 57 "M-P2c Planner never routes wet shots to Seedance" \
     "hfvg/routing.py" \
     "tests/test_seedance_routing.py::test_planner_never_routes_wet_shot_to_seedance" \
-    sed -i 's/^        if blocked:/        if blocked and False:  # MUTATED/'
+    sed -i 's/^        if blocked and not override:/        if blocked and not override and False:  # MUTATED/'
 
 # 58. M-P2d declined_preset_id is sent on Kling requests
 test_mutation 58 "M-P2d declined_preset_id is sent on Kling requests" \
@@ -1149,7 +1149,7 @@ test_mutation 96 "M-R4B Live shot activity refuses when refs are missing" \
 test_mutation 97 "M-R4C Recheck updates shot plans with new ref data" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g2_detects_missing_refs_and_recheck_merges_data" \
-    sed -i '/rechecked = await workflow\.execute_activity/,/self\.missing_refs = self\._collect_missing_refs/{ /{\*\*s, \*\*rechecked\[s\["shot_id"\]\]}/s/.*/                    s  # MUTATED/; }'
+    sed -i 's/shots = self._merge_rechecked_refs(shots, rechecked)/shots = shots  # MUTATED - no merge/'
 
 # 98. M-R4D Episode workflow loads per-shot data for its episode
 test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
