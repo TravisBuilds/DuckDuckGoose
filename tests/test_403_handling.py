@@ -2,7 +2,7 @@
 
 import pytest
 import httpx
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from temporalio.exceptions import ApplicationError
 
 from hfvg.activities.studio_generation import submit_still_job_enforced
@@ -29,13 +29,11 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
-    # Set manual Higgsfield balance
-    from hfvg.balance_monitor import BalanceMonitor
-    monitor = BalanceMonitor(db_path)
-    await monitor.set_manual_balance("higgsfield", 100.0)
-    
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
+    
+    # Set manual Higgsfield balance (in micros: $100)
+    await ledger.set_manual_balance(100_000_000, set_by="test", note="test balance")
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
@@ -53,7 +51,6 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     # Initialize episode and lines
     await ledger.init_episode_budget("ep01")
     # Manually increase L2_drafts cap and mark episode as live
-    import aiosqlite
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
@@ -73,8 +70,6 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
     
     with patch.object(HiggsfieldStillProvider, 'submit_image', new_callable=AsyncMock) as mock_submit, \
-         patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
-         patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
          patch.object(HiggsfieldStillProvider, 'estimate_usd_and_credits', new_callable=AsyncMock) as mock_estimate_both, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
          patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
@@ -84,9 +79,7 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
         # Mock successful preflight
         mock_preflight.return_value = (True, "Balance OK")
         
-        # Mock estimates
-        mock_estimate_usd.return_value = 50_000  # $0.05
-        mock_estimate_credits.return_value = 0.5
+        # Mock estimates (returns tuple of micros, credits)
         mock_estimate_both.return_value = (50_000, 0.5)
         
         # Mock upload (returns empty list for uploaded refs)
@@ -129,11 +122,10 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
         assert "403" in str(exc_info.value)
         
         # Verify reservations were released (balance should be back to initial)
-        import aiosqlite
         async with aiosqlite.connect(db_path) as db:
             # Check L2_drafts balance
             row = await (await db.execute(
-                "SELECT reserved FROM budget_lines WHERE episode_id = ? AND line_name = ?",
+                "SELECT reserved_usd_micros FROM budget_lines WHERE episode_id = ? AND line_name = ?",
                 (episode_id, "L2_drafts")
             )).fetchone()
             
@@ -169,13 +161,11 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
-    # Set manual Higgsfield balance
-    from hfvg.balance_monitor import BalanceMonitor
-    monitor = BalanceMonitor(db_path)
-    await monitor.set_manual_balance("higgsfield", 100.0)
-    
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
+    
+    # Set manual Higgsfield balance (in micros: $100)
+    await ledger.set_manual_balance(100_000_000, set_by="test", note="test balance")
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
@@ -193,7 +183,6 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     # Initialize episode and lines
     await ledger.init_episode_budget("ep02")
     # Manually increase L2_drafts cap and mark episode as live
-    import aiosqlite
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
@@ -235,8 +224,6 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
         return "job-456"
     
     with patch.object(HiggsfieldStillProvider, 'submit_image', new_callable=AsyncMock) as mock_submit, \
-         patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
-         patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
          patch.object(HiggsfieldStillProvider, 'estimate_usd_and_credits', new_callable=AsyncMock) as mock_estimate_both, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
          patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
@@ -246,8 +233,6 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
         
         # Setup mocks
         mock_submit.side_effect = mock_submit_fn
-        mock_estimate_usd.return_value = 50_000  # $0.05
-        mock_estimate_credits.return_value = 0.5
         mock_estimate_both.return_value = (50_000, 0.5)
         mock_preflight.return_value = (True, "Balance OK")
         
@@ -275,10 +260,9 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
         assert exc_info.value.type == "InsufficientBalance"
         
         # Simulate "top-up" - just verify balance was released
-        import aiosqlite
         async with aiosqlite.connect(db_path) as db:
             row = await (await db.execute(
-                "SELECT reserved, committed FROM budget_lines WHERE episode_id = ? AND line_name = ?",
+                "SELECT reserved_usd_micros, spent_usd_micros FROM budget_lines WHERE episode_id = ? AND line_name = ?",
                 (episode_id, "L2_drafts")
             )).fetchone()
             
@@ -312,7 +296,7 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
         # Verify ledger now shows only ONE reservation + commit (not double)
         async with aiosqlite.connect(db_path) as db:
             row = await (await db.execute(
-                "SELECT reserved, committed FROM budget_lines WHERE episode_id = ? AND line_name = ?",
+                "SELECT reserved_usd_micros, spent_usd_micros FROM budget_lines WHERE episode_id = ? AND line_name = ?",
                 (episode_id, "L2_drafts")
             )).fetchone()
             
