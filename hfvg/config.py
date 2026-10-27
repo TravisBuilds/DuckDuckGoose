@@ -17,13 +17,15 @@ def _load_rate_table() -> dict[str, dict[str, int]]:
     SOURCE / CAVEAT: these are LIST PRICES BEFORE ANY DISCOUNT, derived, not quoted by an API:
     - seedance-2.5: Higgsfield pricing text (480p 0.2056, 720p 0.4622, 1080p 1.1372 USD/s). The
       estimate endpoint for Seedance returns a pricing description, not USD, so this table is used.
-    - kling-3.0-pro: fallback only (estimate normally returns usd); 0.056 USD/s derived from the
-      live canary (5 s clip = 0.28 USD).
+    - kling-3.0-pro: fallback only (estimate normally returns usd); 0.112 USD/s = the live
+      POST /estimate/kling-video/v3.0/pro/image-to-video value re-checked 2026-10-27 (3/4/5/6/12 s
+      -> 0.336/0.448/0.560/0.672/1.344 USD, 1.792 credits/s, same with an end frame). The old
+      0.056 USD/s (2025 canary) under-reserved by half; see tests/test_kling_price_table.py.
     Real billing may be lower (discounts); the ledger therefore reserves conservatively.
     """
     table = {
         "seedance-2.5": {"480p": 205_600, "720p": 462_200, "1080p": 1_137_200},
-        "kling-3.0-pro": {"default": 56_000},
+        "kling-3.0-pro": {"default": 112_000},
     }
     override = os.getenv("MODEL_USD_PER_SECOND_JSON")
     if override:

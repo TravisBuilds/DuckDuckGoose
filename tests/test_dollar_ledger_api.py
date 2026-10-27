@@ -318,7 +318,7 @@ async def test_clip_estimate_without_usd_uses_rate_table(db_path, monkeypatch, r
         micros = await provider.estimate_usd_micros("https://example.com/s.jpg", "p", 5)
     finally:
         await provider.close()
-    assert micros == 280_000  # 5 s x 56_000 usd_micros/s from the configured rate table
+    assert micros == 560_000  # 5 s x 112_000 usd_micros/s from the configured rate table (live 2026-10-27)
 
 
 def test_rate_table_literals_and_ceiling():

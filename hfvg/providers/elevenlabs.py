@@ -88,6 +88,15 @@ COST_SOURCE_ESTIMATE = "estimate"
 class ElevenLabsError(RuntimeError):
     """A live ElevenLabs call failed (HTTP error or empty audio)."""
 
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+    @property
+    def permanent(self) -> bool:
+        """Auth/permission/validation failures: a retry repeats the same refusal."""
+        return self.status_code in (400, 401, 403, 404, 422)
+
 
 def canonical_audio_model(model: str) -> str:
     return AUDIO_MODEL_ALIASES.get(model, model)
@@ -231,7 +240,8 @@ class ElevenLabsProvider(GenerationProvider):
         async with httpx.AsyncClient(base_url=self.api_base, timeout=httpx.Timeout(300.0)) as client:
             resp = await client.post(path, json=body, params=params or None, headers=self._headers())
         if resp.status_code != 200:
-            raise ElevenLabsError(f"ElevenLabs {path} returned HTTP {resp.status_code}: {resp.text[:300]}")
+            raise ElevenLabsError(f"ElevenLabs {path} returned HTTP {resp.status_code}: {resp.text[:300]}",
+                                 status_code=resp.status_code)
         if not resp.content:
             raise ElevenLabsError(f"ElevenLabs {path} returned no audio")
         out_path.parent.mkdir(parents=True, exist_ok=True)

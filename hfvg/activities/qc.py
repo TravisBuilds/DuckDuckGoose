@@ -613,7 +613,9 @@ async def check_assembly_qc(
     animals = []
     for clip in clips:
         sid = clip["id"]
-        res = await check_shot_animals(counter, clip.get("source") or assembly_path, metas.get(sid))
+        # Reused locked clips (edit plan) carry their own shot_meta in the manifest
+        res = await check_shot_animals(counter, clip.get("source") or assembly_path,
+                                       metas.get(sid) or clip.get("shot_meta"))
         animals.append({"shot_id": sid, **res})
 
     # Size / order continuity checks: only when the episode declares continuity_hard_checks.
@@ -626,7 +628,7 @@ async def check_assembly_qc(
             for check in cont.CHECKER_CHECKS:
                 try:
                     r = await cont.run_checker_check(checker, clip.get("source") or assembly_path, check,
-                                                     {"shot_id": sid, "shot_meta": metas.get(sid)})
+                                                     {"shot_id": sid, "shot_meta": metas.get(sid) or clip.get("shot_meta")})
                 except Exception as e:  # a checker error is never a pass
                     r = {"check": check, "status": cont.NEEDS_REVIEW, "reason": f"{check}: checker error: {str(e)[:200]}"}
                 checker_rows.append({"shot_id": sid, **r})

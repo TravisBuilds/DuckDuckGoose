@@ -38,81 +38,129 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     pattern = r'\|\s*(\d+)\s*\|\s*([A-Z]\d+[a-zA-Z]*)\s*\|\s*([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])'
     
     for match in re.finditer(pattern, content, re.MULTILINE):
-        shot_num = int(match.group(1))
-        shot_id = match.group(2).strip()
-        screen_time = float(match.group(3))
-        gen_time = float(match.group(4))
-        has_end_frame = '⇥' in match.group(5)
-        room = match.group(6).strip()
-        tod = match.group(7).strip()
-        chars_raw = match.group(8).strip()
-        action = match.group(9).strip()
-        purpose = match.group(10).strip()
-        # Skip groups 11 and 12 (In and Out transitions)
-        model = match.group(13).strip()
-        
-        # Extract scene ID (letter prefix)
-        scene_id = shot_id[0]
-        
-        # Parse characters
-        # Format examples: "H Y K", "D(T)", "K(tuque) D(B)", "–"
-        characters = []
-        duck_role = "absent"
-        
-        if chars_raw != '–':
-            # Match character codes: multi-letter + optional digit (e.g., B, W, M1, M2, AG)
-            char_codes = re.findall(r'([A-Z]+\d*)(?:\([^)]*\))?', chars_raw)
-            for code in char_codes:
-                characters.append(code)
-                if code == 'D':
-                    duck_role = "host"  # Duck present means host role
-        
-        # Detect tags for model routing
-        tags = []
-        action_lower = action.lower()
-        purpose_lower = purpose.lower()
-        room_lower = room.lower()
-        combined = f"{action_lower} {purpose_lower} {room_lower}"
-        
-        # Wet/water tags (route to Kling)
-        if any(keyword in combined for keyword in [
-            'water', 'wet', 'soak', 'swim', 'dive', 'underwater', 'splash',
-            'pool', 'spring', 'surface', 'steam'
-        ]):
-            if 'underwater' in combined:
-                tags.append('underwater')
-            if 'soak' in combined or 'spring' in combined:
-                tags.append('soak')
-            if 'wet' in combined or 'swim' in combined:
-                tags.append('wet')
-        
-        # Mud (route to Kling)
-        if 'mud' in combined:
-            tags.append('mud')
-        
-        # Hand-offs (marked with ★)
-        is_handoff = '★' in action or 'Hand-off' in action
-        
-        shot = {
-            "shot_num": shot_num,
-            "shot_id": shot_id,
-            "scene_id": scene_id,
-            "screen_time": screen_time,
-            "gen_time": gen_time,
-            "room": room,
-            "tod": tod,
-            "characters": characters,
-            "action": action,
-            "purpose": purpose,
-            "model": model,  # K or S
-            "tags": tags,
-            "is_handoff": is_handoff,
-            "has_end_frame": has_end_frame,
-            "duck_role": duck_role,
-        }
-        
-        shots.append(shot)
+        shots.append(_build_shot(
+            int(match.group(1)), match.group(2).strip(), float(match.group(3)), float(match.group(4)),
+            '⇥' in match.group(5), match.group(6).strip(), match.group(7).strip(), match.group(8).strip(),
+            match.group(9).strip(), match.group(10).strip(), match.group(13).strip(),
+        ))
+    if not shots:
+        # Studio tables with extra columns (e.g. "N") or long model names ("kling"): header-driven
+        shots = _parse_header_tables(content)
+    return shots
+
+
+def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float, has_end_frame: bool,
+                room: str, tod: str, chars_raw: str, action: str, purpose: str, model: str) -> dict[str, Any]:
+    # Extract scene ID (letter prefix)
+    scene_id = shot_id[0]
     
+    # Parse characters
+    # Format examples: "H Y K", "D(T)", "K(tuque) D(B)", "–"
+    characters = []
+    duck_role = "absent"
+    
+    if chars_raw != '–':
+        # Match character codes: multi-letter + optional digit (e.g., B, W, M1, M2, AG)
+        char_codes = re.findall(r'([A-Z]+\d*)(?:\([^)]*\))?', chars_raw)
+        for code in char_codes:
+            characters.append(code)
+            if code == 'D':
+                duck_role = "host"  # Duck present means host role
+    
+    # Detect tags for model routing
+    tags = []
+    action_lower = action.lower()
+    purpose_lower = purpose.lower()
+    room_lower = room.lower()
+    combined = f"{action_lower} {purpose_lower} {room_lower}"
+    
+    # Wet/water tags (route to Kling)
+    if any(keyword in combined for keyword in [
+        'water', 'wet', 'soak', 'swim', 'dive', 'underwater', 'splash',
+        'pool', 'spring', 'surface', 'steam'
+    ]):
+        if 'underwater' in combined:
+            tags.append('underwater')
+        if 'soak' in combined or 'spring' in combined:
+            tags.append('soak')
+        if 'wet' in combined or 'swim' in combined:
+            tags.append('wet')
+    
+    # Mud (route to Kling)
+    if 'mud' in combined:
+        tags.append('mud')
+    
+    # Hand-offs (marked with ★)
+    is_handoff = '★' in action or 'Hand-off' in action
+    
+    shot = {
+        "shot_num": shot_num,
+        "shot_id": shot_id,
+        "scene_id": scene_id,
+        "screen_time": screen_time,
+        "gen_time": gen_time,
+        "room": room,
+        "tod": tod,
+        "characters": characters,
+        "action": action,
+        "purpose": purpose,
+        "model": model,  # K or S
+        "tags": tags,
+        "is_handoff": is_handoff,
+        "has_end_frame": has_end_frame,
+        "duck_role": duck_role,
+    }
+    
+    return shot
+
+
+_MODEL_CODES = {"k": "K", "kling": "K", "s": "S", "seedance": "S"}
+_SCREEN_RE = re.compile(r"^([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*$")
+
+
+def _cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _parse_header_tables(content: str) -> list[dict[str, Any]]:
+    """Shot tables located by their header (| # | ID | Screen ... | Model |), any column order/extra
+    columns. Rows marked REUSE in the screen cell are reused locked clips (hfvg.edit_plan), not
+    generated, and are skipped. Any other row whose screen cell does not read "S (G) [⇥]" or whose
+    model is unknown is refused (ValueError): a shot is never silently dropped."""
+    shots: list[dict[str, Any]] = []
+    lines = content.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("|"):
+            head = [c.lower() for c in _cells(line)]
+            def col(prefix: str) -> int | None:
+                for j, h in enumerate(head):
+                    if h == prefix or h.startswith(prefix):
+                        return j
+                return None
+            idx = {k: col(k) for k in ("#", "id", "screen", "room", "tod", "chars", "action", "purpose", "model")}
+            if all(v is not None for v in idx.values()):
+                i += 2  # skip the |---| separator
+                while i < len(lines) and lines[i].lstrip().startswith("|"):
+                    cells = _cells(lines[i])
+                    i += 1
+                    if len(cells) < len(head):
+                        raise ValueError(f"BEATMAP row has {len(cells)} cells, header has {len(head)}: {cells[:2]}")
+                    sid, screen = cells[idx["id"]], cells[idx["screen"]]
+                    if "REUSE" in screen.upper():
+                        continue
+                    m = _SCREEN_RE.match(screen)
+                    model = _MODEL_CODES.get(cells[idx["model"]].strip().lower())
+                    if not m or not model:
+                        raise ValueError(f"BEATMAP shot {sid}: unparseable screen {screen!r} or model {cells[idx['model']]!r}")
+                    shots.append(_build_shot(
+                        int(cells[idx["#"]]), sid, float(m.group(1)), float(m.group(2)), bool(m.group(3)),
+                        cells[idx["room"]], cells[idx["tod"]], cells[idx["chars"]], cells[idx["action"]],
+                        cells[idx["purpose"]], model,
+                    ))
+                continue
+        i += 1
     return shots
 
 

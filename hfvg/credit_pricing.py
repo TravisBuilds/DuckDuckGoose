@@ -38,7 +38,7 @@ STILL_CREDITS = {
 # Video generation pricing (credits per second)
 CLIP_CREDITS_PER_SECOND = {
     "kling_3.0": {
-        "pro": 1.5,       # Kling 3.0 pro mode ~1.5/s
+        "pro": 1.792,     # Kling 3.0 pro: live estimate 2026-10-27 = 1.792 credits/s (8.96 per 5 s)
         "standard": 1.0,  # Kling 3.0 standard
     },
     "seedance_2.5": {
@@ -95,7 +95,8 @@ def estimate_clip_credits(model: str, duration: float, resolution: str | None = 
         Estimated credits (float, exact decimal to avoid under-reserving)
     """
     if model.startswith("kling"):
-        rate = CLIP_CREDITS_PER_SECOND.get("kling_3.0", {}).get("standard", DEFAULT_CLIP_CREDITS_PER_SECOND)
+        # The harness only routes Kling 3.0 PRO (kling-video/v3.0/pro); the old "standard" lookup under-counted
+        rate = CLIP_CREDITS_PER_SECOND.get("kling_3.0", {}).get("pro", DEFAULT_CLIP_CREDITS_PER_SECOND)
     elif model.startswith("seedance"):
         if resolution:
             rate = CLIP_CREDITS_PER_SECOND.get("seedance_2.5", {}).get(resolution, DEFAULT_CLIP_CREDITS_PER_SECOND)

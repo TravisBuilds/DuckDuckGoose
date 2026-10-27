@@ -22,7 +22,7 @@ MICROS_PER_USD = 1_000_000
 
 # Fake (dry-run) reservation sizes in usd_micros: nothing is reserved in dry mode
 DRY_STILL_USD_MICROS = 60_000  # 0.06 USD
-DRY_CLIP_USD_PER_SECOND_MICROS = 56_000  # 0.056 USD/s
+DRY_CLIP_USD_PER_SECOND_MICROS = 112_000  # 0.112 USD/s (= config kling-3.0-pro rate; live 2026-10-27)
 
 
 def usd_to_micros(value: Any) -> int:

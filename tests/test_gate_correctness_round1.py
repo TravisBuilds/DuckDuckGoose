@@ -57,6 +57,7 @@ class Recorder:
     def __init__(self):
         self.still_calls: list[tuple] = []
         self.clip_calls: list[tuple] = []
+        self.save_calls: list[tuple] = []  # (shot_id, kind, file_version) of every save_asset_locally
         self.clip_gate: asyncio.Event | None = None  # when set: clip RETRY submits wait for it
 
     def clips_for(self, shot_id: str) -> list[tuple]:
@@ -91,7 +92,10 @@ def _activities(rec: Recorder, param_overrides: dict | None = None):
     def name(a):
         return getattr(a, "__temporal_activity_definition").name
 
-    wrapped = {"submit_clip_job_enforced", "submit_still_job_enforced", "parse_beatmap_activity"}
+    from hfvg.activities import save_assets as sa
+
+    wrapped = {"submit_clip_job_enforced", "submit_still_job_enforced", "parse_beatmap_activity",
+               "save_asset_locally"}
     acts = [a for a in PRODUCTION_ACTIVITIES if name(a) not in wrapped]
 
     @activity.defn(name="submit_still_job_enforced")
@@ -115,7 +119,12 @@ def _activities(rec: Recorder, param_overrides: dict | None = None):
                 shot["params"] = {**(shot.get("params") or {}), **override}
         return result
 
-    return [*acts, still, clip, parse]
+    @activity.defn(name="save_asset_locally")
+    async def save(episode_id, shot_id, url, kind, version=1):
+        rec.save_calls.append((shot_id, kind, version))
+        return await sa.save_asset_locally(episode_id, shot_id, url, kind, version)
+
+    return [*acts, still, clip, parse, save]
 
 
 async def _wait(handle, pred, timeout=30.0, what="condition"):
@@ -771,6 +780,9 @@ class TestClipRetry:
                 second = await _refusal(handle.execute_update("retry_clip", args=["A01", "still jittery", None]))
                 assert second is not None and "max paid clip retries" in second, second
                 assert len([c for c in rec.clips_for("A01") if Recorder.clip_retry_of(c)]) == 1
+                # GAP-17: the clip retry must not overwrite the original clip_v1 the human QC'd
+                clip_saves = [v for (sid, kind, v) in rec.save_calls if sid == "A01" and kind == "clip"]
+                assert clip_saves == [1, 1001], clip_saves
 
                 await handle.signal("approve_g_final_cut")
                 await asyncio.wait_for(handle.result(), timeout=30)

@@ -31,6 +31,7 @@ from hfvg.budget import (
     REVISION_LINE,
     ROUND_G2_STILLS,
     ROUND_G3_CLIPS,
+    ROUND_G3_RECOMPOSE,
     RoundBudgetError,
 )
 from hfvg.credit_ledger import CreditLedger
@@ -331,9 +332,14 @@ async def submit_still_job_enforced(
     attempt: int = 1,
     lead_ref: str | None = None,
     moderation_retry: dict[str, Any] | None = None,
+    review_round: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
+
+    review_round: GAP-25, {"round": "G3_RECOMPOSE", "retry_key": "rc{n}"} for a recompose still: the
+    paid still is authorized against that round (its own cap, 80% stop and per-shot limit) instead
+    of the G2 still round.
 
     moderation_retry: set by the moderation recovery ladder ({"n": rung number, "step": ...}) when
     a content-blocked still is resubmitted with a neutral reword (the caller passes the reworded
@@ -646,7 +652,13 @@ async def submit_still_job_enforced(
         idempotency_key = f"{job_id}-{key_hash}"
         
         # G-BUD-1: a paid still RETRY (attempt > 1) must fit its G2 review round, before submit
-        if attempt > 1:
+        if review_round and not moderation_retry:
+            if review_round.get("round") != ROUND_G3_RECOMPOSE or not review_round.get("retry_key"):
+                raise ApplicationError(f"invalid review_round {review_round!r}", non_retryable=True)
+            await _authorize_paid_retry(ledger, episode_id, ROUND_G3_RECOMPOSE, shot_id, job_id,
+                                        budget_amount, str(review_round["retry_key"]))
+            round_hold_key = job_id
+        elif attempt > 1:
             await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
                                         budget_amount, f"r{attempt - 1}")
             round_hold_key = job_id
@@ -797,6 +809,7 @@ async def submit_clip_job_enforced(
     
     # Explicit routing plan (fail closed in every mode)
     route = plan_route({
+        "shot_id": shot_id,
         "model": model,
         "tier": "draft" if tier == "draft" else "final",
         "duration": duration,

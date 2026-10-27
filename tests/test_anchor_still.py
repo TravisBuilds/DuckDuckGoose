@@ -359,6 +359,8 @@ async def test_api_rejects_self_anchoring(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
@@ -618,6 +620,8 @@ async def test_anchor_path_supports_webp(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
@@ -668,6 +672,8 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)

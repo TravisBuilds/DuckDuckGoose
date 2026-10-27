@@ -480,9 +480,6 @@ def retry_shot(episode_id: str, shot_id: str):
     asyncio.run(_retry())
 
 
-if __name__ == "__main__":
-    cli()
-
 
 @cli.command("set-anchor")
 @click.argument("episode_id")
@@ -948,3 +945,60 @@ def show_balance():
     click.echo(json.dumps(report, indent=2))
     if not report["fresh"]:
         raise SystemExit(1)
+
+
+@cli.command("select-still")
+@click.argument("episode_id")
+@click.argument("shot_id")
+@click.argument("version", type=int)
+@click.option("--reason", required=True, help="Why this version is kept (audited)")
+@click.option("--data-dir", default=None, help="DATA_DIR holding episodes/<ep>/outputs (default: $DATA_DIR)")
+def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_dir: str | None):
+    """G2: keep still VERSION of SHOT_ID instead of the latest re-roll (GAP-26).
+
+    Same checks as POST /api/episodes/<ep>/shots/<shot>/select-still: the version's file is on disk,
+    its child still waits at G2 with a landed still, and its prompt passes preflight. No spend; does
+    NOT approve G2."""
+    import os
+    import sys
+
+    async def _select():
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
+        from hfvg.still_selection import check_selection
+
+        if not reason.strip():
+            click.echo("❌ --reason is required", err=True)
+            sys.exit(2)
+        from hfvg.temporal_converter import temporal_data_converter
+        client = await Client.connect(config.TEMPORAL_HOST, namespace=config.TEMPORAL_NAMESPACE,
+                                      data_converter=temporal_data_converter)
+        live = os.getenv("DRY_RUN", "true").lower() != "true"
+        plan, problems = await check_selection(client, episode_id, episode_id, shot_id, version, live=live,
+                                               data_dir=data_dir or os.getenv("DATA_DIR", "./data"))
+        if problems:
+            click.echo(f"❌ Cannot select {shot_id} v{version}: " + "; ".join(problems), err=True)
+            sys.exit(1)
+        try:
+            result = await client.get_workflow_handle(episode_id).execute_update(
+                "select_still_version", args=[shot_id, version, reason.strip()])
+        except WorkflowUpdateFailedError as e:
+            click.echo(f"❌ Select refused: {e.cause if isinstance(e.cause, ApplicationError) else e}", err=True)
+            sys.exit(1)
+        try:
+            import aiosqlite
+            async with aiosqlite.connect(os.getenv("DATABASE_PATH", "./data/studio.db")) as db:
+                await db.execute("INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+                                 (episode_id, "select_still_version",
+                                  f"Shot {shot_id} keeps still v{version} ({plan.get('workflow_id')}) instead of "
+                                  f"v{result.get('previous_version')}: {reason.strip()}", "cli"))
+                await db.commit()
+        except Exception as e:  # the audit trail never blocks a reviewer action
+            click.echo(f"(audit log write failed: {e})", err=True)
+        click.echo(f"✓ {shot_id} keeps still v{version}: {result}")
+
+    asyncio.run(_select())
+
+
+if __name__ == "__main__":
+    cli()

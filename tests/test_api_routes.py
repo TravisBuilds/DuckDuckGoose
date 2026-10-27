@@ -349,10 +349,10 @@ async def test_canary_reserves_l6_before_workflow(test_db_api, monkeypatch):
     status_after = await ledger.get_line_status("ep99", "L6_reserve")
     reserved_after = status_after["reserved"]
     
-    # Dry canary hold: (0.06 still + 5 s x 0.056 Kling) * 1.2 = 0.408 USD
+    # Dry canary hold: (0.06 still + 5 s x 0.112 Kling) * 1.2 = 0.744 USD
     assert reserved_after > reserved_before, "Should reserve from L6"
-    assert reserved_after - reserved_before == 408_000, "Should reserve 408_000 usd_micros (0.408 USD)"
-    assert data["reserved_amount"] == 408_000
+    assert reserved_after - reserved_before == 744_000, "Should reserve 744_000 usd_micros (0.744 USD)"
+    assert data["reserved_amount"] == 744_000
 
 
 @pytest.mark.asyncio

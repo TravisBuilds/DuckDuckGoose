@@ -53,6 +53,9 @@ class ShotWorkflow:
         self.max_retries = 3
         self.stills_approved = False  # Wait for parent to approve this scene's stills
         self.still_rejected_reason: str | None = None  # G2 rejection: never animated, never charged
+        # GAP-26: another still version of this shot was kept at G2 (select_still_version or the latest
+        # re-roll): this child ends quietly - no DB/ledger write, no clip (set by still_superseded)
+        self.still_superseded_reason: str | None = None
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
@@ -83,6 +86,7 @@ class ShotWorkflow:
         self.moderation_lint: dict = {}
         self.qc_constraints: dict | None = None
         self.qc_constraints_by_clip: list[dict] = []  # every checked clip's qc_fail_if rows, in order
+        self.clip_plan_update: dict = {}  # GAP-28: corrected clip_prompt / qc_fail_if from a G2 resync
 
     @workflow.signal
     def stills_approved(self):
@@ -96,6 +100,46 @@ class ShotWorkflow:
         self.still_rejected_reason = reason or "rejected at G2"
         # Release the G2 wait; the rejection is checked right after it, before any clip work.
         self.stills_approved = True
+
+    @workflow.signal
+    def update_clip_plan(self, update: dict):
+        """GAP-28: the parent re-synced the corrected package at G2. The clip phase (clip submit,
+        clip QC qc_fail_if) uses these fields instead of the ones this child was started with.
+        Only clip_prompt / qc_fail_if; the still already made is unchanged."""
+        for k in ("clip_prompt", "qc_fail_if"):
+            if isinstance(update, dict) and k in update:
+                self.clip_plan_update[k] = update[k]
+
+    @workflow.signal
+    def still_superseded(self, reason: str = ""):
+        """GAP-26: signal from the parent at G2 approval: this child's still is NOT the version kept
+        for the shot (an earlier/later version was selected). The child ends without recording
+        anything (the kept version owns the shot's DB row, clip, manifest and ledger records) and
+        never submits a clip. Releases both the human-review wait and the G2 wait."""
+        self.still_superseded_reason = reason or "superseded by another still version at G2"
+
+    async def _wait_for_review(self, condition) -> None:
+        """Human-review wait with the 24 h timer it always had. wait_condition RAISES on timeout, and an
+        uncaught asyncio.TimeoutError failed the workflow task forever (the child could then never see
+        stills_approved): a G2 review longer than a day stalled the shot. Keep waiting instead (the
+        first timer is the same command as before, so parked children replay unchanged)."""
+        import asyncio
+        while True:
+            try:
+                await workflow.wait_condition(condition, timeout=timedelta(hours=24))
+                return
+            except asyncio.TimeoutError:
+                workflow.logger.warning(f"Still {self.shot_id} v{self.version}: still awaiting human review after 24 h")
+
+    def _released(self) -> bool:
+        return self.stills_approved or self.still_superseded_reason is not None
+
+    def _superseded_result(self) -> dict:
+        self.status = "superseded"
+        self.clip_status = "skipped"
+        workflow.logger.info(f"Still v{self.version} of {self.shot_id} superseded: {self.still_superseded_reason}")
+        return {"shot_id": self.shot_id, "status": "superseded", "version": self.version,
+                "still_url": (self.still_asset or {}).get("url"), "reason": self.still_superseded_reason}
 
     @workflow.signal
     def set_end_image(self, url: str):
@@ -135,6 +179,9 @@ class ShotWorkflow:
             "has_clip": self.clip_asset is not None,
             "stills_approved": self.stills_approved,
             "still_rejected": self.still_rejected_reason,
+            "still_superseded": self.still_superseded_reason,
+            "clip_plan_update": dict(self.clip_plan_update),  # GAP-28
+            "version": self.version,
             "pre_approved": self.pre_approved,
             "moderation_lint": self.moderation_lint,
             "qc_constraints": self.qc_constraints,
@@ -147,6 +194,7 @@ class ShotWorkflow:
             "clip_status": self.clip_status,
             "clip_url": self.clip_url,
             "clip_error": self.clip_error,
+            "clip_path": getattr(self, "clip_local_path", None),
             "end_still_status": self.end_still_status,
             "end_still_url": self.end_still_url,
             "end_still_error": self.end_still_error,
@@ -521,6 +569,22 @@ class ShotWorkflow:
     def _end_still_backfill_due(self, params: dict) -> bool:
         return bool(self.end_still_requested and params.get("end_frame") and not self.end_image_url)
 
+    def _asset_file_version(self, attempt: int) -> int:
+        """File version for outputs/<shot>/{still,clip}_v<N>: original children keep the old
+        attempt+1 numbering; a G2 retry child (version N>1) writes v<N> (v<N*100+k> for its own
+        in-child QC attempt k) so a re-roll never overwrites the original still/clip (GAP-14)."""
+        if self.version <= 1:
+            return attempt + 1
+        return self.version if attempt == 0 else self.version * 100 + attempt
+
+    def _clip_file_version(self, attempt: int, clip_retry: dict | None) -> int:
+        """File version for a clip. A post-G2 clip retry (``clip_retry`` = {"n": k, ...}) reuses the
+        child's still/version, so without an offset it overwrote the original clip_v<N> that the
+        human QC'd (GAP-17). Clip retry k writes clip_v<k*1000 + base> instead (e.g. clip_v1001)."""
+        base = self._asset_file_version(attempt)
+        n = (clip_retry or {}).get("n")
+        return base + 1000 * int(n) if n else base
+
     async def _notify_parent_retry_still_ready(self, shot_plan: dict) -> None:
         """Tell the episode workflow this RETRY child's still(s) have landed (QC'd + recorded),
         so it can clear pending_retries and let G2 (the human review) be approved.
@@ -651,7 +715,11 @@ class ShotWorkflow:
                                     self.version,  # attempt
                                 # G-REC-1: a moderation resubmit gets its own -m{n} job + G2 hold
                                 # (input-driven: unchanged args for every other history)
-                                ] + ([None, still_mod_retry] if still_mod_retry else []),
+                                ] + ([None, still_mod_retry] if still_mod_retry else
+                                     # GAP-25: a recompose still is held in its own review round
+                                     [None, None, {"round": "G3_RECOMPOSE",
+                                                   "retry_key": f"rc{shot_plan['recompose']['n']}"}]
+                                     if shot_plan.get("recompose") else []),
                                 start_to_close_timeout=timedelta(minutes=2),
                                 retry_policy=retry_policy,
                             )
@@ -719,7 +787,7 @@ class ShotWorkflow:
                 try:
                     still_local_path = await workflow.execute_activity(
                         save_asset_locally,
-                        args=[self.episode_id, self.shot_id, poll_result["url"], "still", attempt + 1],
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "still", self._asset_file_version(attempt)],
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=retry_policy,
                     )
@@ -805,15 +873,17 @@ class ShotWorkflow:
 
                     # Wait for human approval signal (stills_approved)
                     workflow.logger.info(f"Waiting for human approval of still {self.shot_id}")
-                    review_wait = lambda: self.stills_approved or self._end_still_backfill_due(params)
-                    await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
+                    review_wait = lambda: self._released() or self._end_still_backfill_due(params)
+                    await self._wait_for_review(review_wait)
                     # Backfill (generate_end_still signal): only for runs parked here without an _end still
-                    while not self.stills_approved and self._end_still_backfill_due(params):
+                    while not self._released() and self._end_still_backfill_due(params):
                         self.end_still_requested = False
                         await self._produce_end_still(
                             shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
                         )  # on failure the error is in G2 state; keep waiting (start still preserved)
-                        await workflow.wait_condition(review_wait, timeout=timedelta(hours=24))
+                        await self._wait_for_review(review_wait)
+                    if self.still_superseded_reason is not None and not self.stills_approved:
+                        return self._superseded_result()  # GAP-26: another version kept; record nothing
                     workflow.logger.info(f"Still {self.shot_id} approved by human, proceeding to clip")
                     
                     # Set human_approved_still flag AFTER approval
@@ -889,7 +959,9 @@ class ShotWorkflow:
         # CRITICAL: Wait for parent to approve (or reject) this scene's stills before generating clip
         workflow.logger.info(f"Still ready, waiting for stills approval before clip generation")
         # (still_rejected also releases this wait, with still_rejected_reason set.)
-        await workflow.wait_condition(lambda: self.stills_approved)
+        await workflow.wait_condition(self._released)
+        if self.still_superseded_reason is not None and not self.stills_approved:
+            return self._superseded_result()  # GAP-26: another still version was kept at G2
         if self.still_rejected_reason is not None:
             # G-GATE-1: a still rejected at G2 is never animated and never charged for a clip
             workflow.logger.info(f"Still rejected at G2 for {self.shot_id}: {self.still_rejected_reason}")
@@ -991,6 +1063,8 @@ class ShotWorkflow:
                           clip_retry: dict | None = None) -> dict:
         """Clip phase; the result also carries the end frame (if any) so a later clip retry can
         reuse the exact approved start + end stills."""
+        if self.clip_plan_update:  # GAP-28: corrected package fields re-synced at G2
+            shot_plan = {**shot_plan, **self.clip_plan_update}
         result = await self._clip_phase_body(shot_plan, review_result, retry_policy, clip_retry)
         if isinstance(result, dict) and self.end_image_url:
             result.setdefault("end_image_url", self.end_image_url)
@@ -1144,7 +1218,8 @@ class ShotWorkflow:
                 try:
                     clip_local_path = await workflow.execute_activity(
                         save_asset_locally,
-                        args=[self.episode_id, self.shot_id, poll_result["url"], "clip", attempt + 1],
+                        args=[self.episode_id, self.shot_id, poll_result["url"], "clip",
+                              self._clip_file_version(attempt, clip_retry)],
                         start_to_close_timeout=timedelta(minutes=10),
                         retry_policy=retry_policy,
                     )
@@ -1198,6 +1273,9 @@ class ShotWorkflow:
                         "clip_url": self.clip_asset["url"],
                         "error": f"Clip QC failed - escalated to human review: {', '.join(clip_qc['issues'])}",
                         "qc_constraints": clip_qc.get("constraints"),
+                        # Local clip file, so a reviewer can keep the clip (accept_clip_review) and
+                        # the edit can assemble it without a re-spend
+                        "clip_path": self.clip_local_path,
                     }
                 else:
                     # QC failed without escalation (shouldn't happen in live; review always escalates)

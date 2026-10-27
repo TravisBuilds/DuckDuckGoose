@@ -9,6 +9,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg.plan_resync import clip_fields, plan_resync  # GAP-28 (pure, deterministic)
     from hfvg import budget
     from hfvg.config import config  # Non-deterministic module with os.getenv
     from hfvg.activities import (
@@ -34,6 +35,12 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.episode_parser import build_prompt_from_shot
     from hfvg.pre_approved import pre_approved_still_map
     # ShotWorkflow is referenced by name string, not imported
+
+
+def amend_prompt(base: str, prompt_append: str) -> tuple[str, str]:
+    """(amended prompt, normalised amendment) for a G2 re-roll's prompt_append (GAP-13)."""
+    amendment = " ".join(prompt_append.split())
+    return f"{base.rstrip()} {amendment}", amendment
 
 
 @workflow.defn
@@ -81,12 +88,42 @@ class EpisodeWorkflowV2:
         self.assembly_version: int = 0
         self.clip_retries: dict[str, int] = {}  # shot_id -> paid clip retries started (G3 round)
         self.pending_clip_retries: dict[str, str] = {}  # shot_id -> clip-retry workflow id
+        self.clip_review_acceptances: dict[str, dict] = {}  # shot_id -> reviewer keep of a needs_review clip
         self.clip_retry_log: list[dict] = []  # audit: one row per clip retry started
+        # GAP-18: every landed clip take per shot (0 = the clip before retry 1, n = clip retry n), so
+        # the reviewer can keep an EARLIER take when a paid retry came out worse
+        self.clip_takes: dict[str, dict[int, dict]] = {}
+        # GAP-21: post-G2 recompose of one shot (new still prompt + explicit refs). The new still parks
+        # for a human decision (e.g. a headcount check) before any clip spend.
+        self.recompose_counts: dict[str, int] = {}  # shot_id -> recomposes started
+        self.recompose_versions: dict[str, int] = {}  # shot_id -> highest version used by a recompose
+        self.pending_recompose: dict[str, dict] = {}  # shot_id -> {workflow_id, n, version, still_ready, decision}
+        self.recompose_handles: dict[str, Any] = {}
+        self.recompose_plans: dict[str, dict] = {}
+        self.recompose_log: list[dict] = []
+        # GAP-22: reviewer edit overrides at G_FINAL_CUT: shot_id -> {"drop": True} or {"trim_in", "trim_out"}
+        self.edit_overrides: dict[str, dict] = {}
+        self.edit_override_log: list[dict] = []
         self.final_cut_refusals: list[str] = []  # final-cut approvals ignored (clip retry pending)
         self.final_cut_rejections: list[dict] = []  # G_FINAL_CUT reviewer rejections (reason, versions)
+        self.delivery_rebuilds: list[dict] = []  # reviewer-requested delivery rebuilds (audio plan edits)
         self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
         self.delivery_version: int = 0
         self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
+        # GAP-26: every still child per shot and version, so a G2 reviewer can keep an EARLIER still
+        # version (select_still_version) when the latest re-roll came out worse. Rebuilt on replay
+        # (set where the children are started). Non-kept versions get still_superseded at G2.
+        self.still_version_children: dict[str, list[dict]] = {}  # shot -> [{version, workflow_id, kind}]
+        self.still_version_handles: dict[str, Any] = {}  # child workflow id -> handle
+        self.still_version_plans: dict[str, dict] = {}   # child workflow id -> plan it was started with
+        self.still_child_status: dict[str, str] = {}     # child workflow id -> "running" / final status
+        self.still_selections: dict[str, dict] = {}      # shot -> {version, workflow_id, reason, previous}
+        self.still_selection_log: list[dict] = []
+        # GAP-28: corrected package re-synced at G2 (text fields only; see hfvg.plan_resync)
+        self._beatmap_path: str | None = None
+        self._dry_run: bool = True
+        self.clip_plan_updates: dict[str, dict] = {}  # shot_id -> {clip_prompt, qc_fail_if} now in force
+        self.resync_log: list[dict] = []
     
     @workflow.run
     async def run(
@@ -236,6 +273,8 @@ class EpisodeWorkflowV2:
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)
         workflow.logger.info("Parsing BEATMAP.md...")
         
+        self._beatmap_path = beatmap_path  # GAP-28: a G2 resync re-parses the same package
+        self._dry_run = dry_run
         self.parsed_beatmap = await workflow.execute_activity(
             parse_beatmap_activity,
             args=[beatmap_path, episode_id, not dry_run],
@@ -340,15 +379,30 @@ class EpisodeWorkflowV2:
                 
                 workflow.logger.info(f"Generating ref {ref_key} v{version}")
                 
-                ref_result = await workflow.execute_activity(
-                    "generate_ref_activity",
-                    args=[episode_id, ref_key, prompt, output_path, version],
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        non_retryable_error_types=["QCFailedError"],  # QC failures surface to gate
-                    ),
-                )
+                if ref_spec.get("edit_from"):
+                    # Ref edit: a NEW ref made from an existing ref image through the still model
+                    # (L1_refs, provider estimate). Only entries with edit_from take this branch,
+                    # so histories without it replay unchanged.
+                    ref_result = await workflow.execute_activity(
+                        "generate_ref_edit_activity",
+                        args=[episode_id, ref_key, prompt, output_path, version, ref_spec["edit_from"]],
+                        start_to_close_timeout=timedelta(minutes=12),
+                        heartbeat_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(
+                            maximum_attempts=2,
+                            non_retryable_error_types=["QCFailedError", "ValueError"],
+                        ),
+                    )
+                else:
+                    ref_result = await workflow.execute_activity(
+                        "generate_ref_activity",
+                        args=[episode_id, ref_key, prompt, output_path, version],
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(
+                            maximum_attempts=2,
+                            non_retryable_error_types=["QCFailedError"],  # QC failures surface to gate
+                        ),
+                    )
                 
                 workflow.logger.info(
                     f"Ref {ref_key} completed: {ref_result['status']}, "
@@ -376,10 +430,7 @@ class EpisodeWorkflowV2:
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                shots = [
-                    {**s, **rechecked[s["shot_id"]]} if s["shot_id"] in rechecked else s
-                    for s in shots
-                ]
+                shots = self._merge_rechecked_refs(shots, rechecked)
                 self.missing_refs = self._collect_missing_refs(shots)
         
         # Get list of anchor shots to skip (they're already approved)
@@ -414,6 +465,8 @@ class EpisodeWorkflowV2:
             """Background task to await child and record result in state."""
             try:
                 result = await handle
+                if self._note_still_child_end(handle, result):
+                    return  # GAP-26: a superseded still version: not the shot's outcome
                 self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                 # Clear pending_retries if this was a retry child
                 if is_retry and shot_id in self.state.pending_retries:
@@ -499,6 +552,8 @@ class EpisodeWorkflowV2:
             self.launched_shot_plans[shot_id] = shot_plan
             shot_workflow_handles.append(handle)
             self.shot_results[shot["shot_id"]] = handle
+            self._register_still_child(shot_id, total_attempt, f"{episode_id}-shot-{shot['shot_id']}",
+                                       handle, shot_plan, "initial")
             
             # Start background task to track completion (is_retry=False for original shots)
             task = asyncio.create_task(track_child_completion(shot["shot_id"], handle, is_retry=False))
@@ -586,6 +641,10 @@ class EpisodeWorkflowV2:
                     workflow.logger.info(
                         f"Could not signal {shot['shot_id']} (already finished): {e}"
                     )
+        if workflow.patched("g2-supersede-still-versions-v1"):
+            # GAP-26: every other still child of a shot (older re-rolls parked at G2, or the newer
+            # one when an earlier version was selected) ends now without a DB write or a clip.
+            await self._supersede_unkept_still_versions()
         
         # Safety design: G2 approval validator now refuses while retries are pending,
         # so pending_retries is guaranteed empty here. No 30s timeout wait needed.
@@ -640,7 +699,7 @@ class EpisodeWorkflowV2:
         self.state.current_gate = "G_FINAL_CUT"
         while True:
             await workflow.wait_condition(
-                lambda: self.state.new_credit_cap > 0 or (not self.pending_clip_retries and (
+                lambda: self.state.new_credit_cap > 0 or (not (self.pending_clip_retries or self.pending_recompose) and (
                     self._assembly_stale() or self._delivery_due() or (
                         self.approved_g_final_cut and not self._assembly_blocking()
                         and not self._delivery_blocking())
@@ -872,7 +931,305 @@ class EpisodeWorkflowV2:
         problem = self._reject_problem(shot_id)
         if problem:
             raise ApplicationError(f"Cannot approve {shot_id}: {problem}", non_retryable=True)
+
+    # ---------------------------------------------------------------- GAP-26: still version select
+
+    def _register_still_child(self, shot_id: str, version, workflow_id: str, handle, plan: dict,
+                              kind: str) -> None:
+        """Remember every still child (pure state, rebuilt on replay where children are started)."""
+        try:
+            version = int(version) if version is not None else None
+        except (TypeError, ValueError):
+            version = None
+        rows = self.still_version_children.setdefault(shot_id, [])
+        rows.append({"version": version, "workflow_id": workflow_id, "kind": kind})
+        self.still_version_handles[workflow_id] = handle
+        self.still_version_plans[workflow_id] = plan
+        self.still_child_status[workflow_id] = "running"
+
+    def _note_still_child_end(self, handle, result) -> bool:
+        """Record a still child's terminal status; True when it ended superseded (ignore it)."""
+        wid = next((w for w, h in self.still_version_handles.items() if h is handle), None)
+        status = result.get("status") if isinstance(result, dict) else "unknown"
+        if wid:
+            self.still_child_status[wid] = status or "unknown"
+        return status == "superseded"
+
+    def _version_child(self, shot_id: str, version: int) -> dict | None:
+        """The still child that holds `version` of a shot (the latest child started for it)."""
+        rows = [r for r in self.still_version_children.get(shot_id, []) if r["version"] == version]
+        return rows[-1] if rows else None
+
+    def _current_still_version(self, shot_id: str) -> int | None:
+        handle = self.shot_results.get(shot_id)
+        for wid, h in self.still_version_handles.items():
+            if h is handle:
+                row = next((r for r in self.still_version_children.get(shot_id, []) if r["workflow_id"] == wid), None)
+                return row["version"] if row else None
+        return None
+
+    def _select_still_problem(self, shot_id: str, version, reason: str) -> str | None:
+        """Why select_still_version is not allowed right now (None = allowed). No side effects."""
+        if self.state.current_gate != "G2_SCENE_STILLS":
+            return f"not at G2 gate (current: {self.state.current_gate})"
+        if self.approved_g2_scene_stills or "G2_SCENE_STILLS" in self.passed_gates:
+            return "G2 already approved, clips may be in progress"
+        if shot_id not in self.shot_results:
+            return "unknown shot (not launched in this episode)"
+        if shot_id in self.state.pending_retries:
+            return "a retry is pending for this shot; review its new still first"
+        if shot_id in self.pending_recompose:
+            return "a recompose is pending for this shot"
+        if not (reason or "").strip():
+            return "a reason is required (why this version is kept)"
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            return f"version must be a positive integer, got {version!r}"
+        row = self._version_child(shot_id, version)
+        if row is None:
+            known = sorted({r["version"] for r in self.still_version_children.get(shot_id, [])
+                            if r["version"] is not None})
+            return f"unknown still version v{version} (versions: {', '.join(f'v{v}' for v in known) or 'none'})"
+        status = self.still_child_status.get(row["workflow_id"], "running")
+        if status != "running":
+            return (f"v{version} ({row['workflow_id']}) already ended with status {status!r}; "
+                    f"it has no still waiting for G2")
+        return None
+
+    @workflow.update
+    async def select_still_version(self, shot_id: str, version: int, reason: str) -> dict:
+        """G2 decision: keep still `version` of a shot instead of the latest re-roll (GAP-26).
+
+        The selected version's child becomes the shot's child: it gets stills_approved at G2 and its
+        own still (+ _end frame) is animated, recorded in the DB, the manifest (shot_outcomes) and the
+        ledger (its own job ids). Every other still child of the shot is sent still_superseded at G2 and
+        ends without any write. A later retry_shot makes the new re-roll current again. The API checks
+        that the version's file is on disk and passed preflight before calling this."""
+        problem = self._select_still_problem(shot_id, version, reason)
+        if problem:  # re-check: state may have moved since the validator ran
+            raise ApplicationError(f"Cannot select {shot_id} v{version}: {problem}", non_retryable=True)
+        row = self._version_child(shot_id, version)
+        previous = self._current_still_version(shot_id)
+        wid = row["workflow_id"]
+        self.shot_results[shot_id] = self.still_version_handles[wid]
+        self.launched_shot_plans[shot_id] = self.still_version_plans[wid]
+        # a selection is a NEW decision on the shot's still: any rejection of the other version is void
+        if self.state.shot_decisions.get(shot_id) == "rejected":
+            self.state.shot_decisions.pop(shot_id, None)
+            self.rejection_reasons.pop(shot_id, None)
+        self.still_selections[shot_id] = {"version": version, "workflow_id": wid, "reason": reason,
+                                          "previous_version": previous}
+        self.still_selection_log.append({"shot_id": shot_id, "version": version, "workflow_id": wid,
+                                         "previous_version": previous, "reason": reason})
+        workflow.logger.info(f"G2: {shot_id} keeps still v{version} ({wid}) instead of v{previous}: {reason}")
+        return {"success": True, "shot_id": shot_id, "action": "select_still_version", "version": version,
+                "workflow_id": wid, "previous_version": previous,
+                "message": f"{shot_id} will use still v{version} (clip, end frame, manifest, ledger) at G2"}
+
+    @select_still_version.validator
+    def validate_select_still_version(self, shot_id: str, version: int, reason: str):
+        problem = self._select_still_problem(shot_id, version, reason)
+        if problem:
+            raise ApplicationError(f"Cannot select {shot_id} v{version}: {problem}", non_retryable=True)
+
+    def _resync_problem(self, reason: str) -> str | None:
+        """Why resync_shot_plans is not allowed right now (None = allowed). No side effects."""
+        if self.state.current_gate != "G2_SCENE_STILLS":
+            return f"not at G2 gate (current: {self.state.current_gate})"
+        if self.approved_g2_scene_stills or "G2_SCENE_STILLS" in self.passed_gates:
+            return "G2 already approved, clips may be in progress"
+        if self.state.pending_retries:
+            return f"still retries pending for: {', '.join(sorted(self.state.pending_retries))}"
+        if self.pending_recompose:
+            return f"a recompose is pending for: {', '.join(sorted(self.pending_recompose))}"
+        if not (reason or "").strip():
+            return "a reason is required"
+        return None
+
+    @workflow.update
+    async def resync_shot_plans(self, reason: str) -> dict:
+        """GAP-28: re-parse the episode package (same parser, same path as at start) and put its
+        corrected TEXT fields in force at G2, without spend: later still re-rolls use the new
+        prompt/end_prompt/clip_prompt/qc_fail_if, and every still child still parked at G2 (every
+        version, so a later selection is covered) is sent update_clip_plan so its clip submit and
+        clip QC use the new clip_prompt/qc_fail_if. Structural changes are refused (new G1)."""
+        problem = self._resync_problem(reason)
+        if problem:
+            raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
+        parsed = await workflow.execute_activity(
+            parse_beatmap_activity,
+            args=[self._beatmap_path, self.state.episode_id, not self._dry_run],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        problem = self._resync_problem(reason)  # state may have moved during the parse
+        if problem:
+            raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
+        res = plan_resync(self.parsed_beatmap.get("shots", []), parsed.get("shots", []))
+        if res["problems"]:
+            raise ApplicationError("Cannot resync shot plans: " + "; ".join(res["problems"][:20]),
+                                   non_retryable=True)
+        signalled: list[str] = []
+        for sid, ch in res["changes"].items():
+            for shot in self.parsed_beatmap.get("shots", []):
+                if shot["shot_id"] == sid:
+                    shot.update(ch)
+            clip = clip_fields(ch)
+            if not clip:
+                continue
+            self.clip_plan_updates[sid] = {**self.clip_plan_updates.get(sid, {}), **clip}
+            if sid in self.launched_shot_plans:
+                self.launched_shot_plans[sid] = {**self.launched_shot_plans[sid], **clip}
+            for row in self.still_version_children.get(sid, []):
+                wid = row["workflow_id"]
+                if wid in self.still_version_plans:
+                    self.still_version_plans[wid] = {**self.still_version_plans[wid], **clip}
+                h = self.still_version_handles.get(wid)
+                if h is None or self.still_child_status.get(wid, "running") != "running":
+                    continue
+                try:
+                    await h.signal("update_clip_plan", clip)
+                    signalled.append(wid)
+                except ApplicationError as e:
+                    if e.type != "ExternalWorkflowExecutionNotFound":
+                        raise
+                    workflow.logger.info(f"Could not update clip plan of {wid} (already finished): {e}")
+        entry = {"reason": reason, "changed": {k: sorted(v) for k, v in res["changes"].items()},
+                 "signalled": signalled}
+        self.resync_log.append(entry)
+        workflow.logger.info(f"G2 resync: {len(res['changes'])} shot(s) changed, {len(signalled)} child(ren) updated")
+        return {"success": True, "action": "resync_shot_plans", **entry}
+
+    @resync_shot_plans.validator
+    def validate_resync_shot_plans(self, reason: str):
+        problem = self._resync_problem(reason)
+        if problem:
+            raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
+
+    @workflow.query
+    def clip_plans(self) -> dict:
+        """Per launched shot: the clip prompt + qc_fail_if the kept still's clip will use."""
+        out = {}
+        for sid, plan in self.launched_shot_plans.items():
+            out[sid] = {"version": self._current_still_version(sid),
+                        "clip_prompt": plan.get("clip_prompt") or plan.get("prompt"),
+                        "clip_prompt_is_still_prompt": not plan.get("clip_prompt"),
+                        "qc_fail_if": list(plan.get("qc_fail_if") or []),
+                        "resynced": sorted(self.clip_plan_updates.get(sid, {}))}
+        return out
+
+    async def _supersede_unkept_still_versions(self) -> None:
+        for shot_id, rows in self.still_version_children.items():
+            kept = self.shot_results.get(shot_id)
+            for row in rows:
+                wid = row["workflow_id"]
+                h = self.still_version_handles.get(wid)
+                if h is None or h is kept or self.still_child_status.get(wid) != "running":
+                    continue
+                sel = self.still_selections.get(shot_id)
+                why = (f"G2 kept v{sel['version']} ({sel['workflow_id']})" if sel
+                       else "G2 kept the latest still version")
+                try:
+                    await h.signal("still_superseded", why)
+                except ApplicationError as e:
+                    if e.type != "ExternalWorkflowExecutionNotFound":
+                        raise
+                    workflow.logger.info(f"Could not supersede {wid} (already finished): {e}")
+
+    @workflow.query
+    def still_versions(self) -> dict:
+        """Per shot: every still child (version, workflow id, status), the current one and any selection."""
+        out = {}
+        for shot_id, rows in self.still_version_children.items():
+            out[shot_id] = {
+                "current_version": self._current_still_version(shot_id),
+                "selection": self.still_selections.get(shot_id),
+                "versions": [{**r, "status": self.still_child_status.get(r["workflow_id"], "running")}
+                             for r in rows],
+            }
+        return out
+
+    @workflow.query
+    def still_version_plan(self, shot_id: str, version: int) -> dict | None:
+        """The plan a still version's child was started with (prompt, refs, shot_meta, params)."""
+        row = self._version_child(shot_id, int(version))
+        if row is None:
+            return None
+        plan = self.still_version_plans.get(row["workflow_id"]) or {}
+        return {"shot_id": shot_id, "version": row["version"], "workflow_id": row["workflow_id"],
+                "status": self.still_child_status.get(row["workflow_id"], "running"),
+                "prompt": plan.get("prompt"), "refs": plan.get("refs", []),
+                "shot_meta": plan.get("shot_meta"), "params": plan.get("params", {}),
+                "end_prompt": plan.get("end_prompt"), "missing_refs": plan.get("missing_refs")}
     
+    def _clip_review_problem(self, shot_id: str, reason: str, clip_path: str | None,
+                             take: int | None = None) -> str | None:
+        """Why accept_clip_review must be refused (None = allowed)."""
+        if not (reason or "").strip():
+            return "a reason is required"
+        if self.assembly_sig is None:
+            return "clips are not collected yet (accept after the first edit is assembled)"
+        if "G_FINAL_CUT" in self.passed_gates:
+            return "final cut already approved"
+        if shot_id in self.pending_clip_retries:
+            return "a clip retry is pending for this shot"
+        outcome = self.shot_outcomes.get(shot_id)
+        if not outcome:
+            return "no clip outcome for this shot"
+        if self.state.shot_decisions.get(shot_id) == "rejected":
+            return "still was rejected at G2"
+        if outcome.get("status") != "needs_review":
+            return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
+        if not outcome.get("clip_url"):
+            return "no clip landed for this shot"
+        if take is not None:
+            takes = self.clip_takes.get(shot_id) or {}
+            chosen = takes.get(int(take))
+            if chosen is None:
+                return f"no clip take {take} for this shot (takes: {sorted(takes)})"
+            if not (chosen.get("clip_url") and chosen.get("clip_path")):
+                return f"clip take {take} has no landed clip with a local file"
+            return None
+        if not (outcome.get("clip_path") or clip_path):
+            return "no local clip file recorded for this shot"
+        return None
+
+    @workflow.update
+    async def accept_clip_review(self, shot_id: str, reason: str, clip_path: str | None = None,
+                                 take: int | None = None) -> dict:
+        """Human review of a clip escalated as needs_review (e.g. qc_fail_if rows with no checker):
+        keep the clip as is. The shot becomes completed with the reviewer's reason recorded, the
+        edit goes stale and is re-assembled with it at G_FINAL_CUT. No spend. ``clip_path`` (the
+        local file, resolved by the API from the shot child) is only used when the outcome has none."""
+        problem = self._clip_review_problem(shot_id, reason, clip_path, take)
+        if problem:
+            raise ApplicationError(f"Cannot accept clip for {shot_id}: {problem}", non_retryable=True)
+        outcome = dict(self.shot_outcomes[shot_id])
+        previous_status = outcome.get("status")
+        if take is not None:
+            # GAP-18: keep an EARLIER take (e.g. the original when the paid retry came out worse)
+            outcome = dict(self.clip_takes[shot_id][int(take)])
+            clip_path = None
+        review = {"reason": reason.strip(), "previous_status": previous_status,
+                  "qc_constraints": outcome.get("qc_constraints"), "clip_url": outcome.get("clip_url"),
+                  "take": take}
+        outcome["status"] = "completed"
+        outcome["clip_path"] = outcome.get("clip_path") or clip_path
+        outcome["clip_review"] = review
+        self.shot_outcomes[shot_id] = outcome
+        self.clip_review_acceptances[shot_id] = review
+        self.state.failed_shots = [fs for fs in self.state.failed_shots if fs.get("shot_id") != shot_id]
+        workflow.logger.warning(f"Clip {shot_id} kept by reviewer (was needs_review): {reason}")
+        return {"success": True, "shot_id": shot_id, "action": "clip_accepted",
+                "clip_path": outcome["clip_path"],
+                "message": f"Clip {shot_id} accepted; the edit is rebuilt with it"}
+
+    @accept_clip_review.validator
+    def validate_accept_clip_review(self, shot_id: str, reason: str, clip_path: str | None = None,
+                                    take: int | None = None):
+        problem = self._clip_review_problem(shot_id, reason, clip_path, take)
+        if problem:
+            raise ApplicationError(f"Cannot accept clip for {shot_id}: {problem}", non_retryable=True)
+
     # ---------------------------------------------------------------- picture assembly helpers
     def _assembly_plan(self) -> tuple[list[dict], dict[str, str], list[str], list[dict]]:
         """Edit plan from the LATEST shot outcomes, in shot order: completed, non-rejected shots with
@@ -887,6 +1244,10 @@ class EpisodeWorkflowV2:
             if self.state.shot_decisions.get(sid) == "rejected" or outcome.get("status") == "rejected":
                 excluded.append({"shot_id": sid, "status": "rejected"})
                 continue
+            override = self.edit_overrides.get(sid) or {}
+            if override.get("drop"):
+                excluded.append({"shot_id": sid, "status": "dropped", "reason": override.get("reason")})
+                continue
             if outcome.get("status") != "completed":
                 excluded.append({"shot_id": sid, "status": outcome.get("status") or "missing"})
                 continue
@@ -900,8 +1261,8 @@ class EpisodeWorkflowV2:
             entries.append({
                 "shot_id": sid,
                 "duration": duration,
-                "trim_in": float(trim.get("in", 0.0)),
-                "trim_out": float(trim.get("out", duration)),
+                "trim_in": float(override.get("trim_in", trim.get("in", 0.0))),
+                "trim_out": float(override.get("trim_out", trim.get("out", duration))),
             })
             paths[sid] = path
         return entries, paths, missing, excluded
@@ -910,8 +1271,11 @@ class EpisodeWorkflowV2:
         sig = []
         for shot in self.assembly_shots:
             o = self.shot_outcomes.get(shot["shot_id"]) or {}
-            sig.append([shot["shot_id"], o.get("status"), o.get("clip_url"), o.get("clip_path"),
-                        self.state.shot_decisions.get(shot["shot_id"])])
+            row = [shot["shot_id"], o.get("status"), o.get("clip_url"), o.get("clip_path"),
+                   self.state.shot_decisions.get(shot["shot_id"])]
+            if shot["shot_id"] in self.edit_overrides:  # GAP-22 (absent: same signature as before)
+                row.append(dict(self.edit_overrides[shot["shot_id"]]))
+            sig.append(row)
         return sig
 
     def _assembly_stale(self) -> bool:
@@ -1030,7 +1394,24 @@ class EpisodeWorkflowV2:
 
     # ---------------------------------------------------------------- audio + delivery (Round 4)
     def _delivery_signature(self) -> list:
-        return [self.assembly_version, self.state.assembly_path]
+        # A reviewer rebuild request (request_delivery_rebuild) bumps the signature so the current
+        # picture is delivered again with the edited audio plan; [v, path] is unchanged without one.
+        sig = [self.assembly_version, self.state.assembly_path]
+        return sig + [len(self.delivery_rebuilds)] if self.delivery_rebuilds else sig
+
+    @workflow.signal
+    def request_delivery_rebuild(self, reason: str):
+        """Rebuild the delivery for the current picture after an audio-plan edit (logo, subtitles,
+        phone encode). Generated audio is reused by content hash; a new TTS/SFX/music call happens
+        only if the plan's generation inputs changed (still guarded). Ignored after G_FINAL_CUT."""
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("delivery rebuild ignored: a reason is required")
+            return
+        if "G_FINAL_CUT" in self.passed_gates:
+            self.final_cut_refusals.append("delivery rebuild ignored: G_FINAL_CUT already passed")
+            return
+        self.delivery_rebuilds.append({"reason": reason.strip(), "after_delivery_version": self.delivery_version})
+        workflow.logger.warning(f"[DELIVERY] rebuild requested by reviewer: {reason}")
 
     def _delivery_due(self) -> bool:
         """A delivery is (re)built for each usable picture: current (not stale), not blocking (or
@@ -1202,6 +1583,11 @@ class EpisodeWorkflowV2:
             self.final_cut_refusals.append(f"clip retry pending for: {pending}")
             workflow.logger.warning(f"Final cut approval ignored: clip retry pending for {pending}")
             return
+        if self.pending_recompose:
+            pending = ", ".join(sorted(self.pending_recompose))
+            self.final_cut_refusals.append(f"recompose pending for: {pending}")
+            workflow.logger.warning(f"Final cut approval ignored: recompose pending for {pending}")
+            return
         if self._assembly_blocking():
             qc = self.state.assembly_qc
             refusal = f"assembly QC {qc.get('verdict')}: {qc.get('reason')}"
@@ -1274,6 +1660,8 @@ class EpisodeWorkflowV2:
             handles = dict(self.shot_results)
             for retry_shot_id, retry_wf_id in self.pending_clip_retries.items():
                 handles[f"{retry_shot_id}-clipretry"] = workflow.get_external_workflow_handle(retry_wf_id)
+            for rc_shot_id, rc in self.pending_recompose.items():
+                handles[f"{rc_shot_id}-recompose"] = workflow.get_external_workflow_handle(rc["workflow_id"])
             for cap_shot_id, shot_handle in handles.items():
                 try:
                     await shot_handle.signal("resume_after_cap_raise")
@@ -1297,6 +1685,12 @@ class EpisodeWorkflowV2:
             shot_id: Shot ID whose retry still is ready
             attempt: Attempt number (for logging/verification)
         """
+        rc = self.pending_recompose.get(shot_id)
+        if rc is not None and int(attempt) == int(rc["version"]):
+            # GAP-21: the recompose still landed; it now waits for recompose_decision
+            rc["still_ready"] = True
+            workflow.logger.info(f"Recompose still ready for {shot_id} (v{attempt}); awaiting decision")
+            return
         if shot_id in self.state.pending_retries:
             workflow.logger.info(f"Retry still ready for {shot_id} (attempt {attempt}), clearing pending_retries")
             self.state.pending_retries.pop(shot_id, None)
@@ -1304,9 +1698,13 @@ class EpisodeWorkflowV2:
             workflow.logger.warning(f"retry_still_ready called for {shot_id} but not in pending_retries")
     
     @workflow.update
-    async def retry_shot(self, shot_id: str) -> dict:
+    async def retry_shot(self, shot_id: str, prompt_append: str | None = None) -> dict:
         """
         Retry a failed shot (only valid while parked at G1/G2 for a shot in failed_shots).
+
+        ``prompt_append`` (optional, owner/Studio wording) is appended to this retry's prompt only
+        (still and its later clip); the base shot plan is unchanged. It is recorded on the launched
+        plan as ``prompt_amendments`` and in the update result.
         
         Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
         enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
@@ -1322,6 +1720,13 @@ class EpisodeWorkflowV2:
         Raises:
             ApplicationError: If retry is refused (validation failed)
         """
+        if prompt_append is not None:
+            if not isinstance(prompt_append, str) or not prompt_append.strip():
+                raise ApplicationError(f"Cannot retry {shot_id}: prompt_append must be non-empty text",
+                                       non_retryable=True)
+            if len(prompt_append) > 1000:
+                raise ApplicationError(f"Cannot retry {shot_id}: prompt_append over 1000 characters",
+                                       non_retryable=True)
         # Validate: must be parked at G1 or G2, and G2 must not be approved yet
         if self.state.current_gate not in ("G1_SHOT_PLAN", "G2_SCENE_STILLS"):
             workflow.logger.error(f"Cannot retry {shot_id}: not at G1/G2 gate (current: {self.state.current_gate})")
@@ -1413,6 +1818,10 @@ class EpisodeWorkflowV2:
         if "prompt" not in shot_plan:
             from hfvg.episode_parser import build_prompt_from_shot
             shot_plan["prompt"] = build_prompt_from_shot(shot_plan)
+        if prompt_append is not None:
+            shot_plan["prompt"], amendment = amend_prompt(shot_plan["prompt"], prompt_append)
+            shot_plan["prompt_amendments"] = list(shot_plan.get("prompt_amendments", [])) + [amendment]
+            workflow.logger.info(f"Retry {shot_id}: prompt amended (+{len(amendment)} chars)")
         
         # Launch new still child with NEW idempotency key (include attempt number)
         # Original = attempt 1, first retry = attempt 2 (-r1), second retry = attempt 3 (-r2)
@@ -1435,6 +1844,9 @@ class EpisodeWorkflowV2:
             # Update shot_results to track latest handle
             self.shot_results[shot_id] = handle
             self.launched_shot_plans[shot_id] = shot_plan_with_parent
+            self._register_still_child(shot_id, shot_plan_with_parent.get("version"), workflow_id,
+                                       handle, shot_plan_with_parent, "retry")
+            self.still_selections.pop(shot_id, None)  # a new re-roll is the current version again
             # A retried still is a NEW still: any G2 rejection of the old one no longer applies
             self.state.shot_decisions.pop(shot_id, None)
             self.rejection_reasons.pop(shot_id, None)
@@ -1451,6 +1863,9 @@ class EpisodeWorkflowV2:
                 """Background task to await retry child and clear pending_retries."""
                 try:
                     result = await handle
+                    if self._note_still_child_end(handle, result):
+                        self.state.pending_retries.pop(shot_id, None)
+                        return  # GAP-26: superseded still version: not the shot's outcome
                     self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                     # Clear pending_retries when retry completes
                     self.state.pending_retries.pop(shot_id, None)
@@ -1483,7 +1898,8 @@ class EpisodeWorkflowV2:
             
             workflow.logger.info(f"Retry child started for {shot_id}: {workflow_id}")
             
-            return {"status": "queued", "workflow_id": workflow_id}
+            return {"status": "queued", "workflow_id": workflow_id,
+                    "prompt_amendments": shot_plan.get("prompt_amendments", [])}
             
         except Exception as e:
             workflow.logger.error(f"Failed to start retry child for {shot_id}: {e}")
@@ -1580,10 +1996,15 @@ class EpisodeWorkflowV2:
         self.state.failed_shots = [fs for fs in self.state.failed_shots if fs["shot_id"] != shot_id]
         self.shot_results[shot_id] = handle
         self.launched_shot_plans[shot_id] = shot_plan
+        self._register_still_child(shot_id, attempt, workflow_id, handle, shot_plan, "end_backfill")
+        self.still_selections.pop(shot_id, None)
 
         async def track_backfill():
             try:
                 result = await handle
+                if self._note_still_child_end(handle, result):
+                    self.state.pending_retries.pop(shot_id, None)
+                    return  # GAP-26: superseded still version
                 self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
                 self.state.pending_retries.pop(shot_id, None)
                 if isinstance(result, dict) and result.get("status") == "failed":
@@ -1652,6 +2073,8 @@ class EpisodeWorkflowV2:
         ep = self.state.episode_id
         n = self.clip_retries.get(shot_id, 0) + 1
         outcome = self.shot_outcomes[shot_id]
+        if outcome.get("clip_url"):
+            self.clip_takes.setdefault(shot_id, {}).setdefault(n - 1, dict(outcome))
         shot_plan = dict(self.launched_shot_plans[shot_id])
         params = shot_plan.get("params") or {}
         version = shot_plan.get("version", shot_plan.get("attempt", 1))
@@ -1707,6 +2130,8 @@ class EpisodeWorkflowV2:
             try:
                 result = await handle
                 self.shot_outcomes[shot_id] = result if isinstance(result, dict) else {"status": "unknown"}
+                if isinstance(result, dict) and result.get("clip_url"):
+                    self.clip_takes.setdefault(shot_id, {})[n] = dict(result)
             except Exception as e:
                 self.shot_outcomes[shot_id] = {
                     "status": "failed", "error": f"Clip retry child error: {e}",
@@ -1725,6 +2150,286 @@ class EpisodeWorkflowV2:
         problem = self._clip_retry_problem(shot_id, reason)
         if problem:
             raise ApplicationError(f"Cannot retry clip for {shot_id}: {problem}", non_retryable=True)
+
+    # ---------------------------------------------------------------- GAP-21 recompose
+    MAX_RECOMPOSES_PER_SHOT = 2
+    # GAP-24: errors raised by the pre-spend gates (prompt lint, moderation lint, preflight): no
+    # estimate/reserve/provider call was made, so the attempt does not count toward the max
+    PRE_SPEND_REFUSALS = ("PromptLintError", "ModerationLintError", "PreflightError", "RoundBudgetError")
+
+    @classmethod
+    def refused_before_spend(cls, result: dict) -> bool:
+        """True when a recompose child failed at a pre-spend gate (no still was paid for)."""
+        err = str(result.get("error") or "")
+        return (result.get("status") == "failed" and not result.get("still_url")
+                and any(k in err for k in cls.PRE_SPEND_REFUSALS))
+
+    def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list) -> str | None:
+        """Why recompose_shot is not allowed right now (None = allowed). No side effects."""
+        if not (self.approved_g2_scene_stills and "G2_SCENE_STILLS" in self.passed_gates):
+            return "G2 not approved yet; use retry_shot for stills before G2"
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            return "only while parked at G_FINAL_CUT"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required for a paid recompose"
+        if not (prompt or "").strip():
+            return "a new still prompt is required"
+        if not isinstance(refs, list) or not refs or not all(isinstance(r, str) and r.strip() for r in refs):
+            return "an explicit, non-empty ref list is required"
+        if shot_id not in self.launched_shot_plans:
+            return "unknown shot (no still launched in this episode)"
+        if (self.edit_overrides.get(shot_id) or {}).get("drop"):
+            return "shot was dropped from the edit"
+        if shot_id in self.pending_clip_retries:
+            return "a clip retry is pending for this shot"
+        if self.pending_recompose:
+            return f"a recompose is already pending for: {', '.join(sorted(self.pending_recompose))}"
+        if self.recompose_counts.get(shot_id, 0) >= self.MAX_RECOMPOSES_PER_SHOT:
+            return f"max recomposes per shot ({self.MAX_RECOMPOSES_PER_SHOT}) reached"
+        return None
+
+    @workflow.update
+    async def recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
+                             ref_keys: list | None = None, clip_prompt: str | None = None) -> dict:
+        """GAP-21: re-shoot one shot after G2 with a NEW composition: a new still prompt (replaces the
+        old one, not appended) and an explicit ref list (replaces the planned refs). Runs a normal
+        ShotWorkflow child {ep}-shot-{shot}-recompose{n} with a fresh version (new deterministic
+        still/clip job ids), so every paid guard applies. Its still PARKS for recompose_decision
+        (e.g. a headcount check); the clip is only made after an approve. Final cut is held meanwhile.
+        """
+        problem = self._recompose_problem(shot_id, reason, prompt, refs)
+        if problem:
+            raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
+        ep = self.state.episode_id
+        # n = child sequence (unique workflow id); the paid-attempt count is tracked separately
+        n = sum(1 for r in self.recompose_log if r.get("shot_id") == shot_id) + 1
+        base = dict(self.launched_shot_plans[shot_id])
+        used = max(int(base.get("version", 1) or 1), int(base.get("attempt", 1) or 1),
+                   self.recompose_versions.get(shot_id, 0))
+        version = used + 1
+        plan = dict(base)
+        for k in ("clip_only", "pre_approved_still"):
+            plan.pop(k, None)
+        plan.update({
+            "prompt": prompt.strip(), "clip_prompt": (clip_prompt or "").strip() or None,
+            "refs": [r.strip() for r in refs], "ref_keys": list(ref_keys or []), "missing_refs": [],
+            "attempt": version, "version": version,
+            "parent_workflow_id": workflow.info().workflow_id,
+            "recompose": {"n": n, "reason": reason.strip()},
+        })
+        workflow_id = f"{ep}-shot-{shot_id}-recompose{n}"
+        entry = {"workflow_id": workflow_id, "n": n, "version": version, "still_ready": False,
+                 "decision": None, "reason": reason.strip()}
+        self.pending_recompose[shot_id] = entry
+        try:
+            handle = await workflow.start_child_workflow(
+                "ShotWorkflow", args=[ep, plan], id=workflow_id, task_queue=workflow.info().task_queue)
+        except Exception as e:
+            self.pending_recompose.pop(shot_id, None)
+            raise ApplicationError(f"Failed to start recompose for {shot_id}: {e}", non_retryable=True)
+        self.recompose_counts[shot_id] = self.recompose_counts.get(shot_id, 0) + 1
+        self.recompose_versions[shot_id] = version
+        self.recompose_handles[shot_id] = handle
+        self.recompose_plans[shot_id] = plan
+
+        async def track_recompose():
+            try:
+                result = await handle
+            except Exception as e:
+                result = {"status": "failed", "error": f"recompose child error: {e}"}
+            if not isinstance(result, dict):
+                result = {"status": "unknown"}
+            decision = entry.get("decision")
+            if self.refused_before_spend(result):
+                # GAP-24: a lint/preflight refusal happens before any estimate/reserve/provider call,
+                # so it does not use up one of the shot's paid recompose attempts
+                self.recompose_counts[shot_id] = max(0, self.recompose_counts.get(shot_id, 1) - 1)
+            if decision == "approved" and result.get("still_url"):
+                # the new composition replaces the shot: later clip retries animate the NEW still
+                self.shot_outcomes[shot_id] = result
+                self.launched_shot_plans[shot_id] = plan
+                self.clip_takes[shot_id] = {}  # takes restart for the new composition (old ones in recompose_log)
+                self.clip_review_acceptances.pop(shot_id, None)
+                if result.get("status") == "failed":
+                    self.state.failed_shots.append({"shot_id": shot_id, "status": "failed",
+                                                    "reason": result.get("error", "recompose clip failed")})
+            self.recompose_log.append({
+                "shot_id": shot_id, "n": n, "version": version, "workflow_id": workflow_id,
+                "reason": entry["reason"], "decision": decision,
+                "decision_reason": entry.get("decision_reason"), "status": result.get("status"),
+                "still_url": result.get("still_url"), "clip_url": result.get("clip_url"),
+                "error": result.get("error"),
+            })
+            self.pending_recompose.pop(shot_id, None)
+
+        self.background_tasks.append(asyncio.create_task(track_recompose()))
+        workflow.logger.info(f"Recompose {n} started for {shot_id}: {workflow_id} v{version} ({reason})")
+        return {"status": "queued", "workflow_id": workflow_id, "recompose": n, "version": version,
+                "refs": plan["refs"]}
+
+    @recompose_shot.validator
+    def validate_recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
+                                ref_keys: list | None = None, clip_prompt: str | None = None):
+        problem = self._recompose_problem(shot_id, reason, prompt, refs)
+        if problem:
+            raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
+
+    def _recompose_decision_problem(self, shot_id: str, reason: str) -> str | None:
+        rc = self.pending_recompose.get(shot_id)
+        if rc is None:
+            return "no recompose pending for this shot"
+        if not rc.get("still_ready"):
+            return "the recompose still has not landed yet"
+        if rc.get("decision"):
+            return f"already decided ({rc['decision']})"
+        if not (reason or "").strip():
+            return "a reason is required"
+        return None
+
+    @workflow.update
+    async def recompose_decision(self, shot_id: str, approve: bool, reason: str) -> dict:
+        """GAP-21: the reviewer's decision on a parked recompose still. approve -> the clip is made
+        from the NEW still (round budget pre-checked first) and replaces the shot when it lands;
+        reject -> the child ends without a clip (no clip spend) and the shot keeps its current clip."""
+        problem = self._recompose_decision_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot decide recompose for {shot_id}: {problem}", non_retryable=True)
+        rc = self.pending_recompose[shot_id]
+        handle = self.recompose_handles[shot_id]
+        check = None
+        if approve:
+            ep = self.state.episode_id
+            params = (self.recompose_plans[shot_id].get("params") or {})
+            job_id = f"clip-{ep}-{shot_id}-v{rc['version']}"
+            try:
+                check = await workflow.execute_activity(
+                    "check_round_budget_activity",
+                    args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
+                          params.get("duration", 5.0), f"rc{rc['n']}"],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                cause = getattr(e, "cause", None) or e
+                raise ApplicationError(f"Cannot approve recompose for {shot_id}: round budget refused: {cause}",
+                                       type="RoundBudgetError", non_retryable=True)
+            rc["decision"], rc["decision_reason"] = "approved", reason.strip()
+            self.shot_results[shot_id] = handle  # accept-clip / cap raise reach the new child
+            await handle.signal("stills_approved")
+        else:
+            rc["decision"], rc["decision_reason"] = "rejected", reason.strip()
+            await handle.signal("still_rejected", reason.strip())
+        workflow.logger.info(f"Recompose {rc['n']} for {shot_id} {rc['decision']}: {reason}")
+        return {"shot_id": shot_id, "decision": rc["decision"], "workflow_id": rc["workflow_id"],
+                "estimate_usd_micros": (check or {}).get("estimate_usd_micros")}
+
+    @recompose_decision.validator
+    def validate_recompose_decision(self, shot_id: str, approve: bool, reason: str):
+        problem = self._recompose_decision_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot decide recompose for {shot_id}: {problem}", non_retryable=True)
+
+    # ---------------------------------------------------------------- GAP-22 edit overrides
+    MIN_TRIMMED_SHOT_S = 1.0
+
+    def _shot_edit_problem(self, shot_id: str, reason: str, trim_in: float | None,
+                           trim_out: float | None, drop: bool) -> str | None:
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            return "only while parked at G_FINAL_CUT"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required"
+        shot = next((s for s in self.assembly_shots if s["shot_id"] == shot_id), None)
+        if shot is None:
+            return "unknown shot (not in the edit)"
+        if shot_id in self.pending_clip_retries or shot_id in self.pending_recompose:
+            return "a clip retry / recompose is pending for this shot"
+        if drop:
+            if trim_in is not None or trim_out is not None:
+                return "drop and trim are exclusive"
+            others = [s for s in self.assembly_shots if s["shot_id"] != shot_id
+                      and not (self.edit_overrides.get(s["shot_id"]) or {}).get("drop")]
+            if not others:
+                return "cannot drop the last shot of the edit"
+            return None
+        if trim_in is None and trim_out is None:
+            return None  # clears the override
+        duration = float((shot.get("params") or {}).get("duration", 5.0))
+        planned = shot.get("trim") or {}
+        a = float(trim_in if trim_in is not None else planned.get("in", 0.0))
+        b = float(trim_out if trim_out is not None else planned.get("out", duration))
+        if not (0.0 <= a < b <= duration + 1e-6):
+            return f"trim [{a}, {b}] outside the clip [0, {duration}]"
+        if b - a < self.MIN_TRIMMED_SHOT_S:
+            return f"trimmed shot would be {b - a:.2f}s < {self.MIN_TRIMMED_SHOT_S}s"
+        return None
+
+    @workflow.update
+    def set_shot_edit(self, shot_id: str, reason: str, trim_in: float | None = None,
+                      trim_out: float | None = None, drop: bool = False) -> dict:
+        """GAP-22: reviewer edit at G_FINAL_CUT without hand-editing state: trim a shot (seconds into
+        its clip) or drop it from the edit; neither trim nor drop clears an earlier override. The edit
+        goes stale and is re-assembled, then the delivery is rebuilt (audio follows the edit when the
+        audio plan carries a timeline_ref, GAP-23). No spend."""
+        problem = self._shot_edit_problem(shot_id, reason, trim_in, trim_out, drop)
+        if problem:
+            raise ApplicationError(f"Cannot edit {shot_id}: {problem}", non_retryable=True)
+        if drop:
+            override: dict | None = {"drop": True, "reason": reason.strip()}
+        elif trim_in is None and trim_out is None:
+            override = None
+        else:
+            shot = next(s for s in self.assembly_shots if s["shot_id"] == shot_id)
+            duration = float((shot.get("params") or {}).get("duration", 5.0))
+            planned = shot.get("trim") or {}
+            override = {"trim_in": float(trim_in if trim_in is not None else planned.get("in", 0.0)),
+                        "trim_out": float(trim_out if trim_out is not None else planned.get("out", duration)),
+                        "reason": reason.strip()}
+        if override is None:
+            self.edit_overrides.pop(shot_id, None)
+        else:
+            self.edit_overrides[shot_id] = override
+        self.edit_override_log.append({"shot_id": shot_id, "override": override, "reason": reason.strip(),
+                                       "edit_version": self.assembly_version})
+        workflow.logger.warning(f"Edit override for {shot_id}: {override} ({reason})")
+        return {"shot_id": shot_id, "override": override, "stale": self._assembly_stale()}
+
+    @set_shot_edit.validator
+    def validate_set_shot_edit(self, shot_id: str, reason: str, trim_in: float | None = None,
+                               trim_out: float | None = None, drop: bool = False):
+        problem = self._shot_edit_problem(shot_id, reason, trim_in, trim_out, drop)
+        if problem:
+            raise ApplicationError(f"Cannot edit {shot_id}: {problem}", non_retryable=True)
+
+    @workflow.query
+    def retry_prompt_plan(self, shot_id: str, prompt_append: str | None = None) -> dict:
+        """GAP-15: the prompts a retry_shot(shot_id, prompt_append) child WOULD submit (still, and
+        clip: the shot's clip_prompt if it has one, else the amended still prompt) so the API can
+        preflight them against the model limits BEFORE a paid still is re-rolled. No side effects."""
+        for shot in self.parsed_beatmap.get("shots", []):
+            if shot["shot_id"] == shot_id:
+                base = shot.get("prompt") or ""
+                prompt = amend_prompt(base, prompt_append)[0] if prompt_append else base
+                params = shot.get("params") or {}
+                return {"found": True, "still_prompt": prompt,
+                        "clip_prompt": shot.get("clip_prompt") or prompt,
+                        "clip_model": params.get("model", "kling"),
+                        "shot_meta": shot.get("shot_meta") or {}}
+        return {"found": False}
+
+    def _merge_rechecked_refs(self, shots: list[dict], rechecked: dict) -> list[dict]:
+        """Merge the G2.01 recheck (refs now on disk, e.g. made after G1) into the launched shots AND
+        into parsed_beatmap, which retry_shot / clip launches / retry_prompt_plan read: without the
+        write-back a G2 re-roll of a shot whose ref was generated after G1 was held at G2.01 with
+        the stale "refs not on disk yet" list. Pure state, no commands: replay-safe."""
+        def merge(rows):
+            return [{**s, **rechecked[s["shot_id"]]} if s["shot_id"] in rechecked else s for s in rows]
+        if self.parsed_beatmap and self.parsed_beatmap.get("shots"):
+            self.parsed_beatmap["shots"] = merge(self.parsed_beatmap["shots"])
+        return merge(shots)
 
     @workflow.query
     def get_state(self) -> dict:
@@ -1755,8 +2460,24 @@ class EpisodeWorkflowV2:
             "final_cut_refusals": list(self.final_cut_refusals),
             "final_cut_rejections": [dict(r) for r in self.final_cut_rejections],
             "shot_workflow_ids": {k: h.id for k, h in self.shot_results.items()},
+            "still_selections": dict(self.still_selections),
+            "clip_plan_updates": {k: sorted(v) for k, v in self.clip_plan_updates.items()},
+            "resync_log": [dict(r) for r in self.resync_log],
+            "current_still_versions": {k: self._current_still_version(k) for k in self.shot_results},
             "assembly": self._assembly_view(),
             "delivery": self._delivery_view(),
+            "clip_review_acceptances": {k: dict(v) for k, v in self.clip_review_acceptances.items()},
+            "clip_takes": {sid: {str(n): {"clip_url": t.get("clip_url"), "clip_path": t.get("clip_path"),
+                                          "status": t.get("status")} for n, t in takes.items()}
+                           for sid, takes in self.clip_takes.items()},
+            "delivery_rebuilds": [dict(x) for x in self.delivery_rebuilds],
+            "recompose": {
+                "pending": {k: dict(v) for k, v in self.pending_recompose.items()},
+                "counts": dict(self.recompose_counts),
+                "log": [dict(x) for x in self.recompose_log],
+            },
+            "edit_overrides": {k: dict(v) for k, v in self.edit_overrides.items()},
+            "edit_override_log": [dict(x) for x in self.edit_override_log],
             "shot_outcomes": {
                 k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url"),
                     "pre_approved": bool(v.get("pre_approved")),

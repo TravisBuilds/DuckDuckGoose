@@ -161,11 +161,15 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
     # The job row exists (status reserved) for the whole provider call, as for every paid job.
-    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)
+    if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):
+        await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
     try:
         result = await call()
-    except BaseException:
+    except BaseException as e:
         await ledger.release(episode_id, line, usd_micros, f"{kind} {asset_id} failed", job_id=job_id)
+        from hfvg.providers.elevenlabs import ElevenLabsError
+        if isinstance(e, ElevenLabsError) and e.permanent:
+            raise ApplicationError(str(e), type="ElevenLabsPermanentError", non_retryable=True) from None
         raise
 
     credits = result.get("credits")
@@ -211,8 +215,11 @@ def _result(path: Path, *, source: str, dry: bool = False, **extra: Any) -> dict
 
 @activity.defn
 async def generate_voiceover(episode_id: str, script: str, voice_id: str, model: str = DEFAULT_VO_MODEL,
-                             line_id: str = "vo", locked_path: str | None = None) -> dict[str, Any]:
-    """One VO line: the locked/pre-rendered file when given, else ElevenLabs TTS (guarded)."""
+                             line_id: str = "vo", locked_path: str | None = None,
+                             take: int = 1) -> dict[str, Any]:
+    """One VO line: the locked/pre-rendered file when given, else ElevenLabs TTS (guarded).
+    ``take`` > 1 is a deliberate re-roll of the same text: it gets its own content key (so it is
+    a new guarded generation, then reused by hash); take 1 keeps the original key."""
     _beat({"stage": "voiceover", "line": line_id})
     if locked_path:
         p = Path(locked_path)
@@ -220,7 +227,8 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
             return _result(p, source="locked", line_id=line_id)
         if not _dry_run():
             raise _missing(f"Locked VO file for line {line_id} not found: {p}")
-    key = _key("tts", script, voice_id, model)
+    take = int(take or 1)
+    key = _key("tts", script, voice_id, model) if take <= 1 else _key("tts", script, voice_id, model, take)
     if _dry_run():
         out = generated_path(episode_id, "vo", line_id, key, "wav")
         if not out.is_file():
@@ -350,6 +358,15 @@ async def load_audio_plan(episode_id: str, plan_path: str | None = None) -> dict
         raise _missing(f"No audio plan for {episode_id}: {p}", "MissingAudioPlan")
     try:
         plan = audio_mix.load_plan_file(p)
+        if plan.get("timeline_ref"):
+            # GAP-23: the plan's times follow the CURRENT edit (a shot trimmed / dropped at G_FINAL_CUT)
+            from hfvg.activities.media import MUTE_MANIFEST_NAME
+            edit_manifest = audio_mix.episode_dir(episode_id) / "edit" / MUTE_MANIFEST_NAME
+            if edit_manifest.is_file():
+                current = audio_mix.timeline_from_manifest(json.loads(edit_manifest.read_text()))
+                plan = audio_mix.remap_plan_to_edit(plan, current)
+            elif not _dry_run():
+                raise AudioInputError(f"audio plan has a timeline_ref but no edit manifest: {edit_manifest}")
     except AudioInputError as e:
         raise _missing(str(e), "InvalidAudioPlan") from None
     return {**plan, "plan_found": True, "plan_path": str(p)}

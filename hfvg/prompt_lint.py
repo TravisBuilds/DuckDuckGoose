@@ -44,6 +44,11 @@ class LintKit:
     forbidden_phrases: tuple[str, ...] = DEFAULT_FORBIDDEN_PHRASES
     moose_names: tuple[str, ...] = ("moose",)
     carry_verbs: tuple[str, ...] = DEFAULT_CARRY_VERBS
+    # Bath rule (optional): on a bath shot (animals soaking: shot_meta wet + water + count > 0,
+    # or an explicit shot_meta.bath flag) the prompt must carry bath_clause (e.g. "submerged up to
+    # the shoulders, visible waterline, ...") and none of bath_forbidden ("on top of the water").
+    bath_clause: str = ""
+    bath_forbidden: tuple[str, ...] = ()
     _extra: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
@@ -75,11 +80,23 @@ class LintKit:
             forbidden_phrases=tup("forbidden_phrases", DEFAULT_FORBIDDEN_PHRASES),
             moose_names=tup("moose_names", ("moose",)),
             carry_verbs=tup("carry_verbs", DEFAULT_CARRY_VERBS),
+            bath_clause=str(data.get("bath_clause", "")),
+            bath_forbidden=tup("bath_forbidden"),
         )
 
 
 def _contains(prompt: str, clause: str) -> bool:
     return clause.strip().lower() in prompt.lower()
+
+
+def is_bath_shot(shot_meta: dict[str, Any] | None) -> bool:
+    """Animals soaking in the water: explicit shot_meta.bath, else wet + water + count > 0."""
+    meta = shot_meta or {}
+    if "bath" in meta:
+        return bool(meta["bath"])
+    count = meta.get("count")
+    has_animals = isinstance(count, int) and not isinstance(count, bool) and count > 0
+    return bool(meta.get("wet") and meta.get("water") and has_animals)
 
 
 def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> list[str]:
@@ -149,6 +166,13 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> lis
                 problems.append(f"lint kit has no {label}_clause but shot_meta.{flag} is set")
             elif not _contains(prompt, clause):
                 problems.append(f"missing {label} clause (shot_meta.{flag}): {clause!r}")
+    # 10. Bath rule: soaking with a visible waterline, never standing/floating on top of the water
+    if is_bath_shot(meta):
+        if kit.bath_clause.strip() and not _contains(prompt, kit.bath_clause):
+            problems.append(f"missing bath clause on bath shot: {kit.bath_clause!r}")
+        for phrase in kit.bath_forbidden:
+            if phrase.strip() and phrase.lower() in lowered:
+                problems.append(f"bath shot prompt puts an animal on the water: {phrase!r}")
     return problems
 
 

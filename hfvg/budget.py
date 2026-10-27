@@ -45,7 +45,10 @@ DEFAULT_MAX_PAID_RETRIES_PER_SHOT_PER_ROUND = 1
 ROUND_G2_STILLS = "G2_STILLS"   # still retries while parked at G2 (retry_shot / retry_end_still)
 ROUND_G3_CLIPS = "G3_CLIPS"     # clip retries after G2 (retry_clip)
 ROUND_AUDIO = "AUDIO"           # ElevenLabs VO / SFX / music generation for the delivery (G-AUD-1b)
-REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS, ROUND_AUDIO)
+# GAP-25: a post-G2 recompose (recompose_shot at G_FINAL_CUT: new composition ordered at the G3 review)
+# is its own review round, not a G2 still re-roll; same per-round cap/80% stop and per-shot limit
+ROUND_G3_RECOMPOSE = "G3_RECOMPOSE"
+REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS, ROUND_AUDIO, ROUND_G3_RECOMPOSE)
 
 # Importable default constants (micro-dollars)
 EPISODE_CAP_USD_MICROS = usd_to_micros(DEFAULT_EPISODE_CAP_USD)
@@ -322,6 +325,33 @@ class BudgetLedger:
         # The revision reserve is a hard reserve: usable up to its cap (stop == cap)
         await self._insert_line(db, episode_id, "higgsfield", REVISION_LINE, cap, cap)
 
+    def effective_line_caps_usd_micros(self, episode_id: str) -> dict[str, int]:
+        """The Higgsfield line caps init_episode_budget creates for this episode: {line: cap micros}.
+
+        Standard lines (DEFAULT_LINE_CAPS_USD_MICROS) take the policy value when the policy has the
+        line for this episode (USD from ``usd.<ep>_lines_app_usd`` if given, else app credits
+        converted), otherwise the default; extra policy lines are added. Preflight checks THIS
+        total against the episode cap and stop, so a policy that sizes the lines for a smaller
+        episode cap is honoured (it used to check the bare defaults and refuse every cap < $55).
+        The revision reserve line is separate (REVISION_LINE) and not part of this total.
+        """
+        hf_budget = self.policy.get_higgsfield_budget(episode_id)
+        policy_lines = hf_budget.get("lines", {})
+        usd_caps = self.policy.get_usd_line_caps(episode_id)
+
+        def _policy_cap(line_name: str) -> int:
+            if line_name in usd_caps:
+                return usd_to_micros(str(usd_caps[line_name]))
+            return app_credits_to_usd_micros(policy_lines[line_name])
+
+        caps: dict[str, int] = {}
+        for line_name, default_cap_micros in DEFAULT_LINE_CAPS_USD_MICROS.items():
+            caps[line_name] = _policy_cap(line_name) if line_name in policy_lines else default_cap_micros
+        for line_name in policy_lines:
+            if line_name not in caps:
+                caps[line_name] = _policy_cap(line_name)
+        return caps
+
     async def init_episode_budget(self, episode_id: str):
         """
         Initialize per-line dollar budgets for an episode from the gate policy.
@@ -333,35 +363,10 @@ class BudgetLedger:
         await self.init_db()
         settings = get_budget_settings()
 
-        hf_budget = self.policy.get_higgsfield_budget(episode_id)
-        policy_lines = hf_budget.get("lines", {})
-        usd_caps = self.policy.get_usd_line_caps(episode_id)
-
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Create standard lines (using shared constant)
-            for line_name, default_cap_micros in DEFAULT_LINE_CAPS_USD_MICROS.items():
-                if line_name in policy_lines:
-                    # Use policy value
-                    if line_name in usd_caps:
-                        cap = usd_to_micros(str(usd_caps[line_name]))
-                    else:
-                        cap = app_credits_to_usd_micros(policy_lines[line_name])
-                else:
-                    # Use default
-                    cap = default_cap_micros
-                
+            for line_name, cap in self.effective_line_caps_usd_micros(episode_id).items():
                 stop = compute_stop_usd_micros(cap, settings.stop_percent)
                 await self._insert_line(db, episode_id, "higgsfield", line_name, cap, stop)
-            
-            # Create any additional policy lines not in defaults
-            for line_name, cap_app_credits in policy_lines.items():
-                if line_name not in DEFAULT_LINE_CAPS_USD_MICROS:
-                    if line_name in usd_caps:
-                        cap = usd_to_micros(str(usd_caps[line_name]))
-                    else:
-                        cap = app_credits_to_usd_micros(cap_app_credits)
-                    stop = compute_stop_usd_micros(cap, settings.stop_percent)
-                    await self._insert_line(db, episode_id, "higgsfield", line_name, cap, stop)
 
             await self._insert_revision_line(db, episode_id)
 
@@ -373,6 +378,105 @@ class BudgetLedger:
                 await self._insert_line(db, episode_id, "elevenlabs", f"el_{line_name}", cap, stop)
 
             await db.commit()
+
+        # Lines that already existed (an earlier start of this episode, e.g. one that failed
+        # preflight) take the current policy caps too; never below what they hold (non-strict).
+        await self.sync_episode_lines(episode_id, reason="init_episode_budget", strict=False)
+
+    def target_line_caps_and_stops(self, episode_id: str) -> dict[str, tuple[int, int]]:
+        """{line: (cap, stop)} that init_episode_budget creates now for the Higgsfield lines and the
+        revision reserve (policy caps for the episode else defaults; stop = EPISODE_STOP_PERCENT of
+        the cap; the revision reserve's stop equals its cap)."""
+        settings = get_budget_settings()
+        out = {
+            line: (cap, compute_stop_usd_micros(cap, settings.stop_percent))
+            for line, cap in self.effective_line_caps_usd_micros(episode_id).items()
+        }
+        rev = settings.revision_reserve_usd_micros
+        out[REVISION_LINE] = (rev, rev)
+        return out
+
+    async def sync_episode_lines(self, episode_id: str, *, reason: str = "",
+                                 strict: bool = True, dry_run: bool = False) -> dict[str, Any]:
+        """Re-apply the current policy/env caps to an episode's EXISTING Higgsfield lines.
+
+        Lines are created once (INSERT OR IGNORE), so a line made by an earlier start (e.g. a start
+        that then failed preflight with the default caps) kept those caps for the life of the
+        episode, whatever the policy said later. This updates cap and stop in place:
+        - never below what the line already holds (spent + reserved): such a line is refused
+          (strict: ValueError and nothing changes; non-strict: the line is skipped and reported);
+        - refused when the Higgsfield line caps would exceed the episode stop (the preflight rule);
+        - every change is a ``cap_sync`` transaction (amount = new cap, reason = old -> new) in
+          budget_transactions, so the ledger shows who moved which cap and why.
+        Missing lines are created. Spend/reservations are never touched.
+        Returns {"changed": [...], "skipped": [...], "unchanged": [...]}.
+        """
+        await self.init_db()
+        settings = get_budget_settings()
+        targets = self.target_line_caps_and_stops(episode_id)
+        hf_total = sum(cap for line, (cap, _s) in targets.items() if line != REVISION_LINE)
+        if strict and hf_total > settings.episode_stop_usd_micros:
+            # (non-strict = init_episode_budget: preflight reports an over-stop policy itself)
+            raise ValueError(
+                f"line caps total {micros_to_usd_str(hf_total)} USD exceeds episode stop "
+                f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
+            )
+        changed, skipped, unchanged = [], [], []
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                plan = []
+                for line, (cap, stop) in targets.items():
+                    async with db.execute(
+                        "SELECT cap_usd_micros, stop_usd_micros, spent_usd_micros, reserved_usd_micros "
+                        "FROM budget_lines WHERE line_id = ?", (f"{episode_id}:{line}",)
+                    ) as cur:
+                        row = await cur.fetchone()
+                    if row is None:
+                        plan.append((line, None, None, cap, stop))
+                        continue
+                    old_cap, old_stop, spent, reserved = row
+                    if (old_cap, old_stop) == (cap, stop):
+                        unchanged.append(line)
+                        continue
+                    held = spent + reserved
+                    if stop < held:
+                        msg = (f"{line}: new stop {micros_to_usd_str(stop)} USD is below what the line "
+                               f"already holds ({micros_to_usd_str(held)} USD)")
+                        if strict:
+                            raise ValueError(msg)
+                        skipped.append({"line": line, "reason": msg})
+                        continue
+                    plan.append((line, old_cap, old_stop, cap, stop))
+                now = _now_iso()
+                for line, old_cap, old_stop, cap, stop in plan:
+                    line_id = f"{episode_id}:{line}"
+                    entry = {"line": line, "old_cap_usd_micros": old_cap, "old_stop_usd_micros": old_stop,
+                             "cap_usd_micros": cap, "stop_usd_micros": stop}
+                    changed.append(entry)
+                    if dry_run:
+                        continue
+                    if old_cap is None:
+                        await self._insert_line(db, episode_id, "higgsfield", line, cap, stop)
+                    else:
+                        await db.execute(
+                            "UPDATE budget_lines SET cap_usd_micros = ?, stop_usd_micros = ? WHERE line_id = ?",
+                            (cap, stop, line_id))
+                    await db.execute(
+                        "INSERT INTO budget_transactions (line_id, episode_id, job_id, txn_type, amount, "
+                        "timestamp, reason) VALUES (?, ?, NULL, 'cap_sync', ?, ?, ?)",
+                        (line_id, episode_id, cap, now,
+                         f"cap {micros_to_usd_str(old_cap or 0)} -> {micros_to_usd_str(cap)}, stop "
+                         f"{micros_to_usd_str(old_stop or 0)} -> {micros_to_usd_str(stop)}"
+                         + (f": {reason}" if reason else "")))
+                if dry_run:
+                    await db.rollback()
+                else:
+                    await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return {"changed": changed, "skipped": skipped, "unchanged": unchanged, "dry_run": dry_run}
 
     async def ensure_audio_line(self, episode_id: str, line_name: str) -> None:
         """Create an ElevenLabs audio line with its default cap if the policy did not (no-op otherwise)."""

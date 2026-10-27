@@ -24,6 +24,7 @@ from hfvg.activities.run_lock import (
 from hfvg.activities.studio_generation import verify_episode_files_activity
 from hfvg.activities.ref_generation import (
     generate_ref_activity,
+    generate_ref_edit_activity,
     load_refs_to_generate_activity,
 )
 from hfvg.activities.g1_plan import compute_g1_plan_activity
@@ -76,6 +77,7 @@ PRODUCTION_ACTIVITIES = [
     activities.check_live_mode_and_g108,
     verify_episode_files_activity,
     generate_ref_activity,
+    generate_ref_edit_activity,
     load_refs_to_generate_activity,
     compute_g1_plan_activity,
     save_asset_locally,

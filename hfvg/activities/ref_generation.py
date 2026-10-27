@@ -472,7 +472,9 @@ async def load_refs_to_generate_activity(
             
             # Apply defaults
             if "type" not in ref_spec:
-                ref_spec["type"] = "character_sheet"
+                ref_spec["type"] = "edit" if ref_spec.get("edit_from") else "character_sheet"
+            # Ref edit (new ref from an existing ref image): refuse unusable sources up front
+            validate_ref_edit_spec(ref_spec, is_live)
             if "version" not in ref_spec:
                 # Determine version: versions map, then latest on disk, then 1
                 key = ref_spec.get("key")
@@ -570,3 +572,257 @@ async def load_refs_to_generate_activity(
         return filtered
     
     return to_generate
+
+
+# ---------------------------------------------------------------------------------------------
+# Ref EDIT path: a new ref made by editing an existing ref image with the still model.
+# refs.json to_generate list entry: {"key", "output_path", "prompt", "edit_from": <source path>}.
+# The source image is uploaded and sent as the single image_urls entry to the still model
+# (MODEL_PATH_STILL, default xai/grok-imagine-image-2.0); the cost comes from the provider's
+# /estimate (fail closed), is reserved on L1_refs with the GC.01 balance required, and is
+# committed once the provider completes. Never edits in place: output_path must differ from
+# the source (a new ref key/file), the source file is never touched.
+# ---------------------------------------------------------------------------------------------
+
+REF_EDIT_RESOLUTION = "2k"
+REF_EDIT_QUALITY = "medium"
+REF_EDIT_ASPECT_RATIO = "9:16"
+
+
+def _file_sha256(path: str | Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def validate_ref_edit_spec(ref_spec: dict, is_live: bool) -> None:
+    """Refuse an unusable edit_from entry (raises ValueError). Live: the source must be on disk."""
+    src = ref_spec.get("edit_from")
+    if src is None:
+        return
+    key = ref_spec.get("key")
+    if not isinstance(src, str) or not src.strip():
+        raise ValueError(f"refs.json to_generate '{key}': edit_from must be a non-empty path string")
+    if src.startswith(("http://", "https://")):
+        raise ValueError(f"refs.json to_generate '{key}': edit_from must be a local ref file, not a URL")
+    out = ref_spec.get("output_path")
+    if out and Path(out).resolve() == Path(src).resolve():
+        raise ValueError(
+            f"refs.json to_generate '{key}': edit_from and output_path are the same file; "
+            "an edit is saved as a NEW ref (new key and file), never in place"
+        )
+    if is_live and not Path(src).is_file():
+        raise ValueError(f"refs.json to_generate '{key}': edit_from source not on disk: {src}")
+
+
+def ref_edit_job_id(episode_id: str, ref_key: str, version: int, source_sha256: str) -> str:
+    return f"ref-{episode_id}-{ref_key}-v{version}-edit{source_sha256[:8]}"
+
+
+@activity.defn
+async def generate_ref_edit_activity(
+    episode_id: str,
+    ref_key: str,
+    prompt: str,
+    output_path: str,
+    version: int,
+    edit_from: str,
+    resolution: str = REF_EDIT_RESOLUTION,
+    quality: str = REF_EDIT_QUALITY,
+    aspect_ratio: str = REF_EDIT_ASPECT_RATIO,
+) -> dict:
+    """Generate ref ``ref_key`` as an image edit of ``edit_from`` through the still model.
+
+    Same reuse/version/staging/QC/commit rules as generate_ref_activity; the spend is the provider
+    estimate (never a literal), reserved on L1_refs before submit.
+    """
+    import asyncio
+    import httpx
+    from hfvg import model_caps
+    from hfvg.defaults import check_value
+    from hfvg.config import still_model_path, max_refs_for
+    from hfvg.budget import BudgetLedger
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    from hfvg.providers.base import ProviderJobStatus
+
+    validate_ref_edit_spec(
+        {"key": ref_key, "output_path": output_path, "edit_from": edit_from}, is_live=True
+    )
+    model_path = still_model_path()
+    caps = model_caps.get_registry().resolve(model_path)
+    for field, value in (("resolution", resolution), ("aspect_ratio", aspect_ratio), ("quality", quality)):
+        why = check_value(caps, field, value)
+        if why:
+            raise ValueError(f"Ref edit {ref_key}: {field} {value!r} refused for {model_path}: {why}")
+    if max_refs_for(model_path) < 1:
+        raise ValueError(f"Ref edit {ref_key}: {model_path} accepts no reference image")
+
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    source_sha = _file_sha256(edit_from)
+    job_id = ref_edit_job_id(episode_id, ref_key, version, source_sha)
+
+    original_output_path = output_path
+    if dry_run:
+        workflow_id = activity.info().workflow_id
+        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(scratch_dir / Path(original_output_path).name)
+
+    # Reuse: same version AND same source image -> no spend
+    check_path = Path(original_output_path)
+    sidecar = check_path.parent / ".versions" / f"{check_path.stem}.json"
+    if check_path.exists():
+        meta = {}
+        if sidecar.exists():
+            try:
+                meta = json.loads(sidecar.read_text())
+            except Exception:
+                meta = {}
+        same = meta.get("version", 1) == version and meta.get("edit_from_sha256") == source_sha
+        if same and (await _check_ref_qc(str(check_path)))["passed"]:
+            activity.logger.info(f"Ref edit {ref_key} v{version} exists and passes QC - reusing (no spend)")
+            return {"status": "reused", "job_id": job_id, "provider_job_id": None,
+                    "output_path": output_path, "credits_used": 0, "usd_micros": 0}
+        if not same and not dry_run:
+            archive_dir = check_path.parent / f"_v{meta.get('version', 1)}"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            check_path.rename(archive_dir / check_path.name)
+            activity.logger.info(f"Archived previous {check_path.name} to {archive_dir}")
+
+    def _write_sidecar(path: str) -> None:
+        d = Path(path).parent / ".versions"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{Path(path).stem}.json").write_text(json.dumps({
+            "version": version, "ref_key": ref_key, "edit_from": str(edit_from),
+            "edit_from_sha256": source_sha, "model": model_path,
+        }))
+
+    ledger = CreditLedger(db_path)
+    await ledger.init_db()
+
+    if dry_run:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_bytes(b"fake-ref-edit-image")
+        _write_sidecar(output_path)
+        activity.logger.info(f"[DRY-RUN] Ref edit {ref_key} from {edit_from} -> {output_path}")
+        return {"status": "completed", "job_id": job_id, "provider_job_id": f"fake-{job_id}",
+                "output_path": output_path, "credits_used": 0, "usd_micros": 0}
+
+    from hfvg.studio_db import enforce_smoke_test_gate
+    from hfvg.activities.studio_generation import _check_higgsfield_credentials, check_live_mode_and_g108
+    _check_higgsfield_credentials()
+    await enforce_smoke_test_gate(db_path, episode_id, "generate_ref_edit_activity")
+    live_mode, g108 = await check_live_mode_and_g108(episode_id)
+    if not live_mode or not g108:
+        raise ValueError(f"Ref edit {ref_key}: episode {episode_id} needs live mode and G1.08 approval")
+
+    usd_ledger = BudgetLedger(db_path)
+    await usd_ledger.init_db()
+    provider = HiggsfieldStillProvider()
+    credits_reserved = usd_reserved = False
+    estimated_usd = 0
+    estimated_credits = 0.0
+    try:
+        existing_provider_job_id = await ledger.get_provider_job(job_id)
+        if existing_provider_job_id:
+            provider_job_id = existing_provider_job_id
+            activity.logger.info(f"Resuming poll for {job_id} -> {provider_job_id}")
+            # amounts already reserved on the first attempt: re-read the estimate for the commit
+            estimated_usd, estimated_credits = await provider.estimate_usd_and_credits(
+                prompt=prompt, resolution=resolution, quality=quality, aspect_ratio=aspect_ratio)
+            credits_reserved = usd_reserved = True
+        else:
+            src_version = 1
+            src_sidecar = Path(edit_from).parent / ".versions" / f"{Path(edit_from).stem}.json"
+            if src_sidecar.exists():
+                try:
+                    src_version = int(json.loads(src_sidecar.read_text()).get("version", 1))
+                except Exception:
+                    src_version = 1
+            source_url = (await provider.upload_reference(edit_from, src_version))["public_url"]
+            # Estimates guard: provider estimate first, fail closed
+            estimated_usd, estimated_credits = await provider.estimate_usd_and_credits(
+                prompt=prompt, resolution=resolution, quality=quality, aspect_ratio=aspect_ratio)
+            res = await ledger.reserve_credits(episode_id, job_id, estimated_credits,
+                                               notes=f"ref edit {ref_key} v{version}")
+            if isinstance(res, dict) and not res.get("reserved", True):
+                raise ValueError(f"Credit reserve failed for {job_id}: {res}")
+            credits_reserved = True
+            ok = await usd_ledger.reserve(
+                episode_id=episode_id, line_name="L1_refs", amount_usd_micros=estimated_usd,
+                reason=f"Ref edit {ref_key} v{version}", job_id=job_id, require_balance=True,
+            )
+            if not ok:
+                raise ValueError(f"USD budget reserve failed for L1_refs (ref edit {ref_key}): "
+                                 f"requested {estimated_usd} usd_micros")
+            usd_reserved = True
+            key_hash = __import__("hashlib").sha256(
+                f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio}|{source_sha}".encode()
+            ).hexdigest()[:16]
+            provider_job_id = await provider.submit_image(
+                prompt=prompt, resolution=resolution, quality=quality, image_urls=[source_url],
+                idempotency_key=f"{job_id}-{key_hash}", aspect_ratio=aspect_ratio,
+            )
+            await ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
+            activity.logger.info(f"Submitted ref edit {job_id} -> {provider_job_id}")
+
+        job = None
+        for _ in range(120):
+            job = await provider.get_job_status(provider_job_id)
+            if job.status == ProviderJobStatus.COMPLETED:
+                break
+            if job.status in (ProviderJobStatus.FAILED, ProviderJobStatus.BLOCKED,
+                              ProviderJobStatus.CANCELED):
+                raise RuntimeError(f"Ref edit {job_id} {job.status.value}: {job.error}")
+            if activity.in_activity():
+                activity.heartbeat()
+            await asyncio.sleep(5)
+        else:
+            raise RuntimeError(f"Ref edit {job_id} polling exhausted")
+
+        await ledger.commit_credits(episode_id, job_id, estimated_credits)
+        await usd_ledger.commit(
+            episode_id=episode_id, line_name="L1_refs", reserved_usd_micros=estimated_usd,
+            actual_usd_micros=estimated_usd, job_id=job_id, reason=f"Ref edit {ref_key} v{version} completed",
+        )
+        if not job.output_url:
+            raise ValueError(f"Ref edit {job_id}: no output URL in completed job")
+        staging = Path(output_path).parent / f".staging_{Path(output_path).name}"
+        staging.parent.mkdir(parents=True, exist_ok=True)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(job.output_url)
+            resp.raise_for_status()
+            staging.write_bytes(resp.content)
+        qc = await _check_ref_qc(str(staging))
+        if not qc["passed"]:
+            from hfvg.errors import QCFailedError
+            raise QCFailedError(f"Ref edit QC failed for {ref_key}: {qc.get('reason')}. "
+                                f"Staging file kept at {staging}", staging_path=str(staging))
+        staging.rename(output_path)
+        _write_sidecar(output_path)
+        return {"status": "completed", "job_id": job_id, "provider_job_id": provider_job_id,
+                "output_path": output_path, "credits_used": estimated_credits,
+                "usd_micros": estimated_usd}
+    except Exception as e:
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM credit_transactions WHERE job_id = ? AND txn_type = 'commit'",
+                (job_id,),
+            ) as cur:
+                committed = (await cur.fetchone())[0] > 0
+        if not committed:
+            if credits_reserved:
+                await ledger.release_credits(episode_id, job_id, notes=f"ref edit failed: {str(e)[:100]}")
+            if usd_reserved:
+                await usd_ledger.release(episode_id=episode_id, line_name="L1_refs",
+                                         amount_usd_micros=estimated_usd,
+                                         reason=f"Ref edit {ref_key} failed: {str(e)[:100]}",
+                                         job_id=job_id)
+        raise
+    finally:
+        await provider.close()

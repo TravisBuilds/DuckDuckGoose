@@ -388,3 +388,20 @@ def preflight_plans(shot_plans: list[dict[str, Any]], *, anchors: dict[str, str]
         "errors": [format_violation(v) for v in violations if v.severity == "error"],
         "shots": per_shot,
     }
+
+
+def prompt_limit_violations(shot_id: str, *, still_prompt: str, clip_prompt: str,
+                            clip_model_alias: str | None, registry=None) -> list[Violation]:
+    """GAP-15: prompt-length check only, for both the still model and the clip model, so a re-roll
+    whose amended prompt the clip model would refuse is stopped before the paid still (not after)."""
+    registry = registry or model_caps.get_registry()
+    out: list[Violation] = []
+    smodel = still_model_path()
+    caps = _resolve(registry, smodel, shot_id, "start", out)
+    if caps is not None:
+        _check_prompt(caps, registry, out, shot_id, "start", smodel, still_prompt or "", "(start frame)")
+    cmodel = clip_model_path(clip_model_alias)
+    caps = _resolve(registry, cmodel, shot_id, "clip", out)
+    if caps is not None:
+        _check_prompt(caps, registry, out, shot_id, "clip", cmodel, clip_prompt or "", "clip")
+    return [v for v in out if v.severity == "error"]

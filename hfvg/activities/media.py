@@ -85,6 +85,44 @@ def _plan_entries(shots: list[dict[str, Any]], clip_paths: dict[str, str]) -> li
     return entries
 
 
+def _apply_edit_plan(entries: list[dict[str, Any]], plan: dict[str, Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str, float]], dict]:
+    """Merge the workflow's generated entries with an episode edit plan (hfvg.edit_plan).
+
+    Edit order = plan["order"]; reused LOCKED clips are inserted with their trims and expected
+    sha256 (verified after hashing); a generated shot that was not produced (rejected/failed) is
+    skipped and any dissolve touching it falls back to a hard cut (recorded). A generated entry
+    missing from the plan order refuses the edit (the plan and the shot list disagree)."""
+    from hfvg.edit_plan import parse_dissolves
+    gen = {e["shot_id"]: e for e in entries}
+    order = list(plan.get("order") or [])
+    reuse = plan.get("reuse") or {}
+    stray = [sid for sid in gen if sid not in order]
+    if stray:
+        raise ApplicationError(f"Edit plan order is missing generated shot(s) {', '.join(stray)}",
+                               type="EditPlanMismatch", non_retryable=True)
+    merged, skipped = [], []
+    for sid in order:
+        if sid in reuse:
+            r = reuse[sid]
+            trim_in, trim_out = float(r.get("trim_in", 0.0)), float(r["trim_out"])
+            if not (0 <= trim_in < trim_out):
+                raise ApplicationError(f"Reused shot {sid}: invalid trim", non_retryable=True)
+            merged.append({"shot_id": sid, "clip_path": str(r["clip"]), "trim_in": trim_in, "trim_out": trim_out,
+                           "reused": True, "expected_sha256": r["sha256"], "shot_meta": r.get("shot_meta") or {}})
+        elif sid in gen:
+            merged.append(gen[sid])
+        else:
+            skipped.append(sid)
+    present = [e["shot_id"] for e in merged]
+    dissolves, dropped = [], []
+    for a, b, d in parse_dissolves(plan.get("dissolves")):
+        if a in present and b in present and present.index(b) == present.index(a) + 1:
+            dissolves.append((a, b, d))
+        else:
+            dropped.append(f"{a}->{b}")
+    return merged, dissolves, {"skipped_shots": skipped, "dropped_dissolves": dropped}
+
+
 @activity.defn
 async def assemble_mute_edit(
     episode_id: str,
@@ -109,6 +147,12 @@ async def assemble_mute_edit(
     """
     activity.heartbeat({"stage": "assembly_start", "shots": len(shots)})
     entries = _plan_entries(shots, clip_paths)
+    from hfvg.edit_plan import load_edit_plan
+    edit_plan = load_edit_plan(episode_id)
+    dissolves: list[tuple[str, str, float]] = []
+    plan_notes: dict = {}
+    if edit_plan:
+        entries, dissolves, plan_notes = _apply_edit_plan(entries, edit_plan)
     out_dir = edit_dir(episode_id, output_dir)
     assembly_path = out_dir / MUTE_EDIT_NAME
     manifest_path = out_dir / MUTE_MANIFEST_NAME
@@ -134,8 +178,8 @@ async def assemble_mute_edit(
                      for e in entries]
             return {
                 "assembly_path": str(assembly_path),
-                "manifest": {"clips": clips, "dissolves": {}, "dry_run": True},
-                "duration": round(sum(c["seg_s"] for c in clips), 3),
+                "manifest": {"clips": clips, "dissolves": {a: d for a, _b, d in dissolves}, "dry_run": True},
+                "duration": round(sum(c["seg_s"] for c in clips) - sum(d for *_x, d in dissolves), 3),
                 "input_key": None,
                 "reused": False,
                 "dry_run": True,
@@ -150,11 +194,17 @@ async def assemble_mute_edit(
     key_src = []
     for e in entries:
         e["sha256"] = await asyncio.to_thread(_sha256, Path(e["clip_path"]))
+        if e.get("expected_sha256") and e["sha256"] != e["expected_sha256"]:
+            raise ApplicationError(
+                f"Reused shot {e['shot_id']}: locked clip checksum mismatch "
+                f"({e['sha256'][:12]} != {e['expected_sha256'][:12]}); refusing to splice",
+                type="ReuseChecksumMismatch", non_retryable=True)
         key_src.append([e["shot_id"], e["sha256"], e["trim_in"], e["trim_out"]])
-    input_key = hashlib.sha256(
-        json.dumps({"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT],
-                    "inputs": key_src}, sort_keys=True).encode()
-    ).hexdigest()
+    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT],
+               "inputs": key_src}
+    if dissolves:
+        key_obj["dissolves"] = [[a, b, d] for a, b, d in dissolves]
+    input_key = hashlib.sha256(json.dumps(key_obj, sort_keys=True).encode()).hexdigest()
 
     if assembly_path.is_file() and manifest_path.is_file():
         try:
@@ -196,11 +246,44 @@ async def assemble_mute_edit(
                 "-video_track_timescale", "15360", "-an", str(norm),
             ], f"ffmpeg normalize {sid}")
             normalized.append(norm)
-            manifest_clips.append({
+            clip_row = {
                 "id": sid, "seg_s": round(frames / EDIT_FPS, 6), "frames": frames,
                 "trim_in": trim_in, "trim_out": round(trim_in + frames / EDIT_FPS, 6),
                 "source": e["clip_path"], "source_sha256": e["sha256"],
-            })
+            }
+            if e.get("reused"):
+                clip_row["reused"] = True
+                clip_row["shot_meta"] = e.get("shot_meta") or {}
+            manifest_clips.append(clip_row)
+
+        # Cross-dissolves (edit plan): merge OUT and IN into one xfade segment, chain-safe.
+        pairs = {(a, b): d for a, b, d in dissolves}
+        segments: list[list] = []  # [path, frames, last_shot_id]
+        for idx, (norm, c) in enumerate(zip(normalized, manifest_clips)):
+            if segments and (segments[-1][2], c["id"]) in pairs:
+                d = pairs[(segments[-1][2], c["id"])]
+                prev_path, prev_frames, prev_id = segments[-1]
+                d_frames = round(d * EDIT_FPS)
+                if not (0 < d_frames < min(prev_frames, c["frames"])):
+                    raise ApplicationError(f"Dissolve {prev_id}->{c['id']} ({d}s) longer than a shot",
+                                           type="DissolveOutOfRange", non_retryable=True)
+                activity.heartbeat({"stage": "dissolve", "pair": f"{prev_id}->{c['id']}"})
+                out_frames = prev_frames + c["frames"] - d_frames
+                merged = tmp / f"x{idx:03d}_{prev_id}_{c['id']}.mp4"
+                offset = (prev_frames - d_frames) / EDIT_FPS
+                await _run([
+                    "ffmpeg", "-y", "-v", "error", "-i", str(prev_path), "-i", str(norm),
+                    "-filter_complex",
+                    f"[0:v][1:v]xfade=transition=fade:duration={d_frames / EDIT_FPS:.6f}:offset={offset:.6f},"
+                    f"format={EDIT_PIX_FMT}",
+                    "-frames:v", str(out_frames), "-r", str(EDIT_FPS), "-pix_fmt", EDIT_PIX_FMT,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                    "-video_track_timescale", "15360", "-an", str(merged),
+                ], f"ffmpeg dissolve {prev_id}->{c['id']}")
+                segments[-1] = [merged, out_frames, c["id"]]
+            else:
+                segments.append([norm, c["frames"], c["id"]])
+        normalized = [seg[0] for seg in segments]
 
         activity.heartbeat({"stage": "concatenating", "clips": len(normalized)})
         concat_list = tmp / "concat.txt"
@@ -210,11 +293,16 @@ async def assemble_mute_edit(
                     "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
         os.replace(partial, assembly_path)  # atomic: a crash never leaves a half-written edit
 
-    total = round(sum(c["seg_s"] for c in manifest_clips), 6)
+    total = round(sum(c["seg_s"] for c in manifest_clips)
+                  - sum(round(d * EDIT_FPS) / EDIT_FPS for *_x, d in dissolves), 6)
     manifest = {
         "episode_id": episode_id,
         "clips": manifest_clips,
-        "dissolves": {},  # hard cuts in the mute edit
+        # {outgoing shot id: seconds} (hfvg.qc.motion timeline format); hard cuts when empty
+        "dissolves": {a: round(round(d * EDIT_FPS) / EDIT_FPS, 6) for a, _b, d in dissolves},
+        "dissolve_pairs": {f"{a}->{b}": d for a, b, d in dissolves},
+        "edit_plan": ({"reused_shots": [c["id"] for c in manifest_clips if c.get("reused")], **plan_notes}
+                      if edit_plan else None),
         "total_duration": total,
         "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": EDIT_FPS, "pix_fmt": EDIT_PIX_FMT},
         "input_key": input_key,
