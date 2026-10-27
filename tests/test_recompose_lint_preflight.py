@@ -37,7 +37,7 @@ def episode(tmp_path, monkeypatch):
     import tests.lint_helpers as lh
     ep = tmp_path / "eps" / "ep77"
     (ep / "refs").mkdir(parents=True)
-    (ep / "refs" / "rowan.png").write_bytes(b"\x89PNG")
+    (ep / "refs" / "char_r.png").write_bytes(b"\x89PNG")
     (ep / "prompt_kit.json").write_text(json.dumps({"lint": lh.SYNTHETIC_LINT_KIT}))
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "eps"))
     monkeypatch.delenv("PROMPT_LINT_KIT_PATH", raising=False)
@@ -51,7 +51,7 @@ def test_recompose_prompt_missing_kit_clauses_is_refused_before_queueing(client,
     api_main, c = client
     h = _Handle(META)
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
-    body = {"reason": "Studio", "prompt": "Tighter wide shot. EXACTLY THREE animals.", "ref_keys": ["rowan"]}
+    body = {"reason": "Studio", "prompt": "Tighter wide shot. EXACTLY THREE animals.", "ref_keys": ["char_r"]}
     r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
     assert r.status_code == 409 and "Prompt lint refused the recompose before any spend" in r.json()["detail"], r.text
     assert h.updates == []
@@ -66,7 +66,7 @@ def test_recompose_without_lint_metadata_fails_closed(client, episode, monkeypat
     h = _Handle(None)
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
-               json={"reason": "S", "prompt": episode("One animal on the boardwalk"), "ref_keys": ["rowan"]})
+               json={"reason": "S", "prompt": episode("One animal on the boardwalk"), "ref_keys": ["char_r"]})
     assert r.status_code == 409 and "no lint metadata" in r.json()["detail"] and h.updates == []
 
 

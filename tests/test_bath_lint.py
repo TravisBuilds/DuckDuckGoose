@@ -39,7 +39,7 @@ def test_bath_clause_required_on_bath_shot_only():
 
 def test_bath_forbidden_phrases():
     k = kit(bath_clause=CLAUSE, bath_forbidden=["on top of the water", "floating on the surface"])
-    p = BASE + " " + CLAUSE + ". Mochi floats ON TOP OF THE WATER."
+    p = BASE + " " + CLAUSE + ". char_m floats ON TOP OF THE WATER."
     v = lint_violations(p, BATH, k)
     assert v == ["bath shot prompt puts an animal on the water: 'on top of the water'"]
     assert lint_violations(p, {**BATH, "wet": False}, k) == []

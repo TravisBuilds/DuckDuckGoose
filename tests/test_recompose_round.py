@@ -27,7 +27,7 @@ async def _episode(tmp_path, monkeypatch, limit="2"):
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L2_drafts", 2_000_000, 1_600_000)
         await db.commit()
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "char_r.png"
     ref.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
     # the shot already used its G2 still re-rolls
     for k in ("r1", "r2"):

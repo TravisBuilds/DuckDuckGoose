@@ -132,7 +132,7 @@ async def test_no_edit_plan_keeps_hard_cuts(tmp_path, monkeypatch):
 
 
 def test_ep05full_spec_stages_cleanly():
-    full = "/workspace/mid-mountain-rest/ep05-full/shots.json"
+    full = "/workspace/location_a-rest/ep05-full/shots.json"
     if not os.path.exists(full):
         pytest.skip("Studio package not present")
     spec = json.load(open(full))
