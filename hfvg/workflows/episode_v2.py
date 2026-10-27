@@ -1716,6 +1716,75 @@ class EpisodeWorkflowV2:
         else:
             workflow.logger.warning(f"retry_still_ready called for {shot_id} but not in pending_retries")
     
+    def _clip_review_problem(self, shot_id: str, reason: str, clip_path: str | None,
+                             take: int | None = None) -> str | None:
+        """Why accept_clip_review must be refused (None = allowed)."""
+        if not (reason or "").strip():
+            return "a reason is required"
+        if self.assembly_sig is None:
+            return "clips are not collected yet (accept after the first edit is assembled)"
+        if "G_FINAL_CUT" in self.passed_gates:
+            return "final cut already approved"
+        if shot_id in self.pending_clip_retries:
+            return "a clip retry is pending for this shot"
+        outcome = self.shot_outcomes.get(shot_id)
+        if not outcome:
+            return "no clip outcome for this shot"
+        if self.state.shot_decisions.get(shot_id) == "rejected":
+            return "still was rejected at G2"
+        if outcome.get("status") != "needs_review":
+            return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
+        if not outcome.get("clip_url"):
+            return "no clip landed for this shot"
+        if take is not None:
+            takes = self.clip_takes.get(shot_id) or {}
+            chosen = takes.get(int(take))
+            if chosen is None:
+                return f"no clip take {take} for this shot (takes: {sorted(takes)})"
+            if not (chosen.get("clip_url") and chosen.get("clip_path")):
+                return f"clip take {take} has no landed clip with a local file"
+            return None
+        if not (outcome.get("clip_path") or clip_path):
+            return "no local clip file recorded for this shot"
+        return None
+
+    @workflow.update
+    async def accept_clip_review(self, shot_id: str, reason: str, clip_path: str | None = None,
+                                 take: int | None = None) -> dict:
+        """Human review of a clip escalated as needs_review (e.g. qc_fail_if rows with no checker):
+        keep the clip as is. The shot becomes completed with the reviewer's reason recorded, the
+        edit goes stale and is re-assembled with it at G_FINAL_CUT. No spend. ``clip_path`` (the
+        local file, resolved by the API from the shot child) is only used when the outcome has none."""
+        problem = self._clip_review_problem(shot_id, reason, clip_path, take)
+        if problem:
+            raise ApplicationError(f"Cannot accept clip for {shot_id}: {problem}", non_retryable=True)
+        outcome = dict(self.shot_outcomes[shot_id])
+        previous_status = outcome.get("status")
+        if take is not None:
+            # GAP-18: keep an EARLIER take (e.g. the original when the paid retry came out worse)
+            outcome = dict(self.clip_takes[shot_id][int(take)])
+            clip_path = None
+        review = {"reason": reason.strip(), "previous_status": previous_status,
+                  "qc_constraints": outcome.get("qc_constraints"), "clip_url": outcome.get("clip_url"),
+                  "take": take}
+        outcome["status"] = "completed"
+        outcome["clip_path"] = outcome.get("clip_path") or clip_path
+        outcome["clip_review"] = review
+        self.shot_outcomes[shot_id] = outcome
+        self.clip_review_acceptances[shot_id] = review
+        self.state.failed_shots = [fs for fs in self.state.failed_shots if fs.get("shot_id") != shot_id]
+        workflow.logger.warning(f"Clip {shot_id} kept by reviewer (was needs_review): {reason}")
+        return {"success": True, "shot_id": shot_id, "action": "clip_accepted",
+                "clip_path": outcome["clip_path"],
+                "message": f"Clip {shot_id} accepted; the edit is rebuilt with it"}
+
+    @accept_clip_review.validator
+    def validate_accept_clip_review(self, shot_id: str, reason: str, clip_path: str | None = None,
+                                    take: int | None = None):
+        problem = self._clip_review_problem(shot_id, reason, clip_path, take)
+        if problem:
+            raise ApplicationError(f"Cannot accept clip for {shot_id}: {problem}", non_retryable=True)
+
     @workflow.update
     async def retry_shot(self, shot_id: str, prompt_append: str | None = None) -> dict:
         """
