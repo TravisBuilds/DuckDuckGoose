@@ -23,9 +23,9 @@ from tests.test_audio_delivery import FAST_ENCODE, make_noise, make_tone
 def test_explicit_break_is_honoured():
     assert wrap_two_lines("Today's guests are…\na family of char_c.", 24) == \
         ["Today's guests are…", "a family of char_c."]
-    # without a break: unchanged balanced wrap
+    # without a break: unchanged balanced wrap (char_c is shorter so wraps differently)
     assert wrap_two_lines("Today's guests are… a family of char_c.", 24) == \
-        ["Today's guests are… a", "family of char_c."]
+        ["Today's guests are…", "a family of char_c."]
     assert wrap_two_lines("Some tea… quietly.", 24) == ["Some tea… quietly."]
     # more than two explicit lines: falls back to the balanced two-line wrap
     assert len(wrap_two_lines("a b\nc d\ne f", 4)) == 2

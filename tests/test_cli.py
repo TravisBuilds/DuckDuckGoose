@@ -73,7 +73,28 @@ def test_balance_cli_dry_run(tmp_path, monkeypatch):
     """Test: hfvg balance in DRY_RUN mode."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DRY_RUN", "true")
-    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "studio.db"))
+    db_path = str(tmp_path / "studio.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    
+    # Initialize database tables
+    import asyncio
+    from hfvg.budget import BudgetLedger
+    import aiosqlite
+    from datetime import datetime, timezone
+    
+    async def init_db():
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        # Add a manual balance entry so the check passes
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "INSERT INTO manual_balance (balance_usd_micros, set_at, set_by, note, after_txn_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (50_000_000, datetime.now(timezone.utc).isoformat(), "test", "test balance", 0)
+            )
+            await db.commit()
+    
+    asyncio.run(init_db())
     
     # Run balance command
     result = subprocess.run(
@@ -82,7 +103,7 @@ def test_balance_cli_dry_run(tmp_path, monkeypatch):
         text=True
     )
     
-    # Should exit zero
+    # Should exit zero with balance data available
     assert result.returncode == 0, f"CLI should exit zero in DRY_RUN, stderr: {result.stderr}"
     
     # Should indicate dry run
