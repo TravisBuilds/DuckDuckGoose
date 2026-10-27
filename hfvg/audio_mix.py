@@ -28,7 +28,8 @@ from typing import Any, Callable
 import numpy as np
 
 SR = 48000
-DELIVERY_VERSION = 3  # 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
+DELIVERY_VERSION = 4  # 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
+# 4: GAP-34 bed_dips (music+SFX gain dips over reviewer-flagged bursts), GAP-35 per-line subtitle_dur
 MIN_VO_GAP_RANGE = (0.3, 0.4)
 DEFAULT_MIN_VO_GAP_S = 0.4
 TAIL_GUARD_S = 0.3            # last VO line must end this far before the picture ends
@@ -671,14 +672,22 @@ def parse_loudnorm_json(stderr: str) -> dict[str, float]:
     return out
 
 
-async def codec_safe_pcm(mix_wav: str, audio_kbps: int, loud: dict, work: str, tag: str) -> tuple[str, dict]:
+MAX_LOUDNESS_RESTORE_LU = 3.0  # GAP-31: largest loudness miss the codec guard restores
+
+
+async def codec_safe_pcm(mix_wav: str, audio_kbps: int, loud: dict, work: str, tag: str,
+                         heartbeat: "Heartbeat | None" = None) -> tuple[str, dict]:
     """GAP-20: the TP guard above only checks the PCM mix, but AAC re-encoding overshoots true peak
     (~+0.9 dB at 192 kbps, ~+2.5 dB at 64 kbps on ep05full), so the delivered files failed a -2.0 dBTP
     ceiling the PCM met. Test-encode the mix at the deliverable's AAC bitrate (the native encoder is
     deterministic); if the encoded TP is over ceiling-0.1, pre-limit the PCM (alimiter) with makeup
     gain back to the loudness target, stepping the limiter down 1 dB at a time, mildest pass wins.
+    The same steps run when the encode meets the TP ceiling but misses the loudness band (GAP-31).
     Returns (pcm path to encode from, info). If nothing passes, the mildest-overshoot candidate is
-    returned with ok=False and delivery QC reports the failure (never silently relaxed)."""
+    returned with ok=False and delivery QC reports the failure (never silently relaxed).
+    GAP-38: up to 16 limiter tries of several ffmpeg passes each can outlast the activity's 2-minute
+    heartbeat timeout, so every pass heartbeats."""
+    beat = heartbeat or (lambda _d: None)
     ceiling, target, tol = loud["tp_ceiling_dbtp"], loud["target_lufs"], loud["tolerance_lu"]
     test = str(Path(work) / f"tpguard_{tag}.m4a")
 
@@ -690,16 +699,23 @@ async def codec_safe_pcm(mix_wav: str, audio_kbps: int, loud: dict, work: str, t
     def passes(m: dict) -> bool:
         return m["true_peak_dbtp"] <= ceiling - 0.1 and abs(m["integrated_lufs"] - target) <= tol - 0.1
 
+    beat({"stage": "codec_tp_guard", "tag": tag, "try": 0})
     m0 = await encoded(mix_wav)
     info = {"audio_kbps": int(audio_kbps), "encoded_tp_unlimited": m0["true_peak_dbtp"], "limit_dbfs": None,
             "makeup_db": 0.0, "encoded": m0, "ok": m0["true_peak_dbtp"] <= ceiling - 0.1, "tries": []}
-    if info["ok"]:
+    # GAP-31: loudnorm's dynamic mode under-shoots the target when its own TP limit caps the gain
+    # A small miss is restored by the limiter + makeup steps below; a gross level error (more than
+    # MAX_LOUDNESS_RESTORE_LU off) is a mix problem the guard does not paper over.
+    miss = abs(m0["integrated_lufs"] - target)
+    if info["ok"] and (passes(m0) or miss > MAX_LOUDNESS_RESTORE_LU):
         return mix_wav, info
+    info["ok"] = False
     pcm_tp = (await measure_loudness(mix_wav, loud))["true_peak_dbtp"]
     best = None
     # aim at the target first; a low-bitrate encode may need the low half of the tolerance band
     plan_steps = [(target, st) for st in range(1, 9)] + [(round(target - tol + 0.15, 2), st) for st in range(1, 9)]
     for aim, step in plan_steps:
+        beat({"stage": "codec_tp_guard", "tag": tag, "try": len(info["tries"]) + 1, "aim_lufs": aim, "step_db": step})
         limit = round(max(-24.0, min(pcm_tp, ceiling) - step), 2)  # alimiter floor is 0.0625 (-24 dB)
         lim_wav = str(Path(work) / f"tpguard_{tag}_lim.wav")
         await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mix_wav, "-af",
