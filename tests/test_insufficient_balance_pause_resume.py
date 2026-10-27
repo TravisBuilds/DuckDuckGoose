@@ -203,6 +203,14 @@ async def test_insufficient_balance_pause_resume():
             
             # Verify: commit was called exactly once (no double charge)
             assert activity_call_count["commit"] == 1, f"Expected 1 commit call after resume, got {activity_call_count['commit']}"
+            
+            # Verify workflow can proceed: send stills_approved and check it reaches clip phase or completes
+            await handle.signal("stills_approved")
+            await env.sleep(2)
+            
+            # Workflow should have progressed past G2 wait (either waiting for clip or completed)
+            state = await handle.query("get_state")
+            assert state.get("still_status") == "done", "Still should be marked done after resume and approval"
 
 
 @pytest.mark.asyncio
@@ -280,3 +288,7 @@ async def test_insufficient_balance_clip_pause_resume():
             
             # Verify only 2 commits total (still + clip, no double charge)
             assert activity_call_count["commit"] == 2, f"Expected 2 commits (still + clip), got {activity_call_count['commit']}"
+            
+            # Verify workflow progressed successfully: clip should be done
+            state = await handle.query("get_state")
+            assert state.get("clip_status") == "done", "Clip should be marked done after resume and successful retry"
