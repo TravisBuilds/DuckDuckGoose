@@ -234,6 +234,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "loop": bool(c.get("loop", False)), "norm": norm,
             "level_db": _num(c.get("level_db", -24.0), f"sfx[{cid}].level_db", -60, 0),
             "duck_db": _num(c.get("duck_db", 0.0), f"sfx[{cid}].duck_db", -30, 0),
+            "duck_mode": _duck_mode(c.get("duck_mode", "activity"), cid),
             "fade_in_s": _num(c.get("fade_in_s", 0.01), f"sfx[{cid}].fade_in_s", 0.0),
             "fade_out_s": _num(c.get("fade_out_s", 0.05), f"sfx[{cid}].fade_out_s", 0.0),
             # optional 2-pole lowpass applied twice (library beds made softer / more distant)
