@@ -20,14 +20,14 @@
 - [x] ffmpeg apt retry and cache [17cb166]
 
 ## GAPs
-- [ ] GAP-32: Recompose meta/headcount endpoint
-- [ ] GAP-33: Edit fps conform
-- [ ] GAP-34: Bed dips
-- [ ] GAP-35: Subtitle duration
+- [ ] GAP-32: Recompose meta/headcount endpoint (needs implementation)
+- [x] GAP-33: Edit fps conform [fc9ddbb]
+- [ ] GAP-34: Bed dips (needs implementation)
+- [ ] GAP-35: Subtitle duration (needs implementation)
 - [x] GAP-36: Kling reserve floor [6c6a165]
 - [x] GAP-37: Unique recompose job ids [420a32e]
-- [ ] GAP-38: Codec-guard heartbeat
-- [ ] GAP-39: Recompose grant
+- [x] GAP-38: Codec-guard heartbeat (impl exists, test added) [8ff9e02]
+- [x] GAP-39: Recompose grant [3a812b9]
 
 ## Final
 - [ ] 15. Update PR body (accurate counts, CI truth, missing items)
