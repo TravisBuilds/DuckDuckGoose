@@ -2894,6 +2894,30 @@ test_mutation 391 "dry placeholder stills served at G2" \
     "tests/test_round7_still_route.py::test_still_route_serves_dry_placeholder_stills_from_the_run_dir" \
     sed -i 's/^    inside = path.is_relative_to(root) or path.is_relative_to(dry_root)$/    inside = path.is_relative_to(root)  # MUTATED/'
 
+# 392: balance preflight gate blocks when balance < estimate + reserve
+test_mutation 392 "balance preflight gate enforces sufficiency" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_blocks_insufficient_known_balance" \
+    sed -i 's/^        if balance.balance_usd < required:$/        if False:  # MUTATED: balance check bypassed/'
+
+# 393: ElevenLabsError with permanent=True is non-retryable
+test_mutation 393 "permanent ElevenLabs errors are non-retryable" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable" \
+    sed -i 's/^        if isinstance(e, ElevenLabsError) and e.permanent:$/        if isinstance(e, ElevenLabsError) and False:  # MUTATED: permanent errors now retryable/'
+
+# 394: stale balance check blocks when age > max_age_hours
+test_mutation 394 "stale balance check enforces age limit" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_blocks_stale_higgsfield_balance" \
+    sed -i 's/^        if provider == "higgsfield":$/        if False:  # MUTATED: stale balance check bypassed/' 
+
+# 395: alert deduplication suppresses duplicate alerts
+test_mutation 395 "alert deduplication prevents spam" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
+    sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

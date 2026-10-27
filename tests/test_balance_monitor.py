@@ -327,5 +327,77 @@ def test_balance_to_dict_serialization(test_db):
     assert d["balance_usd"] == "42.50"
     assert d["balance_usd_micros"] == 42_500_000
     assert d["source"] == "live"
+
+
+@pytest.mark.asyncio
+async def test_preflight_balance_blocks_insufficient_known_balance(test_db):
+    """Mutation #392: Preflight balance gate should block when balance < estimate + reserve."""
+    monitor = BalanceMonitor(test_db)
+    
+    # Mock balance check to return low balance ($0.50)
+    with patch.object(monitor, 'check_all_balances', new_callable=AsyncMock) as mock_check:
+        from hfvg.balance_monitor import BalanceCheckResult
+        
+        mock_check.return_value = BalanceCheckResult(
+            timestamp=datetime.now(timezone.utc),
+            providers={
+                "higgsfield": ProviderBalance(
+                    provider="higgsfield",
+                    balance_usd=Decimal("0.50"),
+                    source="derived",
+                    age_seconds=0.0,
+                    details={},
+                )
+            },
+            warnings=[],
+            errors=[],
+        )
+        
+        # Check preflight with estimate of $1.00 + 20% reserve = $1.20 required
+        passed, reason = await monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=1_000_000,  # $1.00
+            auto_topup_enabled=False,
+        )
+        
+        # Should block (not pass)
+        assert not passed, "Preflight gate should block when balance < required"
+        assert "insufficient" in reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
+    """Mutation #394: Stale balance check should block when age > max_age_hours."""
+    monitor = BalanceMonitor(test_db)
+    
+    # Mock balance check to return stale balance (25 hours old, max is 24)
+    with patch.object(monitor, 'check_all_balances', new_callable=AsyncMock) as mock_check:
+        from hfvg.balance_monitor import BalanceCheckResult
+        
+        mock_check.return_value = BalanceCheckResult(
+            timestamp=datetime.now(timezone.utc),
+            providers={
+                "higgsfield": ProviderBalance(
+                    provider="higgsfield",
+                    balance_usd=Decimal("100.00"),  # Sufficient amount
+                    source="derived",
+                    age_seconds=25 * 3600,  # 25 hours (stale)
+                    details={},
+                )
+            },
+            warnings=[],
+            errors=[],
+        )
+        
+        # Check preflight with a small estimate
+        passed, reason = await monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=10_000,  # $0.01
+            auto_topup_enabled=False,
+        )
+        
+        # Should block due to staleness
+        assert not passed, "Preflight gate should block when balance is stale"
+        assert "stale" in reason.lower()
     assert d["age_seconds"] == 123.45
     assert d["details"] == {"key": "value"}

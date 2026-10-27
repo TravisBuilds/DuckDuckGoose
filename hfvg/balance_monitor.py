@@ -189,9 +189,10 @@ class BalanceMonitor:
             if resp.status_code == 401:
                 # Defect 12: 401 is status 'unknown' with NO numeric balance - doesn't block paid steps
                 # or trigger critical alerts. A warning about the bad key is fine.
+                # Unknown balance (not $0)
                 return ProviderBalance(
                     provider="elevenlabs",
-                    balance_usd=None,  # Unknown, not $0
+                    balance_usd=None,
                     source="live",
                     age_seconds=0.0,
                     details={
