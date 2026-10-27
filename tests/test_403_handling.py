@@ -145,6 +145,118 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_403_auth_error_not_treated_as_insufficient_balance(tmp_path, monkeypatch):
+    """Test that 403 errors without 'insufficient balance' text are NOT treated as InsufficientBalance."""
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DATABASE_PATH", db_path)
+    monkeypatch.setenv("DRY_RUN", "false")
+    
+    # Disable network alerts
+    monkeypatch.delenv("BALANCE_ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("BALANCE_ALERT_SMTP_HOST", raising=False)
+    
+    # Initialize tables
+    from hfvg.studio_db import init_studio_db
+    await init_studio_db(db_path)
+    await init_balance_tables(db_path)
+    await init_notifier_tables(db_path)
+    
+    ledger = BudgetLedger(db_path)
+    await ledger.init_db()
+    
+    # Set manual Higgsfield balance
+    await ledger.set_manual_balance(100_000_000, set_by="test", note="test balance")
+    
+    credit_ledger = CreditLedger(db_path)
+    await credit_ledger.init_db()
+    
+    # Initialize episode credit line
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO credit_lines (line_id, episode_id, cap_credits, pause_threshold_credits, spent_credits, reserved_credits) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("episode_ep03", "ep03", 1000, 900, 0, 0)
+        )
+        await db.commit()
+    
+    # Initialize episode and lines
+    await ledger.init_episode_budget("ep03")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
+            (1_000_000, "ep03", "L2_drafts")
+        )
+        await db.execute(
+            "INSERT OR REPLACE INTO episodes (episode_id, live_mode, g108_approved) VALUES (?, ?, ?)",
+            ("ep03", 1, 1)
+        )
+        await db.commit()
+    
+    episode_id = "ep03"
+    shot_id = "C01"
+    
+    # Mock the provider to raise 403 with auth/permission error (NOT insufficient balance)
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    
+    with patch.object(HiggsfieldStillProvider, 'submit_image', new_callable=AsyncMock) as mock_submit, \
+         patch.object(HiggsfieldStillProvider, 'estimate_usd_and_credits', new_callable=AsyncMock) as mock_estimate_both, \
+         patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
+         patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
+         patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight, \
+         patch('hfvg.activities.studio_generation.enforce_prompt_lint'):
+        
+        mock_preflight.return_value = (True, "Balance OK")
+        mock_estimate_both.return_value = (50_000, 0.5)
+        mock_upload.return_value = []
+        
+        # Mock 403 error with DIFFERENT text (auth/permission, not balance)
+        mock_response = AsyncMock()
+        mock_response.status_code = 403
+        mock_response.text = "Authentication failed: invalid API key"
+        mock_response.request = AsyncMock()
+        
+        error_403 = httpx.HTTPStatusError(
+            "403 Authentication failed",
+            request=mock_response.request,
+            response=mock_response
+        )
+        mock_submit.side_effect = error_403
+        
+        # Try to generate - should NOT be treated as InsufficientBalance
+        raised_error = None
+        try:
+            await submit_still_job_enforced(
+                episode_id=episode_id,
+                shot_id=shot_id,
+                prompt="test prompt",
+                version=1,
+                attempt=1,
+                resolution="1k",
+                quality="medium",
+                aspect_ratio="16:9",
+                refs=[],
+                lead_ref=None,
+                moderation_retry=None,
+                review_round=None,
+                tier=None,
+            )
+        except ApplicationError as e:
+            raised_error = e
+        
+        # Should have raised an error, but NOT InsufficientBalance
+        assert raised_error is not None, "Expected an error to be raised"
+        assert raised_error.type != "InsufficientBalance", \
+            f"403 without 'insufficient balance' text should NOT be InsufficientBalance, got: {raised_error.type}"
+        
+        # Verify NO balance stop was recorded (only InsufficientBalance should record stops)
+        monitor = BalanceMonitor(db_path)
+        async with aiosqlite.connect(db_path) as db:
+            stops = await (await db.execute("SELECT provider FROM balance_stops")).fetchall()
+            assert len(stops) == 0, "No balance stop should be recorded for non-balance 403 errors"
+
+
+@pytest.mark.asyncio
 async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     """Test that resuming after a 403 and top-up doesn't double-charge."""
     db_path = str(tmp_path / "test.db")

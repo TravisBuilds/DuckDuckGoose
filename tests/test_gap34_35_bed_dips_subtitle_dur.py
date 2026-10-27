@@ -43,17 +43,25 @@ def test_validate_bed_dips_multiple():
 
 def test_validate_bed_dips_rejects_empty_window():
     """validate_bed_dips rejects when end <= start."""
-    with pytest.raises(AudioInputError) as exc_info:
+    raised = False
+    try:
         validate_bed_dips([{"start": 10.0, "end": 10.0, "gain_db": -12.0}])
-    assert "window" in str(exc_info.value).lower()
-    assert "empty" in str(exc_info.value).lower()
+    except AudioInputError as e:
+        raised = True
+        assert "window" in str(e).lower(), f"Expected 'window' in error message, got: {e}"
+        assert "empty" in str(e).lower(), f"Expected 'empty' in error message, got: {e}"
+    assert raised, "Expected AudioInputError to be raised for empty window"
 
 
 def test_validate_bed_dips_rejects_reversed_window():
     """validate_bed_dips rejects when end < start."""
-    with pytest.raises(AudioInputError) as exc_info:
+    raised = False
+    try:
         validate_bed_dips([{"start": 10.0, "end": 8.0, "gain_db": -12.0}])
-    assert "empty" in str(exc_info.value).lower()
+    except AudioInputError as e:
+        raised = True
+        assert "empty" in str(e).lower(), f"Expected 'empty' in error message, got: {e}"
+    assert raised, "Expected AudioInputError to be raised for reversed window"
 
 
 def test_validate_bed_dips_rejects_invalid_gain():

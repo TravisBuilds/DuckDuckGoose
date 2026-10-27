@@ -2918,11 +2918,11 @@ test_mutation 395 "alert deduplication prevents spam" \
     "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
     sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
 
-# 396: InsufficientBalance workflow pause (status set)
+# 396: InsufficientBalance workflow pause (status set) - first still handler
 test_mutation 396 "InsufficientBalance pause sets status" \
     "hfvg/workflows/shot.py" \
     "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
-    sed -i '0,/self.status = "paused_insufficient_balance"/s//self.status = "running"  # MUTATED/'
+    sed -i '/Provider balance insufficient - pause and wait for balance top-up/{n;s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;q}' 
 
 # 397: 403 body match distinguishes balance from auth errors
 test_mutation 397 "403 body match requires insufficient balance text" \
@@ -2934,25 +2934,21 @@ test_mutation 397 "403 body match requires insufficient balance text" \
 test_mutation 398 "balance preflight checks the provider being used" \
     "hfvg/balance_monitor.py" \
     "tests/test_balance_monitor.py::test_preflight_balance_ignores_other_providers" \
-    sed -i 's/if provider == "higgsfield":/if True:  # MUTATED: check all providers/'
+    sed -i 's/balance = await self._check_single_provider_balance(provider)/balance = await self._check_single_provider_balance("elevenlabs")  # MUTATED: wrong provider/'
 
-# 399: notifier dedupe key includes episode and shot
-test_mutation 399 "notifier dedupe key scoped to episode and shot" \
+# 399: notifier dedupe key includes episode and job
+test_mutation 399 "notifier dedupe key scoped to episode and job" \
     "hfvg/balance_notifier.py" \
     "tests/test_balance_notifier.py::test_alert_deduplication_scoped_to_episode_and_shot" \
-    sed -i 's/dedupe_key = f"{alert.severity}:{alert.subject}:{alert.details.get(\x27episode_id\x27)}:{alert.details.get(\x27shot_id\x27)}"/dedupe_key = f"{alert.severity}:{alert.subject}"  # MUTATED: no episode\/shot scope/'
+    sed -i 's/key_data = f"{self.alert_type}:{self.subject}:{episode}:{job}"/key_data = f"{self.alert_type}:{self.subject}"  # MUTATED: no episode\/job scope/'
 
-# 400: Higgsfield-only balance status endpoint
-test_mutation 400 "_balance_status only shows Higgsfield" \
-    "api/main.py" \
-    "tests/test_api.py::test_balance_status_endpoint_higgsfield_only" \
-    sed -i 's/if provider == "higgsfield":/if True:  # MUTATED: show all providers/'
+# 400: (removed - test and code don't exist)
 
-# 401: GAP-32 recompose headcount query
+# 401: GAP-32 recompose headcount query  
 test_mutation 401 "recompose_still_plans query exists" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_gap32_recompose_meta.py::test_recompose_headcount_endpoint_queries_workflow" \
-    sed -i '0,/@workflow.query/s//@workflow.query  # MUTATED: remove query/' 
+    sed -i '2585s/@workflow.query/# @workflow.query  # MUTATED: query removed/' 
 
 # 402: GAP-33 edit fps conform
 test_mutation 402 "edit fps conform matches generated clips" \
@@ -2974,9 +2970,9 @@ test_mutation 404 "subtitle duration respects per-line overrides" \
 
 # 405: GAP-36 Kling reserve floor opt-in
 test_mutation 405 "Kling reserve floor requires explicit opt-in" \
-    "hfvg/budget.py" \
-    "tests/test_gap36_kling_reserve_floor.py::test_kling_reserve_floor_not_default" \
-    sed -i 's/if model == "kling" and self.reserve_floor:/if model == "kling":  # MUTATED: always apply floor/'
+    "hfvg/providers/kling_video.py" \
+    "tests/test_gap36_kling_reserve_floor.py::test_kling_reserve_usd_micros_uses_live_when_floor_disabled" \
+    sed -i 's/if not kling_list_floor_enabled():/if False:  # MUTATED: always apply floor/'
 
 # 406: GAP-37 unique recompose job IDs
 test_mutation 406 "recompose job IDs must be unique" \
@@ -2986,15 +2982,15 @@ test_mutation 406 "recompose job IDs must be unique" \
 
 # 407: GAP-38 codec guard heartbeat
 test_mutation 407 "codec guard sends heartbeat during encode" \
-    "hfvg/activities/audio_delivery.py" \
-    "tests/test_gap38_codec_guard_heartbeat.py::test_codec_guard_heartbeat_during_encode" \
-    sed -i 's/activity.heartbeat()/pass  # MUTATED: no heartbeat/'
+    "hfvg/audio_mix.py" \
+    "tests/test_gap38_codec_guard_heartbeat.py::test_codec_guard_heartbeats_on_initial_pass" \
+    sed -i '0,/beat({"stage": "codec_tp_guard"/s//pass  # MUTATED: no heartbeat; beat({"stage": "codec_tp_guard"/'
 
-# 408: GAP-39 recompose grant max 2 at G_FINAL_CUT only
-test_mutation 408 "recompose grant limited to 2 at G_FINAL_CUT" \
-    "api/main.py" \
-    "tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_final_cut_passed" \
-    sed -i 's/if current_gate == "G_FINAL_CUT" and granted_count < 2:/if granted_count < 10:  # MUTATED: allow more grants/'
+# 408: GAP-39 recompose grant max 2 limit enforced
+test_mutation 408 "recompose grant limited to MAX_RECOMPOSE_GRANTS_PER_SHOT" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_max_grants_reached" \
+    sed -i 's/if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:/if False:  # MUTATED: no grant limit/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

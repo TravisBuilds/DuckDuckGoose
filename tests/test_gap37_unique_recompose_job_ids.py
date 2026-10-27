@@ -60,11 +60,14 @@ async def test_refuse_committed_job_id_refuses_committed():
         await db.commit()
     
     # Should raise ApplicationError with type JobIdAlreadyCommitted
-    with pytest.raises(ApplicationError) as exc_info:
+    raised = False
+    try:
         await refuse_committed_job_id(db_path, "still-ep99-A03-v1")
-    
-    assert exc_info.value.type == "JobIdAlreadyCommitted"
-    assert "already committed" in str(exc_info.value)
+    except ApplicationError as e:
+        raised = True
+        assert e.type == "JobIdAlreadyCommitted", f"Expected JobIdAlreadyCommitted error type, got: {e.type}"
+        assert "already committed" in str(e), f"Expected 'already committed' in error message, got: {e}"
+    assert raised, "Expected ApplicationError to be raised for committed job ID"
 
 
 @pytest.mark.asyncio

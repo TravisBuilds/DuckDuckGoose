@@ -388,3 +388,50 @@ async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
         # Task 11: Stale Higgsfield warns but doesn't block
         assert passed, "Stale Higgsfield balance should warn but not block"
         assert "WARNING" in reason and "stale" in reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_preflight_balance_ignores_other_providers(test_db):
+    """Mutation #398: Preflight checks only the specified provider, not all providers."""
+    monitor = BalanceMonitor(test_db)
+    
+    # Mock _check_single_provider_balance to track which provider was checked
+    checked_providers = []
+    
+    async def mock_check(provider):
+        checked_providers.append(provider)
+        # Return sufficient balance for the requested provider
+        if provider == "higgsfield":
+            return ProviderBalance(
+                provider="higgsfield",
+                balance_usd=Decimal("100.00"),
+                source="derived",
+                age_seconds=0.0,
+                details={},
+            )
+        else:
+            return ProviderBalance(
+                provider="elevenlabs",
+                balance_usd=Decimal("0.01"),  # Low balance for OTHER provider
+                source="live",
+                age_seconds=0.0,
+                details={},
+            )
+    
+    with patch.object(monitor, '_check_single_provider_balance', new_callable=AsyncMock) as mock_single:
+        mock_single.side_effect = mock_check
+        
+        # Check preflight for Higgsfield
+        passed, reason = await monitor.check_preflight_balance(
+            provider="higgsfield",
+            estimate_usd_micros=10_000_000,  # $10.00
+            auto_topup_enabled=False,
+        )
+        
+        # Should pass (Higgsfield has $100)
+        assert passed, "Preflight should pass when the SPECIFIED provider has sufficient balance"
+        
+        # Should have checked ONLY Higgsfield, not ElevenLabs
+        assert len(checked_providers) == 1, f"Should check exactly 1 provider, checked: {checked_providers}"
+        assert checked_providers[0] == "higgsfield", \
+            f"Should check only the specified provider (higgsfield), not {checked_providers}"
