@@ -2,13 +2,14 @@
 
 import pytest
 import httpx
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from temporalio.exceptions import ApplicationError
 
-# Skip these tests - they're documented but not executable without major refactoring
-# The 403 handling is covered by integration tests and the actual production code
-
-pytest.skip("403 handling tests require complex activity setup - skipping", allow_module_level=True)
+from hfvg.activities.studio_generation import submit_still_job_enforced
+from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+from hfvg.balance_notifier import BalanceNotifier, init_notifier_tables
+from hfvg.budget import BudgetLedger
+from hfvg.credit_ledger import CreditLedger
 
 
 @pytest.mark.asyncio
@@ -19,6 +20,8 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     monkeypatch.setenv("DRY_RUN", "false")
     
     # Initialize tables
+    from hfvg.studio_db import init_studio_db
+    await init_studio_db(db_path)
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
@@ -29,8 +32,20 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     await credit_ledger.init_db()
     
     # Initialize episode and lines
-    await ledger.init_live_episode("ep01", policy="test")
-    await ledger.init_line("ep01", "L2_drafts", 1000_000)  # $1 cap
+    await ledger.init_episode_budget("ep01")
+    # Manually increase L2_drafts cap and mark episode as live
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
+            (1_000_000, "ep01", "L2_drafts")
+        )
+        # Mark episode as live mode with gate status approved
+        await db.execute(
+            "INSERT OR REPLACE INTO episodes (episode_id, live_mode, g108_approved) VALUES (?, ?, ?)",
+            ("ep01", 1, 1)
+        )
+        await db.commit()
     
     episode_id = "ep01"
     shot_id = "A01"
@@ -42,8 +57,7 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
          patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
          patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
-         patch('hfvg.activities.studio_generation.enforce_live_mode_gate', new_callable=AsyncMock), \
-         patch('hfvg.activities.studio_generation.enforce_smoke_test_gate', new_callable=AsyncMock), \
+         patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
          patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight:
         
         # Mock successful preflight
@@ -68,7 +82,7 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
         
         # Try to generate a still - should raise ApplicationError with InsufficientBalance type
         with pytest.raises(ApplicationError) as exc_info:
-            await generate_still_enforced(
+            await submit_still_job_enforced(
                 episode_id=episode_id,
                 shot_id=shot_id,
                 prompt="test prompt",
@@ -77,9 +91,8 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
                 resolution="720p",
                 quality="medium",
                 aspect_ratio="16:9",
-                planned_refs=[],
+                refs=[],
                 lead_ref=None,
-                anchor=None,
                 moderation_retry=None,
                 review_round=None,
                 tier=None,
@@ -122,6 +135,8 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     
     # Initialize tables
+    from hfvg.studio_db import init_studio_db
+    await init_studio_db(db_path)
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
@@ -132,8 +147,20 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     await credit_ledger.init_db()
     
     # Initialize episode and lines
-    await ledger.init_live_episode("ep02", policy="test")
-    await ledger.init_line("ep02", "L2_drafts", 1000_000)  # $1 cap
+    await ledger.init_episode_budget("ep02")
+    # Manually increase L2_drafts cap and mark episode as live
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE budget_lines SET cap_usd_micros = ? WHERE episode_id = ? AND line_name = ?",
+            (1_000_000, "ep02", "L2_drafts")
+        )
+        # Mark episode as live mode with gate status approved
+        await db.execute(
+            "INSERT OR REPLACE INTO episodes (episode_id, live_mode, g108_approved) VALUES (?, ?, ?)",
+            ("ep02", 1, 1)
+        )
+        await db.commit()
     
     episode_id = "ep02"
     shot_id = "B01"
@@ -167,8 +194,7 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
          patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
          patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
-         patch('hfvg.activities.studio_generation.enforce_live_mode_gate', new_callable=AsyncMock), \
-         patch('hfvg.activities.studio_generation.enforce_smoke_test_gate', new_callable=AsyncMock), \
+         patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
          patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight, \
          patch('hfvg.credit_ledger.CreditLedger.persist_provider_job', new_callable=AsyncMock):
         
@@ -180,7 +206,7 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
         
         # First attempt: should fail with 403
         with pytest.raises(ApplicationError) as exc_info:
-            await generate_still_enforced(
+            await submit_still_job_enforced(
                 episode_id=episode_id,
                 shot_id=shot_id,
                 prompt="test prompt",
@@ -189,9 +215,8 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
                 resolution="720p",
                 quality="medium",
                 aspect_ratio="16:9",
-                planned_refs=[],
+                refs=[],
                 lead_ref=None,
-                anchor=None,
                 moderation_retry=None,
                 review_round=None,
                 tier=None,
@@ -215,25 +240,21 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
             assert committed_after_403 == 0, f"Expected 0 committed after 403, got {committed_after_403}"
         
         # Second attempt (after "top-up"): should succeed
-        with patch('hfvg.activities.studio_generation._localize_lead_ref', new_callable=AsyncMock) as mock_localize:
-            mock_localize.return_value = (None, None)
-            
-            result = await generate_still_enforced(
-                episode_id=episode_id,
-                shot_id=shot_id,
-                prompt="test prompt",
-                version=1,
-                attempt=1,
-                resolution="720p",
-                quality="medium",
-                aspect_ratio="16:9",
-                planned_refs=[],
-                lead_ref=None,
-                anchor=None,
-                moderation_retry=None,
-                review_round=None,
-                tier=None,
-            )
+        result = await submit_still_job_enforced(
+            episode_id=episode_id,
+            shot_id=shot_id,
+            prompt="test prompt",
+            version=1,
+            attempt=1,
+            resolution="720p",
+            quality="medium",
+            aspect_ratio="16:9",
+            refs=[],
+            lead_ref=None,
+            moderation_retry=None,
+            review_round=None,
+            tier=None,
+        )
         
         # Should have succeeded
         assert result["provider_job_id"] == "job-456"
