@@ -24,8 +24,8 @@
 - [ ] GAP-33: Edit fps conform
 - [ ] GAP-34: Bed dips
 - [ ] GAP-35: Subtitle duration
-- [ ] GAP-36: Kling reserve floor
-- [ ] GAP-37: Unique recompose job ids
+- [x] GAP-36: Kling reserve floor [6c6a165]
+- [x] GAP-37: Unique recompose job ids [420a32e]
 - [ ] GAP-38: Codec-guard heartbeat
 - [ ] GAP-39: Recompose grant
 
