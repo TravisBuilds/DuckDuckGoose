@@ -1000,5 +1000,58 @@ def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_
     asyncio.run(_select())
 
 
+@cli.command("balance")
+@click.option("--json-output", is_flag=True, help="Output balance data as JSON")
+def check_balance(json_output: bool):
+    """Check provider balance status."""
+    import sys
+    from hfvg.balance_monitor import BalanceMonitor
+    
+    db_path = config.get_database_path()
+    
+    async def _check():
+        monitor = BalanceMonitor(db_path)
+        result = await monitor.check_all_balances()
+        return result
+    
+    result = asyncio.run(_check())
+    
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+        return
+    
+    # Human-readable output
+    click.echo("Provider Balance Status")
+    click.echo("=" * 60)
+    click.echo(f"Checked at: {result.timestamp.isoformat()}\n")
+    
+    for provider, balance in result.providers.items():
+        click.echo(f"{provider.upper()}:")
+        click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        click.echo(f"  Source: {balance.source}")
+        if balance.age_seconds > 0:
+            age_hours = balance.age_seconds / 3600
+            click.echo(f"  Age: {age_hours:.1f} hours")
+        
+        if balance.details:
+            click.echo("  Details:")
+            for key, value in balance.details.items():
+                if not isinstance(value, (dict, list)):
+                    click.echo(f"    {key}: {value}")
+        click.echo()
+    
+    if result.warnings:
+        click.echo("WARNINGS:")
+        for warning in result.warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo()
+    
+    if result.errors:
+        click.echo("ERRORS:", err=True)
+        for error in result.errors:
+            click.echo(f"  ❌ {error}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()

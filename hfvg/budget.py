@@ -305,6 +305,37 @@ class BudgetLedger:
                     after_txn_id INTEGER NOT NULL
                 )
             """)
+            
+            # Balance monitoring: 403 stop events and alert history
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS balance_stops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    episode_id TEXT NOT NULL,
+                    job_id TEXT NOT NULL,
+                    error_message TEXT NOT NULL,
+                    recorded_at_unix REAL NOT NULL
+                )
+            """)
+            
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS balance_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_type TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    dedupe_key TEXT NOT NULL,
+                    sent_at_unix REAL NOT NULL
+                )
+            """)
+            
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_balance_alerts_dedupe
+                ON balance_alerts(dedupe_key, sent_at_unix)
+            """)
+            
             await db.commit()
 
     # ------------------------------------------------------------------ line setup

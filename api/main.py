@@ -1397,6 +1397,29 @@ async def get_manual_balance(
     return await BudgetLedger(DATABASE_PATH).get_balance_status()
 
 
+@app.get("/api/balance")
+async def get_all_provider_balances(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Check all provider balances (ElevenLabs live, Higgsfield derived).
+    
+    Returns current balance, source (live/derived/manual), age, and any warnings or errors.
+    Requires admin auth.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.balance_monitor import BalanceMonitor
+    
+    monitor = BalanceMonitor(DATABASE_PATH)
+    result = await monitor.check_all_balances()
+    return result.to_dict()
+
+
 @app.post("/api/budget/balance")
 async def set_manual_balance(
     request: ManualBalanceRequest,
