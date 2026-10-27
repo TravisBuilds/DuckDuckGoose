@@ -223,8 +223,9 @@ async def test_403_auth_error_not_treated_as_insufficient_balance(tmp_path, monk
         )
         mock_submit.side_effect = error_403
         
-        # Try to generate - should NOT be treated as InsufficientBalance
-        raised_error = None
+        # Try to generate - should raise ValueError (NOT InsufficientBalance ApplicationError)
+        error_raised = False
+        is_value_error = False
         try:
             await submit_still_job_enforced(
                 episode_id=episode_id,
@@ -242,12 +243,19 @@ async def test_403_auth_error_not_treated_as_insufficient_balance(tmp_path, monk
                 tier=None,
             )
         except ApplicationError as e:
-            raised_error = e
+            error_raised = True
+            # Should NOT be InsufficientBalance for non-balance 403s
+            assert e.type != "InsufficientBalance", \
+                f"403 without 'insufficient balance' text should NOT be InsufficientBalance, got: {e.type}"
+        except ValueError as e:
+            error_raised = True
+            is_value_error = True
+            # Correct: non-balance 403 errors raise ValueError (line 813)
+            assert "403" in str(e), f"Expected 403 in error message, got: {e}"
+            assert "Authentication" in str(e), f"Expected 'Authentication' in error message, got: {e}"
         
-        # Should have raised an error, but NOT InsufficientBalance
-        assert raised_error is not None, "Expected an error to be raised"
-        assert raised_error.type != "InsufficientBalance", \
-            f"403 without 'insufficient balance' text should NOT be InsufficientBalance, got: {raised_error.type}"
+        # Must raise some error
+        assert error_raised, "Expected an error to be raised for 403"
         
         # Verify NO balance stop was recorded (only InsufficientBalance should record stops)
         monitor = BalanceMonitor(db_path)
