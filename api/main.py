@@ -3488,7 +3488,25 @@ async def preflight_episode(
 
     report = preflight_plans(shots)
     errors = [v for v in report["violations"] if v["severity"] == "error"]
+    # Prompt lint (same kit/rules as the live submit gate): a live run refuses every shot whose
+    # prompt fails it, so preflight reports it up front (Ep11: a kit with no "lint" section passed
+    # preflight and G1/G2, then refused all 10 clips at submit).
+    from hfvg.prompt_lint import lint_report
+    try:
+        lint = lint_report(episode_id, parse_shots({"shots": shots}))
+    except (ValueError, ShotDataError) as e:
+        lint = {"*": [f"cannot lint shots: {e}"]}
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
+    lint_live = os.getenv("DRY_RUN", "true").strip().lower() == "false"  # live refuses; dry only warns
+    for sid, problems in lint.items():
+        for problem in problems:
+            (errors if lint_live else warnings).append({
+                "shot_id": sid, "phase": "prompt_lint", "severity": "error" if lint_live else "warning",
+                "message": problem})
+        if sid in report["shots"]:
+            if lint_live:
+                report["shots"][sid]["ok"] = False
+            report["shots"][sid]["errors" if lint_live else "warnings"] += [f"prompt lint: {p}" for p in problems]
     return {
         "episode_id": episode_id,
         "shots": report["shots"],

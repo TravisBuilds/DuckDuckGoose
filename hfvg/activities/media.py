@@ -78,6 +78,13 @@ def xfade_offsets(segs: list[float], xfade_s: float) -> list[float]:
     return offsets
 
 
+def recipe_total_s(segs: list[float], recipe: dict[str, Any]) -> float:
+    """Final duration of the edit: sum(segs) minus xfade overlaps plus tail hold."""
+    if not segs:
+        return 0.0
+    return round(sum(segs) - recipe["xfade_s"] * (len(segs) - 1) + recipe["tail_hold_s"], 6)
+
+
 def _dry_run() -> bool:
     return os.getenv("DRY_RUN", "true").lower() == "true"
 

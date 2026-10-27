@@ -1276,11 +1276,30 @@ class EpisodeWorkflowV2:
             if shot["shot_id"] in self.edit_overrides:  # GAP-22 (absent: same signature as before)
                 row.append(dict(self.edit_overrides[shot["shot_id"]]))
             sig.append(row)
-        return sig
+        # GAP-29: an edit-plan change (reused clip, dissolve) is not visible in the clip outcomes; a
+        # reviewer rebuild request bumps the signature (absent: same signature as before).
+        return sig + [["edit_rebuilds", len(self.edit_rebuilds)]] if self.edit_rebuilds else sig
 
     def _assembly_stale(self) -> bool:
         """The clips changed (e.g. a clip retry landed) since the edit was last assembled."""
         return self.assembly_sig is not None and self._assembly_signature() != self.assembly_sig
+
+    @workflow.signal
+    def request_edit_rebuild(self, reason: str):
+        """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (a
+        reused clip or a dissolve added). Picture only, no spend; the delivery follows the new edit.
+        Ignored without a reason, before the first edit, or after G_FINAL_CUT."""
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("edit rebuild ignored: a reason is required")
+            return
+        if "G_FINAL_CUT" in self.passed_gates:
+            self.final_cut_refusals.append("edit rebuild ignored: G_FINAL_CUT already passed")
+            return
+        if self.assembly_sig is None:
+            self.final_cut_refusals.append("edit rebuild ignored: no edit assembled yet")
+            return
+        self.edit_rebuilds.append({"reason": reason.strip(), "after_edit_version": self.assembly_version})
+        workflow.logger.warning(f"[PICTURE LOCK] edit rebuild requested by reviewer: {reason}")
 
     def _assembly_blocking(self) -> bool:
         qc = self.state.assembly_qc or {}

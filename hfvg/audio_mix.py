@@ -970,6 +970,52 @@ def _ass_filter(ass: str, fonts_dir: str | None) -> str:
     return f
 
 
+def logo_start_s(logo: dict, total_s: float, placed: list[dict] | None = None) -> float:
+    """Logo fade start: after_vo_line end + after_vo_gap_s when set (and placed), else the
+    Ep01 template total - visible_s."""
+    if logo.get("after_vo_line"):
+        line = next((p for p in placed or [] if p["id"] == logo["after_vo_line"]), None)
+        if line is None:
+            raise AudioInputError(f"logo.after_vo_line {logo['after_vo_line']} is not a VO line id")
+        return round(line["at"] + line["dur"] + logo.get("after_vo_gap_s", 0.6), 4)
+    return round(max(0.0, total_s - logo["visible_s"]), 4)
+
+
+async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict,
+                       start: float | None = None) -> None:
+    """Ep01 ending template: logo scaled to width_frac (or width_px) of the frame, centred, alpha
+    fade-in over fade_in_s from ``start`` (default: the last visible_s of the picture). Optional
+    darken_lower: the lower frac of the frame darkens by amount, fading in with the logo."""
+    if start is None:
+        start = logo_start_s(logo, total_s)
+    w, h = master["width"], master["height"]
+    if logo.get("width_px"):
+        logo_w = logo["width_px"]
+    else:
+        logo_w = round(w * logo["width_frac"])
+    y_centre = round(h * logo["y_frac"])
+    fade_in = logo["fade_in_s"]
+    filters = [f"scale={logo_w}:-1:flags=lanczos", "format=rgba",
+               f"fade=t=in:st={start}:d={fade_in}:alpha=1"]
+    dk = logo.get("darken_lower")
+    if dk:
+        y1 = round(h * (1.0 - dk["frac"]))
+        amt = dk["amount"]
+        bg_filter = (f"[0:v]split[base][mask]; [mask]geq=r='0':g='0':b='0':a='if(lte(Y,{y1}),0,"
+                     f"({amt}*255)*(Y-{y1})/({h}-{y1}))',format=rgba,fade=t=in:st={start}:d={fade_in}:alpha=1[dark]; "
+                     f"[base][dark]overlay")
+    else:
+        bg_filter = "[0:v]"
+    vf = f"movie={logo['path']}:{','.join(filters)}[logo]; {bg_filter}[bg]; [bg][logo]overlay=(W-w)/2:{y_centre}-(h/2)"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", mute, "-filter_complex", vf,
+           "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", out]
+    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                 stderr=asyncio.subprocess.PIPE)
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise AudioProcessingError(f"logo overlay failed: {stderr.decode()[:500]}")
+
+
 async def mix_and_deliver(
     episode_id: str, mute_path: str, plan: dict, *, root: Path | None = None,
     picture_duration: float | None = None, heartbeat: Heartbeat = _noop,
