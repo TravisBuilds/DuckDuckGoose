@@ -116,8 +116,9 @@ async def test_higgsfield_balance_derived_from_manual(test_db):
 
 
 @pytest.mark.asyncio
-async def test_higgsfield_balance_stale_warning(test_db):
+async def test_higgsfield_balance_stale_warning(test_db, monkeypatch):
     """Test Higgsfield stale balance detection."""
+    monkeypatch.setenv("DRY_RUN", "false")
     monitor = BalanceMonitor(test_db)
     
     # Set manual balance 25 hours ago (> 24h default max age)

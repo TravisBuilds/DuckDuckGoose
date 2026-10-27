@@ -145,15 +145,18 @@ async def test_insufficient_balance_pause_resume():
             workflows=[ShotWorkflow],
             activities=[
                 mock_submit_still,
+                mock_submit_clip,
                 mock_poll_job,
                 mock_commit_budget,
                 mock_commit_credits,
                 mock_save_asset,
                 mock_review_still,
+                mock_review_clip,
                 mock_record_shot,
                 mock_release_budget,
                 mock_release_credits,
                 mock_precheck_still,
+                mock_precheck_clip,
             ],
         ):
             # Start workflow
@@ -187,6 +190,9 @@ async def test_insufficient_balance_pause_resume():
             
             # Send resume signal
             await handle.signal("resume_balance")
+            
+            # Wait for workflow to process resume and retry
+            await env.sleep(2)
             
             # Signal the workflow to approve stills (so it can complete)
             await handle.signal("stills_approved")
