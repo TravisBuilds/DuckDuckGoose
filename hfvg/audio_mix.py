@@ -28,7 +28,7 @@ from typing import Any, Callable
 import numpy as np
 
 SR = 48000
-DELIVERY_VERSION = 2  # 2: GAP-20 codec TP guard changes the encoded audio
+DELIVERY_VERSION = 3  # 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
 MIN_VO_GAP_RANGE = (0.3, 0.4)
 DEFAULT_MIN_VO_GAP_S = 0.4
 TAIL_GUARD_S = 0.3            # last VO line must end this far before the picture ends
