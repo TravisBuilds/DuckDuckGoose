@@ -104,7 +104,7 @@ async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, n
                 await handle.execute_update("recompose_shot", args=["A01", "again", new_prompt, [str(ref)]])
 
             # reject: the child ends without a clip, the shot keeps its clip
-            await handle.execute_update("recompose_decision", args=["A01", False, "4 capybaras in the still"])
+            await handle.execute_update("recompose_decision", args=["A01", False, "4 char_cs in the still"])
             rejected = await _child_result(env, "ep94-shot-A01-recompose1", timeout=60)
             assert rejected["status"] == "rejected"
             state = await _wait(handle, lambda s: not s["recompose"]["pending"], what="recompose 1 closed")

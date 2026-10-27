@@ -22,8 +22,8 @@ def test_prompt_limit_violations_checks_the_clip_model():
 
 def test_amend_prompt_matches_retry_shot():
     from hfvg.workflows.episode_v2 import amend_prompt
-    assert amend_prompt("Base prompt.  ", "  Three\n capybaras. ") == ("Base prompt. Three capybaras.",
-                                                                     "Three capybaras.")
+    assert amend_prompt("Base prompt.  ", "  Three\n char_cs. ") == ("Base prompt. Three char_cs.",
+                                                                     "Three char_cs.")
 
 
 class _Handle:
@@ -72,8 +72,8 @@ def test_amended_reroll_over_the_clip_limit_is_refused_before_spend(client, monk
     r = c.post("/api/episodes/ep05full/shots/F06/retry", json={"prompt_append": "y " * 100, "reason": "t"})
     assert r.status_code == 409 and "before any spend" in r.json()["detail"], r.text
     assert h.updates == []  # nothing launched, nothing paid
-    r = c.post("/api/episodes/ep05full/shots/F06/retry", json={"prompt_append": "three capybaras", "reason": "t"})
-    assert r.status_code == 200 and h.updates == [("retry_shot", ["F06", "three capybaras"])], r.text
+    r = c.post("/api/episodes/ep05full/shots/F06/retry", json={"prompt_append": "three char_cs", "reason": "t"})
+    assert r.status_code == 200 and h.updates == [("retry_shot", ["F06", "three char_cs"])], r.text
 
 
 def test_state_with_dict_failed_shots_is_readable(client, monkeypatch):
