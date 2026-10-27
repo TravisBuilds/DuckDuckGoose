@@ -49,13 +49,17 @@ async def test_elevenlabs_permanent_error_is_non_retryable(tmp_path, monkeypatch
         mock_submit.side_effect = permanent_error
         
         # Should raise ApplicationError with non_retryable=True
-        with pytest.raises(ApplicationError) as exc_info:
+        exc = None
+        try:
             await generate_voiceover(
                 episode_id="ep01",
                 script="Test line",
                 voice_id="test-voice",
             )
+        except Exception as e:
+            exc = e
         
-        # Verify it's non-retryable
-        assert exc_info.value.non_retryable, "Permanent ElevenLabs errors must be non-retryable"
-        assert exc_info.value.type == "ElevenLabsPermanentError"
+        # Mutation #393 kills this: must be ApplicationError, non-retryable, and correct type
+        assert isinstance(exc, ApplicationError), f"Expected ApplicationError, got {type(exc).__name__}"
+        assert exc.non_retryable, "Permanent ElevenLabs errors must be non-retryable"
+        assert exc.type == "ElevenLabsPermanentError"
