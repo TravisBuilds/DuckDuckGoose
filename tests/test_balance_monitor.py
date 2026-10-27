@@ -28,8 +28,11 @@ async def test_db(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_elevenlabs_balance_check_success(test_db):
+async def test_elevenlabs_balance_check_success(test_db, monkeypatch):
     """Test ElevenLabs live balance check with successful API response."""
+    # Set API key for test
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    
     monitor = BalanceMonitor(test_db)
     
     # Mock successful API response
@@ -55,8 +58,11 @@ async def test_elevenlabs_balance_check_success(test_db):
 
 
 @pytest.mark.asyncio
-async def test_elevenlabs_balance_check_401_graceful(test_db):
+async def test_elevenlabs_balance_check_401_graceful(test_db, monkeypatch):
     """Test ElevenLabs balance check handles 401 gracefully - status unknown, no numeric balance."""
+    # Set API key for test
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    
     monitor = BalanceMonitor(test_db)
     
     mock_response = MagicMock()
@@ -335,22 +341,13 @@ async def test_preflight_balance_blocks_insufficient_known_balance(test_db):
     monitor = BalanceMonitor(test_db)
     
     # Mock balance check to return low balance ($0.50)
-    with patch.object(monitor, 'check_all_balances', new_callable=AsyncMock) as mock_check:
-        from hfvg.balance_monitor import BalanceCheckResult
-        
-        mock_check.return_value = BalanceCheckResult(
-            timestamp=datetime.now(timezone.utc),
-            providers={
-                "higgsfield": ProviderBalance(
-                    provider="higgsfield",
-                    balance_usd=Decimal("0.50"),
-                    source="derived",
-                    age_seconds=0.0,
-                    details={},
-                )
-            },
-            warnings=[],
-            errors=[],
+    with patch.object(monitor, '_check_single_provider_balance', new_callable=AsyncMock) as mock_check:
+        mock_check.return_value = ProviderBalance(
+            provider="higgsfield",
+            balance_usd=Decimal("0.50"),
+            source="derived",
+            age_seconds=0.0,
+            details={},
         )
         
         # Check preflight with estimate of $1.00 + 20% reserve = $1.20 required
@@ -367,26 +364,17 @@ async def test_preflight_balance_blocks_insufficient_known_balance(test_db):
 
 @pytest.mark.asyncio
 async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
-    """Mutation #394: Stale balance check should block when age > max_age_hours."""
+    """Mutation #394: Stale balance warns but doesn't block (Task 11)."""
     monitor = BalanceMonitor(test_db)
     
     # Mock balance check to return stale balance (25 hours old, max is 24)
-    with patch.object(monitor, 'check_all_balances', new_callable=AsyncMock) as mock_check:
-        from hfvg.balance_monitor import BalanceCheckResult
-        
-        mock_check.return_value = BalanceCheckResult(
-            timestamp=datetime.now(timezone.utc),
-            providers={
-                "higgsfield": ProviderBalance(
-                    provider="higgsfield",
-                    balance_usd=Decimal("100.00"),  # Sufficient amount
-                    source="derived",
-                    age_seconds=25 * 3600,  # 25 hours (stale)
-                    details={},
-                )
-            },
-            warnings=[],
-            errors=[],
+    with patch.object(monitor, '_check_single_provider_balance', new_callable=AsyncMock) as mock_check:
+        mock_check.return_value = ProviderBalance(
+            provider="higgsfield",
+            balance_usd=Decimal("100.00"),  # Sufficient amount
+            source="derived",
+            age_seconds=25 * 3600,  # 25 hours (stale)
+            details={},
         )
         
         # Check preflight with a small estimate
@@ -396,6 +384,6 @@ async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
             auto_topup_enabled=False,
         )
         
-        # Should block due to staleness
-        assert not passed, "Preflight gate should block when balance is stale"
-        assert "stale" in reason.lower()
+        # Task 11: Stale Higgsfield warns but doesn't block
+        assert passed, "Stale Higgsfield balance should warn but not block"
+        assert "WARNING" in reason and "stale" in reason.lower()

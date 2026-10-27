@@ -109,7 +109,7 @@ def still_model_path() -> str:
 class Config:
     """Global configuration."""
 
-    DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
+    DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() in ("true", "1")
     
     @staticmethod
     def database_path() -> str:

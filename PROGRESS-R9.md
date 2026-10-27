@@ -6,7 +6,7 @@
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
 - [x] 4. clip_estimate resolution for Seedance
 - [x] 12. 403 handling resumable (body match, workflow pause)
-- [ ] 11. Balance gate scoping (provider-specific, DRY_RUN guard, remove default key, stale=warn)
+- [x] 11. Balance gate scoping (provider-specific, DRY_RUN guard, remove default key, stale=warn)
 - [ ] 8. config.get_higgsfield fixes (use real env vars, log redacted exceptions)
 - [ ] 10. budget.py Higgsfield-only gating
 - [ ] 13. Notifier fixes (dedupe key, record after send, wire/remove unused, schedule/redaction)

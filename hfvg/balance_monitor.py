@@ -178,7 +178,19 @@ class BalanceMonitor:
     
     async def _check_elevenlabs_balance(self) -> ProviderBalance:
         """Check ElevenLabs subscription balance (character limit - count)."""
-        api_key = os.getenv("ELEVENLABS_API_KEY", "test-key-for-testing")
+        api_key = os.getenv("ELEVENLABS_API_KEY")
+        
+        # Missing key means unknown balance
+        if not api_key:
+            return ProviderBalance(
+                provider="elevenlabs",
+                balance_usd=None,
+                source="live",
+                age_seconds=0.0,
+                details={
+                    "error": "ELEVENLABS_API_KEY not set",
+                },
+            )
         
         api_base = os.getenv("ELEVENLABS_API_BASE", "https://api.elevenlabs.io")
         url = f"{api_base}/v1/user/subscription"
@@ -342,6 +354,25 @@ class BalanceMonitor:
         
         return total_usd
     
+    async def _check_single_provider_balance(self, provider: str) -> ProviderBalance | None:
+        """Check balance for a single provider (optimized for preflight gates).
+        
+        Returns:
+            ProviderBalance or None if provider unknown
+        """
+        if provider == "elevenlabs":
+            try:
+                return await self._check_elevenlabs_balance()
+            except Exception:
+                return None
+        elif provider == "higgsfield":
+            try:
+                return await self._check_higgsfield_balance()
+            except Exception:
+                return None
+        else:
+            return None
+    
     async def check_preflight_balance(
         self,
         provider: str,
@@ -353,16 +384,17 @@ class BalanceMonitor:
         Defect 8: None/unknown balance NEVER blocks (permission errors, etc).
         Only block when we have a numeric balance that's too low.
         
+        Task 11: Check only the specified provider, not all providers.
+        
         Returns:
             (passed, reason): True if check passed, False + reason if blocked.
         """
-        result = await self.check_all_balances()
+        # Check only the provider this step spends from (not all providers)
+        balance = await self._check_single_provider_balance(provider)
         
         # No-op when provider not found or has no recorded balance
-        if provider not in result.providers:
+        if balance is None:
             return (True, f"Balance unavailable for {provider}, gate is no-op")
-        
-        balance = result.providers[provider]
         
         # Defect 8: None (unknown) balance never blocks (gate is no-op)
         if balance.balance_usd is None:
@@ -372,15 +404,15 @@ class BalanceMonitor:
         reserve = estimate_usd * Decimal(BALANCE_RESERVE_PERCENT) / Decimal("100")
         required = estimate_usd + reserve
         
-        # Check staleness for Higgsfield
+        # Check staleness for Higgsfield: warn but don't block
         if provider == "higgsfield":
             age_hours = balance.age_seconds / 3600
             if age_hours > HIGGSFIELD_BALANCE_MAX_AGE_HOURS:
-                if not auto_topup_enabled:
-                    return (False, (
-                        f"Higgsfield balance is stale ({age_hours:.1f}h > {HIGGSFIELD_BALANCE_MAX_AGE_HOURS}h): "
-                        f"${balance.balance_usd:.2f}. Update it via POST /api/budget/balance"
-                    ))
+                # Stale Higgsfield entry warns, it doesn't block
+                return (True, (
+                    f"WARNING: Higgsfield balance is stale ({age_hours:.1f}h > {HIGGSFIELD_BALANCE_MAX_AGE_HOURS}h): "
+                    f"${balance.balance_usd:.2f}. Update it via POST /api/budget/balance"
+                ))
         
         # Check balance sufficiency
         if balance.balance_usd < required:
