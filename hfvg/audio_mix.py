@@ -1178,10 +1178,19 @@ async def mix_and_deliver(
             g = c["level_db"] - ref if ref > -100 else 0.0
             clip = fade(clip * db_to_lin(g), c["fade_in_s"], c["fade_out_s"])
             if c["duck_db"] < 0:
-                depth = 1.0 - db_to_lin(c["duck_db"])
-                clip = clip * (1.0 - depth * act[start:start + cn])[:, None]
+                if c.get("duck_mode") == "window":
+                    # GAP-30: window mode holds duck for entire VO line windows (same as music bed)
+                    windows = [(p["at"], p["at"] + p["dur"]) for p in placed]
+                    # Compute envelope for the full timeline, then slice for this clip's position
+                    env = duck_envelope(n, windows, c["duck_db"])
+                    clip = clip * env[start:start + cn, None]
+                else:
+                    # Default: activity mode follows VO signal
+                    depth = 1.0 - db_to_lin(c["duck_db"])
+                    clip = clip * (1.0 - depth * act[start:start + cn])[:, None]
             sfx[start:start + cn] += clip
             sfx_info.append({"id": c["id"], "gain_db": round(g, 2), "ducked": c["duck_db"] < 0,
+                             "duck_mode": c.get("duck_mode", "activity"),
                              "at": c["at"], "dur": round(cn / SR, 4), "src_start_s": c["src_start_s"],
                              "lowpass_hz": lp})
 

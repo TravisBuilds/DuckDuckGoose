@@ -233,9 +233,14 @@ class BalanceNotifier:
         
         # Redact any URL-like patterns (http://, https://)
         import re
-        error_str = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', error_str)
+        redacted = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', error_str)
         
-        return f"{error_type}: {error_str}"
+        # If no URL was found and redacted, redact the entire message for safety
+        if redacted == error_str and error_str:
+            # Non-URL error: redact the message to avoid leaking sensitive details
+            return f"{error_type}: [details redacted]"
+        
+        return f"{error_type}: {redacted}"
     
     async def _send_webhook(self, alert: Alert) -> None:
         """Send alert via webhook (e.g., Slack incoming webhook)."""

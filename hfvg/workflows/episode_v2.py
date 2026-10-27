@@ -2637,6 +2637,7 @@ class EpisodeWorkflowV2:
                                           "status": t.get("status")} for n, t in takes.items()}
                            for sid, takes in self.clip_takes.items()},
             "delivery_rebuilds": [dict(x) for x in self.delivery_rebuilds],
+            "edit_rebuilds": [dict(x) for x in self.edit_rebuilds],
             "recompose": {
                 "pending": {k: dict(v) for k, v in self.pending_recompose.items()},
                 "counts": dict(self.recompose_counts),

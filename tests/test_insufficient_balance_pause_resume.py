@@ -56,13 +56,13 @@ async def mock_poll_job(*args, **kwargs):
     if "still" in job_id:
         return {
             "status": "completed",
-            "url": "https://example.com/still.jpg",
+            "output_url": "https://example.com/still.jpg",
             "cost": 10.0,
         }
     else:
         return {
             "status": "completed",
-            "url": "https://example.com/clip.mp4",
+            "output_url": "https://example.com/clip.mp4",
             "cost": 50.0,
         }
 
@@ -71,13 +71,13 @@ async def mock_poll_job(*args, **kwargs):
 async def mock_commit_budget(*args, **kwargs):
     """Mock commit budget activity."""
     activity_call_count["commit"] += 1
-    return {"success": True}
+    return None
 
 
 @activity.defn(name="commit_credits_activity")
 async def mock_commit_credits(*args, **kwargs):
     """Mock commit credits activity."""
-    return {"success": True}
+    return None
 
 
 @activity.defn(name="save_asset_locally")
@@ -89,31 +89,31 @@ async def mock_save_asset(*args, **kwargs):
 @activity.defn(name="review_still")
 async def mock_review_still(*args, **kwargs):
     """Mock still review."""
-    return {"approved": True}
+    return {"passed": True}
 
 
 @activity.defn(name="review_clip")
 async def mock_review_clip(*args, **kwargs):
     """Mock clip review."""
-    return {"approved": True}
+    return {"passed": True}
 
 
 @activity.defn(name="record_shot_result")
 async def mock_record_shot(*args, **kwargs):
     """Mock record shot result."""
-    return {"success": True}
+    return None
 
 
 @activity.defn(name="release_job_budget")
 async def mock_release_budget(*args, **kwargs):
     """Mock release budget."""
-    return {"success": True}
+    return None
 
 
 @activity.defn(name="release_credits_activity")
 async def mock_release_credits(*args, **kwargs):
     """Mock release credits."""
-    return {"success": True}
+    return None
 
 
 @activity.defn(name="precheck_still_qc")
