@@ -297,3 +297,76 @@ def test_assembly_rebuild_request_makes_edit_stale(monkeypatch):
     assert wf._assembly_stale()
     wf.assembly_sig = wf._assembly_signature()   # re-assembled
     assert not wf._assembly_stale()
+
+
+@pytest.mark.asyncio
+async def test_manifest_includes_recipe_and_fps(tmp_path):
+    """Task 5: manifest.format.fps must follow recipe fps, and include recipe and tail_hold_s."""
+    clips = {}
+    for sid, secs in (("A", 2.0), ("B", 2.0)):
+        clips[sid] = str(make_clip(tmp_path / f"{sid}.mp4", secs, size="360x640", rate=30))
+    out = tmp_path / "edit"
+    out.mkdir()
+    
+    # Recipe with non-standard fps
+    (out / EDIT_RECIPE_NAME).write_text(json.dumps({
+        "fps": 25,
+        "speed": 1.0,
+        "xfade_s": 0.0,
+        "tail_hold_s": 2.5,
+        "scale_flags": "lanczos"
+    }))
+    
+    shots = [{"shot_id": "A", "duration": 2.0}, {"shot_id": "B", "duration": 2.0}]
+    res = await ActivityEnvironment().run(assemble_mute_edit, "ep99", shots, clips, str(out))
+    m = res["manifest"]
+    
+    # Task 5: format.fps must match recipe fps (not default EDIT_FPS)
+    assert m["format"]["fps"] == 25, "manifest.format.fps must follow recipe fps"
+    
+    # Task 5: recipe must be in manifest
+    assert "recipe" in m, "manifest must include recipe"
+    assert m["recipe"]["fps"] == 25
+    assert m["recipe"]["tail_hold_s"] == 2.5
+    
+    # Task 5: tail_hold_s must be in manifest
+    assert "tail_hold_s" in m, "manifest must include tail_hold_s"
+    assert m["tail_hold_s"] == 2.5
+
+
+@pytest.mark.asyncio
+async def test_dry_run_honors_recipe(tmp_path, monkeypatch):
+    """Task 5: dry-run return must honor the recipe (speed and tail_hold)."""
+    monkeypatch.setenv("DRY_RUN", "true")
+    
+    # Use placeholder clips that don't exist (dry-run mode)
+    clips = {"A": str(tmp_path / "A.mp4"), "B": str(tmp_path / "B.mp4")}
+    out = tmp_path / "edit"
+    out.mkdir()
+    
+    # Recipe with speed 2.0 and tail hold 1.5s
+    (out / EDIT_RECIPE_NAME).write_text(json.dumps({
+        "fps": 24,
+        "speed": 2.0,
+        "xfade_s": 0.0,
+        "tail_hold_s": 1.5,
+        "scale_flags": "lanczos"
+    }))
+    
+    shots = [
+        {"shot_id": "A", "duration": 4.0, "trim_in": 0.0, "trim_out": 4.0},
+        {"shot_id": "B", "duration": 2.0, "trim_in": 0.0, "trim_out": 2.0}
+    ]
+    res = await ActivityEnvironment().run(assemble_mute_edit, "ep99", shots, clips, str(out))
+    
+    assert res["dry_run"] is True
+    
+    # Without recipe: (4.0 + 2.0) = 6.0s
+    # With recipe: (4.0 + 2.0) / 2.0 + 1.5 = 3.0 + 1.5 = 4.5s
+    expected_duration = (4.0 + 2.0) / 2.0 + 1.5
+    assert res["duration"] == pytest.approx(expected_duration, abs=0.01), \
+        "dry-run duration must honor recipe speed and tail_hold"
+    
+    # Task 5: dry-run manifest must include recipe
+    assert "recipe" in res["manifest"]
+    assert res["manifest"]["tail_hold_s"] == 1.5

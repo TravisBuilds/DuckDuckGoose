@@ -247,10 +247,21 @@ async def assemble_mute_edit(
             clips = [{"id": e["shot_id"], "seg_s": round(e["trim_out"] - e["trim_in"], 3),
                       "trim_in": e["trim_in"], "trim_out": e["trim_out"], "source": e["clip_path"]}
                      for e in entries]
+            # Task 5: dry-run return must honor the recipe
+            duration = sum(c["seg_s"] for c in clips) - sum(d for *_x, d in dissolves)
+            if recipe:
+                # Apply recipe speed and tail_hold
+                duration = duration / recipe["speed"] + recipe.get("tail_hold_s", 0.0)
             return {
                 "assembly_path": str(assembly_path),
-                "manifest": {"clips": clips, "dissolves": {a: d for a, _b, d in dissolves}, "dry_run": True},
-                "duration": round(sum(c["seg_s"] for c in clips) - sum(d for *_x, d in dissolves), 3),
+                "manifest": {
+                    "clips": clips,
+                    "dissolves": {a: d for a, _b, d in dissolves},
+                    "recipe": recipe,  # Task 5: include recipe
+                    "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5
+                    "dry_run": True
+                },
+                "duration": round(duration, 3),
                 "input_key": None,
                 "reused": False,
                 "dry_run": True,
@@ -423,7 +434,9 @@ async def assemble_mute_edit(
         "edit_plan": ({"reused_shots": [c["id"] for c in manifest_clips if c.get("reused")], **plan_notes}
                       if edit_plan else None),
         "total_duration": total,
-        "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": EDIT_FPS, "pix_fmt": EDIT_PIX_FMT},
+        "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": fps, "pix_fmt": EDIT_PIX_FMT},  # Task 5: use fps from recipe
+        "recipe": recipe,  # Task 5: include recipe in manifest
+        "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5: include tail_hold_s
         "input_key": input_key,
         "size_bytes": assembly_path.stat().st_size,
     }
