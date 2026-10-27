@@ -946,22 +946,6 @@ async def apply_atempo(src: str, dst: str, tempo: float) -> None:
                    "-ar", str(SR), "-c:a", "pcm_s24le", dst], "VO atempo")
 
 
-async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict) -> None:
-    """Ep01 ending template: logo scaled to width_frac of the frame, centred, alpha fade-in over
-    fade_in_s, visible for the last visible_s of the picture."""
-    info = await probe(mute)
-    v = next(s for s in info.get("streams", []) if s.get("codec_type") == "video")
-    w = int(v["width"])
-    start = max(0.0, total_s - logo["visible_s"])
-    lw = int(w * logo["width_frac"]) // 2 * 2
-    graph = (f"[1:v]scale={lw}:-1,format=rgba,fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[lg];"
-             f"[0:v][lg]overlay=(W-w)/2:max(0\\,min(H-h\\,H*{logo.get('y_frac', 0.5):.4f}-h/2)):shortest=1:enable='gte(t,{start:.4f})',format=yuv420p[v]")
-    await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, "-loop", "1", "-t", f"{total_s:.4f}",
-                   "-i", logo["path"], "-filter_complex", graph, "-map", "[v]", "-an", "-c:v", "libx264",
-                   "-preset", str(master["preset"]), "-crf", str(master["crf"]), "-pix_fmt", "yuv420p",
-                   "-t", f"{total_s:.4f}", out], "logo overlay")
-
-
 async def final_mix(stems: dict[str, str], total_s: float, out_wav: str) -> None:
     """Sum stems (VO trimmed), makeup gain and master true-peak limiter (reference chain)."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
