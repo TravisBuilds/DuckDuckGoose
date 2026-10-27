@@ -16,6 +16,7 @@ Uses Kling 3.0 Pro (sound off): kling-video/v3.0/pro/image-to-video
 import os
 import uuid
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,33 @@ import httpx
 from hfvg.pricing import estimate_from_response, rate_table_estimate
 from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
+
+logger = logging.getLogger(__name__)
+
+
+def kling_list_floor_enabled() -> bool:
+    return os.getenv("KLING_RESERVE_LIST_FLOOR", "").strip().lower() in ("1", "true", "yes")
+
+
+def kling_reserve_usd_micros(live_usd_micros: int | None, duration: int | float) -> int:
+    """GAP-36: the USD a Kling clip reserves. The live estimate is the source of truth only when it
+    is at or above the configured list rate: on 2026-10-27 15:09 UTC the live estimate returned
+    0.056 USD/s (half the 0.112 list rate it returned two hours earlier), which would let the
+    budget guard under-reserve by half. With KLING_RESERVE_LIST_FLOOR=1 (a run's opt-in; default off
+    keeps the live estimate authoritative, as G1 plan/live-hold contracts expect) reserve
+    max(live, table) and log the drop."""
+    table = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+    if live_usd_micros is None:
+        return table
+    if not kling_list_floor_enabled():
+        return int(live_usd_micros)
+    if live_usd_micros < table:
+        logger.warning("kling_live_estimate_below_list_rate", extra={
+            "live_usd_micros": live_usd_micros,
+            "table_usd_micros": table,
+            "duration": duration
+        })
+    return max(int(live_usd_micros), table)
 
 
 class KlingVideoProvider(GenerationProvider):
@@ -227,9 +255,7 @@ class KlingVideoProvider(GenerationProvider):
         """
         data = await self._estimate_response(image_url, prompt, duration, end_image_url)
         try:
-            usd_micros = estimate_from_response(data)
-            if usd_micros is None:
-                usd_micros = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+            usd_micros = kling_reserve_usd_micros(estimate_from_response(data), duration)
             if usd_micros <= 0:
                 raise ValueError(f"Non-positive USD estimate: {data}")
             return usd_micros
@@ -247,20 +273,20 @@ class KlingVideoProvider(GenerationProvider):
         """
         data = await self._estimate_response(image_url, prompt, duration, end_image_url)
         try:
-            usd_micros = estimate_from_response(data)
-            if usd_micros is None:
-                usd_micros = rate_table_estimate("kling-3.0-pro", None, duration).usd_micros
+            usd_micros = kling_reserve_usd_micros(estimate_from_response(data), duration)
             if usd_micros <= 0:
                 raise ValueError(f"Non-positive USD estimate: {data}")
             
-            # Extract credits from estimate response, or use table
+            # Extract credits from estimate response; GAP-36: never below the table's pro rate
+            from hfvg.credit_pricing import estimate_clip_credits
+            table_credits = estimate_clip_credits("kling_3.0", duration)
             credits_str = data.get("credits")
-            if credits_str is not None:
-                credits = float(credits_str)
+            if credits_str is None:
+                credits = table_credits
+            elif kling_list_floor_enabled():
+                credits = max(float(credits_str), table_credits)
             else:
-                # Fall back to table: ~1.5 credits/second for kling pro
-                from hfvg.credit_pricing import estimate_clip_credits
-                credits = estimate_clip_credits("kling_3.0", duration)
+                credits = float(credits_str)
             
             if credits <= 0:
                 raise ValueError(f"Non-positive credits estimate: {data}")
