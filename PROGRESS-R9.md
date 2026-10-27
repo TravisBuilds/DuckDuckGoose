@@ -11,7 +11,7 @@
 - [x] 10. budget.py Higgsfield-only gating
 - [x] 13. Notifier fixes (dedupe key, record after send, wire/remove unused, schedule/redaction)
 - [x] 14. `hfvg balance` fresh DB and DRY_RUN tests
-- [ ] 6. shot.py clip_path for non-escalated QC-fail
+- [x] 6. shot.py clip_path for non-escalated QC-fail
 - [ ] 5. Edit recipe partial (fps, recipe, tail_hold_s, dissolves, dry-run)
 - [ ] 7. Duplicates removal (episode_v2.py and audio_mix.py)
 - [ ] 9. test path fixture (appears already fixed or different issue)

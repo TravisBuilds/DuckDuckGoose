@@ -1291,6 +1291,7 @@ class ShotWorkflow:
                         "status": "failed",
                         "still_url": self.still_asset["url"],
                         "clip_url": self.clip_asset["url"],
+                        "clip_path": self.clip_local_path,  # Task 6: Include clip_path for accept_clip_review
                         "error": f"QC failed: {', '.join(clip_qc['issues'])}",
                         "qc_constraints": clip_qc.get("constraints"),
                     }
