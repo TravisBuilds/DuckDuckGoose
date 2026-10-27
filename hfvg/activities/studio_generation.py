@@ -317,6 +317,27 @@ async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: s
     return {**result, "estimate_usd_micros": amount}
 
 
+async def refuse_committed_job_id(db_path: str, job_id: str) -> None:
+    """GAP-37: never submit a paid job under a job id whose ledger row is already COMMITTED.
+
+    provider_jobs maps job id -> provider request with INSERT OR IGNORE, so a second paid submit
+    under a finished id is charged while the poll follows the first request and the run silently
+    re-saves the old output (ep05v2 V19, 2026-10-27). Refuse before any estimate/reserve/submit.
+    A reserved (in-flight) row is left alone: that is the activity-retry resume case."""
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT status FROM job_ledger WHERE job_id = ?", (job_id,)) as cur:
+                row = await cur.fetchone()
+    except aiosqlite.OperationalError:  # no ledger table yet: nothing was ever committed
+        return
+    if row and row[0] == "committed":
+        raise ApplicationError(
+            f"JobIdAlreadyCommitted: job id {job_id} is already committed in job_ledger: refusing a second paid submit under it "
+            "(its provider job would be re-polled and the old output re-saved)",
+            type="JobIdAlreadyCommitted", non_retryable=True)
+
+
 @activity.defn
 async def submit_still_job_enforced(
     episode_id: str,
@@ -511,7 +532,14 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     # Original shots: still-{ep}-{shot}-v{version}
     # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
-    if attempt > 1:
+    ROUND_G3_RECOMPOSE = "G3_RECOMPOSE"
+    if review_round and review_round.get("round") == ROUND_G3_RECOMPOSE and review_round.get("retry_key"):
+        # GAP-37: a recompose still gets its own -rc{n} id. Its attempt is the recompose VERSION, so
+        # -r{attempt-1} collided with the shot's G2 retry ids (ep05v2 V19 recompose1 -> -r2, the id
+        # of a committed G2 retry): the paid request went out, then the poll followed the OLD
+        # provider job and saved the old still.
+        attempt_suffix = f"-{review_round['retry_key']}"
+    elif attempt > 1:
         # Retry: use -r{N} where N is retry number (attempt-1)
         attempt_suffix = f"-r{attempt - 1}"
     else:
@@ -526,6 +554,9 @@ async def submit_still_job_enforced(
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{lead_suffix}{anchor_suffix}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    
+    # GAP-37: refuse if job_id is already committed
+    await refuse_committed_job_id(db_path, job_id)
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -964,6 +995,9 @@ async def submit_clip_job_enforced(
         job_id += f"-c{int(clip_retry['n'])}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    
+    # GAP-37: refuse if job_id is already committed
+    await refuse_committed_job_id(db_path, job_id)
     
     # Generate idempotency key from hash of actual request parameters
     # This ensures identical requests dedupe but different requests don't collide
