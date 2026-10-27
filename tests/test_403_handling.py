@@ -29,11 +29,26 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
+    # Set manual Higgsfield balance
+    from hfvg.balance_monitor import BalanceMonitor
+    monitor = BalanceMonitor(db_path)
+    await monitor.set_manual_balance("higgsfield", 100.0)
+    
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
+    
+    # Initialize episode credit line manually
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO credit_lines (line_id, episode_id, cap_credits, pause_threshold_credits, spent_credits, reserved_credits) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("episode_ep01", "ep01", 1000, 900, 0, 0)
+        )
+        await db.commit()
     
     # Initialize episode and lines
     await ledger.init_episode_budget("ep01")
@@ -154,11 +169,26 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     await init_balance_tables(db_path)
     await init_notifier_tables(db_path)
     
+    # Set manual Higgsfield balance
+    from hfvg.balance_monitor import BalanceMonitor
+    monitor = BalanceMonitor(db_path)
+    await monitor.set_manual_balance("higgsfield", 100.0)
+    
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
     
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
+    
+    # Initialize episode credit line manually
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO credit_lines (line_id, episode_id, cap_credits, pause_threshold_credits, spent_credits, reserved_credits) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("episode_ep02", "ep02", 1000, 900, 0, 0)
+        )
+        await db.commit()
     
     # Initialize episode and lines
     await ledger.init_episode_budget("ep02")
