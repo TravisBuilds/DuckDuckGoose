@@ -181,8 +181,11 @@ def test_episode_id_format_is_exact(monkeypatch):
     from pydantic import ValidationError
 
     for good in ("ep01", "ep99", "ep00", "ep05full", "ep05b", "ep05full2"):
-        result = api_main.validate_episode_id(good)
-        assert result == good, f"validate_episode_id rejected valid ID {good!r}"
+        try:
+            result = api_main.validate_episode_id(good)
+            assert result == good, f"validate_episode_id changed valid ID {good!r}"
+        except HTTPException as e:
+            assert False, f"validate_episode_id rejected valid ID {good!r} with {e.status_code}: {e.detail}"
         api_main.StartEpisodeRequest(episode_id=good)
     for bad in ("ep01\n", "ep\u0661\u0662", "ep001", "ep1", "EP01", "ep01-shot-A01", "../ep01", "",
                 "ep05Full", "ep05_full", "ep05-full", "ep05full/..", "ep05.full", "ep05full\n",
