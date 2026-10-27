@@ -4,7 +4,7 @@
 - [ ] 1. GAP-30, GAP-31, delivery v3 (IN PROGRESS - codec done, duck_mode added, need: test files, bed_dips, subtitle_dur)
 - [x] 2. Mutation 333 fix (preserve suffix, remove try/except)
 - [x] 3. POST /api/episodes/{id}/assembly/rebuild route
-- [ ] 4. clip_estimate resolution for Seedance
+- [x] 4. clip_estimate resolution for Seedance
 - [ ] 12. 403 handling resumable (body match, workflow pause)
 - [ ] 11. Balance gate scoping (provider-specific, DRY_RUN guard, remove default key, stale=warn)
 - [ ] 8. config.get_higgsfield fixes (use real env vars, log redacted exceptions)
