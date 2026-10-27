@@ -221,6 +221,8 @@ def load_lint_kit(episode_id: str) -> LintKit:
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
+    if override and section is data and isinstance(data, dict) and "count_template" not in data:
+        section = None  # a full prompt_kit.json without a lint section, not a bare lint file
     if not isinstance(section, dict):
         raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
     return LintKit.from_dict(section)
@@ -247,3 +249,28 @@ def enforce_prompt_lint(
     for problem in problems:
         logger.warning("[DRY-RUN] prompt lint warning for %s: %s", episode_id, problem)
     return problems
+
+
+def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """Offline lint of every prompt a live run would submit (preflight; no provider call).
+
+    ``plans`` is ``shot_data.parse_shots`` output. A shot with a pre-approved start still submits
+    no still, so only its clip prompt (clip_prompt, else the still prompt) is linted; otherwise
+    both. Returns {shot_id: [problem, ...]} for shots with problems; a missing/broken kit is
+    reported once under "*". Same kit and rules as the live submit gate (enforce_prompt_lint).
+    """
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError as e:
+        return {"*": [str(e)]}
+    out: dict[str, list[str]] = {}
+    for sid, plan in plans.items():
+        meta = plan.get("shot_meta") or {}
+        problems: list[str] = []
+        if not plan.get("pre_approved_still"):
+            problems += [f"still: {p}" for p in lint_violations(plan.get("prompt") or "", meta, kit)]
+        clip = plan.get("clip_prompt") or plan.get("prompt") or ""
+        problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]
+        if problems:
+            out[sid] = problems
+    return out
