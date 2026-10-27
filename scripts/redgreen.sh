@@ -2918,6 +2918,84 @@ test_mutation 395 "alert deduplication prevents spam" \
     "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
     sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
 
+# 396: InsufficientBalance workflow pause (status set)
+test_mutation 396 "InsufficientBalance pause sets status" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
+    sed -i '0,/self.status = "paused_insufficient_balance"/s//self.status = "running"  # MUTATED/'
+
+# 397: 403 body match distinguishes balance from auth errors
+test_mutation 397 "403 body match requires insufficient balance text" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_403_handling.py::test_403_releases_reservations_and_records_stop" \
+    sed -i 's/if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():/if e.response.status_code == 403:  # MUTATED: accept any 403/'
+
+# 398: provider-scoped balance preflight (check right provider)
+test_mutation 398 "balance preflight checks the provider being used" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_ignores_other_providers" \
+    sed -i 's/if provider == "higgsfield":/if True:  # MUTATED: check all providers/'
+
+# 399: notifier dedupe key includes episode and shot
+test_mutation 399 "notifier dedupe key scoped to episode and shot" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_notifier.py::test_alert_deduplication_scoped_to_episode_and_shot" \
+    sed -i 's/dedupe_key = f"{alert.severity}:{alert.subject}:{alert.details.get(\x27episode_id\x27)}:{alert.details.get(\x27shot_id\x27)}"/dedupe_key = f"{alert.severity}:{alert.subject}"  # MUTATED: no episode\/shot scope/'
+
+# 400: Higgsfield-only balance status endpoint
+test_mutation 400 "_balance_status only shows Higgsfield" \
+    "api/main.py" \
+    "tests/test_api.py::test_balance_status_endpoint_higgsfield_only" \
+    sed -i 's/if provider == "higgsfield":/if True:  # MUTATED: show all providers/'
+
+# 401: GAP-32 recompose headcount query
+test_mutation 401 "recompose_still_plans query exists" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gap32_recompose_meta.py::test_recompose_headcount_endpoint_queries_workflow" \
+    sed -i '0,/@workflow.query/s//@workflow.query  # MUTATED: remove query/' 
+
+# 402: GAP-33 edit fps conform
+test_mutation 402 "edit fps conform matches generated clips" \
+    "hfvg/edit_plan.py" \
+    "tests/test_gap33_edit_fps_conform.py::test_edit_fps_defaults_to_30" \
+    sed -i 's/return EDIT_FPS$/return 24  # MUTATED: wrong default/'
+
+# 403: GAP-34 bed dips validation
+test_mutation 403 "bed dips window validation" \
+    "hfvg/audio_mix.py" \
+    "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_validate_bed_dips_rejects_empty_window" \
+    sed -i 's/if b <= a:/if False:  # MUTATED: allow empty windows/'
+
+# 404: GAP-35 subtitle duration per line
+test_mutation 404 "subtitle duration respects per-line overrides" \
+    "hfvg/audio_mix.py" \
+    "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_normalize_plan_with_subtitle_dur" \
+    sed -i 's/"subtitle_dur": None if ln.get("subtitle_dur") is None/"subtitle_dur": None if False and ln.get("subtitle_dur") is None  # MUTATED: ignore per-line override/'
+
+# 405: GAP-36 Kling reserve floor opt-in
+test_mutation 405 "Kling reserve floor requires explicit opt-in" \
+    "hfvg/budget.py" \
+    "tests/test_gap36_kling_reserve_floor.py::test_kling_reserve_floor_not_default" \
+    sed -i 's/if model == "kling" and self.reserve_floor:/if model == "kling":  # MUTATED: always apply floor/'
+
+# 406: GAP-37 unique recompose job IDs
+test_mutation 406 "recompose job IDs must be unique" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_gap37_unique_recompose_job_ids.py::test_refuse_committed_job_id_refuses_committed" \
+    sed -i 's/if row and row\[0\] == "committed":/if False and row and row[0] == "committed":  # MUTATED: allow duplicates/'
+
+# 407: GAP-38 codec guard heartbeat
+test_mutation 407 "codec guard sends heartbeat during encode" \
+    "hfvg/activities/audio_delivery.py" \
+    "tests/test_gap38_codec_guard_heartbeat.py::test_codec_guard_heartbeat_during_encode" \
+    sed -i 's/activity.heartbeat()/pass  # MUTATED: no heartbeat/'
+
+# 408: GAP-39 recompose grant max 2 at G_FINAL_CUT only
+test_mutation 408 "recompose grant limited to 2 at G_FINAL_CUT" \
+    "api/main.py" \
+    "tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_final_cut_passed" \
+    sed -i 's/if current_gate == "G_FINAL_CUT" and granted_count < 2:/if granted_count < 10:  # MUTATED: allow more grants/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
