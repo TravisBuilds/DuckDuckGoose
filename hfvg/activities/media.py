@@ -219,6 +219,15 @@ async def assemble_mute_edit(
     assembly_path = out_dir / MUTE_EDIT_NAME
     manifest_path = out_dir / MUTE_MANIFEST_NAME
 
+    recipe = load_edit_recipe(out_dir / EDIT_RECIPE_NAME)
+    if recipe and recipe["xfade_s"] > 0:
+        shortest = min((e["trim_out"] - e["trim_in"]) * recipe["speed"] for e in entries)
+        if recipe["xfade_s"] * 2 >= shortest:
+            raise ApplicationError(f"edit recipe xfade_s {recipe['xfade_s']} too long for a {shortest:.2f}s shot",
+                                   type="InvalidEditRecipe", non_retryable=True)
+    fps = recipe["fps"] if recipe else EDIT_FPS
+
+
     missing = [e["shot_id"] for e in entries if not Path(e["clip_path"]).is_file()]
     stand_ins: list[str] = []
     if _dry_run() and not missing:
@@ -298,7 +307,7 @@ async def assemble_mute_edit(
                     type="TrimOutOfRange", non_retryable=True,
                 )
             trim_out = min(trim_out, src_dur)
-            frames = max(1, round((trim_out - trim_in) * EDIT_FPS))
+            frames = max(1, round((trim_out - trim_in) * (recipe["speed"] if recipe else 1.0) * fps))
             norm = tmp / f"{idx:03d}_{sid}.mp4"
             await _run([
                 "ffmpeg", "-y", "-v", "error",
@@ -309,7 +318,7 @@ async def assemble_mute_edit(
             ], f"ffmpeg normalize {sid}")
             normalized.append(norm)
             clip_row = {
-                "id": sid, "seg_s": round(frames / EDIT_FPS, 6), "frames": frames,
+                "id": sid, "seg_s": round(frames / fps, 6), "frames": frames,
                 "trim_in": trim_in, "trim_out": round(trim_in + frames / EDIT_FPS, 6),
                 "source": e["clip_path"], "source_sha256": e["sha256"],
             }
