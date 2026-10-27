@@ -286,8 +286,16 @@ class BalanceMonitor:
         usage_api_spend = None
         try:
             usage_api_spend = await self._check_higgsfield_usage_api(recorded_at)
-        except Exception:
-            pass  # Usage API is optional
+        except Exception as e:
+            # Task 8: Log errors (redacted) instead of swallowing them
+            # Redact sensitive data from error message
+            error_msg = str(e)
+            # Redact API keys and tokens
+            import re
+            error_msg = re.sub(r'Key [^:]+:[^\s,]+', 'Key [REDACTED]', error_msg)
+            error_msg = re.sub(r'Bearer [^\s,]+', 'Bearer [REDACTED]', error_msg)
+            import logging
+            logging.getLogger(__name__).warning(f"Higgsfield usage API check failed: {error_msg}")
         
         # Estimated remaining = manual - max(ledger, usage)
         max_spend = max(ledger_spend, usage_api_spend or Decimal("0.0"))
@@ -315,13 +323,20 @@ class BalanceMonitor:
     
     async def _check_higgsfield_usage_api(self, since_unix: float) -> Decimal | None:
         """Query Higgsfield /models/usage for spend since a timestamp."""
-        api_id = config.get_higgsfield_api_id()
-        api_secret = config.get_higgsfield_api_secret()
+        # Parse HIGGSFIELD_API_KEY (format: "id:secret")
+        api_key = os.getenv("HIGGSFIELD_API_KEY", "").strip()
+        if not api_key:
+            return None
+        
+        if ":" not in api_key:
+            return None
+        
+        api_id, api_secret = api_key.split(":", 1)
         
         if not api_id or not api_secret:
             return None
         
-        api_base = config.get_higgsfield_api_base()
+        api_base = os.getenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
         url = f"{api_base}/models/usage"
         
         # Convert unix timestamp to date range (API requires start/end dates, max 31 days)
