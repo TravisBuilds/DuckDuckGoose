@@ -19,6 +19,10 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
     
+    # Disable network alerts
+    monkeypatch.delenv("BALANCE_ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("BALANCE_ALERT_SMTP_HOST", raising=False)
+    
     # Initialize tables
     from hfvg.studio_db import init_studio_db
     await init_studio_db(db_path)
@@ -56,9 +60,11 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
     with patch.object(HiggsfieldStillProvider, 'submit_image', new_callable=AsyncMock) as mock_submit, \
          patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
          patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
+         patch.object(HiggsfieldStillProvider, 'estimate_usd_and_credits', new_callable=AsyncMock) as mock_estimate_both, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
          patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
-         patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight:
+         patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight, \
+         patch('hfvg.activities.studio_generation.enforce_prompt_lint'):
         
         # Mock successful preflight
         mock_preflight.return_value = (True, "Balance OK")
@@ -66,6 +72,10 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
         # Mock estimates
         mock_estimate_usd.return_value = 50_000  # $0.05
         mock_estimate_credits.return_value = 0.5
+        mock_estimate_both.return_value = (50_000, 0.5)
+        
+        # Mock upload (returns empty list for uploaded refs)
+        mock_upload.return_value = []
         
         # Mock 403 error
         mock_response = AsyncMock()
@@ -88,7 +98,7 @@ async def test_403_releases_reservations_and_records_stop(tmp_path, monkeypatch)
                 prompt="test prompt",
                 version=1,
                 attempt=1,
-                resolution="720p",
+                resolution="1k",
                 quality="medium",
                 aspect_ratio="16:9",
                 refs=[],
@@ -133,6 +143,10 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
+    
+    # Disable network alerts
+    monkeypatch.delenv("BALANCE_ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("BALANCE_ALERT_SMTP_HOST", raising=False)
     
     # Initialize tables
     from hfvg.studio_db import init_studio_db
@@ -193,16 +207,22 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
     with patch.object(HiggsfieldStillProvider, 'submit_image', new_callable=AsyncMock) as mock_submit, \
          patch.object(HiggsfieldStillProvider, 'estimate_usd_micros', new_callable=AsyncMock) as mock_estimate_usd, \
          patch.object(HiggsfieldStillProvider, 'estimate_cost', new_callable=AsyncMock) as mock_estimate_credits, \
+         patch.object(HiggsfieldStillProvider, 'estimate_usd_and_credits', new_callable=AsyncMock) as mock_estimate_both, \
          patch.object(HiggsfieldStillProvider, 'upload_reference', new_callable=AsyncMock) as mock_upload, \
          patch('hfvg.studio_db.enforce_smoke_test_gate', new_callable=AsyncMock), \
          patch('hfvg.balance_monitor.BalanceMonitor.check_preflight_balance', new_callable=AsyncMock) as mock_preflight, \
-         patch('hfvg.credit_ledger.CreditLedger.persist_provider_job', new_callable=AsyncMock):
+         patch('hfvg.credit_ledger.CreditLedger.persist_provider_job', new_callable=AsyncMock), \
+         patch('hfvg.activities.studio_generation.enforce_prompt_lint'):
         
         # Setup mocks
         mock_submit.side_effect = mock_submit_fn
         mock_estimate_usd.return_value = 50_000  # $0.05
         mock_estimate_credits.return_value = 0.5
+        mock_estimate_both.return_value = (50_000, 0.5)
         mock_preflight.return_value = (True, "Balance OK")
+        
+        # Mock upload (returns empty list for uploaded refs)
+        mock_upload.return_value = []
         
         # First attempt: should fail with 403
         with pytest.raises(ApplicationError) as exc_info:
@@ -212,7 +232,7 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
                 prompt="test prompt",
                 version=1,
                 attempt=1,
-                resolution="720p",
+                resolution="1k",
                 quality="medium",
                 aspect_ratio="16:9",
                 refs=[],
@@ -246,7 +266,7 @@ async def test_resume_after_topup_no_double_charge(tmp_path, monkeypatch):
             prompt="test prompt",
             version=1,
             attempt=1,
-            resolution="720p",
+            resolution="1k",
             quality="medium",
             aspect_ratio="16:9",
             refs=[],
