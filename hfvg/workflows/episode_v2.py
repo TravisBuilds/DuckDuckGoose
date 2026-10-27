@@ -1280,7 +1280,11 @@ class EpisodeWorkflowV2:
             sig.append(row)
         # GAP-29: an edit-plan change (reused clip, dissolve) is not visible in the clip outcomes; a
         # reviewer rebuild request bumps the signature (absent: same signature as before).
-        return sig + [["edit_rebuilds", len(self.edit_rebuilds)]] if self.edit_rebuilds else sig
+        if self.edit_rebuilds:
+            sig = sig + [["edit_rebuilds", len(self.edit_rebuilds)]]
+        if self.assembly_rebuilds:
+            sig = sig + [["rebuilds", len(self.assembly_rebuilds)]]
+        return sig
 
     def _assembly_stale(self) -> bool:
         """The clips changed (e.g. a clip retry landed) since the edit was last assembled."""

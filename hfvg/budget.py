@@ -86,6 +86,30 @@ ELEVENLABS_CREDIT_USD_MICROS = 200
 JOB_TERMINAL_STATUSES = ("committed", "released")
 
 
+def effective_line_caps_usd_micros(policy, episode_id: str) -> dict[str, int]:
+    """The Higgsfield line caps init_episode_budget will create for ``episode_id`` (usd_micros).
+
+    Policy lines win (USD caps from ``budgets.usd.<ep>_lines_app_usd`` when present, else the
+    app-credit value converted); the standard lines the policy omits fall back to
+    DEFAULT_LINE_CAPS_USD_MICROS. Preflight checks THESE against the episode cap/stop, not the
+    defaults alone (Ep11: a $40 cap with policy caps was refused because the unused $44 defaults
+    exceeded it)."""
+    policy_lines = policy.get_higgsfield_budget(episode_id).get("lines", {}) if policy else {}
+    usd_caps = policy.get_usd_line_caps(episode_id) if policy else {}
+
+    def _cap(name, credits):
+        if name in usd_caps:
+            return usd_to_micros(str(usd_caps[name]))
+        return app_credits_to_usd_micros(credits)
+
+    caps = {name: (_cap(name, policy_lines[name]) if name in policy_lines else default)
+            for name, default in DEFAULT_LINE_CAPS_USD_MICROS.items()}
+    for name, credits in policy_lines.items():
+        if name not in caps:
+            caps[name] = _cap(name, credits)
+    return caps
+
+
 @dataclass(frozen=True)
 class BudgetSettings:
     episode_cap_usd_micros: int

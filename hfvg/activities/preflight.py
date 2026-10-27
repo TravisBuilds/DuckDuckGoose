@@ -259,7 +259,9 @@ async def preflight_validate_episode_activity(
     # Validate that the line caps this episode will get (policy for the episode, else the
     # defaults: BudgetLedger.effective_line_caps_usd_micros) fit within episode cap and stop
     settings = get_budget_settings()
-    default_total = sum(ledger.effective_line_caps_usd_micros(episode_id).values())
+    # The caps init_episode_budget will really create (policy lines, else defaults), not the
+    # defaults alone: a policy-capped episode below the $44 default total must not be refused.
+    default_total = sum(effective_line_caps_usd_micros(ledger.policy, episode_id).values())
     
     if default_total > settings.episode_cap_usd_micros:
         problems.append(

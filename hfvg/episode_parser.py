@@ -35,7 +35,7 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     # Find all table rows with shot data
     # Format: | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
     # Need to match rows that start with | number | shot_id | and end with | K or S |
-    pattern = r'\|\s*(\d+)\s*\|\s*([A-Z]\d+[a-zA-Z]*)\s*\|\s*([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])'
+    pattern = r'\|\s*(\d+)\s*\|\s*([A-Z]{1,3}\d+[a-zA-Z]*)\s*\|\s*([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])'
     
     for match in re.finditer(pattern, content, re.MULTILINE):
         shots.append(_build_shot(
