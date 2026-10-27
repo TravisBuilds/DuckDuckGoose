@@ -997,34 +997,27 @@ async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: 
     """Ep01 ending template: logo scaled to width_frac (or width_px) of the frame, centred, alpha
     fade-in over fade_in_s from ``start`` (default: the last visible_s of the picture). Optional
     darken_lower: the lower frac of the frame darkens by amount, fading in with the logo."""
+    info = await probe(mute)
+    v = next(s for s in info.get("streams", []) if s.get("codec_type") == "video")
+    w, h = int(v["width"]), int(v["height"])
     if start is None:
-        start = logo_start_s(logo, total_s)
-    w, h = master["width"], master["height"]
-    if logo.get("width_px"):
-        logo_w = logo["width_px"]
-    else:
-        logo_w = round(w * logo["width_frac"])
-    y_centre = round(h * logo["y_frac"])
-    fade_in = logo["fade_in_s"]
-    filters = [f"scale={logo_w}:-1:flags=lanczos", "format=rgba",
-               f"fade=t=in:st={start}:d={fade_in}:alpha=1"]
+        start = max(0.0, total_s - logo["visible_s"])
+    lw = int(logo["width_px"]) // 2 * 2 if logo.get("width_px") else int(w * logo["width_frac"]) // 2 * 2
+    base = "[0:v]"
+    pre = ""
     dk = logo.get("darken_lower")
-    if dk:
-        y1 = round(h * (1.0 - dk["frac"]))
-        amt = dk["amount"]
-        bg_filter = (f"[0:v]split[base][mask]; [mask]geq=r='0':g='0':b='0':a='if(lte(Y,{y1}),0,"
-                     f"({amt}*255)*(Y-{y1})/({h}-{y1}))',format=rgba,fade=t=in:st={start}:d={fade_in}:alpha=1[dark]; "
-                     f"[base][dark]overlay")
-    else:
-        bg_filter = "[0:v]"
-    vf = f"movie={logo['path']}:{','.join(filters)}[logo]; {bg_filter}[bg]; [bg][logo]overlay=(W-w)/2:{y_centre}-(h/2)"
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", mute, "-filter_complex", vf,
-           "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", out]
-    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.PIPE)
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise AudioProcessingError(f"logo overlay failed: {stderr.decode()[:500]}")
+    if dk and dk["amount"] > 0:
+        dh = int(h * dk["frac"]) // 2 * 2
+        pre = (f"color=c=black:s={w}x{dh}:r=24:d={total_s:.4f},format=rgba,"
+               f"colorchannelmixer=aa={dk['amount']:.3f},fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[dk];"
+               f"[0:v][dk]overlay=0:H-h:shortest=1:enable='gte(t,{start:.4f})'[bg];")
+        base = "[bg]"
+    graph = (pre + f"[1:v]scale={lw}:-1,format=rgba,fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[lg];"
+             f"{base}[lg]overlay=(W-w)/2:max(0\\,min(H-h\\,H*{logo.get('y_frac', 0.5):.4f}-h/2)):shortest=1:enable='gte(t,{start:.4f})',format=yuv420p[v]")
+    await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, "-loop", "1", "-t", f"{total_s:.4f}",
+                   "-i", logo["path"], "-filter_complex", graph, "-map", "[v]", "-an", "-c:v", "libx264",
+                   "-preset", str(master["preset"]), "-crf", str(master["crf"]), "-pix_fmt", "yuv420p",
+                   "-t", f"{total_s:.4f}", out], "logo overlay")
 
 
 async def mix_and_deliver(
@@ -1065,12 +1058,6 @@ async def mix_and_deliver(
     try:
         n = int(round(total_s * SR))
         logo_info = None
-        if plan.get("logo"):
-            heartbeat({"stage": "logo"})
-            pic = str(work / "picture_logo.mp4")
-            await overlay_logo(str(mute), plan["logo"], total_s, pic, plan["master"])
-            logo_info = {**plan["logo"], "start_s": round(max(0.0, total_s - plan["logo"]["visible_s"]), 4)}
-            mute = Path(pic)
         # ---- VO: tempo post step, durations, pickup match, placement
         tempo_lines = []
         for ln in lines:
@@ -1091,6 +1078,14 @@ async def mix_and_deliver(
         for ln in placed:
             ln["gain_db"] = ln["gain_db"] if ln.get("gain_db") is not None else auto.get(ln["id"], 0.0)
         placement = validate_placement(placed, total_s, plan["min_vo_gap_s"], plan.get("protected"))
+        if plan.get("logo"):
+            heartbeat({"stage": "logo"})
+            pic = str(work / "picture_logo.mp4")
+            start = logo_start_s(plan["logo"], total_s, placed)
+            await overlay_logo(str(mute), plan["logo"], total_s, pic, plan["master"], start=start)
+            logo_info = {**plan["logo"], "start_s": start,
+                         "hold_s": round(total_s - start - plan["logo"]["fade_in_s"], 4)}
+            mute = Path(pic)
         heartbeat({"stage": "vo_bus", "lines": len(placed)})
         vo_wav = str(work / "vo.wav")
         await build_vo_bus(placed, total_s, vo_wav, str(work))
