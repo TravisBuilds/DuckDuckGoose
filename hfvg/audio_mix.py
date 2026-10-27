@@ -37,6 +37,7 @@ ACTIVITY_FLOOR_DB = -45.0     # VO activity threshold (20 ms moving average of |
 PICKUP_MAX_GAIN_DB = 6.0
 DURATION_TOLERANCE_S = 0.1    # delivered file vs locked picture
 CUE_TOLERANCE_S = 0.05        # subtitle cue vs VO line placement
+SUBTITLE_SPEECH_SLACK_S = 0.1  # GAP-35: subtitle_dur may end at most this much before the last spoken word
 VO_BUS_DB = -2.5              # VO bus trim into the final mix
 MIX_MAKEUP_DB = 4.7           # pre-limiter makeup (reference chain)
 MASTER_LIMIT = 0.86           # master alimiter ceiling (linear)
@@ -170,6 +171,38 @@ def validate_min_gap(value: Any) -> float:
     return _num(value, "min_vo_gap_s", lo, hi)
 
 
+def validate_bed_dips(raw: Any) -> list[dict]:
+    """GAP-34: reviewer-flagged bursts in the beds. Each dip {start, end, gain_db, ramp_s} lowers the
+    music AND SFX buses (never VO) by gain_db between start and end (edit seconds), with linear
+    ramps of ramp_s outside the window so the dip itself does not click."""
+    out = []
+    for i, d in enumerate(raw or []):
+        if not isinstance(d, dict):
+            raise AudioInputError(f"bed_dips[{i}] must be an object")
+        a = _num(d.get("start"), f"bed_dips[{i}].start", 0.0)
+        b = _num(d.get("end"), f"bed_dips[{i}].end", 0.0)
+        if b <= a:
+            raise AudioInputError(f"bed_dips[{i}] window {a}-{b} is empty")
+        out.append({"start": a, "end": b,
+                    "gain_db": _num(d.get("gain_db"), f"bed_dips[{i}].gain_db", -30.0, -0.5),
+                    "ramp_s": _num(d.get("ramp_s", 0.15), f"bed_dips[{i}].ramp_s", 0.0, 2.0),
+                    "note": str(d.get("note") or "")})
+    return out
+
+
+def dip_envelope(n: int, dips: list[dict]) -> np.ndarray:
+    """GAP-34: linear gain curve (1.0 = untouched) for bed_dips; overlapping dips take the deepest."""
+    g = np.ones(n)
+    if n == 0 or not dips:
+        return g
+    t = np.arange(n) / SR
+    for d in dips:
+        r = max(d["ramp_s"], 1.0 / SR)
+        act = np.clip(np.minimum((t - (d["start"] - r)) / r, ((d["end"] + r) - t) / r), 0.0, 1.0)
+        g = np.minimum(g, np.power(10.0, (d["gain_db"] * act) / 20.0))
+    return g
+
+
 def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
     """Validate an audio plan and fill defaults. Relative paths resolve against base_dir."""
     if not isinstance(raw, dict):
@@ -193,6 +226,10 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "id": lid, "at": _num(ln.get("at"), f"vo.lines[{lid}].at", 0.0),
             "path": path, "text": text,
             "subtitle": ln.get("subtitle", text),
+            # GAP-35: optional subtitle length from the line start (cue ends with the spoken words when
+            # the locked file carries trailing room tone); never longer than the line, checked at mix
+            "subtitle_dur": None if ln.get("subtitle_dur") is None
+            else _num(ln["subtitle_dur"], f"{lid}.subtitle_dur", 0.2, 60.0),
             "take": int(_num(ln.get("take", 1), f"vo.lines[{lid}].take", 1, 20)),
             "gain_db": None if ln.get("gain_db") is None else _num(ln["gain_db"], f"{lid}.gain_db", -24, 12),
             "atempo": (None if ln.get("atempo") is None else _num(ln["atempo"], f"{lid}.atempo", 0.5, 2.0))
@@ -308,6 +345,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
         "pickup_match": bool(vo_raw.get("pickup_match", True)),
         "vo": {"voice_id": vo_raw.get("voice_id"), "model": vo_raw.get("model", "eleven_v3"), "lines": lines},
         "music": music, "sfx": sfx, "protected": protected, "loudness": loud,
+        "bed_dips": validate_bed_dips(raw.get("bed_dips")),  # GAP-34
         "phone": phone, "master": {**DEFAULT_MASTER, **(raw.get("master") or {})}, "subtitles": subs,
         "logo": logo,
     }
