@@ -192,6 +192,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "id": lid, "at": _num(ln.get("at"), f"vo.lines[{lid}].at", 0.0),
             "path": path, "text": text,
             "subtitle": ln.get("subtitle", text),
+            "take": int(_num(ln.get("take", 1), f"vo.lines[{lid}].take", 1, 20)),
             "gain_db": None if ln.get("gain_db") is None else _num(ln["gain_db"], f"{lid}.gain_db", -24, 12),
             "atempo": (None if ln.get("atempo") is None else _num(ln["atempo"], f"{lid}.atempo", 0.5, 2.0))
             if "atempo" in ln else (None if ln.get("path") else vo_atempo),
@@ -234,6 +235,9 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "duck_db": _num(c.get("duck_db", 0.0), f"sfx[{cid}].duck_db", -30, 0),
             "fade_in_s": _num(c.get("fade_in_s", 0.01), f"sfx[{cid}].fade_in_s", 0.0),
             "fade_out_s": _num(c.get("fade_out_s", 0.05), f"sfx[{cid}].fade_out_s", 0.0),
+            # optional 2-pole lowpass applied twice (library beds made softer / more distant)
+            "lowpass_hz": None if c.get("lowpass_hz") is None
+            else _num(c["lowpass_hz"], f"sfx[{cid}].lowpass_hz", 100.0, 20000.0),
         })
     protected = []
     for w in raw.get("protected") or []:
@@ -273,6 +277,19 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             # vertical centre of the logo as a fraction of frame height (0.5 = centred, Ep01 template)
             "y_frac": _num(lg.get("y_frac", 0.5), "logo.y_frac", 0.0, 1.0),
         }
+        # Optional: px width instead of width_frac; start the fade a set gap after a VO line ends
+        # (instead of total - visible_s); a soft darkening of the lower frame fading in with it.
+        if lg.get("width_px") is not None:
+            logo["width_px"] = int(_num(lg["width_px"], "logo.width_px", 16, 4096))
+        if lg.get("after_vo_line"):
+            logo["after_vo_line"] = str(lg["after_vo_line"])
+            logo["after_vo_gap_s"] = _num(lg.get("after_vo_gap_s", 0.6), "logo.after_vo_gap_s", 0.0, 10.0)
+        if lg.get("min_hold_s") is not None:
+            logo["min_hold_s"] = _num(lg["min_hold_s"], "logo.min_hold_s", 0.0, 60.0)
+        if lg.get("darken_lower"):
+            dk = lg["darken_lower"]
+            logo["darken_lower"] = {"frac": _num(dk.get("frac", 0.5), "logo.darken_lower.frac", 0.05, 1.0),
+                                    "amount": _num(dk.get("amount", 0.15), "logo.darken_lower.amount", 0.0, 0.9)}
     subs = {**DEFAULT_SUBTITLES, **(raw.get("subtitles") or {})}
     if subs.get("ass_style") is not None:
         st = str(subs["ass_style"])
