@@ -26,10 +26,21 @@ jobs:
       with:
         node-version: '20'
 
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-ffmpeg-${{ hashFiles('.github/workflows/test.yml') }}
+    
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        # Retry apt operations to prevent 15+ minute install failures
+        for i in 1 2 3; do
+          sudo apt-get update && break || sleep 5
+        done
+        for i in 1 2 3; do
+          sudo apt-get install -y ffmpeg && break || sleep 5
+        done
 
     - name: Install dependencies
       run: |
@@ -172,10 +183,21 @@ jobs:
         cache: pip
         cache-dependency-path: pyproject.toml
 
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-ffmpeg-${{ hashFiles('.github/workflows/test.yml') }}
+    
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        # Retry apt operations to prevent 15+ minute install failures
+        for i in 1 2 3; do
+          sudo apt-get update && break || sleep 5
+        done
+        for i in 1 2 3; do
+          sudo apt-get install -y ffmpeg && break || sleep 5
+        done
 
     - name: Install dependencies
       run: |
