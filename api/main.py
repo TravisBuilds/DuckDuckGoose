@@ -2193,6 +2193,35 @@ async def recompose_decision(
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
 
 
+class RecomposeGrantRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000)
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose/grant")
+async def grant_recompose(
+    episode_id: str,
+    shot_id: str,
+    request: RecomposeGrantRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-39: reviewer grant of ONE extra recompose for a shot whose allowance is used up (no spend
+    here; the recompose itself still goes through every paid guard)."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    result = await _execute_episode_update(
+        episode_id, "grant_recompose", [shot_id, request.reason.strip()], "Recompose grant")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+            (episode_id, "grant_recompose", f"Shot {shot_id} recompose grant: {request.reason.strip()}", "admin"))
+        await db.commit()
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
+
+
 class ShotEditRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000)
     trim_in: float | None = Field(None, ge=0)

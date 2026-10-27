@@ -101,6 +101,9 @@ class EpisodeWorkflowV2:
         self.recompose_handles: dict[str, Any] = {}
         self.recompose_plans: dict[str, dict] = {}
         self.recompose_log: list[dict] = []
+        # GAP-39: reviewer-granted extra recomposes past MAX_RECOMPOSES_PER_SHOT
+        self.recompose_grants: dict[str, int] = {}  # shot_id -> grants count
+        self.recompose_grant_log: list[dict] = []
         # GAP-22: reviewer edit overrides at G_FINAL_CUT: shot_id -> {"drop": True} or {"trim_in", "trim_out"}
         self.edit_overrides: dict[str, dict] = {}
         self.edit_override_log: list[dict] = []
@@ -2215,6 +2218,9 @@ class EpisodeWorkflowV2:
 
     # ---------------------------------------------------------------- GAP-21 recompose
     MAX_RECOMPOSES_PER_SHOT = 2
+    # GAP-39: reviewer-granted extra recomposes
+    MAX_RECOMPOSE_GRANTS_PER_SHOT = 2
+    
     # GAP-24: errors raised by the pre-spend gates (prompt lint, moderation lint, preflight): no
     # estimate/reserve/provider call was made, so the attempt does not count toward the max
     PRE_SPEND_REFUSALS = ("PromptLintError", "ModerationLintError", "PreflightError", "RoundBudgetError")
@@ -2225,6 +2231,10 @@ class EpisodeWorkflowV2:
         err = str(result.get("error") or "")
         return (result.get("status") == "failed" and not result.get("still_url")
                 and any(k in err for k in cls.PRE_SPEND_REFUSALS))
+
+    def recompose_allowance(self, shot_id: str) -> int:
+        """GAP-39: effective recompose limit including grants."""
+        return self.MAX_RECOMPOSES_PER_SHOT + int(self.recompose_grants.get(shot_id, 0))
 
     def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list) -> str | None:
         """Why recompose_shot is not allowed right now (None = allowed). No side effects."""
@@ -2248,8 +2258,10 @@ class EpisodeWorkflowV2:
             return "a clip retry is pending for this shot"
         if self.pending_recompose:
             return f"a recompose is already pending for: {', '.join(sorted(self.pending_recompose))}"
-        if self.recompose_counts.get(shot_id, 0) >= self.MAX_RECOMPOSES_PER_SHOT:
-            return f"max recomposes per shot ({self.MAX_RECOMPOSES_PER_SHOT}) reached"
+        allowed = self.recompose_allowance(shot_id)
+        if self.recompose_counts.get(shot_id, 0) >= allowed:
+            return (f"max recomposes per shot ({allowed}) reached"
+                    + ("" if allowed > self.MAX_RECOMPOSES_PER_SHOT else "; a reviewer can grant one more with grant_recompose"))
         return None
 
     @workflow.update
@@ -2337,6 +2349,44 @@ class EpisodeWorkflowV2:
         problem = self._recompose_problem(shot_id, reason, prompt, refs)
         if problem:
             raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
+
+    # ---------------------------------------------------------------- GAP-39 reviewer-granted recompose
+
+    def _grant_recompose_problem(self, shot_id: str, reason: str) -> str | None:
+        """Why grant_recompose is not allowed right now (None = allowed)."""
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            return "only while parked at G_FINAL_CUT"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required"
+        if shot_id not in self.launched_shot_plans:
+            return "unknown shot (no still launched in this episode)"
+        if self.recompose_counts.get(shot_id, 0) < self.recompose_allowance(shot_id):
+            return "the shot still has a recompose left; no grant needed"
+        if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
+            return f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached"
+        return None
+
+    @workflow.update
+    async def grant_recompose(self, shot_id: str, reason: str) -> dict:
+        """GAP-39: allow ONE more recompose for a shot whose allowance is used up (reviewer, reason)."""
+        problem = self._grant_recompose_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
+        self.recompose_grants[shot_id] = int(self.recompose_grants.get(shot_id, 0)) + 1
+        row = {"shot_id": shot_id, "reason": reason.strip(), "grants": self.recompose_grants[shot_id],
+               "allowance": self.recompose_allowance(shot_id), "used": self.recompose_counts.get(shot_id, 0)}
+        self.recompose_grant_log.append(row)
+        workflow.logger.info(f"Recompose grant for {shot_id}: allowance now {row['allowance']} ({reason})")
+        return dict(row)
+
+    @grant_recompose.validator
+    def validate_grant_recompose(self, shot_id: str, reason: str):
+        """Validator for grant_recompose update."""
+        problem = self._grant_recompose_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
 
     def _recompose_decision_problem(self, shot_id: str, reason: str) -> str | None:
         rc = self.pending_recompose.get(shot_id)
