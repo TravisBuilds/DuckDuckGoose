@@ -585,6 +585,16 @@ def pickup_gains(levels: dict[str, float], max_gain_db: float = PICKUP_MAX_GAIN_
     return gains
 
 
+DUCK_MODES = ("activity", "window")
+
+
+def _duck_mode(v, cid: str) -> str:
+    """sfx duck_mode: "activity" follows the VO signal (default); "window" holds for each line."""
+    if v not in DUCK_MODES:
+        raise AudioInputError(f"sfx {cid}.duck_mode must be one of {DUCK_MODES}")
+    return v
+
+
 def duck_envelope(n: int, windows: list[tuple[float, float]], duck_db: float,
                   pre_s: float = 0.15, attack_s: float = 0.3, post_s: float = 0.25,
                   release_s: float = 0.5) -> np.ndarray:
