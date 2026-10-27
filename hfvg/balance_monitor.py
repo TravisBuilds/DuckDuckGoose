@@ -233,8 +233,9 @@ class BalanceMonitor:
             
             ledger_row = await (await db.execute(
                 "SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt "
+                "JOIN budget_lines bl ON bt.line_id = bl.line_id "
                 "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? "
-                "AND bt.line_name NOT LIKE 'el_%'",
+                "AND bl.line_name NOT LIKE 'el_%'",
                 (after_txn_id,)
             )).fetchone()
             ledger_spend_micros = ledger_row[0] if ledger_row else 0
