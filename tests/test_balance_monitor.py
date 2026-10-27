@@ -399,5 +399,3 @@ async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
         # Should block due to staleness
         assert not passed, "Preflight gate should block when balance is stale"
         assert "stale" in reason.lower()
-    assert d["age_seconds"] == 123.45
-    assert d["details"] == {"key": "value"}
