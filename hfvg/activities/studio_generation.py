@@ -299,13 +299,14 @@ async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id:
 
 @activity.defn
 async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: str, hold_key: str,
-                                      model: str, duration: float, retry_key: str) -> dict:
+                                      model: str, duration: float, retry_key: str,
+                                      seedance_resolution: str | None = None) -> dict:
     """Read-only pre-check for EpisodeWorkflowV2.retry_clip (before the retry child starts): would
     this paid clip retry fit the round cap / per-shot retry limit / episode stop? Uses the offline
     rate-table estimate (no provider call). Raises ApplicationError(type="RoundBudgetError")."""
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = BudgetLedger(db_path)
-    amount = clip_estimate_usd_micros(model, None, duration)
+    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)
     try:
         result = await ledger.authorize_round_spend(
             episode_id, round_id, shot_id, hold_key, amount, retry_key=retry_key,

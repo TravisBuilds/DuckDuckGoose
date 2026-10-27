@@ -2207,7 +2207,7 @@ class EpisodeWorkflowV2:
             check = await workflow.execute_activity(
                 "check_round_budget_activity",
                 args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
-                      params.get("duration", 5.0), f"c{n}"],
+                      params.get("duration", 5.0), f"c{n}", params.get("seedance_resolution")],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
@@ -2429,7 +2429,7 @@ class EpisodeWorkflowV2:
                 check = await workflow.execute_activity(
                     "check_round_budget_activity",
                     args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
-                          params.get("duration", 5.0), f"rc{rc['n']}"],
+                          params.get("duration", 5.0), f"rc{rc['n']}", params.get("seedance_resolution")],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
