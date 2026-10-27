@@ -53,17 +53,19 @@ BalanceSource = Literal["live", "derived", "manual"]
 class ProviderBalance:
     """Balance snapshot for one provider."""
     provider: str
-    balance_usd: Decimal
+    balance_usd: Decimal | None  # None for unknown/error states (e.g. 401 auth failures)
     source: BalanceSource
     age_seconds: float
     details: dict[str, Any]
     
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             **asdict(self),
-            "balance_usd": str(self.balance_usd),
-            "balance_usd_micros": int(self.balance_usd * MICROS_PER_USD),
+            "balance_usd": str(self.balance_usd) if self.balance_usd is not None else None,
         }
+        if self.balance_usd is not None:
+            result["balance_usd_micros"] = int(self.balance_usd * MICROS_PER_USD)
+        return result
 
 
 @dataclass
@@ -101,12 +103,16 @@ class BalanceMonitor:
             el_balance = await self._check_elevenlabs_balance()
             providers["elevenlabs"] = el_balance
             
-            # Check thresholds
-            balance_usd = float(el_balance.balance_usd)
-            if balance_usd < BALANCE_CRITICAL_THRESHOLD_USD:
-                errors.append(f"ElevenLabs balance critically low: ${balance_usd:.2f} < ${BALANCE_CRITICAL_THRESHOLD_USD:.2f}")
-            elif balance_usd < BALANCE_LOW_THRESHOLD_USD:
-                warnings.append(f"ElevenLabs balance low: ${balance_usd:.2f} < ${BALANCE_LOW_THRESHOLD_USD:.2f}")
+            # Check thresholds - skip if balance is None (unknown/error state like 401)
+            if el_balance.balance_usd is not None:
+                balance_usd = float(el_balance.balance_usd)
+                if balance_usd < BALANCE_CRITICAL_THRESHOLD_USD:
+                    errors.append(f"ElevenLabs balance critically low: ${balance_usd:.2f} < ${BALANCE_CRITICAL_THRESHOLD_USD:.2f}")
+                elif balance_usd < BALANCE_LOW_THRESHOLD_USD:
+                    warnings.append(f"ElevenLabs balance low: ${balance_usd:.2f} < ${BALANCE_LOW_THRESHOLD_USD:.2f}")
+            elif "error" in el_balance.details:
+                # Unknown balance (e.g. 401) - warn but don't treat as critical
+                warnings.append(f"ElevenLabs balance check: {el_balance.details['error']}")
         except Exception as e:
             errors.append(f"ElevenLabs balance check failed: {e}")
         
@@ -161,10 +167,11 @@ class BalanceMonitor:
             resp = await client.get(url, headers={"xi-api-key": api_key})
             
             if resp.status_code == 401:
-                # Defect 12: graceful 401 handling (auth/permissions) as $0 balance + warning
+                # Defect 12: 401 is status 'unknown' with NO numeric balance - doesn't block paid steps
+                # or trigger critical alerts. A warning about the bad key is fine.
                 return ProviderBalance(
                     provider="elevenlabs",
-                    balance_usd=Decimal("0.0"),
+                    balance_usd=None,  # Unknown, not $0
                     source="live",
                     age_seconds=0.0,
                     details={

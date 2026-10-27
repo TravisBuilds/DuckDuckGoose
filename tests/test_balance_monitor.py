@@ -56,7 +56,7 @@ async def test_elevenlabs_balance_check_success(test_db):
 
 @pytest.mark.asyncio
 async def test_elevenlabs_balance_check_401_graceful(test_db):
-    """Test ElevenLabs balance check handles 401 gracefully."""
+    """Test ElevenLabs balance check handles 401 gracefully - status unknown, no numeric balance."""
     monitor = BalanceMonitor(test_db)
     
     mock_response = MagicMock()
@@ -69,7 +69,8 @@ async def test_elevenlabs_balance_check_401_graceful(test_db):
         
         assert balance.provider == "elevenlabs"
         assert balance.source == "live"
-        assert float(balance.balance_usd) == 0.0
+        # Defect 12: 401 must NOT report a $0 balance - it's status 'unknown' with no numeric balance
+        assert balance.balance_usd is None, "401 must return None balance, not $0"
         assert "401 Unauthorized" in balance.details["error"]
 
 
