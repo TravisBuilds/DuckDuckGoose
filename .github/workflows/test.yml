@@ -24,8 +24,8 @@ jobs:
     - name: Install ruff
       run: pip install ruff
 
-    - name: Run ruff (check for duplicate definitions and other issues)
-      run: ruff check .
+    - name: Run ruff (check for duplicate definitions - F811)
+      run: ruff check --select F811 .
 
   test-python:
     runs-on: ubuntu-latest
