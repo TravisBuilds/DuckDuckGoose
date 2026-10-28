@@ -443,7 +443,7 @@ def _plan(**kw):
 
 
 @pytest.mark.asyncio
-async def test_shot_workflow_passes_refs_to_still_provider_activity():
+async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity():
     calls = await _run_shot_workflow(_plan())
     args = calls["still"]
     assert args[4] == ["/refs/a.png", "/refs/b.png"]  # refs
@@ -639,8 +639,8 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
-async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_path, monkeypatch):
-    """M-85, M-86: ShotWorkflow passes refs and missing_refs to still activity."""
+async def test_shot_workflow_passes_refs_and_missing_refs_captured_in_stub_activity(tmp_path, monkeypatch):
+    """M-85, M-86: ShotWorkflow passes refs and missing_refs to still activity (stub capture test)."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from temporalio import activity

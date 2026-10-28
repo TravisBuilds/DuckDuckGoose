@@ -7,6 +7,26 @@ on:
     branches: [ main ]
 
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install ruff
+      run: pip install ruff
+
+    - name: Run ruff (check for duplicate definitions and other issues)
+      run: ruff check .
+
   test-python:
     runs-on: ubuntu-latest
     timeout-minutes: 20

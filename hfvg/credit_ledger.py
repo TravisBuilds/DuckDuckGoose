@@ -103,44 +103,6 @@ class CreditLedger:
             
             await db.commit()
     
-    async def acquire_run_lock(
-        self, episode_id: str, workflow_id: str, account_identifier: str = "default"
-    ) -> dict:
-        """
-        Acquire account-level run lock (one episode per account at a time).
-        
-        Args:
-            episode_id: Episode identifier
-            workflow_id: Temporal workflow ID
-            account_identifier: Account/org identifier
-        
-        Returns:
-            dict with acquired (bool), existing_episode (str|None)
-        """
-        async with aiosqlite.connect(self.db_path, uri=True, isolation_level="IMMEDIATE") as db:
-            # Check for existing lock on this account
-            async with db.execute(
-                "SELECT episode_id FROM run_locks WHERE account_identifier = ?",
-                (account_identifier,)
-            ) as cur:
-                row = await cur.fetchone()
-                if row:
-                    return {"acquired": False, "existing_episode": row[0]}
-            
-            # Acquire lock
-            await db.execute(
-                "INSERT OR REPLACE INTO run_locks (episode_id, workflow_id, locked_at, account_identifier) VALUES (?, ?, ?, ?)",
-                (episode_id, workflow_id, _now_iso(), account_identifier)
-            )
-            await db.commit()
-        
-        return {"acquired": True, "existing_episode": None}
-    
-    async def release_run_lock(self, episode_id: str):
-        """Release account-level run lock."""
-        async with aiosqlite.connect(self.db_path, uri=True) as db:
-            await db.execute("DELETE FROM run_locks WHERE episode_id = ?", (episode_id,))
-            await db.commit()
     
     async def persist_provider_job(self, job_id: str, provider_job_id: str, provider: str = "higgsfield") -> None:
         """
