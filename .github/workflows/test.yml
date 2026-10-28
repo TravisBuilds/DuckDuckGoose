@@ -237,6 +237,7 @@ jobs:
         REDGREEN_SHARD: ${{ matrix.shard }}
         REDGREEN_TOTAL_SHARDS: "4"
         REDGREEN_RESULTS_FILE: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
+        REDGREEN_ARTIFACTS_DIR: ${{ runner.temp }}/redgreen-artifacts-shard-${{ matrix.shard }}
       run: |
         find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
         rm -rf .pytest_cache 2>/dev/null || true
@@ -249,6 +250,14 @@ jobs:
         name: redgreen-results-shard-${{ matrix.shard }}
         path: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
         if-no-files-found: error
+
+    - name: Upload pytest artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: redgreen-pytest-logs-shard-${{ matrix.shard }}
+        path: ${{ runner.temp }}/redgreen-artifacts-shard-${{ matrix.shard }}
+        if-no-files-found: ignore
 
   redgreen-summary:
     # The red-green status is this job's artifact + step summary; no numbers are committed.

@@ -140,10 +140,17 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    # 180s timeout accounts for CPU starvation under parallel shard execution
-    # Time-skipping workflow tests can take >120s under heavy parallel load
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 -o timeout_method=signal -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
+    # 180s timeout with thread method to dump stacks on hang (not just kill)
+    # Thread method prints thread/asyncio stacks when timeout expires, helping diagnose hangs
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=thread -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
+    
+    # Preserve output for CI artifacts on timeout or baseline failure
+    if [ $exit_code -ne 0 ] && [ -n "$REDGREEN_ARTIFACTS_DIR" ]; then
+        mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+        local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
+        cp "$tmp_output" "$REDGREEN_ARTIFACTS_DIR/pytest_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+    fi
     
     # Check for collection errors or syntax errors (INVALID mutation)
     if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then

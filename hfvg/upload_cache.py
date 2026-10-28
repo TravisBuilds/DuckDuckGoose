@@ -135,9 +135,6 @@ class UploadCache:
         """
         Try to claim an upload slot for concurrent deduplication.
         
-        Uses BEGIN IMMEDIATE for exclusive lock to prevent race conditions
-        in concurrent uploads of the same file.
-        
         Returns:
             (claimed, sha256): If claimed=True, caller should upload. If False, wait and retry get_cached_url.
         """
@@ -145,10 +142,8 @@ class UploadCache:
         created_at = datetime.now(timezone.utc).isoformat()
         
         # Try to insert a placeholder with special "uploading://" URL (key: sha256+version)
-        # Use BEGIN IMMEDIATE to get exclusive write lock before INSERT, preventing race
         async with aiosqlite.connect(self.db_path) as db:
             try:
-                await db.execute("BEGIN IMMEDIATE")
                 await db.execute(
                     """
                     INSERT INTO upload_cache 
@@ -161,7 +156,6 @@ class UploadCache:
                 return (True, sha256)  # Claimed! Caller must upload
             except aiosqlite.IntegrityError:
                 # Another upload already claimed this slot
-                await db.rollback()
                 return (False, sha256)  # Wait for the other upload to complete
     
     async def wait_for_concurrent_upload(self, file_path: str, version: int, sha256: str, timeout: float = 30.0) -> str | None:

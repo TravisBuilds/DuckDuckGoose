@@ -213,6 +213,10 @@ async def test_insufficient_balance_pause_resume():
             # Wait for clip to hit pause
             await env.sleep(1)
             
+            # Verify clip actually paused (submit_clip called once and failed)
+            assert activity_call_count["submit_clip"] == 1, f"Clip should have attempted once before pause, got {activity_call_count['submit_clip']}"
+            assert activity_call_count["commit"] == 1, "Commit should still be 1 (still only) while clip is paused"
+            
             # Send second resume signal for clip phase
             await handle.signal("resume_balance")
             
