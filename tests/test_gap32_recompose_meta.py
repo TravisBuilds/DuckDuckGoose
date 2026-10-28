@@ -71,6 +71,11 @@ def test_recompose_still_plans_query():
     """recompose_still_plans returns shot metadata for headcount check."""
     workflow = EpisodeWorkflowV2()
     
+    # Verify the method is registered as a workflow query
+    from temporalio import workflow as wf
+    assert hasattr(workflow.recompose_still_plans, "__temporal_query_definition"), \
+        "recompose_still_plans must be decorated with @workflow.query"
+    
     # Empty when no recomposes
     assert workflow.recompose_still_plans() == {}
     
