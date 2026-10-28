@@ -140,22 +140,41 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    # 180s timeout with thread method to dump stacks on hang (not just kill)
-    # Thread method prints thread/asyncio stacks when timeout expires, helping diagnose hangs
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=thread -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
+    # 180s timeout with signal method (kills cleanly, writes junit)
+    # faulthandler_timeout (160s) dumps stacks 20s before kill for diagnostics
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
     
-    # Preserve output for CI artifacts on timeout or baseline failure
-    if [ $exit_code -ne 0 ] && [ -n "$REDGREEN_ARTIFACTS_DIR" ]; then
-        mkdir -p "$REDGREEN_ARTIFACTS_DIR"
-        local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
-        cp "$tmp_output" "$REDGREEN_ARTIFACTS_DIR/pytest_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+    # Check for timeout: junit "Failed: Timeout" or missing junit with timeout banner
+    local is_timeout=false
+    if grep -q "Failed: Timeout" "$junit_xml" 2>/dev/null || \
+       ([ ! -f "$junit_xml" ] && grep -q "FAILED.*Timeout\|timeout.*exceeded\|timed out" "$tmp_output"); then
+        is_timeout=true
     fi
     
+    # Preserve output for CI artifacts only on:
+    # - Baseline failures (determined by caller context)
+    # - Non-AssertionError mutant failures (checked below)
+    # - Timeouts (any phase)
+    
     # Check for collection errors or syntax errors (INVALID mutation)
-    if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+    if [ ! -f "$junit_xml" ] && [ "$is_timeout" = false ]; then
+        if grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+            rm -f "$junit_xml" "$tmp_output"
+            echo "INVALID"
+            return 0
+        fi
+    fi
+    
+    # Handle timeout case explicitly
+    if [ "$is_timeout" = true ]; then
+        if [ -n "$REDGREEN_ARTIFACTS_DIR" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
+            cp "$tmp_output" "$REDGREEN_ARTIFACTS_DIR/pytest_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+        fi
         rm -f "$junit_xml" "$tmp_output"
-        echo "INVALID"
+        echo "TIMEOUT"
         return 0
     fi
     
@@ -336,6 +355,16 @@ test_mutation() {
         return
     fi
     
+    if [ "$baseline_result" = "TIMEOUT" ]; then
+        echo -e "${RED}✗ TIMEOUT: Baseline test timed out${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Baseline timeout")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
     if [ "$baseline_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
         MUTATION_NAMES+=("$num. $name")
@@ -378,6 +407,17 @@ test_mutation() {
         MUTATION_RESULTS+=("INVALID")
         MUTATION_REASONS+=("Syntax error")
         INVALID_COUNT=$((INVALID_COUNT + 1))
+        return
+    fi
+    
+    if [ "$mutated_result" = "TIMEOUT" ]; then
+        echo -e "${RED}✗ TIMEOUT: Mutated test timed out${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Mutant timeout")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
         return
     fi
     
@@ -542,6 +582,19 @@ test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
+
+# Timeout probes: verify hung baseline and hung mutant are classified as TIMEOUT
+test_probe "T1" "Hung baseline is TIMEOUT (not INVALID)" \
+    "FAIL" \
+    "tests/test_redgreen_timeout_probes.py" \
+    "tests/test_redgreen_timeout_probes.py::test_hung_baseline" \
+    true  # no mutation needed for baseline hang
+
+test_probe "T2" "Hung mutant is TIMEOUT (not ineffective)" \
+    "FAIL" \
+    "tests/test_redgreen_timeout_probes.py" \
+    "tests/test_redgreen_timeout_probes.py::test_hung_mutant" \
+    sed -i 's/pass  # baseline is fast/import time; time.sleep(999)  # MUTATED: hang/'
 
 echo ""
 log_header "PRODUCTION SAFETY TESTS"

@@ -936,6 +936,11 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 st, ok = await wait_for(handle, lambda s: s.get("shot_attempts", {}).get("A01") == 2)
                 assert ok, f"retry not recorded: {st}"
 
+                # Wait for pending_retries to be empty before approving G2
+                # (validate_approve_g2_scene_stills refuses while pending_retries is non-empty)
+                st, ok = await wait_for(handle, lambda s: len(s.get("pending_retries", [])) == 0, budget_s=15.0)
+                assert ok, f"pending_retries never cleared: {st}"
+                
                 # Approve G2 -> parent signals stills_approved (incl. the pending retry), the retry
                 # child finishes, and the clip loop awaits the latest handle. No time skipping: the
                 # workflow must get to G_FINAL_CUT on its own within the wall-clock budget below
