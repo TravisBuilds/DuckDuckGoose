@@ -191,26 +191,21 @@ async def test_insufficient_balance_pause_resume():
             # Send resume signal
             await handle.signal("resume_balance")
             
-            # Wait for workflow to process resume and retry
-            await env.sleep(3)
+            # Wait for workflow to process resume and retry, then approve stills
+            await handle.signal("stills_approved")
             
-            # Verify workflow resumed and retried
-            status = await handle.query("get_status")
-            assert status == "running", f"Expected running after resume, got {status}"
+            # Wait for workflow to complete
+            result = await handle.result()
             
             # Verify: submit was called exactly twice (once failed, once succeeded)
             assert activity_call_count["submit_still"] == 2, f"Expected 2 submit calls after resume, got {activity_call_count['submit_still']}"
             
             # Verify: commit was called exactly once (no double charge)
-            assert activity_call_count["commit"] == 1, f"Expected 1 commit call after resume, got {activity_call_count['commit']}"
+            assert activity_call_count["commit"] == 1, f"Expected 1 commit call, got {activity_call_count['commit']}"
             
-            # Verify workflow can proceed: send stills_approved and check it reaches clip phase or completes
-            await handle.signal("stills_approved")
-            await env.sleep(2)
-            
-            # Workflow should have progressed past G2 wait (either waiting for clip or completed)
-            state = await handle.query("get_state")
-            assert state.get("still_status") == "done", "Still should be marked done after resume and approval"
+            # Verify workflow completed successfully
+            assert result["status"] in ["completed", "done"], f"Workflow should complete, got {result}"
+            assert result.get("still_url") is not None, "Still URL should be present"
 
 
 @pytest.mark.asyncio
@@ -280,15 +275,10 @@ async def test_insufficient_balance_clip_pause_resume():
             # Resume
             await handle.signal("resume_balance")
             
-            # Wait for retry to complete
-            await env.sleep(3)
+            # Wait for completion
+            result = await handle.result()
             
-            # Verify clip submit called twice
-            assert activity_call_count["submit_clip"] == 2, f"Expected 2 clip submits after resume, got {activity_call_count['submit_clip']}"
-            
-            # Verify only 2 commits total (still + clip, no double charge)
-            assert activity_call_count["commit"] == 2, f"Expected 2 commits (still + clip), got {activity_call_count['commit']}"
-            
-            # Verify workflow progressed successfully: clip should be done
-            state = await handle.query("get_state")
-            assert state.get("clip_status") == "done", "Clip should be marked done after resume and successful retry"
+            # Verify clip submit called twice, but only 2 commits total (still + clip, no double charge)
+            assert activity_call_count["submit_clip"] == 2, f"Expected 2 clip submits, got {activity_call_count['submit_clip']}"
+            assert activity_call_count["commit"] == 2, f"Expected 2 commits (still + clip), got {activity_call_count['commit']}"  # One for still, one for clip
+            assert result["status"] in ["completed", "done"], f"Workflow should complete, got {result}"

@@ -338,8 +338,8 @@ async def test_gc01_counts_spend_since_balance_entry():
 
 
 @pytest.mark.asyncio
-async def test_balance_status_excludes_elevenlabs_spend():
-    """Task 10: Balance status only counts Higgsfield spend, excludes el_* ElevenLabs lines."""
+async def test_balance_status_excludes_elevenlabs_spend_with_3_dollar_higgsfield():
+    """Task 10: Balance status only counts Higgsfield spend, excludes el_* ElevenLabs lines (3.00 HF, 2.00 EL case)."""
     ledger, path = create_test_ledger()
     try:
         # Set up Higgsfield line and ElevenLabs line
@@ -516,8 +516,8 @@ async def test_commit_overage_spends_actual_not_reserved():
 
 
 @pytest.mark.asyncio
-async def test_balance_status_excludes_elevenlabs_spend():
-    """Mutation #400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines)."""
+async def test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield():
+    """Mutation #400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines) (100k HF, 50k EL case)."""
     ledger, path = create_test_ledger()
     try:
         # Set manual balance (high enough to avoid headroom checks)

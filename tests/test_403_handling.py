@@ -242,20 +242,16 @@ async def test_403_auth_error_not_treated_as_insufficient_balance(tmp_path, monk
                 review_round=None,
                 tier=None,
             )
-        except ApplicationError as e:
-            error_raised = True
-            # Should NOT be InsufficientBalance for non-balance 403s
-            assert e.type != "InsufficientBalance", \
-                f"403 without 'insufficient balance' text should NOT be InsufficientBalance, got: {e.type}"
         except ValueError as e:
             error_raised = True
             is_value_error = True
-            # Correct: non-balance 403 errors raise ValueError (line 813)
+            # Correct: non-balance 403 errors raise ValueError
             assert "403" in str(e), f"Expected 403 in error message, got: {e}"
             assert "Authentication" in str(e), f"Expected 'Authentication' in error message, got: {e}"
         
-        # Must raise some error
-        assert error_raised, "Expected an error to be raised for 403"
+        # Must raise ValueError (not ApplicationError)
+        assert error_raised, "Expected ValueError to be raised for non-balance 403"
+        assert is_value_error, "Expected ValueError, not ApplicationError"
         
         # Verify NO balance stop was recorded (only InsufficientBalance should record stops)
         monitor = BalanceMonitor(db_path)

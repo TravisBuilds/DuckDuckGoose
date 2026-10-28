@@ -413,9 +413,13 @@ async def test_retry_shot_respects_max_retries():
             assert state["shot_attempts"]["A01"] == 2
             # Note: pending_retries may be cleared quickly by background task, so don't check it
             
-            # Wait for first retry to fail (attempt=2 fails)
+            # Wait for first retry to fail (attempt=2 fails) and pending_retries to clear
             # The DeterministicFailureShotWorkflow fails on attempts 1 and 2
-            await asyncio.sleep(1.0)
+            await _wait_for_state(
+                handle,
+                lambda s: "A01" not in s.get("pending_retries", []),
+                timeout_seconds=10.0
+            )
             
             # Verify pending_retries is cleared (background task should have done this)
             state = await handle.query(EpisodeWorkflowV2.get_state)
