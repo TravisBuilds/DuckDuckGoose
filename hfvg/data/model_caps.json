@@ -748,7 +748,9 @@
    "cost": {
     "unit": "second",
     "observed": {
-     "usd_per_s": 0.056,
+     "usd_per_s": 0.112,
+     "credits_per_s": 1.792,
+     "checked": "2026-10-27 live POST /estimate (3-12 s, with and without end frame)",
      "sources": [
       "obs_kling_canary"
      ]

@@ -75,7 +75,7 @@ async def test_set_anchor_still_with_approved_by(tmp_path):
 async def test_anchor_still_injected_into_refs(tmp_path, monkeypatch):
     """Test that anchor still is injected into refs at submit time (live path with fake provider)."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -168,7 +168,7 @@ async def test_anchor_still_injected_into_refs(tmp_path, monkeypatch):
 async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
     """Test that anchor still + refs respects model ref cap (live path with fake provider)."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -270,7 +270,7 @@ async def test_anchor_still_enforces_ref_cap(tmp_path, monkeypatch):
 async def test_anchor_still_job_id_uses_sha256_prefix(tmp_path, monkeypatch):
     """Test that anchor job_id suffix uses sha256 prefix, not just version."""
     import os
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -359,6 +359,8 @@ async def test_api_rejects_self_anchoring(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
@@ -618,6 +620,8 @@ async def test_anchor_path_supports_webp(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)
@@ -668,6 +672,8 @@ async def test_anchor_path_relative_to_data_dir(tmp_path, monkeypatch):
     
     db_path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    # api.main reads DATABASE_PATH once at import; another test may have imported it first
+    monkeypatch.setattr("api.main.DATABASE_PATH", db_path)
     monkeypatch.setenv("ADMIN_SECRET", "test-secret-32-characters-long-enough-for-validation")
     
     await init_studio_db(db_path)

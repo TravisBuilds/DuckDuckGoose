@@ -20,10 +20,10 @@ from hfvg.credit_pricing import estimate_clip_credits, estimate_still_credits
 from hfvg.pricing import DRY_STILL_USD_MICROS, clip_estimate_usd_micros
 
 
-def seedance_resolution(tier: str | None) -> str:
-    """The resolution a Seedance submit uses for this tier (same as the submit's plan_route)."""
-    from hfvg.routing import SEEDANCE_TIER_RESOLUTION
-    return SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]
+def seedance_resolution(tier: str | None, override: str | None = None) -> str:
+    """The resolution a Seedance submit uses for this tier or per-shot override (same as plan_route)."""
+    from hfvg.routing import seedance_resolution_for
+    return seedance_resolution_for(tier, override)
 
 
 def still_call_usd_micros() -> int:
@@ -31,9 +31,11 @@ def still_call_usd_micros() -> int:
     return DRY_STILL_USD_MICROS
 
 
-def clip_call_usd_micros(model: str, tier: str | None, seconds: float) -> int:
-    """USD micros one dry-run clip submit reserves (raises ValueError for an unknown model)."""
-    return clip_estimate_usd_micros(model, tier, seconds)
+def clip_call_usd_micros(model: str, tier: str | None, seconds: float,
+                         resolution: str | None = None) -> int:
+    """USD micros one dry-run clip submit reserves (raises ValueError for an unknown model).
+    ``resolution``: the shot's Seedance override (None = tier default)."""
+    return clip_estimate_usd_micros(model, tier, seconds, resolution)
 
 
 def shot_call_plan(shot: dict[str, Any], pre_approved: bool = False) -> dict[str, Any]:
@@ -48,6 +50,7 @@ def shot_call_plan(shot: dict[str, Any], pre_approved: bool = False) -> dict[str
         "model": str(params.get("model") or shot.get("model") or "kling"),
         "duration": float(params.get("duration") or shot.get("duration") or 5.0),
         "tier": params.get("tier") or shot.get("tier"),
+        "seedance_resolution": params.get("seedance_resolution") or shot.get("seedance_resolution"),
     }
 
 
@@ -60,7 +63,8 @@ def dry_shot_estimate(shot: dict[str, Any], pre_approved: bool = False,
     n_stills = int(plan["start_still"]) + int(plan["end_still"])
     still_micros = n_stills * still_call_usd_micros()
     try:
-        clip_micros: int | None = clip_call_usd_micros(plan["model"], plan["tier"], plan["duration"])
+        clip_micros: int | None = clip_call_usd_micros(plan["model"], plan["tier"], plan["duration"],
+                                                       plan["seedance_resolution"])
         clip_error = None
     except (ValueError, TypeError) as e:
         clip_micros, clip_error = None, str(e)
@@ -68,7 +72,7 @@ def dry_shot_estimate(shot: dict[str, Any], pre_approved: bool = False,
     still_credits = n_stills * estimate_still_credits(still_model or still_model_path())
     clip_credits = estimate_clip_credits(
         {"kling": "kling_3.0", "seedance": "seedance_2.5"}.get(plan["model"], plan["model"]), plan["duration"],
-        seedance_resolution(plan["tier"]) if plan["model"] == "seedance" else None,
+        seedance_resolution(plan["tier"], plan["seedance_resolution"]) if plan["model"] == "seedance" else None,
     )
     return {
         "stills": n_stills,

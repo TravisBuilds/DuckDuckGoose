@@ -101,7 +101,7 @@ class TestPreApprovedStills:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(180)
-    async def test_two_of_four_pre_approved_full_lifecycle_and_clip_retry(self, episode_env, tmp_path):
+    async def test_two_of_four_pre_approved_full_lifecycle_and_clip_retry(self, episode_env, tmp_path):  # noqa: F811
         rec = Recorder()
         ep = "ep71"
         anchor_path, anchor_sha = await _anchor_a03(episode_env, tmp_path, ep)
@@ -200,7 +200,7 @@ class TestPreApprovedStills:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(120)
-    async def test_pre_approved_sha_mismatch_fails_closed(self, episode_env, tmp_path):
+    async def test_pre_approved_sha_mismatch_fails_closed(self, episode_env, tmp_path):  # noqa: F811
         """A pre-approved still whose bytes do not match the declared sha256 is never used: the shot
         fails (no still spend substituted, no clip)."""
         rec = Recorder()

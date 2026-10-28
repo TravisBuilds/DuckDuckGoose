@@ -480,9 +480,6 @@ def retry_shot(episode_id: str, shot_id: str):
     asyncio.run(_retry())
 
 
-if __name__ == "__main__":
-    cli()
-
 
 @cli.command("set-anchor")
 @click.argument("episode_id")
@@ -948,3 +945,128 @@ def show_balance():
     click.echo(json.dumps(report, indent=2))
     if not report["fresh"]:
         raise SystemExit(1)
+
+
+@cli.command("select-still")
+@click.argument("episode_id")
+@click.argument("shot_id")
+@click.argument("version", type=int)
+@click.option("--reason", required=True, help="Why this version is kept (audited)")
+@click.option("--data-dir", default=None, help="DATA_DIR holding episodes/<ep>/outputs (default: $DATA_DIR)")
+def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_dir: str | None):
+    """G2: keep still VERSION of SHOT_ID instead of the latest re-roll (GAP-26).
+
+    Same checks as POST /api/episodes/<ep>/shots/<shot>/select-still: the version's file is on disk,
+    its child still waits at G2 with a landed still, and its prompt passes preflight. No spend; does
+    NOT approve G2."""
+    import os
+    import sys
+
+    async def _select():
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.exceptions import ApplicationError
+        from hfvg.still_selection import check_selection
+
+        if not reason.strip():
+            click.echo("❌ --reason is required", err=True)
+            sys.exit(2)
+        from hfvg.temporal_converter import temporal_data_converter
+        client = await Client.connect(config.TEMPORAL_HOST, namespace=config.TEMPORAL_NAMESPACE,
+                                      data_converter=temporal_data_converter)
+        live = os.getenv("DRY_RUN", "true").lower() != "true"
+        plan, problems = await check_selection(client, episode_id, episode_id, shot_id, version, live=live,
+                                               data_dir=data_dir or os.getenv("DATA_DIR", "./data"))
+        if problems:
+            click.echo(f"❌ Cannot select {shot_id} v{version}: " + "; ".join(problems), err=True)
+            sys.exit(1)
+        try:
+            result = await client.get_workflow_handle(episode_id).execute_update(
+                "select_still_version", args=[shot_id, version, reason.strip()])
+        except WorkflowUpdateFailedError as e:
+            click.echo(f"❌ Select refused: {e.cause if isinstance(e.cause, ApplicationError) else e}", err=True)
+            sys.exit(1)
+        try:
+            import aiosqlite
+            async with aiosqlite.connect(os.getenv("DATABASE_PATH", "./data/studio.db")) as db:
+                await db.execute("INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+                                 (episode_id, "select_still_version",
+                                  f"Shot {shot_id} keeps still v{version} ({plan.get('workflow_id')}) instead of "
+                                  f"v{result.get('previous_version')}: {reason.strip()}", "cli"))
+                await db.commit()
+        except Exception as e:  # the audit trail never blocks a reviewer action
+            click.echo(f"(audit log write failed: {e})", err=True)
+        click.echo(f"✓ {shot_id} keeps still v{version}: {result}")
+
+    asyncio.run(_select())
+
+
+@cli.command("balance")
+@click.option("--json-output", is_flag=True, help="Output balance data as JSON")
+def check_balance(json_output: bool):
+    """Check provider balance status."""
+    import sys
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    from hfvg.budget import BudgetLedger
+    
+    # Use DATABASE_PATH env var directly (consistent with other commands)
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Honor DRY_RUN - balance checks are read-only but respect the flag
+    if config.DRY_RUN:
+        click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
+    
+    async def _check():
+        # Task 14: Initialize DB tables first to avoid "no such table" errors
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await init_balance_tables(db_path)
+        
+        monitor = BalanceMonitor(db_path)
+        result = await monitor.check_all_balances()
+        return result
+    
+    result = asyncio.run(_check())
+    
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+        return
+    
+    # Human-readable output
+    click.echo("Provider Balance Status")
+    click.echo("=" * 60)
+    click.echo(f"Checked at: {result.timestamp.isoformat()}\n")
+    
+    for provider, balance in result.providers.items():
+        click.echo(f"{provider.upper()}:")
+        # Handle None balance (unknown/error states like 401)
+        if balance.balance_usd is not None:
+            click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        else:
+            click.echo(f"  Balance: Unknown (see details)")
+        click.echo(f"  Source: {balance.source}")
+        if balance.age_seconds > 0:
+            age_hours = balance.age_seconds / 3600
+            click.echo(f"  Age: {age_hours:.1f} hours")
+        
+        if balance.details:
+            click.echo("  Details:")
+            for key, value in balance.details.items():
+                if not isinstance(value, (dict, list)):
+                    click.echo(f"    {key}: {value}")
+        click.echo()
+    
+    if result.warnings:
+        click.echo("WARNINGS:")
+        for warning in result.warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo()
+    
+    if result.errors:
+        click.echo("ERRORS:", err=True)
+        for error in result.errors:
+            click.echo(f"  ❌ {error}", err=True)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli()

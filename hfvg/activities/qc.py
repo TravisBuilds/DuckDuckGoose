@@ -18,6 +18,15 @@ from hfvg.qc.clip_constraints import (
     get_constraint_checker,
 )
 
+# Resolution tolerance: providers round output dims to codec-friendly multiples
+# (live Seedance 2.5 720p 9:16 returns 720x1276 for 720x1280)
+RESOLUTION_TOLERANCE_FRAC = 0.01  # per side: 1% (12.8 px on 1280)
+
+
+def _dims_close(w: int, h: int, ew: int, eh: int, frac: float = RESOLUTION_TOLERANCE_FRAC) -> bool:
+    """True when each side is within ``frac`` of the expected size."""
+    return abs(w - ew) <= ew * frac and abs(h - eh) <= eh * frac
+
 
 @activity.defn
 async def precheck_still_qc(episode_id: str, shot_id: str, prompt: str, params: dict) -> dict:
@@ -250,7 +259,11 @@ async def check_motion_qc(
                 actual_height = stream["height"]
                 expected_width, expected_height = map(int, expected_resolution.split("x"))
                 
-                if actual_width != expected_width or actual_height != expected_height:
+                # Providers round output dims to codec-friendly multiples (live Seedance 2.5 720p 9:16
+                # returns 720x1276 for 720x1280): a few pixels are not a defect - the edit scales and
+                # pads to the delivery frame. Fail only beyond RESOLUTION_TOLERANCE_FRAC per side
+                # (the aspect check below still applies).
+                if not _dims_close(actual_width, actual_height, expected_width, expected_height):
                     issues.append(f"Resolution {actual_width}x{actual_height} doesn't match expected {expected_resolution}")
                 
                 # Check aspect ratio (allow small tolerance)
@@ -613,7 +626,9 @@ async def check_assembly_qc(
     animals = []
     for clip in clips:
         sid = clip["id"]
-        res = await check_shot_animals(counter, clip.get("source") or assembly_path, metas.get(sid))
+        # Reused locked clips (edit plan) carry their own shot_meta in the manifest
+        res = await check_shot_animals(counter, clip.get("source") or assembly_path,
+                                       metas.get(sid) or clip.get("shot_meta"))
         animals.append({"shot_id": sid, **res})
 
     # Size / order continuity checks: only when the episode declares continuity_hard_checks.
@@ -626,7 +641,7 @@ async def check_assembly_qc(
             for check in cont.CHECKER_CHECKS:
                 try:
                     r = await cont.run_checker_check(checker, clip.get("source") or assembly_path, check,
-                                                     {"shot_id": sid, "shot_meta": metas.get(sid)})
+                                                     {"shot_id": sid, "shot_meta": metas.get(sid) or clip.get("shot_meta")})
                 except Exception as e:  # a checker error is never a pass
                     r = {"check": check, "status": cont.NEEDS_REVIEW, "reason": f"{check}: checker error: {str(e)[:200]}"}
                 checker_rows.append({"shot_id": sid, **r})

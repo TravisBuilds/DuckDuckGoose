@@ -47,3 +47,12 @@ def test_probe_p3_runtime_during_assert():
     value = 100
     # This will be mutated to raise RuntimeError during except
     assert value == 100, "Value should be 100"
+
+
+@pytest.mark.timeout(3)
+def test_probe_t1_timeout():
+    """T1 probe: should pass normally, timeout when mutated (hung mutant)."""
+    import time
+    delay = 0  # PROBE_T1_DELAY
+    time.sleep(delay)
+    assert delay == 0

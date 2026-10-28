@@ -18,6 +18,10 @@ refused by the ledger (`TypeError`). Credits are no longer a cap currency.
   (`POST /api/budget/balance {"balance_usd": "82.40"}`, timestamped, audit-logged). A new paid job is
   refused when `manual_balance - committed spend since the entry - reserved - new hold < headroom`.
   Live paid jobs (`require_balance=True`) are refused outright if no balance was ever recorded.
+* **Balance monitoring** (Round 8): Preflight balance gates check provider balances before any paid stage,
+  blocking when `balance < estimate + reserve%` (default 20%). Periodic checks, CLI (`hfvg balance`), and
+  API (`GET /api/balance`) monitor ElevenLabs (live) and Higgsfield (derived). Alerts fire on low/stale
+  balances and 403 stops. See [BALANCE-ALERTS.md](./BALANCE-ALERTS.md) for setup and configuration.
 * **Revision reserve** (`L7_revision`) is outside the episode cap/stop and can only be reserved with the
   approval tag `revision` (`tier="revision"` on the submit activities). It has no 80 % stop (stop == cap).
 * Reserve / commit / release are atomic (`BEGIN IMMEDIATE`), never drive a hold negative, and commit/release

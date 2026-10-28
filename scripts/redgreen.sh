@@ -140,13 +140,41 @@ run_test() {
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
     
     # Run pytest with JUnit XML output
-    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=60 -o timeout_method=signal -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
+    # 180s timeout with signal method (kills cleanly, writes junit)
+    # faulthandler_timeout (160s) dumps stacks 20s before kill for diagnostics
+    python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
     
+    # Check for timeout: junit "Failed: Timeout" or missing junit with timeout banner
+    local is_timeout=false
+    if grep -q "Failed: Timeout" "$junit_xml" 2>/dev/null || \
+       ([ ! -f "$junit_xml" ] && grep -q "FAILED.*Timeout\|timeout.*exceeded\|timed out" "$tmp_output"); then
+        is_timeout=true
+    fi
+    
+    # Preserve output for CI artifacts only on:
+    # - Baseline failures (determined by caller context)
+    # - Non-AssertionError mutant failures (checked below)
+    # - Timeouts (any phase)
+    
     # Check for collection errors or syntax errors (INVALID mutation)
-    if [ ! -f "$junit_xml" ] || grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+    if [ ! -f "$junit_xml" ] && [ "$is_timeout" = false ]; then
+        if grep -q "SyntaxError\|IndentationError\|ImportError.*SyntaxError" "$tmp_output"; then
+            rm -f "$junit_xml" "$tmp_output"
+            echo "INVALID"
+            return 0
+        fi
+    fi
+    
+    # Handle timeout case explicitly
+    if [ "$is_timeout" = true ]; then
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
+            cp "$tmp_output" "$REDGREEN_ARTIFACTS_DIR/pytest_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+        fi
         rm -f "$junit_xml" "$tmp_output"
-        echo "INVALID"
+        echo "TIMEOUT"
         return 0
     fi
     
@@ -327,8 +355,24 @@ test_mutation() {
         return
     fi
     
+    if [ "$baseline_result" = "TIMEOUT" ]; then
+        echo -e "${RED}✗ TIMEOUT: Baseline test timed out${NC}"
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Baseline timeout")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
     if [ "$baseline_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        # Save artifact for baseline failure
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test" | sed 's|/|_|g' | sed 's|::|__|g')
+            python3 -m pytest "$test" -p no:cacheprovider -q --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$REDGREEN_ARTIFACTS_DIR/baseline_fail_${safe_name}_$(date +%s).txt" 2>&1 || true
+        fi
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -372,8 +416,25 @@ test_mutation() {
         return
     fi
     
+    if [ "$mutated_result" = "TIMEOUT" ]; then
+        echo -e "${RED}✗ TIMEOUT: Mutated test timed out${NC}"
+        git checkout -- "$file" 2>/dev/null
+        MUTATION_NAMES+=("$num. $name")
+        MUTATION_IDS+=("$num")
+        MUTATION_RESULTS+=("FAIL")
+        MUTATION_REASONS+=("Mutant timeout")
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        return
+    fi
+    
     if [ "$mutated_result" = "FAIL_OTHER" ]; then
         echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        # Save artifact for non-AssertionError mutant failure
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test" | sed 's|/|_|g' | sed 's|::|__|g')
+            python3 -m pytest "$test" -p no:cacheprovider -q --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$REDGREEN_ARTIFACTS_DIR/mutant_fail_other_${safe_name}_$(date +%s).txt" 2>&1 || true
+        fi
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -533,6 +594,12 @@ test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
+
+test_probe "T1" "Probe T1: hung mutant must report TIMEOUT" \
+    "TIMEOUT" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_t1_timeout" \
+    sed -i 's/delay = 0  # PROBE_T1_DELAY/delay = 30  # PROBE_T1_DELAY/'
 
 echo ""
 log_header "PRODUCTION SAFETY TESTS"
@@ -695,7 +762,7 @@ test_mutation 24 "M-24: Delivery holds at G_FINAL_CUT until a human approves" \
 test_mutation 25 "Workflow waits for parent stills_approved signal" \
     "hfvg/workflows/shot.py" \
     "tests/test_shot_live.py::test_shot_workflow_human_approval_proceeds_to_clip" \
-    sed -i 's/await workflow.wait_condition(lambda: self.stills_approved)/# await workflow.wait_condition(lambda: self.stills_approved)  # MUTATED/'
+    sed -i 's/await workflow.wait_condition(self._released)/# await workflow.wait_condition(self._released)  # MUTATED/'
 
 # 26. Idempotent release (clamp to current reserved)
 test_mutation 26 "Idempotent release clamps to reserved" \
@@ -904,7 +971,7 @@ test_mutation 56 "M-P2b Seedance refuses duration 3 (min 4 s)" \
 test_mutation 57 "M-P2c Planner never routes wet shots to Seedance" \
     "hfvg/routing.py" \
     "tests/test_seedance_routing.py::test_planner_never_routes_wet_shot_to_seedance" \
-    sed -i 's/^        if blocked:/        if blocked and False:  # MUTATED/'
+    sed -i 's/^        if blocked and not override:/        if blocked and not override and False:  # MUTATED/'
 
 # 58. M-P2d declined_preset_id is sent on Kling requests
 test_mutation 58 "M-P2d declined_preset_id is sent on Kling requests" \
@@ -1030,13 +1097,13 @@ test_mutation 77 "M-R4i end_frame flag from shots.json" \
 test_mutation 78 "M-R4j dry clip reservation uses real model and duration" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_reservation_uses_model_and_duration" \
-    sed -i 's/clip_call_usd_micros(route.model, tier, duration),$/clip_call_usd_micros("kling", tier, 5),  # MUTATED/'
+    sed -i 's/clip_call_usd_micros(route.model, tier, duration, route.resolution),$/clip_call_usd_micros("kling", tier, 5, "720p"),  # MUTATED/'
 
 # 79. M-R4k Seedance draft estimate uses the 480p rate
 test_mutation 79 "M-R4k Seedance draft estimate uses the 480p rate" \
-    "hfvg/pricing.py" \
+    "hfvg/routing.py" \
     "tests/test_round4_shot_data.py::test_dry_clip_estimates_use_real_model_and_duration" \
-    sed -i 's/^        resolution = SEEDANCE_TIER_RESOLUTION\["draft" if tier == "draft" else "final"\]$/        resolution = SEEDANCE_TIER_RESOLUTION["final"]  # MUTATED/'
+    sed -i 's/^    return SEEDANCE_TIER_RESOLUTION\["draft" if tier == "draft" else "final"\]$/    return SEEDANCE_TIER_RESOLUTION["final"]  # MUTATED/'
 
 # 80. M-R4l Live start+end shot without end image is refused
 test_mutation 80 "M-R4l Live start+end shot without end image is refused" \
@@ -1071,13 +1138,13 @@ test_mutation 84 "M-R4p Still provider refuses instead of truncating refs" \
 # 85. M-R4q Workflow passes the shot's refs to the still activity
 test_mutation 85 "M-R4q Workflow passes the shot's refs to the still activity" \
     "hfvg/workflows/shot.py" \
-    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_to_still_activity" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_captured_in_stub_activity" \
     sed -i '/submit_still_job_enforced/,/shot_plan\.get("missing_refs"/{ /^[[:space:]]*refs,$/s/.*/                                [],  # MUTATED - no refs/; }'
 
 # 86. M-R4r Workflow passes missing refs to the still activity
 test_mutation 86 "M-R4r Workflow passes missing refs to the still activity" \
     "hfvg/workflows/shot.py" \
-    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_to_still_activity" \
+    "tests/test_round4_shot_data.py::test_shot_workflow_passes_refs_and_missing_refs_captured_in_stub_activity" \
     sed -i '/self\.shot_id,$/,/shot_plan\.get("missing_refs"/{ s/shot_plan\.get("missing_refs", \[\]),  # planned refs not on disk: live refuses$/[],  # MUTATED - no missing_refs/; }'
 
 # 87. M-R4s Workflow uses the shot's real clip duration
@@ -1149,7 +1216,7 @@ test_mutation 96 "M-R4B Live shot activity refuses when refs are missing" \
 test_mutation 97 "M-R4C Recheck updates shot plans with new ref data" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round4_shot_data.py::test_g2_detects_missing_refs_and_recheck_merges_data" \
-    sed -i '/rechecked = await workflow\.execute_activity/,/self\.missing_refs = self\._collect_missing_refs/{ /{\*\*s, \*\*rechecked\[s\["shot_id"\]\]}/s/.*/                    s  # MUTATED/; }'
+    sed -i 's/shots = self._merge_rechecked_refs(shots, rechecked)/shots = shots  # MUTATED - no merge/'
 
 # 98. M-R4D Episode workflow loads per-shot data for its episode
 test_mutation 98 "M-R4D Episode workflow loads per-shot data for its episode" \
@@ -1502,7 +1569,7 @@ test_mutation 151 "_end still uses the start still as first ref" \
 test_mutation 152 "generate_end_still backfills a parked run" \
     "hfvg/workflows/shot.py" \
     "tests/test_pr10_216_fixes.py::test_backfill_signal_generates_end_still_for_parked_legacy_run" \
-    sed -i 's/while not self.stills_approved and self._end_still_backfill_due(params):/while False:  # MUTATED/'
+    sed -i 's/while not self._released() and self._end_still_backfill_due(params):/while False:  # MUTATED/'
 
 # 153: escalated retry must not signal retry_still_ready before its _end still lands
 test_mutation 153 "Escalated retry signals ready only after _end lands" \
@@ -1923,7 +1990,7 @@ test_mutation 229 "retry_clip refuses shots rejected at G2" \
 test_mutation 230 "retry_clip pre-check refuses when the round cap is exhausted" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_when_round_cap_exhausted" \
-    sed -i 's/^    amount = clip_estimate_usd_micros(model, None, duration)/    amount = 1  # MUTATED/'
+    sed -i 's/^    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)/    amount = 1  # MUTATED/'
 
 # 231: G-RETRY-1d: final cut approval waits for pending clip retries
 test_mutation 231 "Final cut approval is held while a clip retry is pending" \
@@ -2214,7 +2281,7 @@ test_mutation 277 "Clip moderation reword starts from the submitted clip prompt"
 test_mutation 278 "Assembly plan uses the shot's trim_in" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_picture_assembly_round3.py::TestAssemblyInEpisode::test_no_checker_escalates_and_holds_final_cut" \
-    sed -i 's/^                "trim_in": float(trim\.get("in", 0\.0)),$/                "trim_in": 0.0,  # MUTATED/'
+    sed -i 's/"trim_in": float(override.get("trim_in", trim.get("in", 0.0))),/"trim_in": 0.0,  # MUTATED/'
 
 # 279: G-CAPS-1-1: Preflight refuses over-limit requests before spend
 test_mutation 279 "Preflight enforces model_caps limits" \
@@ -2544,13 +2611,13 @@ test_mutation 332 "episode id fullmatch" \
 test_mutation 333 "episode id ascii digits" \
     "api/main.py" \
     "tests/test_round5_guards.py::test_episode_id_format_is_exact" \
-    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}"/EPISODE_ID_PATTERN = r"ep\\d{2}"/'
+    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}(?:\[a-z\]\[a-z0-9\]{0,11})?"  # ASCII digits only.*/EPISODE_ID_PATTERN = r"ep\\d{2}(?:[a-z][a-z0-9]{0,11})?"  # MUTATED: \\d instead of [0-9]/'
 
 # 334: G-UI-1: cap raise is applied while parked at G_FINAL_CUT
 test_mutation 334 "cap raise at final gate" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round5_guards.py::test_dry_run_final_gate_actions_real_workflow" \
-    sed -i 's/^                lambda: self.state.new_credit_cap > 0 or (not self.pending_clip_retries and ($/                lambda: (not self.pending_clip_retries and (/'
+    sed -i 's/lambda: self.state.new_credit_cap > 0 or (not (self.pending_clip_retries or self.pending_recompose) and (/lambda: (not (self.pending_clip_retries or self.pending_recompose) and (/'
 
 # 335: G-UI-1: per-shot G2 approve records the decision
 test_mutation 335 "per-shot approve recorded" \
@@ -2682,7 +2749,7 @@ test_mutation 355 "reservation upper bound" \
 test_mutation 356 "job row recorded before the call" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_cost.py::test_job_row_is_reserved_during_the_provider_call" \
-    sed -i 's/^    await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros)$/    pass  # MUTATED/'
+    sed -i '/^    if not await ledger\.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):$/,/^        await ledger\.reopen_released_job(job_id).*$/{d;}'
 
 # 357: G-AUD-COST: ELEVENLABS_USD_PER_CREDIT fails closed on zero/negative
 test_mutation 357 "usd per credit fails closed" \
@@ -2845,7 +2912,7 @@ test_mutation 382 "trim longer than the clip refused" \
 test_mutation 383 "trims applied in assembly" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_round7_pre_approved.py::TestPreApprovedStills::test_two_of_four_pre_approved_full_lifecycle_and_clip_retry" \
-    sed -i 's/^                "trim_in": float(trim.get("in", 0.0)),$/                "trim_in": 0.0,  # MUTATED/'
+    sed -i 's/"trim_in": float(override.get("trim_in", trim.get("in", 0.0))),/"trim_in": 0.0,  # MUTATED/'
 
 # 384: QC constraints: no checker -> NEEDS_REVIEW (fail closed, never a silent pass)
 test_mutation 384 "qc_fail_if without checker needs review" \
@@ -2893,6 +2960,108 @@ test_mutation 391 "dry placeholder stills served at G2" \
     "api/main.py" \
     "tests/test_round7_still_route.py::test_still_route_serves_dry_placeholder_stills_from_the_run_dir" \
     sed -i 's/^    inside = path.is_relative_to(root) or path.is_relative_to(dry_root)$/    inside = path.is_relative_to(root)  # MUTATED/'
+
+# 392: balance preflight gate blocks when balance < estimate + reserve
+test_mutation 392 "balance preflight gate enforces sufficiency" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_blocks_insufficient_known_balance" \
+    sed -i 's/^        if balance.balance_usd < required:$/        if False:  # MUTATED: balance check bypassed/'
+
+# 393: ElevenLabsError with permanent=True is non-retryable
+test_mutation 393 "permanent ElevenLabs errors are non-retryable" \
+    "hfvg/activities/audio.py" \
+    "tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable" \
+    sed -i 's/^        if isinstance(e, ElevenLabsError) and e.permanent:$/        if isinstance(e, ElevenLabsError) and False:  # MUTATED: permanent errors now retryable/'
+
+# 394: stale balance check warns when age > max_age_hours
+test_mutation 394 "stale balance check warns on stale data" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_warns_on_stale_higgsfield_balance" \
+    sed -i 's/^        if provider == "higgsfield":$/        if False:  # MUTATED: stale balance check bypassed/' 
+
+# 395: alert deduplication suppresses duplicate alerts
+test_mutation 395 "alert deduplication prevents spam" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
+    sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
+
+# 396: InsufficientBalance workflow pause (status set) - first still handler
+test_mutation 396 "InsufficientBalance pause sets status" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
+    sed -i '/elif e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientBalance":/,/self.balance_resumed = False/{s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;}'  
+
+# 397: 403 body match distinguishes balance from auth errors
+test_mutation 397 "403 body match requires insufficient balance text" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_403_handling.py::test_403_auth_error_not_treated_as_insufficient_balance" \
+    sed -i 's/if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():/if e.response.status_code == 403:  # MUTATED: accept any 403/'
+
+# 398: provider-scoped balance preflight (check right provider)
+test_mutation 398 "balance preflight checks the provider being used" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_monitor.py::test_preflight_balance_ignores_other_providers" \
+    sed -i 's/balance = await self._check_single_provider_balance(provider)/balance = await self._check_single_provider_balance("elevenlabs")  # MUTATED: wrong provider/'
+
+# 399: notifier dedupe key includes episode and job
+test_mutation 399 "notifier dedupe key scoped to episode and job" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_notifier.py::test_alert_deduplication_scoped_to_episode_and_shot" \
+    sed -i 's/key_data = f"{self.alert_type}:{self.subject}:{episode}:{job}"/key_data = f"{self.alert_type}:{self.subject}"  # MUTATED: no episode\/job scope/'
+
+# 400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines)
+test_mutation 400 "balance status excludes ElevenLabs lines" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield" \
+    sed -i "s/AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'/AND TRUE  -- MUTATED: include all lines/"
+
+# 401: GAP-32 recompose headcount query  
+test_mutation 401 "recompose_still_plans query exists" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gap32_recompose_meta.py::test_recompose_still_plans_query" \
+    sed -i '$!N;s/@workflow\.query\n    def recompose_still_plans/# @workflow.query  # MUTATED\n    def recompose_still_plans/;P;D' 
+
+# 402: GAP-33 edit fps conform
+test_mutation 402 "edit fps conform matches generated clips" \
+    "hfvg/edit_plan.py" \
+    "tests/test_gap33_edit_fps_conform.py::test_edit_fps_defaults_to_30" \
+    sed -i 's/return EDIT_FPS$/return 24  # MUTATED: wrong default/'
+
+# 403: GAP-34 bed dips validation
+test_mutation 403 "bed dips window validation" \
+    "hfvg/audio_mix.py" \
+    "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_validate_bed_dips_rejects_empty_window" \
+    sed -i 's/if b <= a:/if False:  # MUTATED: allow empty windows/'
+
+# 404: GAP-35 subtitle duration per line
+test_mutation 404 "subtitle duration respects per-line overrides" \
+    "hfvg/audio_mix.py" \
+    "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_normalize_plan_with_subtitle_dur" \
+    sed -i '/"subtitle_dur": None if ln.get("subtitle_dur") is None/{N;s/"subtitle_dur": None if ln.get("subtitle_dur") is None\n            else _num(ln\["subtitle_dur"\].*/"subtitle_dur": None,  # MUTATED: always None/;}'
+
+# 405: GAP-36 Kling reserve floor opt-in
+test_mutation 405 "Kling reserve floor requires explicit opt-in" \
+    "hfvg/providers/kling_video.py" \
+    "tests/test_gap36_kling_reserve_floor.py::test_kling_reserve_usd_micros_uses_live_when_floor_disabled" \
+    sed -i 's/if not kling_list_floor_enabled():/if False:  # MUTATED: always apply floor/'
+
+# 406: GAP-37 unique recompose job IDs
+test_mutation 406 "recompose job IDs must be unique" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_gap37_unique_recompose_job_ids.py::test_refuse_committed_job_id_refuses_committed" \
+    sed -i 's/if row and row\[0\] == "committed":/if False and row and row[0] == "committed":  # MUTATED: allow duplicates/'
+
+# 407: GAP-38 codec guard heartbeat
+test_mutation 407 "codec guard sends heartbeat during encode" \
+    "hfvg/audio_mix.py" \
+    "tests/test_gap38_codec_guard_heartbeat.py::test_codec_guard_heartbeats_on_initial_pass" \
+    sed -i '0,/beat({"stage": "codec_tp_guard"/s//pass  # MUTATED: no heartbeat; beat({"stage": "codec_tp_guard"/'
+
+# 408: GAP-39 recompose grant max 2 limit enforced
+test_mutation 408 "recompose grant limited to MAX_RECOMPOSE_GRANTS_PER_SHOT" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_max_grants_reached" \
+    sed -i 's/if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:/if False:  # MUTATED: no grant limit/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

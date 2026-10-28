@@ -338,6 +338,36 @@ async def test_gc01_counts_spend_since_balance_entry():
 
 
 @pytest.mark.asyncio
+async def test_balance_status_excludes_elevenlabs_spend_with_3_dollar_higgsfield():
+    """Task 10: Balance status only counts Higgsfield spend, excludes el_* ElevenLabs lines (3.00 HF, 2.00 EL case)."""
+    ledger, path = create_test_ledger()
+    try:
+        # Set up Higgsfield line and ElevenLabs line
+        await ledger.set_line("ep88", "L1_video", 50_000_000)
+        await ledger.set_line("ep88", "el_narration", 20_000_000)
+        
+        # Set manual balance
+        await ledger.set_manual_balance(100_000_000, "test", "balance 100.00")
+        
+        # Commit spend on Higgsfield line
+        await ledger.reserve("ep88", "L1_video", 3_000_000)
+        await ledger.commit("ep88", "L1_video", 3_000_000, 3_000_000)
+        
+        # Commit spend on ElevenLabs line
+        await ledger.reserve("ep88", "el_narration", 2_000_000)
+        await ledger.commit("ep88", "el_narration", 2_000_000, 2_000_000)
+        
+        # Balance status should only count Higgsfield spend (3.00), not ElevenLabs (2.00)
+        status = await ledger.get_balance_status()
+        assert status["manual_balance_usd_micros"] == 100_000_000
+        assert status["spent_since_entry_usd_micros"] == 3_000_000, \
+            "Should only count Higgsfield L1_video spend, not el_narration"
+        assert status["balance_remaining_usd_micros"] == 97_000_000  # 100.00 - 3.00
+    finally:
+        _cleanup(path)
+
+
+@pytest.mark.asyncio
 async def test_live_preflight_requires_manual_balance():
     """require_balance=True (live paid jobs) fails closed when no manual balance exists."""
     ledger, path = create_test_ledger()
@@ -481,5 +511,48 @@ async def test_commit_overage_spends_actual_not_reserved():
             ) as cur:
                 rows = await cur.fetchall()
         assert rows == [("commit", 1_300_000), ("overage_warning", 300_000)]
+    finally:
+        _cleanup(path)
+
+
+@pytest.mark.asyncio
+async def test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield():
+    """Mutation #400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines) (100k HF, 50k EL case).
+    Also tests wildcard escaping: 'elx' (no underscore) should NOT be excluded."""
+    ledger, path = create_test_ledger()
+    try:
+        # Set manual balance (high enough to avoid headroom checks)
+        await ledger.set_manual_balance(10_000_000, set_by="test", note="test balance")
+        
+        # Initialize episode with Higgsfield, ElevenLabs, and non-EL lines starting with 'el'
+        await ledger.init_episode_budget("ep99")
+        await ledger.set_line("ep99", "L1_stills", 500_000)  # Higgsfield line
+        await ledger.set_line("ep99", "el_tts", 200_000)  # ElevenLabs line (el_* prefix)
+        await ledger.set_line("ep99", "elxtra", 200_000)  # NOT ElevenLabs (no underscore after 'el')
+        
+        # Commit spend on Higgsfield line
+        assert await ledger.reserve("ep99", "L1_stills", 100_000) is True
+        assert await ledger.commit("ep99", "L1_stills", 100_000, 100_000) is True
+        
+        # Commit spend on ElevenLabs line
+        assert await ledger.reserve("ep99", "el_tts", 50_000) is True
+        assert await ledger.commit("ep99", "el_tts", 50_000, 50_000) is True
+        
+        # Commit spend on non-EL 'elxtra' line (should be INCLUDED in spend)
+        assert await ledger.reserve("ep99", "elxtra", 25_000) is True
+        assert await ledger.commit("ep99", "elxtra", 25_000, 25_000) is True
+        
+        # Get balance status
+        status = await ledger.get_balance_status()
+        
+        # Should count Higgsfield (100k) + elxtra (25k), but NOT ElevenLabs el_tts (50k)
+        spent = status["spent_since_entry_usd_micros"]
+        assert spent == 125_000, \
+            f"Balance status should exclude el_* but include 'elxtra'. Expected 125000, got {spent}"
+        
+        # Remaining balance should be: 10M - 125k (Higgsfield + elxtra) - 0 (no reserves)
+        remaining = status["balance_remaining_usd_micros"]
+        assert remaining == 9_875_000, \
+            f"Balance remaining should be 9875000 (10M - 100k - 25k). Got {remaining}"
     finally:
         _cleanup(path)

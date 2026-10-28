@@ -31,6 +31,7 @@ from hfvg.budget import (
     REVISION_LINE,
     ROUND_G2_STILLS,
     ROUND_G3_CLIPS,
+    ROUND_G3_RECOMPOSE,
     RoundBudgetError,
 )
 from hfvg.credit_ledger import CreditLedger
@@ -298,13 +299,14 @@ async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id:
 
 @activity.defn
 async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: str, hold_key: str,
-                                      model: str, duration: float, retry_key: str) -> dict:
+                                      model: str, duration: float, retry_key: str,
+                                      seedance_resolution: str | None = None) -> dict:
     """Read-only pre-check for EpisodeWorkflowV2.retry_clip (before the retry child starts): would
     this paid clip retry fit the round cap / per-shot retry limit / episode stop? Uses the offline
     rate-table estimate (no provider call). Raises ApplicationError(type="RoundBudgetError")."""
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = BudgetLedger(db_path)
-    amount = clip_estimate_usd_micros(model, None, duration)
+    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)
     try:
         result = await ledger.authorize_round_spend(
             episode_id, round_id, shot_id, hold_key, amount, retry_key=retry_key,
@@ -313,6 +315,27 @@ async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: s
     except RoundBudgetError as e:
         raise ApplicationError(str(e), type="RoundBudgetError", non_retryable=True) from e
     return {**result, "estimate_usd_micros": amount}
+
+
+async def refuse_committed_job_id(db_path: str, job_id: str) -> None:
+    """GAP-37: never submit a paid job under a job id whose ledger row is already COMMITTED.
+
+    provider_jobs maps job id -> provider request with INSERT OR IGNORE, so a second paid submit
+    under a finished id is charged while the poll follows the first request and the run silently
+    re-saves the old output (ep05v2 V19, 2026-10-27). Refuse before any estimate/reserve/submit.
+    A reserved (in-flight) row is left alone: that is the activity-retry resume case."""
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT status FROM job_ledger WHERE job_id = ?", (job_id,)) as cur:
+                row = await cur.fetchone()
+    except aiosqlite.OperationalError:  # no ledger table yet: nothing was ever committed
+        return
+    if row and row[0] == "committed":
+        raise ApplicationError(
+            f"JobIdAlreadyCommitted: job id {job_id} is already committed in job_ledger: refusing a second paid submit under it "
+            "(its provider job would be re-polled and the old output re-saved)",
+            type="JobIdAlreadyCommitted", non_retryable=True)
 
 
 @activity.defn
@@ -331,9 +354,14 @@ async def submit_still_job_enforced(
     attempt: int = 1,
     lead_ref: str | None = None,
     moderation_retry: dict[str, Any] | None = None,
+    review_round: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Submit still generation job with full enforcement.
+
+    review_round: GAP-25, {"round": "G3_RECOMPOSE", "retry_key": "rc{n}"} for a recompose still: the
+    paid still is authorized against that round (its own cap, 80% stop and per-shot limit) instead
+    of the G2 still round.
 
     moderation_retry: set by the moderation recovery ladder ({"n": rung number, "step": ...}) when
     a content-blocked still is resubmitted with a neutral reword (the caller passes the reworded
@@ -504,7 +532,14 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     # Original shots: still-{ep}-{shot}-v{version}
     # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
-    if attempt > 1:
+    # ROUND_G3_RECOMPOSE imported from hfvg.budget
+    if review_round and review_round.get("round") == ROUND_G3_RECOMPOSE and review_round.get("retry_key"):
+        # GAP-37: a recompose still gets its own -rc{n} id. Its attempt is the recompose VERSION, so
+        # -r{attempt-1} collided with the shot's G2 retry ids (ep05v2 V19 recompose1 -> -r2, the id
+        # of a committed G2 retry): the paid request went out, then the poll followed the OLD
+        # provider job and saved the old still.
+        attempt_suffix = f"-{review_round['retry_key']}"
+    elif attempt > 1:
         # Retry: use -r{N} where N is retry number (attempt-1)
         attempt_suffix = f"-r{attempt - 1}"
     else:
@@ -519,6 +554,9 @@ async def submit_still_job_enforced(
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{lead_suffix}{anchor_suffix}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    
+    # GAP-37: refuse if job_id is already committed
+    await refuse_committed_job_id(db_path, job_id)
     
     # Initialize provider
     provider = HiggsfieldStillProvider()
@@ -570,6 +608,25 @@ async def submit_still_job_enforced(
         activity.logger.info(
             f"Estimated cost for {episode_id}/{shot_id}: {micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits"
         )
+        
+        # Defect 8: Balance preflight gate before any reserve/submit
+        # No-op in DRY_RUN mode or with unknown/missing balance - only blocks on known balance below need
+        dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+        if not dry_run_env:
+            from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+            balance_monitor = BalanceMonitor(db_path)
+            passed, reason = await balance_monitor.check_preflight_balance(
+                provider="higgsfield",
+                estimate_usd_micros=estimated_cost,
+                auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
+            )
+            if not passed:
+                raise ApplicationError(
+                    f"Balance check failed: {reason}",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                )
+            activity.logger.info(f"Balance preflight passed: {reason}")
         
         # Reserve credits AFTER upload/estimate succeed
         credit_result = await credit_ledger.reserve_credits(
@@ -646,7 +703,13 @@ async def submit_still_job_enforced(
         idempotency_key = f"{job_id}-{key_hash}"
         
         # G-BUD-1: a paid still RETRY (attempt > 1) must fit its G2 review round, before submit
-        if attempt > 1:
+        if review_round and not moderation_retry:
+            if review_round.get("round") != ROUND_G3_RECOMPOSE or not review_round.get("retry_key"):
+                raise ApplicationError(f"invalid review_round {review_round!r}", non_retryable=True)
+            await _authorize_paid_retry(ledger, episode_id, ROUND_G3_RECOMPOSE, shot_id, job_id,
+                                        budget_amount, str(review_round["retry_key"]))
+            round_hold_key = job_id
+        elif attempt > 1:
             await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
                                         budget_amount, f"r{attempt - 1}")
             round_hold_key = job_id
@@ -697,10 +760,50 @@ async def submit_still_job_enforced(
         }
     
     except httpx.HTTPStatusError as e:
-        # Capture provider error details (especially 422 idempotency conflicts)
+        # Capture provider error details (especially 422 idempotency conflicts and 403 insufficient balance)
         error_detail = f"Provider {e.response.status_code}: {e.response.text}"
         activity.logger.error(f"Provider error for {job_id}: {error_detail}")
-        # Release whatever has been reserved
+        
+        # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
+        # Check response body to distinguish balance errors from other 403s (e.g. auth/permission)
+        if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():
+            # Release whatever has been reserved
+            if budget_reserved:
+                await ledger.release(episode_id, budget_line_name, budget_amount, f"403 Insufficient balance: {error_detail}")
+            if credits_reserved:
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"403 Insufficient balance: {error_detail}")
+            if round_hold_key:
+                await ledger.release_round_hold(round_hold_key)
+            
+            # Record the stop for alerting
+            from hfvg.balance_monitor import BalanceMonitor
+            balance_monitor = BalanceMonitor(db_path)
+            await balance_monitor.record_403_stop(
+                provider="higgsfield",
+                episode_id=episode_id,
+                job_id=job_id,
+                error_message=error_detail,
+            )
+            
+            # Defect 10: Send 403 stop alert via notifier
+            from hfvg.balance_notifier import BalanceNotifier
+            notifier = BalanceNotifier(db_path)
+            await notifier.send_403_stop_alert(
+                provider="higgsfield",
+                episode_id=episode_id,
+                job_id=job_id,
+                error_message=error_detail,
+            )
+            
+            # Raise non-retryable error to pause the workflow resumably
+            raise ApplicationError(
+                f"Higgsfield 403 Insufficient Balance: {error_detail}. "
+                f"Reservations released. Top up your Higgsfield balance and resume the workflow.",
+                type="InsufficientBalance",
+                non_retryable=True,
+            ) from e
+        
+        # Release whatever has been reserved for other HTTP errors
         if budget_reserved:
             await ledger.release(episode_id, budget_line_name, budget_amount, f"Provider error: {error_detail}")
         if credits_reserved:
@@ -797,11 +900,14 @@ async def submit_clip_job_enforced(
     
     # Explicit routing plan (fail closed in every mode)
     route = plan_route({
+        "shot_id": shot_id,
         "model": model,
         "tier": "draft" if tier == "draft" else "final",
         "duration": duration,
         "tags": tags or [],
         "count": animal_count,
+        # per-shot Seedance resolution override (shots.json seedance_resolution; Kling ignores it)
+        "resolution": (shot_meta or {}).get("seedance_resolution"),
     })
     if route.model == "seedance" and duration != int(duration):
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
@@ -863,7 +969,7 @@ async def submit_clip_job_enforced(
             "job_id": job_id,
             "line_name": "L4_video",
             # the same per-call estimate the G1 plan shows (hfvg.estimates)
-            "reserved_amount": clip_call_usd_micros(route.model, tier, duration),
+            "reserved_amount": clip_call_usd_micros(route.model, tier, duration, route.resolution),
             "moderation_lint": lint_record,
         }
     
@@ -889,6 +995,9 @@ async def submit_clip_job_enforced(
         job_id += f"-c{int(clip_retry['n'])}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    
+    # GAP-37: refuse if job_id is already committed
+    await refuse_committed_job_id(db_path, job_id)
     
     # Generate idempotency key from hash of actual request parameters
     # This ensures identical requests dedupe but different requests don't collide
@@ -918,6 +1027,25 @@ async def submit_clip_job_enforced(
             f"Estimated cost for {episode_id}/{shot_id} clip: "
             f"{micros_to_usd_str(estimated_cost)} USD, {estimated_credits} credits ({duration}s)"
         )
+        
+        # Defect 8: Balance preflight gate before any reserve/submit
+        # No-op in DRY_RUN mode or with unknown/missing balance - only blocks on known balance below need
+        dry_run_env = os.getenv("DRY_RUN", "true").lower() == "true"
+        if not dry_run_env:
+            from hfvg.balance_monitor import BalanceMonitor, HIGGSFIELD_AUTO_TOPUP_ENABLED
+            balance_monitor = BalanceMonitor(db_path)
+            passed, reason = await balance_monitor.check_preflight_balance(
+                provider="higgsfield",
+                estimate_usd_micros=estimated_cost,
+                auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED,
+            )
+            if not passed:
+                raise ApplicationError(
+                    f"Balance check failed: {reason}",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                )
+            activity.logger.info(f"Balance preflight passed: {reason}")
         
         # Reserve budget from L4_video (revision tier draws on the revision reserve)
         tier = tier or "final"
@@ -1069,10 +1197,48 @@ async def submit_clip_job_enforced(
                     end_image_url=end_image_url,
                 )
         except httpx.HTTPStatusError as e:
-            # Capture provider error details (especially 422 idempotency conflicts)
+            # Capture provider error details (especially 422 idempotency conflicts and 403 insufficient balance)
             error_detail = f"Provider {e.response.status_code}: {e.response.text}"
             activity.logger.error(f"Provider error for {job_id}: {error_detail}")
-            # Release both reservations before re-raising
+            
+            # Defect 9: Higgsfield 403 'Insufficient balance' releases reservations, records stop, pauses resumably
+            # Check response body to distinguish balance errors from other 403s (e.g. auth/permission)
+            if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():
+                # Release both reservations
+                await ledger.release(episode_id, line_name, estimated_cost, f"403 Insufficient balance: {error_detail}")
+                await credit_ledger.release_credits(episode_id, job_id, notes=f"403 Insufficient balance: {error_detail}")
+                if round_hold_key:
+                    await ledger.release_round_hold(round_hold_key)
+                
+                # Record the stop for alerting
+                from hfvg.balance_monitor import BalanceMonitor
+                balance_monitor = BalanceMonitor(db_path)
+                await balance_monitor.record_403_stop(
+                    provider="higgsfield",
+                    episode_id=episode_id,
+                    job_id=job_id,
+                    error_message=error_detail,
+                )
+                
+                # Defect 10: Send 403 stop alert via notifier
+                from hfvg.balance_notifier import BalanceNotifier
+                notifier = BalanceNotifier(db_path)
+                await notifier.send_403_stop_alert(
+                    provider="higgsfield",
+                    episode_id=episode_id,
+                    job_id=job_id,
+                    error_message=error_detail,
+                )
+                
+                # Raise non-retryable error to pause the workflow resumably
+                raise ApplicationError(
+                    f"Higgsfield 403 Insufficient Balance: {error_detail}. "
+                    f"Reservations released. Top up your Higgsfield balance and resume the workflow.",
+                    type="InsufficientBalance",
+                    non_retryable=True,
+                ) from e
+            
+            # Release both reservations before re-raising for other HTTP errors
             await ledger.release(episode_id, line_name, estimated_cost, f"Provider error: {error_detail}")
             await credit_ledger.release_credits(episode_id, job_id, notes=f"Provider error: {error_detail}")
             if round_hold_key:

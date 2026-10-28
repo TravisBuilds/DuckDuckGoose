@@ -44,7 +44,7 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await page.getByTestId('validate-button').click();
   await expect(page.getByTestId('preflight-verdict')).toContainText('all shots pass');
   await expect(page.getByTestId('lint-report')).toContainText('pass');
-  await expect(page.getByTestId('cost-estimate')).toContainText('$0.68');
+  await expect(page.getByTestId('cost-estimate')).toContainText('$1.24');
   await expect(page.getByTestId('dry-run')).toBeChecked();
   await page.getByTestId('start-button').click();
   await expect(page).toHaveURL(new RegExp(`/studio/episodes/${EPISODE}$`));

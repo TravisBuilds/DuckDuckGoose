@@ -2,11 +2,38 @@ name: Tests
 
 on:
   push:
-    branches: [ main, cursor/** ]
+    branches: [ main ]  # Only run on main branch pushes
   pull_request:
-    branches: [ main ]
+    branches: [ main ]  # Run on all PRs targeting main
+
+# Cancel in-progress runs for PRs only (not main branch)
+# Main branch: each commit gets unique group (github.sha) so all runs complete
+# PR branches: group by PR number, cancel older runs on new push
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install ruff
+      run: pip install ruff
+
+    - name: Run ruff (check for duplicate definitions - F811)
+      run: ruff check --select F811 .
+
   test-python:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -26,10 +53,21 @@ jobs:
       with:
         node-version: '20'
 
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-ffmpeg-${{ hashFiles('.github/workflows/test.yml') }}
+    
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        # Retry apt operations to prevent 15+ minute install failures
+        for i in 1 2 3; do
+          sudo apt-get update && break || sleep 5
+        done
+        for i in 1 2 3; do
+          sudo apt-get install -y ffmpeg && break || sleep 5
+        done
 
     - name: Install dependencies
       run: |
@@ -172,10 +210,21 @@ jobs:
         cache: pip
         cache-dependency-path: pyproject.toml
 
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-ffmpeg-${{ hashFiles('.github/workflows/test.yml') }}
+    
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        # Retry apt operations to prevent 15+ minute install failures
+        for i in 1 2 3; do
+          sudo apt-get update && break || sleep 5
+        done
+        for i in 1 2 3; do
+          sudo apt-get install -y ffmpeg && break || sleep 5
+        done
 
     - name: Install dependencies
       run: |
@@ -188,6 +237,7 @@ jobs:
         REDGREEN_SHARD: ${{ matrix.shard }}
         REDGREEN_TOTAL_SHARDS: "4"
         REDGREEN_RESULTS_FILE: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
+        REDGREEN_ARTIFACTS_DIR: ${{ runner.temp }}/redgreen-artifacts-shard-${{ matrix.shard }}
       run: |
         find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
         rm -rf .pytest_cache 2>/dev/null || true
@@ -200,6 +250,14 @@ jobs:
         name: redgreen-results-shard-${{ matrix.shard }}
         path: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
         if-no-files-found: error
+
+    - name: Upload pytest artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: redgreen-pytest-logs-shard-${{ matrix.shard }}
+        path: ${{ runner.temp }}/redgreen-artifacts-shard-${{ matrix.shard }}
+        if-no-files-found: ignore
 
   redgreen-summary:
     # The red-green status is this job's artifact + step summary; no numbers are committed.

@@ -44,7 +44,7 @@ async def test_dry_g1_is_the_sum_of_the_dry_per_call_reservations():
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(180)
-async def test_dry_g1_total_equals_the_dry_reservations_made(episode_env, tmp_path):
+async def test_dry_g1_total_equals_the_dry_reservations_made(episode_env, tmp_path):  # noqa: F811
     """Run the real workflow (2 of 4 pre-approved): what G1 shows == what the submits reserved."""
     from hfvg.activities import studio_generation as sg
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2

@@ -360,14 +360,17 @@ def episode_workflow_id(episode_id: str) -> str:
 # The one episode id format of the API, the workflow ids (ep04, children ep04-shot-A01) and the
 # episode directories (data/episodes/ep04/). StartEpisodeRequest enforces it, so no episode with
 # another id can be started through the API; every route (incl. the file route) uses the same check.
-EPISODE_ID_PATTERN = r"ep[0-9]{2}"  # ASCII digits only (\d also matches other scripts)
+# Optional lowercase suffix for a cut of an episode (ep05full: the full Ep05 next to the ep05
+# teaser). It must start with a letter, so ep001 stays invalid; no "-" (child ids are
+# <ep>-shot-<id>), no "/" or "." (path safety), ASCII only, at most 12 characters.
+EPISODE_ID_PATTERN = r"ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?"  # ASCII digits only (\d also matches other scripts)
 
 
 def validate_episode_id(episode_id: str) -> str:
     """
     Validate episode ID format.
     
-    Must match: ep## (e.g., ep04, ep99)
+    Must match: ep## with an optional lowercase suffix (e.g., ep04, ep99, ep05full)
     Prevents path traversal attacks.
     """
     import re
@@ -406,6 +409,8 @@ class ApprovalRequest(BaseModel):
     gate_id: str = Field(..., description="Gate ID to approve (e.g., g101, g103, g108, g212, g409)")
     note: str | None = Field(None, description="Optional approval note")
     override_unavailable_estimates: bool = Field(False, description="Override unavailable estimates for G1 approval in live mode")
+    headcount_overrides: dict[str, str] | None = Field(
+        None, description="G2 only: shot_id -> reason to approve despite a headcount FAIL (audited)")
 
 
 class EpisodeStateResponse(BaseModel):
@@ -432,7 +437,7 @@ class EpisodeStateResponse(BaseModel):
     pending_clip_retries: list[str] = []
     final_cut_refusals: list = []
     final_cut_rejections: list = []
-    failed_shots: list[str] = []
+    failed_shots: list[dict | str] = []  # workflow state holds {shot_id, status, error} dicts (GAP-16)
     shot_outcomes: dict = {}
 
 
@@ -994,6 +999,80 @@ async def accept_delivery_qc(
     return {"success": True, "episode_id": episode_id, "message": "Delivery QC acceptance sent"}
 
 
+@app.post("/api/episodes/{episode_id}/resume-balance")
+async def resume_balance(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Resume episode and shots after balance top-up when paused_insufficient_balance."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("resume_balance")
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending resume signal: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Resume balance signal sent"}
+
+
+@app.post("/api/episodes/{episode_id}/delivery/rebuild")
+async def request_delivery_rebuild(
+    episode_id: str,
+    request: DeliveryAcceptRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Rebuild the delivery for the current picture after an audio-plan edit (reason required).
+    Generated audio is reused by content hash; any new generation still goes through the guards."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("request_delivery_rebuild", request.reason.strip())
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error requesting delivery rebuild: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Delivery rebuild requested"}
+
+
+@app.post("/api/episodes/{episode_id}/assembly/rebuild")
+async def request_edit_rebuild(
+    episode_id: str,
+    request: AssemblyAcceptRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (reason
+    required). Picture only, no generation; the delivery is rebuilt for the new edit."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("request_edit_rebuild", request.reason.strip())
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error requesting edit rebuild: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Edit rebuild requested"}
+
+
 def final_cut_blockers(state: dict) -> list[str]:
     """Why G_FINAL_CUT cannot be approved right now (empty = allowed). Mirrors the workflow's own
     approve_g_final_cut refusals: not parked at the gate, clip retry pending, blocking assembly QC
@@ -1008,6 +1087,8 @@ def final_cut_blockers(state: dict) -> list[str]:
         qc = assembly.get("qc") or {}
         problems.append(f"assembly QC {qc.get('verdict')}: {qc.get('reason')} (accept it with a reason first)")
     delivery = state.get("delivery") or {}
+    if delivery.get("due") or delivery.get("phase") not in (None, "done"):
+        problems.append(f"delivery rebuild due or running (phase {delivery.get('phase')}); approve once it has passed QC")
     if delivery.get("blocking"):
         qc = delivery.get("qc") or {}
         problems.append(f"delivery QC {qc.get('verdict')}: {qc.get('reason')} (accept it with a reason first)")
@@ -1087,6 +1168,19 @@ async def approve_gate(
                         detail=f"G1 approval refused: {str(cause)}"
                     )
             elif request.gate_id.lower() == "g2_scene_stills":
+                # GAP-27: every kept still's headcount vs the declared cast; a FAIL blocks G2
+                overrides = {k: v.strip() for k, v in (request.headcount_overrides or {}).items()}
+                if any(not v for v in overrides.values()):
+                    raise HTTPException(status_code=422, detail="headcount_overrides need a reason per shot")
+                report = await _g2_headcount(episode_id, handle, overrides)
+                if report["blocking"]:
+                    raise HTTPException(status_code=409, detail="G2 approval refused: headcount FAIL: " + "; ".join(
+                        f"{s} v{report['shots'][s].get('version')}: {report['shots'][s]['reason']}"
+                        for s in report["blocking"]) + " (re-roll, select another version, reject the shot, "
+                        "or pass headcount_overrides with a reason)")
+                for s, why in overrides.items():
+                    if (report["shots"].get(s) or {}).get("status") == "FAIL":
+                        await _audit(episode_id, "g2_headcount_override", f"{s}: {why}")
                 # G2 is a workflow update (validator refuses while a retry is pending).
                 # A signal to an update handler is silently dropped, so it MUST be an update.
                 try:
@@ -1292,6 +1386,49 @@ async def set_job_verdict(
     return {"success": True, "job_id": job_id, "verdict": request.verdict, "used": request.used}
 
 
+class SyncBudgetLinesRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500, description="Who approved the new caps and why")
+    dry_run: bool = Field(False, description="Report the changes without writing them")
+
+
+@app.post("/api/budget/{episode_id}/lines/sync")
+async def sync_budget_lines(
+    episode_id: str,
+    request: SyncBudgetLinesRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Re-apply the gate policy / env line caps to an episode's existing budget lines.
+
+    Lines are created once, so lines made by an earlier (failed) start keep stale caps. This is the
+    sanctioned way to move them (BudgetLedger.sync_episode_lines): never below spent + reserved,
+    never above the episode stop in total, each change logged as a cap_sync transaction and in
+    the audit log. Requires admin auth.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    validate_episode_id(episode_id)
+    from hfvg.budget import BudgetLedger
+
+    try:
+        result = await BudgetLedger(DATABASE_PATH).sync_episode_lines(
+            episode_id, reason=request.reason, strict=True, dry_run=request.dry_run)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not request.dry_run and result["changed"]:
+        import json as _json
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+                (episode_id, "budget_lines_sync",
+                 _json.dumps({"reason": request.reason, "changed": result["changed"]}), "admin"))
+            await db.commit()
+    return {"success": True, "episode_id": episode_id, **result}
+
+
 @app.get("/api/budget/balance")
 async def get_manual_balance(
     authorization: str | None = Header(None),
@@ -1306,6 +1443,29 @@ async def get_manual_balance(
     from hfvg.budget import BudgetLedger
     
     return await BudgetLedger(DATABASE_PATH).get_balance_status()
+
+
+@app.get("/api/balance")
+async def get_all_provider_balances(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Check all provider balances (ElevenLabs live, Higgsfield derived).
+    
+    Returns current balance, source (live/derived/manual), age, and any warnings or errors.
+    Requires admin auth.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.balance_monitor import BalanceMonitor
+    
+    monitor = BalanceMonitor(DATABASE_PATH)
+    result = await monitor.check_all_balances()
+    return result.to_dict()
 
 
 @app.post("/api/budget/balance")
@@ -1588,6 +1748,279 @@ async def reject_still(
             "result": result}
 
 
+class AcceptClipRequest(BaseModel):
+    reason: str = Field(..., min_length=1, description="Why the needs_review clip is kept as is (audited)")
+    take: int | None = Field(None, ge=0, description="Keep an earlier clip take instead of the latest "
+                             "(0 = the clip before retry 1, n = clip retry n); see get_state clip_takes")
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/accept-clip")
+async def accept_clip(
+    episode_id: str,
+    shot_id: str,
+    request: AcceptClipRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Human review of a clip escalated as needs_review: keep it as is (no spend). The shot becomes
+    completed and the mute edit is rebuilt with it. The local clip file is resolved from the shot
+    child workflow (``clip_path``) and must exist on disk; refusals -> 409.
+
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    clip_path = None
+    if request.take is not None:
+        # GAP-18: an earlier take; its local file must still be on disk (resolved from the workflow)
+        try:
+            state = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query("get_state")
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Could not read episode state: {e}")
+        take = ((state.get("clip_takes") or {}).get(shot_id) or {}).get(str(request.take))
+        if not take:
+            raise HTTPException(status_code=409, detail=f"No clip take {request.take} for {shot_id}")
+        if not take.get("clip_path") or not Path(take["clip_path"]).is_file():
+            raise HTTPException(status_code=409,
+                                detail=f"Local clip for {shot_id} take {request.take} not found on disk: "
+                                       f"{take.get('clip_path')}")
+    else:
+        try:
+            state = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query("get_state")
+            child_id = (state.get("shot_workflow_ids") or {}).get(shot_id)
+            if child_id:
+                child = await temporal_client.get_workflow_handle(child_id).query("get_state")
+                clip_path = child.get("clip_path")
+        except Exception:
+            clip_path = None  # the workflow update re-checks and refuses without a recorded clip
+        if clip_path and not Path(clip_path).is_file():
+            raise HTTPException(status_code=409, detail=f"Local clip for {shot_id} not found on disk: {clip_path}")
+    args = [shot_id, request.reason.strip(), clip_path]
+    if request.take is not None:
+        args.append(request.take)
+    result = await _execute_episode_update(episode_id, "accept_clip_review", args, "Clip accept")
+
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """INSERT INTO audit_log (episode_id, action, details, user)
+               VALUES (?, ?, ?, ?)""",
+            (episode_id, "accept_clip", f"Shot {shot_id} needs_review clip kept"
+             f"{'' if request.take is None else f' (take {request.take})'}: {request.reason.strip()}",
+             "admin")
+        )
+        await db.commit()
+
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
+            "message": f"Clip {shot_id} accepted; the edit is rebuilt with it"}
+
+
+async def _g2_headcount(episode_id: str, handle, overrides: dict[str, str] | None = None) -> dict:
+    """GAP-27 headcount report over the kept still of every shot (fails closed if unreadable)."""
+    from hfvg.qc.g2_headcount import g2_headcount_report
+    try:
+        versions = await handle.query("still_versions") or {}
+        state = await handle.query("get_state") or {}
+        plans = {}
+        for shot_id, row in versions.items():
+            v = (row or {}).get("current_version")
+            plans[shot_id] = await handle.query("still_version_plan", args=[shot_id, v]) if v else None
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"G2 headcount check unavailable (fails closed): {e}")
+    return await g2_headcount_report(episode_id, versions if isinstance(versions, dict) else {},
+                                     plans, (state or {}).get("shot_decisions") if isinstance(state, dict) else {},
+                                     data_dir=os.getenv("DATA_DIR", "./data"),
+                                     episodes_dir=os.getenv("EPISODES_DIR", "./data/episodes"),
+                                     overrides=overrides)
+
+
+@app.get("/api/episodes/{episode_id}/g2-headcount")
+async def get_g2_headcount(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only, no spend)."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    return await _g2_headcount(episode_id, temporal_client.get_workflow_handle(episode_workflow_id(episode_id)))
+
+
+class HeadcountRequest(BaseModel):
+    version: int = Field(..., ge=1)
+    cast: int = Field(..., ge=0)
+    duck: int = Field(..., ge=0)
+    other: int = Field(0, ge=0, description="any other animal in frame")
+    note: str = Field("", max_length=1000)
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/headcount")
+async def record_still_headcount(
+    episode_id: str,
+    shot_id: str,
+    request: HeadcountRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-27: record a reviewer's animal count for one still version (used by the G2 headcount check
+    when no automatic counter is configured). The still file must be on disk. Audited."""
+    from hfvg.qc.g2_headcount import record_headcount
+    from hfvg.still_selection import outputs_dir, still_file
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
+        raise HTTPException(status_code=422, detail="invalid shot id")
+    if still_file(outputs_dir(episode_id, shot_id, os.getenv("DATA_DIR", "./data")), request.version) is None:
+        raise HTTPException(status_code=409, detail=f"still v{request.version} of {shot_id} not on disk")
+    row = record_headcount(episode_id, shot_id, request.version,
+                           {"cast": request.cast, "duck": request.duck, "other": request.other},
+                           by="admin", note=request.note.strip(),
+                           episodes_dir=os.getenv("EPISODES_DIR", "./data/episodes"))
+    await _audit(episode_id, "g2_headcount",
+                 f"{shot_id} v{request.version}: cast={request.cast} duck={request.duck} "
+                 f"other={request.other} {request.note.strip()}")
+    return {"success": True, "shot_id": shot_id, "version": request.version, "headcount": row}
+
+
+class SelectStillRequest(BaseModel):
+    version: int = Field(..., ge=1, description="Still version to keep at G2 (1 = original, n = retry n-1); "
+                         "see GET /api/episodes/{id}/still-versions")
+    reason: str = Field(..., min_length=1, max_length=1000, description="Why this version is kept (audited)")
+
+
+async def _select_still_checked(episode_id: str, shot_id: str, version: int) -> tuple[dict | None, list[str]]:
+    from hfvg.still_selection import check_selection
+    live = os.getenv("DRY_RUN", "true").lower() != "true"
+    try:
+        return await check_selection(temporal_client, episode_id, episode_workflow_id(episode_id), shot_id,
+                                     version, live=live, data_dir=os.getenv("DATA_DIR", "./data"))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not read still versions: {e}")
+
+
+@app.get("/api/episodes/{episode_id}/still-versions")
+async def get_still_versions(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-26: every still version per shot (child workflow, status), the current one and any G2
+    selection. Read-only."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        return await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query("still_versions")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not read still versions: {e}")
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/select-still")
+async def select_still(
+    episode_id: str,
+    shot_id: str,
+    request: SelectStillRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-26 G2 decision: keep an EARLIER (or any landed) still version of a shot instead of the latest
+    re-roll. That version's still and _end frame are then used for the clip launch, and its child
+    records the DB row, manifest outcome and ledger rows; the other versions end superseded at G2.
+    Refused (409) unless the version's file(s) are on disk, its child still waits at G2 with a landed
+    still, and its prompt passes preflight (precheck, lint kit, moderation hard rules, refs on disk).
+    No spend. Does NOT approve G2.
+
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    reason = request.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="reason is required")
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    plan, problems = await _select_still_checked(episode_id, shot_id, request.version)
+    if problems:
+        raise HTTPException(status_code=409, detail=f"Cannot select {shot_id} v{request.version}: "
+                                                    + "; ".join(problems))
+    result = await _execute_episode_update(episode_id, "select_still_version",
+                                           [shot_id, request.version, reason], "Still select")
+    await _audit(episode_id, "select_still_version",
+                 f"Shot {shot_id} keeps still v{request.version} ({plan.get('workflow_id')}) instead of "
+                 f"v{result.get('previous_version') if isinstance(result, dict) else '?'}: {reason}")
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "version": request.version,
+            "result": result,
+            "message": f"{shot_id} will use still v{request.version} at G2 (G2 itself is NOT approved)"}
+
+
+class ResyncPlansRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000, description="Why the package is re-synced (audited)")
+
+
+@app.post("/api/episodes/{episode_id}/resync-plans")
+async def resync_plans(
+    episode_id: str,
+    request: ResyncPlansRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-28: at G2 (before approval) re-parse the episode package (BEATMAP.md + shots.json, the
+    same parser and path the episode used at start) and put the corrected TEXT fields in force:
+    still re-rolls use the new prompt/end_prompt, and every still child parked at G2 gets the new
+    clip_prompt/qc_fail_if for its clip submit and clip QC. Structural changes (shot set, shot_meta,
+    refs, model, duration, end frame) are refused with 409 (they need a new G1). No spend; does NOT
+    approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    reason = request.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="reason is required")
+    result = await _execute_episode_update(episode_id, "resync_shot_plans", [reason], "Plan resync")
+    changed = result.get("changed", {}) if isinstance(result, dict) else {}
+    await _audit(episode_id, "resync_shot_plans",
+                 f"G2 package resync ({reason}): " + ", ".join(f"{k}[{'/'.join(v)}]" for k, v in changed.items()))
+    return {"success": True, "episode_id": episode_id, "result": result,
+            "message": f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"}
+
+
+@app.get("/api/episodes/{episode_id}/clip-plans")
+async def get_clip_plans(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-28: per shot, the clip prompt and qc_fail_if its kept still's clip will be submitted and
+    QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+    try:
+        plans = await handle.query("clip_plans")
+        versions = await handle.query("still_versions")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not read clip plans: {e}")
+    from hfvg.still_selection import lint_problems
+    live = os.getenv("DRY_RUN", "true").lower() != "true"
+    for sid, row in plans.items():
+        meta = None
+        try:
+            vp = await handle.query("still_version_plan", args=[sid, versions.get(sid, {}).get("current_version") or 1])
+            meta = (vp or {}).get("shot_meta")
+        except Exception:
+            pass
+        row["lint_problems"] = lint_problems(episode_id, sid, row.get("clip_prompt") or "", meta, [], live, kind="clip")
+    return plans
+
+
 class RetryClipRequest(BaseModel):
     reason: str = Field(..., min_length=1, description="Why the clip is being re-run (audited)")
     prompt_override: str | None = None
@@ -1629,6 +2062,248 @@ async def retry_clip(
 
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
             "message": f"Clip retry queued for shot {shot_id}"}
+
+
+_REF_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+class RecomposeRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000, description="Who asked and why (audited)")
+    prompt: str = Field(..., min_length=1, description="The NEW still prompt (replaces the shot's prompt)")
+    ref_keys: list[str] = Field(..., min_length=1, description="Explicit refs (refs/<key>.png); replaces the plan's")
+    clip_prompt: str | None = Field(None, description="Clip prompt for the new still (default: the still prompt)")
+    shot_meta: dict | None = Field(None, description="GAP-32: change the cast of the new composition "
+                                   "(only count, characters, duck); lint, headcount and clip QC follow it")
+
+
+@app.get("/api/episodes/{episode_id}/recompose-headcount")
+async def get_recompose_headcount(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-32: the GAP-27 headcount check on each shot's latest RECOMPOSE still (not a G2 still version,
+    so /g2-headcount never saw it) against the cast that recompose declared. Read-only, no spend. Record
+    a reviewer count first with POST /shots/{shot}/headcount {version: <recompose version>}."""
+    from hfvg.qc.g2_headcount import (
+        FAIL as _FAIL, NEEDS_REVIEW as _NR, ReviewerHeadcountCounter, _still_for, check_still_headcount,
+        load_headcounts,
+    )
+    from hfvg.qc.animal_count import get_animal_counter
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        plans = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query(
+            "recompose_still_plans") or {}
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"recompose headcount unavailable (fails closed): {e}")
+    reviewer = ReviewerHeadcountCounter(
+        load_headcounts(episode_id, os.getenv("EPISODES_DIR", "./data/episodes")), get_animal_counter())
+    out_root = Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs"
+    shots = {}
+    for sid in sorted(plans):
+        row = plans[sid] or {}
+        v = row.get("version")
+        path = _still_for(out_root / sid, v)
+        res = await check_still_headcount(reviewer, path, row.get("shot_meta"))
+        res.update({"version": v, "still": str(path) if path else None, "decision": row.get("decision"),
+                    "still_ready": row.get("still_ready")})
+        shots[sid] = res
+    statuses = {r["status"] for r in shots.values()}
+    status = _FAIL if _FAIL in statuses else (_NR if _NR in statuses or not shots else "PASS")
+    return {"status": status, "failing": sorted(s for s, r in shots.items() if r["status"] == _FAIL),
+            "shots": shots}
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose")
+async def recompose_shot(
+    episode_id: str,
+    shot_id: str,
+    request: RecomposeRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-21: re-shoot one shot after G2 with a new composition (new still prompt + explicit refs).
+    The refs must exist under the episode's refs/ dir; the prompts and the ref count are preflighted
+    against the model limits BEFORE any spend. The new still parks for /recompose/decision."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
+    refs: list[str] = []
+    for key in request.ref_keys:
+        if not _REF_KEY_RE.match(key):
+            raise HTTPException(status_code=422, detail=f"invalid ref key {key!r}")
+        path = refs_dir / f"{key}.png"
+        if not path.is_file():
+            raise HTTPException(status_code=409, detail=f"ref {key!r} not found: {path}")
+        refs.append(str(path.resolve()))
+    if len(set(refs)) != len(refs):
+        raise HTTPException(status_code=422, detail="duplicate ref keys")
+    from hfvg import preflight as _pf
+    from hfvg.config import max_refs_for, still_model_path
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as _EW
+    cap = max_refs_for(still_model_path())
+    if len(refs) > cap:
+        raise HTTPException(status_code=409, detail=f"{len(refs)} refs > still model cap {cap}")
+    # GAP-32: validate shot_meta
+    meta_problem = _EW.recompose_meta_problem(request.shot_meta)
+    if meta_problem:
+        raise HTTPException(status_code=422, detail=f"invalid shot_meta: {meta_problem}")
+    clip_model = "kling"
+    shot_meta = None
+    if temporal_client:
+        try:
+            plan = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query(
+                "retry_prompt_plan", args=[shot_id, None])
+            clip_model = plan.get("clip_model") or clip_model
+            shot_meta = plan.get("shot_meta")
+        except Exception:
+            pass
+    # GAP-32: merge request shot_meta with existing (request overrides)
+    if request.shot_meta and shot_meta is not None:
+        shot_meta = {**shot_meta, **request.shot_meta}
+    clip_prompt = request.clip_prompt or request.prompt
+    bad = _pf.prompt_limit_violations(shot_id, still_prompt=request.prompt,
+                                      clip_prompt=clip_prompt,
+                                      clip_model_alias=clip_model)
+    if bad:
+        raise HTTPException(status_code=409, detail="Preflight refused the recompose before any spend: "
+                            + "; ".join(v.message for v in bad))
+    # GAP-24: the same prompt + moderation lint the paid submits enforce, run here so a bad prompt is
+    # refused at the route instead of failing inside the child (ep05full F06 recompose 1).
+    problems = _recompose_lint_problems(episode_id, shot_id, request.prompt, clip_prompt, shot_meta,
+                                        refs, clip_model)
+    if problems:
+        raise HTTPException(status_code=409, detail="Prompt lint refused the recompose before any spend: "
+                            + "; ".join(problems))
+    result = await _execute_episode_update(
+        episode_id, "recompose_shot",
+        [shot_id, request.reason.strip(), request.prompt, refs, list(request.ref_keys), request.clip_prompt]
+        + ([dict(request.shot_meta)] if request.shot_meta else []),
+        "Recompose")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+            (episode_id, "recompose_shot",
+             f"Shot {shot_id} recompose {result.get('recompose')} v{result.get('version')} "
+             f"refs={request.ref_keys}: {request.reason.strip()}", "admin"))
+        await db.commit()
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
+            "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
+
+
+def _recompose_lint_problems(episode_id: str, shot_id: str, still_prompt: str, clip_prompt: str,
+                             shot_meta: dict | None, refs: list[str], clip_model: str) -> list[str]:
+    """Live-mode lint of a recompose's still and clip prompts (prompt kit + playbook moderation hard
+    rules). Fails closed when the shot's lint metadata is unavailable."""
+    from hfvg import moderation_lint
+    from hfvg.prompt_lint import PromptLintError, clip_lint_violations, lint_violations, load_lint_kit
+    if shot_meta is None:
+        return [f"no lint metadata for {shot_id} (workflow not queryable)"]
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError as e:
+        return [str(e)]
+    problems = [f"still: {p}" for p in lint_violations(still_prompt, shot_meta, kit)]
+    problems += [f"clip: {p}" for p in clip_lint_violations(clip_prompt, shot_meta, kit)]
+    for kind, prompt, model in (("still", still_prompt, None), ("clip", clip_prompt, clip_model)):
+        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=model, refs=refs, live=False)
+        problems += [f"{kind} moderation: {v}" for v in rec.get("hard_violations", [])]
+    return problems
+
+
+class RecomposeDecisionRequest(BaseModel):
+    approve: bool
+    reason: str = Field(..., min_length=1, max_length=1000)
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose/decision")
+async def recompose_decision(
+    episode_id: str,
+    shot_id: str,
+    request: RecomposeDecisionRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-21: approve (clip from the new still) or reject (no clip spend) a parked recompose still."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    result = await _execute_episode_update(
+        episode_id, "recompose_decision", [shot_id, request.approve, request.reason.strip()],
+        "Recompose decision")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+            (episode_id, "recompose_decision",
+             f"Shot {shot_id} recompose {'approved' if request.approve else 'rejected'}: {request.reason.strip()}",
+             "admin"))
+        await db.commit()
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
+
+
+class RecomposeGrantRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000)
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose/grant")
+async def grant_recompose(
+    episode_id: str,
+    shot_id: str,
+    request: RecomposeGrantRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-39: reviewer grant of ONE extra recompose for a shot whose allowance is used up (no spend
+    here; the recompose itself still goes through every paid guard)."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not request.reason.strip():
+        raise HTTPException(status_code=422, detail="reason is required")
+    result = await _execute_episode_update(
+        episode_id, "grant_recompose", [shot_id, request.reason.strip()], "Recompose grant")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+            (episode_id, "grant_recompose", f"Shot {shot_id} recompose grant: {request.reason.strip()}", "admin"))
+        await db.commit()
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
+
+
+class ShotEditRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=1000)
+    trim_in: float | None = Field(None, ge=0)
+    trim_out: float | None = Field(None, gt=0)
+    drop: bool = False
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/edit")
+async def set_shot_edit(
+    episode_id: str,
+    shot_id: str,
+    request: ShotEditRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """GAP-22: trim or drop a shot at G_FINAL_CUT (no spend). The edit is re-assembled and the
+    delivery rebuilt; with a timeline_ref in the audio plan the VO/SFX/music follow the edit."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    result = await _execute_episode_update(
+        episode_id, "set_shot_edit",
+        [shot_id, request.reason.strip(), request.trim_in, request.trim_out, request.drop], "Shot edit")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
+            (episode_id, "set_shot_edit", f"Shot {shot_id} edit {result.get('override')}: {request.reason.strip()}",
+             "admin"))
+        await db.commit()
+    return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
 
 
 """
@@ -1751,10 +2426,17 @@ async def set_live_mode_endpoint(
     }
 
 
+class RetryShotRequest(BaseModel):
+    prompt_append: str | None = Field(None, max_length=1000,
+                                      description="Text appended to this retry's prompt only")
+    reason: str | None = Field(None, max_length=500, description="Who asked for the retry and why")
+
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry")
 async def retry_shot(
     episode_id: str,
     shot_id: str,
+    request: RetryShotRequest | None = None,
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
@@ -1782,10 +2464,41 @@ async def retry_shot(
         from temporalio.client import WorkflowUpdateFailedError
         from temporalio.exceptions import ApplicationError
         try:
-            result = await handle.execute_update(
-                "retry_shot",
-                shot_id
-            )
+            if request is not None and request.prompt_append is not None:
+                # GAP-15: preflight the AMENDED prompts (still + the clip it will become) against
+                # the model limits before the paid re-roll; the clip preflight would only refuse
+                # it after G2, when the re-rolled still is already paid for.
+                plan = await handle.query("retry_prompt_plan", args=[shot_id, request.prompt_append])
+                if plan.get("found"):
+                    from hfvg import preflight as _pf
+                    bad = _pf.prompt_limit_violations(
+                        shot_id, still_prompt=plan["still_prompt"], clip_prompt=plan["clip_prompt"],
+                        clip_model_alias=plan.get("clip_model"))
+                    if bad:
+                        raise HTTPException(status_code=409, detail="Preflight refused the amended re-roll "
+                                            "before any spend: " + "; ".join(v.message for v in bad))
+                    # The amended still prompt must also pass the episode prompt lint (the child's
+                    # pre-submit gate). Refusing here keeps a doomed re-roll from consuming an attempt.
+                    # No kit loadable here: left to the child's fail-closed gate.
+                    from hfvg.prompt_lint import PromptLintError, lint_violations, load_lint_kit
+                    try:
+                        _kit = load_lint_kit(episode_id)
+                    except PromptLintError:
+                        _kit = None
+                    if _kit is not None and plan.get("shot_meta") is not None:
+                        lint_bad = lint_violations(plan["still_prompt"], plan["shot_meta"], _kit)
+                        if lint_bad:
+                            raise HTTPException(status_code=409, detail="Prompt lint refused the amended "
+                                                "re-roll before any spend: " + "; ".join(lint_bad))
+                result = await handle.execute_update(
+                    "retry_shot", args=[shot_id, request.prompt_append])
+            else:
+                result = await handle.execute_update(
+                    "retry_shot",
+                    shot_id
+                )
+        except HTTPException:
+            raise
         except WorkflowUpdateFailedError as e:
             # Update was refused - check if it's an ApplicationError inside
             if e.cause and isinstance(e.cause, ApplicationError):
@@ -1804,7 +2517,10 @@ async def retry_shot(
             await db.execute(
                 """INSERT INTO audit_log (episode_id, action, details, user)
                    VALUES (?, ?, ?, ?)""",
-                (episode_id, "retry_shot", f"Shot {shot_id} retry requested", "admin")
+                (episode_id, "retry_shot",
+                 f"Shot {shot_id} retry requested"
+                 + (f"; prompt_append={request.prompt_append!r}" if request and request.prompt_append else "")
+                 + (f"; reason={request.reason!r}" if request and request.reason else ""), "admin")
             )
             await db.commit()
         
@@ -2901,7 +3617,25 @@ async def preflight_episode(
 
     report = preflight_plans(shots)
     errors = [v for v in report["violations"] if v["severity"] == "error"]
+    # Prompt lint (same kit/rules as the live submit gate): a live run refuses every shot whose
+    # prompt fails it, so preflight reports it up front (Ep11: a kit with no "lint" section passed
+    # preflight and G1/G2, then refused all 10 clips at submit).
+    from hfvg.prompt_lint import lint_report
+    try:
+        lint = lint_report(episode_id, parse_shots({"shots": shots}))
+    except (ValueError, ShotDataError) as e:
+        lint = {"*": [f"cannot lint shots: {e}"]}
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
+    lint_live = os.getenv("DRY_RUN", "true").strip().lower() == "false"  # live refuses; dry only warns
+    for sid, problems in lint.items():
+        for problem in problems:
+            (errors if lint_live else warnings).append({
+                "shot_id": sid, "phase": "prompt_lint", "severity": "error" if lint_live else "warning",
+                "message": problem})
+        if sid in report["shots"]:
+            if lint_live:
+                report["shots"][sid]["ok"] = False
+            report["shots"][sid]["errors" if lint_live else "warnings"] += [f"prompt lint: {p}" for p in problems]
     return {
         "episode_id": episode_id,
         "shots": report["shots"],

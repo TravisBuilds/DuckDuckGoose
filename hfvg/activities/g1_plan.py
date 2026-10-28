@@ -226,7 +226,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
                     # the resolution the submit routes to (tier), never the still resolution
                     usd_micros, credits = await clip_provider.estimate_usd_and_credits(
                         duration=int(duration),
-                        resolution=seedance_resolution(params.get("tier")),
+                        resolution=seedance_resolution(params.get("tier"), params.get("seedance_resolution")),
                     )
                 else:
                     # Kling and others require valid image URLs

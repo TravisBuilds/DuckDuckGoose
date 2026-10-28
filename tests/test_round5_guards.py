@@ -180,10 +180,19 @@ def test_episode_id_format_is_exact(monkeypatch):
     from fastapi import HTTPException
     from pydantic import ValidationError
 
-    for good in ("ep01", "ep99", "ep00"):
-        assert api_main.validate_episode_id(good) == good
-        api_main.StartEpisodeRequest(episode_id=good)
-    for bad in ("ep01\n", "ep\u0661\u0662", "ep001", "ep1", "EP01", "ep01-shot-A01", "../ep01", ""):
+    for good in ("ep01", "ep99", "ep00", "ep05full", "ep05b", "ep05full2"):
+        try:
+            result = api_main.validate_episode_id(good)
+            assert result == good, f"validate_episode_id returned {result!r} instead of {good!r}"
+        except HTTPException as e:
+            raise AssertionError(f"validate_episode_id rejected valid id {good!r}: {e.detail}") from e
+        try:
+            api_main.StartEpisodeRequest(episode_id=good)
+        except ValidationError as e:
+            raise AssertionError(f"StartEpisodeRequest rejected valid id {good!r}: {e}") from e
+    for bad in ("ep01\n", "ep\u0661\u0662", "ep001", "ep1", "EP01", "ep01-shot-A01", "../ep01", "",
+                "ep05Full", "ep05_full", "ep05-full", "ep05full/..", "ep05.full", "ep05full\n",
+                "ep05abcdefghijklm", "ep05\u00e9"):
         try:
             api_main.validate_episode_id(bad)
             refused = False
@@ -421,7 +430,9 @@ async def test_dry_run_final_gate_actions_real_workflow(api, tmp_path):
             assert st["final_cut_rejections"][-1]["reason"] == "pacing"
             assert "G_FINAL_CUT" not in st["passed_gates"] and not st["approvals"]["g_final_cut"]
 
-            await _poll(client, ep, lambda s: not s["assembly"]["stale"] and not (s["delivery"] or {}).get("due"))
+            # wait for the same condition the approve guard checks: not due AND not mid-rebuild
+            await _poll(client, ep, lambda s: not s["assembly"]["stale"] and not (s["delivery"] or {}).get("due")
+                        and (s["delivery"] or {}).get("phase") in (None, "done"))
             r = await client.post(f"/api/episodes/{ep}/approve", json={"gate_id": "g_final_cut"})
             assert r.status_code == 200, r.text
             st = await _poll(client, ep, lambda s: "G_FINAL_CUT" in s["passed_gates"])

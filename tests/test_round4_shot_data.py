@@ -174,8 +174,8 @@ def test_params_carry_model_duration_and_end_frame(data_env):
 def test_dry_clip_estimates_use_real_model_and_duration():
     from hfvg.pricing import clip_estimate_usd_micros
 
-    assert clip_estimate_usd_micros("kling", "final", 12) == 672_000
-    assert clip_estimate_usd_micros("kling", "final", 3) == 168_000
+    assert clip_estimate_usd_micros("kling", "final", 12) == 1_344_000  # 12 s x 0.112 (live 2026-10-27)
+    assert clip_estimate_usd_micros("kling", "final", 3) == 336_000
     assert clip_estimate_usd_micros("seedance", "final", 4) == 4_548_800
     assert clip_estimate_usd_micros("seedance", "draft", 4) == 822_400
 
@@ -196,8 +196,8 @@ async def test_dry_clip_reservation_uses_model_and_duration(tmp_path, monkeypatc
                                         None, lint_meta(), "kling", [])
     sd = await submit_clip_job_enforced("ep98", "A01", "/fake/still.jpg", lint_ok("S"), 5, 1,
                                         "final", lint_meta(), "seedance", [])
-    assert k12["reserved_amount"] == 672_000
-    assert k3["reserved_amount"] == 168_000
+    assert k12["reserved_amount"] == 1_344_000
+    assert k3["reserved_amount"] == 336_000
     assert sd["reserved_amount"] == 5_686_000
 
 
@@ -443,7 +443,7 @@ def _plan(**kw):
 
 
 @pytest.mark.asyncio
-async def test_shot_workflow_passes_refs_to_still_provider_activity():
+async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity():
     calls = await _run_shot_workflow(_plan())
     args = calls["still"]
     assert args[4] == ["/refs/a.png", "/refs/b.png"]  # refs
@@ -639,8 +639,8 @@ async def _approve_to_g201(handle, W):
 
 
 @pytest.mark.asyncio
-async def test_shot_workflow_passes_refs_and_missing_refs_to_still_activity(tmp_path, monkeypatch):
-    """M-85, M-86: ShotWorkflow passes refs and missing_refs to still activity."""
+async def test_shot_workflow_passes_refs_and_missing_refs_captured_in_stub_activity(tmp_path, monkeypatch):
+    """M-85, M-86: ShotWorkflow passes refs and missing_refs to still activity (stub capture test)."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
     from temporalio import activity

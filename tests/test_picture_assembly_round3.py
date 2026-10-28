@@ -537,7 +537,7 @@ async def _to_final_cut(env, h, tmp_path, episode_id, prompt, clip_prompt=None, 
 class TestClipPromptInWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_clip_prompt_replaces_still_prompt(self, dry_env, tmp_path):
+    async def test_clip_prompt_replaces_still_prompt(self, dry_env, tmp_path):  # noqa: F811
         """The still is submitted with the still prompt; the clip with clip_prompt ALONE."""
         h = Harness({})
         still_prompt = lint_ok("A duck sits on a bench beside a red lantern in heavy snow")
@@ -553,7 +553,7 @@ class TestClipPromptInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_no_clip_prompt_falls_back_to_still_prompt(self, dry_env, tmp_path):
+    async def test_no_clip_prompt_falls_back_to_still_prompt(self, dry_env, tmp_path):  # noqa: F811
         h = Harness({})
         still_prompt = lint_ok("A duck sits on a bench")
         async with await WorkflowEnvironment.start_local() as env:
@@ -565,7 +565,7 @@ class TestClipPromptInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_moderation_rewords_the_submitted_clip_prompt(self, dry_env, tmp_path):
+    async def test_moderation_rewords_the_submitted_clip_prompt(self, dry_env, tmp_path):  # noqa: F811
         """A blocked clip is reworded from the clip prompt that was submitted, not the still prompt."""
         h = Harness({"clip": 1})
         still_prompt = lint_ok("A duck sits on a bench beside a lantern")
@@ -683,7 +683,7 @@ class TestClipPromptLimits:
 class TestAssemblyInEpisode:
     @pytest.mark.asyncio
     @pytest.mark.timeout(240)
-    async def test_no_checker_escalates_and_holds_final_cut(self, dry_env, tmp_path, no_counter):
+    async def test_no_checker_escalates_and_holds_final_cut(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """Real clip -> real trimmed edit (trims from shots.json) at a deterministic path in state;
         no animal checker -> NEEDS_REVIEW: final cut approval refused until a human accepts."""
         h = Harness({})
@@ -717,7 +717,7 @@ class TestAssemblyInEpisode:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
-    async def test_still_only_fail_blocks_until_clip_retry_rebuilds(self, dry_env, tmp_path, no_counter):
+    async def test_still_only_fail_blocks_until_clip_retry_rebuilds(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """A frozen clip -> assembly QC FAIL: an approval sent early is withdrawn and later approvals
         are refused (never silently to G_FINAL_CUT). A clip retry lands a moving clip -> the edit is
         rebuilt from it -> PASS (deterministic counter) -> final cut approval counts."""
@@ -760,7 +760,7 @@ class TestAssemblyInEpisode:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(200)
-    async def test_completed_shot_without_local_clip_escalates(self, dry_env, tmp_path, no_counter):
+    async def test_completed_shot_without_local_clip_escalates(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """A completed shot whose clip never reached disk is not silently dropped from the edit."""
         h = Harness({})
 

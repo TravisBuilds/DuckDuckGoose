@@ -121,7 +121,6 @@ def test_create_episode_line_updates_cap_logic():
 # Item 5: Files use EPISODES_DIR/DATA_DIR env vars
 def test_episodes_dir_used_in_api_and_cli():
     """Test that api/main.py and cli.py use EPISODES_DIR env var instead of hardcoded paths."""
-    from pathlib import Path
     
     # Check CLI lint command uses EPISODES_DIR
     cli_path = Path(__file__).parent.parent / "hfvg" / "cli.py"

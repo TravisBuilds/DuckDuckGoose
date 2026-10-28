@@ -903,7 +903,6 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version(tmp_path
     Uses tmp_path for isolated cache to avoid cross-test race conditions.
     """
     import hashlib
-    from pathlib import Path
     from hfvg.upload_cache import UploadCache
     from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
     import httpx
@@ -936,6 +935,9 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version(tmp_path
         
         respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
         respx.put("http://mock.upload/put-shared").mock(return_value=httpx.Response(200, content=b""))
+        
+        # Mock HEAD for cache validation - critical for deduplication
+        respx.head("http://mock.cdn/shared-ref.png").mock(return_value=httpx.Response(200))
         
         monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
         monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
@@ -972,6 +974,122 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version(tmp_path
         assert cached_sha256 == expected_sha256
         assert cached_version == 1
         assert cached_url == "http://mock.cdn/shared-ref.png"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_sequential_upload_deduplication_with_head_mock(tmp_path, monkeypatch):
+    """
+    Test that sequential uploads of the same file deduplicate when HEAD returns 200.
+    
+    Without HEAD mock, get_cached_url fails verification and deletes the entry,
+    causing re-upload. With HEAD mocked, cache entry survives and deduplicates.
+    """
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    from hfvg.upload_cache import UploadCache
+    from tests.fake_image_passthrough import passthrough_normalize
+    import hashlib
+    
+    # Create test image
+    ref_path = tmp_path / "test_ref.png"
+    ref_content = b"PNG_IMAGE_BYTES_SEQUENTIAL"
+    ref_path.write_bytes(ref_content)
+    
+    db_path = str(tmp_path / "test.db")
+    upload_call_count = {"count": 0}
+    
+    with respx.mock:
+        def mock_generate_upload_url(request):
+            upload_call_count["count"] += 1
+            return httpx.Response(200, json={
+                "upload_url": "http://mock.upload/put-seq",
+                "public_url": "http://mock.cdn/seq-ref.png",
+                "upload_headers": {"Content-Type": "image/png"}
+            })
+        
+        respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
+        respx.put("http://mock.upload/put-seq").mock(return_value=httpx.Response(200, content=b""))
+        
+        # Mock HEAD returning 200 - cache entry survives validation
+        respx.head("http://mock.cdn/seq-ref.png").mock(return_value=httpx.Response(200))
+        
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
+        passthrough_normalize()
+        
+        cache = UploadCache(db_path)
+        await cache.init_db()
+        provider = HiggsfieldStillProvider()
+        
+        # Upload same file 3 times sequentially
+        result1 = await provider.upload_reference(str(ref_path), version=1)
+        result2 = await provider.upload_reference(str(ref_path), version=1)
+        result3 = await provider.upload_reference(str(ref_path), version=1)
+        
+        # All return same URL
+        assert result1["public_url"] == "http://mock.cdn/seq-ref.png"
+        assert result2["public_url"] == "http://mock.cdn/seq-ref.png"
+        assert result3["public_url"] == "http://mock.cdn/seq-ref.png"
+        
+        # Only one upload occurred
+        assert upload_call_count["count"] == 1, f"Expected 1 upload, got {upload_call_count['count']}"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_head_404_invalidates_cache_and_reuploads(tmp_path, monkeypatch):
+    """
+    Test that HEAD 404 on cached URL invalidates the entry and triggers re-upload.
+    
+    This is the intended behavior: if the cached URL is no longer accessible,
+    remove it from cache and upload again.
+    """
+    from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
+    from hfvg.upload_cache import UploadCache
+    from tests.fake_image_passthrough import passthrough_normalize
+    
+    ref_path = tmp_path / "test_ref.png"
+    ref_content = b"PNG_IMAGE_BYTES_404"
+    ref_path.write_bytes(ref_content)
+    
+    db_path = str(tmp_path / "test.db")
+    upload_call_count = {"count": 0}
+    
+    with respx.mock:
+        def mock_generate_upload_url(request):
+            upload_call_count["count"] += 1
+            return httpx.Response(200, json={
+                "upload_url": f"http://mock.upload/put-{upload_call_count['count']}",
+                "public_url": f"http://mock.cdn/ref-{upload_call_count['count']}.png",
+                "upload_headers": {"Content-Type": "image/png"}
+            })
+        
+        respx.post("http://mock.api/files/generate-upload-url").mock(side_effect=mock_generate_upload_url)
+        respx.put(url__regex=r"http://mock\.upload/put-\d+").mock(return_value=httpx.Response(200, content=b""))
+        
+        # Mock HEAD: ref-1.png becomes inaccessible (404) on check before second upload
+        respx.head("http://mock.cdn/ref-1.png").mock(return_value=httpx.Response(404))
+        respx.head("http://mock.cdn/ref-2.png").mock(return_value=httpx.Response(200))
+        
+        monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
+        monkeypatch.setenv("HIGGSFIELD_BASE_URL", "http://mock.api")
+        monkeypatch.setenv("DATABASE_PATH", db_path)
+        passthrough_normalize()
+        
+        cache = UploadCache(db_path)
+        await cache.init_db()
+        provider = HiggsfieldStillProvider()
+        
+        # First upload (ref-1 URL is cached, but HEAD mock will return 404 on next check)
+        result1 = await provider.upload_reference(str(ref_path), version=1)
+        assert result1["public_url"] == "http://mock.cdn/ref-1.png"
+        assert upload_call_count["count"] == 1
+        
+        # Second upload: cache check does HEAD on ref-1, gets 404, invalidates cache and re-uploads
+        result2 = await provider.upload_reference(str(ref_path), version=1)
+        assert result2["public_url"] == "http://mock.cdn/ref-2.png"
+        assert upload_call_count["count"] == 2, "Should re-upload after HEAD 404"
 
 
 @pytest.mark.asyncio

@@ -265,7 +265,6 @@ async def test_end_frame_anchor_strips_suffix(tmp_path, monkeypatch):
     to not find its anchor.
     """
     import os
-    from unittest.mock import AsyncMock, patch
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -364,7 +363,6 @@ async def test_end_frame_anchor_enforces_ref_cap(tmp_path, monkeypatch):
     Mutation 123 should break this by checking only original refs, not refs_with_anchor.
     """
     import os
-    from unittest.mock import AsyncMock, patch
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -938,6 +936,11 @@ async def test_clip_loop_uses_latest_retry_handle(tmp_path):
                 st, ok = await wait_for(handle, lambda s: s.get("shot_attempts", {}).get("A01") == 2)
                 assert ok, f"retry not recorded: {st}"
 
+                # Wait for pending_retries to be empty before approving G2
+                # (validate_approve_g2_scene_stills refuses while pending_retries is non-empty)
+                st, ok = await wait_for(handle, lambda s: len(s.get("pending_retries", [])) == 0, budget_s=15.0)
+                assert ok, f"pending_retries never cleared: {st}"
+                
                 # Approve G2 -> parent signals stills_approved (incl. the pending retry), the retry
                 # child finishes, and the clip loop awaits the latest handle. No time skipping: the
                 # workflow must get to G_FINAL_CUT on its own within the wall-clock budget below

@@ -107,8 +107,6 @@ class VersionTestShotWorkflow:
         parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         
         # Call still activity with version passed through
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         try:
             result = await workflow.execute_activity(
@@ -215,7 +213,7 @@ def _make_activities():
 async def test_retry_shot_succeeds_on_second_attempt():
     """Test that retry_shot re-runs a failed shot and it succeeds on retry."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry",
@@ -280,7 +278,7 @@ async def test_retry_shot_succeeds_on_second_attempt():
 async def test_retry_shot_refuses_when_not_at_gate():
     """Test that retry_shot is refused when not at G1/G2."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-refuse",
@@ -324,7 +322,7 @@ async def test_retry_shot_refuses_when_not_at_gate():
 async def test_retry_shot_refuses_when_shot_not_failed():
     """Test that retry_shot is refused for shots not in failed_shots."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-not-failed",
@@ -377,9 +375,11 @@ async def test_retry_shot_respects_max_retries():
     - Second retry (attempt=3) is REFUSED with max retries error
     
     Mutation 117 must FAIL this test.
+    
+    Uses time-skipping environment for deterministic timing under any load.
     """
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-limit",
@@ -413,9 +413,14 @@ async def test_retry_shot_respects_max_retries():
             assert state["shot_attempts"]["A01"] == 2
             # Note: pending_retries may be cleared quickly by background task, so don't check it
             
-            # Wait for first retry to fail (attempt=2 fails)
+            # Wait for first retry to fail (attempt=2 fails) and pending_retries to clear
             # The DeterministicFailureShotWorkflow fails on attempts 1 and 2
-            await asyncio.sleep(1.0)
+            # Background task clears pending_retries; use generous timeout for heavy CPU load
+            await _wait_for_state(
+                handle,
+                lambda s: "A01" not in s.get("pending_retries", []),
+                timeout=30.0
+            )
             
             # Verify pending_retries is cleared (background task should have done this)
             state = await handle.query(EpisodeWorkflowV2.get_state)
@@ -448,10 +453,13 @@ async def test_retry_shot_respects_max_retries():
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_retry_shot_uses_different_idempotency_key():
-    """Test that retry_shot uses a different workflow ID (with attempt number)."""
+    """Test that retry_shot uses a different workflow ID (with attempt number).
+    
+    Uses time-skipping environment for deterministic timing under any load.
+    """
     from temporalio.service import RPCError
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-key",
@@ -690,7 +698,7 @@ async def test_retry_shot_increments_version_for_unique_job_id():
             "status": "submitted",
         }
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         # Set up activities
         activities = _make_activities() + [fake_still]
         
@@ -778,8 +786,6 @@ class FailOnceThenSucceedWithStateQuery:
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         version = shot_dict.get("version", 1)
         shot_id = shot_dict.get("shot_id", "A01")
@@ -842,7 +848,7 @@ async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
     
     activities = _make_activities() + [track_submit]
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-max-retries-deterministic",
@@ -959,8 +965,6 @@ class SubmitThenFailWorkflow:
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         shot_id = shot_dict["shot_id"]
         prompt = shot_dict.get("prompt", "Test prompt")
@@ -1013,7 +1017,7 @@ async def test_attempt_overrides_first_submit_is_retry(tmp_path, monkeypatch):
     
     activities = _make_activities() + [track_submit]
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-attempt-overrides",

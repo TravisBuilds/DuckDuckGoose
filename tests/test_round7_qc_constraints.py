@@ -160,7 +160,7 @@ class TestContinuityHardVsAdvisory:
         return await HB().run(check_assembly_qc, *args)
 
     @pytest.mark.asyncio
-    async def test_hard_size_fail_blocks_advisory_order_fail_only_watches(self, tmp_path, monkeypatch, no_counter):
+    async def test_hard_size_fail_blocks_advisory_order_fail_only_watches(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         edit = await self._edit(tmp_path)
@@ -176,7 +176,7 @@ class TestContinuityHardVsAdvisory:
         assert rows[("A01", "left_to_right_order")]["hard"] is False
 
     @pytest.mark.asyncio
-    async def test_hard_check_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):
+    async def test_hard_check_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         edit = await self._edit(tmp_path)
@@ -187,7 +187,7 @@ class TestContinuityHardVsAdvisory:
         assert qc["verdict"] == "WATCH" and qc["blocking"] is False, qc
 
     @pytest.mark.asyncio
-    async def test_headcount_can_be_advisory(self, tmp_path, monkeypatch, no_counter):
+    async def test_headcount_can_be_advisory(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 3}))  # wrong count everywhere
         cont.set_continuity_checker(cont.FakeContinuityChecker())
@@ -198,7 +198,7 @@ class TestContinuityHardVsAdvisory:
         assert "advisory headcount" in qc["reason"]
 
     @pytest.mark.asyncio
-    async def test_without_the_key_size_and_order_are_not_run(self, tmp_path, monkeypatch, no_counter):
+    async def test_without_the_key_size_and_order_are_not_run(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         fake = cont.FakeContinuityChecker({"relative_size": False})

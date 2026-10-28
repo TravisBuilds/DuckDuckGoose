@@ -106,6 +106,20 @@ async def preflight_validate_episode_activity(
                 
                 # Check for version bumps: refs.json "versions" section
                 versions_map = refs_raw.get("versions", {})
+                # A list-form to_generate entry (generated after G1, e.g. a ref edit) may be missing on
+                # disk at preflight, but only at its own output_path and only with a prompt.
+                planned_outputs: dict[str, str] = {}
+                tg_raw = refs_raw.get("to_generate")
+                if isinstance(tg_raw, list):
+                    for ref in tg_raw:
+                        if not isinstance(ref, dict) or not ref.get("key"):
+                            problems.append(f"Invalid to_generate entry: {ref!r}")
+                            continue
+                        if not ref.get("prompt"):
+                            problems.append(f"Ref '{ref['key']}' in to_generate missing prompt")
+                        elif ref.get("output_path"):
+                            planned_outputs[ref["key"]] = str(ref["output_path"])
+                            to_generate_refs.add(ref["key"])
                 
                 for shot_refs in per_shot_refs.values():
                     for ref in shot_refs:
@@ -114,7 +128,8 @@ async def preflight_validate_episode_activity(
                             available_refs.add(ref_key)
                             # Check if ref file exists
                             ref_path = ref.get("path")
-                            if ref_path and not Path(ref_path).exists():
+                            planned = planned_outputs.get(ref_key) == str(ref_path)
+                            if ref_path and not Path(ref_path).exists() and not planned:
                                 problems.append(
                                     f"Ref '{ref_key}' listed in per_shot but file missing: {ref_path}"
                                 )
@@ -232,7 +247,7 @@ async def preflight_validate_episode_activity(
     
     # 8. Validate budget configuration (preflight runs BEFORE budget init)
     # Ensure schema exists and config is valid, but don't query lines that don't exist yet
-    from hfvg.budget import BudgetLedger, DEFAULT_LINE_CAPS_USD_MICROS, get_budget_settings
+    from hfvg.budget import BudgetLedger, effective_line_caps_usd_micros, get_budget_settings
     from hfvg.pricing import micros_to_usd_str
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
@@ -241,20 +256,23 @@ async def preflight_validate_episode_activity(
     # Ensure budget schema exists (creates tables if needed)
     await ledger.init_db()
     
-    # Validate that default line caps fit within episode cap and stop
+    # Validate that the line caps this episode will get (policy for the episode, else the
+    # defaults: BudgetLedger.effective_line_caps_usd_micros) fit within episode cap and stop
     settings = get_budget_settings()
-    default_total = sum(DEFAULT_LINE_CAPS_USD_MICROS.values())
+    # The caps init_episode_budget will really create (policy lines, else defaults), not the
+    # defaults alone: a policy-capped episode below the $44 default total must not be refused.
+    default_total = sum(effective_line_caps_usd_micros(ledger.policy, episode_id).values())
     
     if default_total > settings.episode_cap_usd_micros:
         problems.append(
-            f"Invalid budget config: default line caps total "
+            f"Invalid budget config: line caps total "
             f"{micros_to_usd_str(default_total)} USD exceeds episode cap "
             f"{micros_to_usd_str(settings.episode_cap_usd_micros)} USD"
         )
     
     if default_total > settings.episode_stop_usd_micros:
         problems.append(
-            f"Invalid budget config: default line caps total "
+            f"Invalid budget config: line caps total "
             f"{micros_to_usd_str(default_total)} USD exceeds episode stop "
             f"{micros_to_usd_str(settings.episode_stop_usd_micros)} USD"
         )

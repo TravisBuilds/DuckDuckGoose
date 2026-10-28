@@ -15,12 +15,75 @@ from hfvg.config import config
 
 
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
+EDIT_FPS_ALLOWED = [24, 30]  # GAP-33: allowed edit frame rates
 EDIT_FORMAT_VERSION = 1  # bump when the normalization below changes (invalidates cached edits)
 MUTE_EDIT_NAME = "mute_assembly.mp4"
 MUTE_MANIFEST_NAME = "assembly_manifest.json"
 # A generated clip may run a few frames short of its nominal duration; a trim_out within this
 # tolerance is clamped to the real clip end, beyond it the trim is refused (escalated).
 TRIM_TOLERANCE_S = 0.15
+# Optional per-episode edit recipe ({edit_dir}/edit_recipe.json), e.g. the Ep1-11 "mute stitch":
+# slow every clip (setpts), output fps, lanczos upscale + post filters (unsharp / grain), soft
+# crossfades between shots and a held last frame. Absent -> the plain hard-cut edit below.
+EDIT_RECIPE_NAME = "edit_recipe.json"
+
+
+def load_edit_recipe(path: Path) -> dict[str, Any] | None:
+    """Validate an edit recipe file; None when absent. Bad values are a non-retryable error."""
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise ApplicationError(f"edit recipe {path} unreadable: {e}", type="InvalidEditRecipe",
+                               non_retryable=True) from None
+
+    def num(key: str, default: float, lo: float, hi: float) -> float:
+        v = raw.get(key, default)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = float("nan")
+        if not (lo <= v <= hi):
+            raise ApplicationError(f"edit recipe {key}={raw.get(key)!r} outside [{lo}, {hi}]",
+                                   type="InvalidEditRecipe", non_retryable=True)
+        return v
+
+    fps = int(num("fps", EDIT_FPS, 12, 60))
+    post_vf = str(raw.get("post_vf") or "")
+    if any(c in post_vf for c in ";[]"):
+        raise ApplicationError("edit recipe post_vf must be a simple filter chain (no ; or [labels])",
+                               type="InvalidEditRecipe", non_retryable=True)
+    flags = str(raw.get("scale_flags") or "bicubic")
+    if not flags.replace("+", "").isalpha():
+        raise ApplicationError(f"edit recipe scale_flags {flags!r} invalid", type="InvalidEditRecipe",
+                               non_retryable=True)
+    return {
+        "fps": fps,
+        "speed": num("speed", 1.0, 0.5, 2.0),
+        "xfade_s": num("xfade_s", 0.0, 0.0, 2.0),
+        "tail_hold_s": num("tail_hold_s", 0.0, 0.0, 10.0),
+        "scale_flags": flags,
+        "post_vf": post_vf,
+        "video_kbps": int(num("video_kbps", 14000, 1000, 50000)),
+        "max_video_kbps": int(num("max_video_kbps", 16000, 1000, 60000)),
+    }
+
+
+def xfade_offsets(segs: list[float], xfade_s: float) -> list[float]:
+    """Offset of each crossfade (into the running joined stream) for clips of length segs."""
+    offsets, length = [], segs[0] if segs else 0.0
+    for seg in segs[1:]:
+        offsets.append(round(length - xfade_s, 6))
+        length = length + seg - xfade_s
+    return offsets
+
+
+def recipe_total_s(segs: list[float], recipe: dict[str, Any]) -> float:
+    """Final duration of the edit: sum(segs) minus xfade overlaps plus tail hold."""
+    if not segs:
+        return 0.0
+    return round(sum(segs) - recipe["xfade_s"] * (len(segs) - 1) + recipe["tail_hold_s"], 6)
 
 
 def _dry_run() -> bool:
@@ -85,6 +148,44 @@ def _plan_entries(shots: list[dict[str, Any]], clip_paths: dict[str, str]) -> li
     return entries
 
 
+def _apply_edit_plan(entries: list[dict[str, Any]], plan: dict[str, Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str, float]], dict]:
+    """Merge the workflow's generated entries with an episode edit plan (hfvg.edit_plan).
+
+    Edit order = plan["order"]; reused LOCKED clips are inserted with their trims and expected
+    sha256 (verified after hashing); a generated shot that was not produced (rejected/failed) is
+    skipped and any dissolve touching it falls back to a hard cut (recorded). A generated entry
+    missing from the plan order refuses the edit (the plan and the shot list disagree)."""
+    from hfvg.edit_plan import parse_dissolves
+    gen = {e["shot_id"]: e for e in entries}
+    order = list(plan.get("order") or [])
+    reuse = plan.get("reuse") or {}
+    stray = [sid for sid in gen if sid not in order]
+    if stray:
+        raise ApplicationError(f"Edit plan order is missing generated shot(s) {', '.join(stray)}",
+                               type="EditPlanMismatch", non_retryable=True)
+    merged, skipped = [], []
+    for sid in order:
+        if sid in reuse:
+            r = reuse[sid]
+            trim_in, trim_out = float(r.get("trim_in", 0.0)), float(r["trim_out"])
+            if not (0 <= trim_in < trim_out):
+                raise ApplicationError(f"Reused shot {sid}: invalid trim", non_retryable=True)
+            merged.append({"shot_id": sid, "clip_path": str(r["clip"]), "trim_in": trim_in, "trim_out": trim_out,
+                           "reused": True, "expected_sha256": r["sha256"], "shot_meta": r.get("shot_meta") or {}})
+        elif sid in gen:
+            merged.append(gen[sid])
+        else:
+            skipped.append(sid)
+    present = [e["shot_id"] for e in merged]
+    dissolves, dropped = [], []
+    for a, b, d in parse_dissolves(plan.get("dissolves")):
+        if a in present and b in present and present.index(b) == present.index(a) + 1:
+            dissolves.append((a, b, d))
+        else:
+            dropped.append(f"{a}->{b}")
+    return merged, dissolves, {"skipped_shots": skipped, "dropped_dissolves": dropped}
+
+
 @activity.defn
 async def assemble_mute_edit(
     episode_id: str,
@@ -109,9 +210,26 @@ async def assemble_mute_edit(
     """
     activity.heartbeat({"stage": "assembly_start", "shots": len(shots)})
     entries = _plan_entries(shots, clip_paths)
+    from hfvg.edit_plan import load_edit_plan
+    edit_plan = load_edit_plan(episode_id)
+    dissolves: list[tuple[str, str, float]] = []
+    plan_notes: dict = {}
+    if edit_plan:
+        entries, dissolves, plan_notes = _apply_edit_plan(entries, edit_plan)
     out_dir = edit_dir(episode_id, output_dir)
     assembly_path = out_dir / MUTE_EDIT_NAME
     manifest_path = out_dir / MUTE_MANIFEST_NAME
+
+    recipe = load_edit_recipe(out_dir / EDIT_RECIPE_NAME)
+    if recipe and recipe["xfade_s"] > 0:
+        shortest = min((e["trim_out"] - e["trim_in"]) * recipe["speed"] for e in entries)
+        if recipe["xfade_s"] * 2 >= shortest:
+            raise ApplicationError(f"edit recipe xfade_s {recipe['xfade_s']} too long for a {shortest:.2f}s shot",
+                                   type="InvalidEditRecipe", non_retryable=True)
+    # GAP-33: edit plan fps (default 30, may be 24 to match generated clips without judder)
+    from hfvg.edit_plan import edit_fps as get_edit_fps
+    fps = recipe["fps"] if recipe else get_edit_fps(edit_plan)
+
 
     missing = [e["shot_id"] for e in entries if not Path(e["clip_path"]).is_file()]
     stand_ins: list[str] = []
@@ -132,10 +250,21 @@ async def assemble_mute_edit(
             clips = [{"id": e["shot_id"], "seg_s": round(e["trim_out"] - e["trim_in"], 3),
                       "trim_in": e["trim_in"], "trim_out": e["trim_out"], "source": e["clip_path"]}
                      for e in entries]
+            # Task 5: dry-run return must honor the recipe
+            duration = sum(c["seg_s"] for c in clips) - sum(d for *_x, d in dissolves)
+            if recipe:
+                # Apply recipe speed and tail_hold
+                duration = duration / recipe["speed"] + recipe.get("tail_hold_s", 0.0)
             return {
                 "assembly_path": str(assembly_path),
-                "manifest": {"clips": clips, "dissolves": {}, "dry_run": True},
-                "duration": round(sum(c["seg_s"] for c in clips), 3),
+                "manifest": {
+                    "clips": clips,
+                    "dissolves": {a: d for a, _b, d in dissolves},
+                    "recipe": recipe,  # Task 5: include recipe
+                    "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5
+                    "dry_run": True
+                },
+                "duration": round(duration, 3),
                 "input_key": None,
                 "reused": False,
                 "dry_run": True,
@@ -150,11 +279,19 @@ async def assemble_mute_edit(
     key_src = []
     for e in entries:
         e["sha256"] = await asyncio.to_thread(_sha256, Path(e["clip_path"]))
+        if e.get("expected_sha256") and e["sha256"] != e["expected_sha256"]:
+            raise ApplicationError(
+                f"Reused shot {e['shot_id']}: locked clip checksum mismatch "
+                f"({e['sha256'][:12]} != {e['expected_sha256'][:12]}); refusing to splice",
+                type="ReuseChecksumMismatch", non_retryable=True)
         key_src.append([e["shot_id"], e["sha256"], e["trim_in"], e["trim_out"]])
-    input_key = hashlib.sha256(
-        json.dumps({"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT],
-                    "inputs": key_src}, sort_keys=True).encode()
-    ).hexdigest()
+    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, fps, EDIT_PIX_FMT],
+               "inputs": key_src}
+    if dissolves:
+        key_obj["dissolves"] = [[a, b, d] for a, b, d in dissolves]
+    if recipe:
+        key_obj["recipe"] = recipe
+    input_key = hashlib.sha256(json.dumps(key_obj, sort_keys=True).encode()).hexdigest()
 
     if assembly_path.is_file() and manifest_path.is_file():
         try:
@@ -171,6 +308,12 @@ async def assemble_mute_edit(
     vf = (f"fps={EDIT_FPS},scale={EDIT_WIDTH}:{EDIT_HEIGHT}:force_original_aspect_ratio=decrease,"
           f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
           f"tpad=stop_mode=clone:stop_duration=1")
+    if recipe:
+        vf = (f"setpts={recipe['speed']:g}*PTS,fps={fps},"
+              f"scale={EDIT_WIDTH}:{EDIT_HEIGHT}:flags={recipe['scale_flags']}:force_original_aspect_ratio=decrease,"
+              f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+              + (f"{recipe['post_vf']}," if recipe["post_vf"] else "")
+              + "tpad=stop_mode=clone:stop_duration=1")
     manifest_clips: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(dir=str(out_dir)) as tmpdir:
         tmp = Path(tmpdir)
@@ -186,37 +329,117 @@ async def assemble_mute_edit(
                     type="TrimOutOfRange", non_retryable=True,
                 )
             trim_out = min(trim_out, src_dur)
-            frames = max(1, round((trim_out - trim_in) * EDIT_FPS))
+            frames = max(1, round((trim_out - trim_in) * (recipe["speed"] if recipe else 1.0) * fps))
             norm = tmp / f"{idx:03d}_{sid}.mp4"
             await _run([
                 "ffmpeg", "-y", "-v", "error",
                 "-ss", f"{trim_in:.3f}", "-i", e["clip_path"],
-                "-vf", vf, "-frames:v", str(frames), "-r", str(EDIT_FPS),
+                "-vf", vf, "-frames:v", str(frames), "-r", str(fps),
                 "-pix_fmt", EDIT_PIX_FMT, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-video_track_timescale", "15360", "-an", str(norm),
             ], f"ffmpeg normalize {sid}")
             normalized.append(norm)
-            manifest_clips.append({
-                "id": sid, "seg_s": round(frames / EDIT_FPS, 6), "frames": frames,
-                "trim_in": trim_in, "trim_out": round(trim_in + frames / EDIT_FPS, 6),
+            clip_row = {
+                "id": sid, "seg_s": round(frames / fps, 6), "frames": frames,
+                "trim_in": trim_in,
+                "trim_out": round(trim_in + frames / fps / (recipe["speed"] if recipe else 1.0), 6),
                 "source": e["clip_path"], "source_sha256": e["sha256"],
-            })
+            }
+            if e.get("reused"):
+                clip_row["reused"] = True
+                clip_row["shot_meta"] = e.get("shot_meta") or {}
+            manifest_clips.append(clip_row)
+
+        # Cross-dissolves (edit plan): merge OUT and IN into one xfade segment, chain-safe.
+        # (skipped when recipe drives crossfades)
+        if not recipe:
+            pairs = {(a, b): d for a, b, d in dissolves}
+            segments: list[list] = []  # [path, frames, last_shot_id]
+            for idx, (norm, c) in enumerate(zip(normalized, manifest_clips)):
+                if segments and (segments[-1][2], c["id"]) in pairs:
+                    d = pairs[(segments[-1][2], c["id"])]
+                    prev_path, prev_frames, prev_id = segments[-1]
+                    d_frames = round(d * EDIT_FPS)
+                    if not (0 < d_frames < min(prev_frames, c["frames"])):
+                        raise ApplicationError(f"Dissolve {prev_id}->{c['id']} ({d}s) longer than a shot",
+                                               type="DissolveOutOfRange", non_retryable=True)
+                    activity.heartbeat({"stage": "dissolve", "pair": f"{prev_id}->{c['id']}"})
+                    out_frames = prev_frames + c["frames"] - d_frames
+                    merged = tmp / f"x{idx:03d}_{prev_id}_{c['id']}.mp4"
+                    offset = (prev_frames - d_frames) / EDIT_FPS
+                    await _run([
+                        "ffmpeg", "-y", "-v", "error", "-i", str(prev_path), "-i", str(norm),
+                        "-filter_complex",
+                        f"[0:v][1:v]xfade=transition=fade:duration={d_frames / EDIT_FPS:.6f}:offset={offset:.6f},"
+                        f"format={EDIT_PIX_FMT}",
+                        "-frames:v", str(out_frames), "-r", str(EDIT_FPS), "-pix_fmt", EDIT_PIX_FMT,
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                        "-video_track_timescale", "15360", "-an", str(merged),
+                    ], f"ffmpeg dissolve {prev_id}->{c['id']}")
+                    segments[-1] = [merged, out_frames, c["id"]]
+                else:
+                    segments.append([norm, c["frames"], c["id"]])
+            normalized = [seg[0] for seg in segments]
 
         activity.heartbeat({"stage": "concatenating", "clips": len(normalized)})
         concat_list = tmp / "concat.txt"
         concat_list.write_text("".join(f"file '{p.resolve()}'\n" for p in normalized))
         partial = tmp / MUTE_EDIT_NAME
-        await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                    "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
+        if recipe and (recipe["xfade_s"] > 0 or recipe["tail_hold_s"] > 0):
+            segs = [c["seg_s"] for c in manifest_clips]
+            x = recipe["xfade_s"]
+            chain, last = [], "[0:v]"
+            if x > 0:
+                for i, off in enumerate(xfade_offsets(segs, x), 1):
+                    chain.append(f"{last}[{i}:v]xfade=transition=fade:duration={x:g}:offset={off:.6f}[x{i}]")
+                    last = f"[x{i}]"
+                inputs = normalized
+            else:
+                inputs = [partial.with_name("hardcut.mp4")]
+                await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                            "-c", "copy", str(inputs[0])], "ffmpeg concat")
+            chain.append(f"{last}tpad=stop_mode=clone:stop_duration={recipe['tail_hold_s']:g},"
+                         f"fps={fps},format={EDIT_PIX_FMT}[out]")
+            cmd = ["ffmpeg", "-y", "-v", "error"]
+            for p in inputs:
+                cmd += ["-i", str(p)]
+            total_frames = round(recipe_total_s(segs, recipe) * fps)
+            await _run(cmd + ["-filter_complex", ";".join(chain), "-map", "[out]", "-frames:v", str(total_frames),
+                              "-r", str(fps), "-c:v", "libx264", "-profile:v", "high", "-preset", "medium",
+                              "-b:v", f"{recipe['video_kbps']}k", "-maxrate", f"{recipe['max_video_kbps']}k",
+                              "-bufsize", f"{recipe['max_video_kbps'] * 2}k", "-pix_fmt", EDIT_PIX_FMT,
+                              "-an", "-movflags", "+faststart", str(partial)], "ffmpeg crossfade stitch")
+        else:
+            await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                        "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
         os.replace(partial, assembly_path)  # atomic: a crash never leaves a half-written edit
 
-    total = round(sum(c["seg_s"] for c in manifest_clips), 6)
+    total = round(sum(c["seg_s"] for c in manifest_clips)
+                  - sum(round(d * EDIT_FPS) / EDIT_FPS for *_x, d in dissolves), 6)
+    manifest_dissolves: dict[str, float] = {}
+    if recipe:
+        total = recipe_total_s([c["seg_s"] for c in manifest_clips], recipe)
+        if recipe["xfade_s"] > 0:
+            manifest_dissolves = {c["id"]: recipe["xfade_s"] for c in manifest_clips[:-1]}
+        t = 0.0
+        for c in manifest_clips:
+            c["start_s"] = round(t, 6)
+            c["end_s"] = round(t + c["seg_s"], 6)
+            t = c["end_s"] - manifest_dissolves.get(c["id"], 0.0)
+    else:
+        manifest_dissolves = {a: round(round(d * EDIT_FPS) / EDIT_FPS, 6) for a, _b, d in dissolves}
+    
     manifest = {
         "episode_id": episode_id,
         "clips": manifest_clips,
-        "dissolves": {},  # hard cuts in the mute edit
+        "dissolves": manifest_dissolves,
+        "dissolve_pairs": {f"{a}->{b}": d for a, b, d in dissolves},
+        "edit_plan": ({"reused_shots": [c["id"] for c in manifest_clips if c.get("reused")], **plan_notes}
+                      if edit_plan else None),
         "total_duration": total,
-        "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": EDIT_FPS, "pix_fmt": EDIT_PIX_FMT},
+        "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": fps, "pix_fmt": EDIT_PIX_FMT},  # Task 5: use fps from recipe
+        "recipe": recipe,  # Task 5: include recipe in manifest
+        "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5: include tail_hold_s
         "input_key": input_key,
         "size_bytes": assembly_path.stat().st_size,
     }

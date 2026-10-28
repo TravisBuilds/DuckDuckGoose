@@ -298,3 +298,33 @@ async def test_job_ledger_migration_adds_usage_columns_and_keeps_rows():
     assert (cols.get("characters"), cols.get("credits"), cols.get("cost_source")) == ("INTEGER", "REAL", "TEXT"), cols
     row = await _job_row("old-1")
     assert row["usd_micros"] == 5 and row["status"] == "committed" and row["credits"] is None
+
+
+async def test_permission_401_is_non_retryable_and_never_leaks_a_hold(live):
+    """Ep11: /v1/music and /v1/sound-generation returned 401 (key lacks the permission). Temporal
+    retried the activity; each retry re-reserved under the same job id, the row was already
+    'released', so the failure release was a no-op and the holds leaked ($0.52 phantom)."""
+    with respx.mock() as mock:
+        mock.post(f"{API}/v1/music").mock(return_value=httpx.Response(401, json={"detail": "missing_permissions"}))
+        for _ in range(3):  # simulate Temporal attempts of the same activity
+            with pytest.raises(ApplicationError) as ei:
+                await _run(act.generate_music, "ep01", "calm piano", 20.0, "music_v1", "M01", None)
+            assert ei.value.non_retryable and ei.value.type == "ElevenLabsPermanentError"
+    line = await _ledger().get_line_status("ep01", "el_music_one_take")
+    assert line["reserved"] == 0 and line["spent"] == 0, line
+
+
+async def test_retry_after_transient_failure_releases_its_own_hold(live):
+    with respx.mock() as mock:
+        mock.post(f"{API}/v1/sound-generation").mock(return_value=httpx.Response(503, text="busy"))
+        for _ in range(2):
+            with pytest.raises(Exception) as ei:
+                await _run(act.generate_sfx, "ep01", "a soft door knock", 5.0, "S01", None)
+            assert not getattr(ei.value, "non_retryable", False)  # 5xx stays retryable
+    line = await _ledger().get_line_status("ep01", "el_sfx")
+    assert line["reserved"] == 0, line
+    with respx.mock() as mock:  # a later success under the same job id commits normally
+        mock.post(f"{API}/v1/sound-generation").mock(return_value=_audio({"character-cost": "120"}))
+        sfx = await _run(act.generate_sfx, "ep01", "a soft door knock", 5.0, "S01", None)
+    line = await _ledger().get_line_status("ep01", "el_sfx")
+    assert line["reserved"] == 0 and line["spent"] == sfx["usd_micros"] == 24_000, line

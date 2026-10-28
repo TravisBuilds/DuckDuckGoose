@@ -41,7 +41,7 @@ def _delivered(s: dict) -> bool:
 class TestDeliveryInEpisode:
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
-    async def test_delivery_pass_holds_for_final_cut_approval(self, dry_env, tmp_path, no_counter):
+    async def test_delivery_pass_holds_for_final_cut_approval(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """PASS: deliverables at deterministic paths in state; the workflow still waits for a human
         G_FINAL_CUT approval (a passing delivery never auto-approves), then completes."""
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
@@ -70,7 +70,7 @@ class TestDeliveryInEpisode:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
-    async def test_delivery_failure_blocks_final_cut_until_accepted(self, dry_env, tmp_path, no_counter):
+    async def test_delivery_failure_blocks_final_cut_until_accepted(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """A VO gap below the validated minimum -> non-retryable mix error -> NEEDS_REVIEW (blocking):
         approval refused, a blank acceptance ignored, a reasoned acceptance unlocks G_FINAL_CUT."""
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
@@ -102,7 +102,7 @@ class TestDeliveryInEpisode:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
-    async def test_audio_waits_for_picture_lock(self, dry_env, tmp_path, no_counter):
+    async def test_audio_waits_for_picture_lock(self, dry_env, tmp_path, no_counter):  # noqa: F811
         """Audio is built only for a locked picture: while assembly QC blocks (no animal checker ->
         NEEDS_REVIEW) no delivery runs; accepting the picture triggers the delivery."""
         write_audio(tmp_path, "ep73")
@@ -124,7 +124,7 @@ class TestDeliveryInEpisode:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(240)
-    async def test_dry_run_without_audio_plan_is_dry_and_non_blocking(self, dry_env, tmp_path, no_counter):
+    async def test_dry_run_without_audio_plan_is_dry_and_non_blocking(self, dry_env, tmp_path, no_counter):  # noqa: F811
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         h = Harness({})
         async with await WorkflowEnvironment.start_local() as env:

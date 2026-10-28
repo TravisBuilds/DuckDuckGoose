@@ -162,7 +162,7 @@ async def test_poll_502_releases_reservation(test_episode, monkeypatch):
     monkeypatch.setenv("HIGGSFIELD_API_KEY", "test_id:test_secret")
     
     # Mock provider that raises on poll
-    from unittest.mock import patch, AsyncMock, Mock
+    from unittest.mock import patch
     
     # Create a proper httpx exception
     mock_request = Mock()
@@ -419,14 +419,7 @@ async def test_clip_upload_failure_releases_both_ledgers(test_episode, monkeypat
     budget_after = await ledger.get_line_status("ep99", "L4_video")
     credit_after = await credit_ledger.get_episode_status("ep99")
 import pytest
-from tests.lint_helpers import lint_ok, lint_meta
-from tests.ledger_helpers import insert_line, set_balance
-import httpx
 
-from hfvg.activities.studio_generation import submit_still_job_enforced
-from hfvg.budget import BudgetLedger
-from hfvg.credit_ledger import CreditLedger
-from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108
 
 
 @pytest.mark.asyncio

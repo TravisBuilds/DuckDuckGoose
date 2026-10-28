@@ -109,6 +109,16 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             if not qc_fail_if:
                 raise ShotDataError(f"shots.json shot {sid}: empty qc_fail_if (omit the key instead)")
 
+        seedance_res = item.get("seedance_resolution")
+        if seedance_res is not None:
+            from hfvg.routing import SEEDANCE_RESOLUTIONS
+            if model != "seedance":
+                raise ShotDataError(f"shots.json shot {sid}: seedance_resolution is only valid with model 'seedance'")
+            if seedance_res not in SEEDANCE_RESOLUTIONS:
+                raise ShotDataError(
+                    f"shots.json shot {sid}: seedance_resolution must be one of {SEEDANCE_RESOLUTIONS}, "
+                    f"got {seedance_res!r}")
+
         ref_keys = _require(item, "ref_keys", list, sid)
         out[sid] = {
             "prompt": prompt,  # AS-IS: never recomposed
@@ -126,12 +136,14 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
                 # declared at all? (the playbook duck_role rule only judges an explicit duck_present)
                 "duck_declared": "duck_present" in item,
                 "end_frame": end_frame,
+                "seedance_resolution": seedance_res,
             },
             "params": {
                 "model": model,
                 "duration": duration,
                 "aspect_ratio": str(item.get("aspect_ratio", "9:16")),
                 "end_frame": end_frame,
+                "seedance_resolution": seedance_res,  # None = tier default (final -> 1080p)
             },
             "trim": {"in": float(trim_in), "out": float(trim_out)},
             "tags": ["wet"] if wet else [],

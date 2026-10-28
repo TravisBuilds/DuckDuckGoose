@@ -44,6 +44,11 @@ class LintKit:
     forbidden_phrases: tuple[str, ...] = DEFAULT_FORBIDDEN_PHRASES
     moose_names: tuple[str, ...] = ("moose",)
     carry_verbs: tuple[str, ...] = DEFAULT_CARRY_VERBS
+    # Bath rule (optional): on a bath shot (animals soaking: shot_meta wet + water + count > 0,
+    # or an explicit shot_meta.bath flag) the prompt must carry bath_clause (e.g. "submerged up to
+    # the shoulders, visible waterline, ...") and none of bath_forbidden ("on top of the water").
+    bath_clause: str = ""
+    bath_forbidden: tuple[str, ...] = ()
     _extra: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
@@ -75,11 +80,23 @@ class LintKit:
             forbidden_phrases=tup("forbidden_phrases", DEFAULT_FORBIDDEN_PHRASES),
             moose_names=tup("moose_names", ("moose",)),
             carry_verbs=tup("carry_verbs", DEFAULT_CARRY_VERBS),
+            bath_clause=str(data.get("bath_clause", "")),
+            bath_forbidden=tup("bath_forbidden"),
         )
 
 
 def _contains(prompt: str, clause: str) -> bool:
     return clause.strip().lower() in prompt.lower()
+
+
+def is_bath_shot(shot_meta: dict[str, Any] | None) -> bool:
+    """Animals soaking in the water: explicit shot_meta.bath, else wet + water + count > 0."""
+    meta = shot_meta or {}
+    if "bath" in meta:
+        return bool(meta["bath"])
+    count = meta.get("count")
+    has_animals = isinstance(count, int) and not isinstance(count, bool) and count > 0
+    return bool(meta.get("wet") and meta.get("water") and has_animals)
 
 
 def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> list[str]:
@@ -149,6 +166,13 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> lis
                 problems.append(f"lint kit has no {label}_clause but shot_meta.{flag} is set")
             elif not _contains(prompt, clause):
                 problems.append(f"missing {label} clause (shot_meta.{flag}): {clause!r}")
+    # 10. Bath rule: soaking with a visible waterline, never standing/floating on top of the water
+    if is_bath_shot(meta):
+        if kit.bath_clause.strip() and not _contains(prompt, kit.bath_clause):
+            problems.append(f"missing bath clause on bath shot: {kit.bath_clause!r}")
+        for phrase in kit.bath_forbidden:
+            if phrase.strip() and phrase.lower() in lowered:
+                problems.append(f"bath shot prompt puts an animal on the water: {phrase!r}")
     return problems
 
 
@@ -197,6 +221,8 @@ def load_lint_kit(episode_id: str) -> LintKit:
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
+    if override and section is data and isinstance(data, dict) and "count_template" not in data:
+        section = None  # a full prompt_kit.json without a lint section, not a bare lint file
     if not isinstance(section, dict):
         raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
     return LintKit.from_dict(section)
@@ -223,3 +249,28 @@ def enforce_prompt_lint(
     for problem in problems:
         logger.warning("[DRY-RUN] prompt lint warning for %s: %s", episode_id, problem)
     return problems
+
+
+def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """Offline lint of every prompt a live run would submit (preflight; no provider call).
+
+    ``plans`` is ``shot_data.parse_shots`` output. A shot with a pre-approved start still submits
+    no still, so only its clip prompt (clip_prompt, else the still prompt) is linted; otherwise
+    both. Returns {shot_id: [problem, ...]} for shots with problems; a missing/broken kit is
+    reported once under "*". Same kit and rules as the live submit gate (enforce_prompt_lint).
+    """
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError as e:
+        return {"*": [str(e)]}
+    out: dict[str, list[str]] = {}
+    for sid, plan in plans.items():
+        meta = plan.get("shot_meta") or {}
+        problems: list[str] = []
+        if not plan.get("pre_approved_still"):
+            problems += [f"still: {p}" for p in lint_violations(plan.get("prompt") or "", meta, kit)]
+        clip = plan.get("clip_prompt") or plan.get("prompt") or ""
+        problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]
+        if problems:
+            out[sid] = problems
+    return out
