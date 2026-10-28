@@ -134,6 +134,7 @@ async def test_insufficient_balance_pause_resume():
     
     # Reset counters
     activity_call_count["submit_still"] = 0
+    activity_call_count["submit_clip"] = 0
     activity_call_count["poll"] = 0
     activity_call_count["commit"] = 0
     
@@ -159,11 +160,11 @@ async def test_insufficient_balance_pause_resume():
                 mock_precheck_clip,
             ],
         ):
-            # Start workflow (still only, no clip, to test still phase pause/resume)
+            # Start workflow with both still and clip (tests both phases pause/resume)
             shot_plan = {
                 "shot_id": "A01",
                 "prompt": "test prompt",
-                "clip_prompt": None,  # No clip - testing still phase only
+                "clip_prompt": None,  # Falls back to prompt for clip (shot.py:378)
                 "duration": 5.0,
                 "shot_meta": {},
                 "missing_refs": [],
@@ -191,8 +192,20 @@ async def test_insufficient_balance_pause_resume():
             # Send resume signal for still phase
             await handle.signal("resume_balance")
             
-            # Wait for still to complete and workflow to reach clip phase
+            # Wait for still to complete
             await env.sleep(2)
+            
+            # Verify status returned to running after resume
+            status = await handle.query("get_status")
+            assert status == "running", f"Status should be running after resume, got {status}"
+            
+            # Verify still phase completed: submit called twice, commit once (no double-charge)
+            assert activity_call_count["submit_still"] == 2, f"Expected 2 still submits after resume, got {activity_call_count['submit_still']}"
+            assert activity_call_count["commit"] == 1, f"Expected 1 commit after still phase (no double-charge), got {activity_call_count['commit']}"
+            
+            # Verify still status is done
+            state = await handle.query("get_state")
+            assert state.get("still_status") == "done", f"Still should be done, got {state.get('still_status')}"
             
             # Signal approval for stills (moves to clip phase)
             await handle.signal("stills_approved")
