@@ -2918,16 +2918,16 @@ test_mutation 395 "alert deduplication prevents spam" \
     "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
     sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
 
-# 396: InsufficientBalance workflow pause (status set) - first still handler
+# 396: InsufficientBalance workflow pause (status set) - first still handler (line 758)
 test_mutation 396 "InsufficientBalance pause sets status" \
     "hfvg/workflows/shot.py" \
     "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
-    sed -i '/Provider balance insufficient - pause and wait for balance top-up/{n;s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;q}' 
+    sed -i '758s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/'  
 
 # 397: 403 body match distinguishes balance from auth errors
 test_mutation 397 "403 body match requires insufficient balance text" \
     "hfvg/activities/studio_generation.py" \
-    "tests/test_403_handling.py::test_403_releases_reservations_and_records_stop" \
+    "tests/test_403_handling.py::test_403_auth_error_not_treated_as_insufficient_balance" \
     sed -i 's/if e.response.status_code == 403 and "insufficient balance" in e.response.text.lower():/if e.response.status_code == 403:  # MUTATED: accept any 403/'
 
 # 398: provider-scoped balance preflight (check right provider)
@@ -2947,7 +2947,7 @@ test_mutation 399 "notifier dedupe key scoped to episode and job" \
 # 401: GAP-32 recompose headcount query  
 test_mutation 401 "recompose_still_plans query exists" \
     "hfvg/workflows/episode_v2.py" \
-    "tests/test_gap32_recompose_meta.py::test_recompose_headcount_endpoint_queries_workflow" \
+    "tests/test_gap32_recompose_meta.py::test_recompose_still_plans_query" \
     sed -i '2585s/@workflow.query/# @workflow.query  # MUTATED: query removed/' 
 
 # 402: GAP-33 edit fps conform
