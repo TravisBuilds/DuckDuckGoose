@@ -1923,7 +1923,7 @@ test_mutation 229 "retry_clip refuses shots rejected at G2" \
 test_mutation 230 "retry_clip pre-check refuses when the round cap is exhausted" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_when_round_cap_exhausted" \
-    sed -i 's/^    amount = clip_estimate_usd_micros(model, None, duration)/    amount = 1  # MUTATED/'
+    sed -i 's/^    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)/    amount = 1  # MUTATED/'
 
 # 231: G-RETRY-1d: final cut approval waits for pending clip retries
 test_mutation 231 "Final cut approval is held while a clip retry is pending" \
@@ -2544,7 +2544,7 @@ test_mutation 332 "episode id fullmatch" \
 test_mutation 333 "episode id ascii digits" \
     "api/main.py" \
     "tests/test_round5_guards.py::test_episode_id_format_is_exact" \
-    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}(?:\[a-z\]\[a-z0-9\]{0,11})?"/EPISODE_ID_PATTERN = r"ep\\d{2}"/'
+    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}(?:\[a-z\]\[a-z0-9\]{0,11})?"  # ASCII digits only.*/EPISODE_ID_PATTERN = r"ep\\d{2}"  # MUTATED/'
 
 # 334: G-UI-1: cap raise is applied while parked at G_FINAL_CUT
 test_mutation 334 "cap raise at final gate" \
