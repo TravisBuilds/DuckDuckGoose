@@ -6,10 +6,12 @@ on:
   pull_request:
     branches: [ main ]  # Run on all PRs targeting main
 
-# Cancel in-progress runs when new commits are pushed
+# Cancel in-progress runs for PRs only (not main branch)
+# Main branch: each commit gets unique group (github.sha) so all runs complete
+# PR branches: group by PR number, cancel older runs on new push
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-python:
