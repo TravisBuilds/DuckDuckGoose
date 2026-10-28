@@ -2970,7 +2970,7 @@ test_mutation 403 "bed dips window validation" \
 test_mutation 404 "subtitle duration respects per-line overrides" \
     "hfvg/audio_mix.py" \
     "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_normalize_plan_with_subtitle_dur" \
-    sed -i 's/"subtitle_dur": None if ln.get("subtitle_dur") is None/"subtitle_dur": None if False and ln.get("subtitle_dur") is None  # MUTATED: ignore per-line override/'
+    sed -i 's/"subtitle_dur": None if ln.get("subtitle_dur") is None/"subtitle_dur": None  # MUTATED: always None/'
 
 # 405: GAP-36 Kling reserve floor opt-in
 test_mutation 405 "Kling reserve floor requires explicit opt-in" \
