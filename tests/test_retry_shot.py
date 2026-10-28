@@ -215,7 +215,7 @@ def _make_activities():
 async def test_retry_shot_succeeds_on_second_attempt():
     """Test that retry_shot re-runs a failed shot and it succeeds on retry."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry",
@@ -280,7 +280,7 @@ async def test_retry_shot_succeeds_on_second_attempt():
 async def test_retry_shot_refuses_when_not_at_gate():
     """Test that retry_shot is refused when not at G1/G2."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-refuse",
@@ -324,7 +324,7 @@ async def test_retry_shot_refuses_when_not_at_gate():
 async def test_retry_shot_refuses_when_shot_not_failed():
     """Test that retry_shot is refused for shots not in failed_shots."""
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-not-failed",
@@ -455,10 +455,13 @@ async def test_retry_shot_respects_max_retries():
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_retry_shot_uses_different_idempotency_key():
-    """Test that retry_shot uses a different workflow ID (with attempt number)."""
+    """Test that retry_shot uses a different workflow ID (with attempt number).
+    
+    Uses time-skipping environment for deterministic timing under any load.
+    """
     from temporalio.service import RPCError
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-key",
@@ -697,7 +700,7 @@ async def test_retry_shot_increments_version_for_unique_job_id():
             "status": "submitted",
         }
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         # Set up activities
         activities = _make_activities() + [fake_still]
         
@@ -849,7 +852,7 @@ async def test_retry_max_retries_after_completion(tmp_path, monkeypatch):
     
     activities = _make_activities() + [track_submit]
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-max-retries-deterministic",
@@ -1020,7 +1023,7 @@ async def test_attempt_overrides_first_submit_is_retry(tmp_path, monkeypatch):
     
     activities = _make_activities() + [track_submit]
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-attempt-overrides",
