@@ -2,14 +2,13 @@ name: Tests
 
 on:
   push:
-    branches: [ main, cursor/** ]
+    branches: [ main ]  # Only run on main branch pushes
   pull_request:
-    branches: [ main ]
+    branches: [ main ]  # Run on all PRs targeting main
 
-# Prevent duplicate runs: for PRs, cancel in-progress runs on new push
-# Uses PR number for pull_request events, branch name for push events
+# Cancel in-progress runs when new commits are pushed
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
