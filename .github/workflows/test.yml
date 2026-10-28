@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+# Prevent duplicate runs: for PRs, cancel in-progress runs on new push
+# Uses PR number for pull_request events, branch name for push events
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-python:
     runs-on: ubuntu-latest

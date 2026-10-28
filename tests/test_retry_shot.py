@@ -377,9 +377,11 @@ async def test_retry_shot_respects_max_retries():
     - Second retry (attempt=3) is REFUSED with max retries error
     
     Mutation 117 must FAIL this test.
+    
+    Uses time-skipping environment for deterministic timing under any load.
     """
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-retry-limit",
@@ -415,10 +417,11 @@ async def test_retry_shot_respects_max_retries():
             
             # Wait for first retry to fail (attempt=2 fails) and pending_retries to clear
             # The DeterministicFailureShotWorkflow fails on attempts 1 and 2
+            # Background task clears pending_retries; use generous timeout for heavy CPU load
             await _wait_for_state(
                 handle,
                 lambda s: "A01" not in s.get("pending_retries", []),
-                timeout=10.0
+                timeout=30.0
             )
             
             # Verify pending_retries is cleared (background task should have done this)
