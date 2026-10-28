@@ -2918,11 +2918,11 @@ test_mutation 395 "alert deduplication prevents spam" \
     "tests/test_balance_notifier.py::test_alert_deduplication_suppresses_recent_duplicates" \
     sed -i 's/^        if await self._is_recent_duplicate(dedupe_key):$/        if False:  # MUTATED: alert deduplication bypassed/'
 
-# 396: InsufficientBalance workflow pause (status set) - first still handler (line 758)
+# 396: InsufficientBalance workflow pause (status set) - first still handler
 test_mutation 396 "InsufficientBalance pause sets status" \
     "hfvg/workflows/shot.py" \
     "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
-    sed -i '758s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/'  
+    sed -i '/Insufficient balance for {self.shot_id}, pausing/{n;s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;q}'  
 
 # 397: 403 body match distinguishes balance from auth errors
 test_mutation 397 "403 body match requires insufficient balance text" \
@@ -2942,7 +2942,11 @@ test_mutation 399 "notifier dedupe key scoped to episode and job" \
     "tests/test_balance_notifier.py::test_alert_deduplication_scoped_to_episode_and_shot" \
     sed -i 's/key_data = f"{self.alert_type}:{self.subject}:{episode}:{job}"/key_data = f"{self.alert_type}:{self.subject}"  # MUTATED: no episode\/job scope/'
 
-# 400: (removed - test and code don't exist)
+# 400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines)
+test_mutation 400 "balance status excludes ElevenLabs lines" \
+    "hfvg/budget.py" \
+    "tests/test_budget.py::test_balance_status_excludes_elevenlabs_spend" \
+    sed -i "s/AND bl.line_name NOT LIKE 'el_%'/AND TRUE  -- MUTATED: include all lines/"
 
 # 401: GAP-32 recompose headcount query  
 test_mutation 401 "recompose_still_plans query exists" \
