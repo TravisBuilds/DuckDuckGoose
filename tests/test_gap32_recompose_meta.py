@@ -97,3 +97,36 @@ def test_recompose_still_plans_query():
     assert plans["A01"]["shot_meta"] == {"count": 2, "duck": True}
     assert plans["A01"]["still_ready"] is True
     assert plans["A01"]["finished"] is False
+
+
+def test_recompose_still_plans_shows_finished_recomposes():
+    """recompose_still_plans includes finished recomposes from recompose_log."""
+    workflow = EpisodeWorkflowV2()
+    
+    # Set up a recompose plan
+    workflow.recompose_plans["B02"] = {
+        "version": 2,
+        "shot_meta": {"characters": ["Alice"]},
+        "recompose": {"n": 1}
+    }
+    
+    # Add a finished recompose to the log
+    workflow.recompose_log.append({
+        "shot_id": "B02",
+        "version": 2,
+        "still_url": "https://example.com/still.png",
+        "decision": "approved",
+        "status": "done",
+        "workflow_id": "recompose-wf-123"
+    })
+    
+    # Query should show the finished recompose
+    plans = workflow.recompose_still_plans()
+    assert "B02" in plans
+    assert plans["B02"]["version"] == 2
+    assert plans["B02"]["shot_meta"] == {"characters": ["Alice"]}
+    assert plans["B02"]["still_ready"] is True
+    assert plans["B02"]["finished"] is True
+    assert plans["B02"]["status"] == "done"
+    assert plans["B02"]["decision"] == "approved"
+    assert plans["B02"]["workflow_id"] == "recompose-wf-123"

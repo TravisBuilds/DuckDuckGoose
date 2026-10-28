@@ -2906,10 +2906,10 @@ test_mutation 393 "permanent ElevenLabs errors are non-retryable" \
     "tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable" \
     sed -i 's/^        if isinstance(e, ElevenLabsError) and e.permanent:$/        if isinstance(e, ElevenLabsError) and False:  # MUTATED: permanent errors now retryable/'
 
-# 394: stale balance check blocks when age > max_age_hours
-test_mutation 394 "stale balance check enforces age limit" \
+# 394: stale balance check warns when age > max_age_hours
+test_mutation 394 "stale balance check warns on stale data" \
     "hfvg/balance_monitor.py" \
-    "tests/test_balance_monitor.py::test_preflight_balance_blocks_stale_higgsfield_balance" \
+    "tests/test_balance_monitor.py::test_preflight_balance_warns_on_stale_higgsfield_balance" \
     sed -i 's/^        if provider == "higgsfield":$/        if False:  # MUTATED: stale balance check bypassed/' 
 
 # 395: alert deduplication suppresses duplicate alerts
@@ -2952,7 +2952,7 @@ test_mutation 400 "balance status excludes ElevenLabs lines" \
 test_mutation 401 "recompose_still_plans query exists" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_gap32_recompose_meta.py::test_recompose_still_plans_query" \
-    sed -i '2585s/@workflow.query/# @workflow.query  # MUTATED: query removed/' 
+    sed -i '/def recompose_still_plans(self)/{x;s/@workflow.query/# @workflow.query  # MUTATED: query removed/;x;}' 
 
 # 402: GAP-33 edit fps conform
 test_mutation 402 "edit fps conform matches generated clips" \

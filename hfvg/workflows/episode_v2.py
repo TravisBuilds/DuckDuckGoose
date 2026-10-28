@@ -2545,12 +2545,12 @@ class EpisodeWorkflowV2:
             pending = self.pending_recompose.get(sid)
             if pending is not None and pending.get("version") == version:
                 state = {"still_ready": bool(pending.get("still_ready")), "decision": pending.get("decision"),
-                         "finished": False}
+                         "finished": False, "workflow_id": pending.get("workflow_id")}
             else:
                 last = next((r for r in reversed(self.recompose_log)
                              if r.get("shot_id") == sid and r.get("version") == version), {})
                 state = {"still_ready": bool(last.get("still_url")), "decision": last.get("decision"),
-                         "finished": True, "status": last.get("status")}
+                         "finished": True, "status": last.get("status"), "workflow_id": last.get("workflow_id")}
             out[sid] = {"version": version, "n": (plan.get("recompose") or {}).get("n"),
                         "shot_meta": dict(plan.get("shot_meta") or {}), **state}
         return out
@@ -2582,20 +2582,6 @@ class EpisodeWorkflowV2:
             self.parsed_beatmap["shots"] = merge(self.parsed_beatmap["shots"])
         return merge(shots)
 
-    @workflow.query
-    def recompose_still_plans(self) -> dict[str, dict]:
-        """GAP-32: return a dict of shots with pending recompose stills, for the headcount endpoint."""
-        return {
-            shot_id: {
-                "workflow_id": rc.get("workflow_id"),
-                "version": rc.get("version"),
-                "still_ready": rc.get("still_ready", False),
-                "decision": rc.get("decision"),
-                "shot_meta": self.recompose_plans.get(shot_id, {}).get("shot_meta"),
-                "finished": False,
-            }
-            for shot_id, rc in self.pending_recompose.items()
-        }
 
     @workflow.query
     def get_state(self) -> dict:

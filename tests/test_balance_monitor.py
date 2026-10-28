@@ -364,7 +364,7 @@ async def test_preflight_balance_blocks_insufficient_known_balance(test_db):
 
 
 @pytest.mark.asyncio
-async def test_preflight_balance_blocks_stale_higgsfield_balance(test_db):
+async def test_preflight_balance_warns_on_stale_higgsfield_balance(test_db):
     """Mutation #394: Stale balance warns but doesn't block (Task 11)."""
     monitor = BalanceMonitor(test_db)
     

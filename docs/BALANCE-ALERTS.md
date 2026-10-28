@@ -27,10 +27,10 @@ Every paid generation (still, clip, audio) runs a preflight balance check before
 
 - Calculates required balance = estimate + reserve% (default 20%)
 - Blocks if balance < required, **unless** auto top-up is enabled for that provider
-- For Higgsfield, blocks if manual entry is stale (> max age hours) **unless** auto top-up is enabled
+- For Higgsfield, warns if manual entry is stale (> max age hours) but doesn't block
 - Logs the check result and alerts on failure
 
-With auto top-up enabled, a low balance only warns but allows the generation (the provider will auto-reload). A stale manual entry or an observed 403 still blocks.
+With auto top-up enabled, a low balance only warns but allows the generation (the provider will auto-reload). A stale manual entry also warns but doesn't block. Only an observed 403 blocks.
 
 ## Alerts
 
