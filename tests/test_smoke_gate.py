@@ -38,8 +38,6 @@ async def test_smoke_gate_refuses_without_passing_test(tmp_path, monkeypatch):
     await credit_ledger.create_episode_line("ep01", cap_credits=1000)
     
     # Mock provider API (should never be called if gate works)
-    import respx
-    import httpx
     respx.post("http://mock.api/estimate/xai/grok-imagine-image-2.0").mock(
         return_value=httpx.Response(200, json={"credits": "1.12", "usd": "1.12"})
     )

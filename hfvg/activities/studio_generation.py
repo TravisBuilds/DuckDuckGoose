@@ -532,7 +532,7 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     # Original shots: still-{ep}-{shot}-v{version}
     # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
-    ROUND_G3_RECOMPOSE = "G3_RECOMPOSE"
+    # ROUND_G3_RECOMPOSE imported from hfvg.budget
     if review_round and review_round.get("round") == ROUND_G3_RECOMPOSE and review_round.get("retry_key"):
         # GAP-37: a recompose still gets its own -rc{n} id. Its attempt is the recompose VERSION, so
         # -r{attempt-1} collided with the shot's G2 retry ids (ep05v2 V19 recompose1 -> -r2, the id
