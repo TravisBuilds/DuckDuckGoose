@@ -168,7 +168,7 @@ run_test() {
     
     # Handle timeout case explicitly
     if [ "$is_timeout" = true ]; then
-        if [ -n "$REDGREEN_ARTIFACTS_DIR" ]; then
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
             mkdir -p "$REDGREEN_ARTIFACTS_DIR"
             local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
             cp "$tmp_output" "$REDGREEN_ARTIFACTS_DIR/pytest_${safe_name}_$(date +%s).txt" 2>/dev/null || true
@@ -367,6 +367,12 @@ test_mutation() {
     
     if [ "$baseline_result" != "PASS" ]; then
         echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        # Save artifact for baseline failure
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test" | sed 's|/|_|g' | sed 's|::|__|g')
+            python3 -m pytest "$test" -p no:cacheprovider -q --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$REDGREEN_ARTIFACTS_DIR/baseline_fail_${safe_name}_$(date +%s).txt" 2>&1 || true
+        fi
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -423,6 +429,12 @@ test_mutation() {
     
     if [ "$mutated_result" = "FAIL_OTHER" ]; then
         echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        # Save artifact for non-AssertionError mutant failure
+        if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+            mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+            local safe_name=$(echo "$test" | sed 's|/|_|g' | sed 's|::|__|g')
+            python3 -m pytest "$test" -p no:cacheprovider -q --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$REDGREEN_ARTIFACTS_DIR/mutant_fail_other_${safe_name}_$(date +%s).txt" 2>&1 || true
+        fi
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -582,6 +594,12 @@ test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
     "tests/test_redgreen_probes.py" \
     "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
+
+test_probe "T1" "Probe T1: hung mutant must report TIMEOUT" \
+    "TIMEOUT" \
+    "tests/test_redgreen_probes.py" \
+    "tests/test_redgreen_probes.py::test_probe_t1_timeout" \
+    sed -i 's/delay = 0  # PROBE_T1_DELAY/delay = 30  # PROBE_T1_DELAY/'
 
 echo ""
 log_header "PRODUCTION SAFETY TESTS"
