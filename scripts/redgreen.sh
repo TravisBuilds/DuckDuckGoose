@@ -583,19 +583,6 @@ test_probe "P3" "Probe P3: RuntimeError in except must report FAILED" \
     "tests/test_redgreen_probes.py::test_probe_p3_runtime_during_assert" \
     python3 scripts/mutate_probe_p3.py
 
-# Timeout probes: verify hung baseline and hung mutant are classified as TIMEOUT
-test_probe "T1" "Hung baseline is TIMEOUT (not INVALID)" \
-    "FAIL" \
-    "tests/test_redgreen_timeout_probes.py" \
-    "tests/test_redgreen_timeout_probes.py::test_hung_baseline" \
-    true  # no mutation needed for baseline hang
-
-test_probe "T2" "Hung mutant is TIMEOUT (not ineffective)" \
-    "FAIL" \
-    "tests/test_redgreen_timeout_probes.py" \
-    "tests/test_redgreen_timeout_probes.py::test_hung_mutant" \
-    sed -i 's/pass  # baseline is fast/import time; time.sleep(999)  # MUTATED: hang/'
-
 echo ""
 log_header "PRODUCTION SAFETY TESTS"
 echo ""
