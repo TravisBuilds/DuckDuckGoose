@@ -2922,7 +2922,7 @@ test_mutation 395 "alert deduplication prevents spam" \
 test_mutation 396 "InsufficientBalance pause sets status" \
     "hfvg/workflows/shot.py" \
     "tests/test_insufficient_balance_pause_resume.py::test_insufficient_balance_pause_resume" \
-    sed -i '/Insufficient balance for {self.shot_id}, pausing/{n;s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;q}'  
+    sed -i '/elif e.cause and isinstance(e.cause, ApplicationError) and e.cause.type == "InsufficientBalance":/,/self.balance_resumed = False/{s/self.status = "paused_insufficient_balance"/self.status = "running"  # MUTATED/;}'  
 
 # 397: 403 body match distinguishes balance from auth errors
 test_mutation 397 "403 body match requires insufficient balance text" \
@@ -2970,7 +2970,7 @@ test_mutation 403 "bed dips window validation" \
 test_mutation 404 "subtitle duration respects per-line overrides" \
     "hfvg/audio_mix.py" \
     "tests/test_gap34_35_bed_dips_subtitle_dur.py::test_normalize_plan_with_subtitle_dur" \
-    sed -i 's/"subtitle_dur": None if ln.get("subtitle_dur") is None/"subtitle_dur": None  # MUTATED: always None/'
+    sed -i '/"subtitle_dur": None if ln.get("subtitle_dur") is None/{N;s/"subtitle_dur": None if ln.get("subtitle_dur") is None\n            else _num(ln\["subtitle_dur"\].*/"subtitle_dur": None,  # MUTATED: always None/;}'
 
 # 405: GAP-36 Kling reserve floor opt-in
 test_mutation 405 "Kling reserve floor requires explicit opt-in" \
