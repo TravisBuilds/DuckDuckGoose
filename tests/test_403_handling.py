@@ -242,6 +242,13 @@ async def test_403_auth_error_not_treated_as_insufficient_balance(tmp_path, monk
                 review_round=None,
                 tier=None,
             )
+        except ApplicationError as e:
+            # Mutation 397: if body match is bypassed, non-balance 403 becomes InsufficientBalance (wrong!)
+            # This should NOT happen, so if we catch ApplicationError, it's a mutation failure
+            raise AssertionError(
+                f"Non-balance 403 should raise ValueError, not ApplicationError. "
+                f"Got ApplicationError type={e.type}"
+            ) from e
         except ValueError as e:
             error_raised = True
             is_value_error = True
