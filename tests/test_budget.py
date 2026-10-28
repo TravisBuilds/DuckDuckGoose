@@ -517,16 +517,18 @@ async def test_commit_overage_spends_actual_not_reserved():
 
 @pytest.mark.asyncio
 async def test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield():
-    """Mutation #400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines) (100k HF, 50k EL case)."""
+    """Mutation #400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines) (100k HF, 50k EL case).
+    Also tests wildcard escaping: 'elx' (no underscore) should NOT be excluded."""
     ledger, path = create_test_ledger()
     try:
         # Set manual balance (high enough to avoid headroom checks)
         await ledger.set_manual_balance(10_000_000, set_by="test", note="test balance")
         
-        # Initialize episode with both Higgsfield and ElevenLabs lines
+        # Initialize episode with Higgsfield, ElevenLabs, and non-EL lines starting with 'el'
         await ledger.init_episode_budget("ep99")
         await ledger.set_line("ep99", "L1_stills", 500_000)  # Higgsfield line
         await ledger.set_line("ep99", "el_tts", 200_000)  # ElevenLabs line (el_* prefix)
+        await ledger.set_line("ep99", "elxtra", 200_000)  # NOT ElevenLabs (no underscore after 'el')
         
         # Commit spend on Higgsfield line
         assert await ledger.reserve("ep99", "L1_stills", 100_000) is True
@@ -536,17 +538,21 @@ async def test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfi
         assert await ledger.reserve("ep99", "el_tts", 50_000) is True
         assert await ledger.commit("ep99", "el_tts", 50_000, 50_000) is True
         
+        # Commit spend on non-EL 'elxtra' line (should be INCLUDED in spend)
+        assert await ledger.reserve("ep99", "elxtra", 25_000) is True
+        assert await ledger.commit("ep99", "elxtra", 25_000, 25_000) is True
+        
         # Get balance status
         status = await ledger.get_balance_status()
         
-        # Should only count Higgsfield spend (100k), not ElevenLabs (50k)
+        # Should count Higgsfield (100k) + elxtra (25k), but NOT ElevenLabs el_tts (50k)
         spent = status["spent_since_entry_usd_micros"]
-        assert spent == 100_000, \
-            f"Balance status should exclude ElevenLabs (el_*) spend. Expected 100000, got {spent}"
+        assert spent == 125_000, \
+            f"Balance status should exclude el_* but include 'elxtra'. Expected 125000, got {spent}"
         
-        # Remaining balance should be: 10M - 100k (Higgsfield only) - 0 (no reserves)
+        # Remaining balance should be: 10M - 125k (Higgsfield + elxtra) - 0 (no reserves)
         remaining = status["balance_remaining_usd_micros"]
-        assert remaining == 9_900_000, \
-            f"Balance remaining should exclude ElevenLabs spend. Expected 9900000, got {remaining}"
+        assert remaining == 9_875_000, \
+            f"Balance remaining should be 9875000 (10M - 100k - 25k). Got {remaining}"
     finally:
         _cleanup(path)

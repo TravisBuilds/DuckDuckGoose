@@ -2544,7 +2544,7 @@ test_mutation 332 "episode id fullmatch" \
 test_mutation 333 "episode id ascii digits" \
     "api/main.py" \
     "tests/test_round5_guards.py::test_episode_id_format_is_exact" \
-    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}(?:\[a-z\]\[a-z0-9\]{0,11})?"  # ASCII digits only.*/EPISODE_ID_PATTERN = r"ep\\d{2}"  # MUTATED/'
+    sed -i 's/^EPISODE_ID_PATTERN = r"ep\[0-9\]{2}(?:\[a-z\]\[a-z0-9\]{0,11})?"  # ASCII digits only.*/EPISODE_ID_PATTERN = r"ep\\d{2}(?:[a-z][a-z0-9]{0,11})?"  # MUTATED: \\d instead of [0-9]/'
 
 # 334: G-UI-1: cap raise is applied while parked at G_FINAL_CUT
 test_mutation 334 "cap raise at final gate" \
@@ -2945,8 +2945,8 @@ test_mutation 399 "notifier dedupe key scoped to episode and job" \
 # 400: balance status only counts Higgsfield spend (excludes el_* ElevenLabs lines)
 test_mutation 400 "balance status excludes ElevenLabs lines" \
     "hfvg/budget.py" \
-    "tests/test_budget.py::test_balance_status_excludes_elevenlabs_spend" \
-    sed -i "s/AND bl.line_name NOT LIKE 'el_%'/AND TRUE  -- MUTATED: include all lines/"
+    "tests/test_budget.py::test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield" \
+    sed -i "s/AND bl.line_name NOT LIKE 'el\\\\_%' ESCAPE '\\\\'/AND TRUE  -- MUTATED: include all lines/"
 
 # 401: GAP-32 recompose headcount query  
 test_mutation 401 "recompose_still_plans query exists" \
