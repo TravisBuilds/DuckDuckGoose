@@ -643,7 +643,7 @@ class BudgetLedger:
             SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt
             JOIN budget_lines bl ON bt.line_id = bl.line_id
             WHERE bt.txn_type = 'commit' AND bt.txn_id > ?
-            AND bl.line_name NOT LIKE 'el\_%' ESCAPE '\'
+            AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'
         """, (after_txn_id,)) as cur:
             spent_since = (await cur.fetchone())[0]
         status.update({

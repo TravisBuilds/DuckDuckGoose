@@ -2946,7 +2946,7 @@ test_mutation 399 "notifier dedupe key scoped to episode and job" \
 test_mutation 400 "balance status excludes ElevenLabs lines" \
     "hfvg/budget.py" \
     "tests/test_budget.py::test_balance_status_excludes_elevenlabs_spend_with_100k_micros_higgsfield" \
-    sed -i "s/AND bl.line_name NOT LIKE 'el\\\\_%' ESCAPE '\\\\'/AND TRUE  -- MUTATED: include all lines/"
+    sed -i "s/AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'/AND TRUE  -- MUTATED: include all lines/"
 
 # 401: GAP-32 recompose headcount query  
 test_mutation 401 "recompose_still_plans query exists" \

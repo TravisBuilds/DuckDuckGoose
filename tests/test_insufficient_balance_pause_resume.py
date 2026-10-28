@@ -159,11 +159,11 @@ async def test_insufficient_balance_pause_resume():
                 mock_precheck_clip,
             ],
         ):
-            # Start workflow
+            # Start workflow (still only, no clip, to test still phase pause/resume)
             shot_plan = {
                 "shot_id": "A01",
                 "prompt": "test prompt",
-                "clip_prompt": "test clip",
+                "clip_prompt": None,  # No clip - testing still phase only
                 "duration": 5.0,
                 "shot_meta": {},
                 "missing_refs": [],
@@ -188,20 +188,30 @@ async def test_insufficient_balance_pause_resume():
             assert activity_call_count["submit_still"] == 1, "submit_still should be called once before pause"
             assert activity_call_count["commit"] == 0, "commit should not be called yet"
             
-            # Send resume signal
+            # Send resume signal for still phase
             await handle.signal("resume_balance")
             
-            # Wait for workflow to process resume and retry, then approve stills
+            # Wait for still to complete and workflow to reach clip phase
+            await env.sleep(2)
+            
+            # Signal approval for stills (moves to clip phase)
             await handle.signal("stills_approved")
+            
+            # Wait for clip to hit pause
+            await env.sleep(1)
+            
+            # Send second resume signal for clip phase
+            await handle.signal("resume_balance")
             
             # Wait for workflow to complete
             result = await handle.result()
             
             # Verify: submit was called exactly twice (once failed, once succeeded)
             assert activity_call_count["submit_still"] == 2, f"Expected 2 submit calls after resume, got {activity_call_count['submit_still']}"
+            assert activity_call_count["submit_clip"] == 2, f"Expected 2 clip submit calls, got {activity_call_count['submit_clip']}"
             
-            # Verify: commit was called exactly once (no double charge)
-            assert activity_call_count["commit"] == 1, f"Expected 1 commit call, got {activity_call_count['commit']}"
+            # Verify: commit was called exactly twice (still + clip, no double charge)
+            assert activity_call_count["commit"] == 2, f"Expected 2 commit calls (still + clip), got {activity_call_count['commit']}"
             
             # Verify workflow completed successfully
             assert result["status"] in ["completed", "done"], f"Workflow should complete, got {result}"

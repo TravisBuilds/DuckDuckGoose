@@ -418,7 +418,7 @@ async def test_retry_shot_respects_max_retries():
             await _wait_for_state(
                 handle,
                 lambda s: "A01" not in s.get("pending_retries", []),
-                timeout_seconds=10.0
+                timeout=10.0
             )
             
             # Verify pending_retries is cleared (background task should have done this)
