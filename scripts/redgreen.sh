@@ -2952,7 +2952,7 @@ test_mutation 400 "balance status excludes ElevenLabs lines" \
 test_mutation 401 "recompose_still_plans query exists" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_gap32_recompose_meta.py::test_recompose_still_plans_query" \
-    'awk '\''BEGIN{p=0} /@workflow\.query/{if(getline && /def recompose_still_plans/) {print "    # @workflow.query  # MUTATED"; print; p=1; next}} {print}'\'' hfvg/workflows/episode_v2.py > /tmp/mutated.py && mv /tmp/mutated.py hfvg/workflows/episode_v2.py' 
+    sed -i '$!N;s/@workflow\.query\n    def recompose_still_plans/# @workflow.query  # MUTATED\n    def recompose_still_plans/;P;D' 
 
 # 402: GAP-33 edit fps conform
 test_mutation 402 "edit fps conform matches generated clips" \
