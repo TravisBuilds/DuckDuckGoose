@@ -23,7 +23,7 @@ from tests.test_picture_assembly_round3 import (
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_reviewer_keeps_original_take_after_worse_retry(dry_env, tmp_path, no_counter):
+async def test_reviewer_keeps_original_take_after_worse_retry(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     async with await WorkflowEnvironment.start_local() as env:

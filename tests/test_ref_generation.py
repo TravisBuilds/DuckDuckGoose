@@ -360,7 +360,6 @@ async def test_dry_run_writes_to_scratch_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
-    from hfvg.studio_db import init_studio_db, create_episode
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     
@@ -412,7 +411,6 @@ async def test_generate_ref_dry_run(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
-    from hfvg.studio_db import init_studio_db, create_episode
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     
@@ -455,7 +453,6 @@ async def test_generate_ref_idempotent_job_id(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
-    from hfvg.studio_db import init_studio_db, create_episode
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     
@@ -503,7 +500,6 @@ async def test_refs_counted_in_credit_cap(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "true")
     
-    from hfvg.studio_db import init_studio_db, create_episode
     await init_studio_db(db_path)
     await create_episode(db_path, "ep99")
     

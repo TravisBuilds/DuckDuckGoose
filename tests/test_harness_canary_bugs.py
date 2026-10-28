@@ -903,7 +903,6 @@ async def test_deterministic_parallel_upload_dedupe_same_sha256_version(tmp_path
     Uses tmp_path for isolated cache to avoid cross-test race conditions.
     """
     import hashlib
-    from pathlib import Path
     from hfvg.upload_cache import UploadCache
     from hfvg.providers.higgsfield_still import HiggsfieldStillProvider
     import httpx

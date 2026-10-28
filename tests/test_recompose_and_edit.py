@@ -63,7 +63,7 @@ def _worker(env, h, clips):
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(400)
-async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, no_counter):
+async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     ref = tmp_path / "char_r.png"
@@ -142,7 +142,7 @@ async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, n
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(400)
-async def test_set_shot_edit_trims_and_drops(dry_env, tmp_path, no_counter):
+async def test_set_shot_edit_trims_and_drops(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     async with await WorkflowEnvironment.start_local() as env:

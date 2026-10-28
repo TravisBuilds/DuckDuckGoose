@@ -22,7 +22,7 @@ from tests.test_picture_assembly_round3 import (  # noqa: F401
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_edit_rebuild_reassembles_then_redelivers(dry_env, tmp_path, no_counter):
+async def test_edit_rebuild_reassembles_then_redelivers(dry_env, tmp_path, no_counter):  # noqa: F811
     set_animal_counter(FakeAnimalCounter({"animal": 1}))
     write_audio(tmp_path, "ep95")
     h = Harness({})

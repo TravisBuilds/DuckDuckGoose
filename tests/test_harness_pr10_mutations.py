@@ -265,7 +265,6 @@ async def test_end_frame_anchor_strips_suffix(tmp_path, monkeypatch):
     to not find its anchor.
     """
     import os
-    from unittest.mock import AsyncMock, patch
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger
@@ -364,7 +363,6 @@ async def test_end_frame_anchor_enforces_ref_cap(tmp_path, monkeypatch):
     Mutation 123 should break this by checking only original refs, not refs_with_anchor.
     """
     import os
-    from unittest.mock import AsyncMock, patch
     from hfvg.activities.studio_generation import submit_still_job_enforced
     from hfvg.studio_db import init_studio_db, upsert_episode, approve_g108, set_anchor_still
     from hfvg.budget import BudgetLedger

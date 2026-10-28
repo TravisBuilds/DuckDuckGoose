@@ -71,7 +71,7 @@ def _db_row(db_path, ep, shot="A01"):
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_reviewer_keeps_earlier_still_version_for_clip_manifest_and_db(dry_env, tmp_path, no_counter):
+async def test_reviewer_keeps_earlier_still_version_for_clip_manifest_and_db(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     async with await WorkflowEnvironment.start_local() as env:
@@ -115,7 +115,7 @@ async def test_reviewer_keeps_earlier_still_version_for_clip_manifest_and_db(dry
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_without_selection_older_versions_end_superseded_and_latest_is_animated(dry_env, tmp_path, no_counter):
+async def test_without_selection_older_versions_end_superseded_and_latest_is_animated(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     async with await WorkflowEnvironment.start_local() as env:
@@ -137,7 +137,7 @@ async def test_without_selection_older_versions_end_superseded_and_latest_is_ani
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_select_refusals(dry_env, tmp_path, no_counter, monkeypatch):
+async def test_select_refusals(dry_env, tmp_path, no_counter, monkeypatch):  # noqa: F811
     from hfvg.config import config
     monkeypatch.setattr(config, "MAX_SHOT_RETRIES", 2)
     h = Harness({})
@@ -176,7 +176,7 @@ async def test_select_refusals(dry_env, tmp_path, no_counter, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_parked_review_survives_24h_and_superseded_child_writes_nothing(dry_env, tmp_path, no_counter):
+async def test_parked_review_survives_24h_and_superseded_child_writes_nothing(dry_env, tmp_path, no_counter):  # noqa: F811
     """Live-style review (review_still escalates): children park in the human-review wait. Past the
     24 h timer they keep waiting (they used to fail the workflow task forever), and a superseded one
     ends WITHOUT the still_complete DB write that used to overwrite the kept version's row."""

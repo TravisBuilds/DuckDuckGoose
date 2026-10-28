@@ -100,7 +100,7 @@ from api.main import final_cut_blockers  # noqa: E402
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter):
+async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter):  # noqa: F811
     set_animal_counter(FakeAnimalCounter({"animal": 1}))
     root = write_audio(tmp_path, "ep94")
     h = Harness({})

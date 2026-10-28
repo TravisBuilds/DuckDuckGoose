@@ -47,7 +47,7 @@ def _escalating_review():
 class TestAcceptClipReview:
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
-    async def test_needs_review_clip_kept_and_edit_rebuilt(self, dry_env, tmp_path, no_counter):
+    async def test_needs_review_clip_kept_and_edit_rebuilt(self, dry_env, tmp_path, no_counter):  # noqa: F811
         h = Harness({})
         clips = ClipFactory(tmp_path, [MOVING])
         async with await WorkflowEnvironment.start_local() as env:

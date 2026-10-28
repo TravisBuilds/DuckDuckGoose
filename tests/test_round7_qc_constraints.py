@@ -160,7 +160,7 @@ class TestContinuityHardVsAdvisory:
         return await HB().run(check_assembly_qc, *args)
 
     @pytest.mark.asyncio
-    async def test_hard_size_fail_blocks_advisory_order_fail_only_watches(self, tmp_path, monkeypatch, no_counter):
+    async def test_hard_size_fail_blocks_advisory_order_fail_only_watches(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         edit = await self._edit(tmp_path)
@@ -176,7 +176,7 @@ class TestContinuityHardVsAdvisory:
         assert rows[("A01", "left_to_right_order")]["hard"] is False
 
     @pytest.mark.asyncio
-    async def test_hard_check_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):
+    async def test_hard_check_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         edit = await self._edit(tmp_path)

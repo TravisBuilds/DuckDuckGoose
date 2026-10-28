@@ -107,8 +107,6 @@ class VersionTestShotWorkflow:
         parent_workflow_id = shot_dict.get("parent_workflow_id", episode_id)
         
         # Call still activity with version passed through
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         try:
             result = await workflow.execute_activity(
@@ -788,8 +786,6 @@ class FailOnceThenSucceedWithStateQuery:
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         version = shot_dict.get("version", 1)
         shot_id = shot_dict.get("shot_id", "A01")
@@ -969,8 +965,6 @@ class SubmitThenFailWorkflow:
     
     @workflow.run
     async def run(self, episode_id: str, shot_dict: dict) -> dict:
-        from datetime import timedelta
-        from temporalio.common import RetryPolicy
         
         shot_id = shot_dict["shot_id"]
         prompt = shot_dict.get("prompt", "Test prompt")
