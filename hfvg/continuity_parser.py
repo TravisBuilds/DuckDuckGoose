@@ -44,7 +44,7 @@ def load_prompt_kit(episode_path: str | Path) -> dict[str, Any] | None:
         return None
     
     try:
-        with open(prompt_kit_path, 'r') as f:
+        with open(prompt_kit_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError) as e:
         raise ValueError(f"Failed to load prompt_kit.json: {e}")
@@ -84,7 +84,7 @@ def parse_continuity(continuity_path: str | Path) -> dict[str, Any]:
             "style": ""
         }
     
-    content = Path(continuity_path).read_text()
+    content = Path(continuity_path).read_text(encoding='utf-8')
     
     result = {
         "characters": {},

@@ -1,7 +1,7 @@
 """EpisodeWorkflow V2: Handbook-compliant workflow with steps 0-7 and project owner approval points."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from temporalio import workflow
@@ -42,6 +42,9 @@ def amend_prompt(base: str, prompt_append: str) -> tuple[str, str]:
     amendment = " ".join(prompt_append.split())
     return f"{base.rstrip()} {amendment}", amendment
 
+
+# GAP-68: start_to_close cap (minutes) for assemble_mute_edit; RIFE retimes run on the CPU.
+ASSEMBLY_RIFE_CAP_MIN = 180
 
 @workflow.defn
 class EpisodeWorkflowV2:
@@ -104,6 +107,23 @@ class EpisodeWorkflowV2:
         # GAP-39: reviewer-granted extra recomposes past MAX_RECOMPOSES_PER_SHOT
         self.recompose_grants: dict[str, int] = {}  # shot_id -> grants count
         self.recompose_grant_log: list[dict] = []
+
+        # GAP-49: the accepted outcome a recompose replaced (shot_id -> {outcome, plan, clip_takes,
+        # acceptance, replaced_by}), so a failed recompose clip can be backed out to it
+        self.pre_recompose_outcomes: dict[str, dict] = {}
+        self.outcome_restore_log: list[dict] = []
+        # GAP-74: the outcome the LATEST approved recompose replaced, whatever its status (GAP-49 saves
+        # only a completed one and keeps an older save otherwise, so a restore could jump back two
+        # compositions). shot_id -> {outcome, plan, clip_takes, acceptance, replaced_by, restored}
+        self.recompose_replaced: dict[str, dict] = {}
+        # GAP-39: reviewer-granted extra recomposes past MAX_RECOMPOSES_PER_SHOT (shot_id -> grants)
+        self.recompose_grants: dict[str, int] = {}
+        self.recompose_grant_log: list[dict] = []
+        # GAP-73: G3_CLIPS per-shot limit lifts used by granted recompose clips (shot_id -> [rc n, ...]);
+        # one lifted clip per grant, one per granted recompose
+        self.g3_clip_lifts: dict[str, list[int]] = {}
+        # GAP-44: reuse slots (edit_plan reuse) adopted as workflow shots so they can be re-shot
+        self.adopted_reuse_log: list[dict] = []
         # GAP-22: reviewer edit overrides at G_FINAL_CUT: shot_id -> {"drop": True} or {"trim_in", "trim_out"}
         self.edit_overrides: dict[str, dict] = {}
         self.edit_override_log: list[dict] = []
@@ -112,6 +132,8 @@ class EpisodeWorkflowV2:
         self.delivery_rebuilds: list[dict] = []  # reviewer-requested delivery rebuilds (audio plan edits)
         self.edit_rebuilds: list[dict] = []
         self.assembly_rebuilds: list[dict] = []  # GAP-29: reviewer-requested mute-edit rebuilds (edit_plan.json edits)
+
+        self.edit_rebuilds: list[dict] = []  # GAP-29: reviewer-requested mute-edit rebuilds (edit_plan.json edits)
         self.delivery_sig: list | None = None  # picture (edit version + path) the delivery was built from
         self.delivery_version: int = 0
         self.delivery_phase: str | None = None  # audio / final_mix / delivery / done
@@ -129,6 +151,11 @@ class EpisodeWorkflowV2:
         self._dry_run: bool = True
         self.clip_plan_updates: dict[str, dict] = {}  # shot_id -> {clip_prompt, qc_fail_if} now in force
         self.resync_log: list[dict] = []
+# GAP-41: reopen of a COMPLETED episode at G_FINAL_CUT (new run, same workflow id, state restored
+        # from the closed run's reopen_snapshot query): one row per reopen
+        self.reopen_log: list[dict] = []
+        self.ref_jobs_log: list[dict] = []   # GAP-42
+        self.ref_jobs_running = False
     
     @workflow.run
     async def run(
@@ -138,7 +165,8 @@ class EpisodeWorkflowV2:
         dry_run: bool = True,
         shots_subset: list[str] | None = None,
         credit_cap: int | None = None,
-        attempt_overrides: dict[str, int] | None = None
+        attempt_overrides: dict[str, int] | None = None,
+        reopen_from: dict | None = None,
     ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
@@ -197,6 +225,9 @@ class EpisodeWorkflowV2:
             }
         
         try:
+            if reopen_from is not None:
+                # GAP-41: a reopened episode goes straight back to G_FINAL_CUT with the restored state
+                return await self._run_reopened(episode_id, reopen_from)
             result = await self._run_with_lock(
                 episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap
             )
@@ -701,6 +732,10 @@ class EpisodeWorkflowV2:
         # Clip retries (G-RETRY-1) may run while parked here; approval only counts once none is pending,
         # the mute edit is up to date with the latest clips (a landed retry rebuilds it) and its QC is
         # not blocking (FAIL / NEEDS_REVIEW hold the gate until a passing rebuild or a human accept).
+        return await self._final_cut_gate_and_report(episode_id, len(shots))
+
+    async def _final_cut_gate_and_report(self, episode_id: str, shots_count: int) -> dict:
+        """G_FINAL_CUT loop + run report (shared by a normal run and a GAP-41 reopened run)."""
         self.state.current_gate = "G_FINAL_CUT"
         while True:
             await workflow.wait_condition(
@@ -758,7 +793,7 @@ class EpisodeWorkflowV2:
                     None,  # credits_spent: read from the credit ledger by the activity (real value)
                     None,  # credits_cap: read from the credit ledger by the activity (real value)
                     False,  # paused_for_cap
-                    len(shots),  # shots_count
+                    shots_count,  # shots_count
                     stages,
                     "complete",  # status
                     None,  # error
@@ -783,7 +818,7 @@ class EpisodeWorkflowV2:
         
         return {
             "episode_id": episode_id,
-            "shots": len(shots),
+            "shots": shots_count,
             "status": "complete",
             "passed_gates": self.passed_gates,
             "approvals": {
@@ -1140,6 +1175,114 @@ class EpisodeWorkflowV2:
                         raise
                     workflow.logger.info(f"Could not supersede {wid} (already finished): {e}")
 
+
+    def _max_still_child_version(self, shot_id: str) -> int:
+        """GAP-48: highest version any G2 still child (initial or retry, superseded or not) used for this
+        shot. A recompose must number past it, or it reuses a retry's version and overwrites that retry's
+        outputs/<shot>/still_v<N>.jpg (V04 r8: retry1..3 = v2..v4, recompose took v2 then v3)."""
+        return max((int(r.get("version") or 0) for r in self.still_version_children.get(shot_id, [])),
+                   default=0)
+
+    @staticmethod
+    def seedance_resolution_of(params: dict | None) -> str | None:
+        """GAP-50: the Seedance resolution a clip will actually render at (None = tier default / not
+        Seedance), so the round-budget pre-check estimates the routed price, not the 1080p default."""
+        params = params or {}
+        if params.get("model") == "seedance" and params.get("seedance_resolution"):
+            return str(params["seedance_resolution"])
+        return None
+
+    # GAP-74 cutover: restores decided before this instant keep the GAP-49 behaviour so recorded
+    # histories replay unchanged (workflow.now() is deterministic). Not workflow.patched(): the SDK
+    # memoizes the first answer per run (GAP-69), which would leave the fix inert in a running episode.
+    GAP74_CUTOVER = datetime(2026, 10, 28, 20, 46, 0, tzinfo=timezone.utc)
+
+    def _gap74_active(self) -> bool:
+        if not workflow.in_workflow():
+            return True
+        return workflow.now() >= self.GAP74_CUTOVER
+
+    def _stale_restore(self, shot_id: str) -> dict | None:
+        """GAP-74: the shot's last restore brought back an older save than the outcome its latest
+        recompose replaced, and the shot still has that restored clip -> the restore entry."""
+        target = self.recompose_replaced.get(shot_id) or {}
+        last = next((e for e in reversed(self.outcome_restore_log) if e.get("shot_id") == shot_id), None)
+        if not target or not last or last.get("replaced_by") == target.get("replaced_by"):
+            return None
+        if (self.shot_outcomes.get(shot_id) or {}).get("clip_path") != last.get("restored_clip"):
+            return None
+        return last
+
+    def _restore_outcome_problem(self, shot_id: str, reason: str) -> str | None:
+        if not (reason or "").strip():
+            return "a reason is required"
+        if "G_FINAL_CUT" in self.passed_gates:
+            return "final cut already approved"
+        if shot_id in self.pending_recompose:
+            return "a recompose is pending for this shot"
+        if shot_id in self.pending_clip_retries:
+            return "a clip retry is pending for this shot"
+        if self._gap74_active():
+            target = self.recompose_replaced.get(shot_id)
+            if not target or target.get("restored"):
+                return "no accepted pre-recompose outcome recorded for this shot"
+            if ((self.shot_outcomes.get(shot_id) or {}).get("status") == "completed"
+                    and self._stale_restore(shot_id) is None):
+                return "the current outcome is accepted (completed); restore only backs out an unaccepted recompose"
+            return None
+        saved = self.pre_recompose_outcomes.get(shot_id)
+        if not saved:
+            return "no accepted pre-recompose outcome recorded for this shot"
+        if (self.shot_outcomes.get(shot_id) or {}).get("status") == "completed":
+            return "the current outcome is accepted (completed); restore only backs out an unaccepted recompose"
+        return None
+
+    @workflow.update
+    async def restore_pre_recompose_outcome(self, shot_id: str, reason: str) -> dict:
+        """GAP-49: back out a recompose whose clip failed review: the shot's outcome, plan and clip takes
+        return to the accepted ones the recompose replaced, so the edit uses the accepted clip again
+        (before, the shot dropped out of the edit as needs_review with no route back). No spend."""
+        problem = self._restore_outcome_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot restore {shot_id}: {problem}", non_retryable=True)
+        if self._gap74_active():
+            # GAP-74: back out to exactly what the latest recompose replaced (any status; a non-completed
+            # one leaves the shot out of the edit so its edit_plan reuse clip applies again), or correct a
+            # stale GAP-49 restore of an older save
+            stale = self._stale_restore(shot_id)
+            saved = self.recompose_replaced[shot_id]
+            saved["restored"] = True
+            if (self.pre_recompose_outcomes.get(shot_id) or {}).get("replaced_by") == saved.get("replaced_by"):
+                self.pre_recompose_outcomes.pop(shot_id, None)
+        else:
+            stale = None
+            saved = self.pre_recompose_outcomes.pop(shot_id)
+        replaced = self.shot_outcomes.get(shot_id) or {}
+        self.shot_outcomes[shot_id] = dict(saved["outcome"])
+        if saved.get("plan"):
+            self.launched_shot_plans[shot_id] = dict(saved["plan"])
+        self.clip_takes[shot_id] = dict(saved.get("clip_takes") or {})
+        if saved.get("acceptance"):
+            self.clip_review_acceptances[shot_id] = saved["acceptance"]
+        elif stale is not None:
+            self.clip_review_acceptances.pop(shot_id, None)
+        self.state.failed_shots = [fs for fs in self.state.failed_shots if fs.get("shot_id") != shot_id]
+        entry = {"shot_id": shot_id, "reason": reason.strip(), "replaced_by": saved.get("replaced_by"),
+                 "backed_out_clip": replaced.get("clip_url"), "restored_clip": saved["outcome"].get("clip_path")}
+        if self._gap74_active():
+            entry["restored_status"] = saved["outcome"].get("status")
+            if stale is not None:
+                entry["corrects_stale_restore"] = stale.get("replaced_by")
+        self.outcome_restore_log.append(entry)
+        workflow.logger.warning(f"Outcome of {shot_id} restored to its pre-recompose clip: {reason}")
+        return {"success": True, "action": "outcome_restored", **entry}
+
+    @restore_pre_recompose_outcome.validator
+    def validate_restore_pre_recompose_outcome(self, shot_id: str, reason: str):
+        problem = self._restore_outcome_problem(shot_id, reason)
+        if problem:
+            raise ApplicationError(f"Cannot restore {shot_id}: {problem}", non_retryable=True)
+
     @workflow.query
     def still_versions(self) -> dict:
         """Per shot: every still child (version, workflow id, status), the current one and any selection."""
@@ -1169,6 +1312,14 @@ class EpisodeWorkflowV2:
     def _clip_review_problem(self, shot_id: str, reason: str, clip_path: str | None,
                              take: int | None = None) -> str | None:
         """Why accept_clip_review must be refused (None = allowed)."""
+
+                             take: int | None = None, failed_retry_take: bool = True) -> str | None:
+        """Why accept_clip_review must be refused (None = allowed).
+
+        GAP-67 (ep05v2 r12 V22): a clip retry that LANDED NOTHING (refused or failed in the child, no
+        clip_url) leaves the shot 'failed'; the shot then dropped out of the edit and its earlier
+        landed takes could not be kept. With ``take`` given, a 'failed' outcome WITHOUT a clip is now
+        accepted too (keep an earlier landed take); a failed outcome that has a clip still is not."""
         if not (reason or "").strip():
             return "a reason is required"
         if self.assembly_sig is None:
@@ -1192,6 +1343,12 @@ class EpisodeWorkflowV2:
         if outcome.get("status") != "needs_review" and not landed_qc_fail:
             return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
         if not outcome.get("clip_url"):
+
+        retry_landed_nothing = (failed_retry_take and take is not None and outcome.get("status") == "failed"
+                                and not outcome.get("clip_url"))
+        if outcome.get("status") != "needs_review" and not retry_landed_nothing:
+            return f"shot status is {outcome.get('status')!r}, not 'needs_review'"
+        if not outcome.get("clip_url") and not retry_landed_nothing:
             return "no clip landed for this shot"
         if take is not None:
             takes = self.clip_takes.get(shot_id) or {}
@@ -1199,6 +1356,12 @@ class EpisodeWorkflowV2:
             if chosen is None:
                 return f"no clip take {take} for this shot (takes: {sorted(takes)})"
             if not (chosen.get("clip_url") and chosen.get("clip_path")):
+
+            # GAP-79b: a take rebuilt from saved state (reopen-from-saved) carries no clip_url (the
+            # provider URL died with the history) but its local file is the accepted clip of record
+            landed = chosen.get("clip_url") or (chosen.get("restored_from") == "saved_state"
+                                                and chosen.get("status") == "completed")
+            if not (landed and chosen.get("clip_path")):
                 return f"clip take {take} has no landed clip with a local file"
             return None
         if not (outcome.get("clip_path") or clip_path):
@@ -1213,6 +1376,10 @@ class EpisodeWorkflowV2:
         edit goes stale and is re-assembled with it at G_FINAL_CUT. No spend. ``clip_path`` (the
         local file, resolved by the API from the shot child) is only used when the outcome has none."""
         problem = self._clip_review_problem(shot_id, reason, clip_path, take)
+
+        problem = self._clip_review_problem(
+            shot_id, reason, clip_path, take,
+            failed_retry_take=take is not None and workflow.patched("gap67-accept-take-after-failed-retry-v1"))
         if problem:
             raise ApplicationError(f"Cannot accept clip for {shot_id}: {problem}", non_retryable=True)
         outcome = dict(self.shot_outcomes[shot_id])
@@ -1296,6 +1463,25 @@ class EpisodeWorkflowV2:
             sig = sig + [["rebuilds", len(self.assembly_rebuilds)]]
         return sig
 
+        return sig + [["edit_rebuilds", len(self.edit_rebuilds)]] if self.edit_rebuilds else sig
+
+    @workflow.signal
+    def request_edit_rebuild(self, reason: str):
+        """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (a
+        reused clip or a dissolve added). Picture only, no spend; the delivery follows the new edit.
+        Ignored without a reason, before the first edit, or after G_FINAL_CUT."""
+        if not (reason or "").strip():
+            self.final_cut_refusals.append("edit rebuild ignored: a reason is required")
+            return
+        if "G_FINAL_CUT" in self.passed_gates:
+            self.final_cut_refusals.append("edit rebuild ignored: G_FINAL_CUT already passed")
+            return
+        if self.assembly_sig is None:
+            self.final_cut_refusals.append("edit rebuild ignored: no edit assembled yet")
+            return
+        self.edit_rebuilds.append({"reason": reason.strip(), "after_edit_version": self.assembly_version})
+        workflow.logger.warning(f"[PICTURE LOCK] edit rebuild requested by reviewer: {reason}")
+
     def _assembly_stale(self) -> bool:
         """The clips changed (e.g. a clip retry landed) since the edit was last assembled."""
         return self.assembly_sig is not None and self._assembly_signature() != self.assembly_sig
@@ -1363,10 +1549,21 @@ class EpisodeWorkflowV2:
         else:
             workflow.logger.info(f"Assembling {len(entries)} clips into the mute edit")
             try:
+                # GAP-68 (ep05v2 r12): a RIFE retime of ~800 frames runs ~4-5 s/frame on the CPU box,
+                # i.e. over an hour for one assembly, so the 30-min attempt cap killed every attempt
+                # mid-shot (the per-shot cache survives, but each attempt lost its partial shot).
+                # Heartbeats (2 min) still catch a hung attempt; the cap now only bounds a live one.
+                # GAP-69 (r12): no workflow.patched() here. The Python SDK memoizes patched() per run,
+                # so in a run whose history already scheduled this activity (replayed without a marker)
+                # it stays False for every later rebuild and the 180-min cap never applied (548 was
+                # scheduled with 1800 s). Activity timeouts are not part of replay determinism (only the
+                # command type / activity type are matched), so the cap is plain and applies to every
+                # assembly scheduled from now on; already-scheduled attempts keep their recorded timeout.
+                assembly_cap = ASSEMBLY_RIFE_CAP_MIN
                 result = await workflow.execute_activity(
                     assemble_mute_edit,
                     args=[episode_id, entries, paths, None],
-                    start_to_close_timeout=timedelta(minutes=30),
+                    start_to_close_timeout=timedelta(minutes=assembly_cap),
                     heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
                                              maximum_interval=timedelta(seconds=10)),
@@ -2095,7 +2292,27 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot backfill {shot_id}_end: {problem}", non_retryable=True)
 
-    def _clip_retry_problem(self, shot_id: str, reason: str) -> str | None:
+    # GAP-64 (ep05v2 r12): a clip retry / recompose may ask for a different clip length (e.g. a longer
+    # take so a slowed slot plays at ~1x instead of 0.5x). Bounded per model; the round-budget estimate
+    # and the paid submit both use the new duration. None (default, and every pre-r12 history) = the
+    # shot plan's duration, so replays are unchanged.
+    CLIP_DURATION_BOUNDS = {"kling": (3, 15), "seedance": (4, 15)}
+
+    @classmethod
+    def clip_duration_problem(cls, duration_s, model: str) -> str | None:
+        if duration_s is None:
+            return None
+        if not isinstance(duration_s, int) or isinstance(duration_s, bool):
+            return "duration_s must be a whole number of seconds"
+        lo, hi = cls.CLIP_DURATION_BOUNDS.get(model, (None, None))
+        if lo is None:
+            return f"duration_s override not supported for model {model!r}"
+        if not lo <= duration_s <= hi:
+            return f"duration_s must be {lo}-{hi} s for {model}"
+        return None
+
+    def _clip_retry_problem(self, shot_id: str, reason: str, duration_s: int | None = None,
+                            clip_route: dict | None = None) -> str | None:
         """Why retry_clip(shot_id) is not allowed right now (None = allowed). No side effects."""
         if not (self.approved_g2_scene_stills and "G2_SCENE_STILLS" in self.passed_gates):
             return "G2 not approved yet (clips not started); use retry_shot for stills"
@@ -2119,10 +2336,20 @@ class EpisodeWorkflowV2:
         limit = config.MAX_PAID_RETRIES_PER_SHOT_PER_ROUND
         if self.clip_retries.get(shot_id, 0) >= limit:
             return f"max paid clip retries per shot per round ({limit}) reached"
+        base_params = self.launched_shot_plans[shot_id].get("params") or {}
+        if clip_route is not None:
+            # GAP-72: an owner-routed clip-only re-take (same approved still, another clip model)
+            route_problem = self.clip_route_problem(clip_route, base_params)
+            if route_problem:
+                return route_problem
+        if duration_s is not None:
+            model = self.routed_params(base_params, clip_route).get("model", "kling")
+            return self.clip_duration_problem(duration_s, model)
         return None
 
     @workflow.update
-    async def retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None) -> dict:
+    async def retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None,
+                         duration_s: int | None = None, clip_route: dict | None = None) -> dict:
         """G-RETRY-1: re-run ONLY the clip of a shot after G2, reusing its approved still.
 
         Bounded: at most MAX_PAID_RETRIES_PER_SHOT_PER_ROUND (default 1) paid clip retries per shot in
@@ -2132,7 +2359,7 @@ class EpisodeWorkflowV2:
         clip-{ep}-{shot}-v{version}-c{n}, so a replayed/retried submit is idempotent. Final-cut
         approval is held back while the retry runs.
         """
-        problem = self._clip_retry_problem(shot_id, reason)
+        problem = self._clip_retry_problem(shot_id, reason, duration_s, clip_route)
         if problem:  # re-check: state may have moved since the validator ran
             raise ApplicationError(f"Cannot retry clip for {shot_id}: {problem}", non_retryable=True)
         ep = self.state.episode_id
@@ -2142,6 +2369,12 @@ class EpisodeWorkflowV2:
             self.clip_takes.setdefault(shot_id, {}).setdefault(n - 1, dict(outcome))
         shot_plan = dict(self.launched_shot_plans[shot_id])
         params = shot_plan.get("params") or {}
+        if clip_route:  # GAP-72: routed for this retry only (the launched plan is not changed)
+            params = self.routed_params(params, clip_route)
+            shot_plan["params"] = params
+        if duration_s is not None:  # GAP-64: this retry only (the launched plan is not changed)
+            params = {**params, "duration": duration_s}
+            shot_plan["params"] = params
         version = shot_plan.get("version", shot_plan.get("attempt", 1))
         job_id = f"clip-{ep}-{shot_id}-v{version}-c{n}"
         workflow_id = f"{ep}-shot-{shot_id}-clipretry{n}"
@@ -2151,6 +2384,8 @@ class EpisodeWorkflowV2:
                 "check_round_budget_activity",
                 args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
                       params.get("duration", 5.0), f"c{n}", params.get("seedance_resolution")],
+
+                      params.get("duration", 5.0), f"c{n}", self.seedance_resolution_of(params)],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
@@ -2189,6 +2424,8 @@ class EpisodeWorkflowV2:
             "round": "G3_CLIPS", "shot_id": shot_id, "n": n, "reason": reason,
             "workflow_id": workflow_id, "job_id": job_id,
             "estimate_usd_micros": (check or {}).get("estimate_usd_micros"),
+            **({"duration_s": duration_s} if duration_s is not None else {}),
+            **({"clip_route": dict(clip_route)} if clip_route else {}),
         })
 
         async def track_clip_retry():
@@ -2211,8 +2448,9 @@ class EpisodeWorkflowV2:
                 "estimate_usd_micros": (check or {}).get("estimate_usd_micros")}
 
     @retry_clip.validator
-    def validate_retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None):
-        problem = self._clip_retry_problem(shot_id, reason)
+    def validate_retry_clip(self, shot_id: str, reason: str, prompt_override: str | None = None,
+                            duration_s: int | None = None, clip_route: dict | None = None):
+        problem = self._clip_retry_problem(shot_id, reason, duration_s, clip_route)
         if problem:
             raise ApplicationError(f"Cannot retry clip for {shot_id}: {problem}", non_retryable=True)
 
@@ -2224,6 +2462,11 @@ class EpisodeWorkflowV2:
     # GAP-24: errors raised by the pre-spend gates (prompt lint, moderation lint, preflight): no
     # estimate/reserve/provider call was made, so the attempt does not count toward the max
     PRE_SPEND_REFUSALS = ("PromptLintError", "ModerationLintError", "PreflightError", "RoundBudgetError")
+
+    # GAP-24: errors raised by the pre-spend gates (prompt lint, moderation lint, preflight): no
+    # estimate/reserve/provider call was made, so the attempt does not count toward the max
+    PRE_SPEND_REFUSALS = ("PromptLintError", "ModerationLintError", "PreflightError", "RoundBudgetError",
+                          "JobIdAlreadyCommitted")
 
     @classmethod
     def refused_before_spend(cls, result: dict) -> bool:
@@ -2252,6 +2495,107 @@ class EpisodeWorkflowV2:
     def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list,
                           shot_meta: dict | None = None) -> str | None:
         """Why recompose_shot is not allowed right now (None = allowed). No side effects."""
+
+    # GAP-32: the only shot_meta keys a recompose may change (a new composition can change the cast in
+    # frame, e.g. one character alone -> two side by side); lint, headcount and clip QC follow the patch
+    RECOMPOSE_META_KEYS = ("count", "characters", "duck")
+
+    @classmethod
+    def recompose_meta_problem(cls, shot_meta) -> str | None:
+        """Why a recompose shot_meta patch is invalid (None = valid or no patch). Pure."""
+        if shot_meta is None:
+            return None
+        if not isinstance(shot_meta, dict) or not shot_meta:
+            return "shot_meta must be a non-empty object"
+        extra = sorted(set(shot_meta) - set(cls.RECOMPOSE_META_KEYS))
+        if extra:
+            return f"shot_meta may only change {', '.join(cls.RECOMPOSE_META_KEYS)} (got {', '.join(extra)})"
+        if "count" in shot_meta:
+            c = shot_meta["count"]
+            if isinstance(c, bool) or not isinstance(c, int) or not 0 <= c <= 10:
+                return "shot_meta.count must be an integer 0-10"
+        if "characters" in shot_meta:
+            ch = shot_meta["characters"]
+            if not isinstance(ch, list) or not all(isinstance(x, str) and x.strip() for x in ch):
+                return "shot_meta.characters must be a list of non-empty strings"
+        if "duck" in shot_meta and not isinstance(shot_meta["duck"], bool):
+            return "shot_meta.duck must be true or false"
+        return None
+
+    # GAP-45: an owner-ordered clip route for the new composition (model and/or Seedance resolution)
+    CLIP_ROUTE_KEYS = ("model", "seedance_resolution", "duration_s")  # GAP-64: duration_s
+    CLIP_ROUTE_MODELS = ("kling", "seedance")
+    SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
+
+    @classmethod
+    def clip_route_problem(cls, clip_route, base_params: dict | None = None) -> str | None:
+        """Why a recompose clip_route is invalid (None = valid or no route). Pure."""
+        if clip_route is None:
+            return None
+        if not isinstance(clip_route, dict) or not clip_route:
+            return "clip_route must be a non-empty object"
+        extra = sorted(set(clip_route) - set(cls.CLIP_ROUTE_KEYS))
+        if extra:
+            return f"clip_route may only set {', '.join(cls.CLIP_ROUTE_KEYS)} (got {', '.join(extra)})"
+        model = clip_route.get("model", (base_params or {}).get("model", "kling"))
+        if model not in cls.CLIP_ROUTE_MODELS:
+            return f"clip_route.model must be one of {', '.join(cls.CLIP_ROUTE_MODELS)}"
+        res = clip_route.get("seedance_resolution")
+        if res is not None:
+            if res not in cls.SEEDANCE_RESOLUTIONS:
+                return f"clip_route.seedance_resolution must be one of {', '.join(cls.SEEDANCE_RESOLUTIONS)}"
+            if model != "seedance":
+                return "clip_route.seedance_resolution needs a seedance clip"
+        if "duration_s" in clip_route:
+            problem = cls.clip_duration_problem(clip_route["duration_s"], model)
+            if problem:
+                return f"clip_route.{problem}"
+        return None
+
+    @staticmethod
+    def routed_params(base_params: dict | None, clip_route: dict | None) -> dict:
+        """The new composition's clip params under clip_route (Kling drops any Seedance resolution)."""
+        params = dict(base_params or {})
+        if not clip_route:
+            return params
+        if "model" in clip_route:
+            params["model"] = clip_route["model"]
+        if clip_route.get("seedance_resolution"):
+            params["seedance_resolution"] = clip_route["seedance_resolution"]
+        if clip_route.get("duration_s") is not None:  # GAP-64
+            params["duration"] = clip_route["duration_s"]
+        if params.get("model") != "seedance":
+            params.pop("seedance_resolution", None)
+        return params
+
+    @staticmethod
+    def recompose_plate_problem(plate: dict | None) -> str | None:
+        """GAP-53: shape check of a recompose start plate {path, sha256, manifest_sha256?, approved_by?}."""
+        if plate is None:
+            return None
+        if not isinstance(plate, dict):
+            return "plate must be an object"
+        extra = set(plate) - {"path", "sha256", "manifest", "manifest_sha256", "approved_by", "checks"}
+        if extra:
+            return f"unknown plate keys {sorted(extra)}"
+        if not isinstance(plate.get("path"), str) or not plate["path"].strip():
+            return "plate.path required"
+        sha = plate.get("sha256")
+        if not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+            return "plate.sha256 must be 64 lowercase hex chars"
+        return None
+
+    def _recompose_problem(self, shot_id: str, reason: str, prompt: str, refs: list,
+                           shot_meta: dict | None = None, clip_route: dict | None = None) -> str | None:
+        """Why recompose_shot is not allowed right now (None = allowed). No side effects."""
+        meta_problem = self.recompose_meta_problem(shot_meta)
+        if meta_problem:
+            return meta_problem
+        if clip_route is not None:
+            base_params = (self.launched_shot_plans.get(shot_id) or {}).get("params")
+            route_problem = self.clip_route_problem(clip_route, base_params)
+            if route_problem:
+                return route_problem
         if not (self.approved_g2_scene_stills and "G2_SCENE_STILLS" in self.passed_gates):
             return "G2 not approved yet; use retry_shot for stills before G2"
         if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
@@ -2285,6 +2629,134 @@ class EpisodeWorkflowV2:
     async def recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
                              ref_keys: list | None = None, clip_prompt: str | None = None,
                              shot_meta: dict | None = None) -> dict:
+
+        return None
+
+    # ---------------------------------------------------------------- GAP-39 reviewer-granted recompose
+    # ep05v2 g3r3: Studio ordered a third V16 still after both recomposes were used. The cap stays the
+    # default; a reviewer (reason required) can lift it by exactly one, at most MAX_RECOMPOSE_GRANTS_PER_SHOT
+    # times, only at G_FINAL_CUT and only once the shot's allowance is actually used up. Every paid guard
+    # (lint, preflight, round budget, unique -rc job id) still applies to the granted recompose.
+    MAX_RECOMPOSE_GRANTS_PER_SHOT = 2
+
+    def recompose_allowance(self, shot_id: str) -> int:
+        return self.MAX_RECOMPOSES_PER_SHOT + int(self.recompose_grants.get(shot_id, 0))
+
+    def _grant_recompose_problem(self, shot_id: str, reason: str, cap_override_note: str = "") -> str | None:
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            return "only while parked at G_FINAL_CUT"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required"
+        if shot_id not in self.launched_shot_plans:
+            return "unknown shot (no still launched in this episode)"
+        if self.recompose_counts.get(shot_id, 0) < self.recompose_allowance(shot_id):
+            return "the shot still has a recompose left; no grant needed"
+        if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
+            # GAP-43: past the grant cap only with an explicit Studio override note (audited)
+            if len((cap_override_note or "").strip()) < 10:
+                return (f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached; "
+                        f"an explicit Studio cap_override_note is required to grant more")
+        return None
+
+    @workflow.update
+    async def grant_recompose(self, shot_id: str, reason: str, cap_override_note: str = "") -> dict:
+        """GAP-39: allow ONE more recompose for a shot whose allowance is used up (reviewer, reason).
+        GAP-43: past MAX_RECOMPOSE_GRANTS_PER_SHOT only with an explicit Studio cap_override_note,
+        recorded in the grant row (one more recompose per call; every paid guard still applies)."""
+        problem = self._grant_recompose_problem(shot_id, reason, cap_override_note)
+        if problem:
+            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
+        self.recompose_grants[shot_id] = int(self.recompose_grants.get(shot_id, 0)) + 1
+        row = {"shot_id": shot_id, "reason": reason.strip(), "grants": self.recompose_grants[shot_id],
+               "allowance": self.recompose_allowance(shot_id), "used": self.recompose_counts.get(shot_id, 0)}
+        if self.recompose_grants[shot_id] > self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
+            row["cap_override"] = cap_override_note.strip()
+        self.recompose_grant_log.append(row)
+        workflow.logger.info(f"Recompose grant for {shot_id}: allowance now {row['allowance']} ({reason})")
+        return dict(row)
+
+    @grant_recompose.validator
+    def validate_grant_recompose(self, shot_id: str, reason: str, cap_override_note: str = ""):
+        problem = self._grant_recompose_problem(shot_id, reason, cap_override_note)
+        if problem:
+            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
+
+    # ---------------------------------------------------------------- GAP-42: mid-episode ref jobs
+    # Versioned ref EDIT jobs (refs.json to_generate entries with edit_from) run on demand while the
+    # episode is parked at G_FINAL_CUT, through the same generate_ref_edit_activity as the start-of-run
+    # refs (provider estimate, L1_refs reserve, balance check, QC). One attempt per job: a paid call is
+    # never repeated by a Temporal retry; a new try needs a new version in refs.json.
+    MAX_REF_JOB_KEYS = 8
+
+    def _ref_jobs_problem(self, keys, reason) -> str | None:
+        if not isinstance(reason, str) or not reason.strip():
+            return "a reason is required"
+        if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k.strip() for k in keys):
+            return "keys must be a non-empty list of refs.json keys"
+        if len(set(keys)) != len(keys):
+            return "duplicate keys"
+        if len(keys) > self.MAX_REF_JOB_KEYS:
+            return f"at most {self.MAX_REF_JOB_KEYS} ref jobs per request"
+        if self.state.current_gate != "G_FINAL_CUT" or self.approved_g_final_cut:
+            return f"ref jobs run only while parked at G_FINAL_CUT (current: {self.state.current_gate})"
+        if self.ref_jobs_running:
+            return "a ref job request is already running"
+        if self.pending_recompose or self.pending_clip_retries:
+            return "a recompose or clip retry is in flight"
+        return None
+
+    @workflow.update
+    async def generate_refs(self, keys: list, reason: str) -> dict:
+        """GAP-42: run the named versioned ref-edit jobs from refs.json now (see above)."""
+        problem = self._ref_jobs_problem(keys, reason)
+        if problem:
+            raise ApplicationError(f"Cannot run ref jobs: {problem}", non_retryable=True)
+        self.ref_jobs_running = True
+        episode_id = self.state.episode_id
+        results = []
+        try:
+            specs = await workflow.execute_activity(
+                "load_ref_edit_specs_activity",
+                args=[episode_id, list(keys), not self._dry_run],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            for spec in specs:
+                row = {"key": spec["key"], "version": spec["version"], "reason": reason.strip(),
+                       "at": workflow.now().isoformat()}
+                try:
+                    r = await workflow.execute_activity(
+                        "generate_ref_edit_activity",
+                        args=[episode_id, spec["key"], spec["prompt"], spec["output_path"], spec["version"],
+                              spec["edit_from"], spec["resolution"], spec["quality"], spec["aspect_ratio"],
+                              spec.get("extra_refs"), spec.get("lock_meta")],
+                        start_to_close_timeout=timedelta(minutes=12),
+                        heartbeat_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                    row.update({k: r.get(k) for k in ("status", "job_id", "output_path", "usd_micros")})
+                except ActivityError as e:
+                    row.update({"status": "failed", "error": str(e.cause or e)[:500]})
+                results.append(row)
+                self.ref_jobs_log.append(dict(row))
+                workflow.logger.info(f"Ref job {row['key']} v{row['version']}: {row['status']}")
+        finally:
+            self.ref_jobs_running = False
+        return {"results": results}
+
+    @generate_refs.validator
+    def validate_generate_refs(self, keys: list, reason: str):
+        problem = self._ref_jobs_problem(keys, reason)
+        if problem:
+            raise ApplicationError(f"Cannot run ref jobs: {problem}", non_retryable=True)
+
+    @workflow.update
+    async def recompose_shot(self, shot_id: str, reason: str, prompt: str, refs: list,
+                             ref_keys: list | None = None, clip_prompt: str | None = None,
+                             shot_meta: dict | None = None, clip_route: dict | None = None,
+                             plate: dict | None = None) -> dict:
         """GAP-21: re-shoot one shot after G2 with a NEW composition: a new still prompt (replaces the
         old one, not appended) and an explicit ref list (replaces the planned refs). Runs a normal
         ShotWorkflow child {ep}-shot-{shot}-recompose{n} with a fresh version (new deterministic
@@ -2292,6 +2764,9 @@ class EpisodeWorkflowV2:
         (e.g. a headcount check); the clip is only made after an approve. Final cut is held meanwhile.
         """
         problem = self._recompose_problem(shot_id, reason, prompt, refs, shot_meta)
+
+        problem = (self._recompose_problem(shot_id, reason, prompt, refs, shot_meta, clip_route)
+                   or self.recompose_plate_problem(plate))
         if problem:
             raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
         ep = self.state.episode_id
@@ -2300,6 +2775,12 @@ class EpisodeWorkflowV2:
         base = dict(self.launched_shot_plans[shot_id])
         used = max(int(base.get("version", 1) or 1), int(base.get("attempt", 1) or 1),
                    self.recompose_versions.get(shot_id, 0))
+
+                   self.recompose_versions.get(shot_id, 0),
+                   # GAP-48, behind a patch: histories recorded before it (ep05v2 V04 recompose1,
+                   # 01:22 CET) replay with the old numbering (r9 GAP-54: the unpatched fix was
+                   # non-deterministic on the live history)
+                   self._max_still_child_version(shot_id) if workflow.patched("gap48-recompose-version-v1") else 0)
         version = used + 1
         plan = dict(base)
         for k in ("clip_only", "pre_approved_still"):
@@ -2311,6 +2792,23 @@ class EpisodeWorkflowV2:
             "parent_workflow_id": workflow.info().workflow_id,
             "recompose": {"n": n, "reason": reason.strip()},
         })
+        if shot_meta:  # GAP-32: the new composition's cast (lint, headcount and clip QC use it)
+            plan["shot_meta"] = {**(base.get("shot_meta") or {}), **shot_meta}
+            plan["recompose"]["shot_meta_patch"] = dict(shot_meta)
+        if clip_route:  # GAP-45: owner-ordered clip model / Seedance resolution for the new composition
+            plan["params"] = self.routed_params(base.get("params"), clip_route)
+            plan["recompose"]["clip_route"] = dict(clip_route)
+        if plate:
+            # GAP-53: a code-composited start plate (hfvg.plate_composite, manifest checked by the API)
+            # is the new composition's start still: no still spend, the still still parks for
+            # recompose_decision, and only the clip is paid.  Input-driven, so replay-safe.
+            plan["pre_approved_still"] = {"path": plate["path"], "sha256": plate["sha256"],
+                                          "approved_by": plate.get("approved_by") or "plate_composite",
+                                          "source": "plate_composite"}
+            plan["recompose"]["plate"] = dict(plate)
+        if self.recompose_grants.get(shot_id):
+            # GAP-46: the granted allowance is this shot's paid-recompose limit in the G3_RECOMPOSE round
+            plan["recompose"]["allowance"] = self.recompose_allowance(shot_id)
         workflow_id = f"{ep}-shot-{shot_id}-recompose{n}"
         entry = {"workflow_id": workflow_id, "n": n, "version": version, "still_ready": False,
                  "decision": None, "reason": reason.strip()}
@@ -2342,6 +2840,26 @@ class EpisodeWorkflowV2:
                 # the new composition replaces the shot: later clip retries animate the NEW still
                 self.shot_outcomes[shot_id] = result
                 self.launched_shot_plans[shot_id] = plan
+
+                prev = self.shot_outcomes.get(shot_id) or {}
+                if prev:  # GAP-74: what this recompose replaced, whatever its status
+                    self.recompose_replaced[shot_id] = {
+                        "outcome": dict(prev), "plan": dict(self.launched_shot_plans.get(shot_id) or {}),
+                        "clip_takes": dict(self.clip_takes.get(shot_id) or {}),
+                        "acceptance": self.clip_review_acceptances.get(shot_id), "replaced_by": workflow_id}
+                if prev.get("status") == "completed" and prev.get("clip_path"):
+                    # GAP-49: keep the accepted outcome this composition replaces (restorable)
+                    self.pre_recompose_outcomes[shot_id] = {
+                        "outcome": dict(prev), "plan": dict(self.launched_shot_plans.get(shot_id) or {}),
+                        "clip_takes": dict(self.clip_takes.get(shot_id) or {}),
+                        "acceptance": self.clip_review_acceptances.get(shot_id), "replaced_by": workflow_id}
+                # the new composition replaces the shot: later clip retries animate the NEW still
+                self.shot_outcomes[shot_id] = result
+                self.launched_shot_plans[shot_id] = plan
+                if shot_meta:  # GAP-32: the edit's QC checks the new cast
+                    for row in self.assembly_shots:
+                        if row.get("shot_id") == shot_id:
+                            row["shot_meta"] = dict(plan["shot_meta"])
                 self.clip_takes[shot_id] = {}  # takes restart for the new composition (old ones in recompose_log)
                 self.clip_review_acceptances.pop(shot_id, None)
                 if result.get("status") == "failed":
@@ -2407,6 +2925,24 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
 
+                                shot_meta: dict | None = None, clip_route: dict | None = None,
+                                plate: dict | None = None):
+        problem = (self._recompose_problem(shot_id, reason, prompt, refs, shot_meta, clip_route)
+                   or self.recompose_plate_problem(plate))
+        if problem:
+            raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
+
+    def g3_clip_lift_limit(self, shot_id: str, n: int) -> int | None:
+        """GAP-73 (mirrors GAP-46): the G3_CLIPS per-shot retry limit for the clip of recompose n, or None
+        for the default. A recompose that used a GRANTED allowance slot (n > MAX_RECOMPOSES_PER_SHOT) gets
+        exactly ONE extra slot (setting + 1) for its single clip, and only while the shot has a grant not
+        yet spent on a lifted clip. Ungranted recomposes, clip retries and other shots are unaffected."""
+        grants = int(self.recompose_grants.get(shot_id, 0))
+        used = self.g3_clip_lifts.get(shot_id, [])
+        if n <= self.MAX_RECOMPOSES_PER_SHOT or n in used or len(used) >= grants:
+            return None
+        return int(config.MAX_PAID_RETRIES_PER_SHOT_PER_ROUND) + 1
+
     def _recompose_decision_problem(self, shot_id: str, reason: str) -> str | None:
         rc = self.pending_recompose.get(shot_id)
         if rc is None:
@@ -2434,11 +2970,17 @@ class EpisodeWorkflowV2:
             ep = self.state.episode_id
             params = (self.recompose_plans[shot_id].get("params") or {})
             job_id = f"clip-{ep}-{shot_id}-v{rc['version']}"
+            lift = self.g3_clip_lift_limit(shot_id, int(rc["n"]))
             try:
                 check = await workflow.execute_activity(
                     "check_round_budget_activity",
                     args=[ep, "G3_CLIPS", shot_id, job_id, params.get("model", "kling"),
                           params.get("duration", 5.0), f"rc{rc['n']}", params.get("seedance_resolution")],
+
+                          params.get("duration", 5.0), f"rc{rc['n']}", self.seedance_resolution_of(params)]
+                    # GAP-73: a granted recompose's ONE clip gets one extra slot in the G3_CLIPS per-shot
+                    # limit (input-driven: ungranted decisions keep the old activity args)
+                    + ([lift] if lift is not None else []),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -2446,6 +2988,8 @@ class EpisodeWorkflowV2:
                 cause = getattr(e, "cause", None) or e
                 raise ApplicationError(f"Cannot approve recompose for {shot_id}: round budget refused: {cause}",
                                        type="RoundBudgetError", non_retryable=True)
+            if lift is not None:
+                self.g3_clip_lifts.setdefault(shot_id, []).append(int(rc["n"]))
             rc["decision"], rc["decision_reason"] = "approved", reason.strip()
             self.shot_results[shot_id] = handle  # accept-clip / cap raise reach the new child
             await handle.signal("stills_approved")
@@ -2535,6 +3079,66 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot edit {shot_id}: {problem}", non_retryable=True)
 
+
+    # ---------------------------------------------------------------- GAP-44 adopt a reuse slot
+    # ep05v2 r8: Studio ordered V06 (an edit_plan reuse slot: a LOCKED clip from another episode, never a
+    # workflow shot) re-shot. A reuse slot has no launched plan, so recompose refused it ("unknown shot").
+    # adopt_reuse_slot registers a plan for the slot (built from a launched TEMPLATE shot of the same
+    # kind, with the slot's own prompt/cast/params/trim from the package entry, version 0, no spend).
+    # The slot then takes the normal paid path (recompose -> decision -> clip -> accept); the edit keeps
+    # the reuse clip until a generated clip completes (hfvg.activities.media._apply_edit_plan).
+    ADOPT_PLAN_KEYS = ("prompt", "clip_prompt", "shot_meta", "params", "trim", "tags", "ref_keys", "refs",
+                       "qc_fail_if")
+
+    def _adopt_reuse_problem(self, shot_id: str, reason: str, template_shot_id: str, fields: dict) -> str | None:
+        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
+            return "only while parked at G_FINAL_CUT"
+        if self.approved_g_final_cut:
+            return "final cut already approved"
+        if not (reason or "").strip():
+            return "a reason is required"
+        if not isinstance(shot_id, str) or not shot_id.strip():
+            return "a shot id is required"
+        if shot_id in self.launched_shot_plans:
+            return "shot already has a plan (adopt is only for reuse slots)"
+        if template_shot_id not in self.launched_shot_plans:
+            return f"unknown template shot {template_shot_id!r}"
+        if not isinstance(fields, dict):
+            return "fields must be an object"
+        extra = sorted(set(fields) - set(self.ADOPT_PLAN_KEYS))
+        if extra:
+            return f"fields may only set {', '.join(self.ADOPT_PLAN_KEYS)} (got {', '.join(extra)})"
+        for k in ("prompt", "shot_meta", "params"):
+            if not fields.get(k):
+                return f"fields.{k} is required"
+        return None
+
+    @workflow.update
+    async def adopt_reuse_slot(self, shot_id: str, reason: str, template_shot_id: str, fields: dict) -> dict:
+        problem = self._adopt_reuse_problem(shot_id, reason, template_shot_id, fields)
+        if problem:
+            raise ApplicationError(f"Cannot adopt {shot_id}: {problem}", non_retryable=True)
+        plan = dict(self.launched_shot_plans[template_shot_id])
+        for k in ("clip_only", "pre_approved_still", "recompose", "missing_refs", "workflow_id", "status",
+                  "clip_prompt", "qc_fail_if", "end_prompt"):
+            plan.pop(k, None)
+        plan.update({k: v for k, v in fields.items()})
+        plan.update({"shot_id": shot_id, "version": 0, "attempt": 0, "missing_refs": [],
+                     "adopted_reuse": {"template": template_shot_id, "reason": reason.strip()}})
+        self.launched_shot_plans[shot_id] = plan
+        if not any(s.get("shot_id") == shot_id for s in self.assembly_shots):
+            self.assembly_shots.append(plan)
+        row = {"shot_id": shot_id, "template": template_shot_id, "reason": reason.strip()}
+        self.adopted_reuse_log.append(row)
+        workflow.logger.info(f"Adopted reuse slot {shot_id} (template {template_shot_id}): {reason}")
+        return dict(row)
+
+    @adopt_reuse_slot.validator
+    def validate_adopt_reuse_slot(self, shot_id: str, reason: str, template_shot_id: str, fields: dict):
+        problem = self._adopt_reuse_problem(shot_id, reason, template_shot_id, fields)
+        if problem:
+            raise ApplicationError(f"Cannot adopt {shot_id}: {problem}", non_retryable=True)
+
     @workflow.query
     def recompose_still_plans(self) -> dict:
         """GAP-32: per shot, its LATEST recompose still (version, shot_meta it must match, state) so the
@@ -2546,14 +3150,30 @@ class EpisodeWorkflowV2:
             if pending is not None and pending.get("version") == version:
                 state = {"still_ready": bool(pending.get("still_ready")), "decision": pending.get("decision"),
                          "finished": False, "workflow_id": pending.get("workflow_id")}
+
+                         "finished": False}
             else:
                 last = next((r for r in reversed(self.recompose_log)
                              if r.get("shot_id") == sid and r.get("version") == version), {})
                 state = {"still_ready": bool(last.get("still_url")), "decision": last.get("decision"),
                          "finished": True, "status": last.get("status"), "workflow_id": last.get("workflow_id")}
+
+                         "finished": True, "status": last.get("status")}
             out[sid] = {"version": version, "n": (plan.get("recompose") or {}).get("n"),
                         "shot_meta": dict(plan.get("shot_meta") or {}), **state}
         return out
+
+    @workflow.query
+def retry_clip_plan(self, shot_id: str) -> dict:
+        """GAP-66: what a retry_clip(shot_id) child WOULD submit without an override (the LAUNCHED plan's
+        clip prompt, model and lint metadata - not the beatmap's, which a resync/recompose may have
+        moved on from), so the API can preflight the injected prompt before the retry is counted."""
+        plan = self.launched_shot_plans.get(shot_id)
+        if not plan:
+            return {"found": False}
+        return {"found": True, "clip_prompt": plan.get("clip_prompt") or plan.get("prompt") or "",
+                "clip_model": (plan.get("params") or {}).get("model", "kling"),
+                "shot_meta": plan.get("shot_meta")}
 
     @workflow.query
     def retry_prompt_plan(self, shot_id: str, prompt_append: str | None = None) -> dict:
@@ -2569,6 +3189,15 @@ class EpisodeWorkflowV2:
                         "clip_prompt": shot.get("clip_prompt") or prompt,
                         "clip_model": params.get("model", "kling"),
                         "shot_meta": shot.get("shot_meta") or {}}
+
+        adopted = self.launched_shot_plans.get(shot_id) or {}
+        if adopted.get("adopted_reuse"):  # GAP-44: an adopted reuse slot is not in the beatmap
+            base = adopted.get("prompt") or ""
+            prompt = amend_prompt(base, prompt_append)[0] if prompt_append else base
+            return {"found": True, "still_prompt": prompt,
+                    "clip_prompt": adopted.get("clip_prompt") or prompt,
+                    "clip_model": (adopted.get("params") or {}).get("model", "kling"),
+                    "shot_meta": adopted.get("shot_meta") or {}}
         return {"found": False}
 
     def _merge_rechecked_refs(self, shots: list[dict], rechecked: dict) -> list[dict]:
@@ -2582,6 +3211,108 @@ class EpisodeWorkflowV2:
             self.parsed_beatmap["shots"] = merge(self.parsed_beatmap["shots"])
         return merge(shots)
 
+    # ---------------------------------------------------------------- GAP-41 reopen a completed episode
+    # ep05v2 r6: Studio reopened an episode whose G_FINAL_CUT was already approved (workflow COMPLETED,
+    # so no update is accepted any more). reopen_snapshot (a query: served on the closed run by replay)
+    # captures the workflow state; the API starts a NEW run with the SAME workflow id and
+    # reopen_from={"snapshot", "reason", "from_run_id"}. That run skips G1/G2/ledger init (no spend, no
+    # ledger reset), restores the state, un-approves G_FINAL_CUT and parks there again, so recompose /
+    # retry_clip / edit / delivery rebuilds work with every paid guard (round budget, -rc{n}/-c{n} job
+    # ids continue from the restored counters, committed-job-id refusal) exactly as before.
+    REOPEN_SNAPSHOT_VERSION = 1
+    REOPEN_SKIP_ATTRS = ("state", "ref_jobs_running", "policy", "shot_results", "still_version_handles", "recompose_handles",
+                         "background_tasks")
+
+    @workflow.query
+    def reopen_snapshot(self) -> dict:
+        """GAP-41: JSON-safe snapshot of this run's state for a reopen (no handles, no tasks)."""
+        attrs = {k: v for k, v in vars(self).items() if k not in self.REOPEN_SKIP_ATTRS}
+        return {
+            "version": self.REOPEN_SNAPSHOT_VERSION,
+            "episode_id": self.state.episode_id,
+            "state": self.state.model_dump(mode="json"),
+            "attrs": attrs,
+            "shot_workflow_ids": {k: h.id for k, h in self.shot_results.items()},
+            "still_version_ids": list(self.still_version_handles),
+        }
+
+    @classmethod
+    def reopen_problem(cls, episode_id: str, reopen_from) -> str | None:
+        """Why a reopen request is invalid (None = valid). Pure (used by the API and the workflow)."""
+        if not isinstance(reopen_from, dict):
+            return "reopen_from must be an object"
+        if not str(reopen_from.get("reason") or "").strip():
+            return "a reason is required to reopen an episode"
+        snap = reopen_from.get("snapshot")
+        if not isinstance(snap, dict):
+            return "reopen_from.snapshot is missing"
+        if snap.get("version") != cls.REOPEN_SNAPSHOT_VERSION:
+            return f"unsupported snapshot version {snap.get('version')!r}"
+        if snap.get("episode_id") != episode_id:
+            return f"snapshot is for {snap.get('episode_id')!r}, not {episode_id!r}"
+        attrs = snap.get("attrs")
+        state = snap.get("state")
+        if not isinstance(attrs, dict) or not isinstance(state, dict):
+            return "snapshot has no attrs/state"
+        if "G_FINAL_CUT" not in (attrs.get("passed_gates") or []) or not attrs.get("approved_g_final_cut"):
+            return "only an episode whose final cut was approved can be reopened"
+        for key in ("pending_clip_retries", "pending_recompose"):
+            if attrs.get(key):
+                return f"snapshot has {key} in flight"
+        if state.get("pending_retries"):
+            return "snapshot has pending still retries"
+        return None
+
+    def _restore_from_snapshot(self, reopen_from: dict) -> None:
+        """Restore the closed run's state (pure; called once at the start of a reopened run)."""
+        snap = reopen_from["snapshot"]
+        known = set(vars(self))
+        for key, value in snap["attrs"].items():
+            if key in known and key not in self.REOPEN_SKIP_ATTRS:
+                setattr(self, key, value)
+        # JSON turned the int take numbers into strings
+        self.clip_takes = {sid: {int(n): t for n, t in takes.items()} for sid, takes in self.clip_takes.items()}
+        self.state = EpisodeState.model_validate(snap["state"])
+        self.shot_results = {}
+        self.still_version_handles = {}
+        for sid, wid in (snap.get("shot_workflow_ids") or {}).items():
+            self.shot_results[sid] = workflow.get_external_workflow_handle(wid)
+        by_id = {h.id: h for h in self.shot_results.values()}
+        for wid in snap.get("still_version_ids") or []:
+            self.still_version_handles[wid] = by_id.get(wid) or workflow.get_external_workflow_handle(wid)
+        self.recompose_handles = {}
+        self.background_tasks = []
+        # un-approve the final cut and park at G_FINAL_CUT again
+        self.passed_gates = [g for g in self.passed_gates if g != "G_FINAL_CUT"]
+        self.approved_g_final_cut = False
+        self.state.stage = PipelineStage.MUTE_EDIT   # _final_cut_gate_and_report re-parks at G_FINAL_CUT
+        if snap.get("recompute_signatures"):
+            # GAP-79: a snapshot rebuilt from the saved state (hfvg.saved_state) has no signatures: the
+            # restored edit / delivery ARE the current ones, so nothing is rebuilt until a clip changes.
+            # Input-driven (only reconstructed snapshots carry the flag): GAP-41 replays unchanged.
+            self.assembly_sig = self._assembly_signature()
+            self.delivery_sig = self._delivery_signature() if self.delivery_version else None
+        self.reopen_log = list(self.reopen_log) + [{
+            "reason": str(reopen_from["reason"]).strip(),
+            "from_run_id": reopen_from.get("from_run_id"),
+            "at": workflow.now().isoformat(),
+            "run_id": workflow.info().run_id,
+            **({"source": reopen_from["source"]} if reopen_from.get("source") else {}),
+        }]
+
+    async def _run_reopened(self, episode_id: str, reopen_from: dict) -> dict:
+        problem = self.reopen_problem(episode_id, reopen_from)
+        if problem:
+            raise ApplicationError(f"Cannot reopen {episode_id}: {problem}", non_retryable=True)
+        self._restore_from_snapshot(reopen_from)
+        self.policy = await workflow.execute_activity(
+            load_gate_policy_activity,
+            args=[],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        workflow.logger.info(f"[REOPEN] {episode_id} reopened at G_FINAL_CUT: {self.reopen_log[-1]['reason']}")
+        shots_count = len((self.parsed_beatmap or {}).get("shots", [])) or len(self.assembly_shots)
+        return await self._final_cut_gate_and_report(episode_id, shots_count)
 
     @workflow.query
     def get_state(self) -> dict:
@@ -2631,6 +3362,23 @@ class EpisodeWorkflowV2:
             },
             "edit_overrides": {k: dict(v) for k, v in self.edit_overrides.items()},
             "edit_override_log": [dict(x) for x in self.edit_override_log],
+
+                "grants": dict(self.recompose_grants),
+                "grant_log": [dict(x) for x in self.recompose_grant_log],
+                "g3_clip_lifts": {k: list(v) for k, v in self.g3_clip_lifts.items()},  # GAP-73
+                "restorable": sorted(self.pre_recompose_outcomes),  # GAP-49
+                "replaced": {k: {"replaced_by": v.get("replaced_by"), "status": (v.get("outcome") or {}).get("status"),
+                                 "clip_path": (v.get("outcome") or {}).get("clip_path"),
+                                 "restored": bool(v.get("restored"))}
+                             for k, v in self.recompose_replaced.items()},  # GAP-74
+                "restore_log": [dict(x) for x in self.outcome_restore_log],
+                "adopted_reuse": [dict(x) for x in self.adopted_reuse_log],
+            },
+            "edit_overrides": {k: dict(v) for k, v in self.edit_overrides.items()},
+            "edit_override_log": [dict(x) for x in self.edit_override_log],
+            "reopen_log": [dict(x) for x in self.reopen_log],
+            "ref_jobs_log": [dict(x) for x in self.ref_jobs_log],
+            "ref_jobs_running": self.ref_jobs_running,
             "shot_outcomes": {
                 k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url"),
                     "pre_approved": bool(v.get("pre_approved")),

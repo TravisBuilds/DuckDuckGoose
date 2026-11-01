@@ -53,7 +53,7 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
                 room: str, tod: str, chars_raw: str, action: str, purpose: str, model: str) -> dict[str, Any]:
     # Extract scene ID (letter prefix)
     scene_id = shot_id[0]
-    
+
     # Parse characters
     # Format examples: "H Y K", "D(T)", "K(tuque) D(B)", "–"
     characters = []
@@ -66,14 +66,14 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
             characters.append(code)
             if code == 'D':
                 duck_role = "host"  # Duck present means host role
-    
+
     # Detect tags for model routing
     tags = []
     action_lower = action.lower()
     purpose_lower = purpose.lower()
     room_lower = room.lower()
     combined = f"{action_lower} {purpose_lower} {room_lower}"
-    
+
     # Wet/water tags (route to Kling)
     if any(keyword in combined for keyword in [
         'water', 'wet', 'soak', 'swim', 'dive', 'underwater', 'splash',
@@ -93,6 +93,15 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
     # Hand-offs (marked with ★)
     is_handoff = '★' in action or 'Hand-off' in action
     
+
+
+    # Mud (route to Kling)
+    if 'mud' in combined:
+        tags.append('mud')
+
+    # Hand-offs (marked with ★)
+    is_handoff = '★' in action or 'Hand-off' in action
+
     shot = {
         "shot_num": shot_num,
         "shot_id": shot_id,
@@ -110,7 +119,7 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
         "has_end_frame": has_end_frame,
         "duck_role": duck_role,
     }
-    
+
     return shot
 
 

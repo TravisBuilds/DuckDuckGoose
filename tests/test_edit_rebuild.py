@@ -1,4 +1,6 @@
 """GAP-29 (past run G_FINAL_CUT): an edit_plan.json written after the first edit (a reused
+
+"""GAP-29 (ep05v2 G_FINAL_CUT, 2026-10-27): an edit_plan.json written after the first edit (a reused
 clip and a dissolve) could not re-assemble the mute edit, because the assembly signature only sees
 the clip outcomes. request_edit_rebuild(reason) + POST /api/episodes/{id}/assembly/rebuild bump it.
 """
@@ -23,6 +25,8 @@ from tests.test_picture_assembly_round3 import (  # noqa: F401
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
 async def test_edit_rebuild_reassembles_then_redelivers(dry_env, tmp_path, no_counter):  # noqa: F811
+
+async def test_edit_rebuild_reassembles_then_redelivers(dry_env, tmp_path, no_counter):
     set_animal_counter(FakeAnimalCounter({"animal": 1}))
     write_audio(tmp_path, "ep95")
     h = Harness({})

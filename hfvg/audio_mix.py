@@ -22,6 +22,7 @@ import re
 import shutil
 import statistics
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
@@ -29,6 +30,8 @@ import numpy as np
 
 SR = 48000
 DELIVERY_VERSION = 4  # 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
+
+DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
 # 4: GAP-34 bed_dips (music+SFX gain dips over reviewer-flagged bursts), GAP-35 per-line subtitle_dur
 MIN_VO_GAP_RANGE = (0.3, 0.4)
 DEFAULT_MIN_VO_GAP_S = 0.4
@@ -38,6 +41,8 @@ PICKUP_MAX_GAIN_DB = 6.0
 DURATION_TOLERANCE_S = 0.1    # delivered file vs locked picture
 CUE_TOLERANCE_S = 0.05        # subtitle cue vs VO line placement
 SUBTITLE_SPEECH_SLACK_S = 0.1  # GAP-35: subtitle_dur may end at most this much before the last spoken word
+
+SUBTITLE_SPEECH_SLACK_S = 0.1  # GAP-35: a subtitle_dur may end at most this much before the last spoken word
 VO_BUS_DB = -2.5              # VO bus trim into the final mix
 MIX_MAKEUP_DB = 4.7           # pre-limiter makeup (reference chain)
 MASTER_LIMIT = 0.86           # master alimiter ceiling (linear)
@@ -137,6 +142,27 @@ async def probe(path: str | Path) -> dict:
     return json.loads(out.decode() or "{}")
 
 
+async def count_frames(path: str | Path) -> int:
+    """GAP-55: number of video frames (packets) in the first video stream."""
+    out, _ = await run_cmd(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets",
+                            "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(path)],
+                           f"ffprobe frames {Path(path).name}")
+    txt = out.decode().strip().split(",")[0]
+    return int(txt) if txt.isdigit() else 0
+
+
+def video_rate(info: dict) -> str:
+    """r_frame_rate of the first video stream (e.g. '24/1'); '24/1' when unknown."""
+    v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+    r = str(v.get("r_frame_rate") or "")
+    return r if r and not r.startswith("0") else "24/1"
+
+
+def cfr_args(rate: str, frames: int | None) -> list[str]:
+    """GAP-55: constant frame rate output with the exact source frame count (no vfr drops)."""
+    return ["-fps_mode", "cfr", "-r", rate, *(["-frames:v", str(frames)] if frames else [])]
+
+
 async def probe_duration(path: str | Path) -> float:
     info = await probe(path)
     dur = info.get("format", {}).get("duration")
@@ -163,6 +189,38 @@ def _resolve(p: str | None, base: Path) -> str | None:
         return None
     pp = Path(p)
     return str(pp if pp.is_absolute() else (base / pp))
+
+
+def validate_bed_dips(raw: Any) -> list[dict]:
+    """GAP-34: reviewer-flagged bursts in the beds. Each dip {start, end, gain_db, ramp_s} lowers the
+    music AND SFX buses (never VO) by gain_db between start and end (edit seconds), with linear
+    ramps of ramp_s outside the window so the dip itself does not click."""
+    out = []
+    for i, d in enumerate(raw or []):
+        if not isinstance(d, dict):
+            raise AudioInputError(f"bed_dips[{i}] must be an object")
+        a = _num(d.get("start"), f"bed_dips[{i}].start", 0.0)
+        b = _num(d.get("end"), f"bed_dips[{i}].end", 0.0)
+        if b <= a:
+            raise AudioInputError(f"bed_dips[{i}] window {a}-{b} is empty")
+        out.append({"start": a, "end": b,
+                    "gain_db": _num(d.get("gain_db"), f"bed_dips[{i}].gain_db", -30.0, -0.5),
+                    "ramp_s": _num(d.get("ramp_s", 0.15), f"bed_dips[{i}].ramp_s", 0.0, 2.0),
+                    "note": str(d.get("note") or "")})
+    return out
+
+
+def dip_envelope(n: int, dips: list[dict]) -> np.ndarray:
+    """GAP-34: linear gain curve (1.0 = untouched) for bed_dips; overlapping dips take the deepest."""
+    g = np.ones(n)
+    if n == 0 or not dips:
+        return g
+    t = np.arange(n) / SR
+    for d in dips:
+        r = max(d["ramp_s"], 1.0 / SR)
+        act = np.clip(np.minimum((t - (d["start"] - r)) / r, ((d["end"] + r) - t) / r), 0.0, 1.0)
+        g = np.minimum(g, np.power(10.0, (d["gain_db"] * act) / 20.0))
+    return g
 
 
 def validate_min_gap(value: Any) -> float:
@@ -231,6 +289,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "subtitle_dur": None if ln.get("subtitle_dur") is None
             else _num(ln["subtitle_dur"], f"{lid}.subtitle_dur", 0.2, 60.0),
             "take": int(_num(ln.get("take", 1), f"vo.lines[{lid}].take", 1, 20)),
+
             "gain_db": None if ln.get("gain_db") is None else _num(ln["gain_db"], f"{lid}.gain_db", -24, 12),
             "atempo": (None if ln.get("atempo") is None else _num(ln["atempo"], f"{lid}.atempo", 0.5, 2.0))
             if "atempo" in ln else (None if ln.get("path") else vo_atempo),
@@ -278,12 +337,17 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "lowpass_hz": None if c.get("lowpass_hz") is None
             else _num(c["lowpass_hz"], f"sfx[{cid}].lowpass_hz", 100.0, 20000.0),
         })
+        if c.get("event") is not None:  # GAP-59: point SFX anchored to an on-screen event frame
+            if sfx[-1]["loop"]:
+                raise AudioInputError(f"sfx {cid}: a loop bed cannot carry an event anchor")
+            sfx[-1]["event"] = validate_sfx_event(c["event"], cid)
     protected = []
     for w in raw.get("protected") or []:
         a, b = _num(w[0], "protected.start", 0.0), _num(w[1], "protected.end", 0.0)
         if b <= a:
             raise AudioInputError(f"protected window {w} is empty")
         protected.append([a, b])
+    bed_dips = validate_bed_dips(raw.get("bed_dips"))
     loud = {**DEFAULT_LOUDNESS, **(raw.get("loudness") or {})}
     loud = {
         "target_lufs": _num(loud["target_lufs"], "loudness.target_lufs", -30, -5),
@@ -329,6 +393,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             dk = lg["darken_lower"]
             logo["darken_lower"] = {"frac": _num(dk.get("frac", 0.5), "logo.darken_lower.frac", 0.05, 1.0),
                                     "amount": _num(dk.get("amount", 0.15), "logo.darken_lower.amount", 0.0, 0.9)}
+
     subs = {**DEFAULT_SUBTITLES, **(raw.get("subtitles") or {})}
     if subs.get("ass_style") is not None:
         st = str(subs["ass_style"])
@@ -346,6 +411,8 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
         "vo": {"voice_id": vo_raw.get("voice_id"), "model": vo_raw.get("model", "eleven_v3"), "lines": lines},
         "music": music, "sfx": sfx, "protected": protected, "loudness": loud,
         "bed_dips": validate_bed_dips(raw.get("bed_dips")),  # GAP-34
+
+        "music": music, "sfx": sfx, "protected": protected, "bed_dips": bed_dips, "loudness": loud,
         "phone": phone, "master": {**DEFAULT_MASTER, **(raw.get("master") or {})}, "subtitles": subs,
         "logo": logo,
     }
@@ -374,6 +441,10 @@ def load_plan_file(path: str | Path) -> dict:
 
 def timeline_from_manifest(manifest: dict) -> dict:
     """Edit layout {clips: [{id, start, seg_s, trim_in, trim_out}], total_s} from an assembly manifest."""
+
+    """Edit layout {clips: [{id, start, seg_s, trim_in, trim_out[, sha256, ops]}], total_s, fps} from an
+    assembly manifest. GAP-59: each clip also carries its source sha256 and, for a retimed shot, its
+    shot_ops {segments, speed} so an SFX event anchored in the SOURCE clip lands on the right frame."""
     clips, t = [], 0.0
     dissolves = manifest.get("dissolves") or {}
     for c in manifest.get("clips") or []:
@@ -383,6 +454,22 @@ def timeline_from_manifest(manifest: dict) -> dict:
         t += seg - float(dissolves.get(c["id"], 0.0))
     total = float(manifest.get("total_duration") or t)
     return {"clips": clips, "total_s": round(total, 6)}
+
+        row = {"id": str(c["id"]), "start": round(t, 6), "seg_s": seg,
+               "trim_in": float(c.get("trim_in", 0.0)), "trim_out": float(c.get("trim_out", seg))}
+        if c.get("source_sha256"):
+            row["sha256"] = str(c["source_sha256"])
+        ops = c.get("shot_ops")
+        if ops and ops.get("segments"):
+            row["ops"] = {"segments": [[float(a), float(b)] for a, b in ops["segments"]],
+                          "speed": float(ops.get("speed") or 1.0)}
+        clips.append(row)
+        t += seg - float(dissolves.get(c["id"], 0.0))
+    total = float(manifest.get("total_duration") or t)
+    out = {"clips": clips, "total_s": round(total, 6)}
+    if manifest.get("fps"):
+        out["fps"] = float(manifest["fps"])
+    return out
 
 
 def validate_timeline(tl: Any, name: str) -> dict:
@@ -399,6 +486,123 @@ def validate_timeline(tl: Any, name: str) -> dict:
     if len({c["id"] for c in clips}) != len(clips):
         raise AudioInputError(f"{name}: duplicate clip ids")
     return {"clips": clips, "total_s": _num(tl.get("total_s"), f"{name}.total_s", 0.01)}
+
+        if c.get("sha256"):
+            clips[-1]["sha256"] = str(c["sha256"])
+        if c.get("ops") is not None:
+            clips[-1]["ops"] = _validate_ops(c["ops"], f"{name}.{c['id']}.ops")
+    if len({c["id"] for c in clips}) != len(clips):
+        raise AudioInputError(f"{name}: duplicate clip ids")
+    out = {"clips": clips, "total_s": _num(tl.get("total_s"), f"{name}.total_s", 0.01)}
+    if tl.get("fps") is not None:
+        out["fps"] = _num(tl["fps"], f"{name}.fps", 1.0, 240.0)
+    return out
+
+
+def _validate_ops(ops: Any, name: str) -> dict:
+    if not isinstance(ops, dict) or not isinstance(ops.get("segments"), list) or not ops["segments"]:
+        raise AudioInputError(f"{name} must be {{segments: [[a, b], ...], speed}}")
+    segs = []
+    for sg in ops["segments"]:
+        if not isinstance(sg, (list, tuple)) or len(sg) != 2:
+            raise AudioInputError(f"{name}: every segment is [start, end]")
+        a, b = _num(sg[0], f"{name}.segment.start", 0.0), _num(sg[1], f"{name}.segment.end", 0.0)
+        if b <= a:
+            raise AudioInputError(f"{name}: empty segment {sg}")
+        segs.append([a, b])
+    return {"segments": segs, "speed": _num(ops.get("speed", 1.0), f"{name}.speed", 0.01, 100.0)}
+
+
+# ---------------------------------------------------------------------------- GAP-59 SFX event anchors
+# A point SFX may carry ``event``: the on-screen moment it belongs to, written as a position in the
+# SOURCE clip (shot id + source sha256 + src_s) plus hit_s, the transient's offset inside the SFX file.
+# At load the event is mapped through the CURRENT edit (trim, shot_ops segments and speed) and the SFX
+# is placed so its transient lands on the event frame. GAP-23's time remap ignores retiming, so a
+# slowed shot would leave the SFX early; an anchored SFX bypasses it. Fail closed on a sha mismatch
+# (the clip changed: the anchor must be re-picked); an event whose source moment was cut away (or whose
+# shot left the edit) removes the SFX with a reason, like GAP-23 does for a point SFX.
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def validate_sfx_event(ev: Any, cid: str) -> dict:
+    if not isinstance(ev, dict):
+        raise AudioInputError(f"sfx {cid}.event must be {{shot, clip_sha256, src_s, hit_s}}")
+    shot = str(ev.get("shot") or "").strip()
+    if not shot:
+        raise AudioInputError(f"sfx {cid}.event needs the shot id")
+    sha = str(ev.get("clip_sha256") or "").strip().lower()
+    if not SHA256_HEX.match(sha):
+        raise AudioInputError(f"sfx {cid}.event.clip_sha256 must be the source clip's sha256 (64 hex)")
+    out = {"shot": shot, "clip_sha256": sha,
+           "src_s": _num(ev.get("src_s"), f"sfx[{cid}].event.src_s", 0.0),
+           "hit_s": _num(ev.get("hit_s", 0.0), f"sfx[{cid}].event.hit_s", 0.0, 30.0)}
+    if ev.get("note"):
+        out["note"] = str(ev["note"])
+    return out
+
+
+def source_to_screen(clip: dict, src_s: float, eps: float = 1e-6) -> float | None:
+    """Offset (s) from the clip's start in the edit at which source time src_s plays, or None when that
+    source moment is not on screen (trimmed away / in a cut window of shot_ops)."""
+    ops = clip.get("ops")
+    if ops:
+        cum = 0.0
+        for a, b in ops["segments"]:
+            if a - eps <= src_s <= b + eps:
+                off = (cum + min(max(src_s, a), b) - a) / float(ops["speed"])
+                return off if off <= clip["seg_s"] + eps else None
+            cum += b - a
+        return None
+    if src_s < clip["trim_in"] - eps or src_s > clip["trim_out"] + eps:
+        return None
+    return src_s - clip["trim_in"]
+
+
+def resolve_sfx_events(plan: dict, cur_timeline: dict, fps: float | None = None) -> dict:
+    """GAP-59: place every event-anchored point SFX on its event frame in the current edit. Returns a
+    new plan; plan["timeline"]["events"] lists each placement, removals go to "removed_sfx"."""
+    if not any(c.get("event") for c in plan.get("sfx") or []):
+        return plan
+    cur = validate_timeline(cur_timeline, "current edit")
+    fps = float(fps or cur.get("fps") or 24.0)
+    by_id = {c["id"]: c for c in cur["clips"]}
+    out = json.loads(json.dumps(plan))
+    tl = out.setdefault("timeline", {"moves": [], "removed_sfx": []})
+    tl.setdefault("removed_sfx", [])
+    events, kept, problems = [], [], []
+    for c in out.get("sfx") or []:
+        ev = c.get("event")
+        if not ev:
+            kept.append(c)
+            continue
+        clip = by_id.get(ev["shot"])
+        if clip is None:
+            tl["removed_sfx"].append({"id": c["id"], "at": c["at"], "reason": f"event shot {ev['shot']} left the edit"})
+            continue
+        if clip.get("sha256", "").lower() != ev["clip_sha256"]:
+            problems.append(f"sfx {c['id']}: event anchored in {ev['shot']} clip {ev['clip_sha256'][:12]} but the "
+                            f"edit plays {str(clip.get('sha256'))[:12] if clip.get('sha256') else 'an unknown clip'}; "
+                            f"re-pick the event frame")
+            continue
+        off = source_to_screen(clip, ev["src_s"])
+        if off is None:
+            tl["removed_sfx"].append({"id": c["id"], "at": c["at"], "reason":
+                                      f"event src {ev['src_s']}s cut away from {ev['shot']} (trim / shot_ops)"})
+            continue
+        event_t = clip["start"] + off
+        at = round(event_t - ev["hit_s"], 6)
+        if at < 0:
+            problems.append(f"sfx {c['id']}: hit_s {ev['hit_s']} puts the SFX start before 0")
+            continue
+        events.append({"id": c["id"], "shot": ev["shot"], "src_s": ev["src_s"], "hit_s": ev["hit_s"],
+                       "event_t": round(event_t, 6), "event_frame": int(round(event_t * fps)),
+                       "from": c["at"], "at": at})
+        kept.append({**c, "at": at})
+    if problems:
+        raise AudioInputError("; ".join(problems))
+    out["sfx"] = kept
+    tl["events"] = events
+    return out
 
 
 class TimelineMap:
@@ -490,6 +694,9 @@ def remap_plan_to_edit(plan: dict, cur_timeline: dict) -> dict:
         raise PlacementError("; ".join(problems))
     kept = []
     for c in out.get("sfx", []):
+        if c.get("event"):  # GAP-59: placed by resolve_sfx_events on its event frame, not by time
+            kept.append(c)
+            continue
         a, st_a, sid_a = tm.map(c["at"])
         if c.get("loop"):
             b, _, _ = tm.map(c["at"] + c["dur"])
@@ -519,6 +726,13 @@ def remap_plan_to_edit(plan: dict, cur_timeline: dict) -> dict:
         if b - a >= 0.05:
             prot.append([a, b])
     out["protected"] = prot
+
+    dips = []
+    for d in out.get("bed_dips") or []:  # GAP-34: dips follow the picture like protected windows
+        a, b = tm.map(d["start"])[0], tm.map(d["end"])[0]
+        if b - a >= 0.05:
+            dips.append({**d, "start": a, "end": b})
+    out["bed_dips"] = dips
     out["timeline"] = {"ref_total_s": ref["total_s"], "cur_total_s": cur["total_s"],
                        "dropped_shots": [c["id"] for c in ref["clips"] if c["id"] not in tm.cur_by_id],
                        "moves": moves, "removed_sfx": removed}
@@ -736,6 +950,8 @@ async def codec_safe_pcm(mix_wav: str, audio_kbps: int, loud: dict, work: str, t
     returned with ok=False and delivery QC reports the failure (never silently relaxed).
     GAP-38: up to 16 limiter tries of several ffmpeg passes each can outlast the activity's 2-minute
     heartbeat timeout, so every pass heartbeats."""
+
+    heartbeat timeout (ep05v2 g3r2: mix_and_deliver cancelled mid-guard), so every pass heartbeats."""
     beat = heartbeat or (lambda _d: None)
     ceiling, target, tol = loud["tp_ceiling_dbtp"], loud["target_lufs"], loud["tolerance_lu"]
     test = str(Path(work) / f"tpguard_{tag}.m4a")
@@ -755,6 +971,11 @@ async def codec_safe_pcm(mix_wav: str, audio_kbps: int, loud: dict, work: str, t
     # GAP-31: loudnorm's dynamic mode under-shoots the target when its own TP limit caps the gain
     # A small miss is restored by the limiter + makeup steps below; a gross level error (more than
     # MAX_LOUDNESS_RESTORE_LU off) is a mix problem the guard does not paper over.
+
+    # (ep05v2: -14.0 LUFS at -2.1 dBTP, target -12.6) and that file used to ship unguarded. A small
+    # miss like that is restored by the limiter + makeup steps below; a gross level error (more than
+    # MAX_LOUDNESS_RESTORE_LU off) is a mix problem the guard does not paper over: it is left to
+    # delivery QC, as before.
     miss = abs(m0["integrated_lufs"] - target)
     if info["ok"] and (passes(m0) or miss > MAX_LOUDNESS_RESTORE_LU):
         return mix_wav, info
@@ -841,12 +1062,18 @@ def wrap_two_lines(text: str, max_chars: int) -> list[str]:
     return best or [text]
 
 
+def cue_dur(ln: dict) -> float:
+    """GAP-35: a line's subtitle length: its subtitle_dur when set (never past the line), else the line."""
+    sd = ln.get("subtitle_dur")
+    return float(ln["dur"]) if sd is None else min(float(ln["dur"]), float(sd))
+
+
 def build_cues(placed: list[dict], max_chars: int) -> list[dict]:
     cues = []
     for ln in sorted(placed, key=lambda x: x["at"]):
         if not ln.get("subtitle"):
             continue
-        cues.append({"id": ln["id"], "start": round(ln["at"], 3), "end": round(ln["at"] + ln["dur"], 3),
+        cues.append({"id": ln["id"], "start": round(ln["at"], 3), "end": round(ln["at"] + cue_dur(ln), 3),
                      "lines": wrap_two_lines(ln["subtitle"], max_chars)})
     return cues
 
@@ -893,6 +1120,9 @@ def write_ass(cues: list[dict], path: str, subs: dict) -> None:
     prefix = "{" + tags + "}" if tags else ""
     rows = [f"Dialogue: 0,{_ass_time(c['start'])},{_ass_time(c['end'])},{style},,0,0,0,,"
             + prefix + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
+
+    rows = [f"Dialogue: 0,{_ass_time(c['start'])},{_ass_time(c['end'])},{style},,0,0,0,,"
+            + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
     Path(path).write_text(head + "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
 
 
@@ -984,6 +1214,107 @@ async def apply_atempo(src: str, dst: str, tempo: float) -> None:
                    "-ar", str(SR), "-c:a", "pcm_s24le", dst], "VO atempo")
 
 
+
+# ---------------------------------------------------------------- GAP-60 picture sync guard
+# r11: a loaded worker produced picture_logo encodes whose frames 591-596 froze on mute frame 590
+# (nondeterministic; frame count and CFR were fine, so GAP-55 could not see it). Every re-encoded
+# picture deliverable is now compared frame by frame against the mute assembly (grey, 135x240,
+# subtitle/logo regions excluded) and re-encoded or failed closed when a frame shows a neighbour.
+PICTURE_SYNC_W, PICTURE_SYNC_H = 135, 240
+PICTURE_SYNC_RADIUS = 3
+PICTURE_SYNC_TOL = 0.1        # mean |grey| a neighbour must win by
+PICTURE_SYNC_MIN_STEP = 0.5   # neighbour must really differ from the expected frame
+PICTURE_SYNC_RATIO = 1.5      # ...and be this many times closer (codec lag after cuts is ~1.1x)
+PICTURE_SYNC_TRIES = 3
+PICTURE_SYNC_SUBS_CROP = 0.55   # burned cues sit in the bottom quarter (margin_v 240 of 1920)
+
+
+class PictureSyncError(RuntimeError):
+    pass
+
+
+async def grey_frames(path: str | Path, upto: int, crop_top_frac: float | None = None) -> np.ndarray:
+    vf = (f"crop=iw:trunc(ih*{crop_top_frac:.4f}/2)*2:0:0," if crop_top_frac else "")
+    h = int(round(PICTURE_SYNC_H * (crop_top_frac or 1.0)))
+    vf += f"scale={PICTURE_SYNC_W}:{h},format=gray"
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0", "-frames:v", str(upto),
+        "-vf", vf, "-f", "rawvideo", "-", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        raise PictureSyncError(f"cannot decode {path} for the picture sync check: {err.decode()[-300:]}")
+    return np.frombuffer(out, np.uint8).reshape(-1, h, PICTURE_SYNC_W)
+
+
+def misaligned_frames(ref: np.ndarray, pic: np.ndarray, upto: int | None = None,
+                      radius: int = PICTURE_SYNC_RADIUS, tol: float = PICTURE_SYNC_TOL,
+                      min_step: float = PICTURE_SYNC_MIN_STEP,
+                      ratio: float = PICTURE_SYNC_RATIO) -> list[tuple[int, int]]:
+    """Frames i (< upto) whose picture is clearly closer to ref[j], j != i within radius, than to
+    ref[i] (a freeze, drop or shift). Returns [(i, j)]; a frame-count mismatch is reported as
+    (len(pic), -1)."""
+    n = min(len(ref), upto if upto is not None else len(ref))
+    if len(pic) < n:
+        return [(len(pic), -1)]
+    bad = []
+    for i in range(n):
+        p = pic[i].astype(np.int16)
+        own = float(np.abs(p - ref[i]).mean())
+        best_j, best = i, own
+        for j in range(max(0, i - radius), min(len(ref), i + radius + 1)):
+            if j == i:
+                continue
+            d = float(np.abs(p - ref[j]).mean())
+            if d + tol < best and d * ratio < own and float(np.abs(ref[i].astype(np.int16) - ref[j]).mean()) >= min_step:
+                best_j, best = j, d
+        if best_j != i:
+            bad.append((i, best_j))
+    return bad
+
+
+async def encode_picture_checked(encode: Callable[[], Any], ref: str | Path, out: str | Path,
+                                 upto: int, what: str, crop_top_frac: float | None = None,
+                                 ref_frames: np.ndarray | None = None,
+                                 tries: int = PICTURE_SYNC_TRIES, heartbeat=None) -> dict:
+    """Run encode() (writes out) until its picture matches ref frame for frame, up to tries."""
+    if ref_frames is None:
+        ref_frames = await grey_frames(ref, upto, crop_top_frac)
+    log = []
+    for attempt in range(1, tries + 1):
+        await encode()
+        bad = misaligned_frames(ref_frames, await grey_frames(out, upto, crop_top_frac), upto)
+        log.append({"attempt": attempt, "misaligned": len(bad), "frames": [list(b) for b in bad[:12]]})
+        if heartbeat:
+            heartbeat({"stage": "picture_sync", "what": what, "attempt": attempt, "misaligned": len(bad)})
+        if not bad:
+            return {"what": what, "checked_frames": int(upto), "attempts": log}
+    raise PictureSyncError(f"GAP-60: {what} picture is out of step with the mute assembly after "
+                           f"{tries} encodes (frame, shows): {log[-1]['frames']}")
+
+
+async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict,
+                       frames: int | None = None) -> None:
+    """Ep01 ending template: logo scaled to width_frac of the frame, centred, alpha fade-in over
+    fade_in_s, visible for the last visible_s of the picture."""
+    info = await probe(mute)
+    v = next(s for s in info.get("streams", []) if s.get("codec_type") == "video")
+    w = int(v["width"])
+    rate = video_rate(info)
+    if frames is None:
+        frames = await count_frames(mute)
+    start = max(0.0, total_s - logo["visible_s"])
+    lw = int(w * logo["width_frac"]) // 2 * 2
+    graph = (f"[1:v]scale={lw}:-1,format=rgba,fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[lg];"
+             f"[0:v][lg]overlay=(W-w)/2:max(0\\,min(H-h\\,H*{logo.get('y_frac', 0.5):.4f}-h/2)):shortest=1:enable='gte(t,{start:.4f})',format=yuv420p[v]")
+    await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, "-framerate", rate, "-loop", "1",
+                   # GAP-55: logo on the picture's frame grid and 1 s longer, so shortest=1 can never
+                   # end the overlay before the picture's last frame (-frames:v / -t cap the output)
+                   "-t", f"{total_s + 1.0:.4f}", "-i", logo["path"], "-filter_complex", graph,
+                   "-map", "[v]", "-an", "-c:v", "libx264",
+                   "-preset", str(master["preset"]), "-crf", str(master["crf"]), "-pix_fmt", "yuv420p",
+                   *cfr_args(rate, frames), "-t", f"{total_s:.4f}", out], "logo overlay")
+
+
 async def final_mix(stems: dict[str, str], total_s: float, out_wav: str) -> None:
     """Sum stems (VO trimmed), makeup gain and master true-peak limiter (reference chain)."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
@@ -1008,12 +1339,15 @@ def _phone_video_kbps(phone: dict, total_s: float, max_bytes: int) -> int:
 async def encode_phone(mute: str, wav: str, ass: str | None, out: str, total_s: float, kbps: int,
                        phone: dict, cwd: str, fonts_dir: str | None) -> None:
     """Two-pass x264 phone encode from the picture + PCM mix (never re-encodes the AAC master)."""
+
+    """Two-pass x264 phone encode from the picture + PCM mix (never re-encodes the AAC master).
+    GAP-55: ``phone["cfr"]`` pins constant frame rate + the source frame count (see cfr_args)."""
     # subtitles burn at full picture size first, then the downscale (GAP-19), so they scale with it
     filters = ([_ass_filter(ass, fonts_dir)] if ass else []) + (
         [f"scale={phone['width']}:{phone['height']}:flags=lanczos"] if phone.get("width") else [])
     vf = ["-vf", ",".join(filters)] if filters else []
     common = ["-c:v", "libx264", "-preset", str(phone["preset"]), "-b:v", f"{kbps}k", "-pix_fmt", "yuv420p",
-              "-passlogfile", "phone2pass"]
+              "-passlogfile", "phone2pass", *(phone.get("cfr") or [])]
     await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, *vf, *common, "-pass", "1", "-an",
                    "-t", f"{total_s:.4f}", "-f", "mp4", os.devnull], "phone encode pass 1", cwd=cwd)
     await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, "-i", wav, "-map", "0:v:0",
@@ -1107,6 +1441,37 @@ async def mix_and_deliver(
     try:
         n = int(round(total_s * SR))
         logo_info = None
+
+        # GAP-55: every picture deliverable must carry exactly the mute assembly's frames at CFR.
+        src_frames = await count_frames(mute)
+        src_rate = video_rate(await probe(mute))
+        cfr = cfr_args(src_rate, src_frames)
+        logo_info = None
+        # GAP-60: every re-encoded picture is checked frame by frame against the mute assembly
+        # (frames before the logo window; subtitle area cropped off for the burned encodes).
+        ref_mute = str(mute)
+        sync_upto = src_frames
+        if plan.get("logo"):
+            fps_f = float(Fraction(src_rate))
+            sync_upto = min(src_frames, int(math.floor(max(0.0, total_s - plan["logo"]["visible_s"]) * fps_f)))
+        picture_sync = []
+        sync_ref_full = sync_ref_top = None
+        if plan.get("logo"):
+            heartbeat({"stage": "logo"})
+            pic = str(work / "picture_logo.mp4")
+            sync_ref_full = await grey_frames(ref_mute, sync_upto)
+
+            async def overlay_counted() -> None:
+                await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames)
+                got = await count_frames(pic)
+                if got != src_frames:
+                    raise RuntimeError(f"logo overlay frame count {got} != mute assembly {src_frames} (GAP-55)")
+
+            picture_sync.append(await encode_picture_checked(
+                overlay_counted, ref_mute, pic, sync_upto, "picture_logo", ref_frames=sync_ref_full,
+                heartbeat=heartbeat))
+            logo_info = {**plan["logo"], "start_s": round(max(0.0, total_s - plan["logo"]["visible_s"]), 4)}
+            mute = Path(pic)
         # ---- VO: tempo post step, durations, pickup match, placement
         tempo_lines = []
         for ln in lines:
@@ -1135,6 +1500,18 @@ async def mix_and_deliver(
             logo_info = {**plan["logo"], "start_s": start,
                          "hold_s": round(total_s - start - plan["logo"]["fade_in_s"], 4)}
             mute = Path(pic)
+
+        for ln in placed:
+            if ln.get("subtitle_dur") is not None:
+                # GAP-35: a shortened cue must still cover the spoken words of the (tempo-adjusted) file
+                mask = activity_mask(await decode(ln["path"]))
+                idx = np.flatnonzero(mask)
+                speech_end = float(idx[-1] + 1) / SR if idx.size else 0.0
+                ln["speech_end_s"] = round(speech_end, 3)
+                if cue_dur(ln) < speech_end - SUBTITLE_SPEECH_SLACK_S:
+                    raise AudioInputError(
+                        f"{ln['id']}.subtitle_dur {ln['subtitle_dur']}s ends before the speech "
+                        f"({speech_end:.2f}s into the line)")
         heartbeat({"stage": "vo_bus", "lines": len(placed)})
         vo_wav = str(work / "vo.wav")
         await build_vo_bus(placed, total_s, vo_wav, str(work))
@@ -1194,6 +1571,25 @@ async def mix_and_deliver(
                              "at": c["at"], "dur": round(cn / SR, 4), "src_start_s": c["src_start_s"],
                              "lowpass_hz": lp})
 
+
+            if c["duck_db"] < 0 and c.get("duck_mode") == "window":
+                # GAP-30: hold the duck for the whole line window (pauses inside a line stay
+                # ducked), the same curve the music bed uses
+                env = duck_envelope(n, [(p["at"], p["at"] + p["dur"]) for p in placed], c["duck_db"])
+                clip = clip * env[start:start + cn, None]
+            elif c["duck_db"] < 0:
+                depth = 1.0 - db_to_lin(c["duck_db"])
+                clip = clip * (1.0 - depth * act[start:start + cn])[:, None]
+            sfx[start:start + cn] += clip
+            sfx_info.append({"id": c["id"], "gain_db": round(g, 2), "ducked": c["duck_db"] < 0,
+                             "duck_mode": c.get("duck_mode", "activity")})
+
+        dips = plan.get("bed_dips") or []
+        if dips:
+            # GAP-34: pull reviewer-flagged bed bursts down (music + SFX, VO untouched)
+            denv = dip_envelope(n, dips)[:, None]
+            music = (music * denv).astype(np.float32)
+            sfx = (sfx * denv).astype(np.float32)
         stems = {"vo": vo_wav, "music": str(work / "music.wav"), "sfx": str(work / "sfx.wav")}
         await write_wav(music, stems["music"])
         await write_wav(sfx, stems["sfx"])
@@ -1233,6 +1629,10 @@ async def mix_and_deliver(
                                                      plan["loudness"], str(work), "master")
         phone_pcm, phone_tp = await codec_safe_pcm(mix_wav, int(plan["phone"]["audio_kbps"]),
                                                    plan["loudness"], str(work), "phone")
+
+                                                     plan["loudness"], str(work), "master", heartbeat=heartbeat)
+        phone_pcm, phone_tp = await codec_safe_pcm(mix_wav, int(plan["phone"]["audio_kbps"]),
+                                                   plan["loudness"], str(work), "phone", heartbeat=heartbeat)
         await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(mute), "-i", master_pcm,
                        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", akbps,
                        "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart", nosubs], "mux nosubs")
@@ -1241,20 +1641,38 @@ async def mix_and_deliver(
             heartbeat({"stage": "burn_subtitles", "cues": len(cues)})
             master = str(work / Path(paths["master_subs"]).name)
             await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(mute), "-i", master_pcm,
+
+            sync_ref_top = await grey_frames(ref_mute, sync_upto, PICTURE_SYNC_SUBS_CROP)
+            picture_sync.append(await encode_picture_checked(
+                lambda: run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(mute), "-i", master_pcm,
                            "-map", "0:v:0", "-map", "1:a:0", "-vf", _ass_filter(ass, subs.get("fonts_dir")),
                            "-c:v", "libx264", "-preset", str(plan["master"]["preset"]),
-                           "-crf", str(plan["master"]["crf"]), "-pix_fmt", "yuv420p", "-c:a", "aac",
+                           "-crf", str(plan["master"]["crf"]), "-pix_fmt", "yuv420p", *cfr, "-c:a", "aac",
                            "-b:a", akbps, "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart",
-                           master], "burn subtitles", cwd=str(work))
+                           master], "burn subtitles", cwd=str(work)),
+                ref_mute, master, sync_upto, "subs", crop_top_frac=PICTURE_SYNC_SUBS_CROP,
+                ref_frames=sync_ref_top, heartbeat=heartbeat))
 
         heartbeat({"stage": "phone_encode"})
-        phone_cfg = plan["phone"]
+        phone_cfg = {**plan["phone"], "cfr": cfr}  # GAP-55
         max_bytes = int(phone_cfg["max_mb"] * 1_000_000)
         phone = str(work / Path(paths["phone"]).name)
         kbps = _phone_video_kbps(phone_cfg, total_s, max_bytes)
         attempts = []
         await encode_phone(str(mute), phone_pcm, ass if burn else None, phone, total_s, kbps, phone_cfg,
                            str(work), subs.get("fonts_dir"))
+
+        if sync_ref_top is None:
+            sync_ref_top = await grey_frames(ref_mute, sync_upto, PICTURE_SYNC_SUBS_CROP)
+
+        async def phone_checked(kb: int) -> None:
+            picture_sync.append(await encode_picture_checked(
+                lambda: encode_phone(str(mute), phone_pcm, ass if burn else None, phone, total_s, kb, phone_cfg,
+                                     str(work), subs.get("fonts_dir")),
+                ref_mute, phone, sync_upto, f"phone@{kb}k", crop_top_frac=PICTURE_SYNC_SUBS_CROP,
+                ref_frames=sync_ref_top, heartbeat=heartbeat))
+
+        await phone_checked(kbps)
         size = Path(phone).stat().st_size
         attempts.append({"video_kbps": kbps, "size_bytes": size})
         if size > max_bytes:
@@ -1263,6 +1681,8 @@ async def mix_and_deliver(
             heartbeat({"stage": "phone_reencode", "video_kbps": kbps})
             await encode_phone(str(mute), phone_pcm, ass if burn else None, phone, total_s, kbps, phone_cfg,
                                str(work), subs.get("fonts_dir"))
+
+            await phone_checked(kbps)
             size = Path(phone).stat().st_size
             attempts.append({"video_kbps": kbps, "size_bytes": size})
 
@@ -1282,13 +1702,17 @@ async def mix_and_deliver(
         manifest = {
             "episode_id": episode_id, "version": DELIVERY_VERSION, "dry_run": False, "input_key": key,
             "mute_path": str(mute), "picture_duration_s": round(total_s, 4),
+            "source_mute_path": str(mute_path), "picture_frames": src_frames, "picture_fps": src_rate,
             "inputs": {p: h for p, h in hashes.items()},
             "vo_lines": [{**{k: ln[k] for k in ("id", "at", "dur", "gain_db", "path")},
                           "atempo": ln.get("atempo"), "source_path": ln.get("source_path", ln["path"])}
+
+                          "atempo": ln.get("atempo"), "source_path": ln.get("source_path", ln["path"]),
+                          "subtitle_dur": ln.get("subtitle_dur"), "speech_end_s": ln.get("speech_end_s")}
                          for ln in placed],
             "logo": logo_info,
             "placement": placement, "min_vo_gap_s": plan["min_vo_gap_s"],
-            "music": music_info, "sfx": sfx_info,
+            "music": music_info, "sfx": sfx_info, "bed_dips": dips,
             "loudness_target": plan["loudness"], "loudnorm": ln_info, "mix_loudness": mix_meas,
             "tp_safety_trim_db": safety_db, "codec_tp_guard": {"master": master_tp, "phone": phone_tp},
             "cues": cues, "subtitles_burned": burn,
@@ -1297,6 +1721,8 @@ async def mix_and_deliver(
                       "width": phone_cfg.get("width"), "height": phone_cfg.get("height")},
             "outputs": outputs, "paths": paths,
             "timeline": plan.get("timeline"),
+
+            "picture_sync": {"reference": ref_mute, "checked_frames": int(sync_upto), "encodes": picture_sync},
         }
         tmp_manifest = work / "manifest.json"
         tmp_manifest.write_text(json.dumps(manifest, indent=2))
@@ -1334,6 +1760,13 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
         add(f"{name}_video_stream", bool(v), len(v), ">=1", path)
         add(f"{name}_audio_stream", bool(a) and a[0].get("codec_name") == "aac",
             a[0].get("codec_name") if a else None, "aac", path)
+        # GAP-55: frame count must equal the mute assembly's (a vfr drop keeps the duration).
+        want_frames = manifest.get("picture_frames")
+        if not want_frames:
+            num, _, den = video_rate(info).partition("/")
+            want_frames = int(round(pic * float(num) / float(den or 1)))
+        frames = await count_frames(path) if v else 0
+        add(f"{name}_frame_count", frames == int(want_frames), frames, int(want_frames), path)
         dur = float(info.get("format", {}).get("duration") or 0.0)
         add(f"{name}_duration", abs(dur - pic) <= DURATION_TOLERANCE_S, round(dur, 3),
             f"{pic:.3f}+-{DURATION_TOLERANCE_S}", path)
@@ -1360,7 +1793,7 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
         add("subtitle_cue_count", len(found) == len(cues), len(found), len(cues), ass)
         # Timing of the WRITTEN subtitle file vs where each VO line was actually placed.
         lines = {ln["id"]: ln for ln in manifest.get("vo_lines", [])}
-        devs = [max(abs(f[0] - lines[c["id"]]["at"]), abs(f[1] - (lines[c["id"]]["at"] + lines[c["id"]]["dur"])))
+        devs = [max(abs(f[0] - lines[c["id"]]["at"]), abs(f[1] - (lines[c["id"]]["at"] + cue_dur(lines[c["id"]]))))
                 for c, f in zip(cues, found) if c["id"] in lines]
         dev = max(devs) if devs else (0.0 if not found else float("inf"))
         add("subtitle_timing", bool(found) and dev <= CUE_TOLERANCE_S, round(dev, 3), CUE_TOLERANCE_S, ass)

@@ -48,6 +48,8 @@ class TestAcceptClipReview:
     @pytest.mark.asyncio
     @pytest.mark.timeout(300)
     async def test_needs_review_clip_kept_and_edit_rebuilt(self, dry_env, tmp_path, no_counter):  # noqa: F811
+
+    async def test_needs_review_clip_kept_and_edit_rebuilt(self, dry_env, tmp_path, no_counter):
         h = Harness({})
         clips = ClipFactory(tmp_path, [MOVING])
         async with await WorkflowEnvironment.start_local() as env:
@@ -84,6 +86,8 @@ class TestAcceptClipReview:
                     await handle.execute_update("accept_clip_review", args=["A09", "ok", None])
                 out = await handle.execute_update("accept_clip_review",
                                                   args=["A01", "Operator: keep as is", None])
+
+                                                  args=["A01", "Travis: keep as is", None])
                 assert out["clip_path"] == clips.saved[0]
                 state = await _wait(handle, lambda s: s["assembly"]["edit_version"] == 2
                                     and (s["assembly"]["qc"] or {}).get("edit_version") == 2,
@@ -92,6 +96,8 @@ class TestAcceptClipReview:
                 assert state["assembly"]["manifest"]["clips"][0]["source"] == clips.saved[0]
                 assert state["shot_outcomes"]["A01"]["status"] == "completed"
                 assert state["clip_review_acceptances"]["A01"]["reason"] == "Operator: keep as is"
+
+                assert state["clip_review_acceptances"]["A01"]["reason"] == "Travis: keep as is"
                 assert len(h.clip_calls) == 1, "keeping a clip must not spend"
                 with pytest.raises(WorkflowUpdateFailedError):  # now completed: nothing to accept
                     await handle.execute_update("accept_clip_review", args=["A01", "again", None])

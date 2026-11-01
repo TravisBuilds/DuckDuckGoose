@@ -732,6 +732,11 @@ class ShotWorkflow:
                                      # GAP-25: a recompose still is held in its own review round
                                      [None, None, {"round": "G3_RECOMPOSE",
                                                    "retry_key": f"rc{shot_plan['recompose']['n']}"}]
+
+                                                   "retry_key": f"rc{shot_plan['recompose']['n']}",
+                                                   # GAP-46: a granted allowance is the round limit
+                                                   **({"limit": int(shot_plan["recompose"]["allowance"])}
+                                                      if shot_plan["recompose"].get("allowance") else {})}]
                                      if shot_plan.get("recompose") else []),
                                 start_to_close_timeout=timedelta(minutes=2),
                                 retry_policy=retry_policy,
@@ -1176,7 +1181,11 @@ class ShotWorkflow:
                                 end_image_url,
                                 None,  # bitrate_mode (activity default)
                                 shot_plan.get("missing_refs", []),
-                            ] + ([clip_retry, clip_mod_retry] if clip_mod_retry
+                            ] + ([clip_retry, clip_mod_retry, params["seedance_resolution"]]
+                                 # GAP-45: an owner-routed Seedance resolution (input-driven: other histories unchanged)
+                                 if params.get("seedance_resolution")
+                                 and (mod_clip["model"] or params.get("model", "kling")) == "seedance"
+                                 else [clip_retry, clip_mod_retry] if clip_mod_retry
                                  else ([clip_retry] if clip_retry else [])),
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
