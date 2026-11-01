@@ -379,6 +379,10 @@ async def load_audio_plan(episode_id: str, plan_path: str | None = None) -> dict
         plan = audio_mix.load_plan_file(p)
         if plan.get("timeline_ref"):
             # GAP-23: the plan's times follow the CURRENT edit (a shot trimmed / dropped at G_FINAL_CUT)
+        has_events = any(c.get("event") for c in plan.get("sfx") or [])
+        if plan.get("timeline_ref") or has_events:
+            # GAP-23: the plan's times follow the CURRENT edit (a shot trimmed / dropped at G_FINAL_CUT);
+            # GAP-59: event-anchored SFX land on their event frame through trim + shot_ops retiming
             from hfvg.activities.media import MUTE_MANIFEST_NAME
             edit_manifest = audio_mix.episode_dir(episode_id) / "edit" / MUTE_MANIFEST_NAME
             if edit_manifest.is_file():
@@ -386,6 +390,10 @@ async def load_audio_plan(episode_id: str, plan_path: str | None = None) -> dict
                 plan = audio_mix.remap_plan_to_edit(plan, current)
             elif not _dry_run():
                 raise AudioInputError(f"audio plan has a timeline_ref but no edit manifest: {edit_manifest}")
+                plan = audio_mix.resolve_sfx_events(plan, current)
+            elif not _dry_run():
+                raise AudioInputError(f"audio plan has a timeline_ref / SFX event anchors but no edit manifest: "
+                                      f"{edit_manifest}")
     except AudioInputError as e:
         raise _missing(str(e), "InvalidAudioPlan") from None
     return {**plan, "plan_found": True, "plan_path": str(p)}

@@ -146,6 +146,12 @@ def test_ep05full_spec_stages_cleanly(tmp_path):
             "A03->F11": 1.0
         }
     }
+
+def test_ep05full_spec_stages_cleanly():
+    full = "/workspace/mid-mountain-rest/ep05-full/shots.json"
+    if not os.path.exists(full):
+        pytest.skip("Studio package not present")
+    spec = json.load(open(full))
     plan = edit_plan_from_spec(spec)
     assert sorted(plan["reuse"]) == ["A01", "A02", "A03", "A04"]
     assert plan["dissolves"] == {"A03->F11": 1.0}
@@ -153,6 +159,10 @@ def test_ep05full_spec_stages_cleanly(tmp_path):
     assert len(generation_spec(spec)["shots"]) == 1  # Only F11 needs generation
     screen = sum(s["screen_s"] for s in spec["shots"]) - 1.0
     assert screen == pytest.approx(25.5)  # 4.5 + 3.0 + 4.0 + 5.0 + 10.0 - 1.0 (dissolve)
+
+    assert len(generation_spec(spec)["shots"]) == 19
+    screen = sum(s["screen_s"] for s in spec["shots"]) - 1.0
+    assert screen == pytest.approx(117.0)
 
 
 # ── BEATMAP: Studio table with an extra "N" column and "kling" model names ──
@@ -181,3 +191,11 @@ def test_header_driven_beatmap_refuses_unparseable_row(tmp_path):
     p.write_text(STUDIO_TABLE.replace("| 6 (6) |", "| six |"))
     with pytest.raises(ValueError, match="F01"):
         parse_beatmap(p)
+
+
+def test_legacy_beatmap_unchanged():
+    from hfvg.episode_parser import parse_beatmap
+    teaser = "/workspace/ep05-live/run/data/episodes/ep05/BEATMAP.md"
+    if not os.path.exists(teaser):
+        pytest.skip("teaser beatmap not present")
+    assert [s["shot_id"] for s in parse_beatmap(teaser)] == ["A01", "A02", "A03", "A04"]

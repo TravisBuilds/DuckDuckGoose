@@ -33,7 +33,7 @@ async def test_g2_reroll_after_recheck_uses_rechecked_refs(tmp_path, monkeypatch
     from hfvg.studio_db import init_studio_db, create_episode, set_live_mode, approve_g108, list_anchor_stills, approve_g2_shots
     from hfvg.activities.credit_activities import init_episode_credit_line_activity, init_episode_budget_lines_activity
     import hfvg.activities as activities
-    
+
     # Fresh DB for unique episode
     db_path = str(tmp_path / "rr9597.db")
     monkeypatch.setenv("DB_PATH", db_path)
@@ -44,7 +44,7 @@ async def test_g2_reroll_after_recheck_uses_rechecked_refs(tmp_path, monkeypatch
     await approve_g108(db_path, "ep_rr9597")
     await init_episode_credit_line_activity("ep_rr9597", cap_credits=100_000)
     await init_episode_budget_lines_activity("ep_rr9597")
-    
+
     # Create data files - r_have exists, r_new missing
     beat = tmp_path / "BEATMAP_RR9597.md"
     beat.write_text(BEAT.replace("ep98", "ep_rr9597"))
@@ -88,7 +88,7 @@ async def test_g2_reroll_after_recheck_uses_rechecked_refs(tmp_path, monkeypatch
             "A01": {"refs": [have_path, new_path], "missing_refs": []},
             "B04": {"refs": [have_path], "missing_refs": []},
         }
-    
+
     @activity.defn(name="compute_g1_plan_activity")
     async def mock_g1_plan(*args):
         # Stub G1 plan to avoid real /estimate API calls
@@ -136,12 +136,12 @@ async def test_g2_reroll_after_recheck_uses_rechecked_refs(tmp_path, monkeypatch
                 id="wf-rr9597",
                 task_queue="rr9597-q",
             )
-            
+
             # Approve G1
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             state = await _gate(handle, "G2_SCENE_STILLS")
             state = await handle.query(EpisodeWorkflowV2.get_state)
-            
+
             first = SEEN_PLANS_M95["A01"]
             assert first["missing_refs"] == []
             # Parse time saw r_new missing for A01; the re-roll must use the rechecked plan.

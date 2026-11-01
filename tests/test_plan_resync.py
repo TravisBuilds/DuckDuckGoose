@@ -106,6 +106,8 @@ async def _still_landed(env, wid):
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
 async def test_resync_at_g2_reaches_clip_submit_clip_qc_and_rerolls(dry_env, tmp_path, no_counter):  # noqa: F811
+
+async def test_resync_at_g2_reaches_clip_submit_clip_qc_and_rerolls(dry_env, tmp_path, no_counter):
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     rubrics: list[dict] = []
@@ -170,6 +172,8 @@ async def test_resync_at_g2_reaches_clip_submit_clip_qc_and_rerolls(dry_env, tmp
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
 async def test_structural_resync_is_refused_and_changes_nothing(dry_env, tmp_path, no_counter):  # noqa: F811
+
+async def test_structural_resync_is_refused_and_changes_nothing(dry_env, tmp_path, no_counter):
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     async with await WorkflowEnvironment.start_local() as env:

@@ -247,7 +247,8 @@ async def preflight_validate_episode_activity(
     
     # 8. Validate budget configuration (preflight runs BEFORE budget init)
     # Ensure schema exists and config is valid, but don't query lines that don't exist yet
-    from hfvg.budget import BudgetLedger, effective_line_caps_usd_micros, get_budget_settings
+from hfvg.budget import BudgetLedger, effective_line_caps_usd_micros, get_budget_settings
+from hfvg.budget import BudgetLedger, get_budget_settings
     from hfvg.pricing import micros_to_usd_str
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
@@ -262,6 +263,7 @@ async def preflight_validate_episode_activity(
     # The caps init_episode_budget will really create (policy lines, else defaults), not the
     # defaults alone: a policy-capped episode below the $44 default total must not be refused.
     default_total = sum(effective_line_caps_usd_micros(ledger.policy, episode_id).values())
+    default_total = sum(ledger.effective_line_caps_usd_micros(episode_id).values())
     
     if default_total > settings.episode_cap_usd_micros:
         problems.append(
@@ -295,6 +297,20 @@ async def preflight_validate_episode_activity(
         if not fresh["ok"]:
             problems.append(fresh["reason"])
 
+    # GAP-76: optional object_contact tag (bool) + per-shot inference from the motion text
+    from hfvg.motion_qc import object_contact as _oc, validate_object_contact_tag as _oc_check
+    object_contact_shots: dict[str, str] = {}
+    for _sid, _shot in (shots_data.items() if isinstance(shots_data, dict) else []):
+        if not isinstance(_shot, dict):
+            continue
+        _bad = _oc_check({"id": _sid, **_shot})
+        if _bad:
+            problems.append(_bad)
+            continue
+        _tagged, _src = _oc(_shot)
+        if _tagged:
+            object_contact_shots[_sid] = _src
+
     # Raise if any problems found
     if problems:
         raise PreflightError(
@@ -311,4 +327,5 @@ async def preflight_validate_episode_activity(
         "validated_shots": len([s for s in shots_data if not shots_subset or s in shots_subset]),
         "available_refs": len(available_refs),
         "to_generate_refs": len(to_generate_refs),
+        "object_contact": object_contact_shots,
     }

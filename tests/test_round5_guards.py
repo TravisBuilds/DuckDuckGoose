@@ -190,6 +190,9 @@ def test_episode_id_format_is_exact(monkeypatch):
             api_main.StartEpisodeRequest(episode_id=good)
         except ValidationError as e:
             raise AssertionError(f"StartEpisodeRequest rejected valid id {good!r}: {e}") from e
+
+        assert api_main.validate_episode_id(good) == good
+        api_main.StartEpisodeRequest(episode_id=good)
     for bad in ("ep01\n", "ep\u0661\u0662", "ep001", "ep1", "EP01", "ep01-shot-A01", "../ep01", "",
                 "ep05Full", "ep05_full", "ep05-full", "ep05full/..", "ep05.full", "ep05full\n",
                 "ep05abcdefghijklm", "ep05\u00e9"):

@@ -25,6 +25,9 @@ def test_amend_prompt_matches_retry_shot():
     assert amend_prompt("Base prompt.  ", "  Three\n char_cs. ") == ("Base prompt. Three char_cs.",
                                                                      "Three char_cs.")
 
+    assert amend_prompt("Base prompt.  ", "  Three\n capybaras. ") == ("Base prompt. Three capybaras.",
+                                                                     "Three capybaras.")
+
 
 class _Handle:
     def __init__(self, base):
@@ -74,6 +77,9 @@ def test_amended_reroll_over_the_clip_limit_is_refused_before_spend(client, monk
     assert h.updates == []  # nothing launched, nothing paid
     r = c.post("/api/episodes/ep05full/shots/F06/retry", json={"prompt_append": "three char_cs", "reason": "t"})
     assert r.status_code == 200 and h.updates == [("retry_shot", ["F06", "three char_cs"])], r.text
+
+    r = c.post("/api/episodes/ep05full/shots/F06/retry", json={"prompt_append": "three capybaras", "reason": "t"})
+    assert r.status_code == 200 and h.updates == [("retry_shot", ["F06", "three capybaras"])], r.text
 
 
 def test_state_with_dict_failed_shots_is_readable(client, monkeypatch):

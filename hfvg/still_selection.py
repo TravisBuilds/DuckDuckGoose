@@ -50,6 +50,12 @@ def lint_problems(episode_id: str, shot_id: str, prompt: str, shot_meta: dict | 
     from hfvg import moderation_lint
     from hfvg.prompt_lint import PromptLintError, enforce_prompt_lint
     try:
+
+    from hfvg.prompt_lint import PromptLintError, apply_continuity_locks, enforce_prompt_lint
+    try:
+        # GAP-40: the submit injects the kit's continuity locks before its lint; so does this check
+        if shot_meta is not None:
+            prompt, _locks = apply_continuity_locks(episode_id, prompt, shot_meta, False, kind=kind)
         problems = [f"lint: {p}" for p in enforce_prompt_lint(episode_id, prompt, shot_meta, live, kind=kind)]
     except PromptLintError as e:
         problems = [f"lint: {e}"]
