@@ -247,7 +247,7 @@ async def preflight_validate_episode_activity(
     
     # 8. Validate budget configuration (preflight runs BEFORE budget init)
     # Ensure schema exists and config is valid, but don't query lines that don't exist yet
-    from hfvg.budget import BudgetLedger, get_budget_settings
+    from hfvg.budget import BudgetLedger, effective_line_caps_usd_micros, get_budget_settings
     from hfvg.pricing import micros_to_usd_str
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
@@ -259,7 +259,7 @@ async def preflight_validate_episode_activity(
     # Validate that the line caps this episode will get (policy for the episode, else the
     # defaults: BudgetLedger.effective_line_caps_usd_micros) fit within episode cap and stop
     settings = get_budget_settings()
-    default_total = sum(ledger.effective_line_caps_usd_micros(episode_id).values())
+    default_total = sum(effective_line_caps_usd_micros(ledger.policy, episode_id).values())
     
     if default_total > settings.episode_cap_usd_micros:
         problems.append(
