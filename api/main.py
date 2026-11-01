@@ -2466,8 +2466,6 @@ async def recompose_shot(
     # GAP-32: merge request shot_meta with existing (request overrides)
     if request.shot_meta and shot_meta is not None:
         shot_meta = {**shot_meta, **request.shot_meta}
-    clip_prompt = request.clip_prompt or request.prompt
-    bad = _pf.prompt_limit_violations(shot_id, still_prompt=request.prompt,
     if request.clip_route is not None:
         # GAP-45: validate the route, then preflight/lint against the ROUTED clip model
         route_problem = _EW.clip_route_problem(request.clip_route, {"model": clip_model})
@@ -2496,7 +2494,6 @@ async def recompose_shot(
                             + "; ".join(v.message for v in bad))
     # GAP-24: the same prompt + moderation lint the paid submits enforce, run here so a bad prompt is
     # refused at the route instead of failing inside the child (ep05full F06 recompose 1).
-    problems = _recompose_lint_problems(episode_id, shot_id, request.prompt, clip_prompt, shot_meta,
     problems = _recompose_lint_problems(episode_id, shot_id, still_prompt, clip_prompt, shot_meta,
                                         refs, clip_model)
     if problems:
@@ -2518,12 +2515,12 @@ async def recompose_shot(
             "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
             (episode_id, "recompose_shot",
              f"Shot {shot_id} recompose {result.get('recompose')} v{result.get('version')} "
-             f"refs={request.ref_keys}: {request.reason.strip()}", "admin"))
              f"refs={request.ref_keys}"
              + (f" shot_meta={json.dumps(request.shot_meta, sort_keys=True)}" if request.shot_meta else "")
              + (f" clip_route={json.dumps(request.clip_route, sort_keys=True)}" if request.clip_route else "")
              + (f" plate={plate['sha256'][:12]} ({plate['manifest']})" if plate else "")
-             + f": {request.reason.strip()}", "admin"))
+             + f": {request.reason.strip()}",
+             "admin"))
         await db.commit()
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
             "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
@@ -2957,9 +2954,9 @@ async def adopt_reuse(
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             "INSERT INTO audit_log (episode_id, action, details, user) VALUES (?, ?, ?, ?)",
-            (episode_id, "grant_recompose", f"Shot {shot_id} recompose grant: {request.reason.strip()}", "admin"))
             (episode_id, "adopt_reuse_slot",
-             f"Shot {shot_id} adopted (template {request.template_shot_id}): {request.reason.strip()}", "admin"))
+             f"Shot {shot_id} adopted (template {request.template_shot_id}): {request.reason.strip()}",
+             "admin"))
         await db.commit()
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result}
 
