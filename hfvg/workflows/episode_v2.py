@@ -1467,23 +1467,6 @@ class EpisodeWorkflowV2:
         return self.assembly_sig is not None and self._assembly_signature() != self.assembly_sig
 
     @workflow.signal
-    def request_edit_rebuild(self, reason: str):
-        """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (a
-        reused clip or a dissolve added). Picture only, no spend; the delivery follows the new edit.
-        Ignored without a reason, before the first edit, or after G_FINAL_CUT."""
-        if not (reason or "").strip():
-            self.final_cut_refusals.append("edit rebuild ignored: a reason is required")
-            return
-        if "G_FINAL_CUT" in self.passed_gates:
-            self.final_cut_refusals.append("edit rebuild ignored: G_FINAL_CUT already passed")
-            return
-        if self.assembly_sig is None:
-            self.final_cut_refusals.append("edit rebuild ignored: no edit assembled yet")
-            return
-        self.edit_rebuilds.append({"reason": reason.strip(), "after_edit_version": self.assembly_version})
-        workflow.logger.warning(f"[PICTURE LOCK] edit rebuild requested by reviewer: {reason}")
-
-    @workflow.signal
     def request_assembly_rebuild(self, reason: str):
         """Re-assemble the mute edit from the same clips after an edit-recipe change (e.g. a longer
         SH10 tail hold to absorb VO drift). No generation spend. The new edit's QC hold and the
@@ -2454,25 +2437,16 @@ class EpisodeWorkflowV2:
     RECOMPOSE_META_KEYS = ("count", "characters", "duck")
 
     @classmethod
-    def recompose_meta_problem(cls, shot_meta) -> str | None:
-        """Why a recompose shot_meta patch is invalid (None = valid or no patch). Pure."""
+    def recompose_meta_problem(cls, shot_meta: dict | None) -> str | None:
+        """GAP-32: validate shot_meta keys for a recompose (only count, characters, duck allowed)."""
         if shot_meta is None:
             return None
-        if not isinstance(shot_meta, dict) or not shot_meta:
-            return "shot_meta must be a non-empty object"
-        extra = sorted(set(shot_meta) - set(cls.RECOMPOSE_META_KEYS))
-        if extra:
-            return f"shot_meta may only change {', '.join(cls.RECOMPOSE_META_KEYS)} (got {', '.join(extra)})"
-        if "count" in shot_meta:
-            c = shot_meta["count"]
-            if isinstance(c, bool) or not isinstance(c, int) or not 0 <= c <= 10:
-                return "shot_meta.count must be an integer 0-10"
-        if "characters" in shot_meta:
-            ch = shot_meta["characters"]
-            if not isinstance(ch, list) or not all(isinstance(x, str) and x.strip() for x in ch):
-                return "shot_meta.characters must be a list of non-empty strings"
-        if "duck" in shot_meta and not isinstance(shot_meta["duck"], bool):
-            return "shot_meta.duck must be true or false"
+        if not isinstance(shot_meta, dict):
+            return "shot_meta must be an object"
+        allowed = {"count", "characters", "duck"}
+        bad = set(shot_meta.keys()) - allowed
+        if bad:
+            return f"shot_meta keys {sorted(bad)} not allowed (only {sorted(allowed)})"
         return None
 
     # GAP-45: an owner-ordered clip route for the new composition (model and/or Seedance resolution)
@@ -2824,44 +2798,6 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot recompose {shot_id}: {problem}", non_retryable=True)
 
-    # ---------------------------------------------------------------- GAP-39 reviewer-granted recompose
-
-    def _grant_recompose_problem(self, shot_id: str, reason: str) -> str | None:
-        """Why grant_recompose is not allowed right now (None = allowed)."""
-        if self.state.current_gate != "G_FINAL_CUT" or "G_FINAL_CUT" in self.passed_gates:
-            return "only while parked at G_FINAL_CUT"
-        if self.approved_g_final_cut:
-            return "final cut already approved"
-        if not (reason or "").strip():
-            return "a reason is required"
-        if shot_id not in self.launched_shot_plans:
-            return "unknown shot (no still launched in this episode)"
-        if self.recompose_counts.get(shot_id, 0) < self.recompose_allowance(shot_id):
-            return "the shot still has a recompose left; no grant needed"
-        if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
-            return f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached"
-        return None
-
-    @workflow.update
-    async def grant_recompose(self, shot_id: str, reason: str) -> dict:
-        """GAP-39: allow ONE more recompose for a shot whose allowance is used up (reviewer, reason)."""
-        problem = self._grant_recompose_problem(shot_id, reason)
-        if problem:
-            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
-        self.recompose_grants[shot_id] = int(self.recompose_grants.get(shot_id, 0)) + 1
-        row = {"shot_id": shot_id, "reason": reason.strip(), "grants": self.recompose_grants[shot_id],
-               "allowance": self.recompose_allowance(shot_id), "used": self.recompose_counts.get(shot_id, 0)}
-        self.recompose_grant_log.append(row)
-        workflow.logger.info(f"Recompose grant for {shot_id}: allowance now {row['allowance']} ({reason})")
-        return dict(row)
-
-    @grant_recompose.validator
-    def validate_grant_recompose(self, shot_id: str, reason: str):
-        """Validator for grant_recompose update."""
-        problem = self._grant_recompose_problem(shot_id, reason)
-        if problem:
-            raise ApplicationError(f"Cannot grant a recompose for {shot_id}: {problem}", non_retryable=True)
-
     def g3_clip_lift_limit(self, shot_id: str, n: int) -> int | None:
         """GAP-73 (mirrors GAP-46): the G3_CLIPS per-shot retry limit for the clip of recompose n, or None
         for the default. A recompose that used a GRANTED allowance slot (n > MAX_RECOMPOSES_PER_SHOT) gets
@@ -3076,12 +3012,12 @@ class EpisodeWorkflowV2:
             pending = self.pending_recompose.get(sid)
             if pending is not None and pending.get("version") == version:
                 state = {"still_ready": bool(pending.get("still_ready")), "decision": pending.get("decision"),
-                         "finished": False}
+                         "finished": False, "workflow_id": pending.get("workflow_id")}
             else:
                 last = next((r for r in reversed(self.recompose_log)
                              if r.get("shot_id") == sid and r.get("version") == version), {})
                 state = {"still_ready": bool(last.get("still_url")), "decision": last.get("decision"),
-                         "finished": True, "status": last.get("status")}
+                         "finished": True, "status": last.get("status"), "workflow_id": last.get("workflow_id")}
             out[sid] = {"version": version, "n": (plan.get("recompose") or {}).get("n"),
                         "shot_meta": dict(plan.get("shot_meta") or {}), **state}
         return out
