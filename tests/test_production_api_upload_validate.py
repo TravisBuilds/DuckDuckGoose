@@ -297,7 +297,8 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
     assert "workflow is currently running" in response.json()["detail"]
 
 
-def test_non_ascii_token_returns_403():
+@pytest.mark.asyncio
+async def test_non_ascii_token_returns_403():
     """Non-ASCII bytes in Authorization header return 403, not 500."""
     from api.main import verify_auth_unified
     from fastapi import HTTPException
@@ -308,7 +309,7 @@ def test_non_ascii_token_returns_403():
     latin1_token_bytes = b"Bearer caf\xe9token"
     
     with pytest.raises(HTTPException) as exc_info:
-        verify_auth_unified(latin1_token_bytes)
+        await verify_auth_unified(latin1_token_bytes)
     
     assert exc_info.value.status_code == 403
     assert "Invalid" in str(exc_info.value.detail)

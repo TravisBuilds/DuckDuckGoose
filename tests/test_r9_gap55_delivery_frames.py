@@ -108,8 +108,8 @@ async def test_overlay_frame_mismatch_aborts_the_build(tmp_path, monkeypatch):
     mute, plan = logo_episode(tmp_path)
     real = audio_mix.overlay_logo
 
-    async def lossy(src, logo, total_s, out, master, frames=None):
-        await real(src, logo, total_s, out, master, frames=frames)
+    async def lossy(src, logo, total_s, out, master, start=None, frames=None):
+        await real(src, logo, total_s, out, master, start=start, frames=frames)
         drop_frames(out, out)
 
     monkeypatch.setattr(audio_mix, "overlay_logo", lossy)

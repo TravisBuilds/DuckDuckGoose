@@ -100,8 +100,8 @@ async def test_frozen_overlay_is_reencoded(tmp_path, monkeypatch):
     real = audio_mix.overlay_logo
     calls = []
 
-    async def flaky(src, logo, total_s, out, master, frames=None):
-        await real(src, logo, total_s, out, master, frames=frames)
+    async def flaky(src, logo, total_s, out, master, start=None, frames=None):
+        await real(src, logo, total_s, out, master, start=start, frames=frames)
         calls.append(out)
         if len(calls) == 1:
             freeze(out, out)
@@ -124,8 +124,8 @@ async def test_overlay_that_keeps_freezing_fails_closed(tmp_path, monkeypatch):
     real = audio_mix.overlay_logo
     calls = []
 
-    async def frozen(src, logo, total_s, out, master, frames=None):
-        await real(src, logo, total_s, out, master, frames=frames)
+    async def frozen(src, logo, total_s, out, master, start=None, frames=None):
+        await real(src, logo, total_s, out, master, start=start, frames=frames)
         calls.append(out)
         freeze(out, out)
 
