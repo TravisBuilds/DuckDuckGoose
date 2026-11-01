@@ -252,6 +252,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             # the locked file carries trailing room tone); never longer than the line, checked at mix
             "subtitle_dur": None if ln.get("subtitle_dur") is None
             else _num(ln["subtitle_dur"], f"{lid}.subtitle_dur", 0.2, 60.0),
+            "take": int(_num(ln.get("take", 1), f"vo.lines[{lid}].take", 1, 20)),
             "gain_db": None if ln.get("gain_db") is None else _num(ln["gain_db"], f"{lid}.gain_db", -24, 12),
             "atempo": (None if ln.get("atempo") is None else _num(ln["atempo"], f"{lid}.atempo", 0.5, 2.0))
             if "atempo" in ln else (None if ln.get("path") else vo_atempo),
@@ -295,6 +296,9 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "duck_mode": _duck_mode(c.get("duck_mode", "activity"), cid),
             "fade_in_s": _num(c.get("fade_in_s", 0.01), f"sfx[{cid}].fade_in_s", 0.0),
             "fade_out_s": _num(c.get("fade_out_s", 0.05), f"sfx[{cid}].fade_out_s", 0.0),
+            # optional 2-pole lowpass applied twice (library beds made softer / more distant)
+            "lowpass_hz": None if c.get("lowpass_hz") is None
+            else _num(c["lowpass_hz"], f"sfx[{cid}].lowpass_hz", 100.0, 20000.0),
         })
         if c.get("event") is not None:  # GAP-59: point SFX anchored to an on-screen event frame
             if sfx[-1]["loop"]:
@@ -816,8 +820,9 @@ def fade(x: np.ndarray, fade_in_s: float, fade_out_s: float) -> np.ndarray:
     return x * g[:, None]
 
 
-async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bool = False) -> np.ndarray:
-    """Decode to float32 stereo at SR; pad/trim to n samples when given."""
+async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bool = False,
+                 afilter: str | None = None) -> np.ndarray:
+    """Decode to float32 stereo at SR; pad/trim to n samples when given (optional ffmpeg -af)."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin"]
     if loop:
         cmd += ["-stream_loop", "-1"]
@@ -826,6 +831,8 @@ async def decode(path: str, n: int | None = None, start_s: float = 0.0, loop: bo
     cmd += ["-i", path]
     if n is not None:
         cmd += ["-t", f"{n / SR:.6f}"]
+    if afilter:
+        cmd += ["-af", afilter]
     cmd += ["-vn", "-ac", "2", "-ar", str(SR), "-f", "f32le", "pipe:1"]
     out, _ = await run_cmd(cmd, f"decode {Path(path).name}")
     x = np.frombuffer(out, dtype="<f4").reshape(-1, 2).astype(np.float32)
@@ -1044,8 +1051,16 @@ def write_ass(cues: list[dict], path: str, subs: dict) -> None:
            f"0,0,0,0,100,100,0,0,1,4,1,2,80,80,{int(subs['margin_v'])},1\n\n[Events]\n")
         + "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     style = subs["ass_style"].split(":", 1)[1].split(",")[0].strip() if subs.get("ass_style") else "Default"
+    # Optional whole-line fade (ms, in/out) and edge blur (soft shadow) as ASS override tags.
+    tags = ""
+    if subs.get("fade_ms"):
+        f = int(_num(subs["fade_ms"], "subtitles.fade_ms", 0, 2000))
+        tags += f"\\fad({f},{f})"
+    if subs.get("blur"):
+        tags += f"\\blur{_num(subs['blur'], 'subtitles.blur', 0, 10):g}"
+    prefix = "{" + tags + "}" if tags else ""
     rows = [f"Dialogue: 0,{_ass_time(c['start'])},{_ass_time(c['end'])},{style},,0,0,0,,"
-            + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
+            + prefix + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
     Path(path).write_text(head + "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
 
 
@@ -1358,21 +1373,7 @@ async def mix_and_deliver(
         picture_sync = []
         sync_ref_full = sync_ref_top = None
         if plan.get("logo"):
-            heartbeat({"stage": "logo"})
-            pic = str(work / "picture_logo.mp4")
             sync_ref_full = await grey_frames(ref_mute, sync_upto)
-
-            async def overlay_counted() -> None:
-                await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames)
-                got = await count_frames(pic)
-                if got != src_frames:
-                    raise RuntimeError(f"logo overlay frame count {got} != mute assembly {src_frames} (GAP-55)")
-
-            picture_sync.append(await encode_picture_checked(
-                overlay_counted, ref_mute, pic, sync_upto, "picture_logo", ref_frames=sync_ref_full,
-                heartbeat=heartbeat))
-            logo_info = {**plan["logo"], "start_s": round(max(0.0, total_s - plan["logo"]["visible_s"]), 4)}
-            mute = Path(pic)
         # ---- VO: tempo post step, durations, pickup match, placement
         tempo_lines = []
         for ln in lines:
@@ -1404,6 +1405,23 @@ async def mix_and_deliver(
                     raise AudioInputError(
                         f"{ln['id']}.subtitle_dur {ln['subtitle_dur']}s ends before the speech "
                         f"({speech_end:.2f}s into the line)")
+        if plan.get("logo"):
+            heartbeat({"stage": "logo"})
+            pic = str(work / "picture_logo.mp4")
+            start = logo_start_s(plan["logo"], total_s, placed)
+
+            async def overlay_counted() -> None:
+                await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames, start=start)
+                got = await count_frames(pic)
+                if got != src_frames:
+                    raise RuntimeError(f"logo overlay frame count {got} != mute assembly {src_frames} (GAP-55)")
+
+            picture_sync.append(await encode_picture_checked(
+                overlay_counted, ref_mute, pic, sync_upto, "picture_logo", ref_frames=sync_ref_full,
+                heartbeat=heartbeat))
+            logo_info = {**plan["logo"], "start_s": start,
+                         "hold_s": round(total_s - start - plan["logo"]["fade_in_s"], 4)}
+            mute = Path(pic)
         heartbeat({"stage": "vo_bus", "lines": len(placed)})
         vo_wav = str(work / "vo.wav")
         await build_vo_bus(placed, total_s, vo_wav, str(work))
