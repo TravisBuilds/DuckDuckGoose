@@ -13,7 +13,7 @@ def _wf(take0):
     wf.assembly_sig = "sig"
     wf.passed_gates = []
     wf.pending_clip_retries = {}
-    wf.state = SimpleNamespace(shot_decisions={})
+    wf.state = SimpleNamespace(shot_decisions={}, failed_shots=[])
     wf.shot_outcomes = {"V15": {"status": "needs_review", "clip_url": "https://x/c2.mp4",
                                 "clip_path": "out/V15/clip_v2002.mp4"}}
     wf.clip_takes = {"V15": {0: take0, 1: {"status": "needs_review", "clip_url": "https://x/c1.mp4",

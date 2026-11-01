@@ -365,7 +365,7 @@ async def test_reopen_without_history_parks_and_continues(dry_env, tmp_path, no_
             assert (len(h.still_calls), len(h.clip_calls)) == (stills, clips_n)
             assert state["assembly"]["edit_version"] == before["assembly"]["edit_version"]
             out = await latest.execute_update(
-                "recompose_shot", args=["A01", "v11", new_prompt, [str(ref)], ["rowan"]])
+                "recompose_shot", args=["A01", "v11", new_prompt, [str(ref)], ["character"]])
             assert out["workflow_id"] == "ep94-shot-A01-recompose2", out
             await _wait(latest, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="parked after reopen")

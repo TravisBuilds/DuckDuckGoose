@@ -286,7 +286,7 @@ def test_route_passes_a_passed_plate_as_ninth_arg(client, episode, monkeypatch):
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     m = _episode_plate(episode)
-    body = {"reason": "Studio r9", "prompt": lint_ok("One animal"), "ref_keys": ["character1"],
+    body = {"reason": "Studio r9", "prompt": lint_ok("One animal"), "ref_keys": ["character"],
             "plate_manifest": "plates/A01/plate.png.manifest.json", "plate_approved_by": "Studio r9"}
     r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
     assert r.status_code == 200, r.text
@@ -300,7 +300,7 @@ def test_route_refuses_bad_plates_before_anything(client, episode, monkeypatch):
     api_main, c = client
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
-    base = {"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["character1"]}
+    base = {"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["character"]}
     _episode_plate(episode, "A02")
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
                json=dict(base, plate_manifest="plates/A02/plate.png.manifest.json"))

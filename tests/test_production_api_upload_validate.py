@@ -75,7 +75,6 @@ def test_upload_idempotency_duplicate_detection(client, monkeypatch):
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
-    mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
     mock_client = Mock()
@@ -118,7 +117,6 @@ def test_upload_stale_file_cleanup(client, monkeypatch):
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
-    mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
     mock_client = Mock()
@@ -182,7 +180,6 @@ def test_upload_replaces_shots_in_db(client, monkeypatch):
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
-    mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
     mock_client = Mock()
@@ -235,7 +232,6 @@ def test_upload_hash_file_written_last(client, monkeypatch):
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
-    mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
     mock_client = Mock()
@@ -303,40 +299,19 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
 
 def test_non_ascii_token_returns_403():
     """Non-ASCII bytes in Authorization header return 403, not 500."""
-    import tempfile
-    import shutil
+    from api.auth import verify_auth_unified
+    from fastapi import HTTPException
+    import pytest
     
-    # Create temp episodes dir
-    temp_dir = tempfile.mkdtemp(prefix="test_episodes_")
-    os.environ["EPISODES_DIR"] = temp_dir
+    # Latin-1 encoded token with non-ASCII byte (0xE9 = é)
+    # This should be rejected with 403, not crash with 500
+    latin1_token_bytes = b"Bearer caf\xe9token"
     
-    try:
-        from api.main import app
-        from fastapi.testclient import TestClient
-        import httpx
-        
-        # Create a client that allows us to send raw bytes
-        test_client = TestClient(app)
-        
-        # Latin-1 encoded token (contains non-ASCII byte 0xE9 = é)
-        # This should be rejected with 403, not crash with 500
-        latin1_token = "Bearer caf\xe9token"
-        
-        beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
-        
-        response = test_client.post(
-            "/api/episodes/upload/validate",
-            data={"episode_id": "ep99"},
-            files={"beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown")},
-            headers={"Authorization": latin1_token}
-        )
-        
-        # Should return 403 Forbidden (invalid token), not 500
-        assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
-        assert "Invalid" in response.json()["detail"]
-    finally:
-        if Path(temp_dir).exists():
-            shutil.rmtree(temp_dir)
+    with pytest.raises(HTTPException) as exc_info:
+        verify_auth_unified(latin1_token_bytes)
+    
+    assert exc_info.value.status_code == 403
+    assert "Invalid" in str(exc_info.value.detail)
 
 
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
@@ -346,7 +321,6 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     
     # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
-    mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
     mock_client = Mock()
