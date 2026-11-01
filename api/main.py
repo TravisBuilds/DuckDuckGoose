@@ -795,73 +795,181 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
+    Upload episode files for StoryBuilder Production tab (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
-    Requires: Cookie auth
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Idempotent: Re-uploading the same episode/files is safe (deduped)
     
     Returns:
-        Number of shots parsed
+        Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Auth: accept either upload token (Bearer) or session cookie
+    if authorization:
+        verify_upload_token(authorization)
+    else:
+        await verify_admin_cookie(studio_admin_token)
+    
     validate_episode_id(episode_id)
     
-    # Create episode directory
-    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
-    beatmap_dir.mkdir(parents=True, exist_ok=True)
+    # Return 409 while workflow is running
+    if temporal_client:
+        try:
+            handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+            desc = await handle.describe()
+            # Check if workflow exists and is running
+            from temporalio.client import WorkflowExecutionStatus
+            if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
+                )
+        except Exception as e:
+            from temporalio.service import RPCError, RPCStatusCode
+            # NOT_FOUND is fine - workflow doesn't exist, upload can proceed
+            if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
+                # Re-raise non-NOT_FOUND errors (including our own 409)
+                if isinstance(e, HTTPException):
+                    raise
     
-    # Save beatmap file
-    beatmap_path = beatmap_dir / "BEATMAP.md"
-    content = await beatmap_file.read()
-    beatmap_path.write_bytes(content)
+    # Read all files and compute hashes
+    import hashlib
+    import tempfile
+    import shutil
     
-    # Save credit plan if provided
-    credit_plan_path = None
-    if credit_plan_file:
-        credit_plan_path = beatmap_dir / "CREDIT-PLAN.md"
-        content = await credit_plan_file.read()
-        credit_plan_path.write_bytes(content)
+    beatmap_content = await beatmap_file.read()
+    credit_plan_content = await credit_plan_file.read() if credit_plan_file else None
+    continuity_content = await continuity_file.read() if continuity_file else None
     
-    # Save continuity file if provided
-    continuity_path = None
-    if continuity_file:
-        continuity_path = beatmap_dir / "CONTINUITY.md"
-        content = await continuity_file.read()
-        continuity_path.write_bytes(content)
+    # Compute combined hash from all provided files
+    hasher = hashlib.sha256()
+    hasher.update(b"beatmap:")
+    hasher.update(beatmap_content)
+    if credit_plan_content:
+        hasher.update(b"|credit_plan:")
+        hasher.update(credit_plan_content)
+    if continuity_content:
+        hasher.update(b"|continuity:")
+        hasher.update(continuity_content)
+    upload_hash = hasher.hexdigest()[:16]
     
-    # Parse beatmap
-    shots = parse_beatmap(str(beatmap_path))
+    # Check for existing upload with same hash (idempotent retry detection)
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    episode_dir = episodes_dir / episode_id
+    hash_file = episode_dir / ".upload_hash"
+    
+    is_duplicate = False
+    if hash_file.exists():
+        try:
+            existing_hash = hash_file.read_text(encoding='utf-8').strip()
+            if existing_hash == upload_hash:
+                # Content matches exactly - this is an idempotent retry
+                is_duplicate = True
+                # Return immediately without rewriting anything
+                shots = parse_beatmap(str(episode_dir / "BEATMAP.md"))
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "shots_count": len(shots),
+                    "upload_hash": upload_hash,
+                    "is_duplicate": True,
+                    "files_uploaded": {
+                        "beatmap": True,
+                        "credit_plan": (episode_dir / "CREDIT-PLAN.md").exists(),
+                        "continuity": (episode_dir / "CONTINUITY.md").exists(),
+                    },
+                    "beatmap_path": str(episode_dir / "BEATMAP.md"),
+                }
+        except Exception:
+            pass  # Hash file corrupt or unreadable, proceed with upload
+    
+    # Stage upload to temp directory and validate before moving
+    with tempfile.TemporaryDirectory(prefix=f"upload_{episode_id}_") as temp_dir:
+        temp_path = Path(temp_dir)
+        
+        # Write files to temp location
+        temp_beatmap = temp_path / "BEATMAP.md"
+        temp_beatmap.write_bytes(beatmap_content)
+        
+        temp_credit_plan = None
+        if credit_plan_content:
+            temp_credit_plan = temp_path / "CREDIT-PLAN.md"
+            temp_credit_plan.write_bytes(credit_plan_content)
+        
+        temp_continuity = None
+        if continuity_content:
+            temp_continuity = temp_path / "CONTINUITY.md"
+            temp_continuity.write_bytes(continuity_content)
+        
+        # Parse and validate in temp location (fail before writing to episodes dir)
+        try:
+            shots = parse_beatmap(str(temp_beatmap))
+            if not shots:
+                raise ValueError("No shots found in beatmap")
+            
+            # Validate credit plan if provided
+            if temp_credit_plan:
+                parse_credit_plan(temp_credit_plan)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Upload validation failed: {str(e)}")
+        
+        # Validation passed - move to permanent location
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Move files atomically
+        shutil.copy2(temp_beatmap, episode_dir / "BEATMAP.md")
+        if temp_credit_plan:
+            shutil.copy2(temp_credit_plan, episode_dir / "CREDIT-PLAN.md")
+        else:
+            # Remove stale CREDIT-PLAN.md if re-upload leaves it out
+            (episode_dir / "CREDIT-PLAN.md").unlink(missing_ok=True)
+        
+        if temp_continuity:
+            shutil.copy2(temp_continuity, episode_dir / "CONTINUITY.md")
+        else:
+            # Remove stale CONTINUITY.md if re-upload leaves it out
+            (episode_dir / "CONTINUITY.md").unlink(missing_ok=True)
     
     # Initialize database
     await init_studio_db(DATABASE_PATH)
     
-    # Create episode record
-    await create_episode(DATABASE_PATH, episode_id, str(beatmap_path))
+    # Create or update episode record
+    await create_episode(DATABASE_PATH, episode_id, str(episode_dir / "BEATMAP.md"))
     
-    # Insert shots
+    # Replace shots (not INSERT OR IGNORE) - delete old, insert new
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("DELETE FROM shots WHERE episode_id = ?", (episode_id,))
+        await db.commit()
+    
     await insert_shots_from_beatmap(DATABASE_PATH, episode_id, shots)
     
-    # Parse and initialize budget if credit plan was provided
-    if credit_plan_path and credit_plan_path.exists():
+    # Initialize budget if credit plan provided
+    credit_plan_path = episode_dir / "CREDIT-PLAN.md"
+    if credit_plan_path.exists():
         credit_plan = parse_credit_plan(credit_plan_path)
-        
-        # Initialize budget ledger with credit plan
         ledger = BudgetLedger(DATABASE_PATH)
         await ledger.init_db()
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
+    
+    # Write .upload_hash LAST (after all other operations succeeded)
+    hash_file.write_text(upload_hash, encoding='utf-8')
     
     return {
         "success": True,
         "episode_id": episode_id,
         "shots_count": len(shots),
+        "upload_hash": upload_hash,
+        "is_duplicate": False,
         "files_uploaded": {
             "beatmap": True,
-            "credit_plan": credit_plan_file is not None,
-            "continuity": continuity_file is not None,
+            "credit_plan": credit_plan_path.exists(),
+            "continuity": (episode_dir / "CONTINUITY.md").exists(),
         },
-        "beatmap_path": str(beatmap_path),
+        "beatmap_path": str(episode_dir / "BEATMAP.md"),
     }
 
 
