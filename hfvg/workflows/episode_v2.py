@@ -2589,7 +2589,10 @@ class EpisodeWorkflowV2:
             return "the shot still has a recompose left; no grant needed"
         if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
             # GAP-43: past the grant cap only with an explicit Studio override note (audited)
-            if len((cap_override_note or "").strip()) < 10:
+            note = (cap_override_note or "").strip()
+            if not note:
+                return f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached"
+            if len(note) < 10:
                 return (f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached; "
                         f"an explicit Studio cap_override_note is required to grant more")
         return None
