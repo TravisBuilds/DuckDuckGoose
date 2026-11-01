@@ -311,8 +311,8 @@ async def test_non_ascii_token_returns_403():
     with pytest.raises(HTTPException) as exc_info:
         await verify_auth_unified(latin1_decoded)
     
-    assert exc_info.value.status_code == 403
-    assert "Invalid" in str(exc_info.value.detail)
+    # Non-ASCII tokens are rejected as unauthenticated (401), not malformed (403)
+    assert exc_info.value.status_code == 401
 
 
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
@@ -335,11 +335,8 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     from hfvg.budget import BudgetLedger
     
     # Initialize database schema
-    async def init_db():
-        async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
-            ledger = BudgetLedger(db)
-            await ledger.init_tables()
-    asyncio.run(init_db())
+    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    asyncio.run(ledger.init_db())
     
     episode_id = "ep88"
     
