@@ -442,8 +442,9 @@ async def verify_auth_unified(
             verify_admin_secret(authorization)
             return  # Bearer token is valid
         except HTTPException as e:
-            # Present but invalid Bearer token: always 403
-            raise HTTPException(status_code=403, detail=e.detail)
+            # If verify_admin_secret raised 403 (invalid token), keep 403
+            # If it raised 401 (malformed format like "Basic xyz"), keep 401
+            raise e
     
     # No Bearer token, but maybe cookie was tried
     if cookie_error:

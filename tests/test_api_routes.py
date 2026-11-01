@@ -229,7 +229,8 @@ async def test_all_mutating_routes_require_auth(test_db_api, monkeypatch):
                     f"{method} {route.path} without valid credentials -> {response.status_code}")
             checked.append((method, route.path))
     client.cookies.clear()
-    assert client.post("/api/episodes", json={}, headers={"Authorization": "Bearer wrong"}).status_code == 401
+    # Invalid Bearer token returns 403 (present but wrong), not 401
+    assert client.post("/api/episodes", json={}, headers={"Authorization": "Bearer wrong"}).status_code == 403
     assert ("POST", "/api/lint") in checked and ("GET", "/api/episodes/{episode_id}/files/{file_type}") in checked
     every = {(m, r.path) for r in api_main.app.routes if isinstance(r, APIRoute)
              for m in r.methods - {"HEAD", "OPTIONS"}}
