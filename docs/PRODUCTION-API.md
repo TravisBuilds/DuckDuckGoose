@@ -234,7 +234,7 @@ curl -X POST http://localhost:8000/api/episodes/upload \
 | `401` | Unauthorized | Missing Authorization header or cookie |
 | `403` | Forbidden | Invalid token, non-ASCII token, or wrong token scope |
 | `409` | Conflict | Workflow is running (upload blocked) |
-| `422` | Unprocessable Entity | Validation failed (beatmap parse error, invalid UTF-8) |
+| `422` | Unprocessable Entity | Validation failed (beatmap parse error) |
 | `500` | Internal Server Error | Server misconfiguration (UPLOAD_TOKEN < 32 chars) |
 
 ## Episode ID Format

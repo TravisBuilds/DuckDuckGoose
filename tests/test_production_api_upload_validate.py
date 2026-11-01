@@ -74,7 +74,7 @@ def test_upload_idempotency_duplicate_detection(client, monkeypatch):
     # Mock temporal_client to return NOT_FOUND
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
-    mock_error = RPCError()
+    mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
     mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
@@ -117,7 +117,7 @@ def test_upload_stale_file_cleanup(client, monkeypatch):
     # Mock temporal_client
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
-    mock_error = RPCError()
+    mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
     mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
@@ -181,7 +181,7 @@ def test_upload_replaces_shots_in_db(client, monkeypatch):
     # Mock temporal_client
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
-    mock_error = RPCError()
+    mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
     mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
@@ -234,7 +234,7 @@ def test_upload_hash_file_written_last(client, monkeypatch):
     # Mock temporal_client
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
-    mock_error = RPCError()
+    mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
     mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)
@@ -340,12 +340,12 @@ def test_non_ascii_token_returns_403():
 
 
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
-    """Re-uploading without credit plan clears budget_lines and budget_transactions."""
+    """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
     
     # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
-    mock_error = RPCError()
+    mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
     mock_error.status = RPCStatusCode.NOT_FOUND
     mock_handle = Mock()
     mock_handle.describe = AsyncMock(side_effect=mock_error)

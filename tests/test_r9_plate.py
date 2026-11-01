@@ -274,7 +274,7 @@ from tests.test_recompose_meta_patch import META, _Client, _Handle, episode  # n
 from tests.test_retry_prompt_preflight import client  # noqa: E402,F401
 
 
-def _episode_plate(episode, shot="A01", **over):
+def _episode_plate(episode, shot="A01", **over):  # noqa: F811
     d = episode / "eps" / "ep77" / "plates" / shot
     d.mkdir(parents=True, exist_ok=True)
     spec = _spec(d, shot_id=shot, **over)

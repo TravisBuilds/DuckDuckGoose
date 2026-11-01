@@ -798,7 +798,7 @@ def stalled(threshold: int | None, route: bool):
     asyncio.run(check_stalled())
 
 
-@cli.command()
+@cli.command("balance")
 @click.option("--json-output", is_flag=True, help="Output as JSON")
 def check_balance(json_output: bool):
     """Check provider balance status."""

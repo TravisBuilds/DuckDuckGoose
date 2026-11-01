@@ -1002,11 +1002,10 @@ async def upload_beatmap(
         credit_plan = parse_credit_plan(credit_plan_path)
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
     else:
-        # Clear budget when re-upload omits the credit plan (issue #7)
+        # Clear budget lines when re-upload omits the credit plan (preserve transactions history)
         import aiosqlite
         async with aiosqlite.connect(DATABASE_PATH) as db:
             await db.execute("DELETE FROM budget_lines WHERE episode_id = ?", (episode_id,))
-            await db.execute("DELETE FROM budget_transactions WHERE episode_id = ?", (episode_id,))
             await db.commit()
     
     # Write .upload_hash LAST (after all other operations succeeded)

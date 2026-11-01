@@ -1,4 +1,4 @@
-"""Ep05 G3 free fixes (2026-10-26, Reviewer 19:53 CET): harness gaps found while applying them.
+"""Ep05 G3 free fixes (2026-10-26, Operator 19:53 CET): harness gaps found while applying them.
 
 GAP-5  subtitle line breaks written in the plan ("\\n") were collapsed and re-balanced; an
        explicit break (<= 2 lines) is now honoured in the .ass and .srt.
@@ -116,11 +116,11 @@ async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter): 
             await handle.signal("request_delivery_rebuild", "  ")  # ignored: no reason
             await asyncio.sleep(1.0)
             assert (await handle.query("get_state"))["delivery"]["delivery_version"] == 1
-            await handle.signal("request_delivery_rebuild", "Reviewer: sub wrap fix")
+            await handle.signal("request_delivery_rebuild", "Operator: sub wrap fix")
             state = await _wait(handle, lambda s: s["delivery"]["delivery_version"] == 2
                                 and s["delivery"]["phase"] == "done", timeout=180, what="delivery 2")
             assert state["delivery"]["qc"]["verdict"] == "PASS", state["delivery"]["qc"]
-            assert state["delivery_rebuilds"][0]["reason"] == "Reviewer: sub wrap fix"
+            assert state["delivery_rebuilds"][0]["reason"] == "Operator: sub wrap fix"
             assert "First\nline." in Path(state["delivery"]["paths"]["srt"]).read_text()
             assert state["delivery"]["due"] is False
             await handle.signal("approve_g_final_cut")
