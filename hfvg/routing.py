@@ -105,6 +105,7 @@ def plan_route(shot: dict, resolution: str | None = None) -> ShotRoute:
                 f"Duration {duration}s is under {SEEDANCE_MIN_DURATION_S}s: not routable to Seedance (use Kling)"
             )
         # Per-shot resolution override or tier default (GAP-45)
-        resolution = resolution or seedance_resolution_for(tier, shot.get("seedance_resolution"))
+        per_shot_resolution = shot.get("seedance_resolution") or shot.get("resolution")
+        resolution = resolution or seedance_resolution_for(tier, per_shot_resolution)
         return ShotRoute("seedance", tier, resolution)
     return ShotRoute("kling", tier, None)
