@@ -12,7 +12,7 @@ from hfvg.activities.run_lock import acquire_run_lock
 from hfvg.credit_ledger import CreditLedger
 
 
-def _patch_client(monkeypatch, status):
+def _patch_client(monkeypatch, status, workflow_id="test"):
     handle = MagicMock()
     handle.describe = AsyncMock(return_value=MagicMock(status=status))
     client = MagicMock(); client.get_workflow_handle = MagicMock(return_value=handle)
@@ -21,7 +21,9 @@ def _patch_client(monkeypatch, status):
 
     def fake_info():
         i = real()
-        return MagicMock(wraps=i, workflow_client=MagicMock(return_value=client))
+        mock = MagicMock(wraps=i, workflow_client=MagicMock(return_value=client))
+        mock.workflow_id = workflow_id
+        return mock
     monkeypatch.setattr(ta, "info", fake_info)
     return handle
 
@@ -32,7 +34,7 @@ async def test_lock_of_an_earlier_run_of_the_same_id_is_reclaimed(tmp_path, monk
     monkeypatch.setenv("DATABASE_PATH", db)
     led = CreditLedger(db); await led.init_db()
     assert (await led.acquire_run_lock("ep05v2", "ep05v2", "default"))["acquired"]   # terminated run's lock
-    _patch_client(monkeypatch, WorkflowExecutionStatus.RUNNING)   # describe(id) = the caller
+    _patch_client(monkeypatch, WorkflowExecutionStatus.RUNNING, workflow_id="ep05v2")   # describe(id) = the caller
     out = await ActivityEnvironment().run(acquire_run_lock, "ep05v2", "ep05v2", "default")
     assert out["acquired"] is True
 

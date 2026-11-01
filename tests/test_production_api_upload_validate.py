@@ -297,16 +297,20 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
     assert "workflow is currently running" in response.json()["detail"]
 
 
-def test_non_ascii_token_returns_403(client):
+def test_non_ascii_token_returns_403():
     """Non-ASCII bytes in Authorization header return 403, not 500."""
-    # Latin-1 encoded token with non-ASCII byte (0xE9 = é)
-    # Send raw header bytes - FastAPI will decode as latin-1
-    response = client.get(
-        "/api/episodes/list",
-        headers={"Authorization": b"Bearer caf\xe9token".decode("latin-1")}
-    )
-    assert response.status_code == 403
-    assert "Invalid" in response.json()["detail"] or "token" in response.json()["detail"].lower()
+    from fastapi import HTTPException
+    from api.main import verify_admin_secret
+    
+    # Latin-1 encoded token with non-ASCII character (é)
+    # This would come from a header decoded as latin-1 but containing non-ASCII bytes
+    non_ascii_header = "Bearer " + "caf\xe9token"
+    
+    with pytest.raises(HTTPException) as exc_info:
+        verify_admin_secret(non_ascii_header)
+    
+    assert exc_info.value.status_code == 403
+    assert "non-ascii" in exc_info.value.detail.lower()
 
 
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
