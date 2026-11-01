@@ -72,7 +72,7 @@ def _activities(log):
 
 
 
-AMEND = "EXACTLY THREE capybaras: two adults (Rowan, Hazel) and one small pup (Mochi)."
+AMEND = "EXACTLY THREE animals: two adults (CharA, CharB) and one small pup (CharC)."
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""GAP-83 (ep05v2 r15 v13, Travis via Studio: the duck points at nothing / the door closes, then a
+"""GAP-83 (ep05v2 r15 v13, Reviewer via Studio: the duck points at nothing / the door closes, then a
 same-angle cut). Dropping a shot (GAP-22 set_shot_edit drop) shortened the cut by its slot, and
 GAP-58 slot moves are zero-sum, so the neighbours could not take the dropped time and the 120.000 s
 lock broke. plan["absorbed_drops"] = {sid: {screen_s, reason}} declares it; the slot moves must then

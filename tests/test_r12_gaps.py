@@ -1,4 +1,4 @@
-"""ep05v2 r12 (Travis 2026-10-28: "jerky movements always don't flow and transitions don't work").
+"""ep05v2 r12 (Reviewer 2026-10-28: "jerky movements always don't flow and transitions don't work").
 
 GAP-61  interp "rife": real motion interpolation for slowed shots (per segment, never across a join,
         exact frame count, cached, heartbeating, fails CLOSED without the binary).

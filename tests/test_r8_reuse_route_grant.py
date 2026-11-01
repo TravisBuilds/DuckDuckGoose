@@ -211,9 +211,9 @@ def test_shot_workflow_sends_the_allowance_as_limit():
 
 
 # ---------------------------------------------------------------- GAP-44 adopt a reuse slot
-_FIELDS = {"prompt": "Mochi sniffs a yuzu basket", "shot_meta": {"count": 2, "characters": ["H", "M"]},
+_FIELDS = {"prompt": "CharA sniffs an item basket", "shot_meta": {"count": 2, "characters": ["H", "M"]},
            "params": {"model": "kling", "duration": 4}, "trim": {"in": 0.0, "out": 4.0},
-           "ref_keys": ["mochi", "hazel", "lobby"]}
+           "ref_keys": ["char1", "char2", "lobby"]}
 
 
 async def test_adopt_registers_a_recomposable_plan(monkeypatch):
@@ -266,18 +266,18 @@ def test_api_adopt_fields_from_the_package_entry(tmp_path, monkeypatch):
     from api.main import _adopt_reuse_fields
     ep = tmp_path / "ep99"
     (ep / "refs").mkdir(parents=True)
-    (ep / "refs" / "mochi.png").write_bytes(b"x")
+    (ep / "refs" / "char1.png").write_bytes(b"x")
     (ep / "edit_plan.json").write_text(json.dumps({"order": ["V06"], "reuse": {
         "V06": {"clip": "/c.mp4", "sha256": "s", "trim_in": 0.0, "trim_out": 4.0}}}))
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path))
     entry = {"id": "V06", "count": 2, "characters": ["H", "M"], "duck_present": False, "model": "kling",
              "wet": False, "water": False, "exterior": False, "end_frame": False,
-             "duration": 4, "ref_keys": ["mochi", "hazel"], "prompt": "Mochi sniffs a basket",
+             "duration": 4, "ref_keys": ["char1", "char2"], "prompt": "CharA sniffs a basket",
              "reuse": {"clip": "/c.mp4"}, "pre_approved_still": {"path": "/s.jpg"}}
     f = _adopt_reuse_fields("ep99", "V06", entry)
     assert f["prompt"] == "Mochi sniffs a basket" and f["shot_meta"]["count"] == 2
     assert f["params"]["model"] == "kling" and f["trim"] == {"in": 0.0, "out": 4.0}
-    assert f["refs"] == [str((ep / "refs" / "mochi.png").resolve())]   # only refs on disk
+    assert f["refs"] == [str((ep / "refs" / "char1.png").resolve())]   # only refs on disk
     with pytest.raises(HTTPException):
         _adopt_reuse_fields("ep99", "V05", {**entry, "id": "V05"})       # not a reuse slot
     with pytest.raises(HTTPException):

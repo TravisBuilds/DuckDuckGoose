@@ -22,7 +22,7 @@ async def _episode(tmp_path, monkeypatch):
     async with aiosqlite.connect(db_path) as db:
         await insert_line(db, "ep99", "L2_drafts", 2_000_000, 1_600_000)
         await db.commit()
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character.png"
     ref.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
     return db_path, ledger, str(ref)
 

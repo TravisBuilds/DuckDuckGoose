@@ -1,6 +1,6 @@
 """GAP-59 (ep05v2 v9b SFX re-spot, 2026-10-28): GAP-23's remap moves an SFX by edit TIME only, so on a
 shot retimed by shot_ops (V07 slowed to 0.558x, V22 to 0.505x, V11 with a cut window) the SFX stayed at
-its old offset and landed ~1.2 s before the yuzu touched the tray / the first bite. A point SFX may now
+its old offset and landed ~1.2 s before the item touched the tray / the first bite. A point SFX may now
 carry ``event`` = (shot, source clip sha256, src_s in that clip, hit_s = transient offset in the SFX
 file); load_audio_plan maps it through trim + shot_ops segments + speed of the CURRENT edit and places
 the SFX so its transient lands on the event frame."""

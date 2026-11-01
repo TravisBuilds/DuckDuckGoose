@@ -323,7 +323,7 @@ def test_supersede_refusals(monkeypatch, tmp_path, body, extra, state, why):
 async def test_reopen_without_history_parks_and_continues(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character.png"
     ref.write_bytes(b"png")
     new_prompt = lint_ok("Tighter wide shot. EXACTLY THREE ducks on the boardwalk")
     async with await WorkflowEnvironment.start_local() as env:

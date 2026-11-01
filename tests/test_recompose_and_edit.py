@@ -66,7 +66,7 @@ def _worker(env, h, clips):
 async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, no_counter):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character.png"
     ref.write_bytes(b"png")
     async with await WorkflowEnvironment.start_local() as env:
         async with _worker(env, h, clips):
@@ -85,7 +85,7 @@ async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, n
 
             new_prompt = lint_ok("Tighter wide shot. EXACTLY THREE ducks on the boardwalk")
             out = await handle.execute_update(
-                "recompose_shot", args=["A01", "Studio: new composition", new_prompt, [str(ref)], ["rowan"]])
+                "recompose_shot", args=["A01", "Studio: new composition", new_prompt, [str(ref)], ["character"]])
             assert out["workflow_id"] == "ep94-shot-A01-recompose1" and out["version"] >= 2, out
             state = await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                                 timeout=90, what="recompose still parked")
@@ -104,7 +104,7 @@ async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, n
                 await handle.execute_update("recompose_shot", args=["A01", "again", new_prompt, [str(ref)]])
 
             # reject: the child ends without a clip, the shot keeps its clip
-            await handle.execute_update("recompose_decision", args=["A01", False, "4 capybaras in the still"])
+            await handle.execute_update("recompose_decision", args=["A01", False, "4 animals in the still"])
             rejected = await _child_result(env, "ep94-shot-A01-recompose1", timeout=60)
             assert rejected["status"] == "rejected"
             state = await _wait(handle, lambda s: not s["recompose"]["pending"], what="recompose 1 closed")
@@ -114,7 +114,7 @@ async def test_recompose_parks_still_then_reject_or_approve(dry_env, tmp_path, n
 
             # second attempt: approve -> clip from the NEW still replaces the shot in the edit
             out2 = await handle.execute_update(
-                "recompose_shot", args=["A01", "Studio: retry", new_prompt, [str(ref)], ["rowan"]])
+                "recompose_shot", args=["A01", "Studio: retry", new_prompt, [str(ref)], ["character"]])
             assert out2["version"] == out["version"] + 1  # new still/clip job ids, never a duplicate
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="recompose 2 parked")

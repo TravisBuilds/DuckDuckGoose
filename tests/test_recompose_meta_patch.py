@@ -62,7 +62,7 @@ def episode(tmp_path, monkeypatch):
     import tests.lint_helpers as lh
     ep = tmp_path / "eps" / "ep77"
     (ep / "refs").mkdir(parents=True)
-    (ep / "refs" / "rowan.png").write_bytes(b"\x89PNG")
+    (ep / "refs" / "character.png").write_bytes(b"\x89PNG")
     (ep / "prompt_kit.json").write_text(json.dumps({"lint": lh.SYNTHETIC_LINT_KIT}))
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "eps"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
@@ -78,7 +78,7 @@ def test_route_lints_against_the_patched_cast(client, episode, monkeypatch):  # 
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     two = lint_ok("Low close-up of two animals", count=2)
-    body = {"reason": "Studio", "prompt": two, "ref_keys": ["rowan"]}
+    body = {"reason": "Studio", "prompt": two, "ref_keys": ["character"]}
     # without the patch the count clause does not match the declared cast: refused, nothing queued
     r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
     assert r.status_code == 409 and "Prompt lint refused" in r.json()["detail"], r.text
@@ -100,7 +100,7 @@ def test_route_without_patch_keeps_six_args(client, episode, monkeypatch):  # no
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
-               json={"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["rowan"]})
+               json={"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["character"]})
     assert r.status_code == 200, r.text
     assert len(h.updates[-1][1]) == 6  # replay-compatible with pre-GAP-32 histories
 
@@ -110,7 +110,7 @@ def test_route_refuses_bad_patch_before_anything(client, episode, monkeypatch): 
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
-               json={"reason": "S", "prompt": lint_ok("x", count=2), "ref_keys": ["rowan"],
+               json={"reason": "S", "prompt": lint_ok("x", count=2), "ref_keys": ["character"],
                      "shot_meta": {"count": 2, "water": True}})
     assert r.status_code == 422 and "may only change" in r.json()["detail"] and h.updates == []
 
@@ -152,7 +152,7 @@ async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_p
     from temporalio.testing import WorkflowEnvironment
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character.png"
     ref.write_bytes(b"png")
     async with await WorkflowEnvironment.start_local() as env:
         async with _worker(env, h, clips):
@@ -160,10 +160,10 @@ async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_p
             two = lint_ok("Low close-up of two animals", count=2)
             with pytest.raises(WorkflowUpdateFailedError) as refused:
                 await handle.execute_update("recompose_shot", args=[
-                    "A01", "r", two, [str(ref)], ["rowan"], None, {"water": True}])
+                    "A01", "r", two, [str(ref)], ["character"], None, {"water": True}])
             assert "may only change" in str(refused.value.cause)
             out = await handle.execute_update("recompose_shot", args=[
-                "A01", "Studio: two in frame", two, [str(ref)], ["rowan"], None, {"count": 2}])
+                "A01", "Studio: two in frame", two, [str(ref)], ["character"], None, {"count": 2}])
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="recompose still parked (child lint passed on the NEW count)")
             assert h.still_calls[-1][2] == two
