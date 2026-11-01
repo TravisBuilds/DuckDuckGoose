@@ -22,7 +22,6 @@ SEEDANCE_TIER_RESOLUTION = {"draft": "480p", "final": "1080p"}
 # GAP-45: an explicit per-shot Seedance output resolution (owner-routed recompose)
 SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
 SEEDANCE_BLOCKED_TAGS = frozenset({"wet"})
-SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
 
 
 SEEDANCE_OVERRIDE_ENV = "HFVG_SEEDANCE_OVERRIDE_SHOTS"
@@ -47,20 +46,6 @@ def seedance_resolution_for(tier: str | None, override: str | None = None) -> st
                 f"seedance_resolution must be one of {SEEDANCE_RESOLUTIONS}, got {override!r}")
         return override
     return SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]
-
-
-SEEDANCE_OVERRIDE_ENV = "HFVG_SEEDANCE_OVERRIDE_SHOTS"
-
-
-def seedance_override_ids() -> frozenset[str]:
-    """Owner-approved per-shot Seedance exceptions (env HFVG_SEEDANCE_OVERRIDE_SHOTS, comma list).
-
-    A listed shot id may route to Seedance even when it is multi-animal or tagged ``wet``
-    (owner-approved head-to-head test). Unset/empty = the rules apply unchanged.
-    The duration and whole-seconds checks are never overridden.
-    """
-    raw = os.getenv(SEEDANCE_OVERRIDE_ENV, "")
-    return frozenset(s.strip() for s in raw.split(",") if s.strip())
 
 
 class RoutingError(ValueError):
@@ -120,7 +105,6 @@ def plan_route(shot: dict, resolution: str | None = None) -> ShotRoute:
                 f"Duration {duration}s is under {SEEDANCE_MIN_DURATION_S}s: not routable to Seedance (use Kling)"
             )
         # Per-shot resolution override or tier default (GAP-45)
-        per_shot_resolution = shot.get("resolution")
-        resolution = seedance_resolution_for(tier, per_shot_resolution)
+        resolution = resolution or seedance_resolution_for(tier, shot.get("seedance_resolution"))
         return ShotRoute("seedance", tier, resolution)
     return ShotRoute("kling", tier, None)
