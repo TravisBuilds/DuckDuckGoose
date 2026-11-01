@@ -319,6 +319,12 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
+    import tempfile
+    
+    # Use a unique database file for this test to avoid state pollution
+    db_fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(db_fd)
+    monkeypatch.setenv("DATABASE_PATH", db_path)
     
     # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
@@ -335,7 +341,7 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     from hfvg.budget import BudgetLedger
     
     # Initialize database schema
-    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    ledger = BudgetLedger(db_path)
     asyncio.run(ledger.init_db())
     
     episode_id = "ep88"
@@ -380,3 +386,9 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     # Check budget was cleared
     count2 = asyncio.run(check_budget())
     assert count2 == 0, "Budget should be cleared when re-upload omits credit plan"
+    
+    # Cleanup temp database
+    try:
+        os.unlink(db_path)
+    except:
+        pass

@@ -1,0 +1,262 @@
+/workspace/.venv-test/lib/python3.12/site-packages/pytest_asyncio/plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........s..s..................................................sss....... [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 39%]
+........................................................................ [ 44%]
+........................................................................ [ 49%]
+..........................................F............................. [ 54%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+........................................................................ [ 73%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+...........s............................................................ [ 88%]
+........................................................................ [ 93%]
+....................................................................s... [ 98%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+______________ test_upload_clears_budget_when_credit_plan_omitted ______________
+
+client = <starlette.testclient.TestClient object at 0x7fc0e99784d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fc0e99bfb30>
+
+    def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
+        """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
+        from unittest.mock import AsyncMock, Mock
+        from temporalio.service import RPCError, RPCStatusCode
+    
+        # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
+        mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+        mock_handle = Mock()
+        mock_handle.describe = AsyncMock(side_effect=mock_error)
+        mock_client = Mock()
+        mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    
+        import api.main
+        monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
+        import aiosqlite
+        import asyncio
+        from hfvg.budget import BudgetLedger
+    
+        # Initialize database schema
+        ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+        asyncio.run(ledger.init_db())
+    
+        episode_id = "ep88"
+    
+        # First upload WITH credit plan
+        beatmap = """| # | ID  | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+    |---|-----|-------------|------|-----|-------|--------|---------|----|----|-------|
+    | 1 | A01 | 3.0 (3.0)   | room | day | H     | action | purpose |    |    | K     |"""
+        credit_plan = "# Credit Plan\n\nTotal: 100 credits"
+    
+        response1 = client.post(
+            "/api/episodes/upload",
+            data={"episode_id": episode_id},
+            files={
+                "beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown"),
+                "credit_plan_file": ("CREDIT-PLAN.md", credit_plan.encode(), "text/markdown")
+            }
+        )
+        assert response1.status_code == 200, f"Upload failed: {response1.status_code} - {response1.text}"
+    
+        # Check budget was initialized
+        import asyncio
+        async def check_budget():
+            async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+                cursor = await db.execute("SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?", (episode_id,))
+                count = (await cursor.fetchone())[0]
+                return count
+    
+        count1 = asyncio.run(check_budget())
+>       assert count1 > 0, "Budget should be initialized after upload with credit plan"
+E       AssertionError: Budget should be initialized after upload with credit plan
+E       assert 0 > 0
+
+/workspace/tests/test_production_api_upload_validate.py:368: AssertionError
+=============================== warnings summary ===============================
+.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_anchor_still.py: 3 warnings
+tests/test_audio.py: 1 warning
+tests/test_audio_cost.py: 16 warnings
+tests/test_audio_round4_activities.py: 4 warnings
+tests/test_budget_line_init_required.py: 2 warnings
+tests/test_caps_enforcement.py: 4 warnings
+tests/test_continuity_locks.py: 1 warning
+tests/test_credit_hard_cap.py: 1 warning
+tests/test_dollar_ledger_api.py: 5 warnings
+tests/test_exception_release.py: 6 warnings
+tests/test_gate_correctness_round1.py: 1 warning
+tests/test_harness_canary_bugs.py: 4 warnings
+tests/test_harness_pr10_mutations.py: 2 warnings
+tests/test_job_id_versioning.py: 7 warnings
+tests/test_model_pricing.py: 2 warnings
+tests/test_model_ref_caps.py: 3 warnings
+tests/test_moderation_recovery.py: 2 warnings
+tests/test_poll_timeout.py: 3 warnings
+tests/test_pr10_216_fixes.py: 2 warnings
+tests/test_prompt_lint.py: 2 warnings
+tests/test_provider_contract.py: 1 warning
+tests/test_provider_contracts.py: 1 warning
+tests/test_r8_reuse_route_grant.py: 4 warnings
+tests/test_recompose_job_id_unique.py: 3 warnings
+tests/test_recompose_round.py: 4 warnings
+tests/test_redgreen_safety.py: 6 warnings
+tests/test_ref_cap_lead_anchor.py: 7 warnings
+tests/test_ref_qc_and_staging.py: 4 warnings
+tests/test_retry_shot.py: 2 warnings
+tests/test_round4_shot_data.py: 3 warnings
+tests/test_round7_moderation_lint.py: 2 warnings
+tests/test_seedance_override.py: 1 warning
+tests/test_seedance_routing.py: 3 warnings
+tests/test_smoke_gate.py: 1 warning
+tests/test_studio_safety.py: 3 warnings
+  /workspace/hfvg/studio_db.py:474: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    override_time = datetime.utcnow().isoformat() + "Z"
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:ea4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.14.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_api_routes.py: 232 warnings
+tests/test_dollar_ledger_api.py: 8 warnings
+tests/test_round4_shot_data.py: 2 warnings
+tests/test_round7_balance.py: 4 warnings
+tests/test_round7_still_route.py: 10 warnings
+tests/test_ui_auth.py: 5 warnings
+  /workspace/.venv-test/lib/python3.12/site-packages/starlette/testclient.py:518: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_api_routes.py::test_set_ref_versions_endpoint
+  /workspace/.venv-test/lib/python3.12/site-packages/httpx/_client.py:1859: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return await self.request(
+
+tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "34.8.184.191" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.15.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:fa4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_logic.py::test_duplicate_submit_same_idempotency_key
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/hfvg/ledger.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime.utcnow().isoformat(),
+
+tests/test_logic.py::test_insufficient_credits_check_raises
+tests/test_logic.py::test_sufficient_credits_check_passes
+tests/test_smoke.py::test_credit_operations
+tests/test_smoke.py::test_insufficient_credits_check
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:170: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_repeated_block_escalates_with_exact_provider_message
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_fallback_model_used_when_no_trigger_word
+tests/test_r12_gap72_retry_clip_route.py::test_retry_clip_route_submits_on_the_routed_model
+tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/worker/workflow_sandbox/_importer.py:242: UserWarning: Module hfvg.routing was imported after initial workflow load.
+    warnings.warn(
+
+tests/test_pytest_socket.py::test_socket_blocked
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "10.255.255.1" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700:10::6814:179a" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "172.66.147.243" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_smoke.py::test_credit_operations
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_smoke_gate.py::test_smoke_gate_allows_with_recent_passing_test
+  /workspace/tests/test_smoke_gate.py:89: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_smoke_gate.py::test_smoke_gate_refuses_expired_test
+  /workspace/tests/test_smoke_gate.py:149: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    old_timestamp = (datetime.utcnow() - timedelta(hours=25)).isoformat() + "Z"
+
+tests/test_smoke_test.py::test_smoke_test_end_to_end
+tests/test_smoke_test.py::test_smoke_test_nsfw_terminal
+tests/test_smoke_test.py::test_smoke_test_canceled_terminal
+tests/test_smoke_test.py::test_smoke_test_presubmit_exception_released
+tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile
+  /workspace/hfvg/activities/smoke_test.py:326: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:776: UserWarning: If you're using Pydantic v2, use temporalio.contrib.pydantic.pydantic_data_converter. If you're using Pydantic v1 and cannot upgrade, refer to https://github.com/temporalio/samples-python/tree/main/pydantic_converter_v1 for better v1 support.
+    warnings.warn(
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:683: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return dict_fn()
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:1045: PydanticDeprecatedSince20: The `parse_obj` method is deprecated; use `model_validate` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return getattr(hint, "parse_obj")(value)
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/pydantic/main.py:280: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/test_ui_auth.py::test_login_secret_not_in_cookie
+  /usr/lib/python3.12/inspect.py:1791: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    pass
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_production_api_upload_validate.py::test_upload_clears_budget_when_credit_plan_omitted
+1 failed, 1454 passed, 7 skipped, 433 warnings in 503.02s (0:08:23)
