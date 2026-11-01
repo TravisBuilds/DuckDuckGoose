@@ -64,6 +64,16 @@ def get_admin_secret() -> str:
         )
     return secret
 
+def get_upload_token() -> str:
+    """Get UPLOAD_TOKEN for scoped production API access (upload-only)."""
+    token = os.getenv("UPLOAD_TOKEN", "")
+    if token and len(token) < 32:
+        raise ValueError(
+            "UPLOAD_TOKEN must be at least 32 characters if set. "
+            "Generate one with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        )
+    return token
+
 # Check ADMIN_SECRET early - FAIL CLOSED (unless in test mode)
 try:
     ADMIN_SECRET = get_admin_secret()
@@ -317,6 +327,36 @@ def verify_admin_secret(authorization: str | None = Header(None)):
         raise HTTPException(
             status_code=403,
             detail="Invalid admin secret"
+        )
+
+def verify_upload_token(authorization: str | None = Header(None)):
+    """Verify upload token from Authorization header (scoped to upload operations only)."""
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required. Set 'Authorization: Bearer <TOKEN>'"
+        )
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization must use Bearer token format"
+        )
+    
+    token = authorization[7:]
+    upload_token = get_upload_token()
+    admin_secret = get_admin_secret()
+    
+    # Accept either UPLOAD_TOKEN or ADMIN_SECRET (admin can do everything)
+    is_valid = (
+        (upload_token and secrets.compare_digest(token, upload_token)) or
+        secrets.compare_digest(token, admin_secret)
+    )
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid upload token"
         )
 
 
@@ -608,27 +648,46 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Upload episode files (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
+    Upload episode files for StoryBuilder Production tab (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
-    Requires: Cookie auth
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Idempotent: Re-uploading the same episode/files is safe (deduped)
     
     Returns:
-        Number of shots parsed
+        Number of shots parsed, upload hash for deduplication
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Accept either upload token (Bearer) or session cookie
+    if authorization:
+        verify_upload_token(authorization)
+    else:
+        await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
     
     # Create episode directory
     beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     beatmap_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save beatmap file
+    # Read beatmap content and compute hash for deduplication
+    beatmap_content = await beatmap_file.read()
+    import hashlib
+    upload_hash = hashlib.sha256(beatmap_content).hexdigest()[:16]
+    
+    # Check for existing upload with same hash (idempotent retry detection)
+    hash_file = beatmap_dir / ".upload_hash"
+    is_duplicate = False
+    if hash_file.exists():
+        existing_hash = hash_file.read_text().strip()
+        if existing_hash == upload_hash:
+            is_duplicate = True
+    
+    # Save beatmap file (overwrite if changed)
     beatmap_path = beatmap_dir / "BEATMAP.md"
-    content = await beatmap_file.read()
-    beatmap_path.write_bytes(content)
+    beatmap_path.write_bytes(beatmap_content)
+    hash_file.write_text(upload_hash)
     
     # Save credit plan if provided
     credit_plan_path = None
@@ -669,12 +728,119 @@ async def upload_beatmap(
         "success": True,
         "episode_id": episode_id,
         "shots_count": len(shots),
+        "upload_hash": upload_hash,
+        "is_duplicate": is_duplicate,
         "files_uploaded": {
             "beatmap": True,
             "credit_plan": credit_plan_file is not None,
             "continuity": continuity_file is not None,
         },
         "beatmap_path": str(beatmap_path),
+    }
+
+
+@app.post("/api/episodes/upload/validate")
+async def validate_upload(
+    episode_id: str = Form(...),
+    beatmap_file: UploadFile = File(...),
+    credit_plan_file: UploadFile = File(None),
+    continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Validate episode upload files WITHOUT saving (dry-run validation).
+    
+    Runs the same validation as /api/episodes/upload but doesn't persist anything.
+    Returns validation errors if any, or success with shot count.
+    
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    """
+    # Accept either upload token (Bearer) or session cookie
+    if authorization:
+        verify_upload_token(authorization)
+    else:
+        await verify_admin_cookie(studio_admin_token)
+    
+    errors = []
+    
+    # Validate episode ID format
+    try:
+        validate_episode_id(episode_id)
+    except HTTPException as e:
+        errors.append(f"Invalid episode_id: {e.detail}")
+    
+    # Validate beatmap content
+    try:
+        beatmap_content = await beatmap_file.read()
+        if not beatmap_content:
+            errors.append("Beatmap file is empty")
+        else:
+            # Try parsing beatmap without saving
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.md', delete=False) as tmp:
+                tmp.write(beatmap_content)
+                tmp_path = tmp.name
+            try:
+                shots = parse_beatmap(tmp_path)
+                if not shots:
+                    errors.append("No shots found in beatmap")
+                shots_count = len(shots)
+            except Exception as e:
+                errors.append(f"Beatmap parsing error: {str(e)}")
+                shots_count = 0
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+    except Exception as e:
+        errors.append(f"Error reading beatmap: {str(e)}")
+        shots_count = 0
+    
+    # Validate credit plan if provided
+    if credit_plan_file:
+        try:
+            credit_plan_content = await credit_plan_file.read()
+            if credit_plan_content:
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='wb', suffix='.md', delete=False) as tmp:
+                    tmp.write(credit_plan_content)
+                    tmp_path = tmp.name
+                try:
+                    parse_credit_plan(Path(tmp_path))
+                except Exception as e:
+                    errors.append(f"Credit plan parsing error: {str(e)}")
+                finally:
+                    Path(tmp_path).unlink(missing_ok=True)
+        except Exception as e:
+            errors.append(f"Error reading credit plan: {str(e)}")
+    
+    # Validate continuity if provided  
+    if continuity_file:
+        try:
+            continuity_content = await continuity_file.read()
+            if not continuity_content:
+                errors.append("Continuity file is empty")
+        except Exception as e:
+            errors.append(f"Error reading continuity: {str(e)}")
+    
+    if errors:
+        return {
+            "success": False,
+            "valid": False,
+            "errors": errors,
+            "shots_count": shots_count
+        }
+    
+    return {
+        "success": True,
+        "valid": True,
+        "errors": [],
+        "episode_id": episode_id,
+        "shots_count": shots_count,
+        "files_validated": {
+            "beatmap": True,
+            "credit_plan": credit_plan_file is not None,
+            "continuity": continuity_file is not None,
+        }
     }
 
 
