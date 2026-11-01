@@ -2443,27 +2443,10 @@ class EpisodeWorkflowV2:
             return None
         if not isinstance(shot_meta, dict):
             return "shot_meta must be an object"
-        if not shot_meta:
-            return "shot_meta cannot be non-empty if provided (omit entirely when unchanged)"
         allowed = {"count", "characters", "duck"}
         bad = set(shot_meta.keys()) - allowed
         if bad:
-            return f"invalid shot_meta: may only change {sorted(allowed)}, not {sorted(bad)}"
-        # Validate count
-        if "count" in shot_meta:
-            c = shot_meta["count"]
-            if isinstance(c, bool) or not isinstance(c, int) or c < 0 or c > 20:
-                return "shot_meta.count must be an integer 0-20"
-        # Validate characters
-        if "characters" in shot_meta:
-            chars = shot_meta["characters"]
-            if not isinstance(chars, list) or not all(isinstance(s, str) and s.strip() and len(s) == 1 for s in chars):
-                return "shot_meta.characters must be a list of non-empty single-character strings"
-        # Validate duck
-        if "duck" in shot_meta:
-            d = shot_meta["duck"]
-            if not isinstance(d, bool):
-                return "shot_meta.duck must be a boolean"
+            return f"shot_meta keys {sorted(bad)} not allowed (only {sorted(allowed)})"
         return None
 
     # GAP-45: an owner-ordered clip route for the new composition (model and/or Seedance resolution)
@@ -2589,10 +2572,7 @@ class EpisodeWorkflowV2:
             return "the shot still has a recompose left; no grant needed"
         if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:
             # GAP-43: past the grant cap only with an explicit Studio override note (audited)
-            note = (cap_override_note or "").strip()
-            if not note:
-                return f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached"
-            if len(note) < 10:
+            if len((cap_override_note or "").strip()) < 10:
                 return (f"max recompose grants per shot ({self.MAX_RECOMPOSE_GRANTS_PER_SHOT}) reached; "
                         f"an explicit Studio cap_override_note is required to grant more")
         return None

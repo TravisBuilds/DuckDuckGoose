@@ -1241,7 +1241,7 @@ def logo_start_s(logo: dict, total_s: float, placed: list[dict] | None = None) -
 
 
 async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict,
-                       frames: int | None = None, start: float | None = None) -> None:
+                       start: float | None = None, frames: int | None = None) -> None:
     """Ep01 ending template: logo scaled to width_frac (or width_px) of the frame, centred, alpha
     fade-in over fade_in_s from ``start`` (default: the last visible_s of the picture). Optional
     darken_lower: the lower frac of the frame darkens by amount, fading in with the logo."""

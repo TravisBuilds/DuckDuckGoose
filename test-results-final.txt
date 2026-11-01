@@ -1,0 +1,510 @@
+/workspace/.venv-test/lib/python3.12/site-packages/pytest_asyncio/plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........s..s..................................................sss....... [ 24%]
+.................................FFF.................................... [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 39%]
+.........................................................F.............. [ 44%]
+........................................................................ [ 49%]
+.........................................FF............................. [ 54%]
+...................................................................FF... [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+.......F....................................................F........... [ 73%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+...........s............................................................ [ 88%]
+........................................................................ [ 93%]
+....................................................................s... [ 98%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+______________________ test_recompose_meta_problem_empty _______________________
+
+    def test_recompose_meta_problem_empty():
+        """recompose_meta_problem accepts empty dict."""
+>       assert EpisodeWorkflowV2.recompose_meta_problem({}) is None
+E       AssertionError: assert 'shot_meta cannot be non-empty if provided (omit entirely when unchanged)' is None
+E        +  where 'shot_meta cannot be non-empty if provided (omit entirely when unchanged)' = recompose_meta_problem({})
+E        +    where recompose_meta_problem = EpisodeWorkflowV2.recompose_meta_problem
+
+/workspace/tests/test_gap32_recompose_meta.py:13: AssertionError
+___________________ test_recompose_meta_problem_allowed_keys ___________________
+
+    def test_recompose_meta_problem_allowed_keys():
+        """recompose_meta_problem accepts allowed keys (count, characters, duck)."""
+        assert EpisodeWorkflowV2.recompose_meta_problem({"count": 2}) is None
+>       assert EpisodeWorkflowV2.recompose_meta_problem({"characters": ["Alice"]}) is None
+E       AssertionError: assert 'shot_meta.characters must be a list of non-empty single-character strings' is None
+E        +  where 'shot_meta.characters must be a list of non-empty single-character strings' = recompose_meta_problem({'characters': ['Alice']})
+E        +    where recompose_meta_problem = EpisodeWorkflowV2.recompose_meta_problem
+
+/workspace/tests/test_gap32_recompose_meta.py:19: AssertionError
+______________ test_recompose_meta_problem_rejects_disallowed_key ______________
+
+    def test_recompose_meta_problem_rejects_disallowed_key():
+        """recompose_meta_problem rejects keys not in (count, characters, duck)."""
+        problem = EpisodeWorkflowV2.recompose_meta_problem({"location": "kitchen"})
+        assert problem is not None
+        assert "location" in problem
+>       assert "not allowed" in problem
+E       assert 'not allowed' in "invalid shot_meta: may only change ['characters', 'count', 'duck'], not ['location']"
+
+/workspace/tests/test_gap32_recompose_meta.py:29: AssertionError
+_____________________ test_no_brand_terms_in_tracked_files _____________________
+
+    def test_no_brand_terms_in_tracked_files():
+>       violations = find_violations(_tracked_files())
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/tests/test_no_brand_content.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/tests/test_no_brand_content.py:67: in find_violations
+    data = read(rel)
+           ^^^^^^^^^
+/workspace/tests/test_no_brand_content.py:56: in <lambda>
+    def find_violations(files, read=lambda p: (REPO_ROOT / p).read_bytes()) -> list[str]:
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/pathlib.py:1021: in read_bytes
+    with self.open(mode='rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/workspace/venv-final/lib64'), mode = 'rb', buffering = -1
+encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IsADirectoryError: [Errno 21] Is a directory: '/workspace/venv-final/lib64'
+
+/usr/lib/python3.12/pathlib.py:1015: IsADirectoryError
+_______________________ test_non_ascii_token_returns_403 _______________________
+
+    def test_non_ascii_token_returns_403():
+        """Non-ASCII bytes in Authorization header return 403, not 500."""
+        from api.main import verify_auth_unified
+        from fastapi import HTTPException
+        import pytest
+    
+        # Latin-1 encoded token with non-ASCII byte (0xE9 = é)
+        # This should be rejected with 403, not crash with 500
+        latin1_token_bytes = b"Bearer caf\xe9token"
+    
+>       with pytest.raises(HTTPException) as exc_info:
+E       Failed: DID NOT RAISE HTTPException
+
+/workspace/tests/test_production_api_upload_validate.py:310: Failed
+______________ test_upload_clears_budget_when_credit_plan_omitted ______________
+
+client = <starlette.testclient.TestClient object at 0x7feb055ad1f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feb055ada60>
+
+    def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
+        """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
+        from unittest.mock import AsyncMock, Mock
+        from temporalio.service import RPCError, RPCStatusCode
+    
+        # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
+        mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+        mock_handle = Mock()
+        mock_handle.describe = AsyncMock(side_effect=mock_error)
+        mock_client = Mock()
+        mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    
+        import api.main
+        monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
+        import aiosqlite
+        from hfvg.budget import BudgetLedger
+    
+        episode_id = "ep88"
+    
+        # First upload WITH credit plan
+        beatmap = """| # | ID  | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+    |---|-----|-------------|------|-----|-------|--------|---------|----|----|-------|
+    | 1 | A01 | 3.0 (3.0)   | room | day | H     | action | purpose |    |    | K     |"""
+        credit_plan = "# Credit Plan\n\nTotal: 100 credits"
+    
+        response1 = client.post(
+            "/api/episodes/upload",
+            data={"episode_id": episode_id},
+            files={
+                "beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown"),
+                "credit_plan_file": ("CREDIT-PLAN.md", credit_plan.encode(), "text/markdown")
+            }
+        )
+        assert response1.status_code == 200, f"Upload failed: {response1.status_code} - {response1.text}"
+    
+        # Check budget was initialized
+        import asyncio
+        async def check_budget():
+            async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+                cursor = await db.execute("SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?", (episode_id,))
+                count = (await cursor.fetchone())[0]
+                return count
+    
+>       count1 = asyncio.run(check_budget())
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/tests/test_production_api_upload_validate.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/asyncio/runners.py:194: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/asyncio/base_events.py:687: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+/workspace/tests/test_production_api_upload_validate.py:357: in check_budget
+    cursor = await db.execute("SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?", (episode_id,))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/.venv-test/lib/python3.12/site-packages/aiosqlite/core.py:223: in execute
+    cursor = await self._execute(self._conn.execute, sql, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/.venv-test/lib/python3.12/site-packages/aiosqlite/core.py:160: in _execute
+    return await future
+           ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tx = <_queue.SimpleQueue object at 0x7feb055b0810>
+
+    def _connection_worker_thread(tx: _TxQueue):
+        """
+        Execute function calls on a separate thread.
+    
+        :meta private:
+        """
+        while True:
+            # Continues running until all queue items are processed,
+            # even after connection is closed (so we can finalize all
+            # futures)
+    
+            future, function = tx.get()
+    
+            try:
+                LOG.debug("executing %s", function)
+>               result = function()
+                         ^^^^^^^^^^
+E               sqlite3.OperationalError: no such table: budget_lines
+
+/workspace/.venv-test/lib/python3.12/site-packages/aiosqlite/core.py:63: OperationalError
+_______________________ test_frozen_overlay_is_reencoded _______________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-31/test_frozen_overlay_is_reencod0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feb055505f0>
+
+    @pytest.mark.timeout(300)
+    async def test_frozen_overlay_is_reencoded(tmp_path, monkeypatch):
+        mute, plan = logo_episode(tmp_path)
+        real = audio_mix.overlay_logo
+        calls = []
+    
+        async def flaky(src, logo, total_s, out, master, frames=None):
+            await real(src, logo, total_s, out, master, frames=frames)
+            calls.append(out)
+            if len(calls) == 1:
+                freeze(out, out)
+    
+        monkeypatch.setattr(audio_mix, "overlay_logo", flaky)
+>       m = await mix_and_deliver("ep01", str(mute), plan)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/tests/test_r11_gap60_picture_sync.py:110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/hfvg/audio_mix.py:1419: in mix_and_deliver
+    picture_sync.append(await encode_picture_checked(
+/workspace/hfvg/audio_mix.py:1221: in encode_picture_checked
+    await encode()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def overlay_counted() -> None:
+>       await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames, start=start)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_frozen_overlay_is_reencoded.<locals>.flaky() got an unexpected keyword argument 'start'
+
+/workspace/hfvg/audio_mix.py:1414: TypeError
+________________ test_overlay_that_keeps_freezing_fails_closed _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-31/test_overlay_that_keeps_freezi0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feb0556ddf0>
+
+    @pytest.mark.timeout(400)
+    async def test_overlay_that_keeps_freezing_fails_closed(tmp_path, monkeypatch):
+        mute, plan = logo_episode(tmp_path)
+        real = audio_mix.overlay_logo
+        calls = []
+    
+        async def frozen(src, logo, total_s, out, master, frames=None):
+            await real(src, logo, total_s, out, master, frames=frames)
+            calls.append(out)
+            freeze(out, out)
+    
+        monkeypatch.setattr(audio_mix, "overlay_logo", frozen)
+        with pytest.raises(PictureSyncError, match="GAP-60: picture_logo"):
+>           await mix_and_deliver("ep01", str(mute), plan)
+
+/workspace/tests/test_r11_gap60_picture_sync.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/hfvg/audio_mix.py:1419: in mix_and_deliver
+    picture_sync.append(await encode_picture_checked(
+/workspace/hfvg/audio_mix.py:1221: in encode_picture_checked
+    await encode()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def overlay_counted() -> None:
+>       await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames, start=start)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_overlay_that_keeps_freezing_fails_closed.<locals>.frozen() got an unexpected keyword argument 'start'
+
+/workspace/hfvg/audio_mix.py:1414: TypeError
+_________________ test_overlay_frame_mismatch_aborts_the_build _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-31/test_overlay_frame_mismatch_ab0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feb061cc770>
+
+    @pytest.mark.timeout(240)
+    async def test_overlay_frame_mismatch_aborts_the_build(tmp_path, monkeypatch):
+        mute, plan = logo_episode(tmp_path)
+        real = audio_mix.overlay_logo
+    
+        async def lossy(src, logo, total_s, out, master, frames=None):
+            await real(src, logo, total_s, out, master, frames=frames)
+            drop_frames(out, out)
+    
+        monkeypatch.setattr(audio_mix, "overlay_logo", lossy)
+        with pytest.raises(RuntimeError, match="GAP-55"):
+>           await mix_and_deliver("ep01", str(mute), plan)
+
+/workspace/tests/test_r9_gap55_delivery_frames.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/hfvg/audio_mix.py:1419: in mix_and_deliver
+    picture_sync.append(await encode_picture_checked(
+/workspace/hfvg/audio_mix.py:1221: in encode_picture_checked
+    await encode()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def overlay_counted() -> None:
+>       await overlay_logo(ref_mute, plan["logo"], total_s, pic, plan["master"], frames=src_frames, start=start)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_overlay_frame_mismatch_aborts_the_build.<locals>.lossy() got an unexpected keyword argument 'start'
+
+/workspace/hfvg/audio_mix.py:1414: TypeError
+________________ test_grant_cap_override_requires_explicit_note ________________
+
+    def test_grant_cap_override_requires_explicit_note():
+        wf = _wf()
+        wf.recompose_grants["V16"] = EpisodeWorkflowV2.MAX_RECOMPOSE_GRANTS_PER_SHOT
+        wf.recompose_counts["V16"] = wf.recompose_allowance("V16")
+>       assert "cap_override_note" in wf._grant_recompose_problem("V16", "why", "")
+E       AssertionError: assert 'cap_override_note' in 'max recompose grants per shot (2) reached'
+E        +  where 'max recompose grants per shot (2) reached' = _grant_recompose_problem('V16', 'why', '')
+E        +    where _grant_recompose_problem = <hfvg.workflows.episode_v2.EpisodeWorkflowV2 object at 0x7feb0602aab0>._grant_recompose_problem
+
+/workspace/tests/test_recompose_grant.py:85: AssertionError
+=============================== warnings summary ===============================
+.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_anchor_still.py: 3 warnings
+tests/test_audio.py: 1 warning
+tests/test_audio_cost.py: 16 warnings
+tests/test_audio_round4_activities.py: 4 warnings
+tests/test_budget_line_init_required.py: 2 warnings
+tests/test_caps_enforcement.py: 4 warnings
+tests/test_continuity_locks.py: 1 warning
+tests/test_credit_hard_cap.py: 1 warning
+tests/test_dollar_ledger_api.py: 5 warnings
+tests/test_exception_release.py: 6 warnings
+tests/test_gate_correctness_round1.py: 1 warning
+tests/test_harness_canary_bugs.py: 4 warnings
+tests/test_harness_pr10_mutations.py: 2 warnings
+tests/test_job_id_versioning.py: 7 warnings
+tests/test_model_pricing.py: 2 warnings
+tests/test_model_ref_caps.py: 3 warnings
+tests/test_moderation_recovery.py: 2 warnings
+tests/test_poll_timeout.py: 3 warnings
+tests/test_pr10_216_fixes.py: 2 warnings
+tests/test_prompt_lint.py: 2 warnings
+tests/test_provider_contract.py: 1 warning
+tests/test_provider_contracts.py: 1 warning
+tests/test_r8_reuse_route_grant.py: 4 warnings
+tests/test_recompose_job_id_unique.py: 3 warnings
+tests/test_recompose_round.py: 4 warnings
+tests/test_redgreen_safety.py: 6 warnings
+tests/test_ref_cap_lead_anchor.py: 7 warnings
+tests/test_ref_qc_and_staging.py: 4 warnings
+tests/test_retry_shot.py: 2 warnings
+tests/test_round4_shot_data.py: 3 warnings
+tests/test_round7_moderation_lint.py: 2 warnings
+tests/test_seedance_override.py: 1 warning
+tests/test_seedance_routing.py: 3 warnings
+tests/test_smoke_gate.py: 1 warning
+tests/test_studio_safety.py: 3 warnings
+  /workspace/hfvg/studio_db.py:474: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    override_time = datetime.utcnow().isoformat() + "Z"
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:fa4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.14.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:ea4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_api_routes.py: 232 warnings
+tests/test_dollar_ledger_api.py: 8 warnings
+tests/test_round4_shot_data.py: 2 warnings
+tests/test_round7_balance.py: 4 warnings
+tests/test_round7_still_route.py: 10 warnings
+tests/test_ui_auth.py: 5 warnings
+  /workspace/.venv-test/lib/python3.12/site-packages/starlette/testclient.py:518: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_api_routes.py::test_set_ref_versions_endpoint
+  /workspace/.venv-test/lib/python3.12/site-packages/httpx/_client.py:1859: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return await self.request(
+
+tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "34.8.184.191" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.15.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_logic.py::test_duplicate_submit_same_idempotency_key
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/hfvg/ledger.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime.utcnow().isoformat(),
+
+tests/test_logic.py::test_insufficient_credits_check_raises
+tests/test_logic.py::test_sufficient_credits_check_passes
+tests/test_smoke.py::test_credit_operations
+tests/test_smoke.py::test_insufficient_credits_check
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:170: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_repeated_block_escalates_with_exact_provider_message
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_fallback_model_used_when_no_trigger_word
+tests/test_r12_gap72_retry_clip_route.py::test_retry_clip_route_submits_on_the_routed_model
+tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/worker/workflow_sandbox/_importer.py:242: UserWarning: Module hfvg.routing was imported after initial workflow load.
+    warnings.warn(
+
+tests/test_production_api_upload_validate.py::test_non_ascii_token_returns_403
+  /workspace/tests/test_production_api_upload_validate.py:311: RuntimeWarning: coroutine 'verify_auth_unified' was never awaited
+    verify_auth_unified(latin1_token_bytes)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_pytest_socket.py::test_socket_blocked
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "10.255.255.1" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700:10::6814:179a" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "172.66.147.243" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_smoke.py::test_credit_operations
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_smoke_gate.py::test_smoke_gate_allows_with_recent_passing_test
+  /workspace/tests/test_smoke_gate.py:89: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_smoke_gate.py::test_smoke_gate_refuses_expired_test
+  /workspace/tests/test_smoke_gate.py:149: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    old_timestamp = (datetime.utcnow() - timedelta(hours=25)).isoformat() + "Z"
+
+tests/test_smoke_test.py::test_smoke_test_end_to_end
+tests/test_smoke_test.py::test_smoke_test_nsfw_terminal
+tests/test_smoke_test.py::test_smoke_test_canceled_terminal
+tests/test_smoke_test.py::test_smoke_test_presubmit_exception_released
+tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile
+  /workspace/hfvg/activities/smoke_test.py:326: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:776: UserWarning: If you're using Pydantic v2, use temporalio.contrib.pydantic.pydantic_data_converter. If you're using Pydantic v1 and cannot upgrade, refer to https://github.com/temporalio/samples-python/tree/main/pydantic_converter_v1 for better v1 support.
+    warnings.warn(
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:683: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return dict_fn()
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:1045: PydanticDeprecatedSince20: The `parse_obj` method is deprecated; use `model_validate` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return getattr(hint, "parse_obj")(value)
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/pydantic/main.py:280: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/worker/workflow_sandbox/_importer.py:267: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    mod = importlib.__import__(name, globals, locals, fromlist, level)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_gap32_recompose_meta.py::test_recompose_meta_problem_empty
+FAILED tests/test_gap32_recompose_meta.py::test_recompose_meta_problem_allowed_keys
+FAILED tests/test_gap32_recompose_meta.py::test_recompose_meta_problem_rejects_disallowed_key
+FAILED tests/test_no_brand_content.py::test_no_brand_terms_in_tracked_files
+FAILED tests/test_production_api_upload_validate.py::test_non_ascii_token_returns_403
+FAILED tests/test_production_api_upload_validate.py::test_upload_clears_budget_when_credit_plan_omitted
+FAILED tests/test_r11_gap60_picture_sync.py::test_frozen_overlay_is_reencoded
+FAILED tests/test_r11_gap60_picture_sync.py::test_overlay_that_keeps_freezing_fails_closed
+FAILED tests/test_r9_gap55_delivery_frames.py::test_overlay_frame_mismatch_aborts_the_build
+FAILED tests/test_recompose_grant.py::test_grant_cap_override_requires_explicit_note
+10 failed, 1445 passed, 7 skipped, 435 warnings in 500.55s (0:08:20)
