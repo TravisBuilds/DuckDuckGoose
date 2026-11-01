@@ -69,8 +69,20 @@ def test_validate_writes_nothing_to_disk_or_db(client):
     assert not list(episodes_dir.glob("*")), "Validate should not write any files"
 
 
-def test_upload_idempotency_duplicate_detection(client):
+def test_upload_idempotency_duplicate_detection(client, monkeypatch):
     """Upload same content twice returns is_duplicate=true on second upload."""
+    # Mock temporal_client to return NOT_FOUND
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.service import RPCError, RPCStatusCode
+    mock_error = RPCError()
+    mock_error.status = RPCStatusCode.NOT_FOUND
+    mock_handle = Mock()
+    mock_handle.describe = AsyncMock(side_effect=mock_error)
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
     beatmap = """# Episode 92 Beatmap
 
 | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
@@ -100,8 +112,20 @@ def test_upload_idempotency_duplicate_detection(client):
     assert response2.json().get("upload_hash") == response1.json().get("upload_hash"), "Hash should match"
 
 
-def test_upload_stale_file_cleanup(client):
+def test_upload_stale_file_cleanup(client, monkeypatch):
     """Re-upload without optional files removes stale CREDIT-PLAN.md and CONTINUITY.md."""
+    # Mock temporal_client
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.service import RPCError, RPCStatusCode
+    mock_error = RPCError()
+    mock_error.status = RPCStatusCode.NOT_FOUND
+    mock_handle = Mock()
+    mock_handle.describe = AsyncMock(side_effect=mock_error)
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
     beatmap = """# Episode 93 Beatmap
 
 | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
@@ -152,8 +176,20 @@ def test_upload_stale_file_cleanup(client):
     assert not (episode_dir / "CONTINUITY.md").exists(), "Stale CONTINUITY should be removed"
 
 
-def test_upload_replaces_shots_in_db(client):
+def test_upload_replaces_shots_in_db(client, monkeypatch):
     """Upload with different content replaces shots in DB (not INSERT OR IGNORE)."""
+    # Mock temporal_client
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.service import RPCError, RPCStatusCode
+    mock_error = RPCError()
+    mock_error.status = RPCStatusCode.NOT_FOUND
+    mock_handle = Mock()
+    mock_handle.describe = AsyncMock(side_effect=mock_error)
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
     beatmap1 = """# Episode 94 Beatmap
 
 | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
@@ -193,8 +229,20 @@ def test_upload_replaces_shots_in_db(client):
     # The implementation uses DELETE then INSERT, verifying shot count changed is sufficient
 
 
-def test_upload_hash_file_written_last(client):
+def test_upload_hash_file_written_last(client, monkeypatch):
     """Upload writes .upload_hash LAST after all operations succeed."""
+    # Mock temporal_client
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.service import RPCError, RPCStatusCode
+    mock_error = RPCError()
+    mock_error.status = RPCStatusCode.NOT_FOUND
+    mock_handle = Mock()
+    mock_handle.describe = AsyncMock(side_effect=mock_error)
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
     beatmap = """# Episode 95 Beatmap
 
 | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
@@ -289,3 +337,64 @@ def test_non_ascii_token_returns_403():
     finally:
         if Path(temp_dir).exists():
             shutil.rmtree(temp_dir)
+
+
+def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
+    """Re-uploading without credit plan clears budget_lines and budget_transactions."""
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.service import RPCError, RPCStatusCode
+    
+    # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
+    mock_error = RPCError()
+    mock_error.status = RPCStatusCode.NOT_FOUND
+    mock_handle = Mock()
+    mock_handle.describe = AsyncMock(side_effect=mock_error)
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
+    import aiosqlite
+    from hfvg.budget import BudgetLedger
+    
+    episode_id = "ep88"
+    
+    # First upload WITH credit plan
+    beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
+    credit_plan = "# Credit Plan\n\nTotal: 100 credits"
+    
+    response1 = client.post(
+        "/api/episodes/upload",
+        data={"episode_id": episode_id},
+        files={
+            "beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown"),
+            "credit_plan_file": ("CREDIT-PLAN.md", credit_plan.encode(), "text/markdown")
+        }
+    )
+    assert response1.status_code == 200
+    
+    # Check budget was initialized
+    import asyncio
+    async def check_budget():
+        async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?", (episode_id,))
+            count = (await cursor.fetchone())[0]
+            return count
+    
+    count1 = asyncio.run(check_budget())
+    assert count1 > 0, "Budget should be initialized after upload with credit plan"
+    
+    # Second upload WITHOUT credit plan
+    response2 = client.post(
+        "/api/episodes/upload",
+        data={"episode_id": episode_id},
+        files={
+            "beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown")
+        }
+    )
+    assert response2.status_code == 200
+    
+    # Check budget was cleared
+    count2 = asyncio.run(check_budget())
+    assert count2 == 0, "Budget should be cleared when re-upload omits credit plan"
