@@ -83,7 +83,6 @@ def test_admin_secret_works_on_upload_endpoints(client):
     assert response.status_code in (200, 422), f"Expected 200 or 422, got {response.status_code}: {response.text}"
 
 
-@pytest.mark.skip(reason="TestClient/FastAPI interaction with Request + Form + File needs investigation")
 def test_upload_token_works_on_upload_endpoints(client):
     """Upload token works on upload endpoints (implementation verified manually, test framework issue)."""
     upload_token = "test_upload_token_at_least_32_chars_long"
@@ -134,7 +133,6 @@ def test_malformed_auth_header_gets_401(client):
     assert "Bearer" in response.json().get("detail", "")
 
 
-@pytest.mark.skip(reason="TestClient/FastAPI interaction with Request + Form + File needs investigation")
 def test_upload_token_isolated():
     """Upload token works - isolated test (implementation verified manually, test framework issue)."""
     import importlib

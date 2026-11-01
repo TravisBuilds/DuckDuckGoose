@@ -222,9 +222,70 @@ def test_upload_hash_file_written_last(client):
     assert all(c in '0123456789abcdef' for c in hash_content), "Hash should be hex"
 
 
-@pytest.mark.skip(reason="Requires Temporal client mock or integration")
-def test_upload_returns_409_while_workflow_running(client):
+def test_upload_returns_409_while_workflow_running(client, monkeypatch):
     """Upload returns 409 Conflict while workflow is running for the episode."""
-    # This test would require mocking temporal_client.get_workflow_handle()
-    # to return a workflow with status RUNNING
-    pass
+    from unittest.mock import AsyncMock, Mock
+    from temporalio.client import WorkflowExecutionStatus
+    
+    # Mock temporal_client and workflow handle
+    mock_handle = Mock()
+    mock_desc = Mock()
+    mock_desc.status = WorkflowExecutionStatus.RUNNING
+    mock_handle.describe = AsyncMock(return_value=mock_desc)
+    
+    mock_client = Mock()
+    mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    
+    # Patch the temporal_client in api.main
+    import api.main
+    monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
+    # Attempt upload
+    beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
+    
+    response = client.post(
+        "/api/episodes/upload",
+        data={"episode_id": "ep99"},
+        files={"beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown")}
+    )
+    
+    assert response.status_code == 409
+    assert "workflow is currently running" in response.json()["detail"]
+
+
+def test_non_ascii_token_returns_403():
+    """Non-ASCII bytes in Authorization header return 403, not 500."""
+    import tempfile
+    import shutil
+    
+    # Create temp episodes dir
+    temp_dir = tempfile.mkdtemp(prefix="test_episodes_")
+    os.environ["EPISODES_DIR"] = temp_dir
+    
+    try:
+        from api.main import app
+        from fastapi.testclient import TestClient
+        import httpx
+        
+        # Create a client that allows us to send raw bytes
+        test_client = TestClient(app)
+        
+        # Latin-1 encoded token (contains non-ASCII byte 0xE9 = é)
+        # This should be rejected with 403, not crash with 500
+        latin1_token = "Bearer caf\xe9token"
+        
+        beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
+        
+        response = test_client.post(
+            "/api/episodes/upload/validate",
+            data={"episode_id": "ep99"},
+            files={"beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown")},
+            headers={"Authorization": latin1_token}
+        )
+        
+        # Should return 403 Forbidden (invalid token), not 500
+        assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+        assert "Invalid" in response.json()["detail"]
+    finally:
+        if Path(temp_dir).exists():
+            shutil.rmtree(temp_dir)
