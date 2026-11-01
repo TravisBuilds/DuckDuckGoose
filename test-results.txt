@@ -1,0 +1,446 @@
+/workspace/.venv-test/lib/python3.12/site-packages/pytest_asyncio/plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........s..s...FF....F.FF.....................................sss....... [ 24%]
+........................................................................ [ 29%]
+...................F.................................................... [ 34%]
+........................................................................ [ 39%]
+........................................................................ [ 44%]
+........................................................................ [ 49%]
+.........................................FF............................. [ 54%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+.......................................................................F [ 73%]
+..F.F................................................................... [ 78%]
+........................................................................ [ 83%]
+...........s............................................................ [ 88%]
+........................................................................ [ 93%]
+....................................................................s... [ 98%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+_______________________ test_logo_plan_fields_and_start ________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_logo_plan_fields_and_star0')
+
+    def test_logo_plan_fields_and_start(tmp_path):
+        plan = normalize_plan({"logo": {"path": "l.png", "width_px": 576, "fade_in_s": 1.0, "after_vo_line": "vo10",
+                                        "after_vo_gap_s": 0.6, "min_hold_s": 2.0,
+                                        "darken_lower": {"frac": 0.45, "amount": 0.15}}}, tmp_path)
+        lg = plan["logo"]
+>       assert lg["width_px"] == 576 and lg["after_vo_line"] == "vo10" and lg["darken_lower"]["amount"] == 0.15
+               ^^^^^^^^^^^^^^
+E       KeyError: 'width_px'
+
+/workspace/tests/test_ep11_edit_recipe_logo.py:96: KeyError
+________________ test_logo_after_vo_line_darken_and_hold_check _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_logo_after_vo_line_darken0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f16cbdf94f0>
+
+    @pytest.mark.asyncio
+    @needs_ffmpeg
+    @pytest.mark.timeout(240)
+    async def test_logo_after_vo_line_darken_and_hold_check(tmp_path, monkeypatch):
+        monkeypatch.setattr(audio_mix, "episodes_root", lambda: tmp_path / "eps")
+        pic = tmp_path / "gray.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=540x960:r=24:d=6",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(pic)], check=True)
+        logo = tmp_path / "logo.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=white:s=400x100",
+                        "-frames:v", "1", str(logo)], check=True)
+        make_tone(tmp_path / "L01.wav", 1.0, 440, -6)
+        make_noise(tmp_path / "bed.wav", 8.0, -30)
+        raw = {"vo": {"lines": [{"id": "L01", "at": 0.5, "path": str(tmp_path / "L01.wav"), "subtitle": "One"}]},
+               "music": {"path": str(tmp_path / "bed.wav")},
+               "logo": {"path": str(logo), "width_px": 200, "fade_in_s": 0.5, "after_vo_line": "L01",
+                        "after_vo_gap_s": 0.6, "min_hold_s": 2.0, "darken_lower": {"frac": 0.4, "amount": 0.3}},
+               "subtitles": {"burn": False},
+               "master": {"preset": "ultrafast"}, "phone": {"preset": "ultrafast"}}
+        plan = normalize_plan(raw, tmp_path / "eps" / "ep94")
+        m = await mix_and_deliver("ep94", str(pic), plan, root=tmp_path / "eps")
+>       assert m["logo"]["start_s"] == pytest.approx(2.1, abs=0.01)
+E       assert 0.0 == 2.1 ± 0.01
+E         
+E         comparison failed
+E         Obtained: 0.0
+E         Expected: 2.1 ± 0.01
+
+/workspace/tests/test_ep11_edit_recipe_logo.py:126: AssertionError
+_______________________ test_subtitle_fade_and_blur_tags _______________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_subtitle_fade_and_blur_ta0')
+
+    def test_subtitle_fade_and_blur_tags(tmp_path):
+        from hfvg.audio_mix import write_ass
+        p = tmp_path / "s.ass"
+        style = "Style: EmberSubs,Nunito SemiBold,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,0,0,0,0,100,100,0,0,1,0,2,2,80,80,400,1"
+        write_ass([{"start": 1.0, "end": 2.5, "lines": ["Hello there"]}], str(p),
+                  {"ass_style": style, "fade_ms": 150, "blur": 0.8})
+        body = p.read_text()
+>       assert "{\\fad(150,150)\\blur0.8}" in body and "EmberSubs" in body
+E       AssertionError: assert ('{\\fad(150,150)\\blur0.8}' in '[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ S...tyle, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,EmberSubs,,0,0,0,,Hello there\n')
+
+/workspace/tests/test_ep11_edit_recipe_logo.py:244: AssertionError
+_______________________ test_plan_keeps_take_and_lowpass _______________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_plan_keeps_take_and_lowpa0')
+
+    def test_plan_keeps_take_and_lowpass(tmp_path):
+        from hfvg.audio_mix import normalize_plan, AudioInputError
+        import pytest
+        raw = {"vo": {"voice_id": "v", "lines": [{"id": "vo01", "at": 0.3, "text": "hi", "take": 2}]},
+               "sfx": [{"id": "bed", "path": "x.wav", "at": 1, "dur": 2, "lowpass_hz": 2500},
+                       {"id": "pop", "path": "x.wav", "at": 3, "dur": 0.12, "src_start_s": 4.2}]}
+        p = normalize_plan(raw, tmp_path)
+>       assert p["vo"]["lines"][0]["take"] == 2
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'take'
+
+/workspace/tests/test_ep11_edit_recipe_logo.py:261: KeyError
+______________________ test_decode_lowpass_softens_highs _______________________
+
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_decode_lowpass_softens_hi0')
+
+    def test_decode_lowpass_softens_highs(tmp_path):
+        import asyncio, subprocess
+        import numpy as np
+        from hfvg.audio_mix import decode
+        src = tmp_path / "n.wav"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=1:c=white:a=0.5",
+                        "-ar", "48000", "-ac", "2", str(src)], check=True)
+        raw = asyncio.run(decode(str(src), 48000))
+>       lp = asyncio.run(decode(str(src), 48000, afilter="lowpass=f=1000,lowpass=f=1000"))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: decode() got an unexpected keyword argument 'afilter'
+
+/workspace/tests/test_ep11_edit_recipe_logo.py:277: TypeError
+_______________ test_grant_recompose_problem_max_grants_reached ________________
+
+    def test_grant_recompose_problem_max_grants_reached():
+        """_grant_recompose_problem rejects when MAX_RECOMPOSE_GRANTS_PER_SHOT reached."""
+        workflow = EpisodeWorkflowV2()
+        workflow.state.current_gate = "G_FINAL_CUT"
+        workflow.launched_shot_plans["A01"] = {}
+        workflow.recompose_counts["A01"] = 4  # Used all including grants
+        workflow.recompose_grants["A01"] = 2  # MAX_RECOMPOSE_GRANTS_PER_SHOT
+        problem = workflow._grant_recompose_problem("A01", "test reason")
+>       assert problem == "max recompose grants per shot (2) reached"
+E       AssertionError: assert 'max recompos...to grant more' == 'max recompos...t (2) reached'
+E         
+E         - max recompose grants per shot (2) reached
+E         + max recompose grants per shot (2) reached; an explicit Studio cap_override_note is required to grant more
+
+/workspace/tests/test_gap39_recompose_grant.py:90: AssertionError
+_______________________ test_non_ascii_token_returns_403 _______________________
+
+    def test_non_ascii_token_returns_403():
+        """Non-ASCII bytes in Authorization header return 403, not 500."""
+>       from api.auth import verify_auth_unified
+E       ModuleNotFoundError: No module named 'api.auth'
+
+/workspace/tests/test_production_api_upload_validate.py:302: ModuleNotFoundError
+______________ test_upload_clears_budget_when_credit_plan_omitted ______________
+
+client = <starlette.testclient.TestClient object at 0x7f16c9a07410>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f16c9bac8f0>
+
+    def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
+        """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
+        from unittest.mock import AsyncMock, Mock
+        from temporalio.service import RPCError, RPCStatusCode
+    
+        # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
+        mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+        mock_handle = Mock()
+        mock_handle.describe = AsyncMock(side_effect=mock_error)
+        mock_client = Mock()
+        mock_client.get_workflow_handle = Mock(return_value=mock_handle)
+    
+        import api.main
+        monkeypatch.setattr(api.main, "temporal_client", mock_client)
+    
+        import aiosqlite
+        from hfvg.budget import BudgetLedger
+    
+        episode_id = "ep88"
+    
+        # First upload WITH credit plan
+        beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
+        credit_plan = "# Credit Plan\n\nTotal: 100 credits"
+    
+        response1 = client.post(
+            "/api/episodes/upload",
+            data={"episode_id": episode_id},
+            files={
+                "beatmap_file": ("BEATMAP.md", beatmap.encode(), "text/markdown"),
+                "credit_plan_file": ("CREDIT-PLAN.md", credit_plan.encode(), "text/markdown")
+            }
+        )
+>       assert response1.status_code == 200
+E       assert 422 == 200
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+/workspace/tests/test_production_api_upload_validate.py:349: AssertionError
+__________________________ test_meta_patch_validation __________________________
+
+    def test_meta_patch_validation():
+        from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as W
+        assert W.recompose_meta_problem(None) is None
+        assert W.recompose_meta_problem({"count": 2, "characters": ["H", "M"]}) is None
+        assert W.recompose_meta_problem({"duck": False}) is None
+>       assert "non-empty" in W.recompose_meta_problem({})
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: argument of type 'NoneType' is not iterable
+
+/workspace/tests/test_recompose_meta_patch.py:24: TypeError
+_________________ test_route_refuses_bad_patch_before_anything _________________
+
+client = (<module 'api.main' from '/workspace/api/main.py'>, <starlette.testclient.TestClient object at 0x7f16cb52fc80>)
+episode = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_route_refuses_bad_patch_b0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f16cb583950>
+
+    def test_route_refuses_bad_patch_before_anything(client, episode, monkeypatch):  # noqa: F811
+        api_main, c = client
+        h = _Handle(dict(META))
+        monkeypatch.setattr(api_main, "temporal_client", _Client(h))
+        r = c.post("/api/episodes/ep77/shots/A01/recompose",
+                   json={"reason": "S", "prompt": lint_ok("x", count=2), "ref_keys": ["character"],
+                         "shot_meta": {"count": 2, "water": True}})
+>       assert r.status_code == 422 and "may only change" in r.json()["detail"] and h.updates == []
+E       assert (422 == 422 and 'may only change' in "invalid shot_meta: shot_meta keys ['water'] not allowed (only ['characters', 'count', 'duck'])")
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+/workspace/tests/test_recompose_meta_patch.py:115: AssertionError
+___________ test_recompose_with_new_cast_runs_child_on_patched_meta ____________
+
+dry_env = '/tmp/pytest-of-ubuntu/pytest-13/test_recompose_with_new_cast_r0/studio.db'
+tmp_path = PosixPath('/tmp/pytest-of-ubuntu/pytest-13/test_recompose_with_new_cast_r0')
+no_counter = None
+
+    @needs_ffmpeg
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(400)
+    async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_path, no_counter):  # noqa: F811
+        from temporalio.client import WorkflowUpdateFailedError
+        from temporalio.testing import WorkflowEnvironment
+        h = Harness({})
+        clips = ClipFactory(tmp_path, [MOVING])
+        ref = tmp_path / "character.png"
+        ref.write_bytes(b"png")
+        async with await WorkflowEnvironment.start_local() as env:
+            async with _worker(env, h, clips):
+                handle = await _to_final_cut(env, h, tmp_path, "ep95")
+                two = lint_ok("Low close-up of two animals", count=2)
+                with pytest.raises(WorkflowUpdateFailedError) as refused:
+                    await handle.execute_update("recompose_shot", args=[
+                        "A01", "r", two, [str(ref)], ["character"], None, {"water": True}])
+>               assert "may only change" in str(refused.value.cause)
+E               assert 'may only change' in "Cannot recompose A01: shot_meta keys ['water'] not allowed (only ['characters', 'count', 'duck'])"
+E                +  where "Cannot recompose A01: shot_meta keys ['water'] not allowed (only ['characters', 'count', 'duck'])" = str(ApplicationError("Cannot recompose A01: shot_meta keys ['water'] not allowed (only ['characters', 'count', 'duck'])"))
+E                +    where ApplicationError("Cannot recompose A01: shot_meta keys ['water'] not allowed (only ['characters', 'count', 'duck'])") = WorkflowUpdateFailedError('Workflow update failed').cause
+E                +      where WorkflowUpdateFailedError('Workflow update failed') = <ExceptionInfo WorkflowUpdateFailedError('Workflow update failed') tblen=3>.value
+
+/workspace/tests/test_recompose_meta_patch.py:164: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)
+
+Temporal Server:      localhost:44689
+Temporal Persistence: in-memory
+Temporal Metrics:     http://localhost:33817/metrics
+----------------------------- Captured stderr call -----------------------------
+time=2026-11-01T14:25:53.419 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
+------------------------------ Captured log call -------------------------------
+WARNING  temporalio.activity:studio_generation.py:1415 No provider job mapping found for still-dry-d7bc9e76f6d2 in dry mode, assuming it's a provider ID ({'activity_id': '3', 'activity_type': 'poll_job_status', 'attempt': 1, 'namespace': 'default', 'task_queue': 'picture-assembly-tasks', 'workflow_id': 'ep95-shot-A01', 'workflow_run_id': '01a19780-a7f9-7b12-ab74-aef85c2e1af1', 'workflow_type': 'ShotWorkflow'})
+WARNING  temporalio.activity:studio_generation.py:1415 No provider job mapping found for clip-dry-97f64f68b02e in dry mode, assuming it's a provider ID ({'activity_id': '11', 'activity_type': 'poll_job_status', 'attempt': 1, 'namespace': 'default', 'task_queue': 'picture-assembly-tasks', 'workflow_id': 'ep95-shot-A01', 'workflow_run_id': '01a19780-a7f9-7b12-ab74-aef85c2e1af1', 'workflow_type': 'ShotWorkflow'})
+ERROR    temporalio.workflow:shot.py:1310 Clip QC failed in live mode, escalating to human review: ['qc_fail_if needs review: tray vanishes: NEEDS_REVIEW (no checker)'] ({'attempt': 1, 'namespace': 'default', 'run_id': '01a19780-a7f9-7b12-ab74-aef85c2e1af1', 'task_queue': 'picture-assembly-tasks', 'workflow_id': 'ep95-shot-A01', 'workflow_type': 'ShotWorkflow'})
+=============================== warnings summary ===============================
+.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/.venv-test/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_anchor_still.py: 3 warnings
+tests/test_audio.py: 1 warning
+tests/test_audio_cost.py: 16 warnings
+tests/test_audio_round4_activities.py: 4 warnings
+tests/test_budget_line_init_required.py: 2 warnings
+tests/test_caps_enforcement.py: 4 warnings
+tests/test_continuity_locks.py: 1 warning
+tests/test_credit_hard_cap.py: 1 warning
+tests/test_dollar_ledger_api.py: 5 warnings
+tests/test_exception_release.py: 6 warnings
+tests/test_gate_correctness_round1.py: 1 warning
+tests/test_harness_canary_bugs.py: 4 warnings
+tests/test_harness_pr10_mutations.py: 2 warnings
+tests/test_job_id_versioning.py: 7 warnings
+tests/test_model_pricing.py: 2 warnings
+tests/test_model_ref_caps.py: 3 warnings
+tests/test_moderation_recovery.py: 2 warnings
+tests/test_poll_timeout.py: 3 warnings
+tests/test_pr10_216_fixes.py: 2 warnings
+tests/test_prompt_lint.py: 2 warnings
+tests/test_provider_contract.py: 1 warning
+tests/test_provider_contracts.py: 1 warning
+tests/test_r8_reuse_route_grant.py: 4 warnings
+tests/test_recompose_job_id_unique.py: 3 warnings
+tests/test_recompose_round.py: 4 warnings
+tests/test_redgreen_safety.py: 6 warnings
+tests/test_ref_cap_lead_anchor.py: 7 warnings
+tests/test_ref_qc_and_staging.py: 4 warnings
+tests/test_retry_shot.py: 2 warnings
+tests/test_round4_shot_data.py: 3 warnings
+tests/test_round7_moderation_lint.py: 2 warnings
+tests/test_seedance_override.py: 1 warning
+tests/test_seedance_routing.py: 3 warnings
+tests/test_smoke_gate.py: 1 warning
+tests/test_studio_safety.py: 3 warnings
+  /workspace/hfvg/studio_db.py:474: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    override_time = datetime.utcnow().isoformat() + "Z"
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:ea4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_anchor_still.py::test_anchor_still_injected_into_refs
+tests/test_anchor_still.py::test_anchor_still_job_id_uses_sha256_prefix
+tests/test_balance_monitor.py::test_higgsfield_balance_derived_from_manual
+tests/test_balance_monitor.py::test_preflight_gate_blocks_low_balance
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.14.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_api_routes.py: 232 warnings
+tests/test_dollar_ledger_api.py: 8 warnings
+tests/test_round4_shot_data.py: 2 warnings
+tests/test_round7_balance.py: 4 warnings
+tests/test_round7_still_route.py: 10 warnings
+tests/test_ui_auth.py: 5 warnings
+  /workspace/.venv-test/lib/python3.12/site-packages/starlette/testclient.py:518: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_api_routes.py::test_set_ref_versions_endpoint
+  /workspace/.venv-test/lib/python3.12/site-packages/httpx/_client.py:1859: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return await self.request(
+
+tests/test_audio.py::test_elevenlabs_permanent_error_is_non_retryable
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "34.8.184.191" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_balance_monitor.py::test_higgsfield_balance_stale_warning
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+tests/test_harness_pr10_mutations.py::test_end_frame_anchor_strips_suffix
+tests/test_retry_shot.py::test_retry_shot_distinct_job_id_and_idempotency_key
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.18.15.164" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_balance_monitor.py::test_preflight_gate_warns_with_auto_topup
+tests/test_balance_monitor.py::test_preflight_gate_passes_sufficient_balance
+tests/test_budget_line_init_required.py::test_live_still_succeeds_with_budget_lines
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700::6812:fa4" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_logic.py::test_duplicate_submit_same_idempotency_key
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/hfvg/ledger.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime.utcnow().isoformat(),
+
+tests/test_logic.py::test_insufficient_credits_check_raises
+tests/test_logic.py::test_sufficient_credits_check_passes
+tests/test_smoke.py::test_credit_operations
+tests/test_smoke.py::test_insufficient_credits_check
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:170: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_repeated_block_escalates_with_exact_provider_message
+tests/test_moderation_recovery.py::TestLadderInWorkflow::test_fallback_model_used_when_no_trigger_word
+tests/test_r12_gap72_retry_clip_route.py::test_retry_clip_route_submits_on_the_routed_model
+tests/test_round4_shot_data.py::test_shot_workflow_passes_real_model_duration_tags_to_clip
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/worker/workflow_sandbox/_importer.py:242: UserWarning: Module hfvg.routing was imported after initial workflow load.
+    warnings.warn(
+
+tests/test_pytest_socket.py::test_socket_blocked
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "10.255.255.1" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "2606:4700:10::ac42:93f3" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_shot_live.py::test_review_clip_escalates_in_live_mode
+  /workspace/.venv-test/lib/python3.12/site-packages/pytest_socket/__init__.py:365: UserWarning: A test tried to use socket.socket.connect() with host "104.20.23.154" (allowed: "127.0.0.1,::1,localhost (127.0.0.1,::1)").
+    raise SocketConnectBlockedError(allowed_list, host)
+
+tests/test_smoke.py::test_credit_operations
+tests/test_temporal_integration.py::test_d_insufficient_credits_pauses_workflow
+  /workspace/hfvg/ledger.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/test_smoke_gate.py::test_smoke_gate_allows_with_recent_passing_test
+  /workspace/tests/test_smoke_gate.py:89: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_smoke_gate.py::test_smoke_gate_refuses_expired_test
+  /workspace/tests/test_smoke_gate.py:149: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    old_timestamp = (datetime.utcnow() - timedelta(hours=25)).isoformat() + "Z"
+
+tests/test_smoke_test.py::test_smoke_test_end_to_end
+tests/test_smoke_test.py::test_smoke_test_nsfw_terminal
+tests/test_smoke_test.py::test_smoke_test_canceled_terminal
+tests/test_smoke_test.py::test_smoke_test_presubmit_exception_released
+tests/test_smoke_test.py::test_smoke_test_postsubmit_timeout_pending_reconcile
+  /workspace/hfvg/activities/smoke_test.py:326: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+
+tests/test_temporal_integration.py::test_b_heartbeat_timeout_causes_retry
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/worker/workflow_sandbox/_importer.py:267: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    mod = importlib.__import__(name, globals, locals, fromlist, level)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:776: UserWarning: If you're using Pydantic v2, use temporalio.contrib.pydantic.pydantic_data_converter. If you're using Pydantic v1 and cannot upgrade, refer to https://github.com/temporalio/samples-python/tree/main/pydantic_converter_v1 for better v1 support.
+    warnings.warn(
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:683: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return dict_fn()
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/temporalio/converter/_payload_converter.py:1045: PydanticDeprecatedSince20: The `parse_obj` method is deprecated; use `model_validate` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    return getattr(hint, "parse_obj")(value)
+
+tests/test_temporal_integration.py::test_c_shot_retry_resumes_same_job
+  /workspace/.venv-test/lib/python3.12/site-packages/pydantic/main.py:280: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_ep11_edit_recipe_logo.py::test_logo_plan_fields_and_start
+FAILED tests/test_ep11_edit_recipe_logo.py::test_logo_after_vo_line_darken_and_hold_check
+FAILED tests/test_ep11_edit_recipe_logo.py::test_subtitle_fade_and_blur_tags
+FAILED tests/test_ep11_edit_recipe_logo.py::test_plan_keeps_take_and_lowpass
+FAILED tests/test_ep11_edit_recipe_logo.py::test_decode_lowpass_softens_highs
+FAILED tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_max_grants_reached
+FAILED tests/test_production_api_upload_validate.py::test_non_ascii_token_returns_403
+FAILED tests/test_production_api_upload_validate.py::test_upload_clears_budget_when_credit_plan_omitted
+FAILED tests/test_recompose_meta_patch.py::test_meta_patch_validation - TypeE...
+FAILED tests/test_recompose_meta_patch.py::test_route_refuses_bad_patch_before_anything
+FAILED tests/test_recompose_meta_patch.py::test_recompose_with_new_cast_runs_child_on_patched_meta
+11 failed, 1444 passed, 7 skipped, 432 warnings in 505.74s (0:08:25)

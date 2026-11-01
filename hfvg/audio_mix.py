@@ -339,6 +339,19 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             # vertical centre of the logo as a fraction of frame height (0.5 = centred, Ep01 template)
             "y_frac": _num(lg.get("y_frac", 0.5), "logo.y_frac", 0.0, 1.0),
         }
+        # Optional: px width instead of width_frac; start the fade a set gap after a VO line ends
+        # (instead of total - visible_s); a soft darkening of the lower frame fading in with it.
+        if lg.get("width_px") is not None:
+            logo["width_px"] = int(_num(lg["width_px"], "logo.width_px", 16, 4096))
+        if lg.get("after_vo_line"):
+            logo["after_vo_line"] = str(lg["after_vo_line"])
+            logo["after_vo_gap_s"] = _num(lg.get("after_vo_gap_s", 0.6), "logo.after_vo_gap_s", 0.0, 10.0)
+        if lg.get("min_hold_s") is not None:
+            logo["min_hold_s"] = _num(lg["min_hold_s"], "logo.min_hold_s", 0.0, 60.0)
+        if lg.get("darken_lower"):
+            dk = lg["darken_lower"]
+            logo["darken_lower"] = {"frac": _num(dk.get("frac", 0.5), "logo.darken_lower.frac", 0.05, 1.0),
+                                    "amount": _num(dk.get("amount", 0.15), "logo.darken_lower.amount", 0.0, 0.9)}
     subs = {**DEFAULT_SUBTITLES, **(raw.get("subtitles") or {})}
     if subs.get("ass_style") is not None:
         st = str(subs["ass_style"])
@@ -1213,19 +1226,30 @@ def logo_start_s(logo: dict, total_s: float, placed: list[dict] | None = None) -
 
 
 async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict,
-                       frames: int | None = None) -> None:
-    """Ep01 ending template: logo scaled to width_frac of the frame, centred, alpha fade-in over
-    fade_in_s, visible for the last visible_s of the picture."""
+                       frames: int | None = None, start: float | None = None) -> None:
+    """Ep01 ending template: logo scaled to width_frac (or width_px) of the frame, centred, alpha
+    fade-in over fade_in_s from ``start`` (default: the last visible_s of the picture). Optional
+    darken_lower: the lower frac of the frame darkens by amount, fading in with the logo."""
     info = await probe(mute)
     v = next(s for s in info.get("streams", []) if s.get("codec_type") == "video")
-    w = int(v["width"])
+    w, h = int(v["width"]), int(v["height"])
     rate = video_rate(info)
     if frames is None:
         frames = await count_frames(mute)
-    start = max(0.0, total_s - logo["visible_s"])
-    lw = int(w * logo["width_frac"]) // 2 * 2
-    graph = (f"[1:v]scale={lw}:-1,format=rgba,fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[lg];"
-             f"[0:v][lg]overlay=(W-w)/2:max(0\\,min(H-h\\,H*{logo.get('y_frac', 0.5):.4f}-h/2)):shortest=1:enable='gte(t,{start:.4f})',format=yuv420p[v]")
+    if start is None:
+        start = max(0.0, total_s - logo["visible_s"])
+    lw = int(logo["width_px"]) // 2 * 2 if logo.get("width_px") else int(w * logo["width_frac"]) // 2 * 2
+    base = "[0:v]"
+    pre = ""
+    dk = logo.get("darken_lower")
+    if dk and dk["amount"] > 0:
+        dh = int(h * dk["frac"]) // 2 * 2
+        pre = (f"color=c=black:s={w}x{dh}:r=24:d={total_s:.4f},format=rgba,"
+               f"colorchannelmixer=aa={dk['amount']:.3f},fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[dk];"
+               f"[0:v][dk]overlay=0:H-h:shortest=1:enable='gte(t,{start:.4f})'[bg];")
+        base = "[bg]"
+    graph = (pre + f"[1:v]scale={lw}:-1,format=rgba,fade=t=in:st={start:.4f}:d={logo['fade_in_s']:.4f}:alpha=1[lg];"
+             f"{base}[lg]overlay=(W-w)/2:max(0\\,min(H-h\\,H*{logo.get('y_frac', 0.5):.4f}-h/2)):shortest=1:enable='gte(t,{start:.4f})',format=yuv420p[v]")
     await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", mute, "-framerate", rate, "-loop", "1",
                    # GAP-55: logo on the picture's frame grid and 1 s longer, so shortest=1 can never
                    # end the overlay before the picture's last frame (-frames:v / -t cap the output)
