@@ -144,7 +144,7 @@ def load(path: str | None = None) -> ModelCapsRegistry:
     if path is None:
         path = _default_path()
 
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     _registry = ModelCapsRegistry(**data)

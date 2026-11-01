@@ -608,7 +608,7 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
             click.echo(f"❌ Error: Beatmap file not found: {beatmap}", err=True)
             import sys
             sys.exit(1)
-        payload["beatmap_content"] = beatmap_path.read_text()
+        payload["beatmap_content"] = beatmap_path.read_text(encoding='utf-8')
     
     if shots:
         payload["shots_subset"] = [s.strip() for s in shots.split(",")]
