@@ -103,10 +103,10 @@ Validate episode files **without saving** (dry-run).
 - Same validation as actual upload
 
 **File encoding:**
-- All text files (BEATMAP.md, CREDIT-PLAN.md, CONTINUITY.md) must be valid UTF-8
-- Non-UTF-8 files are rejected with validation error
+- Files are read and written with explicit UTF-8 encoding
 - Empty optional files (credit_plan, continuity) are treated as None/not provided
-- Files are read and written with explicit UTF-8 encoding on upload
+- Validate endpoint checks UTF-8 encoding and reports errors
+- Upload endpoint accepts any byte content (parsing errors caught during validation stage)
 
 **Example (curl):**
 

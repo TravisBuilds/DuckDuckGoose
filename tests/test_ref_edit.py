@@ -162,7 +162,7 @@ class FakeHttp:
 
 
 @pytest.fixture
-async def live_env(tmp_path, monkeypatch)):  # noqa: F811
+async def live_env(tmp_path, monkeypatch):  # noqa: F811
     db_path = str(tmp_path / "t.db")
     monkeypatch.setenv("DATABASE_PATH", db_path)
     monkeypatch.setenv("DRY_RUN", "false")
@@ -208,7 +208,7 @@ async def _run(env, version=1):
 
 
 @pytest.mark.asyncio
-async def test_live_edit_sends_source_estimates_reserves_l1_and_commits(live_env)):  # noqa: F811
+async def test_live_edit_sends_source_estimates_reserves_l1_and_commits(live_env):  # noqa: F811
     src_before = Path(live_env["src"]).read_bytes()
     r = await _run(live_env)
     assert r["status"] == "completed"
@@ -234,7 +234,7 @@ async def test_live_edit_sends_source_estimates_reserves_l1_and_commits(live_env
 
 
 @pytest.mark.asyncio
-async def test_live_edit_estimate_failure_reserves_and_submits_nothing(live_env)):  # noqa: F811
+async def test_live_edit_estimate_failure_reserves_and_submits_nothing(live_env):  # noqa: F811
     FakeStill.estimate_fails = True
     with pytest.raises(ValueError, match="estimate"):
         await _run(live_env)
@@ -244,7 +244,7 @@ async def test_live_edit_estimate_failure_reserves_and_submits_nothing(live_env)
 
 
 @pytest.mark.asyncio
-async def test_live_edit_budget_refusal_never_submits(live_env)):  # noqa: F811
+async def test_live_edit_budget_refusal_never_submits(live_env):  # noqa: F811
     FakeBudget.reserve_ok = False
     with pytest.raises(ValueError, match="L1_refs"):
         await _run(live_env)
@@ -253,7 +253,7 @@ async def test_live_edit_budget_refusal_never_submits(live_env)):  # noqa: F811
 
 
 @pytest.mark.asyncio
-async def test_live_edit_provider_failure_releases_l1(live_env)):  # noqa: F811
+async def test_live_edit_provider_failure_releases_l1(live_env):  # noqa: F811
     FakeStill.final_status = "failed"
     with pytest.raises(RuntimeError, match="failed"):
         await _run(live_env)
@@ -264,7 +264,7 @@ async def test_live_edit_provider_failure_releases_l1(live_env)):  # noqa: F811
 
 
 @pytest.mark.asyncio
-async def test_live_edit_reuses_existing_same_version_and_source(live_env)):  # noqa: F811
+async def test_live_edit_reuses_existing_same_version_and_source(live_env):  # noqa: F811
     await _run(live_env)
     FakeStill.instances = []
     FakeBudget.calls = []
@@ -274,7 +274,7 @@ async def test_live_edit_reuses_existing_same_version_and_source(live_env)):  # 
 
 
 @pytest.mark.asyncio
-async def test_live_edit_new_source_archives_and_regenerates(live_env)):  # noqa: F811
+async def test_live_edit_new_source_archives_and_regenerates(live_env):  # noqa: F811
     await _run(live_env)
     Path(live_env["src"]).write_bytes(_png(color=(10, 20, 30)))
     FakeStill.instances = []
@@ -284,7 +284,7 @@ async def test_live_edit_new_source_archives_and_regenerates(live_env)):  # noqa
 
 
 @pytest.mark.asyncio
-async def test_edit_refuses_bad_resolution_before_anything(live_env)):  # noqa: F811
+async def test_edit_refuses_bad_resolution_before_anything(live_env):  # noqa: F811
     from hfvg.activities.ref_generation import generate_ref_edit_activity
     with pytest.raises(ValueError, match="resolution"):
         await generate_ref_edit_activity("ep99", "duck_cuff", "p", live_env["out"], 1, live_env["src"],

@@ -20,7 +20,7 @@ from tests.test_picture_assembly_round3 import (
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_retry_clip_duration_override(dry_env, tmp_path, no_counter, monkeypatch)):  # noqa: F811
+async def test_retry_clip_duration_override(dry_env, tmp_path, no_counter, monkeypatch):  # noqa: F811
     from hfvg.config import config
     monkeypatch.setattr(config, "MAX_PAID_RETRIES_PER_SHOT_PER_ROUND", 2)
     h = Harness({})

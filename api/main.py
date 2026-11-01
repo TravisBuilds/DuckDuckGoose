@@ -268,8 +268,16 @@ async def require_auth_unless_public(
     if method == "POST" and path in ("/api/episodes/upload", "/api/episodes/upload/validate"):
         if authorization and authorization.startswith("Bearer "):
             token = authorization.removeprefix("Bearer ")
-            if token == UPLOAD_TOKEN:
-                return
+            upload_token = get_upload_token()
+            # Compare as bytes; empty or unset token must never match
+            if upload_token:
+                try:
+                    token_bytes = token.encode("utf-8")
+                    upload_bytes = upload_token.encode("utf-8")
+                    if secrets.compare_digest(token_bytes, upload_bytes):
+                        return
+                except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
+                    pass  # Invalid token, fall through to verify_auth_unified
     
     await verify_auth_unified(authorization, studio_admin_token)
 
@@ -997,7 +1005,8 @@ async def upload_beatmap(
         # Clear budget when re-upload omits the credit plan (issue #7)
         import aiosqlite
         async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute("DELETE FROM budget WHERE episode_id = ?", (episode_id,))
+            await db.execute("DELETE FROM budget_lines WHERE episode_id = ?", (episode_id,))
+            await db.execute("DELETE FROM budget_transactions WHERE episode_id = ?", (episode_id,))
             await db.commit()
     
     # Write .upload_hash LAST (after all other operations succeeded)

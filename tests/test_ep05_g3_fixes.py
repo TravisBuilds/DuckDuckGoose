@@ -21,23 +21,23 @@ from tests.test_audio_delivery import FAST_ENCODE, make_noise, make_tone
 
 
 def test_explicit_break_is_honoured():
-    assert wrap_two_lines("Today's guests are…\na family of animals.", 24) == \
-        ["Today's guests are…", "a family of animals."]
-    # without a break: unchanged balanced wrap
-    assert wrap_two_lines("Today's guests are… a family of animals.", 24) == \
-        ["Today's guests are… a", "family of animals."]
+    assert wrap_two_lines("Today's guests are…\na family of char_c.", 24) == \
+        ["Today's guests are…", "a family of char_c."]
+    # without a break: unchanged balanced wrap (char_c is shorter so wraps differently)
+    assert wrap_two_lines("Today's guests are… a family of char_c.", 24) == \
+        ["Today's guests are…", "a family of char_c."]
     assert wrap_two_lines("Some tea… quietly.", 24) == ["Some tea… quietly."]
     # more than two explicit lines: falls back to the balanced two-line wrap
     assert len(wrap_two_lines("a b\nc d\ne f", 4)) == 2
 
 
 def test_break_reaches_ass_and_srt(tmp_path):
-    cues = build_cues([{"id": "L01", "at": 0.6, "dur": 4.0, "subtitle": "Today's guests are…\na family of animals."}], 24)
+    cues = build_cues([{"id": "L01", "at": 0.6, "dur": 4.0, "subtitle": "Today's guests are…\na family of char_c."}], 24)
     plan = normalize_plan({}, tmp_path)
     audio_mix.write_ass(cues, str(tmp_path / "s.ass"), plan["subtitles"])
     audio_mix.write_srt(cues, str(tmp_path / "s.srt"))
-    assert "Today's guests are…\\Na family of animals." in (tmp_path / "s.ass").read_text()
-    assert "Today's guests are…\na family of animals.\n" in (tmp_path / "s.srt").read_text()
+    assert "Today's guests are…\\Na family of char_c." in (tmp_path / "s.ass").read_text()
+    assert "Today's guests are…\na family of char_c.\n" in (tmp_path / "s.srt").read_text()
 
 
 def test_logo_y_frac_validation(tmp_path):
@@ -100,7 +100,7 @@ from api.main import final_cut_blockers  # noqa: E402
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter)):  # noqa: F811
+async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter):  # noqa: F811
     set_animal_counter(FakeAnimalCounter({"animal": 1}))
     root = write_audio(tmp_path, "ep94")
     h = Harness({})

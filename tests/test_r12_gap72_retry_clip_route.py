@@ -79,7 +79,7 @@ def test_api_preflights_the_prompt_against_the_routed_model(client, kit, monkeyp
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)
-async def test_retry_clip_route_submits_on_the_routed_model(dry_env, tmp_path, no_counter, monkeypatch)):  # noqa: F811
+async def test_retry_clip_route_submits_on_the_routed_model(dry_env, tmp_path, no_counter, monkeypatch):  # noqa: F811
     from hfvg.config import config
     monkeypatch.setattr(config, "MAX_PAID_RETRIES_PER_SHOT_PER_ROUND", 2)
     h = Harness({})

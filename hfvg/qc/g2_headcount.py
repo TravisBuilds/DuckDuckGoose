@@ -72,7 +72,7 @@ def record_headcount(episode_id: str, shot_id: str, version: int, counts: dict[s
     p = headcounts_path(episode_id, episodes_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True)), encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(p)
     return row
 

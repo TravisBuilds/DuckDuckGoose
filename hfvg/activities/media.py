@@ -29,7 +29,7 @@ def load_edit_recipe(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise ApplicationError(f"edit recipe {path} unreadable: {e}", type="InvalidEditRecipe",
                                non_retryable=True) from None
@@ -620,7 +620,7 @@ async def assemble_mute_edit(
 
         activity.heartbeat({"stage": "concatenating", "clips": len(normalized)})
         concat_list = tmp / "concat.txt"
-        concat_list.write_text(".join(f"file '{p.resolve()}'\n" for p in normalized))
+        concat_list.write_text("".join(f"file '{p.resolve()}'\n" for p in normalized), encoding="utf-8")
         partial = tmp / MUTE_EDIT_NAME
         await _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat_list),
                     "-c", "copy", "-movflags", "+faststart", str(partial)], "ffmpeg concat")
@@ -644,7 +644,7 @@ async def assemble_mute_edit(
         "size_bytes": assembly_path.stat().st_size,
     }
     tmp_manifest = manifest_path.with_suffix(".json.tmp")
-    tmp_manifest.write_text(json.dumps(manifest, indent=2)), encoding="utf-8")
+    tmp_manifest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     os.replace(tmp_manifest, manifest_path)
     activity.heartbeat({"stage": "assembly_done", "duration": total})
     activity.logger.info(f"Mute edit assembled: {assembly_path} ({total:.2f}s, {len(manifest_clips)} shots)")

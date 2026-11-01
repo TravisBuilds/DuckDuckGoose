@@ -201,7 +201,7 @@ async def test_dry_clip_reservation_uses_model_and_duration(tmp_path, monkeypatc
     assert sd["reserved_amount"] == 5_686_000
 
 
-async def _live_env(tmp_path, monkeypatch)):  # noqa: F811
+async def _live_env(tmp_path, monkeypatch):  # noqa: F811
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode

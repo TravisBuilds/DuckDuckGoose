@@ -799,8 +799,8 @@ def stalled(threshold: int | None, route: bool):
 
 
 @cli.command()
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def balance(json_output: bool):
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+def check_balance(json_output: bool):
     """Check provider balance status."""
     import sys
     from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
@@ -832,17 +832,25 @@ def balance(json_output: bool):
     # Human-readable output
     click.echo("Provider Balance Status")
     click.echo("=" * 60)
+    click.echo(f"Checked at: {result.timestamp.isoformat()}\n")
     
-    for provider, info in result.to_dict()["providers"].items():
-        click.echo(f"\n{provider}:")
-        click.echo(f"  Balance: ${info['balance']:.2f}")
-        click.echo(f"  Source: {info['source']}")
-        if info.get("age_seconds") is not None:
-            click.echo(f"  Age: {info['age_seconds']:.0f}s")
-        if info.get("warning"):
-            click.echo(f"  ⚠ {info['warning']}")
-        if info.get("error"):
-            click.echo(f"  ❌ {info['error']}")
+    for provider, balance in result.providers.items():
+        click.echo(f"{provider.upper()}:")
+        # Handle None balance (unknown/error states like 401)
+        if balance.balance_usd is not None:
+            click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        else:
+            click.echo(f"  Balance: Unknown (see details)")
+        click.echo(f"  Source: {balance.source}")
+        if balance.age_seconds > 0:
+            age_hours = balance.age_seconds / 3600
+            click.echo(f"  Age: {age_hours:.1f} hours")
+        
+        if balance.details:
+            click.echo("  Details:")
+            for key, value in balance.details.items():
+                if not isinstance(value, (dict, list)):
+                    click.echo(f"    {key}: {value}")
 
 
 def _mix_episode_dir(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool) -> dict:
