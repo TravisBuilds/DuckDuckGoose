@@ -34,6 +34,16 @@ def seedance_override_ids() -> frozenset[str]:
     return frozenset(s.strip() for s in raw.split(",") if s.strip())
 
 
+def seedance_resolution_for(tier: str | None, override: str | None = None) -> str:
+    """The Seedance output resolution for this tier, or the validated per-shot override."""
+    if override is not None:
+        if override not in SEEDANCE_RESOLUTIONS:
+            raise RoutingError(
+                f"seedance_resolution must be one of {SEEDANCE_RESOLUTIONS}, got {override!r}")
+        return override
+    return SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]
+
+
 class RoutingError(ValueError):
     """The shot cannot be routed as requested (fail closed)."""
 

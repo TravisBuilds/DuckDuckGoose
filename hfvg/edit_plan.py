@@ -30,6 +30,21 @@ class EditPlanError(ValueError):
     pass
 
 
+def edit_fps(edit_plan: dict[str, Any] | None) -> int:
+    """GAP-33 (ep05v2 G3 r2, Studio: judder): the edit frame rate. Default EDIT_FPS (30); an episode
+    edit plan may set "fps": 24 to conform the edit to the 24 fps generated clips instead of repeating
+    every 4th frame to reach 30 (visible judder on slow pans). Anything else refuses the edit."""
+    from hfvg.activities.media import EDIT_FPS, EDIT_FPS_ALLOWED
+    from temporalio.exceptions import ApplicationError
+    if not edit_plan or edit_plan.get("fps") is None:
+        return EDIT_FPS
+    v = edit_plan.get("fps")
+    if isinstance(v, bool) or not isinstance(v, int) or v not in EDIT_FPS_ALLOWED:
+        raise ApplicationError(f"Edit plan fps {v!r} not allowed (use one of {EDIT_FPS_ALLOWED})",
+                               type="EditPlanMismatch", non_retryable=True)
+    return v
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
