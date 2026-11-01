@@ -1,6 +1,6 @@
 """GAP-61 (ep05v2 r12): real motion-compensated frame interpolation for slowed shots (RIFE).
 
-Travis/Studio 2026-10-28: slowed shots still stutter with ffmpeg ``minterpolate`` (block-matching
+Reviewer/Studio 2026-10-28: slowed shots still stutter with ffmpeg ``minterpolate`` (block-matching
 artefacts, and its tail holds the last 3-4 frames). ``interp: "rife"`` in a shot's ``shot_ops`` renders
 the retime with RIFE (rife-ncnn-vulkan, a free local binary; CPU via Mesa lavapipe works, slowly).
 

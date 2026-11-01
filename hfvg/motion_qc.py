@@ -1,4 +1,4 @@
-"""GAP-75..77 (ep05v2 r13, Travis v10 review Oct 31): motion-consistency detectors.
+"""GAP-75..77 (ep05v2 r13, Reviewer v10 review Oct 31): motion-consistency detectors.
 
 GAP-75 head/body yaw reversal: horizontal optical flow of the subject crop flips direction and flips
        back (turn away then back; look, look-away, look-back) within ``window_s`` -> QC warning.

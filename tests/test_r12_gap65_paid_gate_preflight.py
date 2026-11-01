@@ -118,7 +118,7 @@ def test_recompose_refused_before_the_update_when_balance_is_stale(live, monkeyp
     _smoke(db, 0.1)
     _balance(db)
     monkeypatch.setenv("HFVG_BALANCE_MAX_AGE_HOURS", "0.0000001")
-    r = c.post("/api/episodes/ep77/shots/A01/recompose", json={"reason": "t", "prompt": "p", "ref_keys": ["rowan"]})
+    r = c.post("/api/episodes/ep77/shots/A01/recompose", json={"reason": "t", "prompt": "p", "ref_keys": ["character1"]})
     assert r.status_code == 409 and "GC.01" in r.json()["detail"] and h.updates == []
 
 

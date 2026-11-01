@@ -112,7 +112,7 @@ SHOT_OPS_MIN_SPEED, SHOT_OPS_MAX_SPEED = 0.5, 2.0   # source seconds per screen 
 SHOT_OPS_MAX_CROP_UPSCALE = 2.0                      # output width / crop width (sharpness guard)
 SHOT_OPS_ASPECT, SHOT_OPS_ASPECT_TOL = 9 / 16, 0.01
 SHOT_OPS_MIN_SEGMENT_S = 0.25
-# GAP-63 (ep05v2 r12, Travis): slow-downs below ~0.7x read as stutter even interpolated. Still allowed down
+# GAP-63 (ep05v2 r12, Reviewer): slow-downs below ~0.7x read as stutter even interpolated. Still allowed down
 # to the 0.5 hard floor, but every one is WARNED (assembly manifest edit_plan.speed_warnings + log), as is
 # a slowed shot that is not motion-interpolated (dup/blend repeat or blend frames = visible judder).
 SHOT_OPS_WARN_SPEED = 0.7
@@ -258,7 +258,7 @@ def shot_ops_filter(ops: dict[str, Any], speed: float, fps: int, tail_vf: str, p
 
 
 # ---------------------------------------------------------------- GAP-62 timeline-neutral dissolves
-# ep05v2 r12 (Travis: "transitions don't work"): the legacy ``dissolves`` overlap two shots and SHORTEN
+# ep05v2 r12 (Reviewer: "transitions don't work"): the legacy ``dissolves`` overlap two shots and SHORTEN
 # the cut (every later shot and VO line moves earlier). plan["transitions"] = {"A->B": {"kind":
 # "dissolve", "frames": n, "reason": str}} keeps every shot start (and so VO sync and the runtime): the
 # outgoing shot A renders n EXTRA frames past its slot (from its own source handle, or, when A is
@@ -347,7 +347,7 @@ def validate_slots(plan: dict[str, Any] | None, fps: int) -> dict[str, dict[str,
 
 
 # ---------------------------------------------------------------- GAP-83 absorbed drops
-# ep05v2 r15 (Studio/Travis v13): a shot dropped from the edit (GAP-22 set_shot_edit drop) shortens the
+# ep05v2 r15 (Studio/Reviewer v13): a shot dropped from the edit (GAP-22 set_shot_edit drop) shortens the
 # cut by its slot. plan["absorbed_drops"] = {shot_id: {"screen_s": <its slot>, "reason": str}} declares
 # that the slot moves give that time to its neighbours, so the cut length (and its lock) stays the
 # same: the slot moves must then net exactly +frames. Fail-closed: the shot must be in the order, a

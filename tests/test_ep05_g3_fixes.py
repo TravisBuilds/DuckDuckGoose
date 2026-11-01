@@ -1,4 +1,4 @@
-"""Ep05 G3 free fixes (2026-10-26, Travis 19:53 CET): harness gaps found while applying them.
+"""Ep05 G3 free fixes (2026-10-26, Reviewer 19:53 CET): harness gaps found while applying them.
 
 GAP-5  subtitle line breaks written in the plan ("\\n") were collapsed and re-balanced; an
        explicit break (<= 2 lines) is now honoured in the .ass and .srt.
@@ -21,23 +21,23 @@ from tests.test_audio_delivery import FAST_ENCODE, make_noise, make_tone
 
 
 def test_explicit_break_is_honoured():
-    assert wrap_two_lines("Today's guests are…\na family of capybaras.", 24) == \
-        ["Today's guests are…", "a family of capybaras."]
+    assert wrap_two_lines("Today's guests are…\na family of animals.", 24) == \
+        ["Today's guests are…", "a family of animals."]
     # without a break: unchanged balanced wrap
-    assert wrap_two_lines("Today's guests are… a family of capybaras.", 24) == \
-        ["Today's guests are… a", "family of capybaras."]
+    assert wrap_two_lines("Today's guests are… a family of animals.", 24) == \
+        ["Today's guests are… a", "family of animals."]
     assert wrap_two_lines("Some tea… quietly.", 24) == ["Some tea… quietly."]
     # more than two explicit lines: falls back to the balanced two-line wrap
     assert len(wrap_two_lines("a b\nc d\ne f", 4)) == 2
 
 
 def test_break_reaches_ass_and_srt(tmp_path):
-    cues = build_cues([{"id": "L01", "at": 0.6, "dur": 4.0, "subtitle": "Today's guests are…\na family of capybaras."}], 24)
+    cues = build_cues([{"id": "L01", "at": 0.6, "dur": 4.0, "subtitle": "Today's guests are…\na family of animals."}], 24)
     plan = normalize_plan({}, tmp_path)
     audio_mix.write_ass(cues, str(tmp_path / "s.ass"), plan["subtitles"])
     audio_mix.write_srt(cues, str(tmp_path / "s.srt"))
-    assert "Today's guests are…\\Na family of capybaras." in (tmp_path / "s.ass").read_text()
-    assert "Today's guests are…\na family of capybaras.\n" in (tmp_path / "s.srt").read_text()
+    assert "Today's guests are…\\Na family of animals." in (tmp_path / "s.ass").read_text()
+    assert "Today's guests are…\na family of animals.\n" in (tmp_path / "s.srt").read_text()
 
 
 def test_logo_y_frac_validation(tmp_path):
@@ -116,11 +116,11 @@ async def test_delivery_rebuild_after_plan_edit(dry_env, tmp_path, no_counter)):
             await handle.signal("request_delivery_rebuild", "  ")  # ignored: no reason
             await asyncio.sleep(1.0)
             assert (await handle.query("get_state"))["delivery"]["delivery_version"] == 1
-            await handle.signal("request_delivery_rebuild", "Travis: sub wrap fix")
+            await handle.signal("request_delivery_rebuild", "Reviewer: sub wrap fix")
             state = await _wait(handle, lambda s: s["delivery"]["delivery_version"] == 2
                                 and s["delivery"]["phase"] == "done", timeout=180, what="delivery 2")
             assert state["delivery"]["qc"]["verdict"] == "PASS", state["delivery"]["qc"]
-            assert state["delivery_rebuilds"][0]["reason"] == "Travis: sub wrap fix"
+            assert state["delivery_rebuilds"][0]["reason"] == "Reviewer: sub wrap fix"
             assert "First\nline." in Path(state["delivery"]["paths"]["srt"]).read_text()
             assert state["delivery"]["due"] is False
             await handle.signal("approve_g_final_cut")

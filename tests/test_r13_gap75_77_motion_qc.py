@@ -1,6 +1,6 @@
-"""GAP-75..77 (ep05v2 r13, Travis v10 review): head-yaw reversal, slow-mo on object contact, gesture repeat.
-v10 cases: V15 duck turns to the fire, to the window, back (0.678x); V07 wing rolls a yuzu onto the tray at
-0.585x; V11 sets the tray down at 0.525x; V22 pup takes the yuzu in its mouth at 0.505x."""
+"""GAP-75..77 (ep05v2 r13, Reviewer v10 review): head-yaw reversal, slow-mo on object contact, gesture repeat.
+v10 cases: V15 duck turns to the fire, to the window, back (0.678x); V07 wing rolls a fruit onto the tray at
+0.585x; V11 sets the tray down at 0.525x; V22 pup takes the fruit in its mouth at 0.505x."""
 from __future__ import annotations
 
 import numpy as np
@@ -43,8 +43,8 @@ def test_one_frame_blip_is_not_a_turn():
 
 
 # ---- GAP-76 slow-mo on object contact -------------------------------------------------------------
-@pytest.mark.parametrize("text", ["The duck sets the small wooden tray down", "rolls one whole yuzu onto the tray",
-                                  "Mochi takes the fresh yuzu gently in his mouth", "puts the cup on a plate",
+@pytest.mark.parametrize("text", ["The duck sets the small wooden tray down", "rolls one whole fruit onto the tray",
+                                  "Character2 takes the fresh fruit gently in his mouth", "puts the cup on a plate",
                                   "she picks up a spoon", "hand reaches out"])
 def test_inference_from_motion_text(text):
     assert mq.object_contact({"clip_prompt": text})[0]
@@ -63,7 +63,7 @@ def test_no_contact_text_and_explicit_tag_wins():
 
 def test_slow_action_below_085_warns_and_07_warning_stays():
     ops = {"segments": [[0.0, 4.0]], "interp": "rife"}
-    shot = {"clip_prompt": "the duck's nub wing rolls one whole yuzu onto the tray"}
+    shot = {"clip_prompt": "the duck's nub wing rolls one whole fruit onto the tray"}
     w = speed_warnings("V07", ops, 0.585, shot)
     kinds = [x["kind"] for x in w]
     assert "slow" in kinds and "slow_action" in kinds                    # GAP-63 still fires

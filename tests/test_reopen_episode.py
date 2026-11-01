@@ -47,14 +47,14 @@ def test_reopen_problem_rules():
 async def test_completed_episode_reopens_at_final_cut_and_recompose_continues(dry_env, tmp_path, no_counter)):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character1.png"
     ref.write_bytes(b"png")
     new_prompt = lint_ok("Tighter wide shot. EXACTLY THREE ducks on the boardwalk")
     async with await WorkflowEnvironment.start_local() as env:
         async with _worker(env, h, clips):
             handle = await _to_final_cut(env, h, tmp_path, "ep93")
             # one recompose in the first run (rejected: no clip), then approve -> COMPLETED
-            await handle.execute_update("recompose_shot", args=["A01", "first", new_prompt, [str(ref)], ["rowan"]])
+            await handle.execute_update("recompose_shot", args=["A01", "first", new_prompt, [str(ref)], ["character1"]])
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="parked")
             await handle.execute_update("recompose_decision", args=["A01", False, "no"])
@@ -93,7 +93,7 @@ async def test_completed_episode_reopens_at_final_cut_and_recompose_continues(dr
 
             # recompose continues the numbering: recompose2, a NEW version (never a repeated job id)
             out = await latest.execute_update(
-                "recompose_shot", args=["A01", "after reopen", new_prompt, [str(ref)], ["rowan"]])
+                "recompose_shot", args=["A01", "after reopen", new_prompt, [str(ref)], ["character1"]])
             assert out["workflow_id"] == "ep93-shot-A01-recompose2", out
             assert out["version"] > before["recompose"]["log"][0]["version"]
             await _wait(latest, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),

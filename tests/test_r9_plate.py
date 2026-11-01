@@ -1,5 +1,5 @@
 """GAP-52 / GAP-53 (ep05v2 r9, 2026-10-28): Studio option (d) -- the scale shots (V02/V03/V04/V06)
-get a code-composited start plate (clean plate + capybara cutouts sized by a measured rail/counter
+get a code-composited start plate (clean plate + animal cutouts sized by a measured rail/counter
 reference and the duck rule, contact shadows, exact headcount) and are re-animated from it.
 hfvg.plate_prep makes cutouts / clean plates (rembg / LaMa injected here as mocks),
 hfvg.plate_composite renders + checks the plate, and recompose_shot takes the passed plate as the
@@ -44,9 +44,9 @@ def _spec(tmp_path, **over):
             # rail: top 300, base 500 at both ends; horizon 400 -> at foot_y 500 the rail is 200 px
             "reference": {"kind": "rail", "points": [[0, 300, 500], [360, 300, 500]], "horizon_y": 400},
             "duck_height_frac": 0.4, "count": 2,
-            "layers": [{"name": "Rowan", "role": "adult", "cutout": _ref(a), "x": 120, "foot_y": 500,
+            "layers": [{"name": "Character1", "role": "adult", "cutout": _ref(a), "x": 120, "foot_y": 500,
                         "height_frac_of_duck": 2.0},
-                       {"name": "Mochi", "role": "pup", "cutout": _ref(k), "x": 260, "foot_y": 500,
+                       {"name": "Character2", "role": "pup", "cutout": _ref(k), "x": 260, "foot_y": 500,
                         "height_frac_of_duck": 1.0}],
             "shadow": {"opacity": 0.6, "blur": 2}}
     spec.update(over)
@@ -58,12 +58,12 @@ def _spec(tmp_path, **over):
 def test_compose_sizes_layers_from_the_reference_and_passes(tmp_path):
     m = pc.compose(_spec(tmp_path), tmp_path / "out.png")
     assert m["passed"] and m["count_ok"]
-    rowan, mochi = m["layers"]
-    assert rowan["ref_h_at_depth"] == 200.0 and rowan["duck_h"] == 80.0
-    assert rowan["height_px"] == 160.0 and rowan["ratio_to_duck"] == 2.0 and rowan["frac_of_ref"] == 0.8
-    assert rowan["top_y"] == 340.0 and rowan["checks"]["back_below_ref_top_in_image"]
-    assert mochi["height_px"] == 80.0 and mochi["ratio_to_duck"] == 1.0
-    assert rowan["box"] == [-40, 340, 280, 500]  # 200x100 cutout -> 320x160, centred on x, feet on foot_y
+    character1, character2 = m["layers"]
+    assert character1["ref_h_at_depth"] == 200.0 and character1["duck_h"] == 80.0
+    assert character1["height_px"] == 160.0 and character1["ratio_to_duck"] == 2.0 and character1["frac_of_ref"] == 0.8
+    assert character1["top_y"] == 340.0 and character1["checks"]["back_below_ref_top_in_image"]
+    assert character2["height_px"] == 80.0 and character2["ratio_to_duck"] == 1.0
+    assert character1["box"] == [-40, 340, 280, 500]  # 200x100 cutout -> 320x160, centred on x, feet on foot_y
     out = np.asarray(Image.open(tmp_path / "out.png"))
     assert out.shape == (640, 360, 3)
     assert tuple(out[420, 120]) == (150, 100, 60)          # the layer
@@ -103,7 +103,7 @@ def test_back_must_also_be_below_the_rail_top_in_image(tmp_path):
     spec = _spec(tmp_path, rules={"adult_back_max_frac": 0.9, "adult_to_duck": [1.8, 2.2],
                                   "pup_to_duck": [0.85, 1.15]})
     spec["layers"][0]["foot_y"] = 640   # close to camera: 0.8 of the rail at depth but its back pokes above the rail
-    rows = pc.plan_layers(pc.validate_spec(spec), {"Rowan": (200, 100), "Mochi": (100, 50)})
+    rows = pc.plan_layers(pc.validate_spec(spec), {"Character1": (200, 100), "Character2": (100, 50)})
     assert rows[0]["checks"]["back_below_ref_at_depth"] and not rows[0]["checks"]["back_below_ref_top_in_image"]
     assert not rows[0]["passed"]
 
@@ -115,7 +115,7 @@ def test_compose_verifies_input_shas(tmp_path):
         pc.compose(spec, tmp_path / "x.png")
     spec = _spec(tmp_path)
     spec["layers"][1]["cutout"]["sha256"] = "f" * 64
-    with pytest.raises(pc.PlateSpecError, match="cutout Mochi"):
+    with pytest.raises(pc.PlateSpecError, match="cutout Character2"):
         pc.compose(spec, tmp_path / "x.png")
 
 
@@ -126,7 +126,7 @@ def test_compose_verifies_input_shas(tmp_path):
     (lambda s: s["reference"].update(points=[[0, 500, 300], [360, 300, 500]]), "below top"),
     (lambda s: s["reference"].update(horizon_y=600), "horizon"),
     (lambda s: s["layers"][0].update(role="kit"), "adult or pup"),
-    (lambda s: s["layers"][1].update(name="Rowan"), "duplicate"),
+    (lambda s: s["layers"][1].update(name="Character1"), "duplicate"),
     (lambda s: s["layers"][0].update(height_frac_of_duck=0), "> 0"),
     (lambda s: s["layers"][0]["cutout"].update(sha256="abc"), "64 hex"),
     (lambda s: s.update(duck_height_frac=3), "duck_height_frac"),
@@ -236,7 +236,7 @@ async def test_recompose_with_plate_spends_no_still_and_parks(dry_env, tmp_path,
     from temporalio.testing import WorkflowEnvironment
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
-    ref = tmp_path / "rowan.png"
+    ref = tmp_path / "character1.png"
     ref.write_bytes(b"png")
     async with await WorkflowEnvironment.start_local() as env:
         async with _worker(env, h, clips):
@@ -248,11 +248,11 @@ async def test_recompose_with_plate_spends_no_still_and_parks(dry_env, tmp_path,
             prompt = lint_ok("A duck waddles through the snow")
             with pytest.raises(WorkflowUpdateFailedError) as refused:
                 await handle.execute_update("recompose_shot", args=[
-                    "A01", "r", prompt, [str(ref)], ["rowan"], None, None, None, {"path": "x", "sha256": "q"}])
+                    "A01", "r", prompt, [str(ref)], ["character1"], None, None, None, {"path": "x", "sha256": "q"}])
             assert "sha256" in str(refused.value.cause)
             stills_before = len(h.still_calls)
             await handle.execute_update("recompose_shot", args=[
-                "A01", "Studio r9 option (d): composited plate", prompt, [str(ref)], ["rowan"], None,
+                "A01", "Studio r9 option (d): composited plate", prompt, [str(ref)], ["character1"], None,
                 None, None, plate])
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="plate still parked")
@@ -286,7 +286,7 @@ def test_route_passes_a_passed_plate_as_ninth_arg(client, episode, monkeypatch):
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
     m = _episode_plate(episode)
-    body = {"reason": "Studio r9", "prompt": lint_ok("One animal"), "ref_keys": ["rowan"],
+    body = {"reason": "Studio r9", "prompt": lint_ok("One animal"), "ref_keys": ["character1"],
             "plate_manifest": "plates/A01/plate.png.manifest.json", "plate_approved_by": "Studio r9"}
     r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
     assert r.status_code == 200, r.text
@@ -300,7 +300,7 @@ def test_route_refuses_bad_plates_before_anything(client, episode, monkeypatch):
     api_main, c = client
     h = _Handle(dict(META))
     monkeypatch.setattr(api_main, "temporal_client", _Client(h))
-    base = {"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["rowan"]}
+    base = {"reason": "S", "prompt": lint_ok("One animal"), "ref_keys": ["character1"]}
     _episode_plate(episode, "A02")
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
                json=dict(base, plate_manifest="plates/A02/plate.png.manifest.json"))
