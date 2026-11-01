@@ -1140,7 +1140,7 @@ async def start_episode(
         beatmap_dir.mkdir(parents=True, exist_ok=True)
         beatmap_path = str(beatmap_dir / "BEATMAP.md")
         
-        with open(beatmap_path, "w") as f:
+        with open(beatmap_path, "w", encoding="utf-8") as f:
             f.write(request.beatmap_content)
     else:
         # No beatmap_content provided - check if BEATMAP.md exists in the episode directory
@@ -4112,7 +4112,7 @@ async def set_ref_versions(
         refs_data["versions"][ref_key] = version
     
     # Write updated refs.json
-    refs_json_path.write_text(json.dumps(refs_data, indent=2, encoding="utf-8"))
+    refs_json_path.write_text(json.dumps(refs_data, indent=2), encoding="utf-8")
     
     # Write version sidecars for any existing ref files
     per_shot = refs_data.get("per_shot", {})
@@ -4134,7 +4134,7 @@ async def set_ref_versions(
             version_sidecar_dir = Path(ref_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(ref_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}, encoding="utf-8"))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}), encoding="utf-8")
             updated_sidecars.append(str(version_sidecar))
     
     return {

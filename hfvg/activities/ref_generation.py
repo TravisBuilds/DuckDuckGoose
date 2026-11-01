@@ -105,7 +105,7 @@ async def generate_ref_activity(
         
         if version_sidecar.exists():
             try:
-                version_data = json.loads(version_sidecar.read_text())
+                version_data = json.loads(version_sidecar.read_text(encoding="utf-8"))
                 existing_version = version_data.get("version", 1)
             except Exception as e:
                 activity.logger.warning(f"Failed to read version sidecar: {e}")
@@ -213,7 +213,7 @@ async def generate_ref_activity(
             version_sidecar_dir = Path(output_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}), encoding="utf-8")
             
             # Commit credits only (no USD reservation in dry mode)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
@@ -294,7 +294,7 @@ async def generate_ref_activity(
             version_sidecar_dir = Path(output_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}), encoding="utf-8")
             activity.logger.info(f"Wrote version sidecar: v{version}")
         
         return {
@@ -382,7 +382,7 @@ async def load_refs_to_generate_activity(
         sidecar = p.parent / ".versions" / f"{p.stem}.json"
         if sidecar.exists():
             try:
-                data = json.loads(sidecar.read_text())
+                data = json.loads(sidecar.read_text(encoding="utf-8"))
                 return data.get("version", 1)
             except (json.JSONDecodeError, OSError):
                 pass
@@ -424,7 +424,7 @@ async def load_refs_to_generate_activity(
         activity.logger.warning(f"No refs.json for {episode_id}, no refs to generate")
         return []
     
-    refs_data = json.loads(refs_path.read_text())
+    refs_data = json.loads(refs_path.read_text(encoding="utf-8"))
     to_generate_raw = refs_data.get("to_generate", [])
     prompts_map = refs_data.get("prompts", {})
     versions_map = refs_data.get("versions", {})  # Map of {key: version}
@@ -710,7 +710,7 @@ async def generate_ref_edit_activity(
         meta = {}
         if sidecar.exists():
             try:
-                meta = json.loads(sidecar.read_text())
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
             except Exception:
                 meta = {}
         same = meta.get("version", 1) == version and meta.get("edit_from_sha256") == source_sha
@@ -732,7 +732,7 @@ async def generate_ref_edit_activity(
             "edit_from_sha256": source_sha, "model": model_path,
             **({"extra_refs": [str(x) for x in extra_refs]} if extra_refs else {}),
             **({"locks": locks_added} if locks_added else {}),
-        }))
+        }), encoding="utf-8")
 
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -773,7 +773,7 @@ async def generate_ref_edit_activity(
             src_sidecar = Path(edit_from).parent / ".versions" / f"{Path(edit_from).stem}.json"
             if src_sidecar.exists():
                 try:
-                    src_version = int(json.loads(src_sidecar.read_text()).get("version", 1))
+                    src_version = int(json.loads(src_sidecar.read_text(encoding="utf-8")).get("version", 1))
                 except Exception:
                     src_version = 1
             source_url = (await provider.upload_reference(edit_from, src_version))["public_url"]
@@ -913,4 +913,4 @@ async def load_ref_edit_specs_activity(episode_id: str, keys: list[str], is_live
     path = refs_json_path(episode_id)
     if not path.exists():
         raise ValueError(f"refs.json not found for {episode_id}: {path}")
-    return ref_edit_specs_for(json.loads(path.read_text()), list(keys), is_live)
+    return ref_edit_specs_for(json.loads(path.read_text(encoding="utf-8")), list(keys), is_live)

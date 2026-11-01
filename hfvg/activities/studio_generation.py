@@ -146,7 +146,7 @@ def _get_ref_version_from_sidecar(ref_path: str) -> int:
     if version_sidecar.exists():
         try:
             import json as json_lib
-            sidecar_data = json_lib.loads(version_sidecar.read_text())
+            sidecar_data = json_lib.loads(version_sidecar.read_text(encoding="utf-8"))
             return sidecar_data.get("version", 1)
         except (json_lib.JSONDecodeError, OSError):
             # Fall back to v1 if sidecar is corrupted

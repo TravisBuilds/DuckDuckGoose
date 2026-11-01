@@ -470,8 +470,8 @@ def stage_episode(spec_path: str | Path, episode_dir: str | Path) -> dict[str, A
     verify_reuse(plan)
     ep = Path(episode_dir)
     ep.mkdir(parents=True, exist_ok=True)
-    (ep / "shots.json").write_text(json.dumps(generation_spec(spec, encoding="utf-8"), indent=1, ensure_ascii=False))
-    (ep / EDIT_PLAN_NAME).write_text(json.dumps(plan, indent=1, ensure_ascii=False, encoding="utf-8"))
+    (ep / "shots.json").write_text(json.dumps(generation_spec(spec), indent=1, ensure_ascii=False), encoding="utf-8")
+    (ep / EDIT_PLAN_NAME).write_text(json.dumps(plan, indent=1, ensure_ascii=False), encoding="utf-8")
     return plan
 
 

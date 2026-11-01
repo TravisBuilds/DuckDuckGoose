@@ -49,7 +49,7 @@ def load_headcounts(episode_id: str, episodes_dir=None) -> dict:
     if not p.is_file():
         return {}
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -72,7 +72,7 @@ def record_headcount(episode_id: str, shot_id: str, version: int, counts: dict[s
     p = headcounts_path(episode_id, episodes_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True))
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True)), encoding="utf-8")
     tmp.replace(p)
     return row
 

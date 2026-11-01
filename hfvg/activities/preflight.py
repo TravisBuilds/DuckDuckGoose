@@ -63,7 +63,7 @@ async def preflight_validate_episode_activity(
         shots_data = {}
     else:
         try:
-            shots_raw = json.loads(shots_json_path.read_text())
+            shots_raw = json.loads(shots_json_path.read_text(encoding="utf-8"))
             # shots.json has a "shots" array with "id" field
             if isinstance(shots_raw, dict) and "shots" in shots_raw:
                 shots_data = {s["id"]: s for s in shots_raw["shots"] if "id" in s}
@@ -95,7 +95,7 @@ async def preflight_validate_episode_activity(
         per_shot_refs = {}
     else:
         try:
-            refs_raw = json.loads(refs_json_path.read_text())
+            refs_raw = json.loads(refs_json_path.read_text(encoding="utf-8"))
             
             # Handle both schemas: "available"/"to_generate" OR "per_shot"
             if "per_shot" in refs_raw:
@@ -140,7 +140,7 @@ async def preflight_validate_episode_activity(
                                 version_sidecar = Path(ref_path).parent / ".versions" / f"{ref_key}.json"
                                 if version_sidecar.exists():
                                     try:
-                                        sidecar_data = json.loads(version_sidecar.read_text())
+                                        sidecar_data = json.loads(version_sidecar.read_text(encoding="utf-8"))
                                         current_version = sidecar_data.get("version", 1)
                                         if current_version != target_version:
                                             to_generate_refs.add(ref_key)
@@ -180,7 +180,7 @@ async def preflight_validate_episode_activity(
         problems.append(f"Missing required file: prompt_kit.json")
     else:
         try:
-            json.loads(prompt_kit_path.read_text())
+            json.loads(prompt_kit_path.read_text(encoding="utf-8"))
         except Exception as e:
             problems.append(f"Invalid prompt_kit.json: {e}")
     

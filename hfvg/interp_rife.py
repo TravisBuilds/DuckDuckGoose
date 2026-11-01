@@ -252,7 +252,7 @@ async def rife_retime(clip_path: str, clip_sha256: str, segments: list[list[floa
                     bad.mkdir(parents=True, exist_ok=True)
                     os.replace(out, bad / out.name)
                     os.replace(meta, bad / meta.name)
-                    (bad / f"{key}.reason.txt").write_text(str(err, encoding="utf-8"))
+                    (bad / f"{key}.reason.txt").write_text(str(err), encoding="utf-8")
         except (OSError, json.JSONDecodeError):
             pass
     cdir.mkdir(parents=True, exist_ok=True)
@@ -306,7 +306,7 @@ async def rife_retime(clip_path: str, clip_sha256: str, segments: list[list[floa
                                         "-preset", "medium", "-crf", "10", "-pix_fmt", "yuv420p", "-r", str(fps), str(part)],
                                   "ffmpeg rife mezzanine", beat, {"stage2": "encode"})
         os.replace(part, out)
-    meta.write_text(json.dumps({"key": key, "clip": str(src, encoding="utf-8"), "sha256": clip_sha256, "segments": segments,
+    meta.write_text(json.dumps({"key": key, "clip": str(src), "sha256": clip_sha256, "segments": segments,
                                 "frames": frames, "fps": fps, "model": Path(cfg["model"]).name,
-                                "per_segment": per_seg, "size_bytes": out.stat().st_size}, indent=1))
+                                "per_segment": per_seg, "size_bytes": out.stat().st_size}, indent=1), encoding="utf-8")
     return {"path": str(out), "cached": False, "key": key, "per_segment": per_seg}

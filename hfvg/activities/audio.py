@@ -357,7 +357,7 @@ async def load_audio_plan(episode_id: str, plan_path: str | None = None) -> dict
             from hfvg.activities.media import MUTE_MANIFEST_NAME
             edit_manifest = audio_mix.episode_dir(episode_id) / "edit" / MUTE_MANIFEST_NAME
             if edit_manifest.is_file():
-                current = audio_mix.timeline_from_manifest(json.loads(edit_manifest.read_text()))
+                current = audio_mix.timeline_from_manifest(json.loads(edit_manifest.read_text(encoding="utf-8")))
                 plan = audio_mix.remap_plan_to_edit(plan, current)
                 plan = audio_mix.resolve_sfx_events(plan, current)
             elif not _dry_run():

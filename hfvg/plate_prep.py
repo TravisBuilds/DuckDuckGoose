@@ -116,7 +116,7 @@ def matte(still: str | Path, box, out_png: str | Path, source: str, remover=None
             "box": [x0, y0, x1, y1], "bbox_in_still": [x0 + bx0, y0 + by0, x0 + bx1, y0 + by1],
             "size": list(rgba.size), "path": str(out.resolve()), "sha256": sha256_file(out), "source": source,
             "exclude": exclude or [], "exclude_cutouts": [m.get("sha256") for m in exclude_cutouts or []]}
-    out.with_suffix(".json").write_text(json.dumps(meta, indent=1, encoding="utf-8"))
+    out.with_suffix(".json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return meta
 
 
@@ -160,7 +160,7 @@ def clean(still: str | Path, mask_png: str | Path, out_png: str | Path, source: 
             "mask": str(Path(mask_png).resolve()), "mask_sha256": sha256_file(mask_png),
             "masked_frac": round(float((np.asarray(mask) > 127).mean()), 4),
             "size": list(keep.size), "path": str(out.resolve()), "sha256": sha256_file(out), "source": source}
-    out.with_suffix(".json").write_text(json.dumps(meta, indent=1, encoding="utf-8"))
+    out.with_suffix(".json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return meta
 
 

@@ -1033,7 +1033,7 @@ def write_ass(cues: list[dict], path: str, subs: dict) -> None:
     style = subs["ass_style"].split(":", 1)[1].split(",")[0].strip() if subs.get("ass_style") else "Default"
     rows = [f"Dialogue: 0,{_ass_time(c['start'])},{_ass_time(c['end'])},{style},,0,0,0,,"
             + "\\N".join(_ass_escape(x) for x in c["lines"]) for c in cues]
-    Path(path).write_text(head + "\n".join(rows, encoding="utf-8") + ("\n" if rows else ""), encoding="utf-8")
+    Path(path).write_text(head + "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
 
 
 def write_srt(cues: list[dict], path: str) -> None:
@@ -1558,7 +1558,7 @@ async def mix_and_deliver(
             "picture_sync": {"reference": ref_mute, "checked_frames": int(sync_upto), "encodes": picture_sync},
         }
         tmp_manifest = work / "manifest.json"
-        tmp_manifest.write_text(json.dumps(manifest, indent=2, encoding="utf-8"))
+        tmp_manifest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         os.replace(tmp_manifest, paths["manifest"])
         heartbeat({"stage": "done", "input_key": key})
         return {**manifest, "reused": False}

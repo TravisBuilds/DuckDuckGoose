@@ -69,7 +69,7 @@ def write_snapshot(episode_dir: str | Path, snapshot: dict, saved_at: str) -> Pa
     p = snapshot_path(episode_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"saved_at": saved_at, "snapshot": snapshot}, ensure_ascii=False, default=str, encoding="utf-8"))
+    tmp.write_text(json.dumps({"saved_at": saved_at, "snapshot": snapshot}, ensure_ascii=False, default=str), encoding="utf-8")
     os.replace(tmp, p)
     return p
 

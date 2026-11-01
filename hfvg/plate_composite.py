@@ -229,7 +229,7 @@ def compose(spec: dict[str, Any], out_png: str | Path, spec_path: str | None = N
                 "path": str(out.resolve()), "sha256": sha256_file(out), "size": list(plate.size),
                 "notes": spec.get("notes", "")}
     manifest["passed"] = bool(count_ok and all(r["passed"] for r in rows))
-    Path(str(out) + ".manifest.json").write_text(json.dumps(manifest, indent=1, encoding="utf-8"))
+    Path(str(out) + ".manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     return manifest
 
 
