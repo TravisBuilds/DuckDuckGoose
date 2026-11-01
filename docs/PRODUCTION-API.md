@@ -32,7 +32,7 @@ export ADMIN_SECRET="your_admin_secret_min_32_chars"
 - Tokens must be at least 32 characters
 - Tokens must be ASCII (non-ASCII tokens rejected with 403 Forbidden, not 500)
 - Missing token: 401 Unauthorized
-- Invalid token (including malformed/non-UTF-8): 403 Forbidden
+- Invalid token (including non-UTF-8): 403 Forbidden
 - Constant-time comparison prevents timing attacks
 - Missing/short tokens fail closed (500 error on startup)
 

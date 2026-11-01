@@ -315,19 +315,14 @@ def test_non_ascii_token_returns_403():
 
 def test_http_non_ascii_bearer_token_returns_403(client):
     """HTTP test: Non-ASCII Bearer token returns 403."""
-    # Try to post with non-ASCII Bearer token - httpx will encode it as latin-1
-    # and FastAPI will decode it, resulting in non-ASCII characters in the string
-    try:
-        response = client.post(
-            "/api/episodes/upload/validate",
-            data={"episode_id": "ep01"},
-            files={"beatmap_file": ("BEATMAP.md", b"| # | ID  |\n|---|-----|\n| 1 | A01 |", "text/markdown")},
-            headers={"Authorization": "Bearer caf\xe9token"}
-        )
-        assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
-    except UnicodeEncodeError:
-        # If httpx refuses to send non-ASCII header, test with wrong ASCII token instead
-        pytest.skip("Test client cannot send non-ASCII headers")
+    # Send non-ASCII Bearer token as bytes
+    response = client.post(
+        "/api/episodes/upload/validate",
+        data={"episode_id": "ep01"},
+        files={"beatmap_file": ("BEATMAP.md", b"| # | ID  |\n|---|-----|\n| 1 | A01 |", "text/markdown")},
+        headers={"Authorization": b"Bearer caf\xe9token"}
+    )
+    assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
 
 
 def test_http_wrong_bearer_token_returns_403(client):
