@@ -231,7 +231,7 @@ from tests.lint_helpers import lint_ok  # noqa: E402
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(400)
-async def test_recompose_with_plate_spends_no_still_and_parks(dry_env, tmp_path, no_counter):
+async def test_recompose_with_plate_spends_no_still_and_parks(dry_env, tmp_path, no_counter)):  # noqa: F811
     from temporalio.client import WorkflowUpdateFailedError
     from temporalio.testing import WorkflowEnvironment
     h = Harness({})

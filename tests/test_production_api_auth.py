@@ -138,7 +138,6 @@ def test_malformed_auth_header_gets_401(client):
 def test_upload_token_isolated():
     """Upload token works - isolated test (implementation verified manually, test framework issue)."""
     import importlib
-    import sys
     
     # Remove cached module
     if 'api.main' in sys.modules:

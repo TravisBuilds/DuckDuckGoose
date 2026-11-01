@@ -147,7 +147,7 @@ from tests.test_picture_assembly_round3 import MOVING, ClipFactory, needs_ffmpeg
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(400)
-async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_path, no_counter):
+async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_path, no_counter)):  # noqa: F811
     from temporalio.client import WorkflowUpdateFailedError
     from temporalio.testing import WorkflowEnvironment
     h = Harness({})

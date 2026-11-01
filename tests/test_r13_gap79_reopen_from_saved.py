@@ -320,7 +320,7 @@ def test_supersede_refusals(monkeypatch, tmp_path, body, extra, state, why):
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(600)
-async def test_reopen_without_history_parks_and_continues(dry_env, tmp_path, no_counter):
+async def test_reopen_without_history_parks_and_continues(dry_env, tmp_path, no_counter)):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     ref = tmp_path / "rowan.png"

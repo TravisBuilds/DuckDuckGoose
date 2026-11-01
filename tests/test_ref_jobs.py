@@ -103,7 +103,7 @@ def test_ref_locks_injected_once_and_realism_refused(kit):
 
 
 @pytest.mark.asyncio
-async def test_live_edit_sends_extras_after_source_with_locks(live_env, kit, tmp_path):
+async def test_live_edit_sends_extras_after_source_with_locks(live_env, kit, tmp_path)):  # noqa: F811
     from hfvg.activities.ref_generation import generate_ref_edit_activity
     extra = tmp_path / "turn.png"
     extra.write_bytes(_png(color=(1, 2, 3)))
@@ -124,7 +124,7 @@ async def test_live_edit_sends_extras_after_source_with_locks(live_env, kit, tmp
 
 
 @pytest.mark.asyncio
-async def test_live_edit_realism_refused_before_upload_or_estimate(live_env, kit):
+async def test_live_edit_realism_refused_before_upload_or_estimate(live_env, kit)):  # noqa: F811
     from hfvg.activities.ref_generation import generate_ref_edit_activity
     with pytest.raises(PromptLintError):
         await generate_ref_edit_activity("ep99", "ab", "A realistic duck stands", live_env["out"], 1,
@@ -133,7 +133,7 @@ async def test_live_edit_realism_refused_before_upload_or_estimate(live_env, kit
 
 
 @pytest.mark.asyncio
-async def test_live_edit_too_many_refs_refused(live_env):
+async def test_live_edit_too_many_refs_refused(live_env)):  # noqa: F811
     from hfvg.activities.ref_generation import generate_ref_edit_activity
     with pytest.raises(ValueError, match="exceed"):
         await generate_ref_edit_activity("ep99", "ab", "p", live_env["out"], 1, live_env["src"],
@@ -146,7 +146,7 @@ async def test_live_edit_too_many_refs_refused(live_env):
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(400)
-async def test_generate_refs_update_at_final_cut(dry_env, tmp_path, no_counter):
+async def test_generate_refs_update_at_final_cut(dry_env, tmp_path, no_counter)):  # noqa: F811
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from hfvg.workflows.shot import ShotWorkflow

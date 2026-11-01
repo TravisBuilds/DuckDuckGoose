@@ -44,7 +44,7 @@ def test_reopen_problem_rules():
 @needs_ffmpeg
 @pytest.mark.asyncio
 @pytest.mark.timeout(500)
-async def test_completed_episode_reopens_at_final_cut_and_recompose_continues(dry_env, tmp_path, no_counter):
+async def test_completed_episode_reopens_at_final_cut_and_recompose_continues(dry_env, tmp_path, no_counter)):  # noqa: F811
     h = Harness({})
     clips = ClipFactory(tmp_path, [MOVING])
     ref = tmp_path / "rowan.png"
