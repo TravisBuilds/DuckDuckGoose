@@ -275,7 +275,7 @@ def test_api_adopt_fields_from_the_package_entry(tmp_path, monkeypatch):
              "duration": 4, "ref_keys": ["char1", "char2"], "prompt": "CharA sniffs a basket",
              "reuse": {"clip": "/c.mp4"}, "pre_approved_still": {"path": "/s.jpg"}}
     f = _adopt_reuse_fields("ep99", "V06", entry)
-    assert f["prompt"] == "Mochi sniffs a basket" and f["shot_meta"]["count"] == 2
+    assert f["prompt"] == "CharA sniffs a basket" and f["shot_meta"]["count"] == 2
     assert f["params"]["model"] == "kling" and f["trim"] == {"in": 0.0, "out": 4.0}
     assert f["refs"] == [str((ep / "refs" / "char1.png").resolve())]   # only refs on disk
     with pytest.raises(HTTPException):

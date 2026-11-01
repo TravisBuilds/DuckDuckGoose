@@ -329,7 +329,7 @@ async def test_reopen_without_history_parks_and_continues(dry_env, tmp_path, no_
     async with await WorkflowEnvironment.start_local() as env:
         async with _worker(env, h, clips):
             handle = await _to_final_cut(env, h, tmp_path, "ep94")
-            await handle.execute_update("recompose_shot", args=["A01", "first", new_prompt, [str(ref)], ["rowan"]])
+            await handle.execute_update("recompose_shot", args=["A01", "first", new_prompt, [str(ref)], ["character"]])
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
                         timeout=90, what="parked")
             await handle.execute_update("recompose_decision", args=["A01", False, "no"])
