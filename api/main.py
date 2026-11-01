@@ -64,6 +64,18 @@ def get_admin_secret() -> str:
         )
     return secret
 
+def get_upload_token() -> str | None:
+    """Get UPLOAD_TOKEN for scoped production API access (upload-only). Returns None if not configured."""
+    token = os.getenv("UPLOAD_TOKEN", "")
+    if not token:
+        return None
+    if len(token) < 32:
+        raise ValueError(
+            "UPLOAD_TOKEN must be at least 32 characters if set. "
+            "Generate one with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+        )
+    return token
+
 # Check ADMIN_SECRET early - FAIL CLOSED (unless in test mode)
 try:
     ADMIN_SECRET = get_admin_secret()
@@ -317,6 +329,59 @@ def verify_admin_secret(authorization: str | None = Header(None)):
         raise HTTPException(
             status_code=403,
             detail="Invalid admin secret"
+        )
+
+
+def verify_upload_token(authorization: str | None = Header(None)):
+    """
+    Verify upload token from Authorization header (scoped to upload operations only).
+    Accepts UPLOAD_TOKEN or ADMIN_SECRET (admin can do everything).
+    Compares as UTF-8 bytes for security. Never raises 500 on missing config.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required. Set 'Authorization: Bearer <TOKEN>'"
+        )
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization must use Bearer token format"
+        )
+    
+    token = authorization[7:]
+    
+    # Validate token is valid UTF-8 and ASCII-safe
+    try:
+        token_bytes = token.encode('utf-8')
+        # Reject non-ASCII tokens (security: avoid encoding tricks)
+        if not token.isascii():
+            raise HTTPException(status_code=403, detail="Invalid token format")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        raise HTTPException(status_code=403, detail="Invalid token format")
+    
+    # Get configured tokens (handle missing config gracefully, never 500)
+    try:
+        admin_secret = get_admin_secret()
+        admin_bytes = admin_secret.encode('utf-8')
+    except ValueError:
+        # ADMIN_SECRET not configured (shouldn't happen in prod, but be safe)
+        admin_bytes = b""
+    
+    upload_token = get_upload_token()
+    upload_bytes = upload_token.encode('utf-8') if upload_token else b""
+    
+    # Accept either UPLOAD_TOKEN or ADMIN_SECRET (constant-time comparison on bytes)
+    is_valid = (
+        (upload_bytes and secrets.compare_digest(token_bytes, upload_bytes)) or
+        (admin_bytes and secrets.compare_digest(token_bytes, admin_bytes))
+    )
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid upload token"
         )
 
 
