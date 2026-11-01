@@ -1990,7 +1990,7 @@ test_mutation 229 "retry_clip refuses shots rejected at G2" \
 test_mutation 230 "retry_clip pre-check refuses when the round cap is exhausted" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_when_round_cap_exhausted" \
-    sed -i 's/^    amount = clip_estimate_usd_micros(model, None, duration,$/    amount = 1  # MUTATED/'
+    sed -i '/^    amount = clip_estimate_usd_micros(model, None, duration,$/{N;s/.*\n.*/    amount = 1  # MUTATED/}'
 
 # 231: G-RETRY-1d: final cut approval waits for pending clip retries
 test_mutation 231 "Final cut approval is held while a clip retry is pending" \

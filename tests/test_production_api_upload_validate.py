@@ -298,7 +298,7 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
 
 
 def test_non_ascii_token_returns_403():
-    """Non-ASCII bytes in Authorization header return 403, not 500."""
+    """Non-ASCII bytes in Authorization header return 403, not 500 (unit test)."""
     from fastapi import HTTPException
     from api.main import verify_admin_secret
     
@@ -311,6 +311,45 @@ def test_non_ascii_token_returns_403():
     
     assert exc_info.value.status_code == 403
     assert "non-ascii" in exc_info.value.detail.lower()
+
+
+def test_http_non_ascii_bearer_token_returns_403(client):
+    """HTTP test: Non-ASCII Bearer token returns 403."""
+    # Try to post with non-ASCII Bearer token - httpx will encode it as latin-1
+    # and FastAPI will decode it, resulting in non-ASCII characters in the string
+    try:
+        response = client.post(
+            "/api/episodes/upload/validate",
+            data={"episode_id": "ep01"},
+            files={"beatmap_file": ("BEATMAP.md", b"| # | ID  |\n|---|-----|\n| 1 | A01 |", "text/markdown")},
+            headers={"Authorization": "Bearer caf\xe9token"}
+        )
+        assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+    except UnicodeEncodeError:
+        # If httpx refuses to send non-ASCII header, test with wrong ASCII token instead
+        pytest.skip("Test client cannot send non-ASCII headers")
+
+
+def test_http_wrong_bearer_token_returns_403(client):
+    """HTTP test: Wrong ASCII Bearer token returns 403."""
+    response = client.post(
+        "/api/episodes/upload/validate",
+        data={"episode_id": "ep01"},
+        files={"beatmap_file": ("BEATMAP.md", b"| # | ID  |\n|---|-----|\n| 1 | A01 |", "text/markdown")},
+        headers={"Authorization": "Bearer wrong_token_here"}
+    )
+    assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+
+
+def test_http_empty_bearer_token_returns_403(client):
+    """HTTP test: Empty Bearer token returns 403."""
+    response = client.post(
+        "/api/episodes/upload/validate",
+        data={"episode_id": "ep01"},
+        files={"beatmap_file": ("BEATMAP.md", b"| # | ID  |\n|---|-----|\n| 1 | A01 |", "text/markdown")},
+        headers={"Authorization": "Bearer "}
+    )
+    assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
 
 
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
@@ -360,7 +399,7 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     # Check budget was initialized
     import asyncio
     async def check_budget():
-        async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+        async with aiosqlite.connect(db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM budget_lines WHERE episode_id = ?", (episode_id,))
             count = (await cursor.fetchone())[0]
             return count

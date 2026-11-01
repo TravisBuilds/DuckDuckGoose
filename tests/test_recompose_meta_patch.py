@@ -28,7 +28,8 @@ def test_meta_patch_validation():
     assert "count" in W.recompose_meta_problem({"count": True})
     assert "count" in W.recompose_meta_problem({"count": -1})
     assert "characters" in W.recompose_meta_problem({"characters": "HM"})
-    assert "characters" in W.recompose_meta_problem({"characters": []})
+    assert W.recompose_meta_problem({"characters": []}) is None  # Empty list is allowed
+    assert "characters" in W.recompose_meta_problem({"characters": ["H", " "]})  # Blank string rejected
     assert "duck" in W.recompose_meta_problem({"duck": 1})
 
 

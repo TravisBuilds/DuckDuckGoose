@@ -2456,8 +2456,8 @@ class EpisodeWorkflowV2:
         # Validate characters
         if "characters" in shot_meta:
             chars = shot_meta["characters"]
-            if not isinstance(chars, list) or not chars or not all(isinstance(s, str) for s in chars):
-                return "shot_meta.characters must be a non-empty list of strings"
+            if not isinstance(chars, list) or not all(isinstance(s, str) and s.strip() for s in chars):
+                return "shot_meta.characters must be a list of non-blank strings"
         # Validate duck
         if "duck" in shot_meta:
             d = shot_meta["duck"]

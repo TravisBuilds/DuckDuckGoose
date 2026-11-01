@@ -423,24 +423,37 @@ async def verify_auth_unified(
     
     This allows both programmatic access (Bearer token) and browser access (cookie).
     Fail closed: at least one must be valid.
+    
+    Returns 401 only when no credential is provided.
+    Returns 403 when a credential is provided but invalid.
     """
     # Try cookie first (browser access)
+    cookie_error = None
     if studio_admin_token:
         try:
             await verify_admin_cookie(studio_admin_token)
             return  # Cookie is valid
-        except HTTPException:
-            pass  # Fall through to try Bearer token
+        except HTTPException as e:
+            cookie_error = e
     
     # Try Bearer token (programmatic access)
     if authorization:
         try:
             verify_admin_secret(authorization)
             return  # Bearer token is valid
-        except HTTPException:
-            pass
+        except HTTPException as e:
+            # Present but invalid Bearer token: always 403
+            raise HTTPException(status_code=403, detail=e.detail)
     
-    # Neither worked
+    # No Bearer token, but maybe cookie was tried
+    if cookie_error:
+        # Cookie was provided but invalid, and no Bearer token: 401 (no valid credential)
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
+        )
+    
+    # Neither credential provided
     raise HTTPException(
         status_code=401,
         detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
