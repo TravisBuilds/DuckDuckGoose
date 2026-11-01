@@ -297,35 +297,22 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
     assert "workflow is currently running" in response.json()["detail"]
 
 
-@pytest.mark.asyncio
-async def test_non_ascii_token_returns_403():
+def test_non_ascii_token_returns_403(client):
     """Non-ASCII bytes in Authorization header return 403, not 500."""
-    from api.main import verify_auth_unified
-    from fastapi import HTTPException
-    import pytest
-    
     # Latin-1 encoded token with non-ASCII byte (0xE9 = é)
-    # FastAPI decodes headers as latin-1, so this becomes a string with non-ASCII
-    latin1_decoded = b"Bearer caf\xe9token".decode("latin-1")
-    
-    with pytest.raises(HTTPException) as exc_info:
-        await verify_auth_unified(latin1_decoded)
-    
-    # Non-ASCII tokens are rejected as unauthenticated (401), not malformed (403)
-    assert exc_info.value.status_code == 401
+    # Send raw header bytes - FastAPI will decode as latin-1
+    response = client.get(
+        "/api/episodes/list",
+        headers={"Authorization": b"Bearer caf\xe9token".decode("latin-1")}
+    )
+    assert response.status_code == 403
+    assert "Invalid" in response.json()["detail"] or "token" in response.json()["detail"].lower()
 
 
-@pytest.mark.skip(reason="Test has database isolation issues - DATABASE_PATH conflicts between client fixture and monkeypatch")
 def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     """Re-uploading without credit plan clears budget_lines (preserves transactions history)."""
     from unittest.mock import AsyncMock, Mock
     from temporalio.service import RPCError, RPCStatusCode
-    import tempfile
-    
-    # Use a unique database file for this test to avoid state pollution
-    db_fd, db_path = tempfile.mkstemp(suffix=".db")
-    os.close(db_fd)
-    monkeypatch.setenv("DATABASE_PATH", db_path)
     
     # Mock temporal_client to return NOT_FOUND (workflow doesn't exist)
     mock_error = RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
@@ -340,6 +327,9 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     import aiosqlite
     import asyncio
     from hfvg.budget import BudgetLedger
+    
+    # Use the same database path as the API
+    db_path = api.main.DATABASE_PATH
     
     # Initialize database schema
     ledger = BudgetLedger(db_path)
@@ -387,9 +377,3 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     # Check budget was cleared
     count2 = asyncio.run(check_budget())
     assert count2 == 0, "Budget should be cleared when re-upload omits credit plan"
-    
-    # Cleanup temp database
-    try:
-        os.unlink(db_path)
-    except:
-        pass

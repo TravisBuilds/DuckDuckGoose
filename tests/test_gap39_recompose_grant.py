@@ -87,6 +87,7 @@ def test_grant_recompose_problem_max_grants_reached():
     workflow.recompose_counts["A01"] = 4  # Used all including grants
     workflow.recompose_grants["A01"] = 2  # MAX_RECOMPOSE_GRANTS_PER_SHOT
     problem = workflow._grant_recompose_problem("A01", "test reason")
+    assert problem is not None
     assert "max recompose grants per shot (2) reached" in problem
     assert "cap_override_note" in problem
 

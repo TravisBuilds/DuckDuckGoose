@@ -851,6 +851,19 @@ def check_balance(json_output: bool):
             for key, value in balance.details.items():
                 if not isinstance(value, (dict, list)):
                     click.echo(f"    {key}: {value}")
+        click.echo()
+    
+    if result.warnings:
+        click.echo("WARNINGS:")
+        for warning in result.warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo()
+    
+    if result.errors:
+        click.echo("ERRORS:", err=True)
+        for error in result.errors:
+            click.echo(f"  ❌ {error}", err=True)
+        sys.exit(1)
 
 
 def _mix_episode_dir(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool) -> dict:

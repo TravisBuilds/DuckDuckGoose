@@ -1990,7 +1990,7 @@ test_mutation 229 "retry_clip refuses shots rejected at G2" \
 test_mutation 230 "retry_clip pre-check refuses when the round cap is exhausted" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_gate_correctness_round1.py::TestClipRetry::test_retry_clip_refused_when_round_cap_exhausted" \
-    sed -i 's/^    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)/    amount = 1  # MUTATED/'
+    sed -i 's/^    amount = clip_estimate_usd_micros(model, None, duration,$/    amount = 1  # MUTATED/'
 
 # 231: G-RETRY-1d: final cut approval waits for pending clip retries
 test_mutation 231 "Final cut approval is held while a clip retry is pending" \
@@ -2215,7 +2215,7 @@ test_mutation 266 "Live clip submit preflights the final clip prompt" \
 test_mutation 267 "Mute edit key includes clip content hash" \
     "hfvg/activities/media.py" \
     "tests/test_picture_assembly_round3.py::TestAssembleMuteEdit::test_assemble_mute_edit_idempotent" \
-    sed -i 's/^        key_src\.append(\[e\["shot_id"\], e\["sha256"\], e\["trim_in"\], e\["trim_out"\]\])$/        key_src.append([e["shot_id"], e["trim_in"], e["trim_out"]])  # MUTATED/'
+    sed -i 's/^        row = \[e\["shot_id"\], e\["sha256"\], e\["trim_in"\], e\["trim_out"\]\]$/        row = [e["shot_id"], e["trim_in"], e["trim_out"]]  # MUTATED/'
 
 # 268: G-PROMPT-1d: merge_into_shots carries clip_prompt
 test_mutation 268 "merge_into_shots carries clip_prompt to the plan" \

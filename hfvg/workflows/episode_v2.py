@@ -2443,10 +2443,26 @@ class EpisodeWorkflowV2:
             return None
         if not isinstance(shot_meta, dict):
             return "shot_meta must be an object"
+        # Empty dict is allowed (explicit no-change)
         allowed = {"count", "characters", "duck"}
         bad = set(shot_meta.keys()) - allowed
         if bad:
-            return f"shot_meta keys {sorted(bad)} not allowed (only {sorted(allowed)})"
+            return f"shot_meta keys {sorted(bad)} not allowed; may only change {sorted(allowed)}"
+        # Validate count
+        if "count" in shot_meta:
+            c = shot_meta["count"]
+            if isinstance(c, bool) or not isinstance(c, int) or c < 0 or c > 10:
+                return "shot_meta.count must be an integer 0-10"
+        # Validate characters
+        if "characters" in shot_meta:
+            chars = shot_meta["characters"]
+            if not isinstance(chars, list) or not chars or not all(isinstance(s, str) for s in chars):
+                return "shot_meta.characters must be a non-empty list of strings"
+        # Validate duck
+        if "duck" in shot_meta:
+            d = shot_meta["duck"]
+            if not isinstance(d, bool):
+                return "shot_meta.duck must be a boolean"
         return None
 
     # GAP-45: an owner-ordered clip route for the new composition (model and/or Seedance resolution)

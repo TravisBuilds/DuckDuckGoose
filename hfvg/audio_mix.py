@@ -1458,7 +1458,9 @@ async def mix_and_deliver(
             if start >= n:
                 raise PlacementError(f"sfx {c['id']} starts at {c['at']}s, after picture end {total_s:.2f}s")
             cn = min(int(round(c["dur"] * SR)), n - start)
-            clip = await decode(c["path"], cn, c["src_start_s"], loop=c["loop"])
+            lp = c.get("lowpass_hz")
+            clip = await decode(c["path"], cn, c["src_start_s"], loop=c["loop"],
+                                afilter=f"lowpass=f={lp:g},lowpass=f={lp:g}" if lp else None)
             ref = rms_db(clip) if c["norm"] == "rms" else peak_db(clip)
             g = c["level_db"] - ref if ref > -100 else 0.0
             clip = fade(clip * db_to_lin(g), c["fade_in_s"], c["fade_out_s"])
@@ -1472,7 +1474,9 @@ async def mix_and_deliver(
                 clip = clip * (1.0 - depth * act[start:start + cn])[:, None]
             sfx[start:start + cn] += clip
             sfx_info.append({"id": c["id"], "gain_db": round(g, 2), "ducked": c["duck_db"] < 0,
-                             "duck_mode": c.get("duck_mode", "activity")})
+                             "duck_mode": c.get("duck_mode", "activity"),
+                             "at": c["at"], "dur": round(cn / SR, 4), "src_start_s": c["src_start_s"],
+                             "lowpass_hz": lp})
 
         dips = plan.get("bed_dips") or []
         if dips:

@@ -53,13 +53,16 @@ async def acquire_run_lock(
             existing = await cursor.fetchone()
             if existing:
                 existing_episode, existing_workflow_id, locked_at_str = existing
-                if existing_workflow_id == workflow_id:
-                    # GAP-79: held by an EARLIER run of this same workflow id. Temporal runs at most one
-                    # execution per id at a time and this activity runs in it, so that run is closed
-                    # (e.g. terminated, which skips the release). describe(id) would resolve to THIS
-                    # run (RUNNING) and refuse forever. Reclaim.
+                # Same stable workflow id as the caller: Temporal allows one open run per id, so the
+                # holder is an earlier (terminated) run of this very workflow -> reclaim. Describe by
+                # id alone would return the caller's own RUNNING run and refuse forever.
+                try:
+                    own_id = temporal_activity.info().workflow_id
+                except Exception:
+                    own_id = None
+                if own_id and existing_workflow_id == own_id == workflow_id:
                     activity.logger.warning(
-                        f"Reclaiming lock held by an earlier run of {workflow_id} (episode {existing_episode})")
+                        f"Reclaiming run lock held by an earlier run of {own_id} (episode {existing_episode})")
                     await db.execute("DELETE FROM run_locks WHERE account_identifier = ?", (account_identifier,))
                     await db.commit()
                     existing = None

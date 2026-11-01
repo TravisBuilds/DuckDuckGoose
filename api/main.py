@@ -341,7 +341,13 @@ def verify_admin_secret(authorization: str | None = Header(None)):
     token = authorization[7:] if authorization else ""
     current_secret = get_admin_secret()
     
-    # Compare as bytes to handle non-ASCII headers properly (must give 403, not 500)
+    # Reject non-ASCII tokens immediately (403, not 500)
+    try:
+        token.encode("ascii")
+    except UnicodeEncodeError:
+        raise HTTPException(status_code=403, detail="Invalid admin secret (non-ASCII)")
+    
+    # Compare as bytes to handle encoding properly
     try:
         token_bytes = token.encode("utf-8")
         secret_bytes = current_secret.encode("utf-8")
