@@ -344,6 +344,8 @@ def load_lint_kit(episode_id: str) -> LintKit:
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
+    if override and section is data and isinstance(data, dict) and "count_template" not in data:
+        section = None  # a full prompt_kit.json without a lint section, not a bare lint file
     if not isinstance(section, dict):
         raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
     if section is not data and "continuity_locks" not in section and "continuity_locks" in data:
