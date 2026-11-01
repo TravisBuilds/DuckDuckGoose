@@ -263,6 +263,14 @@ async def require_auth_unless_public(
     method = "GET" if request.method == "HEAD" else request.method
     if (method, path) in PUBLIC_ROUTES:
         return
+    
+    # Allow UPLOAD_TOKEN through for production upload endpoints (routes handle their own checks)
+    if method == "POST" and path in ("/api/episodes/upload", "/api/episodes/upload/validate"):
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ")
+            if token == UPLOAD_TOKEN:
+                return
+    
     await verify_auth_unified(authorization, studio_admin_token)
 
 
@@ -325,7 +333,14 @@ def verify_admin_secret(authorization: str | None = Header(None)):
     token = authorization[7:] if authorization else ""
     current_secret = get_admin_secret()
     
-    if not secrets.compare_digest(token, current_secret):
+    # Compare as bytes to handle non-ASCII headers properly (must give 403, not 500)
+    try:
+        token_bytes = token.encode("utf-8")
+        secret_bytes = current_secret.encode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
+        raise HTTPException(status_code=403, detail="Invalid admin secret")
+    
+    if not secrets.compare_digest(token_bytes, secret_bytes):
         raise HTTPException(
             status_code=403,
             detail="Invalid admin secret"
