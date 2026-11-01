@@ -335,7 +335,7 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     # Use the same database path as the API
     db_path = api.main.DATABASE_PATH
     
-    # Initialize database schema
+    # Re-initialize database schema to ensure it's clean for this test
     ledger = BudgetLedger(db_path)
     asyncio.run(ledger.init_db())
     
