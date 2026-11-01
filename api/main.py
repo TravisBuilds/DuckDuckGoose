@@ -746,11 +746,12 @@ async def validate_upload(
     except Exception as e:
         errors.append(f"Error reading beatmap: {str(e)}")
     
-    # Validate credit plan if provided
+    # Validate credit plan if provided (treat empty files as None - issue #7)
     if credit_plan_file:
         try:
             credit_plan_content = await credit_plan_file.read()
-            if credit_plan_content:
+            # Empty files are treated same as None
+            if credit_plan_content and credit_plan_content.strip():
                 # Check UTF-8
                 try:
                     credit_plan_content.decode('utf-8')
@@ -767,21 +768,24 @@ async def validate_upload(
                     errors.append(f"Credit plan parsing error: {str(e)}")
                 finally:
                     Path(tmp_path).unlink(missing_ok=True)
+            else:
+                credit_plan_file = None  # Treat empty as None
         except Exception as e:
             errors.append(f"Error reading credit plan: {str(e)}")
     
-    # Validate continuity if provided  
+    # Validate continuity if provided (treat empty files as None - issue #7)
     if continuity_file:
         try:
             continuity_content = await continuity_file.read()
-            if not continuity_content:
-                errors.append("Continuity file is empty")
-            else:
+            # Empty files are treated same as None
+            if continuity_content and continuity_content.strip():
                 # Check UTF-8
                 try:
                     continuity_content.decode('utf-8')
                 except UnicodeDecodeError:
                     errors.append("Continuity file is not valid UTF-8")
+            else:
+                continuity_file = None  # Treat empty as None
         except Exception as e:
             errors.append(f"Error reading continuity: {str(e)}")
     
@@ -836,25 +840,30 @@ async def upload_beatmap(
     
     validate_episode_id(episode_id)
     
-    # Return 409 while workflow is running
-    if temporal_client:
-        try:
-            handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
-            desc = await handle.describe()
-            # Check if workflow exists and is running
-            from temporalio.client import WorkflowExecutionStatus
-            if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
-                )
-        except Exception as e:
-            from temporalio.service import RPCError, RPCStatusCode
-            # NOT_FOUND is fine - workflow doesn't exist, upload can proceed
-            if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
-                # Re-raise non-NOT_FOUND errors (including our own 409)
-                if isinstance(e, HTTPException):
-                    raise
+    # Return 409 while workflow is running (fail closed: 503 on Temporal errors)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        desc = await handle.describe()
+        # Check if workflow exists and is running
+        from temporalio.client import WorkflowExecutionStatus
+        if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
+            )
+    except HTTPException:
+        raise  # Re-raise our 409 and 503
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        # NOT_FOUND is fine - workflow doesn't exist, upload can proceed
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            pass  # Workflow not found, can proceed with upload
+        else:
+            # Fail closed: any other Temporal error returns 503
+            raise HTTPException(status_code=503, detail=f"Temporal error: {str(e)}")
     
     # Read all files and compute hashes
     import hashlib
@@ -864,6 +873,12 @@ async def upload_beatmap(
     beatmap_content = await beatmap_file.read()
     credit_plan_content = await credit_plan_file.read() if credit_plan_file else None
     continuity_content = await continuity_file.read() if continuity_file else None
+    
+    # Treat empty optional files as None (issue #7)
+    if credit_plan_content and not credit_plan_content.strip():
+        credit_plan_content = None
+    if continuity_content and not continuity_content.strip():
+        continuity_content = None
     
     # Compute combined hash from all provided files
     hasher = hashlib.sha256()
@@ -940,6 +955,9 @@ async def upload_beatmap(
         # Validation passed - move to permanent location
         episode_dir.mkdir(parents=True, exist_ok=True)
         
+        # Delete old .upload_hash before replacing files (issue #7)
+        hash_file.unlink(missing_ok=True)
+        
         # Move files atomically
         shutil.copy2(temp_beatmap, episode_dir / "BEATMAP.md")
         if temp_credit_plan:
@@ -968,13 +986,19 @@ async def upload_beatmap(
     
     await insert_shots_from_beatmap(DATABASE_PATH, episode_id, shots)
     
-    # Initialize budget if credit plan provided
+    # Initialize or clear budget based on credit plan presence
     credit_plan_path = episode_dir / "CREDIT-PLAN.md"
+    ledger = BudgetLedger(DATABASE_PATH)
+    await ledger.init_db()
     if credit_plan_path.exists():
         credit_plan = parse_credit_plan(credit_plan_path)
-        ledger = BudgetLedger(DATABASE_PATH)
-        await ledger.init_db()
         await ledger.init_episode_budget_from_plan(episode_id, credit_plan)
+    else:
+        # Clear budget when re-upload omits the credit plan (issue #7)
+        import aiosqlite
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute("DELETE FROM budget WHERE episode_id = ?", (episode_id,))
+            await db.commit()
     
     # Write .upload_hash LAST (after all other operations succeeded)
     hash_file.write_text(upload_hash, encoding='utf-8')
