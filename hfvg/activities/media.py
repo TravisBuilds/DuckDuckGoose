@@ -24,6 +24,64 @@ MUTE_MANIFEST_NAME = "assembly_manifest.json"
 TRIM_TOLERANCE_S = 0.15
 
 
+def load_edit_recipe(path: Path) -> dict[str, Any] | None:
+    """Validate an edit recipe file; None when absent. Bad values are a non-retryable error."""
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise ApplicationError(f"edit recipe {path} unreadable: {e}", type="InvalidEditRecipe",
+                               non_retryable=True) from None
+
+    def num(key: str, default: float, lo: float, hi: float) -> float:
+        v = raw.get(key, default)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = float("nan")
+        if not (lo <= v <= hi):
+            raise ApplicationError(f"edit recipe {key}={raw.get(key)!r} outside [{lo}, {hi}]",
+                                   type="InvalidEditRecipe", non_retryable=True)
+        return v
+
+    fps = int(num("fps", EDIT_FPS, 12, 60))
+    post_vf = str(raw.get("post_vf") or "")
+    if any(c in post_vf for c in ";[]"):
+        raise ApplicationError("edit recipe post_vf must be a simple filter chain (no ; or [labels])",
+                               type="InvalidEditRecipe", non_retryable=True)
+    flags = str(raw.get("scale_flags") or "")
+    if not flags.replace("+", "").isalpha():
+        raise ApplicationError(f"edit recipe scale_flags {flags!r} invalid", type="InvalidEditRecipe",
+                               non_retryable=True)
+    return {
+        "fps": fps,
+        "speed": num("speed", 1.0, 0.5, 2.0),
+        "xfade_s": num("xfade_s", 0.0, 0.0, 2.0),
+        "tail_hold_s": num("tail_hold_s", 0.0, 0.0, 10.0),
+        "scale_flags": flags,
+        "post_vf": post_vf,
+        "video_kbps": int(num("video_kbps", 14000, 1000, 50000)),
+        "max_video_kbps": int(num("max_video_kbps", 16000, 1000, 60000)),
+    }
+
+
+def xfade_offsets(segs: list[float], xfade_s: float) -> list[float]:
+    """Offset of each crossfade (into the running joined stream) for clips of length segs."""
+    offsets, length = [], segs[0] if segs else 0.0
+    for seg in segs[1:]:
+        offsets.append(round(length - xfade_s, 6))
+        length = length + seg - xfade_s
+    return offsets
+
+
+def recipe_total_s(segs: list[float], recipe: dict[str, Any]) -> float:
+    """Final duration of the edit: sum(segs) minus xfade overlaps plus tail hold."""
+    if not segs:
+        return 0.0
+    return round(sum(segs) - recipe["xfade_s"] * (len(segs) - 1) + recipe["tail_hold_s"], 6)
+
+
 def _dry_run() -> bool:
     return os.getenv("DRY_RUN", "true").lower() == "true"
 

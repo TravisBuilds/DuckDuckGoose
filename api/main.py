@@ -1730,6 +1730,29 @@ async def get_manual_balance(
     return await BudgetLedger(DATABASE_PATH).get_balance_status()
 
 
+@app.get("/api/budget/all-balances")
+async def get_all_provider_balances(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Check all provider balances (ElevenLabs live, Higgsfield derived).
+    
+    Returns current balance, source (live/derived/manual), age, and any warnings or errors.
+    Requires admin auth.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.balance_monitor import BalanceMonitor
+    
+    monitor = BalanceMonitor(DATABASE_PATH)
+    result = await monitor.check_all_balances()
+    return result.to_dict()
+
+
 @app.post("/api/budget/balance")
 async def set_manual_balance(
     request: ManualBalanceRequest,
@@ -4635,6 +4658,28 @@ async def raise_credit_cap(
         raise HTTPException(status_code=500, detail=f"Error raising cap: {e}")
     await _audit(episode_id, "raise_credit_cap", f"cap raised to {request.new_cap} (was {current})")
     return {"success": True, "episode_id": episode_id, "new_cap": request.new_cap, "previous_cap": current}
+
+
+@app.post("/api/episodes/{episode_id}/resume-balance")
+async def resume_balance(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Resume episode and shots after balance top-up when paused_insufficient_balance."""
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        await handle.signal("resume_balance")
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=500, detail=f"Error sending resume signal: {str(e)}")
+    return {"success": True, "episode_id": episode_id, "message": "Resume balance signal sent"}
 
 
 @app.get("/api/episodes/{episode_id}/credits")

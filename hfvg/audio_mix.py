@@ -1201,6 +1201,17 @@ async def encode_picture_checked(encode: Callable[[], Any], ref: str | Path, out
                            f"{tries} encodes (frame, shows): {log[-1]['frames']}")
 
 
+def logo_start_s(logo: dict, total_s: float, placed: list[dict] | None = None) -> float:
+    """Logo fade start: after_vo_line end + after_vo_gap_s when set (and placed), else the
+    Ep01 template total - visible_s."""
+    if logo.get("after_vo_line"):
+        line = next((p for p in placed or [] if p["id"] == logo["after_vo_line"]), None)
+        if line is None:
+            raise AudioInputError(f"logo.after_vo_line {logo['after_vo_line']} is not a VO line id")
+        return round(line["at"] + line["dur"] + logo.get("after_vo_gap_s", 0.6), 4)
+    return round(max(0.0, total_s - logo["visible_s"]), 4)
+
+
 async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: dict,
                        frames: int | None = None) -> None:
     """Ep01 ending template: logo scaled to width_frac of the frame, centred, alpha fade-in over

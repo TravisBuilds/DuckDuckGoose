@@ -798,6 +798,53 @@ def stalled(threshold: int | None, route: bool):
     asyncio.run(check_stalled())
 
 
+@cli.command()
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def balance(json_output: bool):
+    """Check provider balance status."""
+    import sys
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    from hfvg.budget import BudgetLedger
+    
+    # Use DATABASE_PATH env var directly (consistent with other commands)
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Honor DRY_RUN - balance checks are read-only but respect the flag
+    if config.DRY_RUN:
+        click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
+    
+    async def _check():
+        # Task 14: Initialize DB tables first to avoid "no such table" errors
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await init_balance_tables(db_path)
+        
+        monitor = BalanceMonitor(db_path)
+        result = await monitor.check_all_balances()
+        return result
+    
+    result = asyncio.run(_check())
+    
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+        return
+    
+    # Human-readable output
+    click.echo("Provider Balance Status")
+    click.echo("=" * 60)
+    
+    for provider, info in result.to_dict()["providers"].items():
+        click.echo(f"\n{provider}:")
+        click.echo(f"  Balance: ${info['balance']:.2f}")
+        click.echo(f"  Source: {info['source']}")
+        if info.get("age_seconds") is not None:
+            click.echo(f"  Age: {info['age_seconds']:.0f}s")
+        if info.get("warning"):
+            click.echo(f"  ⚠ {info['warning']}")
+        if info.get("error"):
+            click.echo(f"  ❌ {info['error']}")
+
+
 def _mix_episode_dir(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool) -> dict:
     """Offline audio round + delivery for one episode directory (locked / library inputs only).
 
