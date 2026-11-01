@@ -80,14 +80,15 @@ def test_grant_recompose_problem_allowance_not_used():
 
 
 def test_grant_recompose_problem_max_grants_reached():
-    """_grant_recompose_problem rejects when MAX_RECOMPOSE_GRANTS_PER_SHOT reached."""
+    """_grant_recompose_problem rejects when MAX_RECOMPOSE_GRANTS_PER_SHOT reached (GAP-43)."""
     workflow = EpisodeWorkflowV2()
     workflow.state.current_gate = "G_FINAL_CUT"
     workflow.launched_shot_plans["A01"] = {}
     workflow.recompose_counts["A01"] = 4  # Used all including grants
     workflow.recompose_grants["A01"] = 2  # MAX_RECOMPOSE_GRANTS_PER_SHOT
     problem = workflow._grant_recompose_problem("A01", "test reason")
-    assert problem == "max recompose grants per shot (2) reached"
+    assert "max recompose grants per shot (2) reached" in problem
+    assert "cap_override_note" in problem
 
 
 def test_grant_recompose_problem_allows_when_valid():

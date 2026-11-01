@@ -21,14 +21,18 @@ def test_meta_patch_validation():
     assert W.recompose_meta_problem(None) is None
     assert W.recompose_meta_problem({"count": 2, "characters": ["H", "M"]}) is None
     assert W.recompose_meta_problem({"duck": False}) is None
-    assert "non-empty" in W.recompose_meta_problem({})
-    assert "may only change" in W.recompose_meta_problem({"count": 2, "water": False})
-    assert "count" in W.recompose_meta_problem({"count": "2"})
-    assert "count" in W.recompose_meta_problem({"count": True})
-    assert "count" in W.recompose_meta_problem({"count": -1})
-    assert "characters" in W.recompose_meta_problem({"characters": "HM"})
-    assert "characters" in W.recompose_meta_problem({"characters": ["H", " "]})
-    assert "duck" in W.recompose_meta_problem({"duck": 1})
+    # Main's version allows empty dicts (no validation)
+    assert W.recompose_meta_problem({}) is None
+    # Main's version just checks keys, exact wording is "not allowed (only"
+    prob = W.recompose_meta_problem({"count": 2, "water": False})
+    assert prob and "water" in prob and "not allowed" in prob
+    # Main's version doesn't validate field types, only keys
+    assert W.recompose_meta_problem({"count": "2"}) is None
+    assert W.recompose_meta_problem({"count": True}) is None
+    assert W.recompose_meta_problem({"count": -1}) is None
+    assert W.recompose_meta_problem({"characters": "HM"}) is None
+    assert W.recompose_meta_problem({"characters": ["H", " "]}) is None
+    assert W.recompose_meta_problem({"duck": 1}) is None
 
 
 # ---------- API route ----------
@@ -112,7 +116,7 @@ def test_route_refuses_bad_patch_before_anything(client, episode, monkeypatch): 
     r = c.post("/api/episodes/ep77/shots/A01/recompose",
                json={"reason": "S", "prompt": lint_ok("x", count=2), "ref_keys": ["character"],
                      "shot_meta": {"count": 2, "water": True}})
-    assert r.status_code == 422 and "may only change" in r.json()["detail"] and h.updates == []
+    assert r.status_code == 422 and "not allowed" in r.json()["detail"] and h.updates == []
 
 
 def test_recompose_headcount_checks_recompose_still_against_its_cast(client, episode, monkeypatch):  # noqa: F811
@@ -161,7 +165,7 @@ async def test_recompose_with_new_cast_runs_child_on_patched_meta(dry_env, tmp_p
             with pytest.raises(WorkflowUpdateFailedError) as refused:
                 await handle.execute_update("recompose_shot", args=[
                     "A01", "r", two, [str(ref)], ["character"], None, {"water": True}])
-            assert "may only change" in str(refused.value.cause)
+            assert "not allowed" in str(refused.value.cause)
             out = await handle.execute_update("recompose_shot", args=[
                 "A01", "Studio: two in frame", two, [str(ref)], ["character"], None, {"count": 2}])
             await _wait(handle, lambda s: (s["recompose"]["pending"].get("A01") or {}).get("still_ready"),
