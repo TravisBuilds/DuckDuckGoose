@@ -299,7 +299,7 @@ def test_upload_returns_409_while_workflow_running(client, monkeypatch):
 
 def test_non_ascii_token_returns_403():
     """Non-ASCII bytes in Authorization header return 403, not 500."""
-    from api.auth import verify_auth_unified
+    from api.main import verify_auth_unified
     from fastapi import HTTPException
     import pytest
     
@@ -335,7 +335,9 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     episode_id = "ep88"
     
     # First upload WITH credit plan
-    beatmap = "| Shot | Prompt |\n|------|--------|\n| A01  | Test   |"
+    beatmap = """| # | ID  | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|-----|-------------|------|-----|-------|--------|---------|----|----|-------|
+| 1 | A01 | 3.0 (3.0)   | room | day | H     | action | purpose |    |    | K     |"""
     credit_plan = "# Credit Plan\n\nTotal: 100 credits"
     
     response1 = client.post(
@@ -346,7 +348,7 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
             "credit_plan_file": ("CREDIT-PLAN.md", credit_plan.encode(), "text/markdown")
         }
     )
-    assert response1.status_code == 200
+    assert response1.status_code == 200, f"Upload failed: {response1.status_code} - {response1.text}"
     
     # Check budget was initialized
     import asyncio
