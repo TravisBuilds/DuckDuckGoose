@@ -1105,7 +1105,7 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         parse_shots(raw)
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
@@ -3007,7 +3007,7 @@ async def generate_refs_route(
     from hfvg.activities.ref_generation import ref_edit_specs_for
     from hfvg.shot_data import refs_json_path
     try:
-        ref_edit_specs_for(json.loads(refs_json_path(episode_id).read_text()), list(request.keys), True)
+        ref_edit_specs_for(json.loads(refs_json_path(episode_id).read_text(encoding="utf-8")), list(request.keys), True)
     except (OSError, ValueError) as e:
         raise HTTPException(status_code=422, detail=f"refs.json refused before any spend: {e}")
     import aiosqlite
@@ -3992,7 +3992,7 @@ async def lint_episode(
         try:
             import json
             from hfvg.shot_data import parse_shots
-            plans = parse_shots(json.loads(shots_json.read_text()))
+            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
     
@@ -4024,7 +4024,7 @@ async def lint_episode(
     if refs_json.exists():
         try:
             import json
-            refs_data = json.loads(refs_json.read_text())
+            refs_data = json.loads(refs_json.read_text(encoding="utf-8"))
             per_shot = refs_data.get("per_shot", {})
             missing_refs = []
             
@@ -4074,7 +4074,7 @@ async def set_ref_versions(
         )
     
     import json
-    refs_data = json.loads(refs_json_path.read_text())
+    refs_data = json.loads(refs_json_path.read_text(encoding="utf-8"))
     
     # Update versions map
     if "versions" not in refs_data:
@@ -4089,7 +4089,7 @@ async def set_ref_versions(
         refs_data["versions"][ref_key] = version
     
     # Write updated refs.json
-    refs_json_path.write_text(json.dumps(refs_data, indent=2))
+    refs_json_path.write_text(json.dumps(refs_data, indent=2, encoding="utf-8"))
     
     # Write version sidecars for any existing ref files
     per_shot = refs_data.get("per_shot", {})
@@ -4111,7 +4111,7 @@ async def set_ref_versions(
             version_sidecar_dir = Path(ref_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(ref_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}, encoding="utf-8"))
             updated_sidecars.append(str(version_sidecar))
     
     return {
@@ -4386,7 +4386,7 @@ async def preflight_episode(
         if not shots_path.exists():
             raise HTTPException(status_code=404, detail=f"No shots.json uploaded for {episode_id}")
         try:
-            raw = json.loads(shots_path.read_text())
+            raw = json.loads(shots_path.read_text(encoding="utf-8"))
             parse_shots(raw)  # same validation as upload
         except (ValueError, ShotDataError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")

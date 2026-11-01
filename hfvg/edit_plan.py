@@ -465,13 +465,13 @@ def verify_reuse(plan: dict[str, Any]) -> dict[str, str]:
 
 def stage_episode(spec_path: str | Path, episode_dir: str | Path) -> dict[str, Any]:
     """Write <episode_dir>/shots.json (generation only) and edit_plan.json from a full spec."""
-    spec = json.loads(Path(spec_path).read_text())
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     plan = edit_plan_from_spec(spec)
     verify_reuse(plan)
     ep = Path(episode_dir)
     ep.mkdir(parents=True, exist_ok=True)
-    (ep / "shots.json").write_text(json.dumps(generation_spec(spec), indent=1, ensure_ascii=False))
-    (ep / EDIT_PLAN_NAME).write_text(json.dumps(plan, indent=1, ensure_ascii=False))
+    (ep / "shots.json").write_text(json.dumps(generation_spec(spec, encoding="utf-8"), indent=1, ensure_ascii=False))
+    (ep / EDIT_PLAN_NAME).write_text(json.dumps(plan, indent=1, ensure_ascii=False, encoding="utf-8"))
     return plan
 
 
@@ -479,7 +479,7 @@ def load_edit_plan(episode_id: str) -> dict[str, Any] | None:
     p = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / EDIT_PLAN_NAME
     if not p.is_file():
         return None
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":  # python -m hfvg.edit_plan <full shots.json> <episode dir>

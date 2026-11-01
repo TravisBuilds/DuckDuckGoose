@@ -57,7 +57,7 @@ def lint(episode_id: str):
         try:
             import json
             from hfvg.shot_data import parse_shots
-            plans = parse_shots(json.loads(shots_json.read_text()))
+            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
             click.echo(f"✓ shots.json: valid")
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
@@ -67,7 +67,7 @@ def lint(episode_id: str):
     if refs_json.exists():
         try:
             import json
-            refs_data = json.loads(refs_json.read_text())
+            refs_data = json.loads(refs_json.read_text(encoding="utf-8"))
             per_shot = refs_data.get("per_shot", {})
             missing_refs = []
             
@@ -608,7 +608,7 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
             click.echo(f"❌ Error: Beatmap file not found: {beatmap}", err=True)
             import sys
             sys.exit(1)
-        payload["beatmap_content"] = beatmap_path.read_text()
+        payload["beatmap_content"] = beatmap_path.read_text(encoding="utf-8")
     
     if shots:
         payload["shots_subset"] = [s.strip() for s in shots.split(",")]
@@ -675,7 +675,7 @@ def preflight(episode_id: str, shots_path: str | None):
         click.echo(f"❌ {path} not found", err=True)
         sys.exit(1)
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         parse_shots(raw)
     except (ValueError, ShotDataError) as e:
         click.echo(f"❌ Invalid shots.json: {e}", err=True)

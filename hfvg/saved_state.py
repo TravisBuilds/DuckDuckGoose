@@ -69,7 +69,7 @@ def write_snapshot(episode_dir: str | Path, snapshot: dict, saved_at: str) -> Pa
     p = snapshot_path(episode_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"saved_at": saved_at, "snapshot": snapshot}, ensure_ascii=False, default=str))
+    tmp.write_text(json.dumps({"saved_at": saved_at, "snapshot": snapshot}, ensure_ascii=False, default=str, encoding="utf-8"))
     os.replace(tmp, p)
     return p
 
@@ -78,7 +78,7 @@ def read_persisted(episode_dir: str | Path) -> dict | None:
     p = snapshot_path(episode_dir)
     if not p.exists():
         return None
-    data = json.loads(p.read_text())
+    data = json.loads(p.read_text(encoding="utf-8"))
     snap = data.get("snapshot") if isinstance(data, dict) else None
     if not isinstance(snap, dict):
         raise SavedStateError(f"{p} has no snapshot")
@@ -128,11 +128,11 @@ def reconstruct_snapshot(episode_id: str, episode_dir: str | Path, rows: dict, p
     man_p = ed / "edit" / "assembly_manifest.json"
     if not man_p.exists():
         raise SavedStateError("no accepted edit (edit/assembly_manifest.json)")
-    manifest = json.loads(man_p.read_text())
+    manifest = json.loads(man_p.read_text(encoding="utf-8"))
     if manifest.get("episode_id") != episode_id:
         raise SavedStateError("assembly manifest is for another episode")
     dpath = ed / "delivery" / "delivery_manifest.json"
-    delivery = json.loads(dpath.read_text()) if dpath.exists() else {}
+    delivery = json.loads(dpath.read_text(encoding="utf-8")) if dpath.exists() else {}
 
     shots = [dict(s) for s in (parsed_beatmap or {}).get("shots") or []]
     if not shots:
@@ -292,7 +292,7 @@ def saved_snapshot(episode_id: str, episode_dir: str | Path, db_path: str | Path
     persisted = None if ignore_persisted else read_persisted(episode_dir)
     rows = load_db_rows(db_path, episode_id)
     if persisted is not None:
-        saved_at = json.loads(snapshot_path(episode_dir).read_text()).get("saved_at") or ""
+        saved_at = json.loads(snapshot_path(episode_dir).read_text(encoding="utf-8")).get("saved_at") or ""
         newer = [r for r in rows["audit"] if r["action"] in SHOT_CHANGING_ACTIONS + ("approve_g_final_cut",)
                  and str(r["timestamp"]) > saved_at]
         if newer:

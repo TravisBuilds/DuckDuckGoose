@@ -229,7 +229,7 @@ def compose(spec: dict[str, Any], out_png: str | Path, spec_path: str | None = N
                 "path": str(out.resolve()), "sha256": sha256_file(out), "size": list(plate.size),
                 "notes": spec.get("notes", "")}
     manifest["passed"] = bool(count_ok and all(r["passed"] for r in rows))
-    Path(str(out) + ".manifest.json").write_text(json.dumps(manifest, indent=1))
+    Path(str(out) + ".manifest.json").write_text(json.dumps(manifest, indent=1, encoding="utf-8"))
     return manifest
 
 
@@ -239,7 +239,7 @@ def load_passed_manifest(path: str | Path, shot_id: str) -> dict[str, Any]:
     p = Path(path)
     if not p.is_file():
         raise PlateSpecError(f"no plate manifest at {p}")
-    m = json.loads(p.read_text())
+    m = json.loads(p.read_text(encoding="utf-8"))
     if m.get("kind") != "plate_composite":
         raise PlateSpecError("not a plate_composite manifest")
     if m.get("shot_id") != shot_id:
@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("spec")
     ap.add_argument("out")
     ns = ap.parse_args(argv)
-    m = compose(json.loads(Path(ns.spec).read_text()), ns.out, spec_path=str(Path(ns.spec).resolve()))
+    m = compose(json.loads(Path(ns.spec).read_text(encoding="utf-8")), ns.out, spec_path=str(Path(ns.spec).resolve()))
     print(json.dumps({"passed": m["passed"], "sha256": m["sha256"],
                       "layers": [{k: r[k] for k in ("name", "height_px", "ratio_to_duck", "frac_of_ref", "top_y",
                                                      "ref_top_y_in_image", "passed")} for r in m["layers"]]}, indent=1))

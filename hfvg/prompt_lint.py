@@ -338,7 +338,7 @@ def load_lint_kit(episode_id: str) -> LintKit:
     if not path.is_file():
         raise PromptLintError(f"No prompt lint kit found for {episode_id} (looked at {path})")
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise PromptLintError(f"Cannot read prompt lint kit {path}: {e}") from e
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
