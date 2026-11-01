@@ -99,9 +99,8 @@ def clip_estimate_usd_micros(model: str, tier: str | None, seconds: int | float,
     one rate. Never touches the network.
     """
     if model == "seedance":
-        from hfvg.routing import SEEDANCE_TIER_RESOLUTION
-        # GAP-45: an explicit routed resolution wins over the tier default
-        resolution = resolution or SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]
+        from hfvg.routing import seedance_resolution_for
+        resolution = seedance_resolution_for(tier, resolution)  # per-shot override or tier default
         return rate_table_estimate("seedance-2.5", resolution, seconds).usd_micros
     if model == "kling":
         return rate_table_estimate("kling-3.0-pro", None, seconds).usd_micros
