@@ -669,11 +669,11 @@ async def logout(response: Response, studio_admin_token: str | None = Cookie(Non
 
 @app.post("/api/episodes/upload/validate")
 async def validate_upload(
+    request: Request,
     episode_id: str = Form(...),
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
@@ -684,6 +684,9 @@ async def validate_upload(
     
     Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
     """
+    # Get authorization from request headers directly
+    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
+    
     # Auth: accept either upload token (Bearer) or session cookie
     if authorization:
         verify_upload_token(authorization)
@@ -791,11 +794,11 @@ async def validate_upload(
 
 @app.post("/api/episodes/upload")
 async def upload_beatmap(
+    request: Request,
     episode_id: str = Form(...),
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
@@ -807,6 +810,9 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
+    # Get authorization from request headers directly
+    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
+    
     # Auth: accept either upload token (Bearer) or session cookie
     if authorization:
         verify_upload_token(authorization)
