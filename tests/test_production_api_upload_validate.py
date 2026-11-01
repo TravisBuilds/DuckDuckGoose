@@ -305,11 +305,11 @@ async def test_non_ascii_token_returns_403():
     import pytest
     
     # Latin-1 encoded token with non-ASCII byte (0xE9 = é)
-    # This should be rejected with 403, not crash with 500
-    latin1_token_bytes = b"Bearer caf\xe9token"
+    # FastAPI decodes headers as latin-1, so this becomes a string with non-ASCII
+    latin1_decoded = b"Bearer caf\xe9token".decode("latin-1")
     
     with pytest.raises(HTTPException) as exc_info:
-        await verify_auth_unified(latin1_token_bytes)
+        await verify_auth_unified(latin1_decoded)
     
     assert exc_info.value.status_code == 403
     assert "Invalid" in str(exc_info.value.detail)
@@ -331,7 +331,15 @@ def test_upload_clears_budget_when_credit_plan_omitted(client, monkeypatch):
     monkeypatch.setattr(api.main, "temporal_client", mock_client)
     
     import aiosqlite
+    import asyncio
     from hfvg.budget import BudgetLedger
+    
+    # Initialize database schema
+    async def init_db():
+        async with aiosqlite.connect(os.environ["DATABASE_PATH"]) as db:
+            ledger = BudgetLedger(db)
+            await ledger.init_tables()
+    asyncio.run(init_db())
     
     episode_id = "ep88"
     
