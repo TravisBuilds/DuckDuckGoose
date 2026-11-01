@@ -47,16 +47,11 @@ def _even(x: float) -> int:
 
 
 def native_short_side(model: str, tier: str | None = None, resolution: str | None = None) -> int:
-    """Short side (px) of the routed model's output. ``tier`` None = the submit default (final);
-    ``resolution`` = the shot's Seedance override (``seedance_resolution``)."""
+    """Short side (px) of the routed model's output. ``tier`` None = the submit default (final)."""
     if model == "kling":
         return KLING_NATIVE_SHORT_SIDE
     if model == "seedance":
-        from hfvg.routing import RoutingError, seedance_resolution_for
-        try:
-            res = seedance_resolution_for(tier, resolution)
-        except RoutingError as e:
-            raise ClipSpecError(str(e)) from None
+        res = resolution or SEEDANCE_TIER_RESOLUTION["draft" if tier == "draft" else "final"]  # GAP-45
         return int(_P_RE.match(res).group(1))
     raise ClipSpecError(f"cannot derive clip resolution: unknown clip model {model!r} (expected one of {MODELS})")
 
@@ -83,7 +78,8 @@ def expected_clip_dims(params: dict | None, tier: str | None = None) -> dict:
             )
         return {"resolution": f"{w}x{h}", "aspect_ratio": f"{aw}:{ah}", "source": "explicit"}
 
-    short = native_short_side(params.get("model", "kling"), tier, params.get("seedance_resolution"))
+    short = native_short_side(params.get("model", "kling"), tier,
+                              params.get("seedance_resolution") if params.get("model") == "seedance" else None)
     if aw <= ah:
         w, h = short, _even(short * ah / aw)
     else:

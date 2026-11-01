@@ -18,7 +18,7 @@ LOUD = {**audio_mix.DEFAULT_LOUDNESS, "target_lufs": -12.6, "tolerance_lu": 0.5,
 
 
 def _peaky_quiet_mix(path):
-    # pink noise with sparse clicks: ~-14.1 LUFS (1.5 LU under -12.6, like a past run) with TP well under -2 dBTP
+    # pink noise with sparse clicks: ~-14.1 LUFS (1.5 LU under -12.6, like ep05v2) with TP well under -2 dBTP
     subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y",
                     "-f", "lavfi", "-i", "anoisesrc=color=pink:sample_rate=48000:duration=12:seed=3",
                     "-f", "lavfi", "-i", "sine=frequency=2000:sample_rate=48000:duration=12",

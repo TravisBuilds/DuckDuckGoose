@@ -926,7 +926,8 @@ class BudgetLedger:
     async def authorize_round_spend(self, episode_id: str, round_id: str, shot_id: str,
                                     hold_key: str, amount_usd_micros: int, *,
                                     retry_key: str | None = None, reason: str = "",
-                                    dry_check: bool = False) -> dict[str, Any]:
+                                    dry_check: bool = False,
+                                    retry_limit: int | None = None) -> dict[str, Any]:
         """Authorize (and hold) one PAID retry job against its review round, BEFORE any submit.
 
         Atomic (BEGIN IMMEDIATE) and idempotent per ``hold_key`` (the deterministic job id): calling
@@ -968,6 +969,9 @@ class BudgetLedger:
                     """, (episode_id, round_id, shot_id, retry_key)) as cur:
                         other_retries = (await cur.fetchone())[0]
                     limit = settings.max_paid_retries_per_shot_per_round
+                    if retry_limit is not None:
+                        # GAP-46: an owner-granted recompose allowance lifts (never lowers) the per-shot limit
+                        limit = max(limit, _require_int("retry_limit", retry_limit, positive=True))
                     if other_retries >= limit:
                         raise RoundBudgetError(
                             f"Round {round_id}: shot {shot_id} already used {other_retries} paid "

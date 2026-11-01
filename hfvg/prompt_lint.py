@@ -49,6 +49,15 @@ class LintKit:
     # the shoulders, visible waterline, ...") and none of bath_forbidden ("on top of the water").
     bath_clause: str = ""
     bath_forbidden: tuple[str, ...] = ()
+    # GAP-40: continuity locks the harness INJECTS into every matching prompt (still and/or clip)
+    # before lint, and lint then requires (fail closed if an injection was skipped). Each lock is
+    # {"id", "when": "duck" | "animals" | "always", "kinds": ["still", "clip"], "text"}.
+    continuity_locks: tuple = ()
+    animal_characters: tuple[str, ...] = ()
+    # GAP-40: style split - only the duck is plush-stylised, so a sentence that names the duck may
+    # never also carry a realism word (realistic / photoreal / lifelike ...).
+    duck_names: tuple[str, ...] = ()
+    duck_realism_words: tuple[str, ...] = ()
     _extra: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
@@ -82,7 +91,115 @@ class LintKit:
             carry_verbs=tup("carry_verbs", DEFAULT_CARRY_VERBS),
             bath_clause=str(data.get("bath_clause", "")),
             bath_forbidden=tup("bath_forbidden"),
+            continuity_locks=parse_continuity_locks(data.get("continuity_locks", [])),
+            animal_characters=tup("animal_characters"),
+            duck_names=tup("duck_names"),
+            duck_realism_words=tup("duck_realism_words"),
         )
+
+
+LOCK_WHEN = ("duck", "animals", "always")
+LOCK_KINDS = ("still", "clip")
+DEFAULT_DUCK_NAMES = ("duck",)
+DEFAULT_DUCK_REALISM_WORDS = ("realistic", "photoreal", "photorealistic", "photo-real", "photo-realistic",
+                              "lifelike", "life-like", "hyperreal", "hyper-real", "hyperrealistic")
+
+
+def parse_continuity_locks(raw: Any) -> tuple:
+    """Validate the kit's continuity_locks list (GAP-40). Returns a tuple of frozen dict items."""
+    if raw in (None, []):
+        return ()
+    if not isinstance(raw, list):
+        raise PromptLintError("Lint kit field 'continuity_locks' must be a list")
+    out, seen = [], set()
+    for i, lock in enumerate(raw):
+        if not isinstance(lock, dict):
+            raise PromptLintError(f"continuity_locks[{i}] must be an object")
+        lid = str(lock.get("id") or "").strip()
+        text = " ".join(str(lock.get("text") or "").split())
+        when = lock.get("when")
+        kinds = lock.get("kinds", list(LOCK_KINDS))
+        if not lid or lid in seen:
+            raise PromptLintError(f"continuity_locks[{i}] needs a unique non-empty id")
+        if not text:
+            raise PromptLintError(f"continuity lock {lid!r} has no text")
+        if when not in LOCK_WHEN:
+            raise PromptLintError(f"continuity lock {lid!r}: when must be one of {LOCK_WHEN}")
+        if not isinstance(kinds, list) or not kinds or any(k not in LOCK_KINDS for k in kinds):
+            raise PromptLintError(f"continuity lock {lid!r}: kinds must be a non-empty subset of {LOCK_KINDS}")
+        seen.add(lid)
+        out.append((("id", lid), ("when", when), ("kinds", tuple(kinds)), ("text", text)))
+    return tuple(out)
+
+
+def _lock(item) -> dict:
+    return dict(item)
+
+
+def duck_present(shot_meta: dict[str, Any] | None, kit: "LintKit") -> bool:
+    meta = shot_meta or {}
+    present = {str(c).lower() for c in (meta.get("characters") or [])}
+    return bool(meta.get("duck")) or bool(present & {c.lower() for c in kit.duck_characters})
+
+
+def animals_present(shot_meta: dict[str, Any] | None, kit: "LintKit") -> bool:
+    meta = shot_meta or {}
+    count = meta.get("count")
+    if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+        return True
+    present = {str(c).lower() for c in (meta.get("characters") or [])}
+    return bool(present & {c.lower() for c in kit.animal_characters})
+
+
+def applicable_locks(shot_meta: dict[str, Any] | None, kit: "LintKit", kind: str) -> list[dict]:
+    """The continuity locks that apply to this shot and prompt kind, in kit order."""
+    out = []
+    for item in kit.continuity_locks:
+        lock = _lock(item)
+        if kind not in lock["kinds"]:
+            continue
+        when = lock["when"]
+        if when == "always" or (when == "duck" and duck_present(shot_meta, kit)) or (
+                when == "animals" and animals_present(shot_meta, kit)):
+            out.append(lock)
+    return out
+
+
+def _norm(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def inject_continuity_locks(prompt: str, shot_meta: dict[str, Any] | None, kit: "LintKit",
+                            kind: str = "still") -> tuple[str, list[str]]:
+    """GAP-40: (prompt with every applicable lock appended once, ids appended). Idempotent: a lock whose
+    text is already in the prompt (whitespace/case-insensitive) is not added again. Pure."""
+    out = prompt.rstrip()
+    added = []
+    for lock in applicable_locks(shot_meta, kit, kind):
+        if _norm(lock["text"]) in _norm(out):
+            continue
+        out = f"{out} {lock['text']}"
+        added.append(lock["id"])
+    return out, added
+
+
+def duck_realism_violations(prompt: str, shot_meta: dict[str, Any] | None, kit: "LintKit") -> list[str]:
+    """GAP-40 style split: on a duck shot no sentence that names the duck may carry a realism word."""
+    if not duck_present(shot_meta, kit):
+        return []
+    names = tuple(n.lower() for n in (kit.duck_names or DEFAULT_DUCK_NAMES))
+    words = tuple(w.lower() for w in (kit.duck_realism_words or DEFAULT_DUCK_REALISM_WORDS))
+    problems = []
+    for sentence in re.split(r"[.!?;\n]+", prompt):
+        low = sentence.lower()
+        if not any(re.search(rf"(?<![a-z]){re.escape(n)}(?![a-z])", low) for n in names):
+            continue
+        for w in words:
+            if re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low):
+                problems.append(f"realism word {w!r} attached to the duck (only the duck is plush-stylised): "
+                                f"{sentence.strip()[:120]!r}")
+                break
+    return problems
 
 
 def _contains(prompt: str, clause: str) -> bool:
@@ -99,7 +216,7 @@ def is_bath_shot(shot_meta: dict[str, Any] | None) -> bool:
     return bool(meta.get("wet") and meta.get("water") and has_animals)
 
 
-def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> list[str]:
+def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: str = "still") -> list[str]:
     """Return every violation (empty list when the prompt is clean)."""
     problems: list[str] = []
     meta = shot_meta or {}
@@ -173,6 +290,12 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> lis
         for phrase in kit.bath_forbidden:
             if phrase.strip() and phrase.lower() in lowered:
                 problems.append(f"bath shot prompt puts an animal on the water: {phrase!r}")
+    # 11. GAP-40: every applicable continuity lock must be in the prompt (the submit injects them)
+    for lock in applicable_locks(meta, kit, kind):
+        if _norm(lock["text"]) not in _norm(prompt):
+            problems.append(f"missing continuity lock {lock['id']!r} ({kind})")
+    # 12. GAP-40: no realism word attached to the duck
+    problems.extend(duck_realism_violations(prompt, meta, kit))
     return problems
 
 
@@ -190,7 +313,7 @@ CLIP_STATIC_PATTERNS = (
 
 def clip_lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> list[str]:
     """Violations of the CLIP (motion) prompt: every kit rule plus the motion rules."""
-    problems = lint_violations(prompt, shot_meta, kit)
+    problems = lint_violations(prompt, shot_meta, kit, kind="clip")
     for pattern in CLIP_STATIC_PATTERNS:
         m = re.search(pattern, prompt, flags=re.IGNORECASE)
         if m:
@@ -221,11 +344,25 @@ def load_lint_kit(episode_id: str) -> LintKit:
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
-    if override and section is data and isinstance(data, dict) and "count_template" not in data:
-        section = None  # a full prompt_kit.json without a lint section, not a bare lint file
     if not isinstance(section, dict):
         raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
+    if section is not data and "continuity_locks" not in section and "continuity_locks" in data:
+        # GAP-40: the kit's top-level continuity_locks (CONTINUITY section) apply to the lint too
+        section = {**section, "continuity_locks": data["continuity_locks"]}
     return LintKit.from_dict(section)
+
+
+def apply_continuity_locks(episode_id: str, prompt: str, shot_meta: dict[str, Any] | None,
+                           live: bool, kind: str = "still") -> tuple[str, list[str]]:
+    """GAP-40: the submit-side injection (before lint). Live: a missing/unreadable kit raises (the lint
+    would refuse anyway). Dry: returns the prompt unchanged on a kit problem."""
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError:
+        if live:
+            raise
+        return prompt, []
+    return inject_continuity_locks(prompt, shot_meta, kit, kind)
 
 
 def enforce_prompt_lint(
@@ -251,26 +388,24 @@ def enforce_prompt_lint(
     return problems
 
 
-def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
-    """Offline lint of every prompt a live run would submit (preflight; no provider call).
-
-    ``plans`` is ``shot_data.parse_shots`` output. A shot with a pre-approved start still submits
-    no still, so only its clip prompt (clip_prompt, else the still prompt) is linted; otherwise
-    both. Returns {shot_id: [problem, ...]} for shots with problems; a missing/broken kit is
-    reported once under "*". Same kit and rules as the live submit gate (enforce_prompt_lint).
-    """
+def apply_ref_edit_locks(episode_id: str, prompt: str, lock_meta: dict[str, Any] | None,
+                         live: bool) -> tuple[str, list[str]]:
+    """GAP-42: a ref-edit prompt whose refs.json entry declares ``lock_meta`` (e.g. {"duck": true})
+    gets the kit's still continuity locks injected, and the duck style split (no realism word in a
+    sentence naming the duck) is enforced. Live: a kit problem or a realism hit raises before any
+    upload/estimate/spend. No lock_meta: the prompt is returned unchanged."""
+    if not lock_meta:
+        return prompt, []
     try:
         kit = load_lint_kit(episode_id)
-    except PromptLintError as e:
-        return {"*": [str(e)]}
-    out: dict[str, list[str]] = {}
-    for sid, plan in plans.items():
-        meta = plan.get("shot_meta") or {}
-        problems: list[str] = []
-        if not plan.get("pre_approved_still"):
-            problems += [f"still: {p}" for p in lint_violations(plan.get("prompt") or "", meta, kit)]
-        clip = plan.get("clip_prompt") or plan.get("prompt") or ""
-        problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]
-        if problems:
-            out[sid] = problems
-    return out
+    except PromptLintError:
+        if live:
+            raise
+        return prompt, []
+    out, added = inject_continuity_locks(prompt, lock_meta, kit, "still")
+    problems = duck_realism_violations(out, lock_meta, kit)
+    if problems and live:
+        raise PromptLintError("Ref edit prompt lint failed: " + "; ".join(problems))
+    for problem in problems:
+        logger.warning("[DRY-RUN] ref edit lint warning for %s: %s", episode_id, problem)
+    return out, added
