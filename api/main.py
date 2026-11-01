@@ -667,6 +667,128 @@ async def logout(response: Response, studio_admin_token: str | None = Cookie(Non
     return {"success": True, "message": "Logged out"}
 
 
+@app.post("/api/episodes/upload/validate")
+async def validate_upload(
+    episode_id: str = Form(...),
+    beatmap_file: UploadFile = File(...),
+    credit_plan_file: UploadFile = File(None),
+    continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Validate episode upload files WITHOUT saving (dry-run validation).
+    
+    Runs same validation as /api/episodes/upload but doesn't persist anything.
+    Returns validation errors if any, or success with shot count.
+    
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    """
+    # Auth: accept either upload token (Bearer) or session cookie
+    if authorization:
+        verify_upload_token(authorization)
+    else:
+        await verify_admin_cookie(studio_admin_token)
+    
+    errors = []
+    shots_count = 0
+    
+    # Validate episode ID format (early return on invalid)
+    try:
+        validate_episode_id(episode_id)
+    except HTTPException as e:
+        return {"success": False, "valid": False, "errors": [f"Invalid episode_id: {e.detail}"], "shots_count": 0}
+    
+    # Validate beatmap content
+    try:
+        beatmap_content = await beatmap_file.read()
+        if not beatmap_content:
+            errors.append("Beatmap file is empty")
+        else:
+            # Check UTF-8 decoding
+            try:
+                beatmap_content.decode('utf-8')
+            except UnicodeDecodeError:
+                errors.append("Beatmap file is not valid UTF-8")
+            
+            # Try parsing beatmap without saving
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.md', delete=False) as tmp:
+                tmp.write(beatmap_content)
+                tmp_path = tmp.name
+            try:
+                shots = parse_beatmap(tmp_path)
+                if not shots:
+                    errors.append("No shots found in beatmap")
+                shots_count = len(shots)
+            except Exception as e:
+                errors.append(f"Beatmap parsing error: {str(e)}")
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+    except Exception as e:
+        errors.append(f"Error reading beatmap: {str(e)}")
+    
+    # Validate credit plan if provided
+    if credit_plan_file:
+        try:
+            credit_plan_content = await credit_plan_file.read()
+            if credit_plan_content:
+                # Check UTF-8
+                try:
+                    credit_plan_content.decode('utf-8')
+                except UnicodeDecodeError:
+                    errors.append("Credit plan file is not valid UTF-8")
+                
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='wb', suffix='.md', delete=False) as tmp:
+                    tmp.write(credit_plan_content)
+                    tmp_path = tmp.name
+                try:
+                    parse_credit_plan(Path(tmp_path))
+                except Exception as e:
+                    errors.append(f"Credit plan parsing error: {str(e)}")
+                finally:
+                    Path(tmp_path).unlink(missing_ok=True)
+        except Exception as e:
+            errors.append(f"Error reading credit plan: {str(e)}")
+    
+    # Validate continuity if provided  
+    if continuity_file:
+        try:
+            continuity_content = await continuity_file.read()
+            if not continuity_content:
+                errors.append("Continuity file is empty")
+            else:
+                # Check UTF-8
+                try:
+                    continuity_content.decode('utf-8')
+                except UnicodeDecodeError:
+                    errors.append("Continuity file is not valid UTF-8")
+        except Exception as e:
+            errors.append(f"Error reading continuity: {str(e)}")
+    
+    if errors:
+        return {
+            "success": False,
+            "valid": False,
+            "errors": errors,
+            "shots_count": shots_count
+        }
+    
+    return {
+        "success": True,
+        "valid": True,
+        "errors": [],
+        "episode_id": episode_id,
+        "shots_count": shots_count,
+        "files_validated": {
+            "beatmap": True,
+            "credit_plan": credit_plan_file is not None,
+            "continuity": continuity_file is not None,
+        }
+    }
+
+
 @app.post("/api/episodes/upload")
 async def upload_beatmap(
     episode_id: str = Form(...),
