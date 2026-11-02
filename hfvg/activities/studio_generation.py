@@ -44,7 +44,7 @@ from hfvg.pricing import (
     usd_to_micros,
 )
 from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
-from hfvg.prompt_lint import enforce_prompt_lint
+from hfvg.prompt_lint import apply_continuity_locks, enforce_prompt_lint
 from hfvg import moderation_lint
 
 
@@ -146,7 +146,7 @@ def _get_ref_version_from_sidecar(ref_path: str) -> int:
     if version_sidecar.exists():
         try:
             import json as json_lib
-            sidecar_data = json_lib.loads(version_sidecar.read_text())
+            sidecar_data = json_lib.loads(version_sidecar.read_text(encoding="utf-8"))
             return sidecar_data.get("version", 1)
         except (json_lib.JSONDecodeError, OSError):
             # Fall back to v1 if sidecar is corrupted
@@ -283,7 +283,8 @@ def generate_idempotency_key(episode_id: str = None, shot_id: str = None, versio
 
 
 async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id: str, shot_id: str,
-                                job_id: str, amount_usd_micros: int, retry_key: str) -> dict:
+                                job_id: str, amount_usd_micros: int, retry_key: str,
+                                retry_limit: int | None = None) -> dict:
     """G-BUD-1: authorize one PAID retry job against its review round right before the provider
     submit (per-round 80% stop + max paid retries per shot per round, USD ledger). Refusal is a
     non-retryable ApplicationError(type="RoundBudgetError"); the caller releases its other holds."""
@@ -292,6 +293,7 @@ async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id:
         return await ledger.authorize_round_spend(
             episode_id, round_id, base_shot, job_id, amount_usd_micros,
             retry_key=retry_key, reason=f"paid retry {retry_key}: {job_id}",
+            **({"retry_limit": retry_limit} if retry_limit is not None else {}),
         )
     except RoundBudgetError as e:
         raise ApplicationError(str(e), type="RoundBudgetError", non_retryable=True) from e
@@ -300,17 +302,23 @@ async def _authorize_paid_retry(ledger: BudgetLedger, episode_id: str, round_id:
 @activity.defn
 async def check_round_budget_activity(episode_id: str, round_id: str, shot_id: str, hold_key: str,
                                       model: str, duration: float, retry_key: str,
-                                      seedance_resolution: str | None = None) -> dict:
+                                      seedance_resolution: str | None = None,
+                                      retry_limit: int | None = None) -> dict:
     """Read-only pre-check for EpisodeWorkflowV2.retry_clip (before the retry child starts): would
     this paid clip retry fit the round cap / per-shot retry limit / episode stop? Uses the offline
     rate-table estimate (no provider call). Raises ApplicationError(type="RoundBudgetError")."""
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = BudgetLedger(db_path)
-    amount = clip_estimate_usd_micros(model, seedance_resolution, duration)
+    # GAP-50: estimate at the resolution the clip will render at (a 720p Seedance route was pre-checked
+    # at the 1080p default, 2.5x the price)
+    amount = clip_estimate_usd_micros(model, None, duration,
+                                      seedance_resolution if model == "seedance" else None)
     try:
         result = await ledger.authorize_round_spend(
             episode_id, round_id, shot_id, hold_key, amount, retry_key=retry_key,
             reason=f"pre-check {retry_key}", dry_check=True,
+            # GAP-73: a granted recompose clip's lifted per-shot limit (lifts, never lowers)
+            **({"retry_limit": retry_limit} if retry_limit is not None else {}),
         )
     except RoundBudgetError as e:
         raise ApplicationError(str(e), type="RoundBudgetError", non_retryable=True) from e
@@ -324,7 +332,6 @@ async def refuse_committed_job_id(db_path: str, job_id: str) -> None:
     under a finished id is charged while the poll follows the first request and the run silently
     re-saves the old output (ep05v2 V19, 2026-10-27). Refuse before any estimate/reserve/submit.
     A reserved (in-flight) row is left alone: that is the activity-retry resume case."""
-    import aiosqlite
     try:
         async with aiosqlite.connect(db_path) as db:
             async with db.execute("SELECT status FROM job_ledger WHERE job_id = ?", (job_id,)) as cur:
@@ -404,6 +411,8 @@ async def submit_still_job_enforced(
     
     # DRY_RUN env forces dry mode (kill switch)
     if dry_run_env:
+        # GAP-40: harness-injected continuity locks (prompt kit CONTINUITY) before the lint
+        prompt, _locks = apply_continuity_locks(episode_id, prompt, shot_meta, live=False, kind="still")
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
         # B5: playbook moderation lint (dry never refuses; a hard violation records would_refuse)
         lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)
@@ -445,6 +454,11 @@ async def submit_still_job_enforced(
         f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
     )
     
+    # GAP-40: inject the prompt kit's continuity locks (duck identity / animal scale) into the
+    # submitted prompt, then the lint requires them (refuses before provider init, estimate, reserve)
+    prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=True, kind="still")
+    if locks_added:
+        activity.logger.info(f"{episode_id}/{shot_id} still: continuity locks injected {locks_added}")
     # Prompt lint gate: refuses before provider init, estimate, reserve
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
     # B5: playbook moderation lint, same position (hard rules refuse before estimate/reserve)
@@ -532,7 +546,6 @@ async def submit_still_job_enforced(
     # Generate job_id (harness identifier)
     # Original shots: still-{ep}-{shot}-v{version}
     # Retries: still-{ep}-{shot}-r{retry_number} (r1, r2, etc.)
-    # ROUND_G3_RECOMPOSE imported from hfvg.budget
     if review_round and review_round.get("round") == ROUND_G3_RECOMPOSE and review_round.get("retry_key"):
         # GAP-37: a recompose still gets its own -rc{n} id. Its attempt is the recompose VERSION, so
         # -r{attempt-1} collided with the shot's G2 retry ids (ep05v2 V19 recompose1 -> -r2, the id
@@ -554,6 +567,7 @@ async def submit_still_job_enforced(
     job_id = f"still-{episode_id}-{shot_id}{attempt_suffix}{lead_suffix}{anchor_suffix}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    await refuse_committed_job_id(db_path, job_id)
     
     # GAP-37: refuse if job_id is already committed
     await refuse_committed_job_id(db_path, job_id)
@@ -706,8 +720,12 @@ async def submit_still_job_enforced(
         if review_round and not moderation_retry:
             if review_round.get("round") != ROUND_G3_RECOMPOSE or not review_round.get("retry_key"):
                 raise ApplicationError(f"invalid review_round {review_round!r}", non_retryable=True)
+            # GAP-46: the shot's owner-granted recompose allowance (if any) is the per-shot round limit
+            limit = review_round.get("limit")
+            if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+                raise ApplicationError(f"invalid review_round limit {limit!r}", non_retryable=True)
             await _authorize_paid_retry(ledger, episode_id, ROUND_G3_RECOMPOSE, shot_id, job_id,
-                                        budget_amount, str(review_round["retry_key"]))
+                                        budget_amount, str(review_round["retry_key"]), limit)
             round_hold_key = job_id
         elif attempt > 1:
             await _authorize_paid_retry(ledger, episode_id, ROUND_G2_STILLS, shot_id, job_id,
@@ -841,6 +859,7 @@ async def submit_clip_job_enforced(
     missing_refs: list[str] | None = None,
     clip_retry: dict[str, Any] | None = None,
     moderation_retry: dict[str, Any] | None = None,
+    seedance_resolution: str | None = None,
 ) -> dict[str, Any]:
     """
     Submit a video generation job (Kling 3.0 Pro or Seedance 2.5) with full enforcement.
@@ -906,14 +925,17 @@ async def submit_clip_job_enforced(
         "duration": duration,
         "tags": tags or [],
         "count": animal_count,
-        # per-shot Seedance resolution override (shots.json seedance_resolution; Kling ignores it)
-        "resolution": (shot_meta or {}).get("seedance_resolution"),
-    })
+    }, **({"resolution": seedance_resolution} if seedance_resolution and model == "seedance" else {}))
+    # GAP-45: seedance_resolution = an owner-routed explicit Seedance output resolution (else tier default)
     if route.model == "seedance" and duration != int(duration):
         raise ValueError(f"Seedance duration must be a whole number of seconds, got {duration}")
     
     # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
     # Clip lint runs on the FINAL submitted clip prompt (clip_prompt or reword), with the motion rules
+    # GAP-40: inject the continuity locks (duck identity + duck clip line / animal scale) first
+    prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=use_live, kind="clip")
+    if locks_added:
+        activity.logger.info(f"{episode_id}/{shot_id} clip: continuity locks injected {locks_added}")
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=use_live, kind="clip")
     # B5: playbook moderation lint + moderation-risk routing check on the routed model
     # (live: a hard violation refuses before estimate/reserve; dry: recorded, never refuses)
@@ -995,6 +1017,7 @@ async def submit_clip_job_enforced(
         job_id += f"-c{int(clip_retry['n'])}"
     if moderation_retry:
         job_id += f"-m{int(moderation_retry['n'])}"
+    await refuse_committed_job_id(db_path, job_id)
     
     # GAP-37: refuse if job_id is already committed
     await refuse_committed_job_id(db_path, job_id)

@@ -83,7 +83,8 @@ def expected_clip_dims(params: dict | None, tier: str | None = None) -> dict:
             )
         return {"resolution": f"{w}x{h}", "aspect_ratio": f"{aw}:{ah}", "source": "explicit"}
 
-    short = native_short_side(params.get("model", "kling"), tier, params.get("seedance_resolution"))
+    short = native_short_side(params.get("model", "kling"), tier,
+                              params.get("seedance_resolution") if params.get("model") == "seedance" else None)
     if aw <= ah:
         w, h = short, _even(short * ah / aw)
     else:

@@ -28,7 +28,7 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     - has_end_frame: bool (marked with ⇥)
     - duck_role: "host", "absent", or "present"
     """
-    content = Path(beatmap_path).read_text()
+    content = Path(beatmap_path).read_text(encoding="utf-8")
     
     shots = []
     

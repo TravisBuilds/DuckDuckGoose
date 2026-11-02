@@ -59,9 +59,9 @@ class ShotWorkflow:
         self.human_approved_still = False  # Track if human approved an escalated still
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
-        self.balance_resumed = False  # Signal that balance was topped up
         self.end_still_requested = False  # generate_end_still signal (backfill for runs started before the fix)
         self.end_prompt_override: str | None = None
+        self.balance_resumed = False  # Signal that balance was topped up
         self.status = "running"  # Status: running, paused_cap, paused_insufficient_balance, completed, failed
         
         # Per-shot G2 status tracking (Item 4)
@@ -159,7 +159,7 @@ class ShotWorkflow:
     def resume_after_cap_raise(self):
         """Signal from parent that credit cap was raised, resume paused shot."""
         self.cap_raised = True
-
+    
     @workflow.signal
     def resume_balance(self):
         """Signal from endpoint after balance top-up, resume paused shot."""
@@ -731,7 +731,10 @@ class ShotWorkflow:
                                 ] + ([None, still_mod_retry] if still_mod_retry else
                                      # GAP-25: a recompose still is held in its own review round
                                      [None, None, {"round": "G3_RECOMPOSE",
-                                                   "retry_key": f"rc{shot_plan['recompose']['n']}"}]
+                                                   "retry_key": f"rc{shot_plan['recompose']['n']}",
+                                                   # GAP-46: a granted allowance is the round limit
+                                                   **({"limit": int(shot_plan["recompose"]["allowance"])}
+                                                      if shot_plan["recompose"].get("allowance") else {})}]
                                      if shot_plan.get("recompose") else []),
                                 start_to_close_timeout=timedelta(minutes=2),
                                 retry_policy=retry_policy,
@@ -1176,7 +1179,11 @@ class ShotWorkflow:
                                 end_image_url,
                                 None,  # bitrate_mode (activity default)
                                 shot_plan.get("missing_refs", []),
-                            ] + ([clip_retry, clip_mod_retry] if clip_mod_retry
+                            ] + ([clip_retry, clip_mod_retry, params["seedance_resolution"]]
+                                 # GAP-45: an owner-routed Seedance resolution (input-driven: other histories unchanged)
+                                 if params.get("seedance_resolution")
+                                 and (mod_clip["model"] or params.get("model", "kling")) == "seedance"
+                                 else [clip_retry, clip_mod_retry] if clip_mod_retry
                                  else ([clip_retry] if clip_retry else [])),
                             start_to_close_timeout=timedelta(minutes=2),
                             retry_policy=retry_policy,
@@ -1328,7 +1335,6 @@ class ShotWorkflow:
                         "status": "failed",
                         "still_url": self.still_asset["url"],
                         "clip_url": self.clip_asset["url"],
-                        "clip_path": self.clip_local_path,  # Task 6: Include clip_path for accept_clip_review
                         "error": f"QC failed: {', '.join(clip_qc['issues'])}",
                         "qc_constraints": clip_qc.get("constraints"),
                     }

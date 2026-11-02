@@ -52,7 +52,7 @@ async def _failed_start_then_spend(tmp_path, monkeypatch, db):
 @pytest.mark.asyncio
 async def test_sync_applies_policy_caps_to_lines_from_an_earlier_start(tmp_path, monkeypatch, env):
     ledger = await _failed_start_then_spend(tmp_path, monkeypatch, env)
-    result = await ledger.sync_episode_lines("ep05full", reason="Operator 04:36 CET")
+    result = await ledger.sync_episode_lines("ep05full", reason="Reviewer 04:36 CET")
     lines = await _lines(env)
     assert lines["L4_video"][:2] == (32_500_000, 30_875_000)  # >= $10.528 first pass + $20 retries
     assert lines["L2_drafts"][:2] == (2_500_000, 2_375_000)
@@ -60,7 +60,7 @@ async def test_sync_applies_policy_caps_to_lines_from_an_earlier_start(tmp_path,
     assert {c["line"] for c in result["changed"]} == {"L1_refs", "L2_drafts", "L3_final_stills", "L4_video"}
     async with aiosqlite.connect(env) as db:
         n = (await (await db.execute(
-            "SELECT COUNT(*) FROM budget_transactions WHERE txn_type='cap_sync' AND reason LIKE '%Operator%'")).fetchone())[0]
+            "SELECT COUNT(*) FROM budget_transactions WHERE txn_type='cap_sync' AND reason LIKE '%Reviewer%'")).fetchone())[0]
     assert n == len(result["changed"])
     # idempotent
     again = await ledger.sync_episode_lines("ep05full", reason="again")
@@ -121,13 +121,13 @@ async def test_api_route(tmp_path, monkeypatch, env):
     r = client.post("/api/budget/ep05full/lines/sync", json={"reason": "dry", "dry_run": True})
     assert r.status_code == 200 and r.json()["changed"]
     assert (await _lines(env))["L4_video"][0] == 16_000_000
-    r = client.post("/api/budget/ep05full/lines/sync", json={"reason": "Operator 04:36 CET"})
+    r = client.post("/api/budget/ep05full/lines/sync", json={"reason": "Reviewer 04:36 CET"})
     assert r.status_code == 200
     assert (await _lines(env))["L4_video"][0] == 32_500_000
     async with aiosqlite.connect(env) as db:
         audit = (await (await db.execute(
             "SELECT details FROM audit_log WHERE action='budget_lines_sync'")).fetchall())
-    assert len(audit) == 1 and "Operator 04:36 CET" in audit[0][0]
+    assert len(audit) == 1 and "Reviewer 04:36 CET" in audit[0][0]
     assert client.post("/api/budget/../lines/sync", json={"reason": "abc"}).status_code in (400, 404)
     monkeypatch.setenv("HFVG_GATE_POLICY", _policy(tmp_path, dict(LINES, L2_drafts=1.0)))
     assert client.post("/api/budget/ep05full/lines/sync", json={"reason": "abc"}).status_code == 409

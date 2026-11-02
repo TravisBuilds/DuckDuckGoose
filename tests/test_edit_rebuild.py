@@ -1,4 +1,4 @@
-"""GAP-29 (past run G_FINAL_CUT): an edit_plan.json written after the first edit (a reused
+"""GAP-29 (ep05v2 G_FINAL_CUT, 2026-10-27): an edit_plan.json written after the first edit (a reused
 clip and a dissolve) could not re-assemble the mute edit, because the assembly signature only sees
 the clip outcomes. request_edit_rebuild(reason) + POST /api/episodes/{id}/assembly/rebuild bump it.
 """

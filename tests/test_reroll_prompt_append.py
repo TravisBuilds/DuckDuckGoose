@@ -72,7 +72,7 @@ def _activities(log):
 
 
 
-AMEND = "EXACTLY THREE char_cs: two adults (char_r, char_h) and one small pup (char_m)."
+AMEND = "EXACTLY THREE animals: two adults (CharA, CharB) and one small pup (CharC)."
 
 
 @pytest.mark.asyncio

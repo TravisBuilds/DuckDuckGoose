@@ -136,11 +136,11 @@ class RunReport:
         
         # Save JSON
         json_path = output_dir / f"{base_name}.json"
-        json_path.write_text(self.to_json())
+        json_path.write_text(self.to_json(), encoding="utf-8")
         
         # Save markdown
         md_path = output_dir / f"{base_name}.md"
-        md_path.write_text(self.to_markdown())
+        md_path.write_text(self.to_markdown(), encoding="utf-8")
         
         return {
             "json_path": str(json_path),

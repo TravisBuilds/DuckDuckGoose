@@ -105,7 +105,7 @@ async def generate_ref_activity(
         
         if version_sidecar.exists():
             try:
-                version_data = json.loads(version_sidecar.read_text())
+                version_data = json.loads(version_sidecar.read_text(encoding="utf-8"))
                 existing_version = version_data.get("version", 1)
             except Exception as e:
                 activity.logger.warning(f"Failed to read version sidecar: {e}")
@@ -213,7 +213,7 @@ async def generate_ref_activity(
             version_sidecar_dir = Path(output_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}), encoding="utf-8")
             
             # Commit credits only (no USD reservation in dry mode)
             await ledger.commit_credits(episode_id, job_id, estimated_credits)
@@ -294,7 +294,7 @@ async def generate_ref_activity(
             version_sidecar_dir = Path(output_path).parent / ".versions"
             version_sidecar_dir.mkdir(parents=True, exist_ok=True)
             version_sidecar = version_sidecar_dir / f"{Path(output_path).stem}.json"
-            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}))
+            version_sidecar.write_text(json.dumps({"version": version, "ref_key": ref_key}), encoding="utf-8")
             activity.logger.info(f"Wrote version sidecar: v{version}")
         
         return {
@@ -382,7 +382,7 @@ async def load_refs_to_generate_activity(
         sidecar = p.parent / ".versions" / f"{p.stem}.json"
         if sidecar.exists():
             try:
-                data = json.loads(sidecar.read_text())
+                data = json.loads(sidecar.read_text(encoding="utf-8"))
                 return data.get("version", 1)
             except (json.JSONDecodeError, OSError):
                 pass
@@ -424,7 +424,7 @@ async def load_refs_to_generate_activity(
         activity.logger.warning(f"No refs.json for {episode_id}, no refs to generate")
         return []
     
-    refs_data = json.loads(refs_path.read_text())
+    refs_data = json.loads(refs_path.read_text(encoding="utf-8"))
     to_generate_raw = refs_data.get("to_generate", [])
     prompts_map = refs_data.get("prompts", {})
     versions_map = refs_data.get("versions", {})  # Map of {key: version}
@@ -616,6 +616,17 @@ def validate_ref_edit_spec(ref_spec: dict, is_live: bool) -> None:
         )
     if is_live and not Path(src).is_file():
         raise ValueError(f"refs.json to_generate '{key}': edit_from source not on disk: {src}")
+    extras = ref_spec.get("extra_refs")
+    if extras is not None:
+        if not isinstance(extras, list) or not all(isinstance(x, str) and x.strip() for x in extras):
+            raise ValueError(f"refs.json to_generate '{key}': extra_refs must be a list of paths")
+        for x in extras:
+            if x.startswith(("http://", "https://")):
+                raise ValueError(f"refs.json to_generate '{key}': extra_refs must be local files, not URLs")
+            if out and Path(out).resolve() == Path(x).resolve():
+                raise ValueError(f"refs.json to_generate '{key}': an extra ref is the output file")
+            if is_live and not Path(x).is_file():
+                raise ValueError(f"refs.json to_generate '{key}': extra ref not on disk: {x}")
 
 
 def ref_edit_job_id(episode_id: str, ref_key: str, version: int, source_sha256: str) -> str:
@@ -633,8 +644,15 @@ async def generate_ref_edit_activity(
     resolution: str = REF_EDIT_RESOLUTION,
     quality: str = REF_EDIT_QUALITY,
     aspect_ratio: str = REF_EDIT_ASPECT_RATIO,
+    extra_refs: list[str] | None = None,
+    lock_meta: dict | None = None,
 ) -> dict:
     """Generate ref ``ref_key`` as an image edit of ``edit_from`` through the still model.
+
+    GAP-42: ``extra_refs`` (local files) are sent after the source as further image_urls (the source
+    stays first; at most the model's max refs in total); they are part of the job id / reuse identity.
+    ``lock_meta`` (e.g. {"duck": true}) injects the prompt kit's continuity locks and enforces the
+    duck style split before any upload, estimate or spend.
 
     Same reuse/version/staging/QC/commit rules as generate_ref_activity; the spend is the provider
     estimate (never a literal), reserved on L1_refs before submit.
@@ -649,7 +667,8 @@ async def generate_ref_edit_activity(
     from hfvg.providers.base import ProviderJobStatus
 
     validate_ref_edit_spec(
-        {"key": ref_key, "output_path": output_path, "edit_from": edit_from}, is_live=True
+        {"key": ref_key, "output_path": output_path, "edit_from": edit_from,
+         "extra_refs": extra_refs}, is_live=True
     )
     model_path = still_model_path()
     caps = model_caps.get_registry().resolve(model_path)
@@ -659,10 +678,22 @@ async def generate_ref_edit_activity(
             raise ValueError(f"Ref edit {ref_key}: {field} {value!r} refused for {model_path}: {why}")
     if max_refs_for(model_path) < 1:
         raise ValueError(f"Ref edit {ref_key}: {model_path} accepts no reference image")
+    extra_refs = list(extra_refs or [])
+    if 1 + len(extra_refs) > max_refs_for(model_path):
+        raise ValueError(f"Ref edit {ref_key}: {1 + len(extra_refs)} reference images exceed "
+                         f"{model_path}'s max of {max_refs_for(model_path)}")
 
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    from hfvg.prompt_lint import apply_ref_edit_locks
+    prompt, locks_added = apply_ref_edit_locks(episode_id, prompt, lock_meta, live=not dry_run)
+    if locks_added:
+        activity.logger.info(f"Ref edit {ref_key}: continuity locks injected {locks_added}")
     source_sha = _file_sha256(edit_from)
+    if extra_refs:
+        import hashlib as _hl
+        source_sha = _hl.sha256(
+            "|".join([source_sha] + [_file_sha256(x) for x in extra_refs]).encode()).hexdigest()
     job_id = ref_edit_job_id(episode_id, ref_key, version, source_sha)
 
     original_output_path = output_path
@@ -679,7 +710,7 @@ async def generate_ref_edit_activity(
         meta = {}
         if sidecar.exists():
             try:
-                meta = json.loads(sidecar.read_text())
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
             except Exception:
                 meta = {}
         same = meta.get("version", 1) == version and meta.get("edit_from_sha256") == source_sha
@@ -699,7 +730,9 @@ async def generate_ref_edit_activity(
         (d / f"{Path(path).stem}.json").write_text(json.dumps({
             "version": version, "ref_key": ref_key, "edit_from": str(edit_from),
             "edit_from_sha256": source_sha, "model": model_path,
-        }))
+            **({"extra_refs": [str(x) for x in extra_refs]} if extra_refs else {}),
+            **({"locks": locks_added} if locks_added else {}),
+        }), encoding="utf-8")
 
     ledger = CreditLedger(db_path)
     await ledger.init_db()
@@ -740,10 +773,11 @@ async def generate_ref_edit_activity(
             src_sidecar = Path(edit_from).parent / ".versions" / f"{Path(edit_from).stem}.json"
             if src_sidecar.exists():
                 try:
-                    src_version = int(json.loads(src_sidecar.read_text()).get("version", 1))
+                    src_version = int(json.loads(src_sidecar.read_text(encoding="utf-8")).get("version", 1))
                 except Exception:
                     src_version = 1
             source_url = (await provider.upload_reference(edit_from, src_version))["public_url"]
+            extra_urls = [(await provider.upload_reference(x, 1))["public_url"] for x in extra_refs]
             # Estimates guard: provider estimate first, fail closed
             estimated_usd, estimated_credits = await provider.estimate_usd_and_credits(
                 prompt=prompt, resolution=resolution, quality=quality, aspect_ratio=aspect_ratio)
@@ -764,7 +798,8 @@ async def generate_ref_edit_activity(
                 f"{model_path}|{prompt}|{resolution}|{quality}|{aspect_ratio}|{source_sha}".encode()
             ).hexdigest()[:16]
             provider_job_id = await provider.submit_image(
-                prompt=prompt, resolution=resolution, quality=quality, image_urls=[source_url],
+                prompt=prompt, resolution=resolution, quality=quality,
+                image_urls=[source_url] + extra_urls,
                 idempotency_key=f"{job_id}-{key_hash}", aspect_ratio=aspect_ratio,
             )
             await ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
@@ -826,3 +861,56 @@ async def generate_ref_edit_activity(
         raise
     finally:
         await provider.close()
+
+
+# ---------------------------------------------------------------------------------------------
+# GAP-42: mid-episode versioned ref-edit jobs (EpisodeWorkflowV2.generate_refs)
+# ---------------------------------------------------------------------------------------------
+
+def ref_edit_specs_for(refs_doc: dict, keys: list[str], is_live: bool) -> list[dict]:
+    """The refs.json ``to_generate`` edit entries for ``keys``, in request order (pure; raises
+    ValueError). Each needs key, prompt, output_path, edit_from and an explicit integer version
+    (a new try = a new version, so a paid job id is never reused); optional extra_refs, lock_meta,
+    resolution/quality/aspect_ratio (default: the ref-edit defaults)."""
+    entries = refs_doc.get("to_generate") or []
+    by_key: dict[str, dict] = {}
+    for e in entries:
+        if isinstance(e, dict) and e.get("key") in keys:
+            if e["key"] in by_key:
+                raise ValueError(f"refs.json to_generate has two entries for '{e['key']}'")
+            by_key[e["key"]] = e
+    out = []
+    for key in keys:
+        e = by_key.get(key)
+        if e is None:
+            raise ValueError(f"refs.json to_generate has no entry '{key}'")
+        if not e.get("edit_from"):
+            raise ValueError(f"refs.json to_generate '{key}': mid-episode ref jobs need edit_from")
+        for field in ("prompt", "output_path"):
+            if not isinstance(e.get(field), str) or not e[field].strip():
+                raise ValueError(f"refs.json to_generate '{key}': {field} is required")
+        v = e.get("version")
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            raise ValueError(f"refs.json to_generate '{key}': an explicit integer version >= 1 is required")
+        lock_meta = e.get("lock_meta")
+        if lock_meta is not None and not isinstance(lock_meta, dict):
+            raise ValueError(f"refs.json to_generate '{key}': lock_meta must be an object")
+        validate_ref_edit_spec(e, is_live)
+        out.append({
+            "key": key, "prompt": e["prompt"], "output_path": e["output_path"], "version": v,
+            "edit_from": e["edit_from"], "extra_refs": list(e.get("extra_refs") or []) or None,
+            "lock_meta": lock_meta,
+            "resolution": e.get("resolution", REF_EDIT_RESOLUTION),
+            "quality": e.get("quality", REF_EDIT_QUALITY),
+            "aspect_ratio": e.get("aspect_ratio", REF_EDIT_ASPECT_RATIO),
+        })
+    return out
+
+
+@activity.defn
+async def load_ref_edit_specs_activity(episode_id: str, keys: list[str], is_live: bool) -> list[dict]:
+    from hfvg.shot_data import refs_json_path
+    path = refs_json_path(episode_id)
+    if not path.exists():
+        raise ValueError(f"refs.json not found for {episode_id}: {path}")
+    return ref_edit_specs_for(json.loads(path.read_text(encoding="utf-8")), list(keys), is_live)

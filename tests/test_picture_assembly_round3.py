@@ -113,7 +113,7 @@ class HB:
 
 
 @pytest.fixture
-def no_counter():
+def no_counter():  # noqa: F811
     set_animal_counter(None)
     yield
     set_animal_counter(None)
@@ -328,7 +328,7 @@ class TestStillgate:
 
 class TestAnimalChecks:
     @pytest.mark.asyncio
-    async def test_no_checker_escalates_never_passes(self, tmp_path, no_counter):
+    async def test_no_checker_escalates_never_passes(self, tmp_path, no_counter):  # noqa: F811
         media = tmp_path / "x.mp4"
         media.write_bytes(b"x")
         res = await check_shot_animals(None, media, {"count": 2, "duck": True})
@@ -363,7 +363,7 @@ class TestAssemblyQC:
         return await HB().run(assemble_mute_edit, "ep40", shots, clips, str(tmp_path / "edit"))
 
     @pytest.mark.asyncio
-    async def test_motion_pass_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):
+    async def test_motion_pass_without_checker_needs_review(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         edit = await self._edit(tmp_path, {"A01": MOVING, "A02": MOVING})
         qc = await HB().run(check_assembly_qc, edit["assembly_path"], edit["manifest"], "ep40",
@@ -373,7 +373,7 @@ class TestAssemblyQC:
         assert qc["review_shots"] == ["A01", "A02"]
 
     @pytest.mark.asyncio
-    async def test_pass_with_matching_counter(self, tmp_path, monkeypatch, no_counter):
+    async def test_pass_with_matching_counter(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1, "duck": 1}))
         edit = await self._edit(tmp_path, {"A01": MOVING, "A02": MOVING})
@@ -383,7 +383,7 @@ class TestAssemblyQC:
         assert len(qc["animal_results"]) == 2
 
     @pytest.mark.asyncio
-    async def test_still_only_shot_fails(self, tmp_path, monkeypatch, no_counter):
+    async def test_still_only_shot_fails(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         edit = await self._edit(tmp_path, {"A01": MOVING, "A02": FROZEN})
@@ -393,7 +393,7 @@ class TestAssemblyQC:
         assert qc["failed_shots"] == ["A02"] and "A02 still-only" in qc["reason"]
 
     @pytest.mark.asyncio
-    async def test_count_mismatch_fails(self, tmp_path, monkeypatch, no_counter):
+    async def test_count_mismatch_fails(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 2}))
         edit = await self._edit(tmp_path, {"A01": MOVING})
@@ -401,7 +401,7 @@ class TestAssemblyQC:
         assert qc["verdict"] == "FAIL" and qc["failed_shots"] == ["A01"], qc
 
     @pytest.mark.asyncio
-    async def test_missing_edit_and_qc_error_escalate(self, tmp_path, monkeypatch, no_counter):
+    async def test_missing_edit_and_qc_error_escalate(self, tmp_path, monkeypatch, no_counter):  # noqa: F811
         monkeypatch.setenv("DRY_RUN", "false")
         set_animal_counter(FakeAnimalCounter({"animal": 1}))
         manifest = {"clips": [{"id": "A01", "seg_s": 2.0}], "dissolves": {}}
@@ -413,7 +413,7 @@ class TestAssemblyQC:
         assert broken["verdict"] == "NEEDS_REVIEW" and "motion QC error" in broken["reason"], broken
 
     @pytest.mark.asyncio
-    async def test_dry_placeholder_is_not_a_pass(self, no_counter):
+    async def test_dry_placeholder_is_not_a_pass(self, no_counter):  # noqa: F811
         qc = await HB().run(check_assembly_qc, "x.mp4", {"clips": [{"id": "A01", "seg_s": 1}], "dry_run": True}, "ep40", {})
         assert qc["verdict"] == "DRY_RUN" and qc["blocking"] is False
 
@@ -838,7 +838,7 @@ def test_motion_check_frozen_video(tmp_path):
 
 @needs_ffmpeg
 @pytest.mark.asyncio
-async def test_assembly_qc_integration(tmp_path, monkeypatch, no_counter):
+async def test_assembly_qc_integration(tmp_path, monkeypatch, no_counter):  # noqa: F811
     """Assembly QC runs the stillgate on every shot of the edit, plus the animal checks; with no
     checker registered it escalates, with a deterministic checker a moving edit passes."""
     monkeypatch.setenv("DRY_RUN", "false")

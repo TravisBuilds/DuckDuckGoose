@@ -63,7 +63,7 @@ async def preflight_validate_episode_activity(
         shots_data = {}
     else:
         try:
-            shots_raw = json.loads(shots_json_path.read_text())
+            shots_raw = json.loads(shots_json_path.read_text(encoding="utf-8"))
             # shots.json has a "shots" array with "id" field
             if isinstance(shots_raw, dict) and "shots" in shots_raw:
                 shots_data = {s["id"]: s for s in shots_raw["shots"] if "id" in s}
@@ -95,7 +95,7 @@ async def preflight_validate_episode_activity(
         per_shot_refs = {}
     else:
         try:
-            refs_raw = json.loads(refs_json_path.read_text())
+            refs_raw = json.loads(refs_json_path.read_text(encoding="utf-8"))
             
             # Handle both schemas: "available"/"to_generate" OR "per_shot"
             if "per_shot" in refs_raw:
@@ -140,7 +140,7 @@ async def preflight_validate_episode_activity(
                                 version_sidecar = Path(ref_path).parent / ".versions" / f"{ref_key}.json"
                                 if version_sidecar.exists():
                                     try:
-                                        sidecar_data = json.loads(version_sidecar.read_text())
+                                        sidecar_data = json.loads(version_sidecar.read_text(encoding="utf-8"))
                                         current_version = sidecar_data.get("version", 1)
                                         if current_version != target_version:
                                             to_generate_refs.add(ref_key)
@@ -180,7 +180,7 @@ async def preflight_validate_episode_activity(
         problems.append(f"Missing required file: prompt_kit.json")
     else:
         try:
-            json.loads(prompt_kit_path.read_text())
+            json.loads(prompt_kit_path.read_text(encoding="utf-8"))
         except Exception as e:
             problems.append(f"Invalid prompt_kit.json: {e}")
     
@@ -259,8 +259,6 @@ async def preflight_validate_episode_activity(
     # Validate that the line caps this episode will get (policy for the episode, else the
     # defaults: BudgetLedger.effective_line_caps_usd_micros) fit within episode cap and stop
     settings = get_budget_settings()
-    # The caps init_episode_budget will really create (policy lines, else defaults), not the
-    # defaults alone: a policy-capped episode below the $44 default total must not be refused.
     default_total = sum(effective_line_caps_usd_micros(ledger.policy, episode_id).values())
     
     if default_total > settings.episode_cap_usd_micros:
@@ -295,6 +293,20 @@ async def preflight_validate_episode_activity(
         if not fresh["ok"]:
             problems.append(fresh["reason"])
 
+    # GAP-76: optional object_contact tag (bool) + per-shot inference from the motion text
+    from hfvg.motion_qc import object_contact as _oc, validate_object_contact_tag as _oc_check
+    object_contact_shots: dict[str, str] = {}
+    for _sid, _shot in (shots_data.items() if isinstance(shots_data, dict) else []):
+        if not isinstance(_shot, dict):
+            continue
+        _bad = _oc_check({"id": _sid, **_shot})
+        if _bad:
+            problems.append(_bad)
+            continue
+        _tagged, _src = _oc(_shot)
+        if _tagged:
+            object_contact_shots[_sid] = _src
+
     # Raise if any problems found
     if problems:
         raise PreflightError(
@@ -311,4 +323,5 @@ async def preflight_validate_episode_activity(
         "validated_shots": len([s for s in shots_data if not shots_subset or s in shots_subset]),
         "available_refs": len(available_refs),
         "to_generate_refs": len(to_generate_refs),
+        "object_contact": object_contact_shots,
     }

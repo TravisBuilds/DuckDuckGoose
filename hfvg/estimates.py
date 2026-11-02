@@ -34,8 +34,10 @@ def still_call_usd_micros() -> int:
 def clip_call_usd_micros(model: str, tier: str | None, seconds: float,
                          resolution: str | None = None) -> int:
     """USD micros one dry-run clip submit reserves (raises ValueError for an unknown model).
-    ``resolution``: the shot's Seedance override (None = tier default)."""
-    return clip_estimate_usd_micros(model, tier, seconds, resolution)
+    ``resolution``: GAP-45 explicit Seedance output resolution (ignored for Kling)."""
+    if resolution and model == "seedance":
+        return clip_estimate_usd_micros(model, tier, seconds, resolution)
+    return clip_estimate_usd_micros(model, tier, seconds)
 
 
 def shot_call_plan(shot: dict[str, Any], pre_approved: bool = False) -> dict[str, Any]:

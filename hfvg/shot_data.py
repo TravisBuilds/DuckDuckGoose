@@ -40,7 +40,7 @@ def refs_json_path(episode_id: str) -> Path:
 
 def _read_json(path: Path, what: str) -> Any:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError) as e:
         raise ShotDataError(f"Cannot read {what} {path}: {e}") from e
 

@@ -505,7 +505,7 @@ def _still_mod_retry(call):
 
 
 @pytest.fixture
-async def dry_env(tmp_path, monkeypatch):
+async def dry_env(tmp_path, monkeypatch):  # noqa: F811
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import init_studio_db
@@ -598,7 +598,7 @@ async def _run_episode(env, h, tmp_path, episode_id, prompt, model="kling", stil
 class TestLadderInWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_blocked_clip_reworded_and_resubmitted_once(self, dry_env, tmp_path):
+    async def test_blocked_clip_reworded_and_resubmitted_once(self, dry_env, tmp_path):  # noqa: F811
         """One block on the clip: rung 1 rewords (listed words removed), the clip is resubmitted
         once with moderation_retry m1, lands; audited."""
         h = Harness({"clip": 1})
@@ -621,7 +621,7 @@ class TestLadderInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_repeated_block_escalates_with_exact_provider_message(self, dry_env, tmp_path):
+    async def test_repeated_block_escalates_with_exact_provider_message(self, dry_env, tmp_path):  # noqa: F811
         """Blocked again after the reword: the per-shot paid retry limit (1) stops the ladder; the
         shot goes to human review with the provider's exact message (child result, episode
         state, shots table)."""
@@ -647,7 +647,7 @@ class TestLadderInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_fallback_model_used_when_no_trigger_word(self, dry_env, tmp_path):
+    async def test_fallback_model_used_when_no_trigger_word(self, dry_env, tmp_path):  # noqa: F811
         """A blocked seedance clip with no listed word: rung 1 skipped, rung 2 re-routes to kling
         (validated) with the SAME prompt."""
         h = Harness({"clip": 1})
@@ -666,7 +666,7 @@ class TestLadderInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_hard_stop_still_block_goes_straight_to_review(self, dry_env, tmp_path):
+    async def test_hard_stop_still_block_goes_straight_to_review(self, dry_env, tmp_path):  # noqa: F811
         h = Harness({"still": 5})
         prompt = lint_ok("A seductive duck pose by the pond")
         async with await WorkflowEnvironment.start_local() as env:
@@ -679,7 +679,7 @@ class TestLadderInWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(150)
-    async def test_canceled_clip_never_enters_the_ladder(self, dry_env, tmp_path):
+    async def test_canceled_clip_never_enters_the_ladder(self, dry_env, tmp_path):  # noqa: F811
         """A canceled job is a provider failure, not a content block: no moderation retry."""
         h = Harness({"clip": 5}, status="canceled")
         prompt = lint_ok("A duck waddles through dripping reeds")

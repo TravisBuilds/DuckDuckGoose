@@ -346,3 +346,26 @@ For production:
 - **Status**: Open (do not merge per requirements)
 - **Tests**: 302 passed, 2 skipped
 - **Commits**: 1 (feat: end-to-end Temporal harness...)
+
+## Temporal history retention and reopening from saved state (GAP-79, r13)
+The dev server's `default` namespace keeps closed workflow histories only for its retention period
+(24 h by default). The GAP-41 `/reopen` route needs the closed run's history. Keep it at 30 days:
+
+    temporal operator namespace update --address 127.0.0.1:7364 -n default --retention 30d
+    temporal operator namespace describe --address 127.0.0.1:7364 -n default   # WorkflowExecutionRetentionTtl 720h
+
+The setting lives in the server DB (`--db-filename`), so it survives a restart of that server; a NEW db file
+starts at 24 h again. The API saves each episode's reopen snapshot to `<episode>/state/reopen_snapshot.json`
+(every `SNAPSHOT_SAVE_INTERVAL_S`, default 300 s; `0` disables; or `POST /api/episodes/{id}/snapshot` on demand).
+If the history is gone, use `POST /api/episodes/{id}/reopen-from-saved {"reason": ...}`. It is refused (409)
+while any workflow with that id exists, and it fails closed unless the final cut was approved with no changes
+recorded after it. It uses the persisted file, or a rebuild from the edit manifest, clip/still files, audit
+log and job ledger (`hfvg/saved_state.py`), and the new run parks at G_FINAL_CUT without regenerating anything.
+
+## RIFE needs a working Vulkan ICD (GAP-81, ep05v2 r14, 2026-10-31)
+rife-ncnn-vulkan runs on CPU through Mesa lavapipe. After the 2026-10-31 06:10 CET reboot the system
+lavapipe ICD was gone (apt could not reinstall mesa-vulkan-drivers). rife then printed
+"vkCreateInstance failed -9", still exited 0 and wrote smeared frames. Fix on this box: env.sh exports
+`VK_ICD_FILENAMES=/home/box/android-sdk/emulator/lib64/vulkan/lvp_icd.json`. The harness now fails
+closed (RifeBadOutput, non-retryable): each fresh render and each cache hit is checked frame by frame
+against its source neighbours, and a bad cache entry is moved to `data/cache/rife/bad/` and re-rendered.

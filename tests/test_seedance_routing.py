@@ -330,7 +330,7 @@ def test_planner_tier_resolution_and_explicit_fields_required():
 
 # ---------------------------------------------------------------- Clip activity (live) wiring
 
-async def _live_env(tmp_path, monkeypatch):
+async def _live_env(tmp_path, monkeypatch):  # noqa: F811
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import approve_g108, create_episode, init_studio_db, set_live_mode

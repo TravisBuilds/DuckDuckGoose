@@ -9,7 +9,8 @@ WEB_LIB = Path(__file__).resolve().parent.parent / "web" / "lib"
 def test_web_limits_formatter_node_tests():
     node = shutil.which("node")
     assert node, "node is required for the web limits formatter tests (CI runners ship it)"
-    proc = subprocess.run([node, "--test", str(WEB_LIB / "model-limits.test.mjs")],
+    # Use --test-reporter=tap for consistent TAP output (Node v24+ defaults to spec reporter)
+    proc = subprocess.run([node, "--test", "--test-reporter=tap", str(WEB_LIB / "model-limits.test.mjs")],
                           capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "# fail 0" in proc.stdout and "# pass 3" in proc.stdout, proc.stdout

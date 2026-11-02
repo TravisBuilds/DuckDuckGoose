@@ -41,7 +41,7 @@ def parse_credit_plan(plan_path: str | Path) -> dict[str, Any]:
             "stop_fraction": 0.8,
         }
     """
-    content = Path(plan_path).read_text()
+    content = Path(plan_path).read_text(encoding="utf-8")
     
     lines = {}
     higgsfield_cap = 1250.0  # Default: 1,250 app credits (authored unit)

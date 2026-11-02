@@ -96,8 +96,7 @@ def clip_estimate_usd_micros(model: str, tier: str | None, seconds: int | float,
     """Offline per-model clip estimate (rate table, list price) for dry reservations and dry tables.
 
     Uses the REAL per-shot model and duration. Seedance draft -> 480p, otherwise 1080p; Kling has
-    one rate. Never touches the network. Per-shot ``resolution`` override (Ep11) is validated and
-    used instead of the tier default for Seedance.
+    one rate. Never touches the network.
     """
     if model == "seedance":
         from hfvg.routing import seedance_resolution_for

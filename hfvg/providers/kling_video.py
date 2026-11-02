@@ -16,17 +16,17 @@ Uses Kling 3.0 Pro (sound off): kling-video/v3.0/pro/image-to-video
 import os
 import uuid
 import hashlib
-import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
+import structlog
 
 from hfvg.pricing import estimate_from_response, rate_table_estimate
 from hfvg.providers.common import apply_declined_preset
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def kling_list_floor_enabled() -> bool:
@@ -46,11 +46,8 @@ def kling_reserve_usd_micros(live_usd_micros: int | None, duration: int | float)
     if not kling_list_floor_enabled():
         return int(live_usd_micros)
     if live_usd_micros < table:
-        logger.warning("kling_live_estimate_below_list_rate", extra={
-            "live_usd_micros": live_usd_micros,
-            "table_usd_micros": table,
-            "duration": duration
-        })
+        logger.warning("kling_live_estimate_below_list_rate", live_usd_micros=live_usd_micros,
+                       table_usd_micros=table, duration=duration)
     return max(int(live_usd_micros), table)
 
 

@@ -83,7 +83,7 @@ class TestAcceptClipReview:
                 with pytest.raises(WorkflowUpdateFailedError):  # unknown shot
                     await handle.execute_update("accept_clip_review", args=["A09", "ok", None])
                 out = await handle.execute_update("accept_clip_review",
-                                                  args=["A01", "Operator: keep as is", None])
+                                                  args=["A01", "Reviewer: keep as is", None])
                 assert out["clip_path"] == clips.saved[0]
                 state = await _wait(handle, lambda s: s["assembly"]["edit_version"] == 2
                                     and (s["assembly"]["qc"] or {}).get("edit_version") == 2,
@@ -91,7 +91,7 @@ class TestAcceptClipReview:
                 assert [c["id"] for c in state["assembly"]["manifest"]["clips"]] == ["A01"]
                 assert state["assembly"]["manifest"]["clips"][0]["source"] == clips.saved[0]
                 assert state["shot_outcomes"]["A01"]["status"] == "completed"
-                assert state["clip_review_acceptances"]["A01"]["reason"] == "Operator: keep as is"
+                assert state["clip_review_acceptances"]["A01"]["reason"] == "Reviewer: keep as is"
                 assert len(h.clip_calls) == 1, "keeping a clip must not spend"
                 with pytest.raises(WorkflowUpdateFailedError):  # now completed: nothing to accept
                     await handle.execute_update("accept_clip_review", args=["A01", "again", None])

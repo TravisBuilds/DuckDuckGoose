@@ -1,4 +1,4 @@
-"""Ep05 G3 free fixes (2026-10-26): harness gaps found while applying them.
+"""Ep05 G3 free fixes (2026-10-26, Operator 19:53 CET): harness gaps found while applying them.
 
 GAP-5  subtitle line breaks written in the plan ("\\n") were collapsed and re-balanced; an
        explicit break (<= 2 lines) is now honoured in the .ass and .srt.

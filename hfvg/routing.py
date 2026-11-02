@@ -19,8 +19,9 @@ MODELS = ("kling", "seedance")
 TIERS = ("draft", "final")
 SEEDANCE_MIN_DURATION_S = 4
 SEEDANCE_TIER_RESOLUTION = {"draft": "480p", "final": "1080p"}
-SEEDANCE_BLOCKED_TAGS = frozenset({"wet"})
+# GAP-45: an explicit per-shot Seedance output resolution (owner-routed recompose)
 SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
+SEEDANCE_BLOCKED_TAGS = frozenset({"wet"})
 
 
 SEEDANCE_OVERRIDE_ENV = "HFVG_SEEDANCE_OVERRIDE_SHOTS"
@@ -58,7 +59,7 @@ class ShotRoute:
     resolution: str | None  # Seedance only; Kling is native 1080p
 
 
-def plan_route(shot: dict) -> ShotRoute:
+def plan_route(shot: dict, resolution: str | None = None) -> ShotRoute:
     """Validate and plan the route for one shot dict.
 
     Required keys: ``model``, ``tier``, ``duration`` (seconds), ``count`` (number of animals).
@@ -70,6 +71,12 @@ def plan_route(shot: dict) -> ShotRoute:
     model = shot.get("model")
     tier = shot.get("tier")
     count = shot.get("count", 1)
+    if resolution is not None:
+        # GAP-45: only Seedance takes an explicit output resolution, and only a known one
+        if model != "seedance":
+            raise RoutingError(f"An explicit clip resolution is Seedance-only, got model {model!r}")
+        if resolution not in SEEDANCE_RESOLUTIONS:
+            raise RoutingError(f"Seedance resolution must be one of {SEEDANCE_RESOLUTIONS}, got {resolution!r}")
     
     if model not in MODELS:
         raise RoutingError(f"Shot routing requires model in {MODELS}, got {model!r}")
@@ -97,8 +104,8 @@ def plan_route(shot: dict) -> ShotRoute:
             raise RoutingError(
                 f"Duration {duration}s is under {SEEDANCE_MIN_DURATION_S}s: not routable to Seedance (use Kling)"
             )
-        # Per-shot resolution override or tier default
-        per_shot_resolution = shot.get("resolution")
-        resolution = seedance_resolution_for(tier, per_shot_resolution)
+        # Per-shot resolution override or tier default (GAP-45)
+        per_shot_resolution = shot.get("seedance_resolution") or shot.get("resolution")
+        resolution = resolution or seedance_resolution_for(tier, per_shot_resolution)
         return ShotRoute("seedance", tier, resolution)
     return ShotRoute("kling", tier, None)

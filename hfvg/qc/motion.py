@@ -212,7 +212,7 @@ def check_motion_with_json(mute_path: str | Path, manifest_path: str | Path,
             for r in results
         ]
         
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=1)
     
     return results

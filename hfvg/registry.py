@@ -61,7 +61,7 @@ class AssetRegistry:
         if not lock_file.exists():
             return
             
-        content = lock_file.read_text()
+        content = lock_file.read_text(encoding="utf-8")
         
         # Simple parser for the duck character lock
         # In production, this would be more robust
@@ -91,7 +91,7 @@ class AssetRegistry:
             media_ids_file = lock_dir / "media-ids.json"
             if media_ids_file.exists():
                 try:
-                    media_data = json.loads(media_ids_file.read_text())
+                    media_data = json.loads(media_ids_file.read_text(encoding="utf-8"))
                     
                     # Extract superseded status from directory name
                     superseded = "superseded" in lock_dir.name or lock_dir.name.endswith("-v1") or lock_dir.name.endswith("-v2")
@@ -116,7 +116,7 @@ class AssetRegistry:
         world_file = self.series_path / "refs" / "world" / "media-ids.json"
         if world_file.exists():
             try:
-                world_data = json.loads(world_file.read_text())
+                world_data = json.loads(world_file.read_text(encoding="utf-8"))
                 for env_id, media_id in world_data.items():
                     self.env_plates[env_id] = media_id
             except (json.JSONDecodeError, KeyError):

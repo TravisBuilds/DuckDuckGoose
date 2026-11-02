@@ -57,7 +57,7 @@ def lint(episode_id: str):
         try:
             import json
             from hfvg.shot_data import parse_shots
-            plans = parse_shots(json.loads(shots_json.read_text()))
+            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
             click.echo(f"✓ shots.json: valid")
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
@@ -67,7 +67,7 @@ def lint(episode_id: str):
     if refs_json.exists():
         try:
             import json
-            refs_data = json.loads(refs_json.read_text())
+            refs_data = json.loads(refs_json.read_text(encoding="utf-8"))
             per_shot = refs_data.get("per_shot", {})
             missing_refs = []
             
@@ -608,7 +608,7 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
             click.echo(f"❌ Error: Beatmap file not found: {beatmap}", err=True)
             import sys
             sys.exit(1)
-        payload["beatmap_content"] = beatmap_path.read_text()
+        payload["beatmap_content"] = beatmap_path.read_text(encoding="utf-8")
     
     if shots:
         payload["shots_subset"] = [s.strip() for s in shots.split(",")]
@@ -675,7 +675,7 @@ def preflight(episode_id: str, shots_path: str | None):
         click.echo(f"❌ {path} not found", err=True)
         sys.exit(1)
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         parse_shots(raw)
     except (ValueError, ShotDataError) as e:
         click.echo(f"❌ Invalid shots.json: {e}", err=True)
@@ -796,6 +796,74 @@ def stalled(threshold: int | None, route: bool):
             click.echo("Run 'hfvg stalled --route' or 'hfvg reconcile' to recover them.")
 
     asyncio.run(check_stalled())
+
+
+@cli.command("balance")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+def check_balance(json_output: bool):
+    """Check provider balance status."""
+    import sys
+    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
+    from hfvg.budget import BudgetLedger
+    
+    # Use DATABASE_PATH env var directly (consistent with other commands)
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    
+    # Honor DRY_RUN - balance checks are read-only but respect the flag
+    if config.DRY_RUN:
+        click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
+    
+    async def _check():
+        # Task 14: Initialize DB tables first to avoid "no such table" errors
+        ledger = BudgetLedger(db_path)
+        await ledger.init_db()
+        await init_balance_tables(db_path)
+        
+        monitor = BalanceMonitor(db_path)
+        result = await monitor.check_all_balances()
+        return result
+    
+    result = asyncio.run(_check())
+    
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+        return
+    
+    # Human-readable output
+    click.echo("Provider Balance Status")
+    click.echo("=" * 60)
+    click.echo(f"Checked at: {result.timestamp.isoformat()}\n")
+    
+    for provider, balance in result.providers.items():
+        click.echo(f"{provider.upper()}:")
+        # Handle None balance (unknown/error states like 401)
+        if balance.balance_usd is not None:
+            click.echo(f"  Balance: ${balance.balance_usd:.2f}")
+        else:
+            click.echo(f"  Balance: Unknown (see details)")
+        click.echo(f"  Source: {balance.source}")
+        if balance.age_seconds > 0:
+            age_hours = balance.age_seconds / 3600
+            click.echo(f"  Age: {age_hours:.1f} hours")
+        
+        if balance.details:
+            click.echo("  Details:")
+            for key, value in balance.details.items():
+                if not isinstance(value, (dict, list)):
+                    click.echo(f"    {key}: {value}")
+        click.echo()
+    
+    if result.warnings:
+        click.echo("WARNINGS:")
+        for warning in result.warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo()
+    
+    if result.errors:
+        click.echo("ERRORS:", err=True)
+        for error in result.errors:
+            click.echo(f"  ❌ {error}", err=True)
+        sys.exit(1)
 
 
 def _mix_episode_dir(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool) -> dict:
@@ -998,74 +1066,6 @@ def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_
         click.echo(f"✓ {shot_id} keeps still v{version}: {result}")
 
     asyncio.run(_select())
-
-
-@cli.command("balance")
-@click.option("--json-output", is_flag=True, help="Output balance data as JSON")
-def check_balance(json_output: bool):
-    """Check provider balance status."""
-    import sys
-    from hfvg.balance_monitor import BalanceMonitor, init_balance_tables
-    from hfvg.budget import BudgetLedger
-    
-    # Use DATABASE_PATH env var directly (consistent with other commands)
-    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
-    
-    # Honor DRY_RUN - balance checks are read-only but respect the flag
-    if config.DRY_RUN:
-        click.echo("Note: Running in DRY_RUN mode (balance checks are read-only)", err=True)
-    
-    async def _check():
-        # Task 14: Initialize DB tables first to avoid "no such table" errors
-        ledger = BudgetLedger(db_path)
-        await ledger.init_db()
-        await init_balance_tables(db_path)
-        
-        monitor = BalanceMonitor(db_path)
-        result = await monitor.check_all_balances()
-        return result
-    
-    result = asyncio.run(_check())
-    
-    if json_output:
-        click.echo(json.dumps(result.to_dict(), indent=2))
-        return
-    
-    # Human-readable output
-    click.echo("Provider Balance Status")
-    click.echo("=" * 60)
-    click.echo(f"Checked at: {result.timestamp.isoformat()}\n")
-    
-    for provider, balance in result.providers.items():
-        click.echo(f"{provider.upper()}:")
-        # Handle None balance (unknown/error states like 401)
-        if balance.balance_usd is not None:
-            click.echo(f"  Balance: ${balance.balance_usd:.2f}")
-        else:
-            click.echo(f"  Balance: Unknown (see details)")
-        click.echo(f"  Source: {balance.source}")
-        if balance.age_seconds > 0:
-            age_hours = balance.age_seconds / 3600
-            click.echo(f"  Age: {age_hours:.1f} hours")
-        
-        if balance.details:
-            click.echo("  Details:")
-            for key, value in balance.details.items():
-                if not isinstance(value, (dict, list)):
-                    click.echo(f"    {key}: {value}")
-        click.echo()
-    
-    if result.warnings:
-        click.echo("WARNINGS:")
-        for warning in result.warnings:
-            click.echo(f"  ⚠ {warning}")
-        click.echo()
-    
-    if result.errors:
-        click.echo("ERRORS:", err=True)
-        for error in result.errors:
-            click.echo(f"  ❌ {error}", err=True)
-        sys.exit(1)
 
 
 if __name__ == "__main__":
