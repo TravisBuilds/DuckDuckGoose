@@ -1912,6 +1912,7 @@ async def get_dashboard(
     else:
         verify_admin_secret(authorization)
     
+    import aiosqlite
     from hfvg.users import UserManager, LEGACY_USER_ID
     from hfvg.cost_tracking import CostTracker
     from hfvg.budget import BudgetLedger
@@ -2291,6 +2292,7 @@ async def get_user_details(
     else:
         verify_admin_secret(authorization)
     
+    import aiosqlite
     from hfvg.users import UserManager
     from hfvg.cost_tracking import CostTracker
     from hfvg.pricing import micros_to_usd_str

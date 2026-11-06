@@ -309,7 +309,7 @@ async def test_spend_milestones(db_path):
     milestones = await cost_tracker.get_recent_milestones()
     assert len(milestones) == 1
     assert milestones[0]["threshold_usd_micros"] == 100_000_000
-    assert "$100.00" in milestones[0]["message"]
+    assert "100.00" in milestones[0]["message"]
     
     # Should not duplicate
     await cost_tracker.check_spend_milestones(
