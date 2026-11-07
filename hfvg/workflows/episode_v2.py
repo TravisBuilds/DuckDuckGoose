@@ -1638,6 +1638,16 @@ class EpisodeWorkflowV2:
         policy = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
                              maximum_interval=timedelta(seconds=10))
         plan = dict(plan)
+        
+        # Fetch episode owner's user_id once for all audio jobs (cheap activity call)
+        from hfvg.activities.studio import get_episode_user_id_activity
+        user_id = await workflow.execute_activity(
+            get_episode_user_id_activity,
+            args=[episode_id],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=policy,
+        )
+        
         dry_inputs: list[str] = []
         vo = dict(plan.get("vo") or {})
         lines = []
@@ -1645,7 +1655,7 @@ class EpisodeWorkflowV2:
             res = await workflow.execute_activity(
                 "generate_voiceover",
                 args=[episode_id, line.get("text") or "", vo.get("voice_id") or "", vo.get("model") or "eleven_v3",
-                      line["id"], line.get("path")],
+                      line["id"], line.get("path"), 1, user_id],
                 start_to_close_timeout=timedelta(minutes=5), heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=policy,
             )
@@ -1659,7 +1669,7 @@ class EpisodeWorkflowV2:
             res = await workflow.execute_activity(
                 "generate_sfx",
                 args=[episode_id, cue.get("prompt") or "", min(30.0, max(0.5, float(cue["dur"]))), cue["id"],
-                      cue.get("path")],
+                      cue.get("path"), user_id],
                 start_to_close_timeout=timedelta(minutes=5), heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=policy,
             )
@@ -1673,7 +1683,7 @@ class EpisodeWorkflowV2:
             res = await workflow.execute_activity(
                 "generate_music",
                 args=[episode_id, music.get("prompt") or "", length, music.get("model") or "music_v1",
-                      music.get("id") or "music", music.get("path")],
+                      music.get("id") or "music", music.get("path"), user_id],
                 start_to_close_timeout=timedelta(minutes=10), heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=policy,
             )
