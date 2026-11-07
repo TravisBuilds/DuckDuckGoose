@@ -3,6 +3,17 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 
+// Format USD value as currency (e.g., "18.1034" -> "$18.10")
+function formatUSD(value: string | number): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
 interface DashboardData {
   dry_run: boolean;
   timestamp: string;
@@ -190,13 +201,10 @@ export default function Dashboard() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Spend</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              {data.spend_summary.headline_spend_usd}
+              {formatUSD(data.spend_summary.headline_spend_usd)} ({data.spend_summary.headline_label || 'estimated'})
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              ({data.spend_summary.headline_label || 'estimated'})
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Estimated: ${data.spend_summary.total_estimated_usd}
+              Estimated: {formatUSD(data.spend_summary.total_estimated_usd)}
             </p>
             {data.spend_summary.variance_percent !== null && data.spend_summary.variance_percent !== undefined && (
               <p className={`text-xs mt-1 ${data.spend_summary.variance_percent > 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -222,13 +230,13 @@ export default function Dashboard() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Monthly Projection</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              ${data.monthly_runrate.projected_month_end_usd}
+              {formatUSD(data.monthly_runrate.projected_month_end_usd)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Current: ${data.monthly_runrate.current_spend_usd}
+              Current: {formatUSD(data.monthly_runrate.current_spend_usd)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Daily rate: ${data.monthly_runrate.daily_rate_usd}
+              Daily rate: {formatUSD(data.monthly_runrate.daily_rate_usd)}
             </p>
           </div>
 
@@ -241,7 +249,7 @@ export default function Dashboard() {
               Tracking coverage
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Failed: ${data.spend_summary.failed_spend_usd}
+              Failed: {formatUSD(data.spend_summary.failed_spend_usd)}
             </p>
           </div>
         </div>
@@ -261,10 +269,10 @@ export default function Dashboard() {
                   key={day.date}
                   className="flex-1 bg-blue-500 hover:bg-blue-600 rounded-t transition-colors relative group"
                   style={{ height: `${height}%`, minHeight: height > 0 ? '2px' : '0' }}
-                  title={`${day.date}: $${day.actual_usd}`}
+                  title={`${day.date}: ${formatUSD(day.actual_usd)}`}
                 >
                   <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                    {day.date}<br/>${day.actual_usd}
+                    {day.date}<br/>{formatUSD(day.actual_usd)}
                   </div>
                 </div>
               );
@@ -315,7 +323,7 @@ export default function Dashboard() {
                       {user.email || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white text-right font-medium">
-                      ${user.actual_usd}
+                      {formatUSD(user.actual_usd)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-right">
                       {user.episode_count}
@@ -353,7 +361,7 @@ export default function Dashboard() {
                       {stage.stage.replace(/_/g, ' ')}
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      ${stage.actual_usd}
+                      {formatUSD(stage.actual_usd)}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
@@ -381,7 +389,7 @@ export default function Dashboard() {
                       {provider.provider}
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      ${provider.actual_usd}
+                      {formatUSD(provider.actual_usd)}
                     </span>
                   </div>
                 </div>
@@ -393,7 +401,7 @@ export default function Dashboard() {
                 {data.models.slice(0, 5).map((model) => (
                   <div key={model.model} className="flex justify-between text-sm py-1">
                     <span className="text-gray-600 dark:text-gray-400">{model.model}</span>
-                    <span className="text-gray-900 dark:text-white">${model.actual_usd}</span>
+                    <span className="text-gray-900 dark:text-white">{formatUSD(model.actual_usd)}</span>
                   </div>
                 ))}
               </div>
@@ -433,7 +441,7 @@ export default function Dashboard() {
               </div>
               <div className="ml-3">
                 <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                  Manual Balance: ${data.balance_status.manual_balance_usd}
+                  Manual Balance: {formatUSD(data.balance_status.manual_balance_usd)}
                 </h3>
                 {data.balance_status.set_at && (
                   <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
