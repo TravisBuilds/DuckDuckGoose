@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=sqlite
+      - SQLITE_PRAGMA_journal_mode=WAL
+    volumes:
+      - temporal-data:/etc/temporal
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      # Use environment variables from host or .env file
+      - DRY_RUN=${DRY_RUN:-true}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - DATABASE_PATH=/app/data/studio.db
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      - HIGGSFIELD_API_KEY=${HIGGSFIELD_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - EPISODE_CAP_CREDITS=${EPISODE_CAP_CREDITS:-500}
+    volumes:
+      - api-data:/app/data
+    depends_on:
+      - temporal
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      # Use environment variables from host or .env file
+      - DRY_RUN=${DRY_RUN:-true}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - DATABASE_PATH=/app/data/studio.db
+      - HIGGSFIELD_API_KEY=${HIGGSFIELD_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+    volumes:
+      - worker-data:/app/data
+    depends_on:
+      - temporal
+    restart: unless-stopped
+
+volumes:
+  temporal-data:
+  api-data:
+  worker-data:

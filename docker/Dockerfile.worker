@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python package files
+COPY pyproject.toml README.md ./
+COPY hfvg ./hfvg
+COPY examples ./examples
+COPY fixtures ./fixtures
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e '.[dev]'
+
+# Set default environment variables
+ENV PYTHONUNBUFFERED=1
+ENV DRY_RUN=true
+
+# Run the worker
+CMD ["python", "-m", "hfvg.worker"]
