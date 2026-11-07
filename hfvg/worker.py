@@ -69,6 +69,7 @@ PRODUCTION_ACTIVITIES = [
     activities.check_delivery_qc,
     activities.post_to_platform,
     activities.record_shot_result,
+    activities.get_episode_user_id_activity,
     activities.load_gate_policy_activity,
     activities.parse_beatmap_activity,
     activities.preflight_validate_episode_activity,

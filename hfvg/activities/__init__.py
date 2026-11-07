@@ -33,6 +33,7 @@ from hfvg.activities.reconcile import (
     record_reconcile_outcome,
 )
 from hfvg.activities.workflow_support import (
+    get_episode_user_id_activity,
     load_gate_policy_activity,
     parse_beatmap_activity,
     recheck_refs_activity,
@@ -47,6 +48,7 @@ from hfvg.activities.pre_approved import prepare_pre_approved_still_activity
 __all__ = [
     "acquire_run_lock",
     "release_run_lock",
+    "get_episode_user_id_activity",
     "recheck_refs_activity",
     "submit_still_job",
     "submit_clip_job",

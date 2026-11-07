@@ -19,6 +19,9 @@ export default function Header() {
               <Link href="/studio" prefetch={false} className="text-sm hover:text-gray-600 dark:hover:text-gray-300">
                 Studio
               </Link>
+              <Link href="/dashboard" prefetch={false} className="text-sm hover:text-gray-600 dark:hover:text-gray-300">
+                Dashboard
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-4">

@@ -269,6 +269,7 @@ class BudgetLedger:
                     line_id TEXT NOT NULL,
                     episode_id TEXT NOT NULL,
                     job_id TEXT,
+                    user_id TEXT,
                     txn_type TEXT NOT NULL,
                     amount INTEGER NOT NULL,
                     timestamp TEXT NOT NULL,
@@ -286,6 +287,7 @@ class BudgetLedger:
                     tier TEXT NOT NULL,
                     line_name TEXT NOT NULL,
                     usd_micros INTEGER NOT NULL,
+                    user_id TEXT,
                     status TEXT NOT NULL,
                     verdict TEXT,
                     used INTEGER,
@@ -297,9 +299,10 @@ class BudgetLedger:
             # G-AUD-COST migration: provider-reported usage per job (ElevenLabs audio). characters =
             # billed input characters (TTS), credits = the character-cost header, cost_source =
             # "provider_header" or "estimate" (header missing: the committed amount is the estimate).
+            # Dashboard migration: user_id for per-user cost tracking.
             async with db.execute("PRAGMA table_info(job_ledger)") as cur:
                 job_cols = {r[1] async for r in cur}
-            for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT")):
+            for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT"), ("user_id", "TEXT")):
                 if col not in job_cols:
                     await db.execute(f"ALTER TABLE job_ledger ADD COLUMN {col} {decl}")
             # G-BUD-1: per-round holds for paid retries (one row per paid job, keyed by job id).
@@ -1092,20 +1095,26 @@ class BudgetLedger:
         return bool(row and row[0] in JOB_TERMINAL_STATUSES)
 
     async def record_job(self, episode_id: str, job_id: str, shot_id: str | None, model: str,
-                         tier: str, line_name: str, usd_micros: int) -> bool:
+                         tier: str, line_name: str, usd_micros: int, user_id: str | None = None) -> bool:
         """Insert the per-job ledger row once the provider returned a job id (idempotent)."""
         if tier not in ("draft", "final", "retry", "revision"):
             raise ValueError(f"tier must be draft/final/retry/revision, got {tier!r}")
         _require_int("usd_micros", usd_micros, positive=True)
+        
+        # Default to legacy user if not provided
+        if user_id is None:
+            from hfvg.users import LEGACY_USER_ID
+            user_id = LEGACY_USER_ID
+        
         await self.init_db()
         now = _now_iso()
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             cursor = await db.execute("""
                 INSERT OR IGNORE INTO job_ledger
-                (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, status,
+                (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, status,
                  created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
-            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, now, now))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
+            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, now, now))
             await db.commit()
             return cursor.rowcount == 1
 

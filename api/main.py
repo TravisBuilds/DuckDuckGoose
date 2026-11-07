@@ -24,6 +24,10 @@ Routes:
 - GET /api/episodes/{episode_id}/audit: Get audit trail
 - POST /api/episodes/{episode_id}/canary: Run canary (1 still + 1 clip)
 - POST /api/episodes/{episode_id}/set-live: Switch to live mode (requires confirmation)
+- GET /api/dashboard: Master admin dashboard (users, spend, activity)
+- GET /api/users: List users
+- POST /api/users: Create user
+- GET /api/users/{user_id}: Get user details
 """
 
 import os
@@ -35,7 +39,7 @@ import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -157,13 +161,24 @@ async def _ensure_sessions_table(db) -> None:
     await db.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
+            user_id TEXT,
+            role TEXT,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
         )
     """)
+    # Add columns if they don't exist (for existing databases)
+    try:
+        await db.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
+    except:
+        pass  # Column already exists
+    try:
+        await db.execute("ALTER TABLE sessions ADD COLUMN role TEXT")
+    except:
+        pass  # Column already exists
 
 
-async def create_session() -> str:
+async def create_session(user_id: str = "admin", role: str = "admin") -> str:
     """Create a signed session token (24 h expiry) and store it in the database."""
     import aiosqlite
     import time
@@ -174,9 +189,9 @@ async def create_session() -> str:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await _ensure_sessions_table(db)
         await db.execute(
-            """INSERT INTO sessions (token, created_at, expires_at)
-               VALUES (?, datetime('now'), datetime(?, 'unixepoch'))""",
-            (token, expires_at)
+            """INSERT INTO sessions (token, user_id, role, created_at, expires_at)
+               VALUES (?, ?, ?, datetime('now'), datetime(?, 'unixepoch'))""",
+            (token, user_id, role, expires_at)
         )
         await db.commit()
 
@@ -213,6 +228,42 @@ async def revoke_session(token: str) -> None:
         await db.commit()
 
 
+async def get_user_id_from_session(token: str) -> str | None:
+    """Get user_id from session token. Returns None if session invalid/expired."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await _ensure_sessions_table(db)
+            async with db.execute(
+                """SELECT user_id FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        return None
+
+
+async def get_session_role(token: str) -> str | None:
+    """Get role from session token. Returns None if session invalid/expired."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await _ensure_sessions_table(db)
+            async with db.execute(
+                """SELECT role FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database and Temporal client on startup."""
@@ -221,6 +272,25 @@ async def lifespan(app: FastAPI):
     try:
         # Initialize database tables
         await init_studio_db(DATABASE_PATH)
+        
+        # Initialize database tables in correct order
+        from hfvg.users import UserManager
+        from hfvg.cost_tracking import CostTracker
+        from hfvg.migrations import run_all_migrations
+        from hfvg.budget import BudgetLedger
+        
+        # Initialize budget ledger first (creates job_ledger table)
+        budget = BudgetLedger(DATABASE_PATH)
+        await budget.init_db()
+        
+        # Then cost tracker (migrates job_ledger if it exists)
+        cost_tracker = CostTracker(DATABASE_PATH)
+        await cost_tracker.init_db()
+        
+        # Then users and migrations
+        user_mgr = UserManager(DATABASE_PATH)
+        await user_mgr.init_db()
+        await run_all_migrations(DATABASE_PATH)
         
         # Connect to Temporal
         temporal_client = await TemporalClient.connect(
@@ -309,7 +379,7 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
         studio_admin_token: Session token from cookie
     
     Raises:
-        HTTPException: If cookie missing or invalid
+        HTTPException: 401 if unauthenticated, 403 if authenticated but not admin
     """
     if not studio_admin_token:
         raise HTTPException(
@@ -319,8 +389,16 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     
     if not await verify_session_token(studio_admin_token):
         raise HTTPException(
-            status_code=403,
+            status_code=401,
             detail="Invalid or expired session. Please log in again."
+        )
+    
+    # Check that the session has admin role (403 for authenticated non-admin)
+    role = await get_session_role(studio_admin_token)
+    if role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required."
         )
 
 
@@ -424,8 +502,8 @@ async def verify_auth_unified(
     This allows both programmatic access (Bearer token) and browser access (cookie).
     Fail closed: at least one must be valid.
     
-    Returns 401 only when no credential is provided.
-    Returns 403 when a credential is provided but invalid.
+    Returns 401 when no credential is provided or credential is invalid/expired.
+    Returns 403 when authenticated but not authorized (e.g. member accessing admin route).
     """
     # Try cookie first (browser access)
     cookie_error = None
@@ -448,7 +526,10 @@ async def verify_auth_unified(
     
     # No Bearer token, but maybe cookie was tried
     if cookie_error:
-        # Cookie was provided but invalid, and no Bearer token: 401 (no valid credential)
+        # If cookie raised 403 (authenticated but not authorized), keep 403
+        # If cookie raised 401 (unauthenticated), raise generic 401
+        if cookie_error.status_code == 403:
+            raise cookie_error
         raise HTTPException(
             status_code=401,
             detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
@@ -616,7 +697,10 @@ class JobVerdictRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    admin_secret: str = Field(..., description="Admin secret for authentication")
+    admin_secret: Optional[str] = Field(None, description="Admin secret for authentication")
+    email: Optional[str] = Field(None, description="Member email")
+    password: Optional[str] = Field(None, description="Member password")
+    api_token: Optional[str] = Field(None, description="Member API token")
 
 
 class SetLiveModeRequest(BaseModel):
@@ -666,26 +750,58 @@ async def login(request: LoginRequest, response: Response):
     """
     Login and set httpOnly cookie.
     
+    Supports three auth methods:
+    1. Admin secret (admin_secret)
+    2. Member email + password (email, password)
+    3. Member API token (api_token)
+    
     Args:
-        request: Login request with admin_secret
+        request: Login request
         response: Response to set cookie on
     
     Returns:
-        Success message
+        Success message with user info
     """
-    # Validate secret server-side (fail closed)
-    # Read from env at request time to support test monkeypatching
-    admin_secret = os.getenv("ADMIN_SECRET", "")
-    if not admin_secret or len(admin_secret) < 32:
-        raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+    user_info = None
     
-    if not request.admin_secret or not secrets.compare_digest(
-        request.admin_secret.encode(), admin_secret.encode()
-    ):
-        raise HTTPException(status_code=401, detail="Invalid admin secret")
+    # Method 1: Admin secret
+    if request.admin_secret:
+        admin_secret = os.getenv("ADMIN_SECRET", "")
+        if not admin_secret or len(admin_secret) < 32:
+            raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+        
+        if not secrets.compare_digest(
+            request.admin_secret.encode(), admin_secret.encode()
+        ):
+            raise HTTPException(status_code=401, detail="Invalid admin secret")
+        
+        user_info = {"user_id": "admin", "name": "Admin", "role": "admin"}
     
-    # Create session and set httpOnly cookie with session token (NOT the secret)
-    session_token = await create_session()
+    # Method 2: Member email + password
+    elif request.email and request.password:
+        from hfvg.users import UserManager
+        mgr = UserManager(DATABASE_PATH)
+        await mgr.init_db()
+        
+        user_info = await mgr.authenticate_password(request.email, request.password)
+        if not user_info:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Method 3: Member API token
+    elif request.api_token:
+        from hfvg.users import UserManager
+        mgr = UserManager(DATABASE_PATH)
+        await mgr.init_db()
+        
+        user_info = await mgr.authenticate_token(request.api_token)
+        if not user_info:
+            raise HTTPException(status_code=401, detail="Invalid API token")
+    
+    else:
+        raise HTTPException(status_code=401, detail="Must provide admin_secret, (email + password), or api_token")
+    
+    # Create session and set httpOnly cookie with session token
+    session_token = await create_session(user_info["user_id"], user_info.get("role", "admin"))
     response.set_cookie(
         key="studio_admin_token",
         value=session_token,
@@ -695,7 +811,15 @@ async def login(request: LoginRequest, response: Response):
         max_age=86400,  # 24 hours
     )
     
-    return {"success": True, "message": "Logged in successfully"}
+    return {
+        "success": True,
+        "message": "Logged in successfully",
+        "user": {
+            "user_id": user_info["user_id"],
+            "name": user_info.get("name", "Admin"),
+            "role": user_info.get("role", "admin")
+        }
+    }
 
 
 @app.post("/api/logout")
@@ -1003,8 +1127,13 @@ async def upload_beatmap(
     # Initialize database
     await init_studio_db(DATABASE_PATH)
     
+    # Extract user_id from session
+    user_id = None
+    if studio_admin_token:
+        user_id = await get_user_id_from_session(studio_admin_token)
+    
     # Create or update episode record
-    await create_episode(DATABASE_PATH, episode_id, str(episode_dir / "BEATMAP.md"))
+    await create_episode(DATABASE_PATH, episode_id, str(episode_dir / "BEATMAP.md"), user_id=user_id)
     
     # Replace shots (not INSERT OR IGNORE) - delete old, insert new
     import aiosqlite
@@ -1863,6 +1992,484 @@ async def _audit_balance(entry: dict):
              f"balance_usd_micros={entry['balance_usd_micros']} at {entry['set_at']}", "admin"),
         )
         await db.commit()
+
+
+# ===================================================================
+# MASTER DASHBOARD AND USER MANAGEMENT
+# ===================================================================
+
+@app.get("/api/dashboard")
+async def get_dashboard(
+    user_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Master admin dashboard: comprehensive view of users, spend, and activity.
+    
+    Returns:
+    - User stats: active users (today, 7d, 30d), total users
+    - Spend aggregations: total, per user, per episode, per stage, per provider/model
+    - Cost accuracy: actual vs estimated
+    - Revision metrics: revision vs first-pass spend per user
+    - Per-user drill-down data
+    - Monthly run-rate projections (informational only)
+    - Spend milestone notices
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    import aiosqlite
+    from hfvg.users import UserManager, LEGACY_USER_ID
+    from hfvg.cost_tracking import CostTracker
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import micros_to_usd_str
+    from datetime import datetime as dt, timedelta, timezone
+    from collections import defaultdict
+    
+    user_mgr = UserManager(DATABASE_PATH)
+    cost_tracker = CostTracker(DATABASE_PATH)
+    ledger = BudgetLedger(DATABASE_PATH)
+    
+    now = dt.now(timezone.utc)
+    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        
+        # ===== USER STATS =====
+        
+        # Total users
+        async with db.execute("SELECT COUNT(*) FROM users WHERE disabled = 0") as cur:
+            total_users = (await cur.fetchone())[0]
+        
+        # Active users (by last_active timestamp)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = now - timedelta(days=7)
+        month_ago = now - timedelta(days=30)
+        
+        async with db.execute("""
+            SELECT COUNT(*) FROM users 
+            WHERE disabled = 0 AND last_active >= ?
+        """, (today.isoformat(),)) as cur:
+            active_today = (await cur.fetchone())[0]
+        
+        async with db.execute("""
+            SELECT COUNT(*) FROM users 
+            WHERE disabled = 0 AND last_active >= ?
+        """, (week_ago.isoformat(),)) as cur:
+            active_7d = (await cur.fetchone())[0]
+        
+        async with db.execute("""
+            SELECT COUNT(*) FROM users 
+            WHERE disabled = 0 AND last_active >= ?
+        """, (month_ago.isoformat(),)) as cur:
+            active_30d = (await cur.fetchone())[0]
+        
+        # ===== SPEND AGGREGATIONS =====
+        
+        # Build query with optional filters
+        query_base = """
+            SELECT j.job_id, j.episode_id, j.shot_id, j.user_id, j.model, j.tier,
+                   j.line_name, j.usd_micros, j.actual_usd_micros, j.status,
+                   j.verdict, j.used, j.created_at
+            FROM job_ledger j
+            WHERE 1=1
+        """
+        params = []
+        
+        if user_id:
+            query_base += " AND j.user_id = ?"
+            params.append(user_id)
+        
+        if start_date:
+            query_base += " AND date(j.created_at) >= ?"
+            params.append(start_date)
+        
+        if end_date:
+            query_base += " AND date(j.created_at) <= ?"
+            params.append(end_date)
+        
+        query_base += " ORDER BY j.created_at"
+        
+        async with db.execute(query_base, tuple(params)) as cursor:
+            jobs = [dict(row) async for row in cursor]
+        
+        # Process aggregations (actual cost only where recorded, not falling back to estimate)
+        total_estimated = 0
+        total_actual = 0
+        user_spend = defaultdict(lambda: {"estimated": 0, "actual": 0, "episodes": set(), 
+                                          "revision": 0, "first_pass": 0, "jobs": 0})
+        episode_spend = defaultdict(lambda: {"estimated": 0, "actual": 0, "user_id": None})
+        stage_spend = defaultdict(lambda: {"estimated": 0, "actual": 0})
+        provider_spend = defaultdict(lambda: {"estimated": 0, "actual": 0})
+        model_spend = defaultdict(lambda: {"estimated": 0, "actual": 0})
+        failed_spend_estimated = 0
+        failed_spend_actual = 0
+        daily_spend = defaultdict(lambda: {"estimated": 0, "actual": 0})
+        
+        # Stage mapping
+        stage_map = {
+            "L1_refs": "references",
+            "L2_drafts": "draft_stills",
+            "L3_final_stills": "final_stills",
+            "L4_video": "video_clips",
+            "L5_audio": "audio",
+            "L6_reserve": "assembly",
+            "L7_revision": "revisions",
+            "el_vo_takes": "voice_over",
+            "el_sfx": "sound_effects",
+            "el_music_one_take": "music",
+        }
+        
+        for job in jobs:
+            uid = job["user_id"] or LEGACY_USER_ID
+            ep_id = job["episode_id"]
+            estimated = job["usd_micros"]
+            actual = job["actual_usd_micros"]  # May be None
+            
+            total_estimated += estimated
+            if actual is not None:
+                total_actual += actual
+            
+            # Per-user
+            user_spend[uid]["estimated"] += estimated
+            if actual is not None:
+                user_spend[uid]["actual"] += actual
+            user_spend[uid]["episodes"].add(ep_id)
+            user_spend[uid]["jobs"] += 1
+            
+            if actual is not None:
+                if job["tier"] in ("revision", "retry"):
+                    user_spend[uid]["revision"] += actual
+                else:
+                    user_spend[uid]["first_pass"] += actual
+            
+            # Per-episode
+            episode_spend[ep_id]["estimated"] += estimated
+            if actual is not None:
+                episode_spend[ep_id]["actual"] += actual
+            episode_spend[ep_id]["user_id"] = uid
+            
+            # Per-stage
+            stage = stage_map.get(job["line_name"], job["line_name"])
+            stage_spend[stage]["estimated"] += estimated
+            if actual is not None:
+                stage_spend[stage]["actual"] += actual
+            
+            # Per-provider and model
+            model_name = job["model"]
+            if model_name:
+                if "kling" in model_name.lower() or "seedance" in model_name.lower():
+                    provider_spend["higgsfield"]["estimated"] += estimated
+                    if actual is not None:
+                        provider_spend["higgsfield"]["actual"] += actual
+                    model_spend[model_name]["estimated"] += estimated
+                    if actual is not None:
+                        model_spend[model_name]["actual"] += actual
+                elif job["line_name"] and job["line_name"].startswith("el_"):
+                    provider_spend["elevenlabs"]["estimated"] += estimated
+                    if actual is not None:
+                        provider_spend["elevenlabs"]["actual"] += actual
+                    model_spend["elevenlabs_audio"]["estimated"] += estimated
+                    if actual is not None:
+                        model_spend["elevenlabs_audio"]["actual"] += actual
+            
+            # Failed jobs
+            if job["verdict"] in ("blocked", "failed", "rejected") or job["used"] == 0:
+                failed_spend_estimated += estimated
+                if actual is not None:
+                    failed_spend_actual += actual
+            
+            # Daily aggregation
+            try:
+                created = dt.fromisoformat(job["created_at"].replace("Z", "+00:00"))
+                day_key = created.date().isoformat()
+                daily_spend[day_key]["estimated"] += estimated
+                if actual is not None:
+                    daily_spend[day_key]["actual"] += actual
+            except (ValueError, AttributeError):
+                pass
+        
+        # Format user breakdown
+        users_list = []
+        for uid, data in user_spend.items():
+            user_info = await user_mgr.get_user(uid)
+            revision_pct = (data["revision"] / data["actual"] * 100) if data["actual"] > 0 else 0
+            users_list.append({
+                "user_id": uid,
+                "name": user_info["name"] if user_info else uid,
+                "email": user_info["email"] if user_info else None,
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+                "episode_count": len(data["episodes"]),
+                "job_count": data["jobs"],
+                "revision_spend_usd_micros": data["revision"],
+                "first_pass_spend_usd_micros": data["first_pass"],
+                "revision_percent": round(revision_pct, 1),
+            })
+        
+        # Sort by actual spend (top spenders first)
+        users_list.sort(key=lambda x: x["actual_usd_micros"], reverse=True)
+        
+        # Format episode breakdown
+        episodes_list = []
+        for ep_id, data in episode_spend.items():
+            episodes_list.append({
+                "episode_id": ep_id,
+                "user_id": data["user_id"],
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+                "variance_usd_micros": data["actual"] - data["estimated"],
+                "variance_percent": round(
+                    ((data["actual"] - data["estimated"]) / data["estimated"] * 100) 
+                    if data["estimated"] > 0 else 0, 1
+                ),
+            })
+        episodes_list.sort(key=lambda x: x["actual_usd_micros"], reverse=True)
+        
+        # Format stage breakdown (include all standard stages, even at zero)
+        all_stages = ["references", "draft_stills", "final_stills", "video_clips", 
+                      "voice_over", "sound_effects", "music", "assembly", "QC", "revisions"]
+        stages_list = []
+        for stage in all_stages:
+            data = stage_spend.get(stage, {"estimated": 0, "actual": 0})
+            stages_list.append({
+                "stage": stage,
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+            })
+        
+        # Format provider breakdown
+        providers_list = [
+            {
+                "provider": prov,
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+            }
+            for prov, data in provider_spend.items()
+        ]
+        
+        # Format model breakdown
+        models_list = [
+            {
+                "model": model,
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+            }
+            for model, data in sorted(model_spend.items(), 
+                                     key=lambda x: x[1]["actual"], reverse=True)
+        ]
+        
+        # Daily time series (last 30 days)
+        daily_series = []
+        for i in range(30):
+            day = (now - timedelta(days=29-i)).date().isoformat()
+            data = daily_spend.get(day, {"estimated": 0, "actual": 0})
+            daily_series.append({
+                "date": day,
+                "estimated_usd_micros": data["estimated"],
+                "actual_usd_micros": data["actual"],
+                "estimated_usd": micros_to_usd_str(data["estimated"]),
+                "actual_usd": micros_to_usd_str(data["actual"]),
+            })
+        
+        # Get monthly run-rate projections
+        org_runrate = await cost_tracker.get_monthly_runrate()
+        
+        # Get recent spend milestones
+        milestones = await cost_tracker.get_recent_milestones(limit=10)
+        
+        # Balance status
+        balance_status = await ledger.get_balance_status()
+        
+        # Cost accuracy metrics
+        jobs_with_actual = sum(1 for j in jobs if j["actual_usd_micros"] is not None)
+        total_jobs_count = len(jobs)
+        coverage_pct = (jobs_with_actual / total_jobs_count * 100) if total_jobs_count > 0 else 0
+        
+        # When actual coverage is 0%, show estimated as headline
+        if jobs_with_actual == 0:
+            headline_spend = total_estimated
+            headline_label = "estimated"
+            display_actual = None
+            display_variance = None
+            display_variance_pct = None
+        else:
+            headline_spend = total_actual
+            headline_label = "actual"
+            display_actual = total_actual
+            display_variance = total_actual - total_estimated
+            display_variance_pct = (display_variance / total_estimated * 100) if total_estimated > 0 else 0
+        
+        return {
+            "dry_run": dry_run,
+            "timestamp": now.isoformat(),
+            "unit": "usd_micros",
+            
+            "user_stats": {
+                "total_users": total_users,
+                "active_today": active_today,
+                "active_7d": active_7d,
+                "active_30d": active_30d,
+            },
+            
+            "spend_summary": {
+                "headline_spend_usd_micros": headline_spend,
+                "headline_spend_usd": micros_to_usd_str(headline_spend),
+                "headline_label": headline_label,
+                "total_estimated_usd_micros": total_estimated,
+                "total_actual_usd_micros": display_actual,
+                "total_estimated_usd": micros_to_usd_str(total_estimated),
+                "total_actual_usd": micros_to_usd_str(display_actual) if display_actual is not None else None,
+                "variance_usd_micros": display_variance,
+                "variance_usd": micros_to_usd_str(abs(display_variance)) if display_variance is not None else None,
+                "variance_percent": round(display_variance_pct, 1) if display_variance_pct is not None else None,
+                "failed_spend_estimated_usd_micros": failed_spend_estimated,
+                "failed_spend_actual_usd_micros": failed_spend_actual if jobs_with_actual > 0 else None,
+                "failed_spend_usd": micros_to_usd_str(failed_spend_actual) if jobs_with_actual > 0 else None,
+                "cost_tracking_coverage_percent": round(coverage_pct, 1),
+            },
+            
+            "users": users_list,
+            "episodes": episodes_list[:20],  # Top 20 episodes
+            "stages": stages_list,
+            "providers": providers_list,
+            "models": models_list,
+            "daily_series": daily_series,
+            
+            "monthly_runrate": org_runrate,
+            "milestones": milestones,
+            
+            "balance_status": {
+                "manual_balance_usd_micros": balance_status.get("manual_balance_usd_micros"),
+                "manual_balance_usd": micros_to_usd_str(balance_status["manual_balance_usd_micros"]) 
+                    if balance_status.get("manual_balance_usd_micros") else None,
+                "set_at": balance_status.get("set_at"),
+                "set_by": balance_status.get("set_by"),
+            },
+            
+            "recent_jobs": jobs[-50:],  # Last 50 jobs
+        }
+
+
+@app.get("/api/users")
+async def list_users(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """List all users (admin only)."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    users = await user_mgr.list_users(include_disabled=False)
+    return {"users": users}
+
+
+class CreateUserRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    email: str = Field(..., min_length=3, max_length=200)
+    role: str = Field(default="member", pattern="^(admin|member)$")
+    password: str | None = Field(None, min_length=8)
+
+
+@app.post("/api/users")
+async def create_user(
+    request: CreateUserRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Create a new user (admin only)."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    try:
+        user = await user_mgr.create_user(
+            name=request.name,
+            email=request.email,
+            role=request.role,
+            password=request.password
+        )
+        return {"success": True, "user": user}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/users/{user_id}")
+async def get_user_details(
+    user_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Get user details with spend summary (admin only)."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    import aiosqlite
+    from hfvg.users import UserManager
+    from hfvg.cost_tracking import CostTracker
+    from hfvg.pricing import micros_to_usd_str
+    from collections import defaultdict
+    
+    user_mgr = UserManager(DATABASE_PATH)
+    cost_tracker = CostTracker(DATABASE_PATH)
+    
+    user = await user_mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get user's spending data (actual cost only, not falling back to estimate)
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute("""
+            SELECT episode_id, SUM(actual_usd_micros) as spend
+            FROM job_ledger
+            WHERE user_id = ? AND actual_usd_micros IS NOT NULL
+            GROUP BY episode_id
+            ORDER BY spend DESC
+        """, (user_id,)) as cursor:
+            episodes = []
+            async for row in cursor:
+                ep_id, spend = row
+                episodes.append({
+                    "episode_id": ep_id,
+                    "spend_usd_micros": spend,
+                    "spend_usd": micros_to_usd_str(spend)
+                })
+        
+        # Get monthly spend
+        runrate = await cost_tracker.get_monthly_runrate(user_id=user_id)
+    
+    user["episodes"] = episodes
+    user["monthly_runrate"] = runrate
+    
+    return user
 
 
 @app.get("/api/episodes/{episode_id}/shots")

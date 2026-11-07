@@ -129,7 +129,7 @@ AUDIO_BUDGET_LINE = {"tts": "el_vo_takes", "sfx": "el_sfx", "music": "el_music_o
 
 
 async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, model: str,
-                         usd_micros: int, call, *, estimate_micros: int | None = None):
+                         usd_micros: int, call, *, estimate_micros: int | None = None, user_id: str | None = None):
     """Ledger reservation + AUDIO round cap around one provider call; commit the actual or release.
 
     usd_micros is the reservation (provider.reservation_usd_micros: an upper bound). The commit is
@@ -180,7 +180,12 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
     # The job row exists (status reserved) for the whole provider call, as for every paid job.
-    if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):
+    # Default to legacy user only for genuinely unowned episodes (user_id should be passed from workflow)
+    if user_id is None:
+        from hfvg.users import LEGACY_USER_ID
+        user_id = LEGACY_USER_ID
+    
+    if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):
         await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
     try:
         result = await call()
@@ -235,7 +240,7 @@ def _result(path: Path, *, source: str, dry: bool = False, **extra: Any) -> dict
 @activity.defn
 async def generate_voiceover(episode_id: str, script: str, voice_id: str, model: str = DEFAULT_VO_MODEL,
                              line_id: str = "vo", locked_path: str | None = None,
-                             take: int = 1) -> dict[str, Any]:
+                             take: int = 1, user_id: str | None = None) -> dict[str, Any]:
     """One VO line: the locked/pre-rendered file when given, else ElevenLabs TTS (guarded).
     ``take`` > 1 is a deliberate re-roll of the same text: it gets its own content key (so it is
     a new guarded generation, then reused by hash); take 1 keeps the original key."""
@@ -273,7 +278,7 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
         return await _provider_file(job, provider)
 
     spent = await _guarded_spend(episode_id, "tts", line_id, key, model, amount, call,
-                                 estimate_micros=estimate_usd_micros("tts", params))
+                                 estimate_micros=estimate_usd_micros("tts", params), user_id=user_id)
     return _result(out, source="generated", line_id=line_id, model=model, job_id=spent["job_id"],
                    usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
                    characters=len(script), credits=spent.get("credits"), cost_source=spent["cost_source"],
@@ -282,7 +287,7 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
 
 @activity.defn
 async def generate_sfx(episode_id: str, description: str, duration: float | None = 5.0,
-                       cue_id: str = "sfx", library_path: str | None = None) -> dict[str, Any]:
+                       cue_id: str = "sfx", library_path: str | None = None, user_id: str | None = None) -> dict[str, Any]:
     """One SFX cue: a library file by path, else ElevenLabs sound generation (guarded)."""
     _beat({"stage": "sfx", "cue": cue_id})
     if library_path:
@@ -315,7 +320,7 @@ async def generate_sfx(episode_id: str, description: str, duration: float | None
         return await _provider_file(job, provider)
 
     spent = await _guarded_spend(episode_id, "sfx", cue_id, key, "sound_generation", amount, call,
-                                 estimate_micros=estimate_usd_micros("sfx", params))
+                                 estimate_micros=estimate_usd_micros("sfx", params), user_id=user_id)
     return _result(out, source="generated", cue_id=cue_id, job_id=spent["job_id"],
                    usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
                    credits=spent.get("credits"), cost_source=spent["cost_source"],
@@ -324,7 +329,7 @@ async def generate_sfx(episode_id: str, description: str, duration: float | None
 
 @activity.defn
 async def generate_music(episode_id: str, style: str, duration: float, model: str = DEFAULT_MUSIC_MODEL,
-                         cue_id: str = "music", library_path: str | None = None) -> dict[str, Any]:
+                         cue_id: str = "music", library_path: str | None = None, user_id: str | None = None) -> dict[str, Any]:
     """Music bed: a library file by path, else ElevenLabs POST /v1/music (guarded)."""
     _beat({"stage": "music", "cue": cue_id})
     if library_path:
@@ -359,7 +364,7 @@ async def generate_music(episode_id: str, style: str, duration: float, model: st
         return await _provider_file(job, provider)
 
     spent = await _guarded_spend(episode_id, "music", cue_id, key, model, amount, call,
-                                 estimate_micros=estimate_usd_micros("music", params))
+                                 estimate_micros=estimate_usd_micros("music", params), user_id=user_id)
     return _result(out, source="generated", cue_id=cue_id, model=model, job_id=spent["job_id"],
                    usd_micros=spent["usd_micros"], reserved_usd_micros=spent["reserved_usd_micros"],
                    credits=spent.get("credits"), cost_source=spent["cost_source"],

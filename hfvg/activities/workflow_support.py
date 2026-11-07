@@ -24,6 +24,14 @@ from hfvg.shot_data import (
 
 
 @activity.defn
+async def get_episode_user_id_activity(episode_id: str) -> str | None:
+    """Get the episode owner's user_id. Fast db lookup for audio job attribution."""
+    from hfvg.studio_db import get_episode_user_id
+    db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
+    return await get_episode_user_id(db_path, episode_id)
+
+
+@activity.defn
 async def load_gate_policy_activity(project: str | None = None) -> dict:
     """
     Load gate policy from filesystem (activity for workflow).

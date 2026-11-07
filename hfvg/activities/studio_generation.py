@@ -754,11 +754,15 @@ async def submit_still_job_enforced(
         # Persist the harness→provider mapping
         await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
         
+        # Get user_id from episode
+        from hfvg.studio_db import get_episode_user_id
+        user_id = await get_episode_user_id(db_path, episode_id)
+        
         # Record job in ledger
         try:
             await ledger.record_job(
                 episode_id, job_id, shot_id, provider.model_path, tier, budget_line_name,
-                budget_amount,
+                budget_amount, user_id=user_id,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold
@@ -1290,10 +1294,15 @@ async def submit_clip_job_enforced(
             f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
             f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
         )
+        
+        # Get user_id from episode
+        from hfvg.studio_db import get_episode_user_id
+        user_id = await get_episode_user_id(db_path, episode_id)
+        
         try:
             await ledger.record_job(
                 episode_id, job_id, shot_id, provider.model_path, "retry" if clip_retry else tier,
-                line_name, estimated_cost,
+                line_name, estimated_cost, user_id=user_id,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold
@@ -1815,29 +1824,50 @@ async def await_job_enforced(
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
-                actual_cost = reserved_amount  # status carries credits, not USD: commit the hold
-                
+                # Commit the budget with the reserved amount (never change balance gate behavior)
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
                     reserved_usd_micros=reserved_amount,
-                    actual_usd_micros=actual_cost,
+                    actual_usd_micros=reserved_amount,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed"
                 )
                 
+                # Extract actual cost from provider response and record in visibility columns only
+                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
+                job_data = job_status.model_dump()
+                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
+                    job_data, job_type
+                )
+                
+                # Record actual cost separately (never fallback to estimate)
+                if actual_usd_micros is not None:
+                    cost_tracker = CostTracker(db_path)
+                    await cost_tracker.init_db()
+                    await cost_tracker.record_actual_cost(
+                        job_id=job_id,
+                        actual_usd_micros=actual_usd_micros,
+                        provider_credits=provider_credits,
+                        cost_source=cost_source
+                    )
+                    activity.logger.info(
+                        f"Recorded actual cost for {shot_id}: {micros_to_usd_str(actual_usd_micros)} USD "
+                        f"(source: {cost_source})"
+                    )
+                
                 activity.logger.info(
-                    f"Committed {micros_to_usd_str(actual_cost)} USD to {line_name} for {shot_id}"
+                    f"Committed {micros_to_usd_str(reserved_amount)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
                     "status": "completed",
                     "url": job_status.output_url,
-                    "cost": actual_cost,
+                    "cost": reserved_amount,
                 }
             
             elif job_status.status.value in ("failed", "blocked", "canceled"):
-                # Failed - release budget
+                # Failed - release budget and record zero actual cost
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
@@ -1848,6 +1878,17 @@ async def await_job_enforced(
                     reason=f"{job_type} {shot_id} {job_status.status.value}"
                 )
                 released = True  # Mark as released
+                
+                # Record failed job with zero actual cost
+                from hfvg.cost_tracking import CostTracker
+                cost_tracker = CostTracker(db_path)
+                await cost_tracker.init_db()
+                await cost_tracker.record_actual_cost(
+                    job_id=job_id,
+                    actual_usd_micros=0,
+                    provider_credits=0.0,
+                    cost_source="failed"
+                )
                 
                 hdrs = getattr(job_status, "response_headers", None) or {}
                 activity.logger.error(
@@ -1888,33 +1929,53 @@ async def await_job_enforced(
                 continue
             
             if job_status.status.value == "completed":
-                # Success - commit budget with actual cost
+                # Success - commit budget with reserved amount (never change balance gate behavior)
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
-                
-                actual_cost = reserved_amount  # status carries credits, not USD: commit the hold
                 
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
                     reserved_usd_micros=reserved_amount,
-                    actual_usd_micros=actual_cost,
+                    actual_usd_micros=reserved_amount,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed (reconciled)"
                 )
                 
+                # Extract actual cost from provider response and record in visibility columns only
+                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
+                job_data = job_status.model_dump()
+                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
+                    job_data, job_type
+                )
+                
+                # Record actual cost separately (never fallback to estimate)
+                if actual_usd_micros is not None:
+                    cost_tracker = CostTracker(db_path)
+                    await cost_tracker.init_db()
+                    await cost_tracker.record_actual_cost(
+                        job_id=job_id,
+                        actual_usd_micros=actual_usd_micros,
+                        provider_credits=provider_credits,
+                        cost_source=cost_source
+                    )
+                    activity.logger.info(
+                        f"[RECONCILED] Recorded actual cost for {shot_id}: {micros_to_usd_str(actual_usd_micros)} USD "
+                        f"(source: {cost_source})"
+                    )
+                
                 activity.logger.info(
-                    f"[RECONCILED] Committed {micros_to_usd_str(actual_cost)} USD to {line_name} for {shot_id}"
+                    f"[RECONCILED] Committed {micros_to_usd_str(reserved_amount)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
                     "status": "completed",
                     "url": job_status.output_url,
-                    "cost": actual_cost,
+                    "cost": reserved_amount,
                 }
             
             elif job_status.status.value in ("failed", "blocked", "canceled"):
-                # Confirmed terminal failure - release budget
+                # Confirmed terminal failure - release budget and record zero actual cost
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
