@@ -65,7 +65,7 @@ async def test_audio_jobs_attributed_to_episode_owner(live):
     # Initialize budget for the episode
     ledger = BudgetLedger(db_path)
     await ledger.init_db()
-    await ledger.ensure_audio_line("ep_attr_test", "el_tts_final")
+    await ledger.ensure_audio_line("ep_attr_test", "el_vo_takes")
     
     # Mock ElevenLabs TTS call
     with respx.mock() as mock:
