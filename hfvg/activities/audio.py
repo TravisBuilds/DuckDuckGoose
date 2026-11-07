@@ -180,7 +180,11 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
     # The job row exists (status reserved) for the whole provider call, as for every paid job.
-    if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):
+    # Get user_id from episode
+    from hfvg.studio_db import get_episode_user_id
+    user_id = await get_episode_user_id(ledger.db_path, episode_id)
+    
+    if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):
         await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
     try:
         result = await call()

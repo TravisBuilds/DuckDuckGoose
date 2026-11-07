@@ -185,6 +185,26 @@ async def create_episode(
         await db.commit()
 
 
+async def get_episode_user_id(db_path: str, episode_id: str) -> str | None:
+    """
+    Get user_id for an episode.
+    
+    Args:
+        db_path: Path to database
+        episode_id: Episode ID
+    
+    Returns:
+        user_id or None if episode not found
+    """
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT user_id FROM episodes WHERE episode_id = ?",
+            (episode_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
 async def upsert_episode(
     db_path: str,
     episode_id: str,

@@ -754,11 +754,15 @@ async def submit_still_job_enforced(
         # Persist the harness→provider mapping
         await credit_ledger.persist_provider_job(job_id, provider_job_id, provider="higgsfield")
         
+        # Get user_id from episode
+        from hfvg.studio_db import get_episode_user_id
+        user_id = await get_episode_user_id(db_path, episode_id)
+        
         # Record job in ledger
         try:
             await ledger.record_job(
                 episode_id, job_id, shot_id, provider.model_path, tier, budget_line_name,
-                budget_amount,
+                budget_amount, user_id=user_id,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold
@@ -1290,10 +1294,15 @@ async def submit_clip_job_enforced(
             f"[LIVE] Submitted {route.model} clip {provider_job_id} for {episode_id}/{shot_id} "
             f"(cost: {micros_to_usd_str(estimated_cost)} USD, {duration}s)"
         )
+        
+        # Get user_id from episode
+        from hfvg.studio_db import get_episode_user_id
+        user_id = await get_episode_user_id(db_path, episode_id)
+        
         try:
             await ledger.record_job(
                 episode_id, job_id, shot_id, provider.model_path, "retry" if clip_retry else tier,
-                line_name, estimated_cost,
+                line_name, estimated_cost, user_id=user_id,
             )
         except aiosqlite.Error as ledger_err:
             # The provider already accepted (and will charge) this job: NEVER release the hold

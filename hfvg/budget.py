@@ -1092,20 +1092,26 @@ class BudgetLedger:
         return bool(row and row[0] in JOB_TERMINAL_STATUSES)
 
     async def record_job(self, episode_id: str, job_id: str, shot_id: str | None, model: str,
-                         tier: str, line_name: str, usd_micros: int) -> bool:
+                         tier: str, line_name: str, usd_micros: int, user_id: str | None = None) -> bool:
         """Insert the per-job ledger row once the provider returned a job id (idempotent)."""
         if tier not in ("draft", "final", "retry", "revision"):
             raise ValueError(f"tier must be draft/final/retry/revision, got {tier!r}")
         _require_int("usd_micros", usd_micros, positive=True)
+        
+        # Default to legacy user if not provided
+        if user_id is None:
+            from hfvg.users import LEGACY_USER_ID
+            user_id = LEGACY_USER_ID
+        
         await self.init_db()
         now = _now_iso()
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             cursor = await db.execute("""
                 INSERT OR IGNORE INTO job_ledger
-                (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, status,
+                (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, status,
                  created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
-            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, now, now))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
+            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, now, now))
             await db.commit()
             return cursor.rowcount == 1
 

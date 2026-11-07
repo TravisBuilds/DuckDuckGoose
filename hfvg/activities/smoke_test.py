@@ -151,6 +151,10 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
         
         budget_reserved = True
         
+        # Get user_id from episode
+        from hfvg.studio_db import get_episode_user_id
+        user_id = await get_episode_user_id(db_path, episode_id)
+        
         # Record job in ledger for pending_reconcile tracking
         await ledger.record_job(
             episode_id=episode_id,
@@ -159,7 +163,8 @@ async def _probe_generation(episode_id: str, db_path: str, provider: HiggsfieldS
             model="higgsfield-ai/soul/v2/standard",
             tier="draft",
             line_name="L2_drafts",
-            usd_micros=estimated_cost_micros
+            usd_micros=estimated_cost_micros,
+            user_id=user_id,
         )
         
         # Reserve credits
