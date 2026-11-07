@@ -1640,7 +1640,7 @@ class EpisodeWorkflowV2:
         plan = dict(plan)
         
         # Fetch episode owner's user_id once for all audio jobs (cheap activity call)
-        from hfvg.activities.studio import get_episode_user_id_activity
+        from hfvg.activities import get_episode_user_id_activity
         user_id = await workflow.execute_activity(
             get_episode_user_id_activity,
             args=[episode_id],
