@@ -680,7 +680,7 @@ test_mutation 10 "Approval update reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i 's/^        if not secrets.compare_digest($/        if False or not secrets.compare_digest(  # MUTATED/'
+    sed -i 's/^        if not secrets.compare_digest($/        if secrets.compare_digest(  # MUTATED: inverted logic/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
