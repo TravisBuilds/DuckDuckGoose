@@ -162,13 +162,19 @@ async def _ensure_sessions_table(db) -> None:
     await db.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
+            user_id TEXT,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
         )
     """)
+    # Add user_id column if it doesn't exist (for existing databases)
+    try:
+        await db.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
+    except:
+        pass  # Column already exists
 
 
-async def create_session() -> str:
+async def create_session(user_id: str = "admin") -> str:
     """Create a signed session token (24 h expiry) and store it in the database."""
     import aiosqlite
     import time
@@ -179,9 +185,9 @@ async def create_session() -> str:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await _ensure_sessions_table(db)
         await db.execute(
-            """INSERT INTO sessions (token, created_at, expires_at)
-               VALUES (?, datetime('now'), datetime(?, 'unixepoch'))""",
-            (token, expires_at)
+            """INSERT INTO sessions (token, user_id, created_at, expires_at)
+               VALUES (?, ?, datetime('now'), datetime(?, 'unixepoch'))""",
+            (token, user_id, expires_at)
         )
         await db.commit()
 
@@ -632,7 +638,10 @@ class JobVerdictRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    admin_secret: str = Field(..., description="Admin secret for authentication")
+    admin_secret: Optional[str] = Field(None, description="Admin secret for authentication")
+    email: Optional[str] = Field(None, description="Member email")
+    password: Optional[str] = Field(None, description="Member password")
+    api_token: Optional[str] = Field(None, description="Member API token")
 
 
 class SetLiveModeRequest(BaseModel):
@@ -682,26 +691,58 @@ async def login(request: LoginRequest, response: Response):
     """
     Login and set httpOnly cookie.
     
+    Supports three auth methods:
+    1. Admin secret (admin_secret)
+    2. Member email + password (email, password)
+    3. Member API token (api_token)
+    
     Args:
-        request: Login request with admin_secret
+        request: Login request
         response: Response to set cookie on
     
     Returns:
-        Success message
+        Success message with user info
     """
-    # Validate secret server-side (fail closed)
-    # Read from env at request time to support test monkeypatching
-    admin_secret = os.getenv("ADMIN_SECRET", "")
-    if not admin_secret or len(admin_secret) < 32:
-        raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+    user_info = None
     
-    if not request.admin_secret or not secrets.compare_digest(
-        request.admin_secret.encode(), admin_secret.encode()
-    ):
-        raise HTTPException(status_code=401, detail="Invalid admin secret")
+    # Method 1: Admin secret
+    if request.admin_secret:
+        admin_secret = os.getenv("ADMIN_SECRET", "")
+        if not admin_secret or len(admin_secret) < 32:
+            raise HTTPException(status_code=500, detail="Server not configured: ADMIN_SECRET required")
+        
+        if not secrets.compare_digest(
+            request.admin_secret.encode(), admin_secret.encode()
+        ):
+            raise HTTPException(status_code=401, detail="Invalid admin secret")
+        
+        user_info = {"user_id": "admin", "name": "Admin", "role": "admin"}
     
-    # Create session and set httpOnly cookie with session token (NOT the secret)
-    session_token = await create_session()
+    # Method 2: Member email + password
+    elif request.email and request.password:
+        from hfvg.users import UserManager
+        mgr = UserManager(DATABASE_PATH)
+        await mgr.init_db()
+        
+        user_info = await mgr.authenticate_password(request.email, request.password)
+        if not user_info:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Method 3: Member API token
+    elif request.api_token:
+        from hfvg.users import UserManager
+        mgr = UserManager(DATABASE_PATH)
+        await mgr.init_db()
+        
+        user_info = await mgr.authenticate_token(request.api_token)
+        if not user_info:
+            raise HTTPException(status_code=401, detail="Invalid API token")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Must provide admin_secret, (email + password), or api_token")
+    
+    # Create session and set httpOnly cookie with session token
+    session_token = await create_session(user_info["user_id"])
     response.set_cookie(
         key="studio_admin_token",
         value=session_token,
@@ -711,7 +752,15 @@ async def login(request: LoginRequest, response: Response):
         max_age=86400,  # 24 hours
     )
     
-    return {"success": True, "message": "Logged in successfully"}
+    return {
+        "success": True,
+        "message": "Logged in successfully",
+        "user": {
+            "user_id": user_info["user_id"],
+            "name": user_info.get("name", "Admin"),
+            "role": user_info.get("role", "admin")
+        }
+    }
 
 
 @app.post("/api/logout")
