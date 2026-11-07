@@ -83,8 +83,17 @@ class CostTracker:
         self.db_path = db_path or config.DB_PATH
 
     async def init_db(self):
-        """Initialize cost tracking tables."""
+        """Initialize cost tracking tables (safe to call before BudgetLedger.init_db)."""
         async with aiosqlite.connect(self.db_path, uri=True) as db:
+            # Check if job_ledger exists first (may not exist yet)
+            async with db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='job_ledger'"
+            ) as cursor:
+                if not await cursor.fetchone():
+                    # Table doesn't exist yet, skip migration (BudgetLedger will create it)
+                    await db.commit()
+                    return
+            
             # Enhance job_ledger with actual cost tracking
             # Check if columns exist and add them if needed
             async with db.execute("PRAGMA table_info(job_ledger)") as cur:

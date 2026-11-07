@@ -28,7 +28,6 @@ Routes:
 - GET /api/users: List users
 - POST /api/users: Create user
 - GET /api/users/{user_id}: Get user details
-- PUT /api/users/{user_id}/cap: Update user monthly cap
 """
 
 import os
@@ -274,15 +273,23 @@ async def lifespan(app: FastAPI):
         # Initialize database tables
         await init_studio_db(DATABASE_PATH)
         
-        # Initialize user system and run migrations
+        # Initialize database tables in correct order
         from hfvg.users import UserManager
         from hfvg.cost_tracking import CostTracker
         from hfvg.migrations import run_all_migrations
+        from hfvg.budget import BudgetLedger
         
-        user_mgr = UserManager(DATABASE_PATH)
-        await user_mgr.init_db()
+        # Initialize budget ledger first (creates job_ledger table)
+        budget = BudgetLedger(DATABASE_PATH)
+        await budget.init_db()
+        
+        # Then cost tracker (migrates job_ledger if it exists)
         cost_tracker = CostTracker(DATABASE_PATH)
         await cost_tracker.init_db()
+        
+        # Then users and migrations
+        user_mgr = UserManager(DATABASE_PATH)
+        await user_mgr.init_db()
         await run_all_migrations(DATABASE_PATH)
         
         # Connect to Temporal
@@ -372,7 +379,7 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
         studio_admin_token: Session token from cookie
     
     Raises:
-        HTTPException: If cookie missing, invalid, or not an admin
+        HTTPException: 401 if unauthenticated, 403 if authenticated but not admin
     """
     if not studio_admin_token:
         raise HTTPException(
@@ -382,11 +389,11 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
     
     if not await verify_session_token(studio_admin_token):
         raise HTTPException(
-            status_code=403,
+            status_code=401,
             detail="Invalid or expired session. Please log in again."
         )
     
-    # Check that the session has admin role
+    # Check that the session has admin role (403 for authenticated non-admin)
     role = await get_session_role(studio_admin_token)
     if role != "admin":
         raise HTTPException(

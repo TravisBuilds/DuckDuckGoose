@@ -190,12 +190,15 @@ export default function Dashboard() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Spend</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              ${data.spend_summary.total_actual_usd}
+              {data.spend_summary.headline_spend_usd}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              ({data.spend_summary.headline_label || 'estimated'})
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Estimated: ${data.spend_summary.total_estimated_usd}
             </p>
-            {data.spend_summary.variance_percent !== 0 && (
+            {data.spend_summary.variance_percent !== null && data.spend_summary.variance_percent !== undefined && (
               <p className={`text-xs mt-1 ${data.spend_summary.variance_percent > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {data.spend_summary.variance_percent > 0 ? '+' : ''}
                 {data.spend_summary.variance_percent}% variance
@@ -357,7 +360,7 @@ export default function Dashboard() {
                     <div
                       className="bg-blue-600 h-2 rounded-full"
                       style={{
-                        width: `${(parseFloat(stage.actual_usd) / parseFloat(data.spend_summary.total_actual_usd) * 100).toFixed(1)}%`
+                        width: `${(parseFloat(stage.actual_usd || stage.estimated_usd) / (parseFloat(data.spend_summary.headline_spend_usd) || 1) * 100).toFixed(1)}%`
                       }}
                     />
                   </div>
