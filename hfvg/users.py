@@ -141,7 +141,9 @@ class UserManager:
         
         email = email.lower().strip()
         user_id = self._generate_user_id(email)
-        api_token = self._generate_api_token()
+        raw_api_token = self._generate_api_token()
+        # Hash the API token with SHA256
+        api_token_hash = hashlib.sha256(raw_api_token.encode()).hexdigest()
         password_hash = self._hash_password(password) if password else None
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
@@ -151,7 +153,7 @@ class UserManager:
                     (user_id, name, email, role, password_hash, api_token, 
                      monthly_cap_usd_micros, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (user_id, name, email, role, password_hash, api_token,
+                """, (user_id, name, email, role, password_hash, api_token_hash,
                       monthly_cap_usd_micros, datetime.now(timezone.utc).isoformat()))
                 await db.commit()
             except aiosqlite.IntegrityError as e:
@@ -164,27 +166,34 @@ class UserManager:
             "name": name,
             "email": email,
             "role": role,
-            "api_token": api_token,  # Only shown on creation
+            "api_token": raw_api_token,  # Only shown on creation (unhashed)
             "monthly_cap_usd_micros": monthly_cap_usd_micros,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
     async def authenticate_token(self, api_token: str) -> Optional[dict]:
-        """Authenticate user by API token."""
+        """Authenticate user by API token (hashed with SHA256, constant-time compare)."""
         if not api_token or not api_token.startswith("hfvg_"):
             return None
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(api_token.encode()).hexdigest()
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
-                SELECT user_id, name, email, role, monthly_cap_usd_micros, disabled
+                SELECT user_id, name, email, role, monthly_cap_usd_micros, disabled, api_token
                 FROM users WHERE api_token = ?
-            """, (api_token,)) as cursor:
+            """, (token_hash,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:
                     return None
                 
                 if row["disabled"]:
+                    return None
+                
+                # Constant-time compare of hashes
+                if not secrets.compare_digest(token_hash, row["api_token"]):
                     return None
                 
                 # Update last_active
@@ -194,7 +203,9 @@ class UserManager:
                 )
                 await db.commit()
                 
-                return dict(row)
+                user_dict = dict(row)
+                user_dict.pop("api_token", None)  # Never return hash
+                return user_dict
 
     async def authenticate_password(self, email: str, password: str) -> Optional[dict]:
         """Authenticate user by email and password."""

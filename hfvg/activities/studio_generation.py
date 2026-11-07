@@ -1824,21 +1824,21 @@ async def await_job_enforced(
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
-                # Extract actual cost from provider response
-                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
-                job_data = job_status.model_dump()
-                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
-                    job_data, job_type
-                )
-                
-                # Commit the budget (use actual if available, otherwise just the reserved amount)
+                # Commit the budget with the reserved amount (never change balance gate behavior)
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
                     reserved_usd_micros=reserved_amount,
-                    actual_usd_micros=actual_usd_micros or reserved_amount,
+                    actual_usd_micros=reserved_amount,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed"
+                )
+                
+                # Extract actual cost from provider response and record in visibility columns only
+                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
+                job_data = job_status.model_dump()
+                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
+                    job_data, job_type
                 )
                 
                 # Record actual cost separately (never fallback to estimate)
@@ -1857,13 +1857,13 @@ async def await_job_enforced(
                     )
                 
                 activity.logger.info(
-                    f"Committed {micros_to_usd_str(actual_cost)} USD to {line_name} for {shot_id}"
+                    f"Committed {micros_to_usd_str(reserved_amount)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
                     "status": "completed",
                     "url": job_status.output_url,
-                    "cost": actual_cost,
+                    "cost": reserved_amount,
                 }
             
             elif job_status.status.value in ("failed", "blocked", "canceled"):
@@ -1929,25 +1929,24 @@ async def await_job_enforced(
                 continue
             
             if job_status.status.value == "completed":
-                # Success - commit budget with actual cost
+                # Success - commit budget with reserved amount (never change balance gate behavior)
                 ledger = BudgetLedger(db_path)
                 await ledger.init_db()
                 
-                # Extract actual cost from provider response
-                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
-                job_data = job_status.model_dump()
-                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
-                    job_data, job_type
-                )
-                
-                # Commit the budget (use actual if available, otherwise just the reserved amount)
                 await ledger.commit(
                     episode_id=episode_id,
                     line_name=line_name,
                     reserved_usd_micros=reserved_amount,
-                    actual_usd_micros=actual_usd_micros or reserved_amount,
+                    actual_usd_micros=reserved_amount,
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed (reconciled)"
+                )
+                
+                # Extract actual cost from provider response and record in visibility columns only
+                from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
+                job_data = job_status.model_dump()
+                actual_usd_micros, provider_credits, cost_source = extract_actual_cost_from_provider_job(
+                    job_data, job_type
                 )
                 
                 # Record actual cost separately (never fallback to estimate)
@@ -1966,13 +1965,13 @@ async def await_job_enforced(
                     )
                 
                 activity.logger.info(
-                    f"[RECONCILED] Committed {micros_to_usd_str(actual_usd_micros or reserved_amount)} USD to {line_name} for {shot_id}"
+                    f"[RECONCILED] Committed {micros_to_usd_str(reserved_amount)} USD to {line_name} for {shot_id}"
                 )
                 
                 return {
                     "status": "completed",
                     "url": job_status.output_url,
-                    "cost": actual_usd_micros or reserved_amount,
+                    "cost": reserved_amount,
                 }
             
             elif job_status.status.value in ("failed", "blocked", "canceled"):

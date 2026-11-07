@@ -28,6 +28,7 @@ async def init_studio_db(db_path: str = "./data/studio.db"):
             CREATE TABLE IF NOT EXISTS episodes (
                 episode_id TEXT PRIMARY KEY,
                 beatmap_path TEXT,
+                user_id TEXT,
                 live_mode INTEGER DEFAULT 0,
                 g108_approved INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),

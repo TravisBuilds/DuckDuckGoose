@@ -24,7 +24,13 @@ from hfvg.pricing import micros_to_usd_str, MICROS_PER_USD
 
 def extract_actual_cost_from_provider_job(job_data: dict, job_type: str) -> tuple[Optional[int], Optional[float], str]:
     """
-    Extract actual cost from provider job response.
+    Extract actual cost from provider job response using ONLY real signals.
+    
+    Real signals:
+    - ElevenLabs: character-cost header (charged characters)
+    - Higgsfield: balance delta when available (not implemented yet - returns None)
+    - Never use ProviderJob.cost (it's estimate when header missing)
+    - Never use raw['credits'] (only in /estimate response, not in job status)
     
     Args:
         job_data: Provider job response (ProviderJob.model_dump())
@@ -34,51 +40,27 @@ def extract_actual_cost_from_provider_job(job_data: dict, job_type: str) -> tupl
         (actual_usd_micros, provider_credits, cost_source) tuple
         Returns (None, None, "unavailable") if actual cost cannot be determined
     """
-    # Check if provider returned cost in USD
-    if job_data.get("cost") is not None:
-        cost_usd = float(job_data["cost"])
-        return (int(cost_usd * MICROS_PER_USD), None, "provider_usd")
-    
-    # Extract from raw provider data
-    raw = job_data.get("raw", {})
-    if not raw:
-        return (None, None, "unavailable")
-    
-    # Higgsfield: check for credits in raw data
-    if "credits" in raw:
-        try:
-            credits = float(raw["credits"])
-            # Convert Higgsfield credits to USD (0.0475 USD per credit from HARNESS-GATES)
-            from hfvg.budget import LEGACY_APP_CREDIT_USD_MICROS
-            usd_micros = int(credits * LEGACY_APP_CREDIT_USD_MICROS)
-            return (usd_micros, credits, "provider_credits")
-        except (ValueError, TypeError):
-            pass
-    
-    # ElevenLabs: check character-cost header or credits
+    # ElevenLabs: check character-cost header ONLY (the charged-characters signal)
     if job_type == "audio":
-        # Try character-cost from response headers
         headers = job_data.get("response_headers", {})
         for key, value in headers.items():
             if key.lower() == "character-cost":
                 try:
                     credits = float(value)
-                    # Convert ElevenLabs credits to USD (0.0002 USD per credit)
-                    from hfvg.budget import ELEVENLABS_CREDIT_USD_MICROS
-                    usd_micros = int(credits * ELEVENLABS_CREDIT_USD_MICROS)
+                    # Convert using configured rate (honor ELEVENLABS_USD_PER_CREDIT env var)
+                    import os
+                    rate_str = os.getenv("ELEVENLABS_USD_PER_CREDIT", "0.0002")
+                    try:
+                        usd_per_credit = float(rate_str)
+                    except (ValueError, TypeError):
+                        usd_per_credit = 0.0002  # fallback
+                    usd_micros = int(credits * usd_per_credit * MICROS_PER_USD)
                     return (usd_micros, credits, "provider_header")
                 except (ValueError, TypeError):
                     pass
-        
-        # Try credits from raw
-        if "credits" in raw:
-            try:
-                credits = float(raw["credits"])
-                from hfvg.budget import ELEVENLABS_CREDIT_USD_MICROS
-                usd_micros = int(credits * ELEVENLABS_CREDIT_USD_MICROS)
-                return (usd_micros, credits, "provider_credits")
-            except (ValueError, TypeError):
-                pass
+    
+    # Higgsfield: balance delta not yet implemented - would need balance reads before/after job
+    # For now, return None for Higgsfield (actual cost unavailable)
     
     return (None, None, "unavailable")
 

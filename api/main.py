@@ -163,18 +163,23 @@ async def _ensure_sessions_table(db) -> None:
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             user_id TEXT,
+            role TEXT,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
         )
     """)
-    # Add user_id column if it doesn't exist (for existing databases)
+    # Add columns if they don't exist (for existing databases)
     try:
         await db.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
     except:
         pass  # Column already exists
+    try:
+        await db.execute("ALTER TABLE sessions ADD COLUMN role TEXT")
+    except:
+        pass  # Column already exists
 
 
-async def create_session(user_id: str = "admin") -> str:
+async def create_session(user_id: str = "admin", role: str = "admin") -> str:
     """Create a signed session token (24 h expiry) and store it in the database."""
     import aiosqlite
     import time
@@ -185,9 +190,9 @@ async def create_session(user_id: str = "admin") -> str:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await _ensure_sessions_table(db)
         await db.execute(
-            """INSERT INTO sessions (token, user_id, created_at, expires_at)
-               VALUES (?, ?, datetime('now'), datetime(?, 'unixepoch'))""",
-            (token, user_id, expires_at)
+            """INSERT INTO sessions (token, user_id, role, created_at, expires_at)
+               VALUES (?, ?, ?, datetime('now'), datetime(?, 'unixepoch'))""",
+            (token, user_id, role, expires_at)
         )
         await db.commit()
 
@@ -233,6 +238,24 @@ async def get_user_id_from_session(token: str) -> str | None:
             await _ensure_sessions_table(db)
             async with db.execute(
                 """SELECT user_id FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        return None
+
+
+async def get_session_role(token: str) -> str | None:
+    """Get role from session token. Returns None if session invalid/expired."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await _ensure_sessions_table(db)
+            async with db.execute(
+                """SELECT role FROM sessions 
                    WHERE token = ? AND expires_at > datetime('now')""",
                 (token,)
             ) as cursor:
@@ -349,7 +372,7 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
         studio_admin_token: Session token from cookie
     
     Raises:
-        HTTPException: If cookie missing or invalid
+        HTTPException: If cookie missing, invalid, or not an admin
     """
     if not studio_admin_token:
         raise HTTPException(
@@ -361,6 +384,14 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
         raise HTTPException(
             status_code=403,
             detail="Invalid or expired session. Please log in again."
+        )
+    
+    # Check that the session has admin role
+    role = await get_session_role(studio_admin_token)
+    if role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required."
         )
 
 
@@ -757,10 +788,10 @@ async def login(request: LoginRequest, response: Response):
             raise HTTPException(status_code=401, detail="Invalid API token")
     
     else:
-        raise HTTPException(status_code=400, detail="Must provide admin_secret, (email + password), or api_token")
+        raise HTTPException(status_code=401, detail="Must provide admin_secret, (email + password), or api_token")
     
     # Create session and set httpOnly cookie with session token
-    session_token = await create_session(user_info["user_id"])
+    session_token = await create_session(user_info["user_id"], user_info.get("role", "admin"))
     response.set_cookie(
         key="studio_admin_token",
         value=session_token,
@@ -2259,10 +2290,23 @@ async def get_dashboard(
         balance_status = await ledger.get_balance_status()
         
         # Cost accuracy metrics
-        variance = total_actual - total_estimated
-        variance_pct = (variance / total_estimated * 100) if total_estimated > 0 else 0
         jobs_with_actual = sum(1 for j in jobs if j["actual_usd_micros"] is not None)
-        tracking_coverage = (jobs_with_actual / len(jobs) * 100) if jobs else 0
+        total_jobs_count = len(jobs)
+        coverage_pct = (jobs_with_actual / total_jobs_count * 100) if total_jobs_count > 0 else 0
+        
+        # When actual coverage is 0%, show estimated as headline
+        if jobs_with_actual == 0:
+            headline_spend = total_estimated
+            headline_label = "estimated"
+            display_actual = None
+            display_variance = None
+            display_variance_pct = None
+        else:
+            headline_spend = total_actual
+            headline_label = "actual"
+            display_actual = total_actual
+            display_variance = total_actual - total_estimated
+            display_variance_pct = (display_variance / total_estimated * 100) if total_estimated > 0 else 0
         
         return {
             "dry_run": dry_run,
@@ -2277,17 +2321,20 @@ async def get_dashboard(
             },
             
             "spend_summary": {
+                "headline_spend_usd_micros": headline_spend,
+                "headline_spend_usd": micros_to_usd_str(headline_spend),
+                "headline_label": headline_label,
                 "total_estimated_usd_micros": total_estimated,
-                "total_actual_usd_micros": total_actual,
+                "total_actual_usd_micros": display_actual,
                 "total_estimated_usd": micros_to_usd_str(total_estimated),
-                "total_actual_usd": micros_to_usd_str(total_actual),
-                "variance_usd_micros": variance,
-                "variance_usd": micros_to_usd_str(abs(variance)),
-                "variance_percent": round(variance_pct, 1),
+                "total_actual_usd": micros_to_usd_str(display_actual) if display_actual is not None else None,
+                "variance_usd_micros": display_variance,
+                "variance_usd": micros_to_usd_str(abs(display_variance)) if display_variance is not None else None,
+                "variance_percent": round(display_variance_pct, 1) if display_variance_pct is not None else None,
                 "failed_spend_estimated_usd_micros": failed_spend_estimated,
-                "failed_spend_actual_usd_micros": failed_spend_actual,
-                "failed_spend_usd": micros_to_usd_str(failed_spend_actual),
-                "cost_tracking_coverage_percent": round(tracking_coverage, 1),
+                "failed_spend_actual_usd_micros": failed_spend_actual if jobs_with_actual > 0 else None,
+                "failed_spend_usd": micros_to_usd_str(failed_spend_actual) if jobs_with_actual > 0 else None,
+                "cost_tracking_coverage_percent": round(coverage_pct, 1),
             },
             
             "users": users_list,

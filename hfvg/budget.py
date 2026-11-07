@@ -269,6 +269,7 @@ class BudgetLedger:
                     line_id TEXT NOT NULL,
                     episode_id TEXT NOT NULL,
                     job_id TEXT,
+                    user_id TEXT,
                     txn_type TEXT NOT NULL,
                     amount INTEGER NOT NULL,
                     timestamp TEXT NOT NULL,
