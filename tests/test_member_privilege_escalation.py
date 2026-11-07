@@ -14,6 +14,11 @@ def _client(monkeypatch, db_path):
     """Create test client with proper DATABASE_PATH."""
     monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
     monkeypatch.setenv("DATABASE_PATH", db_path)
+    
+    # Patch the DATABASE_PATH directly on the module (env vars are cached on import)
+    import api.main as main_module
+    monkeypatch.setattr(main_module, "DATABASE_PATH", db_path)
+    
     from fastapi.testclient import TestClient
     from api.main import app
     return TestClient(app)
@@ -160,7 +165,7 @@ async def test_admin_can_access_all_routes(db_path, monkeypatch):
             "name": "New User",
             "email": "admin_new@test.com",
             "role": "member",
-            "password": "pass123"
+            "password": "pass1234"
         },
         cookies=admin_cookies
     )
