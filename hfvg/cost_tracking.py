@@ -19,7 +19,68 @@ from typing import Optional
 import aiosqlite
 
 from hfvg.config import config
-from hfvg.pricing import micros_to_usd_str
+from hfvg.pricing import micros_to_usd_str, MICROS_PER_USD
+
+
+def extract_actual_cost_from_provider_job(job_data: dict, job_type: str) -> tuple[Optional[int], Optional[float], str]:
+    """
+    Extract actual cost from provider job response.
+    
+    Args:
+        job_data: Provider job response (ProviderJob.model_dump())
+        job_type: "still", "clip", or "audio"
+    
+    Returns:
+        (actual_usd_micros, provider_credits, cost_source) tuple
+        Returns (None, None, "unavailable") if actual cost cannot be determined
+    """
+    # Check if provider returned cost in USD
+    if job_data.get("cost") is not None:
+        cost_usd = float(job_data["cost"])
+        return (int(cost_usd * MICROS_PER_USD), None, "provider_usd")
+    
+    # Extract from raw provider data
+    raw = job_data.get("raw", {})
+    if not raw:
+        return (None, None, "unavailable")
+    
+    # Higgsfield: check for credits in raw data
+    if "credits" in raw:
+        try:
+            credits = float(raw["credits"])
+            # Convert Higgsfield credits to USD (0.0475 USD per credit from HARNESS-GATES)
+            from hfvg.budget import LEGACY_APP_CREDIT_USD_MICROS
+            usd_micros = int(credits * LEGACY_APP_CREDIT_USD_MICROS)
+            return (usd_micros, credits, "provider_credits")
+        except (ValueError, TypeError):
+            pass
+    
+    # ElevenLabs: check character-cost header or credits
+    if job_type == "audio":
+        # Try character-cost from response headers
+        headers = job_data.get("response_headers", {})
+        for key, value in headers.items():
+            if key.lower() == "character-cost":
+                try:
+                    credits = float(value)
+                    # Convert ElevenLabs credits to USD (0.0002 USD per credit)
+                    from hfvg.budget import ELEVENLABS_CREDIT_USD_MICROS
+                    usd_micros = int(credits * ELEVENLABS_CREDIT_USD_MICROS)
+                    return (usd_micros, credits, "provider_header")
+                except (ValueError, TypeError):
+                    pass
+        
+        # Try credits from raw
+        if "credits" in raw:
+            try:
+                credits = float(raw["credits"])
+                from hfvg.budget import ELEVENLABS_CREDIT_USD_MICROS
+                usd_micros = int(credits * ELEVENLABS_CREDIT_USD_MICROS)
+                return (usd_micros, credits, "provider_credits")
+            except (ValueError, TypeError):
+                pass
+    
+    return (None, None, "unavailable")
 
 
 @dataclass
@@ -147,7 +208,7 @@ class CostTracker:
                 SELECT 
                     COUNT(*) as job_count,
                     SUM(usd_micros) as total_estimated,
-                    SUM(COALESCE(actual_usd_micros, usd_micros)) as total_actual,
+                    SUM(actual_usd_micros) as total_actual,
                     SUM(CASE WHEN actual_usd_micros IS NOT NULL THEN 1 ELSE 0 END) as jobs_with_actual
                 FROM job_ledger 
                 WHERE episode_id = ?
@@ -233,11 +294,12 @@ class CostTracker:
         days_in_month = (month_end - month_start).days
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Get actual spend this month
+            # Get actual spend this month (only where actual_usd_micros is recorded)
             query = """
-                SELECT COALESCE(SUM(COALESCE(actual_usd_micros, usd_micros)), 0)
+                SELECT COALESCE(SUM(actual_usd_micros), 0)
                 FROM job_ledger
                 WHERE created_at >= ? AND created_at < ?
+                  AND actual_usd_micros IS NOT NULL
             """
             params = [month_start.isoformat(), month_end.isoformat()]
             

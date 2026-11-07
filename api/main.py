@@ -1985,10 +1985,10 @@ async def get_dashboard(
         
         query_base += " ORDER BY j.created_at"
         
-        async with db.execute(query_base, tuple(params)) as cursor:
+            async with db.execute(query_base, tuple(params)) as cursor:
             jobs = [dict(row) async for row in cursor]
         
-        # Process aggregations
+        # Process aggregations (actual cost only where recorded, not falling back to estimate)
         total_estimated = 0
         total_actual = 0
         user_spend = defaultdict(lambda: {"estimated": 0, "actual": 0, "episodes": set(), 
@@ -2019,57 +2019,68 @@ async def get_dashboard(
             uid = job["user_id"] or LEGACY_USER_ID
             ep_id = job["episode_id"]
             estimated = job["usd_micros"]
-            actual = job["actual_usd_micros"] or estimated  # Use estimate if actual not recorded
+            actual = job["actual_usd_micros"]  # May be None
             
             total_estimated += estimated
-            total_actual += actual
+            if actual is not None:
+                total_actual += actual
             
             # Per-user
             user_spend[uid]["estimated"] += estimated
-            user_spend[uid]["actual"] += actual
+            if actual is not None:
+                user_spend[uid]["actual"] += actual
             user_spend[uid]["episodes"].add(ep_id)
             user_spend[uid]["jobs"] += 1
             
-            if job["tier"] in ("revision", "retry"):
-                user_spend[uid]["revision"] += actual
-            else:
-                user_spend[uid]["first_pass"] += actual
+            if actual is not None:
+                if job["tier"] in ("revision", "retry"):
+                    user_spend[uid]["revision"] += actual
+                else:
+                    user_spend[uid]["first_pass"] += actual
             
             # Per-episode
             episode_spend[ep_id]["estimated"] += estimated
-            episode_spend[ep_id]["actual"] += actual
+            if actual is not None:
+                episode_spend[ep_id]["actual"] += actual
             episode_spend[ep_id]["user_id"] = uid
             
             # Per-stage
             stage = stage_map.get(job["line_name"], job["line_name"])
             stage_spend[stage]["estimated"] += estimated
-            stage_spend[stage]["actual"] += actual
+            if actual is not None:
+                stage_spend[stage]["actual"] += actual
             
             # Per-provider and model
             model_name = job["model"]
             if model_name:
                 if "kling" in model_name.lower() or "seedance" in model_name.lower():
                     provider_spend["higgsfield"]["estimated"] += estimated
-                    provider_spend["higgsfield"]["actual"] += actual
+                    if actual is not None:
+                        provider_spend["higgsfield"]["actual"] += actual
                     model_spend[model_name]["estimated"] += estimated
-                    model_spend[model_name]["actual"] += actual
+                    if actual is not None:
+                        model_spend[model_name]["actual"] += actual
                 elif job["line_name"] and job["line_name"].startswith("el_"):
                     provider_spend["elevenlabs"]["estimated"] += estimated
-                    provider_spend["elevenlabs"]["actual"] += actual
+                    if actual is not None:
+                        provider_spend["elevenlabs"]["actual"] += actual
                     model_spend["elevenlabs_audio"]["estimated"] += estimated
-                    model_spend["elevenlabs_audio"]["actual"] += actual
+                    if actual is not None:
+                        model_spend["elevenlabs_audio"]["actual"] += actual
             
             # Failed jobs
             if job["verdict"] in ("blocked", "failed", "rejected") or job["used"] == 0:
                 failed_spend_estimated += estimated
-                failed_spend_actual += actual
+                if actual is not None:
+                    failed_spend_actual += actual
             
             # Daily aggregation
             try:
                 created = dt.fromisoformat(job["created_at"].replace("Z", "+00:00"))
                 day_key = created.date().isoformat()
                 daily_spend[day_key]["estimated"] += estimated
-                daily_spend[day_key]["actual"] += actual
+                if actual is not None:
+                    daily_spend[day_key]["actual"] += actual
             except (ValueError, AttributeError):
                 pass
         
@@ -2305,12 +2316,12 @@ async def get_user_details(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Get user's spending data
+    # Get user's spending data (actual cost only, not falling back to estimate)
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute("""
-            SELECT episode_id, SUM(COALESCE(actual_usd_micros, usd_micros)) as spend
+            SELECT episode_id, SUM(actual_usd_micros) as spend
             FROM job_ledger
-            WHERE user_id = ?
+            WHERE user_id = ? AND actual_usd_micros IS NOT NULL
             GROUP BY episode_id
             ORDER BY spend DESC
         """, (user_id,)) as cursor:
