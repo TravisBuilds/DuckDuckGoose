@@ -680,7 +680,7 @@ test_mutation 10 "Approval update reaches workflow" \
 test_mutation 11 "API rejects invalid/missing secrets" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_api_auth_rejects_invalid_secret" \
-    sed -i 's/^    if not request.admin_secret or not secrets.compare_digest($/    if False and secrets.compare_digest(  # MUTATED/'
+    sed -i 's/^    if request.admin_secret:$/    if False:  # MUTATED/'
 
 # 12. Episode 1,250 cap enforced
 test_mutation 12 "Episode 60.00 USD cap" \
@@ -2635,7 +2635,7 @@ test_mutation 336 "final reject recorded" \
 test_mutation 337 "login constant-time compare" \
     "api/main.py" \
     "tests/test_round5_guards.py::test_login_compares_secret_in_constant_time" \
-    sed -i 's/^    if not request.admin_secret or not secrets.compare_digest($/    if not request.admin_secret or request.admin_secret != admin_secret or not (  # MUTATED/'
+    sed -i 's/^        if not secrets.compare_digest($/        if request.admin_secret.encode() != admin_secret.encode() or not (  # MUTATED/'
 
 # 338: G-UI-1: preflight reports the offline cost estimate
 test_mutation 338 "preflight cost estimate" \
@@ -2707,7 +2707,7 @@ test_mutation 348 "commit header credits" \
 test_mutation 349 "job_ledger usage migration" \
     "hfvg/budget.py" \
     "tests/test_audio_cost.py::test_job_ledger_migration_adds_usage_columns_and_keeps_rows" \
-    sed -i 's/for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT")):/for col, decl in (("characters", "INTEGER"), ("credits", "REAL")):  # MUTATED/'
+    sed -i 's/for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT"), ("user_id", "TEXT")):/for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("user_id", "TEXT")):  # MUTATED/'
 
 # 350: G-AUD-COST: commit stores the credits on the job row
 test_mutation 350 "commit stores credits" \
@@ -2749,7 +2749,7 @@ test_mutation 355 "reservation upper bound" \
 test_mutation 356 "job row recorded before the call" \
     "hfvg/activities/audio.py" \
     "tests/test_audio_cost.py::test_job_row_is_reserved_during_the_provider_call" \
-    sed -i '/^    if not await ledger\.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros):$/,/^        await ledger\.reopen_released_job(job_id).*$/{d;}'
+    sed -i '/^    if not await ledger\.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):$/,/^        await ledger\.reopen_released_job(job_id).*$/{d;}'
 
 # 357: G-AUD-COST: ELEVENLABS_USD_PER_CREDIT fails closed on zero/negative
 test_mutation 357 "usd per credit fails closed" \

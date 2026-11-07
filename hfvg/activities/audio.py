@@ -180,9 +180,9 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         raise ApplicationError(f"Budget line {line} would pass its stop threshold", type="BudgetExceeded",
                                non_retryable=True)
     # The job row exists (status reserved) for the whole provider call, as for every paid job.
-    # Get user_id from episode
-    from hfvg.studio_db import get_episode_user_id
-    user_id = await get_episode_user_id(ledger.db_path, episode_id)
+    # Default to legacy user for job tracking (user_id migration adds the column but doesn't populate it for workflow jobs)
+    from hfvg.users import LEGACY_USER_ID
+    user_id = LEGACY_USER_ID
     
     if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):
         await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
