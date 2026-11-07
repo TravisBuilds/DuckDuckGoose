@@ -61,19 +61,22 @@ async def migrate_add_user_tracking(db_path: str):
                     UPDATE budget_transactions SET user_id = 'legacy/shared' WHERE user_id IS NULL
                 """)
         
-        # Create indexes for user_id queries
-        await db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_episodes_user 
-            ON episodes(user_id, created_at)
-        """)
-        await db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_job_ledger_user 
-            ON job_ledger(user_id, created_at)
-        """)
-        await db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_budget_transactions_user 
-            ON budget_transactions(user_id, timestamp)
-        """)
+        # Create indexes for user_id queries (only for existing tables)
+        if await _table_exists(db, "episodes"):
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_episodes_user 
+                ON episodes(user_id, created_at)
+            """)
+        if await _table_exists(db, "job_ledger"):
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_job_ledger_user 
+                ON job_ledger(user_id, created_at)
+            """)
+        if await _table_exists(db, "budget_transactions"):
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_budget_transactions_user 
+                ON budget_transactions(user_id, timestamp)
+            """)
         
         await db.commit()
 
