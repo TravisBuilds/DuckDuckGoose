@@ -1,7 +1,5 @@
 """G-AUD-COST: actual ElevenLabs cost from the ``character-cost`` response header.
 
-Attribution regression: audio jobs attribute spend to the episode owner's user_id.
-
 - reserve the documented credit upper bound (>= the API USD estimate) before the call;
 - commit the actual: header credits x ELEVENLABS_USD_PER_CREDIT; release the remainder;
 - the commit is <= the reservation for every documented price (the live eleven_v3 case: 71

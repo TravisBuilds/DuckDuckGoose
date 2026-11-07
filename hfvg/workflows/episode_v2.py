@@ -1639,14 +1639,17 @@ class EpisodeWorkflowV2:
                              maximum_interval=timedelta(seconds=10))
         plan = dict(plan)
         
-        # Fetch episode owner's user_id once for all audio jobs (cheap activity call)
-        from hfvg.activities import get_episode_user_id_activity
-        user_id = await workflow.execute_activity(
-            get_episode_user_id_activity,
-            args=[episode_id],
-            start_to_close_timeout=timedelta(seconds=10),
-            retry_policy=policy,
-        )
+        # Fetch episode owner's user_id once for all audio jobs (cheap activity call).
+        # Replay compatibility: old histories skip this and fall back to legacy user attribution.
+        user_id = None
+        if workflow.patched("audio-user-id-lookup"):
+            from hfvg.activities import get_episode_user_id_activity
+            user_id = await workflow.execute_activity(
+                get_episode_user_id_activity,
+                args=[episode_id],
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=policy,
+            )
         
         dry_inputs: list[str] = []
         vo = dict(plan.get("vo") or {})
