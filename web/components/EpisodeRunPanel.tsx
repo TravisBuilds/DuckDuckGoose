@@ -21,6 +21,7 @@ interface StageView {
   stale?: boolean;
   edit_version?: number;
   due?: boolean;
+  phase?: string | null;
 }
 export interface RunState {
   episode_id: string;
