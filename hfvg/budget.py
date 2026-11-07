@@ -286,6 +286,7 @@ class BudgetLedger:
                     tier TEXT NOT NULL,
                     line_name TEXT NOT NULL,
                     usd_micros INTEGER NOT NULL,
+                    user_id TEXT,
                     status TEXT NOT NULL,
                     verdict TEXT,
                     used INTEGER,
@@ -297,9 +298,10 @@ class BudgetLedger:
             # G-AUD-COST migration: provider-reported usage per job (ElevenLabs audio). characters =
             # billed input characters (TTS), credits = the character-cost header, cost_source =
             # "provider_header" or "estimate" (header missing: the committed amount is the estimate).
+            # Dashboard migration: user_id for per-user cost tracking.
             async with db.execute("PRAGMA table_info(job_ledger)") as cur:
                 job_cols = {r[1] async for r in cur}
-            for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT")):
+            for col, decl in (("characters", "INTEGER"), ("credits", "REAL"), ("cost_source", "TEXT"), ("user_id", "TEXT")):
                 if col not in job_cols:
                     await db.execute(f"ALTER TABLE job_ledger ADD COLUMN {col} {decl}")
             # G-BUD-1: per-round holds for paid retries (one row per paid job, keyed by job id).

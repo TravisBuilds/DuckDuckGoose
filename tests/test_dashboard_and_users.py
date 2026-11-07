@@ -279,11 +279,11 @@ async def test_monthly_runrate_projection(db_path):
             usd_micros=100_000
         )
         
-        # Tag with user
+        # Tag with user and set actual cost
         async with aiosqlite.connect(db_path) as db:
             await db.execute(
-                "UPDATE job_ledger SET user_id = ?, created_at = ? WHERE job_id = ?",
-                (user_id, month_start.isoformat(), f"job-{i}")
+                "UPDATE job_ledger SET user_id = ?, created_at = ?, actual_usd_micros = ? WHERE job_id = ?",
+                (user_id, month_start.isoformat(), 100_000, f"job-{i}")
             )
             await db.commit()
     
@@ -475,8 +475,8 @@ async def test_user_details_endpoint(db_path, monkeypatch):
     
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "UPDATE job_ledger SET user_id = ? WHERE job_id = ?",
-            (user_id, "job-grace-1")
+            "UPDATE job_ledger SET user_id = ?, actual_usd_micros = ? WHERE job_id = ?",
+            (user_id, 75_000, "job-grace-1")
         )
         await db.commit()
     

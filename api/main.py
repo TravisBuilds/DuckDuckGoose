@@ -40,7 +40,7 @@ import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -2057,7 +2057,7 @@ async def get_dashboard(
         
         query_base += " ORDER BY j.created_at"
         
-            async with db.execute(query_base, tuple(params)) as cursor:
+        async with db.execute(query_base, tuple(params)) as cursor:
             jobs = [dict(row) async for row in cursor]
         
         # Process aggregations (actual cost only where recorded, not falling back to estimate)
