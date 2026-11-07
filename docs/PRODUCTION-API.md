@@ -19,8 +19,25 @@ Authorization: Bearer <token>
 ```
 
 **Supported tokens:**
-- `UPLOAD_TOKEN` (scoped: upload/validate endpoints only)
+- `UPLOAD_TOKEN` (scoped: the routes below, nothing else)
 - `ADMIN_SECRET` (full access: all endpoints)
+
+**What `UPLOAD_TOKEN` reaches** (`UPLOAD_TOKEN_ROUTES` in `api/main.py`): everything the Production tab needs to
+upload an episode's four files and check them, and nothing that starts, approves or spends.
+
+| Route | With `UPLOAD_TOKEN` |
+|-------|---------------------|
+| `POST /api/episodes/upload/validate` | Validate the files, saving nothing |
+| `POST /api/episodes/upload` | Upload BEATMAP.md. 409 once the episode has a workflow, running or finished |
+| `POST /api/episodes/{id}/upload-prompt-kit` | Upload prompt_kit.json. 409 once the episode has a workflow |
+| `POST /api/episodes/{id}/upload-shots` | Upload shots.json + refs.json. 409 once the episode has a workflow |
+| `POST /api/episodes/{id}/lint` | Lint the uploaded files, prompts included |
+| `POST /api/episodes/{id}/preflight` | Preflight + offline cost estimate |
+
+Every other route refuses it with 403. A session or `ADMIN_SECRET` keeps the console's behaviour: uploads are
+refused only while a workflow runs. The token can never replace the files (and, through `/upload`, the shot rows) of
+an episode whose run has happened; it has to use a new episode id. A workflow past Temporal's retention reads as
+never started.
 
 **Configuration:**
 ```bash
@@ -63,6 +80,22 @@ Validate episode files **without saving** (dry-run).
 | `beatmap_file` | file | Yes | BEATMAP.md (markdown table format) |
 | `credit_plan_file` | file | No | CREDIT-PLAN.md |
 | `continuity_file` | file | No | CONTINUITY.md |
+| `shots_file` | file | No | shots.json. With it, the per-shot files are checked together (below) |
+| `refs_file` | file | No | refs.json |
+| `prompt_kit_file` | file | No | prompt_kit.json |
+
+**With `shots_file`** (`hfvg/episode_files.py`), validate also runs what the upload routes, `/lint`, preflight and
+the live submit would, so one call says whether the set would get through a run:
+- `parse_shots`, and BEATMAP.md and shots.json listing the same shots on the same models
+- refs.json: a `per_shot` list for every shot, keys equal to its `ref_keys` in order (a path not on the server
+  is a warning)
+- `plan_route` on every shot, with the beatmap's text tags merged in as the workflow does
+- the prompt lint on every prompt the live submit would send, continuity locks injected first as the submit
+  does (`lint_plans`)
+- `preflight_plans`, and the offline cost estimate
+
+Each problem is in `errors` prefixed with its shot id, and per shot in `shots`. Without `refs_file` or
+`prompt_kit_file` those checks are skipped with a warning.
 
 **Response (200 OK):** Success
 
@@ -76,8 +109,14 @@ Validate episode files **without saving** (dry-run).
   "files_validated": {
     "beatmap": true,
     "credit_plan": true,
-    "continuity": false
-  }
+    "continuity": false,
+    "shots": true,
+    "refs": true,
+    "prompt_kit": true
+  },
+  "warnings": [],
+  "shots": {"SH01": {"errors": [], "warnings": []}},
+  "cost_estimate": {"total_usd": "12.7794", "...": "as POST /preflight"}
 }
 ```
 
@@ -233,19 +272,20 @@ curl -X POST http://localhost:8000/api/episodes/upload \
 | `400` | Bad Request | Invalid episode_id format |
 | `401` | Unauthorized | Missing Authorization header or cookie |
 | `403` | Forbidden | Invalid token, non-ASCII token, or wrong token scope |
-| `409` | Conflict | Workflow is running (upload blocked) |
+| `409` | Conflict | Workflow is running (upload blocked); with `UPLOAD_TOKEN`, the episode already has a workflow |
 | `422` | Unprocessable Entity | Validation failed (beatmap parse error) |
 | `500` | Internal Server Error | Server misconfiguration (UPLOAD_TOKEN < 32 chars) |
 
 ## Episode ID Format
 
-**Required format:** `ep##` where `##` is a two-digit number (e.g., `ep01`, `ep04`, `ep99`)
+**Required format:** `ep##` where `##` is a two-digit number (e.g., `ep01`, `ep04`, `ep99`), with an optional
+lowercase suffix for a cut or version (`ep05full`, `ep04v2`)
 
-**Validation regex:** `^ep\d{2}$`
+**Validation regex:** `EPISODE_ID_PATTERN` in `api/main.py`, `ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?`, fully matched
 
 **Examples:**
-- ✅ Valid: `ep01`, `ep04`, `ep12`, `ep99`
-- ❌ Invalid: `ep1` (one digit), `ep100` (three digits), `episode04` (wrong prefix)
+- ✅ Valid: `ep01`, `ep04`, `ep12`, `ep99`, `ep04v2`, `ep05full`
+- ❌ Invalid: `ep1` (one digit), `ep100` (three digits), `episode04` (wrong prefix), `ep04V2` (capital in the suffix)
 
 ## Beatmap Format
 
@@ -335,7 +375,15 @@ async function uploadEpisode(episodeId, files) {
 
 ## Changelog
 
-### v1.0 (Current)
+### v1.1 (Current)
+- `UPLOAD_TOKEN` reaches the prompt kit and shots uploads, `/lint` and `/preflight` (`UPLOAD_TOKEN_ROUTES`)
+- Validate takes shots.json, refs.json and prompt_kit.json and runs the shot, ref, routing, prompt lint and
+  preflight checks on them, with per-shot results and the cost estimate
+- `/lint` lints the prompts (`lint_report`); a missing kit is a warning, a broken one an issue
+- `lint_report` injects continuity locks before linting, as the live submit does
+- With `UPLOAD_TOKEN`, the uploads are refused (409) once the episode has any workflow, not only a running one
+
+### v1.0
 - Bearer token auth with `UPLOAD_TOKEN` scope
 - Validate endpoint (dry-run)
 - Upload endpoint with idempotency

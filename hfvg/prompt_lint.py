@@ -354,6 +354,17 @@ def load_lint_kit(episode_id: str) -> LintKit:
     return LintKit.from_dict(section)
 
 
+def kit_from_prompt_kit(data: Any) -> LintKit:
+    """The lint kit of a full prompt_kit.json that is not on disk yet (upload validate): its 'lint'
+    section, with the top-level continuity_locks, as load_lint_kit reads an uploaded one."""
+    section = data.get("lint") if isinstance(data, dict) else None
+    if not isinstance(section, dict):
+        raise PromptLintError("prompt_kit.json has no 'lint' section")
+    if "continuity_locks" not in section and "continuity_locks" in data:
+        section = {**section, "continuity_locks": data["continuity_locks"]}
+    return LintKit.from_dict(section)
+
+
 def apply_continuity_locks(episode_id: str, prompt: str, shot_meta: dict[str, Any] | None,
                            live: bool, kind: str = "still") -> tuple[str, list[str]]:
     """GAP-40: the submit-side injection (before lint). Live: a missing/unreadable kit raises (the lint
@@ -379,13 +390,21 @@ def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, 
         kit = load_lint_kit(episode_id)
     except PromptLintError as e:
         return {"*": [str(e)]}
+    return lint_plans(plans, kit)
+
+
+def lint_plans(plans: dict[str, dict[str, Any]], kit: LintKit) -> dict[str, list[str]]:
+    """lint_report with the kit in hand. Each prompt gets its continuity locks injected first, as the
+    submit does (apply_continuity_locks before enforce_prompt_lint), so a lock the harness would add
+    is not reported missing."""
     out: dict[str, list[str]] = {}
     for sid, plan in plans.items():
         meta = plan.get("shot_meta") or {}
         problems: list[str] = []
         if not plan.get("pre_approved_still"):
-            problems += [f"still: {p}" for p in lint_violations(plan.get("prompt") or "", meta, kit)]
-        clip = plan.get("clip_prompt") or plan.get("prompt") or ""
+            still, _ = inject_continuity_locks(plan.get("prompt") or "", meta, kit, "still")
+            problems += [f"still: {p}" for p in lint_violations(still, meta, kit)]
+        clip, _ = inject_continuity_locks(plan.get("clip_prompt") or plan.get("prompt") or "", meta, kit, "clip")
         problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]
         if problems:
             out[sid] = problems
