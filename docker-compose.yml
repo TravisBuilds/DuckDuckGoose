@@ -84,7 +84,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - api
       - web

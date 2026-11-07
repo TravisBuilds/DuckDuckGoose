@@ -66,7 +66,7 @@ class Asset(BaseModel):
     url: str
     status: JobStatus
     cost: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ShotPlan(BaseModel):
@@ -93,7 +93,7 @@ class Storyboard(BaseModel):
 
     scenes: list[ScenePlan]
     total_estimated_cost: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EpisodeState(BaseModel):
