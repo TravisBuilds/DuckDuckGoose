@@ -26,6 +26,8 @@ interface DashboardData {
   spend_summary: {
     total_estimated_usd: string;
     total_actual_usd: string;
+    headline_spend_usd: string;
+    headline_label: string;
     variance_usd: string;
     variance_percent: number;
     failed_spend_usd: string;
@@ -49,6 +51,7 @@ interface DashboardData {
   stages: Array<{
     stage: string;
     actual_usd: string;
+    estimated_usd: string;
   }>;
   providers: Array<{
     provider: string;
