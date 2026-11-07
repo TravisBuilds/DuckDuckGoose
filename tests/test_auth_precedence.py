@@ -45,40 +45,6 @@ async def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-@pytest.fixture
-async def member_session(client):
-    """Create a member session cookie."""
-    # Login as admin first to create the session infrastructure
-    admin_secret = "test_admin_secret_at_least_32_chars_long_here"
-    response = client.post("/api/login", json={"admin_secret": admin_secret})
-    assert response.status_code == 200
-    admin_cookies = response.cookies
-    
-    # Create a member user via the API
-    response = client.post(
-        "/api/dashboard/users",
-        json={
-            "name": "Test Member",
-            "email": "member@example.com",
-            "role": "member",
-            "password": "member_password_123"
-        },
-        cookies=admin_cookies
-    )
-    assert response.status_code == 200
-    
-    # Now login as the member using password
-    # We need to create a member session token manually since login endpoint
-    # might only support admin secret. Let's create it via the DB.
-    import aiosqlite
-    from api.main import DATABASE_PATH, create_session
-    
-    # Create member session token
-    member_token = await create_session(user_id="member_test", role="member")
-    
-    return {"studio_admin_token": member_token}
-
-
 @pytest.mark.asyncio
 async def test_basic_auth_with_valid_admin_session_succeeds(client):
     """Basic Authorization header is ignored when valid admin session exists."""

@@ -1,0 +1,19 @@
+# Example Caddyfile for DuckDuckGoose
+# Copy to docker/Caddyfile and customize for your deployment
+
+:80 {
+	# Basic auth (replace hash with: caddy hash-password --plaintext <your-password>)
+	basicauth /api/* {
+		admin JDJhJDE0JFczNExQME5zS3MvQTZWVS9iRVhjRnVXNUNVMmhiQlhvTEFpZFJLL0M1VEh3VFFvNWRVNHQu
+	}
+
+	# API routes
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Web frontend
+	handle {
+		reverse_proxy web:3000
+	}
+}

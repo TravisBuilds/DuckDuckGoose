@@ -37,6 +37,10 @@ jobs:
   test-python:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
 
     steps:
     - uses: actions/checkout@v4
@@ -44,7 +48,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
         cache: pip
         cache-dependency-path: pyproject.toml
 
@@ -86,7 +90,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: pytest-junit
+        name: pytest-junit-${{ matrix.python-version }}
         path: test-results/junit.xml
         if-no-files-found: warn
 
@@ -133,9 +137,6 @@ jobs:
     - name: Build API Docker image
       run: docker build -f docker/Dockerfile.api -t duckduckgoose-api:test .
 
-    - name: Build Worker Docker image
-      run: docker build -f docker/Dockerfile.worker -t duckduckgoose-worker:test .
-
     - name: Verify API image contains required runtime files
       run: |
         echo "Checking API image for required runtime files..."
@@ -158,37 +159,25 @@ jobs:
           exit 1
         }
         
-        # Check that fixtures directory exists (may be needed by tests or examples)
-        docker run --rm duckduckgoose-api:test test -d /app/fixtures || {
-          echo "ERROR: fixtures directory not found in API image"
+        # Check that ffmpeg is installed
+        docker run --rm duckduckgoose-api:test ffmpeg -version || {
+          echo "ERROR: ffmpeg not found in API image"
           exit 1
         }
         
         echo "✓ API image contains all required runtime files"
 
-    - name: Verify Worker image contains required runtime files
+    - name: Verify Worker can be run from API image
       run: |
-        echo "Checking Worker image for required runtime files..."
-        
-        # Check that examples directory exists and contains HARNESS-GATES.json
-        docker run --rm duckduckgoose-worker:test test -f /app/examples/demo/HARNESS-GATES.json || {
-          echo "ERROR: examples/demo/HARNESS-GATES.json not found in Worker image"
-          exit 1
-        }
-        
-        # Check that hfvg package is installed
-        docker run --rm duckduckgoose-worker:test python -c "import hfvg" || {
-          echo "ERROR: hfvg package not importable in Worker image"
-          exit 1
-        }
+        echo "Checking Worker can be run from API image..."
         
         # Check that worker module can be imported
-        docker run --rm duckduckgoose-worker:test python -c "import hfvg.worker" || {
-          echo "ERROR: hfvg.worker module not importable in Worker image"
+        docker run --rm duckduckgoose-api:test python -c "import hfvg.worker" || {
+          echo "ERROR: hfvg.worker module not importable"
           exit 1
         }
         
-        echo "✓ Worker image contains all required runtime files"
+        echo "✓ Worker module is importable from API image"
 
   e2e:
     # ONE full dry-run episode through the studio UI against the REAL backend (no route mocks):

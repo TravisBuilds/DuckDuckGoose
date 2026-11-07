@@ -1,28 +1,14 @@
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg git build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-# Copy Python package files
+WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY hfvg ./hfvg
-COPY api ./api
+RUN pip install --no-cache-dir -e . fastapi 'python-multipart>=0.0.6'
 COPY examples ./examples
-COPY fixtures ./fixtures
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -e '.[dev]'
-
-# Expose API port
+COPY api ./api
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
+WORKDIR /app/api
 EXPOSE 8000
-
-# Set default environment variables
-ENV PYTHONUNBUFFERED=1
-ENV DRY_RUN=true
-
-# Run the API
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

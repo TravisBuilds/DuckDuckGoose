@@ -3,7 +3,7 @@
 import hashlib
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
@@ -111,7 +111,7 @@ class Ledger:
                     shot_id,
                     request.model_dump_json(),
                     status,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                 ),
             )
             await db.commit()
@@ -167,7 +167,7 @@ class Ledger:
             new_balance = balance - amount
 
             tx_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
 
             await db.execute(
                 """
@@ -203,7 +203,7 @@ class Ledger:
             new_balance = balance + amount
 
             tx_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
 
             await db.execute(
                 """

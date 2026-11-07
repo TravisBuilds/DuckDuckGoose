@@ -1,35 +1,47 @@
-version: '3.8'
-
+# DuckDuckGoose hosted stack. Secrets come from .env (mode 600).
+# DRY_RUN must stay true unless someone explicitly enables live mode later.
 services:
-  temporal:
-    image: temporalio/auto-setup:latest
-    ports:
-      - "7233:7233"
+  postgresql:
+    image: postgres:16-alpine
     environment:
-      - DB=sqlite
-      - SQLITE_PRAGMA_journal_mode=WAL
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
     volumes:
-      - temporal-data:/etc/temporal
+      - temporal-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.28.1
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgresql
+    restart: unless-stopped
 
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile.api
-    ports:
-      - "8000:8000"
+    env_file: .env
     environment:
-      # Use environment variables from host or .env file
-      - DRY_RUN=${DRY_RUN:-true}
-      - ADMIN_SECRET=${ADMIN_SECRET}
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_NAMESPACE=default
-      - DATABASE_PATH=/app/data/studio.db
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
-      - HIGGSFIELD_API_KEY=${HIGGSFIELD_API_KEY:-}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
-      - EPISODE_CAP_CREDITS=${EPISODE_CAP_CREDITS:-500}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_HOST: temporal:7233
+      DRY_RUN: "${DRY_RUN:-true}"
+      DATABASE_PATH: /data/studio.db
+      DATA_DIR: /data
+      EPISODES_DIR: /data/episodes
     volumes:
-      - api-data:/app/data
+      - ./data:/data
     depends_on:
       - temporal
     restart: unless-stopped
@@ -37,23 +49,46 @@ services:
   worker:
     build:
       context: .
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile.api
+    working_dir: /app
+    command: ["python", "-m", "hfvg.worker"]
+    env_file: .env
     environment:
-      # Use environment variables from host or .env file
-      - DRY_RUN=${DRY_RUN:-true}
-      - ADMIN_SECRET=${ADMIN_SECRET}
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_NAMESPACE=default
-      - DATABASE_PATH=/app/data/studio.db
-      - HIGGSFIELD_API_KEY=${HIGGSFIELD_API_KEY:-}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_HOST: temporal:7233
+      DRY_RUN: "${DRY_RUN:-true}"
+      DATABASE_PATH: /data/studio.db
+      DATA_DIR: /data
+      EPISODES_DIR: /data/episodes
     volumes:
-      - worker-data:/app/data
+      - ./data:/data
     depends_on:
       - temporal
     restart: unless-stopped
 
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: http://161.35.227.250
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://161.35.227.250
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.9-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
 volumes:
-  temporal-data:
-  api-data:
-  worker-data:
+  temporal-pg:
