@@ -69,7 +69,7 @@ async def test_audio_jobs_attributed_to_episode_owner(live):
     
     # Mock ElevenLabs TTS call
     with respx.mock() as mock:
-        mock.post(f"{API}/v1/text-to-speech/voice123/with-timestamps").mock(
+        mock.post(f"{API}/v1/text-to-speech/voice123", params={"output_format": "mp3_44100_128"}).mock(
             return_value=_audio({"character-cost": "50"})
         )
         
