@@ -217,6 +217,7 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
   const finalBlockers: string[] = [];
   if (state.pending_clip_retries.length) finalBlockers.push(`clip retries pending: ${state.pending_clip_retries.join(', ')}`);
   if (state.assembly?.blocking) finalBlockers.push(`assembly QC blocking (${state.assembly.qc?.verdict})`);
+  if (state.delivery?.due || (state.delivery?.phase && state.delivery.phase !== 'done')) finalBlockers.push(`delivery rebuild due or running (phase ${state.delivery?.phase})`);
   if (state.delivery?.blocking) finalBlockers.push(`delivery QC blocking (${state.delivery.qc?.verdict})`);
   const previewUrl = (type: string) => `${API_URL}/api/episodes/${episodeId}/files/${type}`;
 
