@@ -502,8 +502,8 @@ async def verify_auth_unified(
     This allows both programmatic access (Bearer token) and browser access (cookie).
     Fail closed: at least one must be valid.
     
-    Returns 401 only when no credential is provided.
-    Returns 403 when a credential is provided but invalid.
+    Returns 401 when no credential is provided or credential is invalid/expired.
+    Returns 403 when authenticated but not authorized (e.g. member accessing admin route).
     """
     # Try cookie first (browser access)
     cookie_error = None
@@ -526,7 +526,10 @@ async def verify_auth_unified(
     
     # No Bearer token, but maybe cookie was tried
     if cookie_error:
-        # Cookie was provided but invalid, and no Bearer token: 401 (no valid credential)
+        # If cookie raised 403 (authenticated but not authorized), keep 403
+        # If cookie raised 401 (unauthenticated), raise generic 401
+        if cookie_error.status_code == 403:
+            raise cookie_error
         raise HTTPException(
             status_code=401,
             detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
