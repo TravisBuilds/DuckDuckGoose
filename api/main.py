@@ -224,6 +224,24 @@ async def revoke_session(token: str) -> None:
         await db.commit()
 
 
+async def get_user_id_from_session(token: str) -> str | None:
+    """Get user_id from session token. Returns None if session invalid/expired."""
+    import aiosqlite
+    
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await _ensure_sessions_table(db)
+            async with db.execute(
+                """SELECT user_id FROM sessions 
+                   WHERE token = ? AND expires_at > datetime('now')""",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database and Temporal client on startup."""
@@ -1068,8 +1086,13 @@ async def upload_beatmap(
     # Initialize database
     await init_studio_db(DATABASE_PATH)
     
+    # Extract user_id from session
+    user_id = None
+    if studio_admin_token:
+        user_id = await get_user_id_from_session(studio_admin_token)
+    
     # Create or update episode record
-    await create_episode(DATABASE_PATH, episode_id, str(episode_dir / "BEATMAP.md"))
+    await create_episode(DATABASE_PATH, episode_id, str(episode_dir / "BEATMAP.md"), user_id=user_id)
     
     # Replace shots (not INSERT OR IGNORE) - delete old, insert new
     import aiosqlite

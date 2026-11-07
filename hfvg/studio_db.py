@@ -159,6 +159,7 @@ async def create_episode(
     db_path: str,
     episode_id: str,
     beatmap_path: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """
     Create episode record.
@@ -167,13 +168,19 @@ async def create_episode(
         db_path: Path to database
         episode_id: Episode ID
         beatmap_path: Path to beatmap file
+        user_id: User ID (defaults to 'legacy/shared' if None)
     """
+    from hfvg.users import LEGACY_USER_ID
+    
+    if user_id is None:
+        user_id = LEGACY_USER_ID
+    
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             """INSERT OR IGNORE INTO episodes 
-               (episode_id, beatmap_path) 
-               VALUES (?, ?)""",
-            (episode_id, beatmap_path)
+               (episode_id, beatmap_path, user_id) 
+               VALUES (?, ?, ?)""",
+            (episode_id, beatmap_path, user_id)
         )
         await db.commit()
 
