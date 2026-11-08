@@ -7,6 +7,15 @@ import json
 import sys
 
 
+@pytest.fixture(autouse=True)
+def cleanup_api_module():
+    """Cleanup api.main module after each test to prevent state leakage."""
+    yield
+    # Teardown: restore sys.modules
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+
+
 @pytest.mark.asyncio
 async def test_shots_endpoint_includes_beat_fields_from_workflow(tmp_path, monkeypatch):
     """Test that GET /api/episodes/{id}/shots merges beat fields from workflow state."""
@@ -43,15 +52,12 @@ async def test_shots_endpoint_includes_beat_fields_from_workflow(tmp_path, monke
     mock_handle = MagicMock()
     mock_handle.query = AsyncMock(return_value={
         "current_gate": "G2_SCENE_STILLS",
-        "parsed_beatmap": {
-            "shots": [
-                {
-                    "shot_id": "A01",
-                    "beat_id": "beat_1",
-                    "beat_purpose": "Setup: Duck discovers adventure",
-                    "beat_emotional_tone": "curiosity"
-                }
-            ]
+        "shot_beats": {
+            "A01": {
+                "beat_id": "beat_1",
+                "beat_purpose": "Setup: Duck discovers adventure",
+                "beat_emotional_tone": "curiosity"
+            }
         }
     })
     mock_client.get_workflow_handle = MagicMock(return_value=mock_handle)
@@ -177,14 +183,7 @@ async def test_shots_endpoint_without_beat_fields_in_parsed_beatmap(tmp_path, mo
     mock_handle = MagicMock()
     mock_handle.query = AsyncMock(return_value={
         "current_gate": "G1_SHOT_PLAN",
-        "parsed_beatmap": {
-            "shots": [
-                {
-                    "shot_id": "C01",
-                    # No beat_id, beat_purpose, or beat_emotional_tone
-                }
-            ]
-        }
+        "shot_beats": {}  # Empty when story shaping disabled
     })
     mock_client.get_workflow_handle = MagicMock(return_value=mock_handle)
     
