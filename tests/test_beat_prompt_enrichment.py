@@ -82,3 +82,31 @@ def test_partial_beat_fields_skipped():
     }
     enriched2 = enrich_shot_prompts_with_beat_context(shot2.copy())
     assert enriched2["prompt"] == "Goose appears"
+
+
+def test_enrichment_is_idempotent():
+    """Test that calling enrich multiple times doesn't duplicate the beat context."""
+    shot = {
+        "shot_id": "A01",
+        "prompt": "Duck walks in park",
+        "clip_prompt": "Duck walks slowly",
+        "beat_purpose": "Setup: Duck discovers adventure",
+        "beat_emotional_tone": "curiosity"
+    }
+    
+    # Enrich once
+    enriched_once = enrich_shot_prompts_with_beat_context(shot.copy())
+    expected_prompt = "Duck walks in park (Setup: Duck discovers adventure, curiosity tone)"
+    expected_clip_prompt = "Duck walks slowly (Setup: Duck discovers adventure, curiosity tone)"
+    
+    assert enriched_once["prompt"] == expected_prompt
+    assert enriched_once["clip_prompt"] == expected_clip_prompt
+    
+    # Enrich again (should be idempotent - no duplicate suffix)
+    enriched_twice = enrich_shot_prompts_with_beat_context(enriched_once.copy())
+    
+    # Verify no duplication
+    assert enriched_twice["prompt"] == expected_prompt
+    assert enriched_twice["clip_prompt"] == expected_clip_prompt
+    assert enriched_twice["prompt"].count("(Setup: Duck discovers adventure, curiosity tone)") == 1
+    assert enriched_twice["clip_prompt"].count("(Setup: Duck discovers adventure, curiosity tone)") == 1
