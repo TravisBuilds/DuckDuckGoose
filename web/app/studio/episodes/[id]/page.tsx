@@ -25,6 +25,8 @@ interface Shot {
   prompt: string;
   retries: number;
   pre_approved?: boolean;
+  beat_id?: string;
+  beat_purpose?: string;
 }
 
 /** A local still (pre-approved, copied into the episode outputs) is served by the authenticated
