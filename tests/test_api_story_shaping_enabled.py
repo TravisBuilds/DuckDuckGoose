@@ -48,10 +48,10 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
         # Verify workflow was started with enable_story_shaping=True
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that the args kwarg contains the enable_story_shaping parameter
-        workflow_args = call_args.kwargs.get('args', [])
-        assert len(workflow_args) >= 7, f"Should have 7 args including enable_story_shaping, got {len(workflow_args)}"
-        assert workflow_args[-1] is True, f"Last arg should be enable_story_shaping=True, got {workflow_args[-1]}"
+        # Check that kwargs contains enable_story_shaping (passed by name, not positionally)
+        workflow_kwargs = call_args.kwargs.get('kwargs', {})
+        assert 'enable_story_shaping' in workflow_kwargs, "enable_story_shaping should be in kwargs"
+        assert workflow_kwargs['enable_story_shaping'] is True, f"enable_story_shaping should be True, got {workflow_kwargs['enable_story_shaping']}"
 
 
 def test_start_episode_with_story_shaping_disabled(monkeypatch):
@@ -96,7 +96,7 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
         # Verify workflow was started with enable_story_shaping=False (default)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that the args kwarg contains the enable_story_shaping parameter
-        workflow_args = call_args.kwargs.get('args', [])
-        assert len(workflow_args) >= 7, f"Should have 7 args including enable_story_shaping, got {len(workflow_args)}"
-        assert workflow_args[-1] is False, f"Last arg should be enable_story_shaping=False (default), got {workflow_args[-1]}"
+        # Check that kwargs contains enable_story_shaping (passed by name, not positionally)
+        workflow_kwargs = call_args.kwargs.get('kwargs', {})
+        assert 'enable_story_shaping' in workflow_kwargs, "enable_story_shaping should be in kwargs"
+        assert workflow_kwargs['enable_story_shaping'] is False, f"enable_story_shaping should be False (default), got {workflow_kwargs['enable_story_shaping']}"
