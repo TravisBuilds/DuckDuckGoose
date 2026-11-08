@@ -29,7 +29,7 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
     response = client.post(
         "/api/episodes",
         json={
-            "episode_id": "ep-story-test",
+            "episode_id": "ep98",
             "beatmap_content": "Test beatmap for story shaping\n\nIdea: A test story\nGenre: test\n",
             "dry_run": True,
             "enable_story_shaping": True,
@@ -43,14 +43,15 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
     if response.status_code == 200:
         data = response.json()
         assert "workflow_id" in data
-        assert data["episode_id"] == "ep-story-test"
+        assert data["episode_id"] == "ep98"
         
         # Verify workflow was started with enable_story_shaping=True
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that the 7th argument (index 6) is True
-        assert len(call_args.args) >= 7, "Should have 7 args including enable_story_shaping"
-        assert call_args.args[6] is True, "enable_story_shaping should be True"
+        # Check that the args kwarg contains the enable_story_shaping parameter
+        workflow_args = call_args.kwargs.get('args', [])
+        assert len(workflow_args) >= 7, f"Should have 7 args including enable_story_shaping, got {len(workflow_args)}"
+        assert workflow_args[-1] is True, f"Last arg should be enable_story_shaping=True, got {workflow_args[-1]}"
 
 
 def test_start_episode_with_story_shaping_disabled(monkeypatch):
@@ -76,7 +77,7 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
     response = client.post(
         "/api/episodes",
         json={
-            "episode_id": "ep-no-story-test",
+            "episode_id": "ep97",
             "beatmap_content": "Test beatmap without story shaping\n\nIdea: A test story\nGenre: test\n",
             "dry_run": True,
             # enable_story_shaping not specified, should default to False
@@ -90,11 +91,12 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
     if response.status_code == 200:
         data = response.json()
         assert "workflow_id" in data
-        assert data["episode_id"] == "ep-no-story-test"
+        assert data["episode_id"] == "ep97"
         
         # Verify workflow was started with enable_story_shaping=False (default)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that the 7th argument (index 6) is False
-        assert len(call_args.args) >= 7, "Should have 7 args including enable_story_shaping"
-        assert call_args.args[6] is False, "enable_story_shaping should default to False"
+        # Check that the args kwarg contains the enable_story_shaping parameter
+        workflow_args = call_args.kwargs.get('args', [])
+        assert len(workflow_args) >= 7, f"Should have 7 args including enable_story_shaping, got {len(workflow_args)}"
+        assert workflow_args[-1] is False, f"Last arg should be enable_story_shaping=False (default), got {workflow_args[-1]}"
