@@ -35,6 +35,7 @@ from hfvg.activities.story_shaping import (
     generate_story_shape_activity,
     critique_story_shape_activity,
     revise_story_shape_activity,
+    update_story_shape_activity,
     assign_shots_to_beats_activity,
 )
 from hfvg.studio_db import approve_g2_shots, list_anchor_stills
@@ -94,6 +95,7 @@ PRODUCTION_ACTIVITIES = [
     generate_story_shape_activity,
     critique_story_shape_activity,
     revise_story_shape_activity,
+    update_story_shape_activity,
     assign_shots_to_beats_activity,
     approve_g2_shots,
     list_anchor_stills,

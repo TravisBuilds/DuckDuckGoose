@@ -1645,7 +1645,7 @@ async def approve_gate(
             # For story_shape approval
             if request.gate_id.lower() in ["story_shape", "story"]:
                 try:
-                    result = await handle.execute_update(signal_name)
+                    result = await handle.execute_update("approve_story_shape")
                     return {
                         "success": True,
                         "episode_id": episode_id,
@@ -1793,6 +1793,59 @@ async def get_story_shape(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching story shape: {str(e)}")
+
+
+@app.put("/api/episodes/{episode_id}/story-shape")
+async def update_story_shape(
+    episode_id: str,
+    story_shape: dict,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Update story shape and re-critique.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    try:
+        workflows = temporal_client.list_workflows(
+            f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
+        )
+        
+        async for workflow_info in workflows:
+            if "-shot-" in workflow_info.id:
+                continue
+            
+            handle = temporal_client.get_workflow_handle(workflow_info.id)
+            
+            try:
+                result = await handle.execute_update("update_story_shape", story_shape)
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "story_shape": result["story_shape"],
+                    "critique": result["critique"],
+                    "needs_revision": result["needs_revision"],
+                }
+            except (WorkflowUpdateFailedError, ApplicationError) as e:
+                cause = getattr(e, "cause", None) or e
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Story shape update refused: {str(cause)}"
+                )
+        
+        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating story shape: {str(e)}")
 
 
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)

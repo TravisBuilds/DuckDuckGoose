@@ -193,7 +193,7 @@ def test_story_shape_invalid_midpoint():
 
 
 def test_story_shape_dead_beat():
-    """Test that beats over 1/3 of total duration are caught."""
+    """Test that beats over 20s (configurable threshold) are caught."""
     story = StoryShape(
         logline="Dead beat test",
         hook="Opening moment",
@@ -201,23 +201,23 @@ def test_story_shape_dead_beat():
         beats=[
             StoryBeat(
                 beat_id="beat_1",
-                description="Long beat (over 1/3 of total)",
+                description="Long beat (over 20s default threshold)",
                 emotional_tone="neutral",
-                target_duration_s=50.0,
+                target_duration_s=25.0,
                 shot_ids=["A01"],
             ),
             StoryBeat(
                 beat_id="beat_2",
                 description="Normal beat",
                 emotional_tone="neutral",
-                target_duration_s=40.0,
+                target_duration_s=50.0,
                 shot_ids=["A02"],
             ),
             StoryBeat(
                 beat_id="beat_3",
-                description="Short beat",
+                description="Another long beat",
                 emotional_tone="neutral",
-                target_duration_s=30.0,
+                target_duration_s=45.0,
                 shot_ids=["A03"],
             ),
         ],

@@ -175,6 +175,8 @@ class StoryShape(BaseModel):
 
     def validate_structure(self) -> list[str]:
         """Validate story structure and return list of issues."""
+        from hfvg.config import config
+        
         issues = []
         
         if len(self.hook) < 10:
@@ -194,8 +196,8 @@ class StoryShape(BaseModel):
         if self.midpoint_beat_id not in [b.beat_id for b in self.beats]:
             issues.append(f"Midpoint beat '{self.midpoint_beat_id}' not found in beats")
         
-        # Dead beats: no single beat should be longer than 1/3 of total duration
-        max_beat_duration = self.total_duration_s / 3.0
+        # Dead beats: use configurable threshold (default 20s)
+        max_beat_duration = config.STORY_SHAPING_MAX_BEAT_DURATION_S
         dead_beats = [b for b in self.beats if b.target_duration_s > max_beat_duration]
         if dead_beats:
             issues.append(

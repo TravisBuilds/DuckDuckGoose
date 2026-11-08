@@ -177,7 +177,7 @@ def test_critique_duration_mismatch():
 
 
 def test_critique_dead_beats():
-    """Test that overly long beats (>1/3 total) are penalized."""
+    """Test that overly long beats (>20s default threshold) are penalized."""
     story = StoryShape(
         logline="Test story",
         hook="Opening",
@@ -185,21 +185,21 @@ def test_critique_dead_beats():
         beats=[
             StoryBeat(
                 beat_id="beat_1",
-                description="Very long beat (>1/3 of 120s = >40s)",
+                description="Very long beat (>20s)",
                 emotional_tone="neutral",
                 target_duration_s=50.0,
                 shot_ids=["A01"],
             ),
             StoryBeat(
                 beat_id="beat_2",
-                description="Short beat",
+                description="Acceptable beat",
                 emotional_tone="neutral",
                 target_duration_s=35.0,
                 shot_ids=["A02"],
             ),
             StoryBeat(
                 beat_id="beat_3",
-                description="Another beat",
+                description="Another long beat",
                 emotional_tone="neutral",
                 target_duration_s=35.0,
                 shot_ids=["A03"],
@@ -227,14 +227,14 @@ def test_critique_multiple_issues():
         beats=[
             StoryBeat(
                 beat_id="beat_1",
-                description="Long beat (>1/3 of 120s)",
+                description="Long beat (>20s)",
                 emotional_tone="neutral",
                 target_duration_s=50.0,
                 shot_ids=["A01"],
             ),
             StoryBeat(
                 beat_id="beat_2",
-                description="Short beat",
+                description="Another long beat",
                 emotional_tone="neutral",
                 target_duration_s=40.0,
                 shot_ids=[],

@@ -188,3 +188,59 @@ def test_approve_story_shape_validator_fails(mock_temporal_client):
         
         assert response.status_code == 409
         assert "story shape" in response.json()["detail"].lower()
+
+
+def test_approve_story_shape_with_story_alias(mock_temporal_client):
+    """Test that 'story' alias maps correctly to approve_story_shape method."""
+    with patch("api.main.temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, *args):
+            assert update_name == "approve_story_shape", f"Expected approve_story_shape, got {update_name}"
+            return {
+                "status": "approved",
+                "logline": "Test story",
+                "score": 85,
+            }
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        with patch("api.main.ADMIN_SECRET", "test-secret-32-chars-minimum-length-required"):
+            client = TestClient(app)
+            response = client.post(
+                "/api/episodes/ep-test-01/approve",
+                headers={"Authorization": "Bearer test-secret-32-chars-minimum-length-required"},
+                json={"gate_id": "story"},  # Using 'story' alias
+            )
+        
+        assert response.status_code == 200
+
+
+def test_update_story_shape(mock_temporal_client, test_story_shape):
+    """Test PUT /api/episodes/{id}/story-shape endpoint."""
+    with patch("api.main.temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, story_dict):
+            return {
+                "story_shape": story_dict,
+                "critique": {"score": 90, "passes": True},
+                "needs_revision": False,
+            }
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        with patch("api.main.ADMIN_SECRET", "test-secret-32-chars-minimum-length-required"):
+            client = TestClient(app)
+            response = client.put(
+                "/api/episodes/ep-test-01/story-shape",
+                headers={"Authorization": "Bearer test-secret-32-chars-minimum-length-required"},
+                json=test_story_shape.model_dump(),
+            )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["critique"]["score"] == 90
