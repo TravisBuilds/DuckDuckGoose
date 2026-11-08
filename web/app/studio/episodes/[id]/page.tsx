@@ -791,6 +791,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-semibold">{shot.shot_id}</span>
+                      {shot.beat_id && (
+                        <span className="ml-2 text-xs px-2 py-1 rounded bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200" title={shot.beat_purpose}>
+                          {shot.beat_id}
+                        </span>
+                      )}
                       {preflight && preflight[shot.shot_id] && (
                         <span
                           className={`ml-2 text-xs ${preflight[shot.shot_id].ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
@@ -815,6 +820,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                     </div>
                   </div>
                   
+                  {shot.beat_purpose && (
+                    <p className="text-sm text-purple-700 dark:text-purple-300 italic mb-2">
+                      {shot.beat_purpose}
+                    </p>
+                  )}
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                     {shot.prompt}
                   </p>
