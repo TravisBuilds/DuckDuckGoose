@@ -1,11 +1,11 @@
 """Unit tests for beat context injection into prompts."""
 
 import pytest
+from hfvg.workflows.episode_v2 import enrich_shot_prompts_with_beat_context
 
 
 def test_prompt_enrichment_with_beat_context():
     """Test that shots with beat_purpose and emotional_tone get enriched prompts."""
-    # Simulate what episode_v2.py does when processing shots
     shot = {
         "shot_id": "A01",
         "prompt": "Duck walks in park",
@@ -13,21 +13,18 @@ def test_prompt_enrichment_with_beat_context():
         "beat_emotional_tone": "curiosity"
     }
     
-    # Simulate the enrichment logic from episode_v2.py lines 657-662
-    shot_plan = shot.copy()
-    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
-        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
-        shot_plan["prompt"] = shot_plan["prompt"] + beat_context
+    # Use the actual helper function
+    enriched = enrich_shot_prompts_with_beat_context(shot.copy())
     
     # Verify enrichment
-    assert "Duck walks in park" in shot_plan["prompt"]
-    assert "Setup: Duck discovers adventure" in shot_plan["prompt"]
-    assert "curiosity tone" in shot_plan["prompt"]
-    assert "(" in shot_plan["prompt"] and ")" in shot_plan["prompt"]
+    assert "Duck walks in park" in enriched["prompt"]
+    assert "Setup: Duck discovers adventure" in enriched["prompt"]
+    assert "curiosity tone" in enriched["prompt"]
+    assert "(" in enriched["prompt"] and ")" in enriched["prompt"]
     
     # Verify format
     expected = "Duck walks in park (Setup: Duck discovers adventure, curiosity tone)"
-    assert shot_plan["prompt"] == expected
+    assert enriched["prompt"] == expected
 
 
 def test_prompt_unchanged_without_beat_context():
@@ -37,15 +34,12 @@ def test_prompt_unchanged_without_beat_context():
         "prompt": "Duck walks in park"
     }
     
-    # Simulate the enrichment logic
-    shot_plan = shot.copy()
-    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
-        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
-        shot_plan["prompt"] = shot_plan["prompt"] + beat_context
+    # Use the actual helper function
+    enriched = enrich_shot_prompts_with_beat_context(shot.copy())
     
     # Verify no change
-    assert shot_plan["prompt"] == "Duck walks in park"
-    assert "(" not in shot_plan["prompt"]
+    assert enriched["prompt"] == "Duck walks in park"
+    assert "(" not in enriched["prompt"]
 
 
 def test_clip_prompt_enrichment_with_beat_context():
@@ -58,20 +52,15 @@ def test_clip_prompt_enrichment_with_beat_context():
         "beat_emotional_tone": "contentment"
     }
     
-    # Simulate enrichment
-    shot_plan = shot.copy()
-    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
-        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
-        shot_plan["prompt"] = shot_plan["prompt"] + beat_context
-        if shot_plan.get("clip_prompt"):
-            shot_plan["clip_prompt"] = shot_plan["clip_prompt"] + beat_context
+    # Use the actual helper function
+    enriched = enrich_shot_prompts_with_beat_context(shot.copy())
     
     # Verify both prompts enriched
-    assert "Resolution: Duck finds peace" in shot_plan["prompt"]
-    assert "contentment tone" in shot_plan["prompt"]
-    assert "Resolution: Duck finds peace" in shot_plan["clip_prompt"]
-    assert "contentment tone" in shot_plan["clip_prompt"]
-    assert shot_plan["clip_prompt"] == "Duck walks slowly through park (Resolution: Duck finds peace, contentment tone)"
+    assert "Resolution: Duck finds peace" in enriched["prompt"]
+    assert "contentment tone" in enriched["prompt"]
+    assert "Resolution: Duck finds peace" in enriched["clip_prompt"]
+    assert "contentment tone" in enriched["clip_prompt"]
+    assert enriched["clip_prompt"] == "Duck walks slowly through park (Resolution: Duck finds peace, contentment tone)"
 
 
 def test_partial_beat_fields_skipped():
@@ -82,11 +71,8 @@ def test_partial_beat_fields_skipped():
         "prompt": "Duck walks",
         "beat_purpose": "Setup"
     }
-    shot_plan1 = shot1.copy()
-    if shot1.get("beat_purpose") and shot1.get("beat_emotional_tone"):
-        beat_context = f" ({shot1['beat_purpose']}, {shot1['beat_emotional_tone']} tone)"
-        shot_plan1["prompt"] = shot_plan1["prompt"] + beat_context
-    assert shot_plan1["prompt"] == "Duck walks"
+    enriched1 = enrich_shot_prompts_with_beat_context(shot1.copy())
+    assert enriched1["prompt"] == "Duck walks"
     
     # Only emotional_tone
     shot2 = {
@@ -94,8 +80,5 @@ def test_partial_beat_fields_skipped():
         "prompt": "Goose appears",
         "beat_emotional_tone": "surprise"
     }
-    shot_plan2 = shot2.copy()
-    if shot2.get("beat_purpose") and shot2.get("beat_emotional_tone"):
-        beat_context = f" ({shot2['beat_purpose']}, {shot2['beat_emotional_tone']} tone)"
-        shot_plan2["prompt"] = shot_plan2["prompt"] + beat_context
-    assert shot_plan2["prompt"] == "Goose appears"
+    enriched2 = enrich_shot_prompts_with_beat_context(shot2.copy())
+    assert enriched2["prompt"] == "Goose appears"
