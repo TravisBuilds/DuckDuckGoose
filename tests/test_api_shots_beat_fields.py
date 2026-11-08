@@ -57,7 +57,11 @@ async def test_api_shots_includes_beat_fields_from_workflow_state(tmp_path, monk
         }
     })
     mock_client.get_workflow_handle = MagicMock(return_value=mock_handle)
+    
+    # Store original client and restore after test
+    original_client = api_main.temporal_client
     api_main.temporal_client = mock_client
+    monkeypatch.setattr(api_main, "temporal_client", mock_client)
     
     client = TestClient(api_main.app)
     
@@ -77,5 +81,8 @@ async def test_api_shots_includes_beat_fields_from_workflow_state(tmp_path, monk
     assert shot["beat_id"] == "beat_1"
     assert shot["beat_purpose"] == "Setup: Duck discovers adventure"
     assert shot["beat_emotional_tone"] == "curiosity"
+    
+    # Cleanup
+    api_main.temporal_client = original_client
 
 
