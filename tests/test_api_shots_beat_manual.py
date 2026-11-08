@@ -15,14 +15,17 @@ def test_api_shots_endpoint_structure():
     Verify that the shots endpoint code is structured to merge beat fields.
     This is a code inspection test that ensures the API includes beat enrichment logic.
     """
-    from api.main import app
-    import inspect
+    import os
+    from pathlib import Path
     
-    # Get the source code of the get_shots function
-    source = inspect.getsource(app.routes[-1].endpoint) if hasattr(app, 'routes') else ""
+    # Find api/main.py relative to this test file
+    test_dir = Path(__file__).parent
+    api_main_path = test_dir.parent / "api" / "main.py"
+    
+    assert api_main_path.exists(), f"api/main.py not found at {api_main_path}"
     
     # Verify the beat field merging logic is present
-    with open("/agent/repos/DuckDuckGoose/api/main.py", "r") as f:
+    with open(api_main_path, "r") as f:
         api_source = f.read()
     
     # Check that the API includes beat field merging from workflow state
