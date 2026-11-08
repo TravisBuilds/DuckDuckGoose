@@ -230,7 +230,7 @@ class EpisodeWorkflowV2:
                 # GAP-41: a reopened episode goes straight back to G_FINAL_CUT with the restored state
                 return await self._run_reopened(episode_id, reopen_from)
             result = await self._run_with_lock(
-                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap
+                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, enable_story_shaping
             )
             return result
         finally:
@@ -248,7 +248,8 @@ class EpisodeWorkflowV2:
     
     async def _run_with_lock(
         self, episode_id: str, beatmap_path: str | None, dry_run: bool,
-        is_canary: bool, shots_subset: list[str] | None, credit_cap: int | None
+        is_canary: bool, shots_subset: list[str] | None, credit_cap: int | None,
+        enable_story_shaping: bool = False
     ) -> dict:
         """Execute workflow with run lock held."""
         
