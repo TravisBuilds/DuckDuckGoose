@@ -210,6 +210,36 @@ async def test_assign_shots_to_beats():
 @pytest.mark.asyncio
 async def test_workflow_story_shape_approval(test_story_shape):
     """Test story shape approval gate in workflow."""
+    from temporalio import activity
+    
+    # Stub activities for workflow infrastructure
+    @activity.defn(name="acquire_run_lock")
+    async def stub_acquire_run_lock(*args):
+        return {"acquired": True}
+    
+    @activity.defn(name="release_run_lock")
+    async def stub_release_run_lock(*args):
+        return {"released": True}
+    
+    @activity.defn(name="upsert_episode_activity")
+    async def stub_upsert_episode(*args):
+        return {}
+    
+    @activity.defn(name="init_episode_credit_line_activity")
+    async def stub_init_credit_line(*args):
+        return {}
+    
+    @activity.defn(name="init_episode_budget_lines_activity")
+    async def stub_init_budget_lines(*args):
+        return {"lines": ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", "L7_revision"]}
+    
+    @activity.defn(name="load_gate_policy_activity")
+    async def stub_load_gate_policy(*args):
+        return {
+            "gates": {},
+            "duck_casting": {},
+        }
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         set_test_stub_story_shape(test_story_shape)
         
@@ -223,11 +253,17 @@ async def test_workflow_story_shape_approval(test_story_shape):
                     critique_story_shape_activity,
                     revise_story_shape_activity,
                     assign_shots_to_beats_activity,
+                    stub_acquire_run_lock,
+                    stub_release_run_lock,
+                    stub_upsert_episode,
+                    stub_init_credit_line,
+                    stub_init_budget_lines,
+                    stub_load_gate_policy,
                 ],
             ):
                 handle = await env.client.start_workflow(
                     EpisodeWorkflowV2.run,
-                    args=["ep-test-story", None, True],
+                    args=["ep-test-story", None, True, None, None, None, None, True],  # enable_story_shaping=True
                     id="ep-test-story",
                     task_queue="test-story-shaping",
                 )
@@ -254,6 +290,36 @@ async def test_workflow_story_shape_approval(test_story_shape):
 @pytest.mark.asyncio
 async def test_workflow_story_shape_validator():
     """Test that story shape approval validator works."""
+    from temporalio import activity
+    
+    # Stub activities for workflow infrastructure
+    @activity.defn(name="acquire_run_lock")
+    async def stub_acquire_run_lock(*args):
+        return {"acquired": True}
+    
+    @activity.defn(name="release_run_lock")
+    async def stub_release_run_lock(*args):
+        return {"released": True}
+    
+    @activity.defn(name="upsert_episode_activity")
+    async def stub_upsert_episode(*args):
+        return {}
+    
+    @activity.defn(name="init_episode_credit_line_activity")
+    async def stub_init_credit_line(*args):
+        return {}
+    
+    @activity.defn(name="init_episode_budget_lines_activity")
+    async def stub_init_budget_lines(*args):
+        return {"lines": ["L1_refs", "L2_drafts", "L3_final_stills", "L4_video", "L7_revision"]}
+    
+    @activity.defn(name="load_gate_policy_activity")
+    async def stub_load_gate_policy(*args):
+        return {
+            "gates": {},
+            "duck_casting": {},
+        }
+    
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -264,11 +330,17 @@ async def test_workflow_story_shape_validator():
                 critique_story_shape_activity,
                 revise_story_shape_activity,
                 assign_shots_to_beats_activity,
+                stub_acquire_run_lock,
+                stub_release_run_lock,
+                stub_upsert_episode,
+                stub_init_credit_line,
+                stub_init_budget_lines,
+                stub_load_gate_policy,
             ],
         ):
             handle = await env.client.start_workflow(
                 EpisodeWorkflowV2.run,
-                args=["ep-test-val", None, True],
+                args=["ep-test-val", None, True, None, None, None, None, True],  # enable_story_shaping=True
                 id="ep-test-val",
                 task_queue="test-story-validator",
             )
