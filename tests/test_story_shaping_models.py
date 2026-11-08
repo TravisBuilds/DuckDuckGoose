@@ -1,7 +1,7 @@
 """Unit tests for StoryShape models and validation."""
 
 import pytest
-from hfvg.models import StoryBeat, StoryShape
+from hfvg.models import StoryBeat, StoryShape, Act
 
 
 def test_story_beat_basic():
