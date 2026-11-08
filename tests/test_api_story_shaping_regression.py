@@ -36,6 +36,7 @@ async def test_api_episode_with_story_shaping_false_reaches_g1(tmp_path, monkeyp
     from temporalio.worker import Worker
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from hfvg.worker import PRODUCTION_ACTIVITIES
+    from hfvg.temporal_converter import temporal_data_converter
     
     # Initialize databases
     await init_studio_db(str(db_path))
@@ -74,7 +75,7 @@ async def test_api_episode_with_story_shaping_false_reaches_g1(tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     
     # Start Temporal environment
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=temporal_data_converter) as env:
         async with Worker(
             env.client,
             task_queue="hfvg-tasks",

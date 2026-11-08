@@ -14,6 +14,7 @@ from hfvg.activities.story_shaping import (
     assign_shots_to_beats_activity,
     set_test_stub_story_shape,
 )
+from hfvg.temporal_converter import temporal_data_converter
 
 
 @pytest.fixture
@@ -284,7 +285,7 @@ async def test_workflow_story_shape_approval(test_story_shape):
             "duck_casting": {},
         }
     
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=temporal_data_converter) as env:
         set_test_stub_story_shape(test_story_shape)
         
         try:
