@@ -1,0 +1,22 @@
+# Example Caddyfile for DuckDuckGoose
+# Copy to Caddyfile (repo root) and customize for your deployment
+# Generate hash: caddy hash-password --plaintext <your-password>
+
+:80 {
+	# Basic auth on all routes
+	basic_auth {
+		studio <BCRYPT_HASH_FROM_caddy_hash-password>
+	}
+
+	# API routes - strip Authorization header from reverse proxy auth
+	handle /api/* {
+		reverse_proxy api:8000 {
+			header_up -Authorization
+		}
+	}
+
+	# Web frontend
+	handle {
+		reverse_proxy web:3000
+	}
+}

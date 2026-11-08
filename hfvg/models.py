@@ -1,6 +1,6 @@
 """Data models for workflows and activities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -66,7 +66,7 @@ class Asset(BaseModel):
     url: str
     status: JobStatus
     cost: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ShotPlan(BaseModel):
@@ -93,7 +93,7 @@ class Storyboard(BaseModel):
 
     scenes: list[ScenePlan]
     total_estimated_cost: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EpisodeState(BaseModel):
@@ -137,5 +137,5 @@ class CreditTransaction(BaseModel):
     job_id: Optional[str] = None
     amount: float
     tx_type: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     balance_after: float

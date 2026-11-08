@@ -504,6 +504,9 @@ async def verify_auth_unified(
     
     Returns 401 when no credential is provided or credential is invalid/expired.
     Returns 403 when authenticated but not authorized (e.g. member accessing admin route).
+    
+    Ignores malformed/non-Bearer Authorization headers (e.g. Basic auth from reverse proxy)
+    when a valid session cookie is present.
     """
     # Try cookie first (browser access)
     cookie_error = None
@@ -514,28 +517,40 @@ async def verify_auth_unified(
         except HTTPException as e:
             cookie_error = e
     
-    # Try Bearer token (programmatic access)
-    if authorization:
+    # Try Bearer token (programmatic access), but only if it's well-formed
+    # Ignore non-Bearer headers (e.g. "Basic xyz" from reverse proxy)
+    bearer_error = None
+    if authorization and authorization.startswith("Bearer "):
         try:
             verify_admin_secret(authorization)
             return  # Bearer token is valid
         except HTTPException as e:
-            # If verify_admin_secret raised 403 (invalid token), keep 403
-            # If it raised 401 (malformed format like "Basic xyz"), keep 401
-            raise e
+            bearer_error = e
     
-    # No Bearer token, but maybe cookie was tried
+    # Decide which error to raise based on what was attempted
     if cookie_error:
-        # If cookie raised 403 (authenticated but not authorized), keep 403
-        # If cookie raised 401 (unauthenticated), raise generic 401
+        # Cookie was tried and failed
         if cookie_error.status_code == 403:
+            # Authenticated but not authorized (e.g. member accessing admin route)
+            # This takes precedence over any Bearer token error
             raise cookie_error
+        # Cookie authentication failed (401)
+        if bearer_error:
+            # Both failed, prefer Bearer error if it's a 403 (invalid secret)
+            # Otherwise raise generic 401
+            if bearer_error.status_code == 403:
+                raise bearer_error
         raise HTTPException(
             status_code=401,
             detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
         )
     
-    # Neither credential provided
+    # No cookie was tried
+    if bearer_error:
+        # Only Bearer token was tried and failed
+        raise bearer_error
+    
+    # Neither credential provided (or only non-Bearer Authorization header)
     raise HTTPException(
         status_code=401,
         detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"

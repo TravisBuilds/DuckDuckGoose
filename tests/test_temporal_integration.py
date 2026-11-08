@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from hfvg.ledger import Ledger
     from hfvg.models import Asset, GenerationRequest, JobStatus
     from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow
+    from hfvg.temporal_converter import temporal_data_converter
 
 
 # Module-level test workflows
@@ -210,7 +211,7 @@ async def test_a_full_episode_through_all_gates(tmp_path, monkeypatch):
     ledger = Ledger(db_path)
     await ledger.init_db()
 
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
@@ -299,7 +300,7 @@ async def test_b_heartbeat_timeout_causes_retry(tmp_path):
     global _stall_attempt
     _stall_attempt = 0
     
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
@@ -330,7 +331,7 @@ async def test_c_shot_retry_resumes_same_job(tmp_path):
     ledger = Ledger(db_path)
     await ledger.init_db()
 
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
@@ -366,7 +367,7 @@ async def test_d_insufficient_credits_pauses_workflow(tmp_path):
     # Drain credits
     await ledger.deduct_credits("test", 9990.0, "setup")
 
-    async with await WorkflowEnvironment.start_local() as env:
+    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
         async with Worker(
             env.client,
             task_queue="test-queue",
