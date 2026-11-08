@@ -1,5 +1,5 @@
 /**
- * Unit tests for StoryShapePanel component.
+ * Unit tests for StoryShapePanel component data structures.
  * 
  * Run with: npm run test:unit
  */
@@ -18,7 +18,7 @@ test('StoryShapePanel should have valid props interface', () => {
           duration_s: 40,
           description: 'The beginning',
           emotional_tone: 'curious',
-          beat_timing: 'act_1' as const,
+          beat_timing: 'act_1',
         },
       ],
       payoff: { timestamp: 100, content: 'Test payoff' },

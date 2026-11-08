@@ -504,11 +504,10 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         {storyShape && storyShape.story_shape && (
           <div className="mb-6">
             <StoryShapePanel
-              storyShape={storyShape.story_shape}
-              critique={storyShape.critique}
-              approved={storyShape.approved}
-              onUpdate={handleStoryShapeUpdate}
+              episodeId={episodeId}
+              data={storyShape}
               onApprove={handleStoryShapeApprove}
+              onUpdate={handleStoryShapeUpdate}
             />
           </div>
         )}
