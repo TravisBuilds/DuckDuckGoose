@@ -4,9 +4,6 @@ Test that episodes can be started with enable_story_shaping flag.
 import os
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-from fastapi.testclient import TestClient
-from api.main import app
-import api.main as api_main
 
 
 def test_start_episode_with_story_shaping_enabled(monkeypatch):
@@ -14,6 +11,11 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    
+    # Import after setting env vars
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
     
     # Mock temporal client to avoid 503 errors
     mock_client = MagicMock()
@@ -56,6 +58,11 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
     admin_secret = "a" * 32
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    
+    # Import after setting env vars
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
     
     # Mock temporal client
     mock_client = MagicMock()
