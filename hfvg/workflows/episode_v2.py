@@ -3378,7 +3378,7 @@ class EpisodeWorkflowV2:
     @workflow.query
     def get_state(self) -> dict:
         """Get current workflow state."""
-        state = {
+        return {
             "episode_id": self.state.episode_id,
             "stage": self.state.stage.value if self.state.stage else None,
             "current_gate": self.state.current_gate,
@@ -3391,7 +3391,12 @@ class EpisodeWorkflowV2:
             "pending_retries": list(self.state.pending_retries),
             "g1_plan": self.state.g1_plan.copy(),
             "output_paths": {k: v.copy() for k, v in self.state.output_paths.items()},
+            "story_shape": self.story_shape,
+            "story_shape_critique": self.story_shape_critique,
+            "story_shape_revision": self.story_shape_revision,
+            "story_shape_log": self.story_shape_log.copy(),
             "approvals": {
+                "story_shape": self.approved_story_shape,
                 "g1_shot_plan": self.approved_g1_shot_plan,
                 "g2_scene_stills": self.approved_g2_scene_stills,
                 "g_final_cut": self.approved_g_final_cut,
@@ -3448,13 +3453,3 @@ class EpisodeWorkflowV2:
                 for k, v in self.pre_approved_stills.items()
             },
         }
-        
-        # Add story shape fields only if story shaping was used
-        if self.story_shape is not None or self.story_shape_log:
-            state["story_shape"] = self.story_shape
-            state["story_shape_critique"] = self.story_shape_critique
-            state["story_shape_revision"] = self.story_shape_revision
-            state["story_shape_log"] = self.story_shape_log.copy()
-            state["approvals"]["story_shape"] = self.approved_story_shape
-        
-        return state
