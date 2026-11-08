@@ -205,6 +205,7 @@ class Config:
     # Story shaping config
     STORY_SHAPING_MODEL: str = os.getenv("STORY_SHAPING_MODEL", "gpt-4o-mini")
     STORY_SHAPING_MAX_BEAT_DURATION_S: float = float(os.getenv("STORY_SHAPING_MAX_BEAT_DURATION_S", "20.0"))
+    OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
 
 
 config = Config()

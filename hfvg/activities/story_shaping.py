@@ -6,6 +6,8 @@ Generates StoryShape from user idea with genre presets, then critiques and valid
 import hashlib
 import json
 import os
+import sqlite3
+from pathlib import Path
 from typing import Any
 
 from temporalio import activity
@@ -17,8 +19,60 @@ from hfvg.config import config
 # Test stub for deterministic testing
 _test_stub_story_shape: StoryShape | None = None
 
-# Generation cache for idempotency: {(episode_id, input_hash) -> story_shape}
-_generation_cache: dict[tuple[str, str], dict] = {}
+
+def _get_cache_db_path() -> Path:
+    """Get the path to the story shape cache database."""
+    data_dir = Path(config.DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "story_shape_cache.db"
+
+
+def _init_cache_db() -> None:
+    """Initialize the cache database with schema if needed."""
+    db_path = _get_cache_db_path()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS story_shape_cache (
+                episode_id TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                story_shape_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (episode_id, input_hash)
+            )
+        """)
+        conn.commit()
+
+
+def _get_cached_story_shape(episode_id: str, input_hash: str) -> dict | None:
+    """Retrieve cached story shape from database."""
+    db_path = _get_cache_db_path()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "SELECT story_shape_json FROM story_shape_cache WHERE episode_id = ? AND input_hash = ?",
+                (episode_id, input_hash)
+            )
+            row = cursor.fetchone()
+            if row:
+                return json.loads(row[0])
+    except sqlite3.Error:
+        pass
+    return None
+
+
+def _cache_story_shape(episode_id: str, input_hash: str, story_shape: dict) -> None:
+    """Store story shape in cache database."""
+    db_path = _get_cache_db_path()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO story_shape_cache 
+                   (episode_id, input_hash, story_shape_json) VALUES (?, ?, ?)""",
+                (episode_id, input_hash, json.dumps(story_shape))
+            )
+            conn.commit()
+    except sqlite3.Error:
+        pass
 
 
 def set_test_stub_story_shape(story_shape: StoryShape | None) -> None:
@@ -215,12 +269,15 @@ async def generate_story_shape_activity(
             - from_cache: bool (if retrieved from cache)
     """
     input_hash = _compute_input_hash(idea, genre_preset, target_duration)
-    cache_key = (episode_id, input_hash)
+    
+    # Initialize cache DB if needed
+    _init_cache_db()
     
     # Check cache first (idempotent generation)
-    if cache_key in _generation_cache:
+    cached = _get_cached_story_shape(episode_id, input_hash)
+    if cached is not None:
         return {
-            "story_shape": _generation_cache[cache_key],
+            "story_shape": cached,
             "dry_run": dry_run,
             "from_cache": True,
         }
@@ -266,11 +323,12 @@ async def generate_story_shape_activity(
             "story_shape": story.model_dump(),
             "dry_run": True,
         }
-        _generation_cache[cache_key] = story.model_dump()
+        story_dict = story.model_dump()
+        _cache_story_shape(episode_id, input_hash, story_dict)
         return result
     
     # Live mode: use OpenAI async client with config
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = config.OPENAI_API_KEY
     if not api_key:
         raise ValueError(
             "OPENAI_API_KEY required for live story shaping. "
@@ -329,7 +387,8 @@ async def generate_story_shape_activity(
             "dry_run": False,
             "model_used": config.STORY_SHAPING_MODEL,
         }
-        _generation_cache[cache_key] = story.model_dump()
+        story_dict = story.model_dump()
+        _cache_story_shape(episode_id, input_hash, story_dict)
         return result
     
     except Exception as e:
@@ -411,7 +470,7 @@ async def revise_story_shape_activity(
             "dry_run": True,
         }
     
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = config.OPENAI_API_KEY
     if not api_key:
         raise ValueError("OPENAI_API_KEY required for live revision")
     
