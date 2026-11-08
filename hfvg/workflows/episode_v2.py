@@ -653,6 +653,14 @@ class EpisodeWorkflowV2:
             if "prompt" not in shot_plan:
                 shot_plan["prompt"] = build_prompt_from_shot(shot)
             
+            # Enrich prompt with beat context when story shaping is enabled
+            if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
+                beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
+                shot_plan["prompt"] = shot_plan["prompt"] + beat_context
+                # Also enrich clip_prompt if present
+                if shot_plan.get("clip_prompt"):
+                    shot_plan["clip_prompt"] = shot_plan["clip_prompt"] + beat_context
+            
             # Apply attempt override if provided (for testing retry behavior)
             shot_id = shot["shot_id"]
             override = self.state.shot_attempt_overrides.get(shot_id, 0)
