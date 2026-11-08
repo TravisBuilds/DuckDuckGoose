@@ -1642,8 +1642,26 @@ async def approve_gate(
             # Map gate_id to signal method
             signal_name = f"approve_{request.gate_id.lower()}"
             
+            # For story_shape approval
+            if request.gate_id.lower() in ["story_shape", "story"]:
+                try:
+                    result = await handle.execute_update(signal_name)
+                    return {
+                        "success": True,
+                        "episode_id": episode_id,
+                        "gate_id": request.gate_id,
+                        "message": f"Approval sent for gate {request.gate_id}",
+                        "note": request.note,
+                        "result": result,
+                    }
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
+                    cause = getattr(e, "cause", None) or e
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Story shape approval refused: {str(cause)}"
+                    )
             # For G1 approval, use update (with validator) to check estimates availability
-            if request.gate_id.lower() in ["g1_shot_plan", "g1"]:
+            elif request.gate_id.lower() in ["g1_shot_plan", "g1"]:
                 try:
                     result = await handle.execute_update(
                         signal_name,
@@ -1729,6 +1747,52 @@ async def approve_gate(
         raise  # keep 404/409 - do not turn them into 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
+
+
+@app.get("/api/episodes/{episode_id}/story-shape")
+async def get_story_shape(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Get story shape for an episode.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    try:
+        workflows = temporal_client.list_workflows(
+            f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
+        )
+        
+        async for workflow_info in workflows:
+            if "-shot-" in workflow_info.id:
+                continue
+            
+            handle = temporal_client.get_workflow_handle(workflow_info.id)
+            state = await handle.query("get_state")
+            
+            return {
+                "episode_id": episode_id,
+                "story_shape": state.get("story_shape"),
+                "critique": state.get("story_shape_critique"),
+                "revision": state.get("story_shape_revision"),
+                "log": state.get("story_shape_log"),
+                "approved": state.get("approved_story_shape", False),
+            }
+        
+        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching story shape: {str(e)}")
 
 
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)

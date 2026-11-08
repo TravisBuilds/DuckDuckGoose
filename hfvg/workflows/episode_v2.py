@@ -150,6 +150,12 @@ class EpisodeWorkflowV2:
         self.reopen_log: list[dict] = []
         self.ref_jobs_log: list[dict] = []   # GAP-42
         self.ref_jobs_running = False
+        # Story shaping state
+        self.story_shape: dict | None = None
+        self.story_shape_critique: dict | None = None
+        self.story_shape_revision: dict | None = None
+        self.approved_story_shape = False
+        self.story_shape_log: list[dict] = []
     
     @workflow.run
     async def run(
@@ -295,10 +301,89 @@ class EpisodeWorkflowV2:
         workflow.logger.info(f"Starting episode {episode_id} (dry_run={dry_run})")
         
         # ================================================================
+        # STORY SHAPING: Generate story structure before stills
+        # ================================================================
+        workflow.logger.info("=== STORY SHAPING STAGE ===")
+        self.state.stage = PipelineStage.SCRIPT
+        
+        # For now, use the episode_id as a placeholder idea
+        # In a real implementation, this would come from episode config or user input
+        story_idea = self.state.idea or f"Episode {episode_id}"
+        genre_preset = None  # Could be passed in via config
+        
+        workflow.logger.info(f"Generating story shape for: {story_idea}")
+        story_result = await workflow.execute_activity(
+            "generate_story_shape_activity",
+            args=[story_idea, genre_preset, 120.0, dry_run],
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        
+        self.story_shape = story_result["story_shape"]
+        self.story_shape_log.append({
+            "action": "generated",
+            "dry_run": story_result.get("dry_run", dry_run),
+            "model": story_result.get("model_used"),
+        })
+        workflow.logger.info(f"Story shape generated: {self.story_shape['logline']}")
+        
+        # Critique the story shape
+        workflow.logger.info("Critiquing story shape...")
+        critique_result = await workflow.execute_activity(
+            "critique_story_shape_activity",
+            args=[self.story_shape],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        
+        self.story_shape_critique = critique_result["critique"]
+        needs_revision = critique_result["needs_revision"]
+        
+        workflow.logger.info(
+            f"Critique score: {self.story_shape_critique['score']}/100, "
+            f"needs_revision: {needs_revision}"
+        )
+        
+        # Automatic revision (max 1 attempt)
+        if needs_revision:
+            workflow.logger.info("Attempting automatic revision...")
+            revision_result = await workflow.execute_activity(
+                "revise_story_shape_activity",
+                args=[self.story_shape, self.story_shape_critique, dry_run],
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            
+            self.story_shape = revision_result["story_shape"]
+            self.story_shape_revision = revision_result
+            self.story_shape_log.append({
+                "action": "revised",
+                "changes": revision_result["changes_made"],
+            })
+            
+            # Re-critique
+            critique_result = await workflow.execute_activity(
+                "critique_story_shape_activity",
+                args=[self.story_shape],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            self.story_shape_critique = critique_result["critique"]
+            workflow.logger.info(
+                f"Revised critique score: {self.story_shape_critique['score']}/100"
+            )
+        
+        # Wait for story shape approval
+        workflow.logger.info("Story shape ready for approval...")
+        await workflow.wait_condition(lambda: self.approved_story_shape)
+        self.story_shape_log.append({"action": "approved"})
+        workflow.logger.info("[APPROVED] Story shape locked")
+        
+        # ================================================================
         # GATE 1: SHOT PLAN (Beatmap + Credit Plan)
         # ================================================================
         workflow.logger.info("=== GATE 1: SHOT PLAN ===")
-        self.state.stage = PipelineStage.SCRIPT
+        self.state.stage = PipelineStage.SHOT_PLANNING
         
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)
         workflow.logger.info("Parsing BEATMAP.md...")
@@ -314,6 +399,20 @@ class EpisodeWorkflowV2:
         
         shots = self.parsed_beatmap.get("shots", [])
         workflow.logger.info(f"Parsed {len(shots)} shots from beatmap")
+        
+        # Assign shots to story beats
+        if self.story_shape:
+            workflow.logger.info("Assigning shots to story beats...")
+            assignment_result = await workflow.execute_activity(
+                "assign_shots_to_beats_activity",
+                args=[self.story_shape, shots],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            self.story_shape = assignment_result["story_shape"]
+            workflow.logger.info(
+                f"Assigned {len(assignment_result['assignments'])} shots to beats"
+            )
         
         # Filter shots by shots_subset if provided
         if shots_subset:
@@ -830,7 +929,35 @@ class EpisodeWorkflowV2:
         """G2.01 is needed when any shot references a ref that is not on disk (planned new ref)."""
         return bool(self._collect_missing_refs(shots))
     
-    # Update handlers for 3 gates
+    # Update handlers for gates
+    @workflow.update
+    async def approve_story_shape(self) -> dict:
+        """Approve story shape before shot planning.
+        
+        Returns:
+            dict with status: "approved", score, and story shape summary
+        """
+        self.approved_story_shape = True
+        return {
+            "status": "approved",
+            "logline": self.story_shape.get("logline") if self.story_shape else None,
+            "score": self.story_shape_critique.get("score") if self.story_shape_critique else None,
+        }
+    
+    @approve_story_shape.validator
+    def validate_story_shape_approval(self):
+        """Validator for story shape approval: checks critique exists and has passing score."""
+        if not self.story_shape:
+            raise ApplicationError(
+                "Cannot approve story shape: story shape not generated yet",
+                non_retryable=True,
+            )
+        if not self.story_shape_critique:
+            raise ApplicationError(
+                "Cannot approve story shape: critique not run yet",
+                non_retryable=True,
+            )
+        
     @workflow.update
     async def approve_g1_shot_plan(self, override_unavailable_estimates: bool = False) -> dict:
         """Approve shot plan (G1_SHOT_PLAN): Beatmap + credit plan.
@@ -3217,7 +3344,12 @@ class EpisodeWorkflowV2:
             "pending_retries": list(self.state.pending_retries),
             "g1_plan": self.state.g1_plan.copy(),
             "output_paths": {k: v.copy() for k, v in self.state.output_paths.items()},
+            "story_shape": self.story_shape,
+            "story_shape_critique": self.story_shape_critique,
+            "story_shape_revision": self.story_shape_revision,
+            "story_shape_log": self.story_shape_log.copy(),
             "approvals": {
+                "story_shape": self.approved_story_shape,
                 "g1_shot_plan": self.approved_g1_shot_plan,
                 "g2_scene_stills": self.approved_g2_scene_stills,
                 "g_final_cut": self.approved_g_final_cut,
