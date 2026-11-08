@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 import EpisodeRunPanel from '@/components/EpisodeRunPanel';
+import StoryShapePanel from '@/components/StoryShapePanel';
 
 interface EpisodeState {
   episode_id: string;
@@ -91,6 +92,13 @@ interface AuditEntry {
   timestamp: string;
 }
 
+interface StoryShapeData {
+  episode_id: string;
+  story_shape: any | null;
+  critique: any | null;
+  approved: boolean;
+}
+
 export default function EpisodePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: episodeId } = use(params);
   
@@ -98,6 +106,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
   const [gates, setGates] = useState<Gates | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
+  const [storyShape, setStoryShape] = useState<StoryShapeData | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -202,12 +211,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-      const [stateRes, budgetRes, gatesRes, shotsRes, auditRes] = await Promise.all([
+      const [stateRes, budgetRes, gatesRes, shotsRes, auditRes, storyRes] = await Promise.all([
         fetch(`${apiUrl}/api/episodes/${episodeId}`, { credentials: 'include' }),
         fetch(`${apiUrl}/api/episodes/${episodeId}/budget`, { credentials: 'include' }),
         fetch(`${apiUrl}/api/episodes/${episodeId}/gates`, { credentials: 'include' }),
         fetch(`${apiUrl}/api/episodes/${episodeId}/shots`, { credentials: 'include' }),
         fetch(`${apiUrl}/api/episodes/${episodeId}/audit`, { credentials: 'include' }),
+        fetch(`${apiUrl}/api/episodes/${episodeId}/story-shape`, { credentials: 'include' }),
       ]);
 
       if (stateRes.ok) setState(await stateRes.json());
@@ -215,6 +225,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       if (gatesRes.ok) setGates(await gatesRes.json());
       if (shotsRes.ok) setShots((await shotsRes.json()).shots || []);
       if (auditRes.ok) setAudit((await auditRes.json()).entries || []);
+      if (storyRes.ok) setStoryShape(await storyRes.json());
       
       setError('');
     } catch (err) {
@@ -248,6 +259,40 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       loadEpisodeData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
+    }
+  };
+
+  const handleStoryShapeUpdate = async (updatedStoryShape: any) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/story-shape`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story_shape: updatedStoryShape }),
+      });
+
+      if (!response.ok) throw new Error('Update failed');
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
+  const handleStoryShapeApprove = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gate_id: 'story_shape' }),
+      });
+
+      if (!response.ok) throw new Error('Approval failed');
+      await loadEpisodeData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Approval failed');
     }
   };
 
@@ -454,6 +499,19 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Run control: gates, per-shot decisions, retries, cap, QC, final cut (G-UI-1) */}
         <EpisodeRunPanel episodeId={episodeId} onChanged={loadEpisodeData} />
+
+        {/* Story Shape Panel */}
+        {storyShape && storyShape.story_shape && (
+          <div className="mb-6">
+            <StoryShapePanel
+              storyShape={storyShape.story_shape}
+              critique={storyShape.critique}
+              approved={storyShape.approved}
+              onUpdate={handleStoryShapeUpdate}
+              onApprove={handleStoryShapeApprove}
+            />
+          </div>
+        )}
 
         {/* Gates and Controls */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
