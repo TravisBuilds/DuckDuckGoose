@@ -4,11 +4,16 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import aiosqlite
 import json
+import sys
 
 
 @pytest.mark.asyncio
 async def test_shots_endpoint_includes_beat_fields_from_workflow(tmp_path, monkeypatch):
     """Test that GET /api/episodes/{id}/shots merges beat fields from workflow state."""
+    # Ensure api.main is reloaded with new environment
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+    
     admin_secret = "test-secret-32-chars-minimum-length-required"
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     
@@ -82,6 +87,10 @@ async def test_shots_endpoint_includes_beat_fields_from_workflow(tmp_path, monke
 @pytest.mark.asyncio
 async def test_shots_endpoint_without_beat_fields_when_workflow_unavailable(tmp_path, monkeypatch):
     """Test that GET /api/episodes/{id}/shots works when workflow is not running."""
+    # Ensure api.main is reloaded with new environment
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+    
     admin_secret = "test-secret-32-chars-minimum-length-required"
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     
@@ -137,6 +146,10 @@ async def test_shots_endpoint_without_beat_fields_when_workflow_unavailable(tmp_
 @pytest.mark.asyncio
 async def test_shots_endpoint_without_beat_fields_in_parsed_beatmap(tmp_path, monkeypatch):
     """Test shots endpoint when workflow state exists but has no beat fields (story shaping off)."""
+    # Ensure api.main is reloaded with new environment
+    if 'api.main' in sys.modules:
+        del sys.modules['api.main']
+    
     admin_secret = "test-secret-32-chars-minimum-length-required"
     monkeypatch.setenv("ADMIN_SECRET", admin_secret)
     
