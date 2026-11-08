@@ -11,12 +11,10 @@ def mock_temporal_client():
     """Mock Temporal client for API tests."""
     client = MagicMock()
     workflow_info = MagicMock()
-    workflow_info.id = "ep-test-01"
+    workflow_info.id = "ep99"
     
     async def mock_list_workflows(query):
-        async def async_gen():
-            yield workflow_info
-        return async_gen()
+        yield workflow_info
     
     client.list_workflows = mock_list_workflows
     return client
@@ -89,14 +87,14 @@ def test_get_story_shape(mock_temporal_client, test_story_shape, monkeypatch):
         
         client = TestClient(app)
         response = client.get(
-            "/api/episodes/ep-test-01/story-shape",
+            "/api/episodes/ep99/story-shape",
             headers={"Authorization": f"Bearer {admin_secret}"},
         )
         
         assert response.status_code == 200
         data = response.json()
         
-        assert data["episode_id"] == "ep-test-01"
+        assert data["episode_id"] == "ep99"
         assert data["story_shape"] is not None
         assert data["story_shape"]["logline"] == test_story_shape.logline
         assert data["critique"]["score"] == 85
@@ -127,7 +125,7 @@ def test_approve_story_shape(mock_temporal_client, monkeypatch):
         
         client = TestClient(app)
         response = client.post(
-            "/api/episodes/ep-test-01/approve",
+            "/api/episodes/ep99/approve",
             headers={"Authorization": f"Bearer {admin_secret}"},
             json={"gate_id": "story_shape", "note": "Looks good"},
         )
@@ -149,7 +147,7 @@ def test_approve_story_shape_without_auth(monkeypatch):
     
     client = TestClient(app)
     response = client.post(
-        "/api/episodes/ep-test-01/approve",
+        "/api/episodes/ep99/approve",
         json={"gate_id": "story_shape"},
     )
     
@@ -166,17 +164,16 @@ def test_get_story_shape_not_found(mock_temporal_client, monkeypatch):
     import api.main as api_main
     
     with patch.object(api_main, "temporal_client", mock_temporal_client):
-        async def mock_list_workflows(query):
-            async def async_gen():
-                return
-                yield  # Empty generator
-            return async_gen()
+        async def mock_list_workflows_empty(query):
+            # Empty async generator - no workflows found
+            if False:
+                yield
         
-        mock_temporal_client.list_workflows = mock_list_workflows
+        mock_temporal_client.list_workflows = mock_list_workflows_empty
         
         client = TestClient(app)
         response = client.get(
-            "/api/episodes/ep-nonexistent/story-shape",
+            "/api/episodes/ep00/story-shape",
             headers={"Authorization": f"Bearer {admin_secret}"},
         )
         
@@ -208,7 +205,7 @@ def test_approve_story_shape_validator_fails(mock_temporal_client, monkeypatch):
         
         client = TestClient(app)
         response = client.post(
-            "/api/episodes/ep-test-01/approve",
+            "/api/episodes/ep99/approve",
             headers={"Authorization": f"Bearer {admin_secret}"},
             json={"gate_id": "story_shape"},
         )
@@ -242,7 +239,7 @@ def test_approve_story_shape_with_story_alias(mock_temporal_client, monkeypatch)
         
         client = TestClient(app)
         response = client.post(
-            "/api/episodes/ep-test-01/approve",
+            "/api/episodes/ep99/approve",
             headers={"Authorization": f"Bearer {admin_secret}"},
             json={"gate_id": "story"},  # Using 'story' alias
         )
@@ -274,7 +271,7 @@ def test_update_story_shape(mock_temporal_client, test_story_shape, monkeypatch)
         
         client = TestClient(app)
         response = client.put(
-            "/api/episodes/ep-test-01/story-shape",
+            "/api/episodes/ep99/story-shape",
             headers={"Authorization": f"Bearer {admin_secret}"},
             json=test_story_shape.model_dump(mode='json'),
         )
