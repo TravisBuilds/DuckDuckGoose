@@ -45,13 +45,12 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
         assert "workflow_id" in data
         assert data["episode_id"] == "ep98"
         
-        # Verify workflow was started with enable_story_shaping=True
+        # Verify workflow was started with enable_story_shaping=True (8th arg, index 7)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that kwargs contains enable_story_shaping (passed by name, not positionally)
-        workflow_kwargs = call_args.kwargs.get('kwargs', {})
-        assert 'enable_story_shaping' in workflow_kwargs, "enable_story_shaping should be in kwargs"
-        assert workflow_kwargs['enable_story_shaping'] is True, f"enable_story_shaping should be True, got {workflow_kwargs['enable_story_shaping']}"
+        workflow_args = call_args.kwargs.get('args', [])
+        assert len(workflow_args) == 8, f"Should have 8 args (including enable_story_shaping), got {len(workflow_args)}"
+        assert workflow_args[7] is True, f"8th arg (enable_story_shaping) should be True, got {workflow_args[7]}"
 
 
 def test_start_episode_with_story_shaping_disabled(monkeypatch):
@@ -93,10 +92,9 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
         assert "workflow_id" in data
         assert data["episode_id"] == "ep97"
         
-        # Verify workflow was started with enable_story_shaping=False (default)
+        # Verify workflow was started with enable_story_shaping=False (8th arg, index 7)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
-        # Check that kwargs contains enable_story_shaping (passed by name, not positionally)
-        workflow_kwargs = call_args.kwargs.get('kwargs', {})
-        assert 'enable_story_shaping' in workflow_kwargs, "enable_story_shaping should be in kwargs"
-        assert workflow_kwargs['enable_story_shaping'] is False, f"enable_story_shaping should be False (default), got {workflow_kwargs['enable_story_shaping']}"
+        workflow_args = call_args.kwargs.get('args', [])
+        assert len(workflow_args) == 8, f"Should have 8 args (including enable_story_shaping), got {len(workflow_args)}"
+        assert workflow_args[7] is False, f"8th arg (enable_story_shaping) should be False, got {workflow_args[7]}"
