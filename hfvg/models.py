@@ -167,6 +167,13 @@ class Act(BaseModel):
     beat_ids: list[str] = Field(default_factory=list)
 
 
+class ActCritique(BaseModel):
+    """Critique for a single act."""
+    act_number: int
+    issues: list[str] = Field(default_factory=list)
+    duration_ok: bool = True
+
+
 class StoryShape(BaseModel):
     """Story structure for a ~2-minute episode."""
 

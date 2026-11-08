@@ -21,6 +21,11 @@ def test_story_beat_basic():
 def test_story_shape_valid():
     """Test valid StoryShape passes validation."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="A duck discovers a mysterious pond.",
         hook="Duck spots something glowing in the water",
         hook_deadline_s=5.0,
@@ -81,6 +86,11 @@ def test_story_shape_valid():
 def test_story_shape_hook_too_short():
     """Test that short hooks are caught."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="A story",
         hook="Short",
         hook_deadline_s=5.0,
@@ -106,6 +116,11 @@ def test_story_shape_hook_too_short():
 def test_story_shape_too_few_beats():
     """Test that stories with <3 beats fail validation."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="A story with too few beats",
         hook="Opening moment",
         hook_deadline_s=5.0,
@@ -138,6 +153,11 @@ def test_story_shape_too_few_beats():
 def test_story_shape_duration_mismatch():
     """Test that mismatched durations are caught."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Duration mismatch test",
         hook="Opening moment",
         hook_deadline_s=5.0,
@@ -177,6 +197,11 @@ def test_story_shape_duration_mismatch():
 def test_story_shape_invalid_midpoint():
     """Test that invalid midpoint beat_id is caught."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Invalid midpoint test",
         hook="Opening moment",
         hook_deadline_s=5.0,
@@ -216,6 +241,11 @@ def test_story_shape_invalid_midpoint():
 def test_story_shape_dead_beat():
     """Test that beats over 20s (configurable threshold) are caught."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Dead beat test",
         hook="Opening moment",
         hook_deadline_s=5.0,
@@ -255,6 +285,11 @@ def test_story_shape_dead_beat():
 def test_story_shape_unassigned_beats():
     """Test that beats without shots are caught."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Unassigned beats test",
         hook="Opening moment",
         hook_deadline_s=5.0,

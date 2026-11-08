@@ -123,6 +123,11 @@ async def test_story_shape_revision(test_story_shape):
     """Test story shape automatic revision."""
     # Create a story with issues
     bad_story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Bad story",
         hook="Short",
         hook_deadline_s=5.0,
@@ -172,6 +177,11 @@ async def test_story_shape_revision(test_story_shape):
 async def test_assign_shots_to_beats():
     """Test shot assignment to beats."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Opening",
         hook_deadline_s=5.0,

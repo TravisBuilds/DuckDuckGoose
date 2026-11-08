@@ -8,6 +8,11 @@ from hfvg.activities.story_shaping import _critique_story_shape
 def test_critique_valid_story():
     """Test critique of a valid story gives high score."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="A duck discovers a mysterious pond and learns to be brave.",
         hook="Duck spots something glowing in the water",
         hook_deadline_s=5.0,
@@ -75,6 +80,11 @@ def test_critique_valid_story():
 def test_critique_hook_too_late():
     """Test that hook past 5s is penalized."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Opening hook",
         hook_deadline_s=10.0,
@@ -117,6 +127,11 @@ def test_critique_hook_too_late():
 def test_critique_payoff_no_hook_reference():
     """Test that payoff without hook reference is penalized."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Duck finds a mysterious object",
         hook_deadline_s=5.0,
@@ -159,6 +174,11 @@ def test_critique_payoff_no_hook_reference():
 def test_critique_duration_mismatch():
     """Test that duration mismatches are caught and penalized."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Opening",
         hook_deadline_s=5.0,
@@ -200,6 +220,11 @@ def test_critique_duration_mismatch():
 def test_critique_dead_beats():
     """Test that overly long beats (>20s default threshold) are penalized."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Opening",
         hook_deadline_s=5.0,
@@ -242,6 +267,11 @@ def test_critique_dead_beats():
 def test_critique_multiple_issues():
     """Test that multiple issues compound the score penalty."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Bad story",
         hook="Hook",
         hook_deadline_s=15.0,
@@ -278,6 +308,11 @@ def test_critique_multiple_issues():
 def test_critique_suggestions():
     """Test that critique provides actionable suggestions."""
     story = StoryShape(
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         logline="Test story",
         hook="Hook",
         hook_deadline_s=8.0,
