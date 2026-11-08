@@ -5,6 +5,25 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from temporalio import workflow
+
+
+def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
+    """
+    Enrich still and clip prompts with beat context when beat fields are present.
+    
+    Args:
+        shot: Shot dict that may contain beat_purpose and beat_emotional_tone
+        
+    Returns:
+        Shot dict with enriched prompt and clip_prompt (if beat fields present)
+    """
+    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
+        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
+        if "prompt" in shot:
+            shot["prompt"] = shot["prompt"] + beat_context
+        if shot.get("clip_prompt"):
+            shot["clip_prompt"] = shot["clip_prompt"] + beat_context
+    return shot
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -654,12 +673,7 @@ class EpisodeWorkflowV2:
                 shot_plan["prompt"] = build_prompt_from_shot(shot)
             
             # Enrich prompt with beat context when story shaping is enabled
-            if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
-                beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
-                shot_plan["prompt"] = shot_plan["prompt"] + beat_context
-                # Also enrich clip_prompt if present
-                if shot_plan.get("clip_prompt"):
-                    shot_plan["clip_prompt"] = shot_plan["clip_prompt"] + beat_context
+            shot_plan = enrich_shot_prompts_with_beat_context(shot_plan)
             
             # Apply attempt override if provided (for testing retry behavior)
             shot_id = shot["shot_id"]
