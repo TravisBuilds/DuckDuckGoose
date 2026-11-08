@@ -5,25 +5,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from temporalio import workflow
-
-
-def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
-    """
-    Enrich still and clip prompts with beat context when beat fields are present.
-    
-    Args:
-        shot: Shot dict that may contain beat_purpose and beat_emotional_tone
-        
-    Returns:
-        Shot dict with enriched prompt and clip_prompt (if beat fields present)
-    """
-    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
-        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
-        if "prompt" in shot:
-            shot["prompt"] = shot["prompt"] + beat_context
-        if shot.get("clip_prompt"):
-            shot["clip_prompt"] = shot["clip_prompt"] + beat_context
-    return shot
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -64,6 +45,28 @@ def amend_prompt(base: str, prompt_append: str) -> tuple[str, str]:
 
 # GAP-68: start_to_close cap (minutes) for assemble_mute_edit; RIFE retimes run on the CPU.
 ASSEMBLY_RIFE_CAP_MIN = 180
+
+
+def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
+    """
+    Enrich still and clip prompts with beat context when beat fields are present.
+    Idempotent: skips prompts that already contain the beat context suffix.
+    
+    Args:
+        shot: Shot dict that may contain beat_purpose and beat_emotional_tone
+        
+    Returns:
+        Shot dict with enriched prompt and clip_prompt (if beat fields present)
+    """
+    if shot.get("beat_purpose") and shot.get("beat_emotional_tone"):
+        beat_context = f" ({shot['beat_purpose']}, {shot['beat_emotional_tone']} tone)"
+        
+        # Idempotent: only append if not already present
+        if "prompt" in shot and beat_context not in shot["prompt"]:
+            shot["prompt"] = shot["prompt"] + beat_context
+        if shot.get("clip_prompt") and beat_context not in shot["clip_prompt"]:
+            shot["clip_prompt"] = shot["clip_prompt"] + beat_context
+    return shot
 
 @workflow.defn
 class EpisodeWorkflowV2:
