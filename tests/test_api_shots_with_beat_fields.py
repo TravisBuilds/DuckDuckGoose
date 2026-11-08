@@ -21,6 +21,7 @@ from hfvg.activities.story_shaping import (
     set_test_stub_story_shape,
 )
 from hfvg.activities import parse_beatmap_activity
+from hfvg.temporal_converter import temporal_data_converter
 
 
 @pytest.fixture(autouse=True)
@@ -291,7 +292,7 @@ async def test_real_workflow_exposes_shot_beats_in_get_state():
             "duck_casting": {},
         }
     
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=temporal_data_converter) as env:
         set_test_stub_story_shape(test_story_shape)
         
         try:
