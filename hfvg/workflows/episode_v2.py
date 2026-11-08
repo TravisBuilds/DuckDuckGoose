@@ -417,8 +417,13 @@ class EpisodeWorkflowV2:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             self.story_shape = assignment_result["story_shape"]
+            # Use enriched shots with beat_id and beat_purpose for stills/clips/storyboard
+            shots = assignment_result["enriched_shots"]
+            # Also update parsed_beatmap shots so storyboard/prompts use enriched data
+            self.parsed_beatmap["shots"] = shots
             workflow.logger.info(
-                f"Assigned {len(assignment_result['assignments'])} shots to beats"
+                f"Assigned {len(assignment_result['assignments'])} shots to beats; "
+                f"shots now carry beat_id and beat_purpose"
             )
         
         # Filter shots by shots_subset if provided
