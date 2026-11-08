@@ -12,7 +12,7 @@ from typing import Any
 
 from temporalio import activity
 
-from hfvg.models import StoryBeat, StoryShape, StoryShapeCritique
+from hfvg.models import Act, StoryBeat, StoryShape, StoryShapeCritique
 from hfvg.config import config
 
 
@@ -290,6 +290,26 @@ async def generate_story_shape_activity(
                 logline="Test story logline",
                 hook="An exciting opening moment",
                 hook_deadline_s=5.0,
+                acts=[
+                    Act(
+                        act_number=1,
+                        description="Setup",
+                        target_duration_s=30.0,
+                        beat_ids=["beat_1"],
+                    ),
+                    Act(
+                        act_number=2,
+                        description="Confrontation",
+                        target_duration_s=60.0,
+                        beat_ids=["beat_2"],
+                    ),
+                    Act(
+                        act_number=3,
+                        description="Resolution",
+                        target_duration_s=30.0,
+                        beat_ids=["beat_3"],
+                    ),
+                ],
                 beats=[
                     StoryBeat(
                         beat_id="beat_1",

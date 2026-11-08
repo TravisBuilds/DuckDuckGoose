@@ -159,12 +159,21 @@ class StoryBeat(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)
 
 
+class Act(BaseModel):
+    """A narrative act (typically 3 acts for a story)."""
+    act_number: int = Field(..., ge=1, le=5)
+    description: str
+    target_duration_s: float = Field(..., gt=0)
+    beat_ids: list[str] = Field(default_factory=list)
+
+
 class StoryShape(BaseModel):
     """Story structure for a ~2-minute episode."""
 
     logline: str
     hook: str
     hook_deadline_s: float = 5.0
+    acts: list[Act] = Field(..., min_length=1)
     beats: list[StoryBeat]
     midpoint_beat_id: str
     payoff: str
@@ -181,6 +190,18 @@ class StoryShape(BaseModel):
         
         if len(self.hook) < 10:
             issues.append("Hook is too short (minimum 10 characters)")
+        
+        # Validate acts
+        if not self.acts:
+            issues.append("No acts defined")
+        else:
+            act_durations = sum(act.target_duration_s for act in self.acts)
+            if abs(act_durations - self.total_duration_s) > 5.0:
+                issues.append(
+                    f"Act durations ({act_durations:.1f}s) don't match target "
+                    f"({self.total_duration_s:.1f}s), difference: "
+                    f"{abs(act_durations - self.total_duration_s):.1f}s"
+                )
         
         if len(self.beats) < 3:
             issues.append("Story must have at least 3 beats for 3-act structure")
