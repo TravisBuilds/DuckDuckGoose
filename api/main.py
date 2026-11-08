@@ -1387,7 +1387,8 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None],
+        kwargs={"enable_story_shaping": request.enable_story_shaping},
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
