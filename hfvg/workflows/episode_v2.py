@@ -389,7 +389,7 @@ class EpisodeWorkflowV2:
         # GATE 1: SHOT PLAN (Beatmap + Credit Plan)
         # ================================================================
         workflow.logger.info("=== GATE 1: SHOT PLAN ===")
-        self.state.stage = PipelineStage.SHOT_PLANNING
+        self.state.stage = PipelineStage.SCRIPT
         
         # Parse beatmap via activity (filesystem I/O not allowed in workflow)
         workflow.logger.info("Parsing BEATMAP.md...")
