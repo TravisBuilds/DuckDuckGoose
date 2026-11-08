@@ -3,6 +3,7 @@
 Generates StoryShape from user idea with genre presets, then critiques and validates it.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -32,6 +33,8 @@ def _init_cache_db() -> None:
     """Initialize the cache database with schema if needed."""
     db_path = _get_cache_db_path()
     with sqlite3.connect(db_path) as conn:
+        # Enable WAL mode for better concurrency
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS story_shape_cache (
                 episode_id TEXT NOT NULL,
@@ -44,38 +47,44 @@ def _init_cache_db() -> None:
         conn.commit()
 
 
-def _get_cached_story_shape(episode_id: str, input_hash: str) -> dict | None:
-    """Retrieve cached story shape from database."""
+async def _get_cached_story_shape(episode_id: str, input_hash: str) -> dict | None:
+    """Retrieve cached story shape from database (async)."""
     db_path = _get_cache_db_path()
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.execute(
-                "SELECT story_shape_json FROM story_shape_cache WHERE episode_id = ? AND input_hash = ?",
-                (episode_id, input_hash)
-            )
-            row = cursor.fetchone()
-            if row:
-                return json.loads(row[0])
-    except sqlite3.Error:
-        pass
-    return None
+    def _query():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT story_shape_json FROM story_shape_cache WHERE episode_id = ? AND input_hash = ?",
+                    (episode_id, input_hash)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return json.loads(row[0])
+        except sqlite3.Error:
+            pass
+        return None
+    
+    return await asyncio.to_thread(_query)
 
 
-def _cache_story_shape(episode_id: str, input_hash: str, story_shape: dict) -> None:
-    """Store story shape in cache database."""
+async def _cache_story_shape(episode_id: str, input_hash: str, story_shape: dict) -> None:
+    """Store story shape in cache database (async)."""
     db_path = _get_cache_db_path()
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Ensure JSON serializable - convert any datetime objects
-            json_str = json.dumps(story_shape, default=str)
-            conn.execute(
-                """INSERT OR REPLACE INTO story_shape_cache 
-                   (episode_id, input_hash, story_shape_json) VALUES (?, ?, ?)""",
-                (episode_id, input_hash, json_str)
-            )
-            conn.commit()
-    except sqlite3.Error:
-        pass
+    def _insert():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                # Ensure JSON serializable - convert any datetime objects
+                json_str = json.dumps(story_shape, default=str)
+                conn.execute(
+                    """INSERT OR REPLACE INTO story_shape_cache 
+                       (episode_id, input_hash, story_shape_json) VALUES (?, ?, ?)""",
+                    (episode_id, input_hash, json_str)
+                )
+                conn.commit()
+        except sqlite3.Error:
+            pass
+    
+    await asyncio.to_thread(_insert)
 
 
 def set_test_stub_story_shape(story_shape: StoryShape | None) -> None:
@@ -273,11 +282,11 @@ async def generate_story_shape_activity(
     """
     input_hash = _compute_input_hash(idea, genre_preset, target_duration)
     
-    # Initialize cache DB if needed
+    # Initialize cache DB if needed (sync operation, done once)
     _init_cache_db()
     
     # Check cache first (idempotent generation)
-    cached = _get_cached_story_shape(episode_id, input_hash)
+    cached = await _get_cached_story_shape(episode_id, input_hash)
     if cached is not None:
         return {
             "story_shape": cached,
@@ -347,7 +356,7 @@ async def generate_story_shape_activity(
             "dry_run": True,
         }
         story_dict = story.model_dump()
-        _cache_story_shape(episode_id, input_hash, story_dict)
+        await _cache_story_shape(episode_id, input_hash, story_dict)
         return result
     
     # Live mode: use OpenAI async client with config
@@ -411,7 +420,7 @@ async def generate_story_shape_activity(
             "model_used": config.STORY_SHAPING_MODEL,
         }
         story_dict = story.model_dump()
-        _cache_story_shape(episode_id, input_hash, story_dict)
+        await _cache_story_shape(episode_id, input_hash, story_dict)
         return result
     
     except Exception as e:
