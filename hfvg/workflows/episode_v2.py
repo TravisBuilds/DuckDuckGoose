@@ -3410,6 +3410,18 @@ class EpisodeWorkflowV2:
     @workflow.query
     def get_state(self) -> dict:
         """Get current workflow state."""
+        # Extract beat fields per shot from parsed_beatmap
+        shot_beats = {}
+        if self.parsed_beatmap and self.parsed_beatmap.get("shots"):
+            for shot in self.parsed_beatmap["shots"]:
+                shot_id = shot.get("shot_id")
+                if shot_id and shot.get("beat_id"):
+                    shot_beats[shot_id] = {
+                        "beat_id": shot.get("beat_id"),
+                        "beat_purpose": shot.get("beat_purpose"),
+                        "beat_emotional_tone": shot.get("beat_emotional_tone"),
+                    }
+        
         return {
             "episode_id": self.state.episode_id,
             "stage": self.state.stage.value if self.state.stage else None,
@@ -3427,6 +3439,7 @@ class EpisodeWorkflowV2:
             "story_shape_critique": self.story_shape_critique,
             "story_shape_revision": self.story_shape_revision,
             "story_shape_log": self.story_shape_log.copy(),
+            "shot_beats": shot_beats,
             "approvals": {
                 "story_shape": self.approved_story_shape,
                 "g1_shot_plan": self.approved_g1_shot_plan,

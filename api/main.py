@@ -2647,22 +2647,18 @@ async def get_shots(
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         state = await handle.query("get_state")
         
-        # Get beat context from parsed_beatmap shots
-        beatmap_shots = state.get("parsed_beatmap", {}).get("shots", [])
-        beat_by_shot = {
-            s["shot_id"]: {
-                "beat_id": s.get("beat_id"),
-                "beat_purpose": s.get("beat_purpose"),
-                "beat_emotional_tone": s.get("beat_emotional_tone"),
-            }
-            for s in beatmap_shots
-            if s.get("beat_id")
-        }
+        # Get beat context from shot_beats map (exposed by get_state query)
+        shot_beats = state.get("shot_beats", {})
         
         # Merge into shots
         for shot in shots:
-            if shot["shot_id"] in beat_by_shot:
-                shot.update(beat_by_shot[shot["shot_id"]])
+            shot_id = shot["shot_id"]
+            if shot_id in shot_beats:
+                beat_info = shot_beats[shot_id]
+                if beat_info.get("beat_id"):
+                    shot["beat_id"] = beat_info["beat_id"]
+                    shot["beat_purpose"] = beat_info.get("beat_purpose")
+                    shot["beat_emotional_tone"] = beat_info.get("beat_emotional_tone")
     except Exception:
         # Workflow not running or no beat context; shots already complete without beat fields
         pass
