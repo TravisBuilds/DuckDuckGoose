@@ -1,16 +1,29 @@
 """
 Test that episodes can be started with enable_story_shaping flag.
 """
+import os
 import pytest
+from unittest.mock import MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from api.main import app
-from hfvg.config import ADMIN_SECRET
-
-client = TestClient(app)
+import api.main as api_main
 
 
-def test_start_episode_with_story_shaping_enabled():
+def test_start_episode_with_story_shaping_enabled(monkeypatch):
     """Test that enable_story_shaping flag can be set when creating an episode."""
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    
+    # Mock temporal client to avoid 503 errors
+    mock_client = MagicMock()
+    mock_handle = MagicMock()
+    mock_handle.id = "test-workflow-story"
+    mock_handle.result_run_id = "test-run-id"
+    mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
     response = client.post(
         "/api/episodes",
         json={
@@ -19,7 +32,7 @@ def test_start_episode_with_story_shaping_enabled():
             "dry_run": True,
             "enable_story_shaping": True,
         },
-        headers={"Authorization": f"Bearer {ADMIN_SECRET}"},
+        headers={"Authorization": f"Bearer {admin_secret}"},
     )
     
     # Expect success or workflow already started (if running in parallel)
@@ -29,10 +42,30 @@ def test_start_episode_with_story_shaping_enabled():
         data = response.json()
         assert "workflow_id" in data
         assert data["episode_id"] == "ep-story-test"
+        
+        # Verify workflow was started with enable_story_shaping=True
+        assert mock_client.start_workflow.called
+        call_args = mock_client.start_workflow.call_args
+        # Check that the 7th argument (index 6) is True
+        assert len(call_args.args) >= 7, "Should have 7 args including enable_story_shaping"
+        assert call_args.args[6] is True, "enable_story_shaping should be True"
 
 
-def test_start_episode_with_story_shaping_disabled():
+def test_start_episode_with_story_shaping_disabled(monkeypatch):
     """Test that enable_story_shaping defaults to False."""
+    admin_secret = "a" * 32
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    
+    # Mock temporal client
+    mock_client = MagicMock()
+    mock_handle = MagicMock()
+    mock_handle.id = "test-workflow-no-story"
+    mock_handle.result_run_id = "test-run-id"
+    mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+    api_main.temporal_client = mock_client
+    
+    client = TestClient(app)
     response = client.post(
         "/api/episodes",
         json={
@@ -41,7 +74,7 @@ def test_start_episode_with_story_shaping_disabled():
             "dry_run": True,
             # enable_story_shaping not specified, should default to False
         },
-        headers={"Authorization": f"Bearer {ADMIN_SECRET}"},
+        headers={"Authorization": f"Bearer {admin_secret}"},
     )
     
     # Expect success or workflow already started
@@ -51,3 +84,10 @@ def test_start_episode_with_story_shaping_disabled():
         data = response.json()
         assert "workflow_id" in data
         assert data["episode_id"] == "ep-no-story-test"
+        
+        # Verify workflow was started with enable_story_shaping=False (default)
+        assert mock_client.start_workflow.called
+        call_args = mock_client.start_workflow.call_args
+        # Check that the 7th argument (index 6) is False
+        assert len(call_args.args) >= 7, "Should have 7 args including enable_story_shaping"
+        assert call_args.args[6] is False, "enable_story_shaping should default to False"
