@@ -10,10 +10,18 @@ import sys
 @pytest.fixture(autouse=True)
 def cleanup_api_module():
     """Cleanup api.main module after each test to prevent state leakage."""
+    # Save original state
+    original_module = sys.modules.get('api.main')
+    
     yield
-    # Teardown: restore sys.modules
-    if 'api.main' in sys.modules:
-        del sys.modules['api.main']
+    
+    # Teardown: restore to original state
+    if original_module is None:
+        # Module wasn't imported before test, so remove it
+        sys.modules.pop('api.main', None)
+    else:
+        # Module existed before test, so restore it
+        sys.modules['api.main'] = original_module
 
 
 @pytest.mark.asyncio
