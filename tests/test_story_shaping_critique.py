@@ -1,7 +1,7 @@
 """Unit tests for story shape critique logic."""
 
 import pytest
-from hfvg.models import StoryBeat, StoryShape, StoryShape, ActCritique
+from hfvg.models import Act, ActCritique, StoryBeat, StoryShape
 from hfvg.activities.story_shaping import _critique_story_shape
 
 

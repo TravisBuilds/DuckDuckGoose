@@ -22,7 +22,8 @@ _test_stub_story_shape: StoryShape | None = None
 
 def _get_cache_db_path() -> Path:
     """Get the path to the story shape cache database."""
-    data_dir = Path(config.DATA_DIR)
+    # Use ./data as default, create if needed
+    data_dir = Path("./data")
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir / "story_shape_cache.db"
 
@@ -65,10 +66,12 @@ def _cache_story_shape(episode_id: str, input_hash: str, story_shape: dict) -> N
     db_path = _get_cache_db_path()
     try:
         with sqlite3.connect(db_path) as conn:
+            # Ensure JSON serializable - convert any datetime objects
+            json_str = json.dumps(story_shape, default=str)
             conn.execute(
                 """INSERT OR REPLACE INTO story_shape_cache 
                    (episode_id, input_hash, story_shape_json) VALUES (?, ?, ?)""",
-                (episode_id, input_hash, json.dumps(story_shape))
+                (episode_id, input_hash, json_str)
             )
             conn.commit()
     except sqlite3.Error:

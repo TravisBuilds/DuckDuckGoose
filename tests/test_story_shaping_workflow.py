@@ -6,7 +6,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
-from hfvg.models import StoryBeat, StoryShape
+from hfvg.models import Act, StoryBeat, StoryShape
 from hfvg.activities.story_shaping import (
     generate_story_shape_activity,
     critique_story_shape_activity,
@@ -23,6 +23,11 @@ def test_story_shape():
         logline="A duck's adventure in a mysterious pond",
         hook="Duck discovers a glowing pond",
         hook_deadline_s=5.0,
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=2, description="Confrontation", target_duration_s=40.0, beat_ids=[]),
+            Act(act_number=3, description="Resolution", target_duration_s=40.0, beat_ids=[]),
+        ],
         beats=[
             StoryBeat(
                 beat_id="beat_1",
