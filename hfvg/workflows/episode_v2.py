@@ -2257,6 +2257,9 @@ class EpisodeWorkflowV2:
             shot_plan["prompt_amendments"] = list(shot_plan.get("prompt_amendments", [])) + [amendment]
             workflow.logger.info(f"Retry {shot_id}: prompt amended (+{len(amendment)} chars)")
         
+        # Enrich with beat context (must happen after prompt building and amendments)
+        shot_plan = enrich_shot_prompts_with_beat_context(shot_plan)
+        
         # Launch new still child with NEW idempotency key (include attempt number)
         # Original = attempt 1, first retry = attempt 2 (-r1), second retry = attempt 3 (-r2)
         # Workflow ID uses retry number (attempts - 1): retry1, retry2, etc.
@@ -2409,6 +2412,9 @@ class EpisodeWorkflowV2:
         shot_plan["attempt"] = attempt
         shot_plan["version"] = attempt
         shot_plan["parent_workflow_id"] = workflow.info().workflow_id
+        
+        # Enrich with beat context
+        shot_plan = enrich_shot_prompts_with_beat_context(shot_plan)
         if pre_approved:
             # the pre-approved start is free to re-prepare; only the _end still is paid
             shot_plan["pre_approved_still"] = dict(pre_approved)
@@ -2571,6 +2577,10 @@ class EpisodeWorkflowV2:
             # the override is the prompt for the re-run CLIP: it replaces the shot's clip_prompt too
             # (otherwise clip_prompt would win and the override would be silently ignored)
             shot_plan["clip_prompt"] = prompt_override
+        
+        # Enrich with beat context (after prompt override, if any)
+        shot_plan = enrich_shot_prompts_with_beat_context(shot_plan)
+        
         shot_plan["parent_workflow_id"] = workflow.info().workflow_id
         shot_plan["clip_only"] = {
             "n": n,
