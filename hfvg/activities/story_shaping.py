@@ -514,18 +514,27 @@ async def assign_shots_to_beats_activity(
     shots: list[dict],
 ) -> dict[str, Any]:
     """
-    Assign shots from beatmap to story beats based on timing.
+    Assign shots from beatmap to story beats based on timing, and enrich shots with beat context.
+    
+    Updates each shot with:
+    - beat_id: Which story beat this shot belongs to
+    - beat_purpose: The beat's description (narrative purpose within the story)
+    - beat_emotional_tone: The beat's emotional arc
     
     Args:
         story_shape_dict: StoryShape as dict
-        shots: Parsed beatmap shots with screen_time
+        shots: Parsed beatmap shots with screen_time and purpose
         
     Returns:
         dict with:
             - story_shape: updated StoryShape dict with shot assignments
-            - assignments: shot_id -> beat_id mapping
+            - assignments: shot_id -> {beat_id, beat_purpose, beat_emotional_tone} mapping
+            - enriched_shots: shots list with beat_id, beat_purpose, beat_emotional_tone added
     """
     story = StoryShape(**story_shape_dict)
+    
+    # Build beat lookup by id
+    beats_by_id = {beat.beat_id: beat for beat in story.beats}
     
     assignments = {}
     beat_end_times = []
@@ -536,6 +545,8 @@ async def assign_shots_to_beats_activity(
         beat_end_times.append((current_time, beat.beat_id))
     
     cumulative_shot_time = 0.0
+    enriched_shots = []
+    
     for shot in shots:
         shot_id = shot["shot_id"]
         shot_duration = shot.get("screen_time", 5.0)
@@ -544,20 +555,45 @@ async def assign_shots_to_beats_activity(
         shot_end = cumulative_shot_time + shot_duration
         shot_mid = (shot_start + shot_end) / 2
         
+        assigned_beat_id = None
         for beat_end, beat_id in beat_end_times:
             if shot_mid <= beat_end:
-                assignments[shot_id] = beat_id
+                assigned_beat_id = beat_id
                 break
+        
+        if assigned_beat_id:
+            beat = beats_by_id[assigned_beat_id]
+            assignments[shot_id] = {
+                "beat_id": assigned_beat_id,
+                "beat_purpose": beat.description,
+                "beat_emotional_tone": beat.emotional_tone,
+            }
+            
+            # Enrich shot with beat context
+            enriched_shot = shot.copy()
+            enriched_shot["beat_id"] = assigned_beat_id
+            enriched_shot["beat_purpose"] = beat.description
+            enriched_shot["beat_emotional_tone"] = beat.emotional_tone
+            # Keep original purpose, augment with beat context
+            original_purpose = shot.get("purpose", "")
+            if original_purpose:
+                enriched_shot["story_purpose"] = f"{beat.description}: {original_purpose}"
+            else:
+                enriched_shot["story_purpose"] = beat.description
+            enriched_shots.append(enriched_shot)
+        else:
+            enriched_shots.append(shot)
         
         cumulative_shot_time = shot_end
     
     for beat in story.beats:
         beat.shot_ids = [
-            shot_id for shot_id, beat_id in assignments.items()
-            if beat_id == beat.beat_id
+            shot_id for shot_id, assignment in assignments.items()
+            if assignment["beat_id"] == beat.beat_id
         ]
     
     return {
         "story_shape": story.model_dump(),
         "assignments": assignments,
+        "enriched_shots": enriched_shots,
     }
