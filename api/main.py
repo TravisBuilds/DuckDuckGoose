@@ -2621,6 +2621,7 @@ async def get_shots(
     
     import aiosqlite
     
+    # Get shots from database
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
             """SELECT shot_id, status, still_url, clip_url, qc_results, retries, prompt
@@ -2640,6 +2641,31 @@ async def get_shots(
                     "prompt": row[6],
                     "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
                 })
+    
+    # Merge beat context from workflow state if available
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        state = await handle.query("get_state")
+        
+        # Get beat context from parsed_beatmap shots
+        beatmap_shots = state.get("parsed_beatmap", {}).get("shots", [])
+        beat_by_shot = {
+            s["shot_id"]: {
+                "beat_id": s.get("beat_id"),
+                "beat_purpose": s.get("beat_purpose"),
+                "beat_emotional_tone": s.get("beat_emotional_tone"),
+            }
+            for s in beatmap_shots
+            if s.get("beat_id")
+        }
+        
+        # Merge into shots
+        for shot in shots:
+            if shot["shot_id"] in beat_by_shot:
+                shot.update(beat_by_shot[shot["shot_id"]])
+    except Exception:
+        # Workflow not running or no beat context; shots already complete without beat fields
+        pass
     
     return {
         "episode_id": episode_id,
