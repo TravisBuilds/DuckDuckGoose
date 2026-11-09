@@ -5616,7 +5616,6 @@ async def draft_from_idea(
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.config import config
-    from openai import AsyncOpenAI
     import tempfile
     from hfvg.episode_parser import parse_beatmap
     from hfvg.shot_data import parse_shots
@@ -5846,6 +5845,7 @@ Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a s
         )
 
     try:
+        from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
         
         # Call OpenAI with structured output
