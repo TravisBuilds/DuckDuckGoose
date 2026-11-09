@@ -5748,8 +5748,8 @@ async def raise_credit_cap(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Raise the run's credit cap and resume shots paused at the cap (workflow signal raise_credit_cap).
-    Only upward: a cap at or below the current one is refused."""
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    Only upward: a cap at or below the current one is refused. Admin-only (financial control)."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -5780,8 +5780,8 @@ async def resume_balance(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """Resume episode and shots after balance top-up when paused_insufficient_balance."""
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    """Resume episode and shots after balance top-up when paused_insufficient_balance. Admin-only (financial control)."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")

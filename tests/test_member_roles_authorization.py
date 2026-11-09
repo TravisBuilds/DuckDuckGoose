@@ -303,3 +303,46 @@ async def test_nonexistent_user_fails_login(db_path):
     })
     
     assert response.status_code == 401, response.text
+
+
+def test_member_cannot_raise_cap(db_path):
+    """Members cannot raise credit cap (financial control)."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    
+    client = TestClient(app)
+    
+    # Login as member
+    response = client.post("/api/login", json={
+        "email": "member@test.com",
+        "password": "member123"
+    })
+    assert response.status_code == 200, response.text
+    
+    # Try to raise cap
+    response = client.post("/api/episodes/test-ep/raise-cap", json={
+        "new_cap": 100.0,
+        "reason": "test"
+    })
+    assert response.status_code == 403, response.text
+    assert "Admin access required" in response.text
+
+
+def test_member_cannot_resume_balance(db_path):
+    """Members cannot resume balance (financial control)."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    
+    client = TestClient(app)
+    
+    # Login as member
+    response = client.post("/api/login", json={
+        "email": "member@test.com",
+        "password": "member123"
+    })
+    assert response.status_code == 200, response.text
+    
+    # Try to resume balance
+    response = client.post("/api/episodes/test-ep/resume-balance")
+    assert response.status_code == 403, response.text
+    assert "Admin access required" in response.text
