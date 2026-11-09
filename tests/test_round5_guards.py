@@ -133,8 +133,9 @@ async def test_api_refuses_forged_expired_and_revoked_sessions(api):
     expired = api_main.sign_session_token(int(time.time()) - 1, "E" * 24)
     import aiosqlite
     async with aiosqlite.connect(api_main.DATABASE_PATH) as db:  # row says valid: signature expiry wins
-        await db.execute("INSERT INTO sessions (token, created_at, expires_at) VALUES (?, datetime('now'), "
-                         "datetime('now', '+1 day'))", (expired,))
+        await api_main._ensure_sessions_table(db)
+        await db.execute("INSERT INTO sessions (token, user_id, role, created_at, expires_at) VALUES (?, ?, ?, datetime('now'), "
+                         "datetime('now', '+1 day'))", (expired, "test-user", "admin"))
         await db.commit()
     for bad in (forged, unstored, expired, "0123456789abcdef" * 4):
         client.cookies.clear()
