@@ -116,7 +116,7 @@ ROUTE_TEST_CASES = [
     ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test rejection"}),  # Form data, handled by test; 409 if not at G2
     ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test acceptance"}),  # 409 if clip not needs_review
     ("POST", "/api/users/me/change-password", {"none": 401, "member": 200, "admin": 200}, True, {}),  # Test function sets role-specific password
-    ("POST", "/api/episodes/draft-from-idea", {"none": 401, "member": [200, 500], "admin": [200, 500]}, True, {"idea": "A test video", "style": "test"}),  # 500 if OpenAI unavailable
+    ("POST", "/api/episodes/draft-from-idea", {"none": 401, "member": [200, 500, 503], "admin": [200, 500, 503]}, True, {"idea": "A test video", "style": "test"}),  # 503 if OpenAI not configured, 500 if generation fails
     
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
