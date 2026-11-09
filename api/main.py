@@ -5611,9 +5611,9 @@ async def draft_from_idea(
     Uses OpenAI structured output to generate files that pass existing validators.
     Content policy: original characters only, no named IP or real people.
     
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header OR session cookie (member or admin).
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.config import config
     from openai import AsyncOpenAI
@@ -5968,6 +5968,8 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
             status_code=500,
             detail=f"Draft generation failed: {str(e)}"
         )
+
+draft_from_idea.allow_members = True
 
 
 @app.post("/api/episodes/{episode_id}/preflight")

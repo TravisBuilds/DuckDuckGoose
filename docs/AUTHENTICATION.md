@@ -24,6 +24,7 @@ Creators who make videos end-to-end. Members can:
 - Start episodes (dry or live)
 - Upload episode files (beatmap, credit plan, continuity) via web UI or UPLOAD_TOKEN
 - Validate episode uploads before saving
+- Generate episode drafts from plain-language ideas (beginner wizard)
 - Set episodes to live or dry mode
 - View and edit story shape
 - Approve or reject stills and gates
@@ -110,6 +111,7 @@ Members **cannot**:
 - `POST /api/users/me/change-password` - Change own password
 - `POST /api/episodes/upload` - Production upload (or via UPLOAD_TOKEN)
 - `POST /api/episodes/upload/validate` - Validate upload (or via UPLOAD_TOKEN)
+- `POST /api/episodes/draft-from-idea` - Generate episode files from plain-language idea (beginner wizard)
 
 ### Admin-Only Routes
 - `POST /api/episodes/{id}/raise-cap` - Raise credit cap (financial)
