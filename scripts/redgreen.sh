@@ -645,7 +645,8 @@ test_mutation 5 "Idempotent retry (no double-charge)" \
 test_mutation 6 "Auth fail-closed (no default secret)" \
     "api/main.py" \
     "tests/test_redgreen_safety.py::test_auth_fail_closed" \
-    sed -i -e 's/if not authorization:/if False:  # MUTATED/' -e 's/^    if (method, path) in PUBLIC_ROUTES:$/    if True:  # MUTATED: bypass the app-wide guard so the handler check is what is tested/'
+    sed -i -e 's/^    if (method, path) in PUBLIC_ROUTES:$/    if True:  # MUTATED: bypass the app-wide guard so the handler check is what is tested/' \
+           -e '/^async def verify_auth_unified/,/^    """$/s/^    """$/    return  # MUTATED: skip all checks\n    """/'
 
 # 7. Ledger math
 test_mutation 7 "Ledger math (reserve, commit, release)" \
