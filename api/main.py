@@ -390,12 +390,17 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
 })
 
 
-async def require_auth_unless_public(
+async def require_admin_auth(
     request: Request,
     authorization: str | None = Header(None, include_in_schema=False),
     studio_admin_token: str | None = Cookie(None, include_in_schema=False),
 ):
-    """App-wide auth guard: every route not in PUBLIC_ROUTES needs a valid session or Bearer secret."""
+    """
+    FAIL CLOSED: Admin-only auth middleware (default for all routes).
+    
+    Routes can opt-in to allow members by setting route.allow_members = True.
+    New routes that forget auth checks default to admin-only.
+    """
     route = request.scope.get("route")
     path = getattr(route, "path", None) or request.url.path
     method = "GET" if request.method == "HEAD" else request.method
@@ -417,13 +422,14 @@ async def require_auth_unless_public(
                 except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
                     pass  # Invalid token, fall through to verify_auth_unified
     
-    # Middleware verifies authentication (any role). Routes that need admin-only access
-    # explicitly call verify_auth_unified(..., require_admin=True) or verify_admin_cookie().
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    # Check if route explicitly allows members (via endpoint function attribute)
+    endpoint = getattr(route, "endpoint", None) if route else None
+    allow_members = getattr(endpoint, "allow_members", False) if endpoint else False
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=not allow_members)
 
 
 app = FastAPI(
-    dependencies=[Depends(require_auth_unless_public)],
+    dependencies=[Depends(require_admin_auth)],
     title="DuckDuckGoose Studio API",
     description="Backend API for the DuckDuckGoose video production console",
     version="1.0.0",
@@ -1450,16 +1456,12 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
 
 
 @app.get("/api/episodes")
-async def list_episodes(
-    authorization: str | None = Header(None),
-    studio_admin_token: str | None = Cookie(None),
-):
+async def list_episodes():
     """
     List all episodes (member or admin).
     
     Returns episodes from the database with their current status.
     """
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     import aiosqlite
     from datetime import datetime, timezone
@@ -1483,6 +1485,9 @@ async def list_episodes(
     
     return {"episodes": episodes}
 
+
+# Mark list_episodes to allow members
+list_episodes.allow_members = True
 
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
