@@ -37,6 +37,7 @@ import json
 import hashlib
 import re
 import secrets
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Optional
@@ -351,6 +352,8 @@ async def require_auth_unless_public(
     
     await verify_auth_unified(authorization, studio_admin_token)
 
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     dependencies=[Depends(require_auth_unless_public)],
