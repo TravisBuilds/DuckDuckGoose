@@ -76,6 +76,23 @@ class UserManager:
                 ON user_activity(user_id, timestamp)
             """)
             
+            # Password reset tokens (single-use, expiring invite/reset links)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used INTEGER DEFAULT 0,
+                    used_at TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user 
+                ON password_reset_tokens(user_id)
+            """)
+            
             await db.commit()
             
             # Ensure legacy/shared user exists
@@ -289,3 +306,164 @@ class UserManager:
                 VALUES (?, ?, ?, ?)
             """, (user_id, action, details, datetime.now(timezone.utc).isoformat()))
             await db.commit()
+
+    async def change_password(self, user_id: str, new_password: str) -> bool:
+        """
+        Change a user's password.
+        
+        Args:
+            user_id: User ID to change password for
+            new_password: New password to set
+            
+        Returns:
+            True if password was changed, False if user not found
+        """
+        password_hash = self._hash_password(new_password)
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            cursor = await db.execute("""
+                UPDATE users SET password_hash = ? WHERE user_id = ?
+            """, (password_hash, user_id))
+            await db.commit()
+            
+            return cursor.rowcount > 0
+
+    async def set_password(self, email: str, new_password: str) -> bool:
+        """
+        Set a user's password (admin function for creating/resetting passwords).
+        
+        Args:
+            email: User email
+            new_password: New password to set
+            
+        Returns:
+            True if password was set, False if user not found
+        """
+        password_hash = self._hash_password(new_password)
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            cursor = await db.execute("""
+                UPDATE users SET password_hash = ? WHERE email = ?
+            """, (password_hash, email.lower()))
+            await db.commit()
+            
+            return cursor.rowcount > 0
+
+    def _generate_reset_token(self) -> str:
+        """Generate a secure password reset token (URL-safe, 32 bytes = 43 chars base64)."""
+        return secrets.token_urlsafe(32)
+
+    async def create_password_reset_token(self, user_id: str, expiry_hours: int = 72) -> str:
+        """
+        Create a single-use password reset token for a user.
+        
+        Args:
+            user_id: User ID to create token for
+            expiry_hours: Token expiry in hours (default: 72 hours)
+            
+        Returns:
+            The raw token (unhashed) - only shown once, store the hash
+        """
+        from datetime import timedelta
+        
+        # Invalidate any existing unused tokens for this user
+        await self._invalidate_user_tokens(user_id)
+        
+        raw_token = self._generate_reset_token()
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        created_at = datetime.now(timezone.utc)
+        expires_at = created_at + timedelta(hours=expiry_hours)
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("""
+                INSERT INTO password_reset_tokens 
+                (token_hash, user_id, created_at, expires_at, used)
+                VALUES (?, ?, ?, ?, 0)
+            """, (token_hash, user_id, created_at.isoformat(), expires_at.isoformat()))
+            await db.commit()
+        
+        return raw_token
+
+    async def _invalidate_user_tokens(self, user_id: str):
+        """Mark all unused tokens for a user as used (when creating a new token)."""
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("""
+                UPDATE password_reset_tokens 
+                SET used = 1, used_at = ? 
+                WHERE user_id = ? AND used = 0
+            """, (datetime.now(timezone.utc).isoformat(), user_id))
+            await db.commit()
+
+    async def validate_and_use_reset_token(self, raw_token: str) -> Optional[str]:
+        """
+        Validate a password reset token and mark it as used.
+        
+        Args:
+            raw_token: The raw token (from URL)
+            
+        Returns:
+            user_id if token is valid and unused, None otherwise
+        """
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            db.row_factory = aiosqlite.Row
+            
+            # Find the token
+            async with db.execute("""
+                SELECT user_id, expires_at, used
+                FROM password_reset_tokens
+                WHERE token_hash = ?
+            """, (token_hash,)) as cursor:
+                row = await cursor.fetchone()
+                
+                if not row:
+                    return None
+                
+                # Check if already used
+                if row["used"]:
+                    return None
+                
+                # Check if expired
+                expires_at = datetime.fromisoformat(row["expires_at"])
+                if expires_at < datetime.now(timezone.utc):
+                    return None
+                
+                user_id = row["user_id"]
+            
+            # Mark as used
+            await db.execute("""
+                UPDATE password_reset_tokens
+                SET used = 1, used_at = ?
+                WHERE token_hash = ?
+            """, (datetime.now(timezone.utc).isoformat(), token_hash))
+            await db.commit()
+            
+            return user_id
+
+    async def set_password_with_token(self, raw_token: str, new_password: str) -> bool:
+        """
+        Set a user's password using a valid reset token (consumes the token).
+        
+        Args:
+            raw_token: The raw token from the invite/reset link
+            new_password: New password to set
+            
+        Returns:
+            True if password was set, False if token is invalid/expired/used
+        """
+        user_id = await self.validate_and_use_reset_token(raw_token)
+        
+        if not user_id:
+            return False
+        
+        password_hash = self._hash_password(new_password)
+        
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            await db.execute("""
+                UPDATE users SET password_hash = ? WHERE user_id = ?
+            """, (password_hash, user_id))
+            await db.commit()
+        
+        return True

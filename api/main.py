@@ -402,6 +402,43 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
         )
 
 
+async def verify_member_or_admin_cookie(studio_admin_token: str | None = Cookie(None)) -> tuple[str, str]:
+    """
+    Verify member or admin auth from httpOnly cookie (fail closed).
+    
+    Args:
+        studio_admin_token: Session token from cookie
+    
+    Returns:
+        Tuple of (user_id, role)
+        
+    Raises:
+        HTTPException: 401 if unauthenticated
+    """
+    if not studio_admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please log in."
+        )
+    
+    if not await verify_session_token(studio_admin_token):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired session. Please log in again."
+        )
+    
+    user_id = await get_user_id_from_session(studio_admin_token)
+    role = await get_session_role(studio_admin_token)
+    
+    if not user_id or not role:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid session data."
+        )
+    
+    return (user_id, role)
+
+
 def verify_admin_secret(authorization: str | None = Header(None)):
     """Verify admin secret from Authorization header (for programmatic access)."""
     if not authorization:
@@ -1324,6 +1361,41 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
 
 
+@app.get("/api/episodes")
+async def list_episodes(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    List all episodes (member or admin).
+    
+    Returns episodes from the database with their current status.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    
+    import aiosqlite
+    from datetime import datetime, timezone
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT episode_id, live_mode, g108_approved, created_at
+            FROM episodes
+            ORDER BY created_at DESC
+            LIMIT 100
+        """) as cursor:
+            episodes = []
+            async for row in cursor:
+                episodes.append({
+                    "episode_id": row["episode_id"],
+                    "live_mode": bool(row["live_mode"]),
+                    "g108_approved": bool(row["g108_approved"]),
+                    "created_at": row["created_at"]
+                })
+    
+    return {"episodes": episodes}
+
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
@@ -1333,7 +1405,7 @@ async def start_episode(
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization header with admin secret OR session cookie (member or admin).
     """
     await verify_auth_unified(authorization, studio_admin_token)
     validate_episode_id(request.episode_id)
@@ -2523,7 +2595,7 @@ class CreateUserRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     email: str = Field(..., min_length=3, max_length=200)
     role: str = Field(default="member", pattern="^(admin|member)$")
-    password: str | None = Field(None, min_length=8)
+    password: str | None = Field(None, min_length=8, description="Optional: if omitted, generates invite link")
 
 
 @app.post("/api/users")
@@ -2532,7 +2604,12 @@ async def create_user(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """Create a new user (admin only)."""
+    """
+    Create a new user (admin only).
+    
+    If password is provided, user can login immediately.
+    If password is omitted, generates a single-use invite link (72h expiry).
+    """
     if studio_admin_token:
         await verify_admin_cookie(studio_admin_token)
     else:
@@ -2548,9 +2625,123 @@ async def create_user(
             role=request.role,
             password=request.password
         )
-        return {"success": True, "user": user}
+        
+        response = {"success": True, "user": user}
+        
+        # If no password provided, generate invite link
+        if not request.password:
+            token = await user_mgr.create_password_reset_token(user["user_id"])
+            # Build the set-password URL (frontend will render the form)
+            base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+            invite_url = f"{base_url}/set-password?token={token}"
+            response["invite_url"] = invite_url
+            response["message"] = "User created. Share the invite link (valid for 72 hours)."
+        
+        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+
+
+@app.post("/api/users/me/change-password")
+async def change_own_password(
+    request: ChangePasswordRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Change current user's password (member or admin)."""
+    user_id, role = await verify_member_or_admin_cookie(studio_admin_token)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    # Get user details to verify current password
+    user = await user_mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    auth = await user_mgr.authenticate_password(user["email"], request.current_password)
+    if not auth:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Change password
+    success = await user_mgr.change_password(user_id, request.new_password)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to change password")
+    
+    return {"success": True, "message": "Password changed successfully"}
+
+
+@app.post("/api/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Generate a password reset link for a user (admin only).
+    
+    Returns a single-use, 72-hour expiring link that the user can use to set their password.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    # Verify user exists
+    user = await user_mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Generate reset token
+    token = await user_mgr.create_password_reset_token(user_id)
+    
+    # Build the set-password URL
+    base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+    reset_url = f"{base_url}/set-password?token={token}"
+    
+    return {
+        "success": True,
+        "reset_url": reset_url,
+        "expires_hours": 72,
+        "message": "Password reset link generated (valid for 72 hours)"
+    }
+
+
+class SetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=1, description="Password reset token from invite/reset link")
+    new_password: str = Field(..., min_length=8, description="New password to set")
+
+
+@app.post("/api/auth/set-password")
+async def set_password_with_token(request: SetPasswordRequest):
+    """
+    Set password using a reset token (public endpoint, no auth required).
+    
+    Consumes a single-use token from an invite or password reset link.
+    """
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    success = await user_mgr.set_password_with_token(request.token, request.new_password)
+    
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid, expired, or already used token"
+        )
+    
+    return {
+        "success": True,
+        "message": "Password set successfully. You can now log in."
+    }
 
 
 @app.get("/api/users/{user_id}")
