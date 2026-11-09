@@ -146,10 +146,17 @@ export default function StudioHomePage() {
             <h2 className="text-lg font-semibold mb-2">Quick Actions</h2>
             <div className="space-y-2">
               <Link
-                href="/studio/episodes/new"
+                href="/studio/create"
                 className="block px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-center font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
+                data-testid="make-video-link"
               >
-                Start New Episode
+                Make Your Own Video
+              </Link>
+              <Link
+                href="/studio/episodes/new"
+                className="block px-4 py-2 border-2 border-gray-300 dark:border-gray-700 rounded-lg text-center font-semibold hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                Advanced Upload
               </Link>
             </div>
           </div>

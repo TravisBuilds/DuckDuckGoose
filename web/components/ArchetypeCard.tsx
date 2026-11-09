@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import type { PresetData } from '@/lib/presets';
 
@@ -22,10 +24,11 @@ export default function ArchetypeCard({ preset }: ArchetypeCardProps) {
   const gradient = getGradientForTemplate(preset.template);
   
   return (
-    <Link
-      href={`/archetypes/${preset.id}`}
-      className="group block rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
-    >
+    <div className="group relative rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden hover:border-gray-300 dark:hover:border-gray-700 transition-colors">
+      <Link
+        href={`/archetypes/${preset.id}`}
+        className="block"
+      >
       <div className={`h-32 bg-gradient-to-br ${gradient} relative overflow-hidden`}>
         <div className="absolute inset-0 opacity-0 group-hover:opacity-10 bg-white transition-opacity" />
         <svg
@@ -39,6 +42,7 @@ export default function ArchetypeCard({ preset }: ArchetypeCardProps) {
           />
         </svg>
       </div>
+      </Link>
       <div className="p-4">
         <h3 className="font-semibold text-lg mb-1">{preset.name}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
@@ -54,10 +58,17 @@ export default function ArchetypeCard({ preset }: ArchetypeCardProps) {
             </span>
           ))}
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-500">
+        <div className="text-xs text-gray-500 dark:text-gray-500 mb-3">
           {preset.lengthRange[0]}–{preset.lengthRange[1]}s · {preset.aspect}
         </div>
+        <Link
+          href={`/studio/create?archetype=${preset.id}`}
+          className="block px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg text-center hover:bg-blue-700 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Make Video in This Style →
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 }
