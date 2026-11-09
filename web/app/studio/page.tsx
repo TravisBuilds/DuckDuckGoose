@@ -97,6 +97,12 @@ export default function StudioHomePage() {
             </div>
             <div className="flex items-center gap-4">
               <Link
+                href="/studio/users"
+                className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
+              >
+                Users
+              </Link>
+              <Link
                 href="/"
                 className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
               >
