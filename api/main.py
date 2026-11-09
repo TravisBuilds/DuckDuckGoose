@@ -988,8 +988,6 @@ async def validate_upload(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    authorization: str | None = Header(None),
-    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Validate episode upload files WITHOUT saving (dry-run validation).
@@ -998,9 +996,9 @@ async def validate_upload(
     Returns validation errors if any, or success with shot count.
     
     Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
+    Handled by middleware (require_admin_auth with .allow_members = True)
     """
-    # Auth: member or admin (middleware handles UPLOAD_TOKEN, so this only runs for session/secret auth)
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    # Auth handled by middleware
     
     errors = []
     shots_count = 0
@@ -1114,20 +1112,19 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload episode files for StoryBuilder Production tab (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
     Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
+    Handled by middleware (require_admin_auth with .allow_members = True)
     Idempotent: Re-uploading the same episode/files is safe (deduped)
     
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Auth: member or admin (middleware handles UPLOAD_TOKEN, so this only runs for session/secret auth)
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    # Auth handled by middleware (no additional check needed here)
     
     validate_episode_id(episode_id)
     
