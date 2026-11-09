@@ -73,25 +73,23 @@ async def create_user(args):
             password=password
         )
         
-        print(f"✓ User created successfully")
-        print(f"  User ID: {user['user_id']}")
-        print(f"  Name: {user['name']}")
-        print(f"  Email: {user['email']}")
-        print(f"  Role: {user['role']}")
-        print(f"  API Token: {user['api_token']}")
-        print()
-        
         if args.invite:
             # Generate invite link
             token = await user_mgr.create_password_reset_token(user['user_id'])
             base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
             invite_url = f"{base_url}/set-password?token={token}"
             
-            print("🔗 Invite Link (valid for 72 hours):")
-            print(f"   {invite_url}")
-            print()
-            print("   Share this link with the user to set their password.")
+            # Print ONLY the invite URL (no user details, no API token)
+            print(invite_url)
         else:
+            # Non-invite mode: show full details including API token
+            print(f"✓ User created successfully")
+            print(f"  User ID: {user['user_id']}")
+            print(f"  Name: {user['name']}")
+            print(f"  Email: {user['email']}")
+            print(f"  Role: {user['role']}")
+            print(f"  API Token: {user['api_token']}")
+            print()
             print("⚠️  Save the API token - it will not be shown again.")
         
     except ValueError as e:
