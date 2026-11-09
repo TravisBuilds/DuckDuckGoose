@@ -2491,7 +2491,7 @@ test_mutation 312 "VO generation preflights text length" \
 test_mutation 313 "lint route requires auth" \
     "api/main.py" \
     "tests/test_api_routes.py::test_lint_route_requires_auth" \
-    sed -i -e 's/^    ("POST", "\/api\/login"),$/&\n    ("POST", "\/api\/lint"),/' -e '/^async def lint_prompt_endpoint/,/^    return {"problems"/s/^    await verify_auth_unified(authorization, studio_admin_token)$/    pass  # MUTATED/'
+    sed -i -e 's/^    ("POST", "\/api\/login"),$/&\n    ("POST", "\/api\/lint"),/' -e '/^async def lint_prompt_endpoint/,/^    return {"problems"/s/^    await verify_auth_unified(authorization, studio_admin_token.*$/    pass  # MUTATED/'
 
 # 314: G-UI-1: review file route path containment (resolved is_relative_to)
 test_mutation 314 "file route path containment" \
