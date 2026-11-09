@@ -319,6 +319,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/gates"),        # static gates page (no data; it calls the authenticated API)
     ("POST", "/api/login"),
     ("POST", "/api/logout"),  # idempotent: revokes the presented session, clears the cookie
+    ("POST", "/api/auth/set-password"),  # token-based password setting (public, no auth required)
 })
 
 

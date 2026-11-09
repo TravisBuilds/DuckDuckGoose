@@ -31,7 +31,7 @@ def run_cli(*args, env=None, input_data=None):
         env_vars.update(env)
     
     result = subprocess.run(
-        ["python", str(script_path)] + list(args),
+        ["python3", str(script_path)] + list(args),
         capture_output=True,
         text=True,
         env=env_vars,

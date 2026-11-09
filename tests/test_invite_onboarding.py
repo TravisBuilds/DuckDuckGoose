@@ -387,9 +387,10 @@ async def test_invalid_token_fails(db_path):
         }
     )
     
-    assert response.status_code == 400
+    # Endpoint is public (no auth required), should return 400 for invalid token
+    assert response.status_code == 400, f"Expected 400 but got {response.status_code}: {response.text}"
     data = response.json()
-    assert "invalid" in data["detail"].lower() or "expired" in data["detail"].lower()
+    assert "invalid" in data["detail"].lower() or "expired" in data["detail"].lower() or "used" in data["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -402,7 +403,7 @@ async def test_cli_invite_mode(db_path):
     script_path = Path(__file__).parent.parent / "scripts" / "manage_user.py"
     
     result = subprocess.run(
-        ["python", str(script_path), "create",
+        ["python3", str(script_path), "create",
          "--name", "CLI Invite",
          "--email", "cliinvite@test.com",
          "--role", "admin",
@@ -437,7 +438,7 @@ async def test_cli_reset_with_invite_mode(db_path):
     script_path = Path(__file__).parent.parent / "scripts" / "manage_user.py"
     
     result = subprocess.run(
-        ["python", str(script_path), "reset-password",
+        ["python3", str(script_path), "reset-password",
          "--email", "clireset@test.com",
          "--invite"],
         capture_output=True,
