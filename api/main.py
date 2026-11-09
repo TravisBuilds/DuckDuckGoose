@@ -417,7 +417,9 @@ async def require_auth_unless_public(
                 except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
                     pass  # Invalid token, fall through to verify_auth_unified
     
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
+    # Middleware verifies authentication (any role). Routes that need admin-only access
+    # explicitly call verify_auth_unified(..., require_admin=True) or verify_admin_cookie().
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
 
 
 app = FastAPI(
@@ -5267,7 +5269,7 @@ async def lint_prompt_endpoint(
     """
     Lint a prompt for violations.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization header with admin secret OR admin session cookie.
     
     Args:
         request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool), optional "episode_id" (str)
@@ -5275,7 +5277,7 @@ async def lint_prompt_endpoint(
     Returns:
         dict with "problems" list
     """
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     
     from hfvg.prompt_lint import lint_violations, load_lint_kit
     
