@@ -321,6 +321,18 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/api/logout"),  # idempotent: revokes the presented session, clears the cookie
 })
 
+# The routes UPLOAD_TOKEN reaches: StoryBuilder's Production tab uploads an episode's files and checks them.
+# Starting, approving and everything else still needs a session or ADMIN_SECRET. Route templates, as the
+# guard below sees them; each route also checks the token itself (verify_upload_route).
+UPLOAD_TOKEN_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("POST", "/api/episodes/upload"),
+    ("POST", "/api/episodes/upload/validate"),
+    ("POST", "/api/episodes/{episode_id}/upload-prompt-kit"),
+    ("POST", "/api/episodes/{episode_id}/upload-shots"),
+    ("POST", "/api/episodes/{episode_id}/lint"),
+    ("POST", "/api/episodes/{episode_id}/preflight"),
+})
+
 
 async def require_auth_unless_public(
     request: Request,
@@ -335,20 +347,9 @@ async def require_auth_unless_public(
         return
     
     # Allow UPLOAD_TOKEN through for production upload endpoints (routes handle their own checks)
-    if method == "POST" and path in ("/api/episodes/upload", "/api/episodes/upload/validate"):
-        if authorization and authorization.startswith("Bearer "):
-            token = authorization.removeprefix("Bearer ")
-            upload_token = get_upload_token()
-            # Compare as bytes; empty or unset token must never match
-            if upload_token:
-                try:
-                    token_bytes = token.encode("utf-8")
-                    upload_bytes = upload_token.encode("utf-8")
-                    if secrets.compare_digest(token_bytes, upload_bytes):
-                        return
-                except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
-                    pass  # Invalid token, fall through to verify_auth_unified
-    
+    if (method, path) in UPLOAD_TOKEN_ROUTES and is_upload_token(authorization):
+        return
+
     await verify_auth_unified(authorization, studio_admin_token)
 
 
@@ -492,6 +493,30 @@ def verify_upload_token(authorization: str | None = Header(None)):
         )
 
 
+def is_upload_token(authorization: str | None) -> bool:
+    """True when the header carries UPLOAD_TOKEN. Compared as bytes; an empty or unset token never matches."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return False
+    upload_token = get_upload_token()
+    if not upload_token:
+        return False
+    try:
+        return secrets.compare_digest(authorization.removeprefix("Bearer ").encode("utf-8"),
+                                      upload_token.encode("utf-8"))
+    except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
+        return False
+
+
+async def verify_upload_route(authorization: str | None, studio_admin_token: str | None) -> bool:
+    """Auth for UPLOAD_TOKEN_ROUTES: a Bearer UPLOAD_TOKEN or ADMIN_SECRET, else the session cookie.
+    Returns True when the caller used UPLOAD_TOKEN: it may never replace files under an existing workflow."""
+    if authorization:
+        verify_upload_token(authorization)
+        return is_upload_token(authorization)
+    await verify_admin_cookie(studio_admin_token)
+    return False
+
+
 async def verify_auth_unified(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
@@ -574,6 +599,40 @@ def episode_workflow_id(episode_id: str) -> str:
 # teaser). It must start with a letter, so ep001 stays invalid; no "-" (child ids are
 # <ep>-shot-<id>), no "/" or "." (path safety), ASCII only, at most 12 characters.
 EPISODE_ID_PATTERN = r"ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?"  # ASCII digits only (\d also matches other scripts)
+
+
+async def refuse_if_workflow(episode_id: str, *, finished_too: bool = False) -> None:
+    """409 while the episode's workflow is running. With ``finished_too`` also once it has finished: its
+    files and shot rows belong to that run (an upload replaces the shots). 503 when Temporal can't be
+    asked (fail closed). A workflow past Temporal's retention reads as never started."""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        desc = await handle.describe()
+        # Check if workflow exists and is running
+        from temporalio.client import WorkflowExecutionStatus
+        if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
+            )
+        if finished_too:
+            status = getattr(desc.status, "name", str(desc.status)).lower()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode {episode_id} already has a workflow ({status}). The upload token cannot replace "
+                       f"its files: use a new episode id, or the studio console."
+            )
+    except HTTPException:
+        raise  # Re-raise our 409 and 503
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        # NOT_FOUND is fine - workflow doesn't exist, upload can proceed
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            return
+        # Fail closed: any other Temporal error returns 503
+        raise HTTPException(status_code=503, detail=f"Temporal error: {str(e)}")
 
 
 def validate_episode_id(episode_id: str) -> str:
@@ -857,27 +916,30 @@ async def validate_upload(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
+    shots_file: UploadFile = File(None),
+    refs_file: UploadFile = File(None),
+    prompt_kit_file: UploadFile = File(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Validate episode upload files WITHOUT saving (dry-run validation).
-    
+
     Runs same validation as /api/episodes/upload but doesn't persist anything.
     Returns validation errors if any, or success with shot count.
-    
+    With shots_file (and refs_file, prompt_kit_file) it also runs what the other upload routes, lint,
+    preflight and the live submit would: see hfvg.episode_files. Per-shot results are in "shots".
+
     Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
     """
     # Get authorization from request headers directly
     authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
+
     # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
-    
+    await verify_upload_route(authorization, studio_admin_token)
+
     errors = []
     shots_count = 0
+    beatmap_shots = []
     
     # Validate episode ID format (early return on invalid)
     try:
@@ -907,6 +969,7 @@ async def validate_upload(
                 if not shots:
                     errors.append("No shots found in beatmap")
                 shots_count = len(shots)
+                beatmap_shots = shots
             except Exception as e:
                 errors.append(f"Beatmap parsing error: {str(e)}")
             finally:
@@ -956,15 +1019,27 @@ async def validate_upload(
                 continuity_file = None  # Treat empty as None
         except Exception as e:
             errors.append(f"Error reading continuity: {str(e)}")
-    
+
+    # The per-shot files, checked together with the beatmap (nothing is written)
+    files_report = {}
+    if shots_file:
+        from hfvg.episode_files import check_episode_files
+        checked = check_episode_files(beatmap_shots, await shots_file.read(),
+                                      await refs_file.read() if refs_file else None,
+                                      await prompt_kit_file.read() if prompt_kit_file else None)
+        errors += checked["errors"]
+        files_report = {"warnings": checked["warnings"], "shots": checked["shots"],
+                        "cost_estimate": offline_cost_estimate(checked["shot_list"])}
+
     if errors:
         return {
             "success": False,
             "valid": False,
             "errors": errors,
-            "shots_count": shots_count
+            "shots_count": shots_count,
+            **files_report,
         }
-    
+
     return {
         "success": True,
         "valid": True,
@@ -975,7 +1050,11 @@ async def validate_upload(
             "beatmap": True,
             "credit_plan": credit_plan_file is not None,
             "continuity": continuity_file is not None,
-        }
+            "shots": shots_file is not None,
+            "refs": refs_file is not None,
+            "prompt_kit": prompt_kit_file is not None,
+        },
+        **files_report,
     }
 
 
@@ -999,40 +1078,16 @@ async def upload_beatmap(
     """
     # Get authorization from request headers directly
     authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
+
     # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
-    
+    upload_token = await verify_upload_route(authorization, studio_admin_token)
+
     validate_episode_id(episode_id)
-    
-    # Return 409 while workflow is running (fail closed: 503 on Temporal errors)
-    if not temporal_client:
-        raise HTTPException(status_code=503, detail="Temporal client not initialized")
-    
-    try:
-        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
-        desc = await handle.describe()
-        # Check if workflow exists and is running
-        from temporalio.client import WorkflowExecutionStatus
-        if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
-            raise HTTPException(
-                status_code=409,
-                detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
-            )
-    except HTTPException:
-        raise  # Re-raise our 409 and 503
-    except Exception as e:
-        from temporalio.service import RPCError, RPCStatusCode
-        # NOT_FOUND is fine - workflow doesn't exist, upload can proceed
-        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
-            pass  # Workflow not found, can proceed with upload
-        else:
-            # Fail closed: any other Temporal error returns 503
-            raise HTTPException(status_code=503, detail=f"Temporal error: {str(e)}")
-    
+
+    # Return 409 while workflow is running, and to UPLOAD_TOKEN once one exists at all: the upload replaces
+    # the episode's shot rows (fail closed: 503 on Temporal errors)
+    await refuse_if_workflow(episode_id, finished_too=upload_token)
+
     # Read all files and compute hashes
     import hashlib
     import tempfile
@@ -1195,13 +1250,15 @@ async def upload_beatmap(
 async def upload_prompt_kit(
     episode_id: str,
     prompt_kit_file: UploadFile = File(...),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload prompt_kit.json for an episode.
-    
-    Requires: Cookie auth
-    
+
+    Requires: Cookie auth, or Bearer UPLOAD_TOKEN / ADMIN_SECRET. UPLOAD_TOKEN is refused (409) once the
+    episode has a workflow.
+
     The prompt kit contains:
     - style: Series visual style line
     - aspect_ratio: e.g. "9:16"
@@ -1210,9 +1267,11 @@ async def upload_prompt_kit(
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
-    await verify_admin_cookie(studio_admin_token)
+    upload_token = await verify_upload_route(authorization, studio_admin_token)
     validate_episode_id(episode_id)
-    
+    if upload_token:
+        await refuse_if_workflow(episode_id, finished_too=True)
+
     # Create episode directory
     episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -1249,17 +1308,21 @@ async def upload_shots(
     episode_id: str,
     shots_file: UploadFile = File(...),
     refs_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload the private per-shot data: shots.json (required) and refs.json (optional).
 
-    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    Requires: Cookie auth, or Bearer UPLOAD_TOKEN / ADMIN_SECRET; UPLOAD_TOKEN is refused (409) once the
+    episode has a workflow. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
     """
-    await verify_admin_cookie(studio_admin_token)
+    upload_token = await verify_upload_route(authorization, studio_admin_token)
     validate_episode_id(episode_id)
+    if upload_token:
+        await refuse_if_workflow(episode_id, finished_too=True)
     from hfvg.shot_data import ShotDataError, parse_shots
 
     shots_bytes = await shots_file.read()
@@ -4802,20 +4865,22 @@ async def run_smoke_test_api(
 @app.post("/api/episodes/{episode_id}/lint")
 async def lint_episode(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Lint episode configuration and beatmap.
-    
+
     Checks:
     - BEATMAP.md exists and is valid
     - shots.json exists (if required)
+    - Every prompt a live run would submit passes the prompt lint (prompt_kit.json lint section)
     - Budget configuration is valid
     - Reference images are accessible
-    
-    Requires: Cookie auth
+
+    Requires: Cookie auth, or Bearer UPLOAD_TOKEN / ADMIN_SECRET
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_upload_route(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     
     issues = []
@@ -4847,7 +4912,17 @@ async def lint_episode(
             plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
-    
+        else:
+            # The prompts as the live submit gate would see them (the lint ran only at submit before)
+            from hfvg.prompt_lint import lint_report
+            for sid, problems in lint_report(episode_id, plans).items():
+                if sid != "*":
+                    issues += [f"{sid} {p}" for p in problems]
+                elif problems[0].startswith("No prompt lint kit found"):
+                    warnings.append("prompt_kit.json missing, prompts not linted (required for live mode)")
+                else:
+                    issues += problems  # a broken kit refuses every live shot
+
     # Check budget configuration
     # Only warn if episode has reached G1.08 approval but has no budget lines
     import aiosqlite
@@ -5224,9 +5299,9 @@ async def preflight_episode(
     """Per-shot pass/fail against the model limits, same rules as G1 and submit (no provider calls).
 
     Shots come from the request or the episode's uploaded shots.json (data/episodes/{id}/shots.json).
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_upload_route(authorization, studio_admin_token)
     validate_episode_id(episode_id)
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
