@@ -108,6 +108,68 @@ SESSION_TTL_SECONDS = 86400
 SESSION_KEY_CONTEXT = b"hfvg-studio-session-v1"
 _SESSION_NONCE_RE = r"[A-Za-z0-9_-]{16,64}"
 
+# Login rate limiting: simple in-memory tracker
+# Key: email, Value: (attempt_count, first_attempt_time, lockout_until)
+_LOGIN_ATTEMPTS: dict[str, tuple[int, float, float]] = {}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300  # 5 minutes
+LOCKOUT_DURATION_SECONDS = 900  # 15 minutes
+
+
+def check_rate_limit(email: str) -> tuple[bool, str]:
+    """
+    Check if login is rate limited for an email.
+    
+    Returns:
+        (allowed, message): (True, "") if allowed, (False, reason) if blocked
+    """
+    import time
+    
+    now = time.time()
+    email_lower = email.lower()
+    
+    if email_lower in _LOGIN_ATTEMPTS:
+        attempts, first_attempt, lockout_until = _LOGIN_ATTEMPTS[email_lower]
+        
+        # Check if currently locked out
+        if lockout_until > now:
+            remaining = int(lockout_until - now)
+            return False, f"Too many failed attempts. Try again in {remaining} seconds."
+        
+        # Reset if outside window
+        if now - first_attempt > LOGIN_WINDOW_SECONDS:
+            del _LOGIN_ATTEMPTS[email_lower]
+            return True, ""
+        
+        # Check if exceeded attempts within window
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            # Start lockout
+            _LOGIN_ATTEMPTS[email_lower] = (attempts, first_attempt, now + LOCKOUT_DURATION_SECONDS)
+            return False, f"Too many failed attempts. Account locked for {LOCKOUT_DURATION_SECONDS // 60} minutes."
+        
+    return True, ""
+
+
+def record_failed_login(email: str):
+    """Record a failed login attempt."""
+    import time
+    
+    now = time.time()
+    email_lower = email.lower()
+    
+    if email_lower in _LOGIN_ATTEMPTS:
+        attempts, first_attempt, lockout_until = _LOGIN_ATTEMPTS[email_lower]
+        _LOGIN_ATTEMPTS[email_lower] = (attempts + 1, first_attempt, lockout_until)
+    else:
+        _LOGIN_ATTEMPTS[email_lower] = (1, now, 0)
+
+
+def clear_failed_logins(email: str):
+    """Clear failed login attempts after successful login."""
+    email_lower = email.lower()
+    if email_lower in _LOGIN_ATTEMPTS:
+        del _LOGIN_ATTEMPTS[email_lower]
+
 
 def session_signing_key() -> bytes:
     """Signing key for session tokens (fail closed: raises ValueError when not configured)."""
@@ -847,13 +909,22 @@ async def login(request: LoginRequest, response: Response):
     
     # Method 2: Member email + password
     elif request.email and request.password:
+        # Check rate limit
+        allowed, message = check_rate_limit(request.email)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=message)
+        
         from hfvg.users import UserManager
         mgr = UserManager(DATABASE_PATH)
         await mgr.init_db()
         
         user_info = await mgr.authenticate_password(request.email, request.password)
         if not user_info:
+            record_failed_login(request.email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Clear failed attempts on successful login
+        clear_failed_logins(request.email)
     
     # Method 3: Member API token
     elif request.api_token:
