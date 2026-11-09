@@ -12,8 +12,8 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
   test.beforeEach(async ({ page }) => {
     // Authenticate with test user
     await page.goto('/login');
-    await page.locator('input[name="email"]').fill(E2E_USER);
-    await page.locator('input[name="password"]').fill(E2E_PASSWORD);
+    await page.locator('#email').fill(E2E_USER);
+    await page.locator('#password').fill(E2E_PASSWORD);
     await page.getByRole('button', { name: 'Sign In' }).click();
     await expect(page).toHaveURL(/\/studio$/);
   });
