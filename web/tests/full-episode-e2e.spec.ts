@@ -29,7 +29,7 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await page.goto('/login');
   await page.locator('#email').fill(E2E_USER);
   await page.locator('#password').fill(E2E_PASSWORD);
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  await page.getByRole('button', { name: 'Sign In', exact: true }).first().click();
   await expect(page).toHaveURL(/\/studio\/episodes\/new$/);
 
   // --- new episode: a bad shots.json is caught by preflight and Start stays disabled ---
