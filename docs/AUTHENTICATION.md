@@ -1,262 +1,163 @@
-# Authentication & User Management
+# Authentication & Authorization
 
-The DuckDuckGoose studio supports personal user accounts with role-based access control.
+DuckDuckGoose Studio uses role-based access control with two roles: **admin** and **member**.
 
-## Overview
+## Default: Fail Closed
 
-Three authentication methods are available:
+All routes default to **admin-only** access. Routes that allow members must explicitly opt-in with `route_function.allow_members = True`. This ensures new routes without explicit auth checks default to admin-only for security.
 
-1. **Admin Secret** (legacy): Shared secret for initial setup and automated scripts
-2. **Email + Password**: Personal accounts with role-based access control
-3. **API Token**: For programmatic access (production integrations, see PRODUCTION-API.md)
+## Roles
 
-## User Roles
+### Admin
+Full access to all endpoints. Admins can:
+- Everything members can do (see below)
+- Financial controls (raise credit caps, resume balance)
+- User management (create/edit/disable users, reset passwords)
+- Budget operations (view all balances, sync ledgers)
+- Administrative operations (approve G108, canary tests, smoke tests)
+- System configuration (lint kits, reference versions, settings)
+- Analytics and dashboard
 
-### Admin Role
-Full access to all studio features:
-- All episode management (start, upload, approve/reject, retry, status, downloads)
-- User management (create, list, reset passwords, manage roles)
-- Spending dashboard (balance, costs, budget tracking)
-- Live mode toggles and budget cap configuration
+### Member
+Creators who make videos end-to-end. Members can:
+- List and view episodes
+- Start episodes (dry or live)
+- Upload episode files and shots
+- Set episodes to live or dry mode
+- View and edit story shape
+- Approve or reject stills and gates
+- Accept clips
+- Retry shots and clips
+- Reopen episodes and restore from snapshots
+- View audit trails
+- View budget estimates for their own episodes (read-only)
+- List files and view stills
+- Run preflight checks
+- View clip plans and resync
+- Change their own password
 
-### Member Role
-Episode management access only:
-- Start new episodes (`POST /api/episodes`)
-- Upload beatmaps/continuity (`POST /api/episodes/upload`, `POST /api/episodes/upload/validate`)
-- View episodes and shots (`GET /api/episodes`, `GET /api/episodes/{id}`)
-- Approve/reject stills and clips (`POST /api/episodes/{id}/shots/{shot}/approve`, `/reject`)
-- Retry failed shots (`POST /api/episodes/{id}/shots/{shot}/retry-still`, `/retry-clip`)
-- Story shape editing and approval (`GET /api/episodes/{id}/story-shape`, `POST .../approve`)
-- Final cut approval/rejection (`POST /api/episodes/{id}/final-cut/approve`, `/reject`)
-- View audit trails (`GET /api/episodes/{id}/audit`)
-- Download episode assets (`GET /api/episodes/{id}/download`)
-- Toggle live mode for episodes (`POST /api/episodes/{id}/set-live`)
+Members **cannot**:
+- Raise credit caps or resume balance after insufficient funds (financial controls)
+- Access dashboard or spending analytics
+- Manage budget ledgers (`/api/budget/*` routes except read-only episode budget)
+- Create, edit, or delete users
+- Reset other users' passwords
+- Access stalls or lint administration
+- Set reference versions
+- Approve G108
+- Run canary or smoke tests
+- Modify system settings
 
-**Member restrictions** (403 Forbidden):
-- Cannot access spending dashboard (`GET /api/dashboard`)
-- Cannot view user list (`GET /api/users`)
-- Cannot create users (`POST /api/users`)
-- Cannot change user roles or delete users
-- Cannot view or change budget caps (read-only access to episode settings)
+## Authentication Methods
 
-**Design decision**: Members can run episodes in live mode (if `DRY_RUN=false` globally) but cannot change budget caps or view/modify the manual balance. This allows team members to execute production without financial oversight access.
+### 1. Session Cookies (Browser/Web UI)
+- Login via `/api/login` with email + password
+- Returns httpOnly session cookie `studio_admin_token`
+- Used for browser-based access
+- Both admin and member roles supported
 
-## User Management
+### 2. Bearer Token (CLI/API)
+- Admin secret: `Authorization: Bearer <ADMIN_SECRET>`
+- Always admin-level access
+- Used for server-to-server calls and CLI tools
 
-### Creating Users (Admin-Only)
+### 3. Upload Token (Scoped)
+- Production upload endpoints only
+- `Authorization: Bearer <UPLOAD_TOKEN>`
+- Scoped to `/api/episodes/upload` and `/api/episodes/upload/validate`
 
-#### Web UI (Recommended)
+## Route Permission Matrix
 
-1. Log in as an admin
-2. Navigate to the **Users** page from the studio header
-3. Click **Create User**
-4. Enter name, email, and role
-5. Leave "Generate invite link" checked (recommended)
-6. Click **Create User**
-7. Copy the invite link and send it to the new user
+### Public Routes (No Auth Required)
+- `GET /` - Root
+- `GET /gates` - Gates page
+- `GET /api/health` - Health check
+- `POST /api/login` - Login
+- `POST /api/logout` - Logout
+- `POST /api/auth/set-password` - Set password from invite token
 
-The invite link is valid for **72 hours** and allows the user to set their own password.
+### Member & Admin Routes
+- `GET /api/episodes` - List all episodes
+- `POST /api/episodes` - Start a new episode
+- `GET /api/episodes/{id}` - Get episode details
+- `POST /api/episodes/{id}/set-live` - Set episode to live mode
+- `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
+- `GET /api/episodes/{id}/story-shape` - Get story shape
+- `PUT /api/episodes/{id}/story-shape` - Update story shape
+- `GET /api/episodes/{id}/budget` - View episode budget estimate (read-only)
+- `POST /api/episodes/{id}/shots/{shot_id}/approve` - Approve still
+- `POST /api/episodes/{id}/shots/{shot_id}/reject` - Reject still
+- `POST /api/episodes/{id}/shots/{shot_id}/accept-clip` - Accept clip
+- `POST /api/episodes/{id}/approve` - Approve gate
+- `POST /api/episodes/{id}/shots/{shot_id}/retry` - Retry shot
+- `POST /api/episodes/{id}/shots/{shot_id}/retry-clip` - Retry clip
+- `POST /api/episodes/{id}/reopen` - Reopen episode
+- `POST /api/episodes/{id}/reopen-from-saved` - Reopen from snapshot
+- `GET /api/episodes/{id}/audit` - View audit trail
+- `GET /api/episodes/{id}/shots` - List shots
+- `GET /api/episodes/{id}/gates` - List gates
+- `GET /api/episodes/{id}/files` - List review files
+- `GET /api/episodes/{id}/files/{type}` - Get specific review file
+- `GET /api/episodes/{id}/shots/{shot_id}/still` - Get still image
+- `POST /api/episodes/{id}/preflight` - Run preflight checks
+- `GET /api/episodes/{id}/clip-plans` - Get clip plans
+- `POST /api/episodes/{id}/resync-plans` - Resync plans
+- `POST /api/episodes/{id}/shots/{shot_id}/select-still` - Select still version
+- `GET /api/episodes/{id}/still-versions` - List still versions
+- `POST /api/episodes/{id}/final-cut/reject` - Reject final cut
+- `POST /api/users/me/change-password` - Change own password
 
-#### CLI (SSH Access Required)
+### Admin-Only Routes
+- `POST /api/episodes/{id}/raise-cap` - Raise credit cap (financial)
+- `POST /api/episodes/{id}/resume-balance` - Resume after balance top-up (financial)
+- `GET /api/dashboard` - Analytics dashboard
+- `GET /api/spending` - Spending analytics
+- `GET /api/budget/balance` - Global budget balance
+- `GET /api/budget/all-balances` - All episode balances
+- `POST /api/budget/balance` - Top up balance
+- `POST /api/budget/{episode_id}/lines/sync` - Sync budget ledger
+- `GET /api/users` - List users
+- `POST /api/users` - Create user
+- `GET /api/users/{user_id}` - Get user details
+- `POST /api/users/{user_id}/reset-password` - Reset user password (admin resets others)
+- `GET /api/stalls` - View all stalls
+- `GET /api/episodes/{id}/stalls` - View episode stalls
+- `POST /api/lint` - Lint operations
+- `POST /api/episodes/{id}/lint` - Episode lint
+- `POST /api/episodes/{id}/set-ref-versions` - Set reference versions
+- `POST /api/episodes/{id}/approve-g108` - Approve G108
+- `GET /api/canary/{workflow_id}` - Get canary status
+- `POST /api/episodes/{id}/canary` - Run canary test
+- `POST /api/episodes/{id}/smoke-test` - Run smoke test
+- `POST /api/episodes/upload` - Production upload (or via UPLOAD_TOKEN)
+- `POST /api/episodes/upload/validate` - Validate upload (or via UPLOAD_TOKEN)
+- `POST /api/episodes/{id}/upload-prompt-kit` - Upload prompt kit
+- `POST /api/episodes/{id}/upload-shots` - Upload shots file
+- All other routes not explicitly listed as public or member-allowed
 
-Create a user with an invite link:
-```bash
-docker compose exec api python3 scripts/manage_user.py create \
-  --name "User Name" \
-  --email user@example.com \
-  --role member \
-  --invite
+## Implementation
+
+### Middleware
+Global middleware (`require_admin_auth`) requires admin access by default. Routes opt-in to allow members by setting:
+
+```python
+@app.get("/api/episodes")
+async def list_episodes():
+    ...
+
+list_episodes.allow_members = True
 ```
 
-Create a user with a direct password (not recommended - better to use invites):
-```bash
-echo "securepassword" | docker compose exec -T api python3 scripts/manage_user.py create \
-  --name "User Name" \
-  --email user@example.com \
-  --role member
-```
+### Verification Functions
+- `verify_auth_unified(authorization, studio_admin_token, require_admin=True)` - Unified auth check
+- `verify_admin_cookie(cookie)` - Verify admin session
+- `verify_member_or_admin_cookie(cookie)` - Verify any authenticated session
+- `verify_admin_secret(authorization)` - Verify Bearer token
 
-Roles: `admin` or `member`
-
-#### API (Admin-Only)
-
-```bash
-# With invite link
-curl -X POST http://localhost:8000/api/users \
-  -H "Content-Type: application/json" \
-  --cookie "studio_admin_token=YOUR_ADMIN_SESSION_TOKEN" \
-  -d '{
-    "name": "User Name",
-    "email": "user@example.com",
-    "role": "member"
-  }'
-# Response includes "invite_url" field
-
-# With direct password
-curl -X POST http://localhost:8000/api/users \
-  -H "Content-Type: application/json" \
-  --cookie "studio_admin_token=YOUR_ADMIN_SESSION_TOKEN" \
-  -d '{
-    "name": "User Name",
-    "email": "user@example.com",
-    "role": "member",
-    "password": "securepassword"
-  }'
-```
-
-### Password Reset (Admin-Only)
-
-#### Web UI
-1. Go to the **Users** page
-2. Find the user in the list
-3. Click **Copy Reset Link**
-4. Send the link to the user
-
-#### CLI
-```bash
-docker compose exec api python3 scripts/manage_user.py reset-password \
-  --email user@example.com \
-  --invite
-```
-
-#### API
-```bash
-curl -X POST http://localhost:8000/api/users/USER_ID/reset-password \
-  --cookie "studio_admin_token=YOUR_ADMIN_SESSION_TOKEN"
-# Response includes "reset_url" field
-```
-
-Reset links are valid for **72 hours** and can only be used once.
-
-### Self-Service Password Change
-
-Users can change their own password:
-
-#### Web UI
-1. Log in to the studio
-2. Navigate to account settings (link in header)
-3. Enter current password and new password
-4. Click **Change Password**
-
-#### API
-```bash
-curl -X POST http://localhost:8000/api/users/me/change-password \
-  -H "Content-Type: application/json" \
-  --cookie "studio_admin_token=YOUR_SESSION_TOKEN" \
-  -d '{
-    "current_password": "oldpassword",
-    "new_password": "newpassword"
-  }'
-```
-
-### Listing Users (Admin-Only)
-
-#### Web UI
-Navigate to the **Users** page from the studio header.
-
-#### CLI
-```bash
-docker compose exec api python3 scripts/manage_user.py list
-```
-
-#### API
-```bash
-curl http://localhost:8000/api/users \
-  --cookie "studio_admin_token=YOUR_ADMIN_SESSION_TOKEN"
-```
-
-## Login
-
-### Web UI
-Navigate to `/login` and enter:
-- **Email + Password** (primary method)
-- Or use the "Sign in with admin secret" toggle for the legacy admin secret
-
-### API
-```bash
-# Email + password
-curl -X POST http://localhost:8000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "userpassword"
-  }'
-
-# Admin secret (legacy)
-curl -X POST http://localhost:8000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "admin_secret": "your_admin_secret"
-  }'
-```
-
-Both methods set a `studio_admin_token` cookie (24-hour expiry).
-
-### Rate Limiting
-
-Failed email+password login attempts are rate limited:
-- **5 failed attempts** per email within 5 minutes triggers a lockout
-- **15 minute lockout** after exceeding the limit
-- Rate limiting is **case-insensitive** (Test@Example.com and test@example.com share a counter)
-- Successful login **clears** the failed attempt counter
-- Admin secret login is **not rate limited**
-
-## Logout
-
-### Web UI
-Click **Log out** in the studio header.
-
-### API
-```bash
-curl -X POST http://localhost:8000/api/logout \
-  --cookie "studio_admin_token=YOUR_SESSION_TOKEN"
-```
-
-Logout invalidates the session in the database and clears the cookie.
-
-## Environment Variables
-
-Required configuration in `.env`:
-
-```bash
-# Master secret (required, min 32 chars)
-ADMIN_SECRET=your-secret-here-at-least-32-characters
-
-# Base URL for invite/reset links (default: http://localhost:3000)
-# Production: set to your server's public URL
-PUBLIC_BASE_URL=http://161.35.227.250
-# Or with HTTPS: PUBLIC_BASE_URL=https://your-domain.com
-
-# Session cookie Secure flag (default: false)
-# Set to 'true' when HTTPS is enabled
-SESSION_COOKIE_SECURE=false
-```
-
-See `.env.example` for all configuration options.
-
-## Security Notes
-
-- Passwords are hashed with **bcrypt** (cost factor 12)
-- Invite/reset tokens are hashed with **SHA256** before storage
-- Tokens are **single-use** and expire after 72 hours
-- Session tokens are **HMAC-signed** with SHA256
-- Sessions have a **24-hour TTL** and are stored in the database
-- Rate limiting protects against brute-force attacks
-- The `SESSION_COOKIE_SECURE` flag should be enabled when HTTPS is available
-
-## Migration from Admin Secret Only
-
-If you're upgrading from the legacy admin-secret-only authentication:
-
-1. Ensure `ADMIN_SECRET` is set in your `.env` file
-2. Set `PUBLIC_BASE_URL` to your server's public URL (e.g., `http://161.35.227.250`)
-3. Create admin users for Jack and Claire:
-   ```bash
-   docker compose exec api python3 scripts/manage_user.py create \
-     --name "Jack" --email jack@example.com --role admin --invite
-   docker compose exec api python3 scripts/manage_user.py create \
-     --name "Claire" --email claire@example.com --role admin --invite
-   ```
-4. Send them their invite links to set passwords
-5. Create member users for other team members as needed
-6. Admin secret remains valid for automated scripts and CLI operations
+### Security Principles
+1. **Fail Closed**: New routes without explicit auth default to admin-only
+2. **Explicit Opt-In**: Member access requires explicit `.allow_members = True`
+3. **No Bypass**: Upload token only works for specific upload endpoints
+4. **Rate Limiting**: Login attempts are rate-limited per email
+5. **Secure Sessions**: httpOnly cookies, 7-day expiry, server-side revocation
+6. **Invite-Based Onboarding**: Users set their own passwords via 72h single-use tokens
