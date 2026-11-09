@@ -414,9 +414,11 @@ async def test_cli_invite_mode(db_path):
     )
     
     assert result.returncode == 0, result.stderr
-    assert "User created successfully" in result.stdout
-    assert "Invite Link" in result.stdout
+    # With --invite, output should be ONLY the invite URL
     assert "/set-password?token=" in result.stdout
+    # Should NOT contain user details or "User created" message
+    assert "User created" not in result.stdout
+    assert "API Token" not in result.stdout
 
 
 @pytest.mark.asyncio
