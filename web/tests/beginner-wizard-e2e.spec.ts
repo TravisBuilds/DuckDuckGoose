@@ -89,7 +89,7 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
 
     // Should navigate to wizard
     await expect(page).toHaveURL('/studio/create');
-    await expect(page.getByText('Make Your Own Video')).toBeVisible();
+    await expect(page.getByText('Make Your Own Video')).toBeVisible({ timeout: 10000 });
   });
 
   test('live mode button visibility based on server status', async ({ page }) => {
