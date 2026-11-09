@@ -1634,6 +1634,9 @@ async def get_episode_state(
     )
 
 
+# Mark get_episode_state to allow members
+get_episode_state.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/assembly/accept")
 async def accept_assembly_qc(
     episode_id: str,
@@ -1918,6 +1921,9 @@ async def approve_gate(
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
 
 
+# Mark approve_gate to allow members
+approve_gate.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/story-shape")
 async def get_story_shape(
     episode_id: str,
@@ -1963,6 +1969,9 @@ async def get_story_shape(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching story shape: {str(e)}")
 
+
+# Mark get_story_shape to allow members
+get_story_shape.allow_members = True
 
 @app.put("/api/episodes/{episode_id}/story-shape")
 async def update_story_shape(
@@ -2016,6 +2025,9 @@ async def update_story_shape(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating story shape: {str(e)}")
 
+
+# Mark update_story_shape to allow members
+update_story_shape.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)
 async def get_budget_status(
@@ -2075,6 +2087,9 @@ async def get_budget_status(
         balance=summary["balance"],
     )
 
+
+# Mark get_budget_status to allow members
+get_budget_status.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/jobs")
 async def get_job_ledger(
@@ -2965,6 +2980,9 @@ async def get_shots(
     }
 
 
+# Mark get_shots to allow members
+get_shots.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/approve")
 async def approve_still(
     episode_id: str,
@@ -3094,6 +3112,9 @@ async def approve_still(
         raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
 
 
+# Mark approve_still to allow members
+approve_still.allow_members = True
+
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
     """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
     if not temporal_client:
@@ -3157,6 +3178,9 @@ async def reject_still(
     return {"success": True, "shot_id": shot_id, "message": "Still rejected", "reason": reason,
             "result": result}
 
+
+# Mark reject_still to allow members
+reject_still.allow_members = True
 
 class AcceptClipRequest(BaseModel):
     reason: str = Field(..., min_length=1, description="Why the needs_review clip is kept as is (audited)")
@@ -3228,6 +3252,9 @@ async def accept_clip(
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
             "message": f"Clip {shot_id} accepted; the edit is rebuilt with it"}
 
+
+# Mark accept_clip to allow members
+accept_clip.allow_members = True
 
 async def _g2_headcount(episode_id: str, handle, overrides: dict[str, str] | None = None) -> dict:
     """GAP-27 headcount report over the kept still of every shot (fails closed if unreadable)."""
@@ -3332,6 +3359,9 @@ async def get_still_versions(
         raise HTTPException(status_code=503, detail=f"Could not read still versions: {e}")
 
 
+# Mark get_still_versions to allow members
+get_still_versions.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/select-still")
 async def select_still(
     episode_id: str,
@@ -3370,6 +3400,9 @@ async def select_still(
             "message": f"{shot_id} will use still v{request.version} at G2 (G2 itself is NOT approved)"}
 
 
+# Mark select_still to allow members
+select_still.allow_members = True
+
 class ResyncPlansRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000, description="Why the package is re-synced (audited)")
 
@@ -3399,6 +3432,9 @@ async def resync_plans(
     return {"success": True, "episode_id": episode_id, "result": result,
             "message": f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"}
 
+
+# Mark resync_plans to allow members
+resync_plans.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/clip-plans")
 async def get_clip_plans(
@@ -3430,6 +3466,9 @@ async def get_clip_plans(
         row["lint_problems"] = lint_problems(episode_id, sid, row.get("clip_prompt") or "", meta, [], live, kind="clip")
     return plans
 
+
+# Mark get_clip_plans to allow members
+get_clip_plans.allow_members = True
 
 async def _paid_gate_problem(episode_id: str) -> str | None:
     """GAP-65: the submit-time live gates (smoke test freshness, GC.01 manual balance freshness),
@@ -3565,6 +3604,9 @@ async def retry_clip(
 
 _REF_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
+
+# Mark retry_clip to allow members
+retry_clip.allow_members = True
 
 class RecomposeRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000, description="Who asked and why (audited)")
@@ -3802,6 +3844,9 @@ _gap79_log = __import__("logging").getLogger("hfvg.api.snapshots")
 SNAPSHOT_SAVE_INTERVAL_S = float(os.getenv("SNAPSHOT_SAVE_INTERVAL_S", "300"))
 
 
+# Mark reopen_episode to allow members
+reopen_episode.allow_members = True
+
 def _episodes_root() -> Path:
     return Path(os.getenv("EPISODES_DIR", "./data/episodes"))
 
@@ -3958,6 +4003,9 @@ async def reopen_episode_from_saved(
             "run_id": new.result_run_id,
             "message": f"{episode_id} reopened from saved state ({source}) at G_FINAL_CUT (final cut un-approved)"}
 
+
+# Mark reopen_episode_from_saved to allow members
+reopen_episode_from_saved.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/recompose-headcount")
 async def get_recompose_headcount(
@@ -4281,6 +4329,9 @@ async def get_gates(
     }
 
 
+# Mark get_gates to allow members
+get_gates.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
@@ -4320,6 +4371,9 @@ async def get_audit_trail(
     }
 
 
+# Mark get_audit_trail to allow members
+get_audit_trail.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/set-live")
 async def set_live_mode_endpoint(
     episode_id: str,
@@ -4350,6 +4404,9 @@ async def set_live_mode_endpoint(
         "message": "Episode switched to LIVE mode. Paid generation enabled.",
     }
 
+
+# Mark set_live_mode_endpoint to allow members
+set_live_mode_endpoint.allow_members = True
 
 class RetryShotRequest(BaseModel):
     prompt_append: str | None = Field(None, max_length=1000,
@@ -4466,6 +4523,9 @@ async def retry_shot(
         raise HTTPException(status_code=500, detail=f"Error sending retry signal: {str(e)}")
 
 
+# Mark retry_shot to allow members
+retry_shot.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/set-dry")
 async def set_dry_mode_endpoint(
     episode_id: str,
@@ -4489,6 +4549,9 @@ async def set_dry_mode_endpoint(
         "message": "Episode switched to DRY-RUN mode. Paid generation disabled.",
     }
 
+
+# Mark set_dry_mode_endpoint to allow members
+set_dry_mode_endpoint.allow_members = True
 
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
@@ -5554,6 +5617,9 @@ async def preflight_episode(
     }
 
 
+# Mark preflight_episode to allow members
+preflight_episode.allow_members = True
+
 def offline_cost_estimate(shots: list[dict], pre_approved: set[str] | None = None) -> dict:
     """Offline USD estimate for a shot list (no provider call): the per-call estimates the dry
     submits reserve (hfvg.estimates): one start still per shot (none when the start still is
@@ -5653,6 +5719,9 @@ async def list_review_files(
     return {"episode_id": episode_id, "files": files}
 
 
+# Mark list_review_files to allow members
+list_review_files.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/files/{file_type}")
 async def get_review_file(
     episode_id: str,
@@ -5678,6 +5747,9 @@ async def get_review_file(
 
 _STILL_MEDIA_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 
+
+# Mark get_review_file to allow members
+get_review_file.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/shots/{shot_id}/still")
 async def get_local_still(
@@ -5713,6 +5785,9 @@ async def get_local_still(
     return FileResponse(path=path, media_type=_STILL_MEDIA_TYPES[path.suffix.lower()], content_disposition_type="inline")
 
 
+# Mark get_local_still to allow members
+get_local_still.allow_members = True
+
 class FinalCutRejectRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000)
 
@@ -5746,6 +5821,9 @@ async def reject_final_cut(
     await _audit(episode_id, "reject_g_final_cut", request.reason.strip())
     return {"success": True, "episode_id": episode_id, "message": "Final cut rejected", "reason": request.reason.strip()}
 
+
+# Mark reject_final_cut to allow members
+reject_final_cut.allow_members = True
 
 class RaiseCapRequest(BaseModel):
     new_cap: int = Field(..., gt=0, description="New credit cap for the run (credits)")
