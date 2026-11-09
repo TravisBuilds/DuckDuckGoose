@@ -1577,13 +1577,10 @@ async def get_episode_state(
     """
     Get current episode workflow state.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization (member or admin).
     """
-    # Accept either Bearer token or session cookie
-    if studio_admin_token:
-        await verify_admin_cookie(studio_admin_token)
-    else:
-        verify_admin_secret(authorization)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
@@ -2036,15 +2033,12 @@ async def get_budget_status(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get budget status for an episode.
+    Get budget status for an episode (read-only). Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    # Accept either Bearer token or session cookie
-    if studio_admin_token:
-        await verify_admin_cookie(studio_admin_token)
-    else:
-        verify_admin_secret(authorization)
+    # Member or admin access (read-only view of episode budget)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     validate_episode_id(episode_id)
     
@@ -2987,14 +2981,16 @@ get_shots.allow_members = True
 async def approve_still(
     episode_id: str,
     shot_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Approve still for a shot (sends signal to workflow).
+    Approve still for a shot (sends signal to workflow). Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Validate shot_id format
@@ -4335,14 +4331,16 @@ get_gates.allow_members = True
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get audit trail for episode.
+    Get audit trail for episode. Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -4378,14 +4376,16 @@ get_audit_trail.allow_members = True
 async def set_live_mode_endpoint(
     episode_id: str,
     request: SetLiveModeRequest,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Switch episode to live (paid) mode with confirmation.
+    Switch episode to live (paid) mode with confirmation. Member or admin.
     
-    Requires: Cookie auth + confirmation string "ENABLE_LIVE_MODE"
+    Requires: Auth + confirmation string "ENABLE_LIVE_MODE"
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if request.confirmation != "ENABLE_LIVE_MODE":
@@ -4529,14 +4529,16 @@ retry_shot.allow_members = True
 @app.post("/api/episodes/{episode_id}/set-dry")
 async def set_dry_mode_endpoint(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Switch episode to dry-run mode (disable paid generation).
+    Switch episode to dry-run mode (disable paid generation). Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Set live mode to false in database

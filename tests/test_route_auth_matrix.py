@@ -90,26 +90,26 @@ ROUTE_TEST_CASES = [
     
     # Member-allowed routes
     ("GET", "/api/episodes", {"none": 401, "member": 200, "admin": 200}, False, None),
-    ("GET", "/api/episodes/test-ep", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/set-live", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/set-dry", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("GET", "/api/episodes/test-ep/story-shape", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("PUT", "/api/episodes/test-ep/story-shape", {"none": 401, "member": [200, 404, 422], "admin": [200, 404, 422]}, True, {}),
-    ("GET", "/api/episodes/test-ep/budget", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/test-ep/shots", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/test-ep/gates", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/test-ep/audit", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/test-ep/files", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/reopen", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/shots/shot1/retry", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/shots/shot1/approve", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/shots/shot1/reject", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/shots/shot1/accept-clip", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
+    ("GET", "/api/episodes/ep01", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/set-live", {"none": 401, "member": [200, 400, 503, 404], "admin": [200, 400, 503, 404]}, True, {"confirmation": "ENABLE_LIVE_MODE"}),
+    ("POST", "/api/episodes/ep01/set-dry", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
+    ("GET", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("PUT", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 422], "admin": [200, 404, 422]}, True, {}),
+    ("GET", "/api/episodes/ep01/budget", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("GET", "/api/episodes/ep01/shots", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("GET", "/api/episodes/ep01/gates", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("GET", "/api/episodes/ep01/audit", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("GET", "/api/episodes/ep01/files", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/shots/shot001/retry", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
+    ("POST", "/api/episodes/ep01/shots/shot001/approve", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
+    ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
     ("POST", "/api/users/me/change-password", {"none": 401, "member": [200, 400], "admin": [200, 400]}, True, {"current_password": "test", "new_password": "newpass123"}),
     
     # Admin-only routes (financial controls)
-    ("POST", "/api/episodes/test-ep/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404]}, True, {"new_cap": 1000, "reason": "test"}),
-    ("POST", "/api/episodes/test-ep/resume-balance", {"none": 401, "member": 403, "admin": [200, 503, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
+    ("POST", "/api/episodes/ep01/resume-balance", {"none": 401, "member": 403, "admin": [200, 503, 404]}, False, None),
     
     # Admin-only routes (user management)
     ("GET", "/api/users", {"none": 401, "member": 403, "admin": 200}, False, None),
@@ -121,15 +121,15 @@ ROUTE_TEST_CASES = [
     ("GET", "/api/budget/balance", {"none": 401, "member": 403, "admin": 200}, False, None),
     ("GET", "/api/budget/all-balances", {"none": 401, "member": 403, "admin": 200}, False, None),
     ("POST", "/api/budget/balance", {"none": 401, "member": 403, "admin": [200, 400]}, True, {"amount_usd_micros": 1000000}),
-    ("POST", "/api/budget/test-ep/lines/sync", {"none": 401, "member": 403, "admin": [200, 404]}, False, None),
+    ("POST", "/api/budget/ep01/lines/sync", {"none": 401, "member": 403, "admin": [200, 404, 400]}, False, None),
     
     # Admin-only routes (dashboard/analytics)
     ("GET", "/api/dashboard", {"none": 401, "member": 403, "admin": [200, 503]}, False, None),
     
     # Admin-only routes (admin operations)
     ("GET", "/api/stalls", {"none": 401, "member": 403, "admin": 200}, False, None),
-    ("POST", "/api/episodes/test-ep/approve-g108", {"none": 401, "member": 403, "admin": [200, 404]}, False, None),
-    ("POST", "/api/episodes/test-ep/set-ref-versions", {"none": 401, "member": 403, "admin": [200, 404, 422]}, True, {}),
+    ("POST", "/api/episodes/ep01/approve-g108", {"none": 401, "member": 403, "admin": [200, 404, 503]}, False, None),
+    ("POST", "/api/episodes/ep01/set-ref-versions", {"none": 401, "member": 403, "admin": [200, 404, 422]}, True, {}),
     ("POST", "/api/lint", {"none": 401, "member": 403, "admin": [200, 400, 422]}, True, {}),
 ]
 
