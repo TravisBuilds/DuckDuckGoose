@@ -20,7 +20,7 @@ async def db_path(tmp_path, monkeypatch):
     """Setup test database."""
     path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", path)
-    monkeypatch.setenv("STUDIO_BASE_URL", "http://localhost:3000")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://localhost:3000")
     
     from hfvg.studio_db import init_studio_db
     from hfvg.users import UserManager

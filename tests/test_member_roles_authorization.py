@@ -22,6 +22,7 @@ async def db_path(tmp_path, monkeypatch):
     from hfvg.studio_db import init_studio_db
     from hfvg.users import UserManager
     from hfvg.budget import BudgetLedger
+    from hfvg.cost_tracking import CostTracker
     
     await init_studio_db(path)
     
@@ -30,6 +31,10 @@ async def db_path(tmp_path, monkeypatch):
     
     ledger = BudgetLedger(path)
     await ledger.init_db()
+    
+    # Initialize cost tracker (adds actual_usd_micros column to job_ledger)
+    cost_tracker = CostTracker(path)
+    await cost_tracker.init_db()
     
     # Create an admin user
     admin = await user_mgr.create_user(

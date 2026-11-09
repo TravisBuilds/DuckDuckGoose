@@ -178,6 +178,11 @@ async def _ensure_sessions_table(db) -> None:
         pass  # Column already exists
 
 
+def get_cookie_secure_flag() -> bool:
+    """Get session cookie Secure flag from environment (default: False)."""
+    return os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+
+
 async def create_session(user_id: str = "admin", role: str = "admin") -> str:
     """Create a signed session token (24 h expiry) and store it in the database."""
     import aiosqlite
@@ -869,7 +874,7 @@ async def login(request: LoginRequest, response: Response):
         key="studio_admin_token",
         value=session_token,
         httponly=True,
-        secure=False,  # Set True in production with HTTPS
+        secure=get_cookie_secure_flag(),
         samesite="lax",
         max_age=86400,  # 24 hours
     )
@@ -2644,6 +2649,12 @@ async def create_user(
             # Build the set-password URL (frontend will render the form)
             base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
             invite_url = f"{base_url}/set-password?token={token}"
+            # If no password provided, generate invite link
+        if not request.password:
+            token = await user_mgr.create_password_reset_token(user["user_id"])
+            # Build the set-password URL (frontend will render the form)
+            base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
+            invite_url = f"{base_url}/set-password?token={token}"
             response["invite_url"] = invite_url
             response["message"] = "User created. Share the invite link (valid for 72 hours)."
         
@@ -2714,7 +2725,7 @@ async def reset_user_password(
     token = await user_mgr.create_password_reset_token(user_id)
     
     # Build the set-password URL
-    base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+    base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
     reset_url = f"{base_url}/set-password?token={token}"
     
     return {

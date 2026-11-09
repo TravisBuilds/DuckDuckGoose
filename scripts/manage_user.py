@@ -84,7 +84,7 @@ async def create_user(args):
         if args.invite:
             # Generate invite link
             token = await user_mgr.create_password_reset_token(user['user_id'])
-            base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+            base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
             invite_url = f"{base_url}/set-password?token={token}"
             
             print("🔗 Invite Link (valid for 72 hours):")
@@ -123,7 +123,7 @@ async def reset_password(args):
         
         # Generate reset token
         token = await user_mgr.create_password_reset_token(user_id)
-        base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+        base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
         reset_url = f"{base_url}/set-password?token={token}"
         
         print(f"✓ Password reset link generated for {args.email}")
