@@ -649,12 +649,13 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             # Approve G1 to trigger shot workflow start
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
-            # Wait for shot workflow to actually start and shot_attempts to be set
+            # Wait for shot workflow to complete (race-free: get version from result, not query)
             for _ in range(50):
                 try:
                     state = await handle.query(EpisodeWorkflowV2.get_state)
-                    shot_attempts = state.get("shot_attempts", {}).get("A01", 0)
-                    if shot_attempts == 2:
+                    shot_results = state.get("shot_results", {})
+                    if "A01" in shot_results:
+                        # Shot completed, result is available
                         break
                 except:
                     pass
@@ -669,10 +670,12 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             shot_attempts = state.get("shot_attempts", {}).get("A01", 0)
             assert shot_attempts == 2, f"Expected shot_attempts 2, got {shot_attempts}"
             
-            # Query the shot workflow to get the version it received
-            shot_handle = env.client.get_workflow_handle("ep_test-shot-A01")
-            shot_version = await shot_handle.query("get_version")
-            assert shot_version == 2, f"Expected shot_plan version 2, got {shot_version}"
+            # Get version from completed shot result (race-free: no query on potentially-completing workflow)
+            shot_results = state.get("shot_results", {})
+            assert "A01" in shot_results, f"Shot A01 should have completed, got results: {list(shot_results.keys())}"
+            shot_result = shot_results["A01"]
+            shot_version = shot_result.get("version")
+            assert shot_version == 2, f"Expected shot result version 2, got {shot_version}"
             
             await handle.terminate("test done")
 

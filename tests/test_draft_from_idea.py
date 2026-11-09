@@ -347,3 +347,25 @@ def test_draft_from_idea_unauthorized(monkeypatch):
     )
     
     assert response.status_code == 401
+
+
+def test_draft_llm_fake_refused_in_live_mode(client, monkeypatch):
+    """Test that DRAFT_LLM_FAKE=1 is refused when DRY_RUN=false (live mode)."""
+    # Set DRAFT_LLM_FAKE=1 and DRY_RUN=false
+    monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
+    monkeypatch.setenv("DRY_RUN", "false")
+    
+    response = client.post(
+        "/api/episodes/draft-from-idea",
+        json={
+            "idea": "A robot discovers a glowing book in an abandoned library",
+            "target_duration": 60,
+        }
+    )
+    
+    # Should refuse with 500 error
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert "DRAFT_LLM_FAKE" in detail
+    # Should mention it's test-only or that DRY_RUN must be true
+    assert "test" in detail.lower() or "dry" in detail.lower()
