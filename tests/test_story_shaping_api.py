@@ -1,0 +1,289 @@
+"""API tests for story shaping endpoints."""
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from hfvg.models import StoryBeat, StoryShape
+
+
+@pytest.fixture
+def mock_temporal_client():
+    """Mock Temporal client for API tests."""
+    client = MagicMock()
+    workflow_info = MagicMock()
+    workflow_info.id = "ep99"
+    
+    async def mock_list_workflows(query):
+        yield workflow_info
+    
+    client.list_workflows = mock_list_workflows
+    return client
+
+
+@pytest.fixture
+def test_story_shape():
+    """Create a test story shape."""
+    from hfvg.models import Act
+    
+    return StoryShape(
+        logline="A duck's adventure",
+        hook="Duck discovers mystery",
+        hook_deadline_s=5.0,
+        acts=[
+            Act(act_number=1, description="Setup", target_duration_s=30.0, beat_ids=["beat_1"]),
+            Act(act_number=2, description="Confrontation", target_duration_s=60.0, beat_ids=["beat_2"]),
+            Act(act_number=3, description="Resolution", target_duration_s=30.0, beat_ids=["beat_3"]),
+        ],
+        beats=[
+            StoryBeat(
+                beat_id="beat_1",
+                description="Setup",
+                emotional_tone="curiosity",
+                target_duration_s=30.0,
+                shot_ids=["A01"],
+            ),
+            StoryBeat(
+                beat_id="beat_2",
+                description="Conflict",
+                emotional_tone="tension",
+                target_duration_s=60.0,
+                shot_ids=["A02", "A03"],
+            ),
+            StoryBeat(
+                beat_id="beat_3",
+                description="Resolution",
+                emotional_tone="joy",
+                target_duration_s=30.0,
+                shot_ids=["A04"],
+            ),
+        ],
+        midpoint_beat_id="beat_2",
+        payoff="Mystery resolved",
+        payoff_references_hook=True,
+        total_duration_s=120.0,
+    )
+
+
+def test_get_story_shape(mock_temporal_client, test_story_shape, monkeypatch):
+    """Test GET /api/episodes/{id}/story-shape endpoint."""
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_query(query_name):
+            return {
+                "story_shape": test_story_shape.model_dump(mode='json'),
+                "story_shape_critique": {
+                    "score": 85,
+                    "issues": [],
+                    "passes": True,
+                },
+                "story_shape_revision": None,
+                "story_shape_log": [{"action": "generated"}],
+                "approved_story_shape": False,
+            }
+        
+        handle.query = mock_query
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        client = TestClient(app)
+        response = client.get(
+            "/api/episodes/ep99/story-shape",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert data["episode_id"] == "ep99"
+        assert data["story_shape"] is not None
+        assert data["story_shape"]["logline"] == test_story_shape.logline
+        assert data["critique"]["score"] == 85
+        assert data["approved"] is False
+
+
+def test_approve_story_shape(mock_temporal_client, monkeypatch):
+    """Test POST /api/episodes/{id}/approve with story_shape gate_id."""
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, *args):
+            return {
+                "status": "approved",
+                "logline": "A duck's adventure",
+                "score": 85,
+            }
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        client = TestClient(app)
+        response = client.post(
+            "/api/episodes/ep99/approve",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+            json={"gate_id": "story_shape", "note": "Looks good"},
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert data["success"] is True
+        assert data["gate_id"] == "story_shape"
+        assert data["result"]["status"] == "approved"
+
+
+def test_approve_story_shape_without_auth(monkeypatch):
+    """Test that story shape approval requires authentication."""
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    
+    client = TestClient(app)
+    response = client.post(
+        "/api/episodes/ep99/approve",
+        json={"gate_id": "story_shape"},
+    )
+    
+    assert response.status_code == 401
+
+
+def test_get_story_shape_not_found(mock_temporal_client, monkeypatch):
+    """Test GET story shape for non-existent episode."""
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        async def mock_list_workflows_empty(query):
+            # Empty async generator - no workflows found
+            if False:
+                yield
+        
+        mock_temporal_client.list_workflows = mock_list_workflows_empty
+        
+        client = TestClient(app)
+        response = client.get(
+            "/api/episodes/ep00/story-shape",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+        )
+        
+        assert response.status_code == 404
+
+
+def test_approve_story_shape_validator_fails(mock_temporal_client, monkeypatch):
+    """Test that story shape approval can be refused by validator."""
+    from temporalio.exceptions import ApplicationError
+    
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, *args):
+            raise ApplicationError(
+                "Cannot approve story shape: story shape not generated yet",
+                non_retryable=True,
+            )
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        client = TestClient(app)
+        response = client.post(
+            "/api/episodes/ep99/approve",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+            json={"gate_id": "story_shape"},
+        )
+        
+        assert response.status_code == 409
+        assert "story shape" in response.json()["detail"].lower()
+
+
+def test_approve_story_shape_with_story_alias(mock_temporal_client, monkeypatch):
+    """Test that 'story' alias maps correctly to approve_story_shape method."""
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, *args):
+            assert update_name == "approve_story_shape", f"Expected approve_story_shape, got {update_name}"
+            return {
+                "status": "approved",
+                "logline": "Test story",
+                "score": 85,
+            }
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        client = TestClient(app)
+        response = client.post(
+            "/api/episodes/ep99/approve",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+            json={"gate_id": "story"},  # Using 'story' alias
+        )
+        
+        assert response.status_code == 200
+
+
+def test_update_story_shape(mock_temporal_client, test_story_shape, monkeypatch):
+    """Test PUT /api/episodes/{id}/story-shape endpoint."""
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+    
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+    
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        handle = MagicMock()
+        
+        async def mock_execute_update(update_name, story_dict):
+            return {
+                "story_shape": story_dict,
+                "critique": {"score": 90, "passes": True},
+                "needs_revision": False,
+            }
+        
+        handle.execute_update = mock_execute_update
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        
+        client = TestClient(app)
+        response = client.put(
+            "/api/episodes/ep99/story-shape",
+            headers={"Authorization": f"Bearer {admin_secret}"},
+            json=test_story_shape.model_dump(mode='json'),
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["critique"]["score"] == 90

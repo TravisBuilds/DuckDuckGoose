@@ -139,3 +139,119 @@ class CreditTransaction(BaseModel):
     tx_type: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     balance_after: float
+
+
+class BeatTiming(BaseModel):
+    """Timing specification for a story beat."""
+
+    beat_id: str
+    target_duration_s: float
+    description: str
+
+
+class StoryBeat(BaseModel):
+    """A single story beat with emotional arc and shot assignments."""
+
+    beat_id: str
+    description: str
+    emotional_tone: str
+    target_duration_s: float
+    shot_ids: list[str] = Field(default_factory=list)
+
+
+class Act(BaseModel):
+    """A narrative act (typically 3 acts for a story)."""
+    act_number: int = Field(..., ge=1, le=5)
+    description: str
+    target_duration_s: float = Field(..., gt=0)
+    beat_ids: list[str] = Field(default_factory=list)
+
+
+class ActCritique(BaseModel):
+    """Critique for a single act."""
+    act_number: int
+    issues: list[str] = Field(default_factory=list)
+    duration_ok: bool = True
+
+
+class StoryShape(BaseModel):
+    """Story structure for a ~2-minute episode."""
+
+    logline: str
+    hook: str
+    hook_deadline_s: float = 5.0
+    acts: list[Act] = Field(..., min_length=1)
+    beats: list[StoryBeat]
+    midpoint_beat_id: str
+    payoff: str
+    payoff_references_hook: bool = False
+    total_duration_s: float = 120.0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    version: int = 1
+
+    def validate_structure(self) -> list[str]:
+        """Validate story structure and return list of issues."""
+        from hfvg.config import config
+        
+        issues = []
+        
+        if len(self.hook) < 10:
+            issues.append("Hook is too short (minimum 10 characters)")
+        
+        # Validate acts
+        if not self.acts:
+            issues.append("No acts defined")
+        else:
+            act_durations = sum(act.target_duration_s for act in self.acts)
+            if abs(act_durations - self.total_duration_s) > 5.0:
+                issues.append(
+                    f"Act durations ({act_durations:.1f}s) don't match target "
+                    f"({self.total_duration_s:.1f}s), difference: "
+                    f"{abs(act_durations - self.total_duration_s):.1f}s"
+                )
+        
+        if len(self.beats) < 3:
+            issues.append("Story must have at least 3 beats for 3-act structure")
+        
+        beat_durations = sum(beat.target_duration_s for beat in self.beats)
+        if abs(beat_durations - self.total_duration_s) > 5.0:
+            issues.append(
+                f"Beat durations ({beat_durations:.1f}s) don't match target "
+                f"({self.total_duration_s:.1f}s), difference: "
+                f"{abs(beat_durations - self.total_duration_s):.1f}s"
+            )
+        
+        if self.midpoint_beat_id not in [b.beat_id for b in self.beats]:
+            issues.append(f"Midpoint beat '{self.midpoint_beat_id}' not found in beats")
+        
+        # Dead beats: use configurable threshold (default 20s)
+        max_beat_duration = config.STORY_SHAPING_MAX_BEAT_DURATION_S
+        dead_beats = [b for b in self.beats if b.target_duration_s > max_beat_duration]
+        if dead_beats:
+            issues.append(
+                f"Beats too long (>{max_beat_duration:.0f}s): " + ", ".join(
+                    f"{b.beat_id} ({b.target_duration_s:.1f}s)" for b in dead_beats
+                )
+            )
+        
+        unassigned_beats = [b for b in self.beats if not b.shot_ids]
+        if unassigned_beats:
+            issues.append(
+                f"Beats without shots: " + ", ".join(b.beat_id for b in unassigned_beats)
+            )
+        
+        return issues
+
+
+class StoryShapeCritique(BaseModel):
+    """Critique and scoring of a story shape."""
+
+    score: int = Field(..., ge=0, le=100)
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    hook_present_early: bool = False
+    payoff_references_hook: bool = False
+    durations_fit: bool = False
+    all_beats_have_shots: bool = False
+    no_dead_beats: bool = False
+    passes: bool = False

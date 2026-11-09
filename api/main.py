@@ -600,6 +600,7 @@ class StartEpisodeRequest(BaseModel):
     shots_subset: list[str] | None = Field(None, description="Subset of shot IDs to run (e.g., ['A01', 'A02'] for 2-shot canary)")
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
     attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
+    enable_story_shaping: bool = Field(False, description="Enable story-shaping stage before stills generation (default: false)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -1386,7 +1387,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
@@ -1642,8 +1643,26 @@ async def approve_gate(
             # Map gate_id to signal method
             signal_name = f"approve_{request.gate_id.lower()}"
             
+            # For story_shape approval
+            if request.gate_id.lower() in ["story_shape", "story"]:
+                try:
+                    result = await handle.execute_update("approve_story_shape")
+                    return {
+                        "success": True,
+                        "episode_id": episode_id,
+                        "gate_id": request.gate_id,
+                        "message": f"Approval sent for gate {request.gate_id}",
+                        "note": request.note,
+                        "result": result,
+                    }
+                except (WorkflowUpdateFailedError, ApplicationError) as e:
+                    cause = getattr(e, "cause", None) or e
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Story shape approval refused: {str(cause)}"
+                    )
             # For G1 approval, use update (with validator) to check estimates availability
-            if request.gate_id.lower() in ["g1_shot_plan", "g1"]:
+            elif request.gate_id.lower() in ["g1_shot_plan", "g1"]:
                 try:
                     result = await handle.execute_update(
                         signal_name,
@@ -1729,6 +1748,105 @@ async def approve_gate(
         raise  # keep 404/409 - do not turn them into 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
+
+
+@app.get("/api/episodes/{episode_id}/story-shape")
+async def get_story_shape(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Get story shape for an episode.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    try:
+        workflows = temporal_client.list_workflows(
+            f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
+        )
+        
+        async for workflow_info in workflows:
+            if "-shot-" in workflow_info.id:
+                continue
+            
+            handle = temporal_client.get_workflow_handle(workflow_info.id)
+            state = await handle.query("get_state")
+            
+            return {
+                "episode_id": episode_id,
+                "story_shape": state.get("story_shape"),
+                "critique": state.get("story_shape_critique"),
+                "revision": state.get("story_shape_revision"),
+                "log": state.get("story_shape_log"),
+                "approved": state.get("approved_story_shape", False),
+            }
+        
+        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching story shape: {str(e)}")
+
+
+@app.put("/api/episodes/{episode_id}/story-shape")
+async def update_story_shape(
+    episode_id: str,
+    story_shape: dict,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Update story shape and re-critique.
+    
+    Requires: Authorization header with admin secret OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    validate_episode_id(episode_id)
+    
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    
+    try:
+        workflows = temporal_client.list_workflows(
+            f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
+        )
+        
+        async for workflow_info in workflows:
+            if "-shot-" in workflow_info.id:
+                continue
+            
+            handle = temporal_client.get_workflow_handle(workflow_info.id)
+            
+            try:
+                result = await handle.execute_update("update_story_shape", story_shape)
+                return {
+                    "success": True,
+                    "episode_id": episode_id,
+                    "story_shape": result["story_shape"],
+                    "critique": result["critique"],
+                    "needs_revision": result["needs_revision"],
+                }
+            except (WorkflowUpdateFailedError, ApplicationError) as e:
+                cause = getattr(e, "cause", None) or e
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Story shape update refused: {str(cause)}"
+                )
+        
+        raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating story shape: {str(e)}")
 
 
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)
@@ -2503,6 +2621,7 @@ async def get_shots(
     
     import aiosqlite
     
+    # Get shots from database
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
             """SELECT shot_id, status, still_url, clip_url, qc_results, retries, prompt
@@ -2522,6 +2641,27 @@ async def get_shots(
                     "prompt": row[6],
                     "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
                 })
+    
+    # Merge beat context from workflow state if available
+    try:
+        handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+        state = await handle.query("get_state")
+        
+        # Get beat context from shot_beats map (exposed by get_state query)
+        shot_beats = state.get("shot_beats", {})
+        
+        # Merge into shots
+        for shot in shots:
+            shot_id = shot["shot_id"]
+            if shot_id in shot_beats:
+                beat_info = shot_beats[shot_id]
+                if beat_info.get("beat_id"):
+                    shot["beat_id"] = beat_info["beat_id"]
+                    shot["beat_purpose"] = beat_info.get("beat_purpose")
+                    shot["beat_emotional_tone"] = beat_info.get("beat_emotional_tone")
+    except Exception:
+        # Workflow not running or no beat context; shots already complete without beat fields
+        pass
     
     return {
         "episode_id": episode_id,

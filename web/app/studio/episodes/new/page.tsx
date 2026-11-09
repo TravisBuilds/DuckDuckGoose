@@ -41,6 +41,7 @@ export default function NewEpisodePage() {
   const [refs, setRefs] = useState<Source>(empty);
   const [promptKit, setPromptKit] = useState<Source>(empty);
   const [dryRun, setDryRun] = useState(true);
+  const [enableStoryShaping, setEnableStoryShaping] = useState(false);
   const [busy, setBusy] = useState<'validate' | 'start' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lint, setLint] = useState<LintReport | null>(null);
@@ -100,7 +101,7 @@ export default function NewEpisodePage() {
     setBusy('start');
     setError(null);
     try {
-      await postJson('/api/episodes', { episode_id: episodeId, dry_run: dryRun });
+      await postJson('/api/episodes', { episode_id: episodeId, dry_run: dryRun, enable_story_shaping: enableStoryShaping });
       router.push(`/studio/episodes/${episodeId}`);
     } catch (e) {
       setError(e instanceof ApiError ? `Start refused (${e.status}): ${e.message}` : String(e));
@@ -221,6 +222,10 @@ export default function NewEpisodePage() {
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" data-testid="dry-run" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
             Dry run (no provider calls, no spend)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" data-testid="enable-story-shaping" checked={enableStoryShaping} onChange={(e) => setEnableStoryShaping(e.target.checked)} />
+            Enable story shaping (narrative arc before stills)
           </label>
           <button
             data-testid="start-button"
