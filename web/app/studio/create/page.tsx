@@ -35,6 +35,7 @@ function CreateVideoWizard() {
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
 
   const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) : null;
 
@@ -80,7 +81,7 @@ function CreateVideoWizard() {
     await handleGenerateDraft();
   };
 
-  const handleStartEpisode = async () => {
+  const handleStartEpisode = async (dryRun: boolean) => {
     if (!draft) return;
 
     setBusy(true);
@@ -110,7 +111,7 @@ function CreateVideoWizard() {
       // Start episode with story shaping enabled by default
       await postJson('/api/episodes', {
         episode_id: episodeId,
-        dry_run: true, // Default to dry run for safety
+        dry_run: dryRun,
         enable_story_shaping: true,
       });
 
@@ -329,28 +330,88 @@ function CreateVideoWizard() {
               </div>
             </div>
 
-            <div className="flex gap-4">
+            <div className="space-y-4">
               <button
                 onClick={handleRegenerateDraft}
                 disabled={busy}
-                className="flex-1 px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                className="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 data-testid="regenerate-button"
               >
                 Regenerate Plan
               </button>
-              <button
-                onClick={handleStartEpisode}
-                disabled={busy}
-                className="flex-1 px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50"
-                data-testid="start-button"
-              >
-                Start Production →
-              </button>
+
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
+                
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setShowLiveConfirm(true)}
+                    disabled={busy}
+                    className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-left"
+                    data-testid="make-video-button"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span>Make My Video (uses credits) →</span>
+                      {draft.cost_estimate && (
+                        <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
+                      )}
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => handleStartEpisode(true)}
+                    disabled={busy}
+                    className="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                    data-testid="preview-button"
+                  >
+                    Preview Only (free test run)
+                  </button>
+                </div>
+
+                <p className="text-xs text-gray-500 mt-3">
+                  Live mode uses real credits and charges you. Preview mode is always free.
+                </p>
+              </div>
             </div>
 
-            <p className="text-xs text-gray-500 text-center">
-              Starting in dry-run mode (no charges). You can switch to live mode after review.
-            </p>
+            {showLiveConfirm && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
+                  <h3 className="text-lg font-semibold mb-3">Confirm Live Production</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    This will start a live production run that uses real credits and charges you.
+                  </p>
+                  {draft.cost_estimate && (
+                    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3 mb-4">
+                      <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
+                        Estimated cost: {formatUsd(draft.cost_estimate.total_usd_micros)}
+                      </p>
+                      <p className="text-xs text-yellow-800 dark:text-yellow-300 mt-1">
+                        This is an estimate. Actual cost may vary based on retries and model usage.
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowLiveConfirm(false)}
+                      className="flex-1 px-4 py-2 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowLiveConfirm(false);
+                        handleStartEpisode(false);
+                      }}
+                      className="flex-1 px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
+                      data-testid="confirm-live-button"
+                    >
+                      Confirm & Start
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
 

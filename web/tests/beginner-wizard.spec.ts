@@ -1,15 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+const ADMIN_SECRET = process.env.E2E_ADMIN_SECRET || 'e2e-only-admin-secret-not-used-anywhere-else';
+
 test.describe('Beginner Video Creation Wizard', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock API endpoints
-    await page.route('**/api/health', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok', temporal: true }),
-      });
-    });
+    // Authenticate first
+    await page.goto('/login');
+    await page.locator('#secret').fill(ADMIN_SECRET);
+    await page.getByRole('button', { name: 'Access Console' }).click();
+    await expect(page).toHaveURL(/\/studio$/);
   });
 
   test('displays archetype selection on initial load', async ({ page }) => {
@@ -209,7 +208,7 @@ test.describe('Beginner Video Creation Wizard', () => {
   test('shows content policy reminder', async ({ page }) => {
     await page.goto('/studio/create?archetype=cozy-hangout');
 
-    await expect(page.getByText('Original Content Only')).toBeVisible();
+    await expect(page.getByText('✓ Original Content Only')).toBeVisible();
     await expect(page.getByText(/No copyrighted characters/i)).toBeVisible();
   });
 
@@ -227,6 +226,113 @@ test.describe('Beginner Video Creation Wizard', () => {
   test('shows link to advanced upload', async ({ page }) => {
     await page.goto('/studio/create');
 
-    await expect(page.getByText(/Upload files manually/i)).toBeVisible();
+    await expect(page.getByText('Advanced: Upload files manually →')).toBeVisible();
+  });
+
+  test('allows starting in live mode with confirmation', async ({ page }) => {
+    await page.route('**/api/episodes/draft-from-idea', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          episode_id: 'ep-xyz42',
+          beatmap: '# Test',
+          shots_json: { shots: [{ id: 'S01', prompt: 'test', count: 1, characters: [], wet: false, model: 'kling', duration: 5, end_frame: false, ref_keys: [] }] },
+          refs_json: { per_shot: { S01: [] } },
+          prompt_kit_json: { style: 'test', aspect_ratio: '9:16', characters: {}, sets: {} },
+          cost_estimate: { total_usd_micros: 5000000, per_shot: {} },
+          warnings: []
+        }),
+      });
+    });
+
+    await page.route('**/api/episodes/upload', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    await page.route('**/api/episodes/*/upload-shots', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    await page.route('**/api/episodes/*/upload-prompt-kit', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    let startedWithDryRun: boolean | null = null;
+    await page.route('**/api/episodes', async route => {
+      const postData = JSON.parse(route.request().postData() || '{}');
+      startedWithDryRun = postData.dry_run;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflow_id: 'wf1', run_id: 'run1', episode_id: 'ep-xyz42', message: 'started' }) });
+    });
+
+    await page.goto('/studio/create?archetype=cozy-hangout');
+    await page.getByTestId('idea-input').fill('Test for live mode');
+    await page.getByTestId('generate-button').click();
+
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 10000 });
+
+    // Click live mode button
+    await page.getByTestId('make-video-button').click();
+
+    // Should show confirmation dialog
+    await expect(page.getByText('Confirm Live Production')).toBeVisible();
+    await expect(page.getByText('Estimated cost: $5.00')).toBeVisible();
+
+    // Confirm
+    await page.getByTestId('confirm-live-button').click();
+
+    // Should start with dry_run: false
+    await expect(page).toHaveURL(/\/studio\/episodes\/ep-xyz42$/, { timeout: 5000 });
+    expect(startedWithDryRun).toBe(false);
+  });
+
+  test('allows starting in preview mode without confirmation', async ({ page }) => {
+    await page.route('**/api/episodes/draft-from-idea', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          episode_id: 'ep-abc99',
+          beatmap: '# Test',
+          shots_json: { shots: [{ id: 'S01', prompt: 'test', count: 1, characters: [], wet: false, model: 'kling', duration: 5, end_frame: false, ref_keys: [] }] },
+          refs_json: { per_shot: { S01: [] } },
+          prompt_kit_json: { style: 'test', aspect_ratio: '9:16', characters: {}, sets: {} },
+          cost_estimate: { total_usd_micros: 3000000, per_shot: {} },
+          warnings: []
+        }),
+      });
+    });
+
+    await page.route('**/api/episodes/upload', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    await page.route('**/api/episodes/*/upload-shots', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    await page.route('**/api/episodes/*/upload-prompt-kit', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    let startedWithDryRun: boolean | null = null;
+    await page.route('**/api/episodes', async route => {
+      const postData = JSON.parse(route.request().postData() || '{}');
+      startedWithDryRun = postData.dry_run;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflow_id: 'wf2', run_id: 'run2', episode_id: 'ep-abc99', message: 'started' }) });
+    });
+
+    await page.goto('/studio/create?archetype=cozy-hangout');
+    await page.getByTestId('idea-input').fill('Test for preview mode');
+    await page.getByTestId('generate-button').click();
+
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 10000 });
+
+    // Click preview button (no confirmation needed)
+    await page.getByTestId('preview-button').click();
+
+    // Should start with dry_run: true
+    await expect(page).toHaveURL(/\/studio\/episodes\/ep-abc99$/, { timeout: 5000 });
+    expect(startedWithDryRun).toBe(true);
   });
 });

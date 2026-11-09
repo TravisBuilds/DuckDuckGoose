@@ -5265,17 +5265,39 @@ async def draft_from_idea(
             detail="Story writing assistant not configured. Set OPENAI_API_KEY environment variable."
         )
     
-    # Generate a unique episode ID
+    # Generate a unique episode ID (checked against DB and filesystem)
     import random
-    import sqlite3
-    episode_num = random.randint(10, 99)
-    episode_id = f"ep{episode_num:02d}"
+    import string
     
-    # Check if episode already exists in DB or filesystem
     episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
-    while (episodes_dir / episode_id).exists():
-        episode_num = random.randint(10, 99)
-        episode_id = f"ep{episode_num:02d}"
+    
+    # Initialize studio DB if not exists to check existing episodes
+    await init_studio_db(DATABASE_PATH)
+    
+    # Generate unique ID: ep + 3 random lowercase letters + 2 digits (e.g., ep-abc42)
+    for attempt in range(100):
+        slug = ''.join(random.choices(string.ascii_lowercase, k=3))
+        num = random.randint(10, 99)
+        episode_id = f"ep-{slug}{num}"
+        
+        # Check filesystem
+        if (episodes_dir / episode_id).exists():
+            continue
+        
+        # Check database
+        import sqlite3
+        try:
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                cursor = conn.execute("SELECT episode_id FROM episodes WHERE episode_id = ?", (episode_id,))
+                if cursor.fetchone() is not None:
+                    continue
+        except sqlite3.Error:
+            pass  # DB might not exist yet, filesystem check is sufficient
+        
+        # Found unique ID
+        break
+    else:
+        raise HTTPException(status_code=500, detail="Failed to generate unique episode ID after 100 attempts")
     
     # Build prompt for LLM
     archetype_guidance = ""

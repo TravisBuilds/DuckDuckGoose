@@ -102,6 +102,10 @@ def mock_openai_response():
 
 def test_draft_from_idea_success(client, mock_openai_response, monkeypatch):
     """Test successful draft generation."""
+    # Monkeypatch the config to provide an API key
+    from hfvg import config as config_module
+    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
+    
     # Mock OpenAI client
     mock_completion = MagicMock()
     mock_completion.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_openai_response)))]
@@ -127,7 +131,9 @@ def test_draft_from_idea_success(client, mock_openai_response, monkeypatch):
     data = response.json()
     
     assert "episode_id" in data
-    assert data["episode_id"].startswith("ep")
+    # New format: ep-{3 letters}{2 digits}
+    assert data["episode_id"].startswith("ep-")
+    assert len(data["episode_id"]) == 8  # "ep-" + 3 letters + 2 digits
     assert "beatmap" in data
     assert "S01" in data["beatmap"]
     assert "shots_json" in data
@@ -180,8 +186,12 @@ def test_draft_from_idea_invalid_request(client):
     assert response.status_code == 422
 
 
-def test_draft_from_idea_with_archetype(client, mock_openai_response):
+def test_draft_from_idea_with_archetype(client, mock_openai_response, monkeypatch):
     """Test draft generation with archetype preset."""
+    # Monkeypatch the config to provide an API key
+    from hfvg import config as config_module
+    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
+    
     mock_completion = MagicMock()
     mock_completion.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_openai_response)))]
     
@@ -205,8 +215,12 @@ def test_draft_from_idea_with_archetype(client, mock_openai_response):
     assert "episode_id" in data
 
 
-def test_draft_from_idea_beatmap_repair(client, mock_openai_response):
+def test_draft_from_idea_beatmap_repair(client, mock_openai_response, monkeypatch):
     """Test that invalid beatmap triggers repair attempt."""
+    # Monkeypatch the config to provide an API key
+    from hfvg import config as config_module
+    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
+    
     # First response has invalid beatmap
     invalid_response = mock_openai_response.copy()
     invalid_response["beatmap_md"] = "# Invalid beatmap\nNo table here"
@@ -243,8 +257,12 @@ def test_draft_from_idea_beatmap_repair(client, mock_openai_response):
     assert mock_client.chat.completions.create.call_count == 2
 
 
-def test_draft_from_idea_ip_steering_warning(client):
+def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
     """Test that IP steering notes appear in warnings."""
+    # Monkeypatch the config to provide an API key
+    from hfvg import config as config_module
+    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
+    
     response_with_ip = {
         "beatmap_md": """# Episode ep50 Beatmap
 
