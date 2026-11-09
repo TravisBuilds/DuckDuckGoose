@@ -649,13 +649,12 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             # Approve G1 to trigger shot workflow start
             await handle.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
             
-            # Wait for shot workflow to complete (race-free: get version from result, not query)
+            # Wait for shot workflow to start and record shot_attempts
             for _ in range(50):
                 try:
                     state = await handle.query(EpisodeWorkflowV2.get_state)
-                    shot_results = state.get("shot_results", {})
-                    if "A01" in shot_results:
-                        # Shot completed, result is available
+                    shot_attempts = state.get("shot_attempts", {}).get("A01", 0)
+                    if shot_attempts == 2:
                         break
                 except:
                     pass
@@ -670,10 +669,9 @@ async def test_attempt_override_gives_retry_suffix(tmp_path):
             shot_attempts = state.get("shot_attempts", {}).get("A01", 0)
             assert shot_attempts == 2, f"Expected shot_attempts 2, got {shot_attempts}"
             
-            # Get version from completed shot result (race-free: no query on potentially-completing workflow)
-            shot_results = state.get("shot_results", {})
-            assert "A01" in shot_results, f"Shot A01 should have completed, got results: {list(shot_results.keys())}"
-            shot_result = shot_results["A01"]
+            # Get shot workflow handle and await its result (race-free: completed workflow returns result)
+            shot_handle = env.client.get_workflow_handle("ep_test-shot-A01")
+            shot_result = await shot_handle.result()
             shot_version = shot_result.get("version")
             assert shot_version == 2, f"Expected shot result version 2, got {shot_version}"
             

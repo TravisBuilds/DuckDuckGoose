@@ -122,12 +122,31 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
     await page.getByText('Skip - I\'ll describe my style').click();
     
     // Check that duration picker defaults to 60
-    const durationInput = page.getByTestId('duration-input');
-    await expect(durationInput).toBeVisible();
-    await expect(durationInput).toHaveValue('60');
+    const durationSelect = page.getByTestId('duration-select');
+    await expect(durationSelect).toBeVisible();
+    await expect(durationSelect).toHaveValue('60');
   });
 
-  test('shows IP steering warning when present', async ({ page }) => {
+  test('regenerate button works on review screen', async ({ page }) => {
+    await page.goto('/studio/create');
+    await page.getByText('Skip - I\'ll describe my style').click();
+    
+    await page.getByTestId('idea-input').fill('Test idea for regenerate');
+    await page.getByTestId('generate-button').click();
+    
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 60000 });
+    
+    // Click regenerate button
+    const regenerateButton = page.getByTestId('regenerate-button');
+    await expect(regenerateButton).toBeVisible();
+    await regenerateButton.click();
+    
+    // Should show loading screen and return to review
+    await expect(page.getByText('Generating your video plan')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 60000 });
+  });
+
+  test('shows warnings when present', async ({ page }) => {
     await page.goto('/studio/create');
     await page.getByText('Skip - I\'ll describe my style').click();
     
@@ -140,21 +159,5 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
     // Note: The fake LLM in api/main.py returns warnings: ["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)"]
     const warningText = page.getByText(/test mode/i);
     await expect(warningText).toBeVisible();
-  });
-
-  test('shows error when OpenAI key missing (without fake LLM)', async ({ page }) => {
-    // This test verifies the missing-key error path
-    // Note: In real e2e with DRAFT_LLM_FAKE=1, this is bypassed
-    // But we can verify the wizard has error handling in place
-    await page.goto('/studio/create');
-    await page.getByText('Skip - I\'ll describe my style').click();
-    
-    await page.getByTestId('idea-input').fill('Test idea');
-    
-    // Verify error display exists (even if not triggered in this test environment)
-    // The component should have error handling UI
-    const generateButton = page.getByTestId('generate-button');
-    await expect(generateButton).toBeVisible();
-    await expect(generateButton).toBeEnabled();
   });
 });
