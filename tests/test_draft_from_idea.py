@@ -131,9 +131,21 @@ def test_draft_from_idea_success(client, mock_openai_response, monkeypatch):
     data = response.json()
     
     assert "episode_id" in data
-    # New format: ep-{3 letters}{2 digits}
-    assert data["episode_id"].startswith("ep-")
-    assert len(data["episode_id"]) == 8  # "ep-" + 3 letters + 2 digits
+    # Format: ep{2 digits}{3 lowercase letters} matching ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?
+    episode_id = data["episode_id"]
+    assert episode_id.startswith("ep")
+    assert len(episode_id) == 7  # "ep" + 2 digits + 3 letters
+    assert episode_id[2:4].isdigit()  # 2 digits
+    assert episode_id[4:7].islower()  # 3 lowercase letters
+    assert episode_id[4:7].isalpha()
+    
+    # Verify it passes the server's validate_episode_id
+    from api.main import validate_episode_id
+    try:
+        validate_episode_id(episode_id)
+    except Exception as e:
+        pytest.fail(f"Generated episode_id '{episode_id}' failed validation: {e}")
+    
     assert "beatmap" in data
     assert "S01" in data["beatmap"]
     assert "shots_json" in data

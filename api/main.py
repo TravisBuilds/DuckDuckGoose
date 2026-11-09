@@ -757,8 +757,14 @@ async def serve_gates_page():
 async def health(_auth: str | None = Header(None, alias="Authorization", include_in_schema=False)):
     """
     Health check (no auth required for monitoring).
+    Returns server status including whether live mode is available.
     """
-    return {"status": "ok", "temporal": temporal_client is not None}
+    return {
+        "status": "ok",
+        "temporal": temporal_client is not None,
+        "dry_run_default": DRY_RUN_DEFAULT,
+        "live_available": not DRY_RUN_DEFAULT,  # Live is available when server DRY_RUN is false
+    }
 
 
 @app.post("/api/login")
@@ -5265,7 +5271,8 @@ async def draft_from_idea(
             detail="Story writing assistant not configured. Set OPENAI_API_KEY environment variable."
         )
     
-    # Generate a unique episode ID (checked against DB and filesystem)
+    # Generate a unique episode ID matching pattern: ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?
+    # Format: ep{2 digits}{3 lowercase letters} (e.g., ep42abc)
     import random
     import string
     
@@ -5274,11 +5281,11 @@ async def draft_from_idea(
     # Initialize studio DB if not exists to check existing episodes
     await init_studio_db(DATABASE_PATH)
     
-    # Generate unique ID: ep + 3 random lowercase letters + 2 digits (e.g., ep-abc42)
+    # Generate unique ID: ep + 2 digits + 3 lowercase letters (matches existing pattern)
     for attempt in range(100):
-        slug = ''.join(random.choices(string.ascii_lowercase, k=3))
         num = random.randint(10, 99)
-        episode_id = f"ep-{slug}{num}"
+        suffix = ''.join(random.choices(string.ascii_lowercase, k=3))
+        episode_id = f"ep{num}{suffix}"
         
         # Check filesystem
         if (episodes_dir / episode_id).exists():

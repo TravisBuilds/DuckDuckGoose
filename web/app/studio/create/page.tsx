@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatUsd } from '@/lib/money';
@@ -36,8 +36,27 @@ function CreateVideoWizard() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+  const [liveAvailable, setLiveAvailable] = useState(false);
 
   const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) : null;
+
+  // Check if live mode is available on mount
+  React.useEffect(() => {
+    const checkLiveAvailability = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${apiUrl}/api/health`, { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          setLiveAvailable(data.live_available === true);
+        }
+      } catch (e) {
+        // If health check fails, assume live not available
+        setLiveAvailable(false);
+      }
+    };
+    checkLiveAvailability();
+  }, []);
 
   const handleArchetypeSelect = (archetypeId: string) => {
     setSelectedArchetype(archetypeId);
@@ -344,19 +363,28 @@ function CreateVideoWizard() {
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
                 
                 <div className="space-y-3">
-                  <button
-                    onClick={() => setShowLiveConfirm(true)}
-                    disabled={busy}
-                    className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-left"
-                    data-testid="make-video-button"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span>Make My Video (uses credits) →</span>
-                      {draft.cost_estimate && (
-                        <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
-                      )}
+                  {liveAvailable ? (
+                    <button
+                      onClick={() => setShowLiveConfirm(true)}
+                      disabled={busy}
+                      className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-left"
+                      data-testid="make-video-button"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>Make My Video (uses credits) →</span>
+                        {draft.cost_estimate && (
+                          <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
+                        )}
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50 opacity-60">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        <p className="font-semibold mb-1">Live mode not available</p>
+                        <p className="text-xs">Server is in dry-run mode. Use preview to test.</p>
+                      </div>
                     </div>
-                  </button>
+                  )}
 
                   <button
                     onClick={() => handleStartEpisode(true)}
