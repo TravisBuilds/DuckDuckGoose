@@ -417,7 +417,7 @@ async def require_auth_unless_public(
                 except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
                     pass  # Invalid token, fall through to verify_auth_unified
     
-    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
 
 
 app = FastAPI(
