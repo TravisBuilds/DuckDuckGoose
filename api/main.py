@@ -1565,6 +1565,9 @@ async def start_episode(
     )
 
 
+# Mark start_episode to allow members
+start_episode.allow_members = True
+
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeStateResponse)
 async def get_episode_state(
     episode_id: str,
@@ -2773,6 +2776,9 @@ async def change_own_password(
         raise HTTPException(status_code=500, detail="Failed to change password")
     
     return {"success": True, "message": "Password changed successfully"}
+# Mark change_own_password to allow members
+change_own_password.allow_members = True
+
 
 
 @app.post("/api/users/{user_id}/reset-password")
