@@ -117,7 +117,7 @@ async def test_member_cannot_create_user(db_path, monkeypatch):
             "name": "New User",
             "email": "new@test.com",
             "role": "member",
-            "password": "pass123"
+            "password": "password123"
         },
         cookies=member_cookies
     )
