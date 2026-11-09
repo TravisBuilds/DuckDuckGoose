@@ -8,7 +8,6 @@ Tests every route against:
 """
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
