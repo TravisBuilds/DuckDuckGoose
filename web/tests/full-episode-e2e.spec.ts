@@ -25,9 +25,9 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await page.context().clearCookies();
 
   // Click toggle to show admin secret input
-  await page.getByRole('button', { name: /sign in with admin secret/i }).click();
+  await page.getByText('Sign in with admin secret').click();
   await page.locator('#secret').fill(ADMIN_SECRET);
-  await page.getByRole('button', { name: 'Access Console' }).click();
+  await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page).toHaveURL(/\/studio\/episodes\/new$/);
 
   // --- new episode: a bad shots.json is caught by preflight and Start stays disabled ---
