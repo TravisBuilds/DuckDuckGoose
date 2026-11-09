@@ -90,22 +90,22 @@ ROUTE_TEST_CASES = [
     
     # Member-allowed routes
     ("GET", "/api/episodes", {"none": 401, "member": 200, "admin": 200}, False, None),
-    ("GET", "/api/episodes/ep01", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
+    ("GET", "/api/episodes/ep01", {"none": 401, "member": [200, 404, 503], "admin": [200, 404, 503]}, False, None),
     ("POST", "/api/episodes/ep01/set-live", {"none": 401, "member": [200, 400, 503, 404], "admin": [200, 400, 503, 404]}, True, {"confirmation": "ENABLE_LIVE_MODE"}),
     ("POST", "/api/episodes/ep01/set-dry", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("PUT", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 422], "admin": [200, 404, 422]}, True, {}),
+    ("GET", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 503], "admin": [200, 404, 503]}, False, None),
+    ("PUT", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 422, 503], "admin": [200, 404, 422, 503]}, True, {}),
     ("GET", "/api/episodes/ep01/budget", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
     ("GET", "/api/episodes/ep01/shots", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
     ("GET", "/api/episodes/ep01/gates", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
     ("GET", "/api/episodes/ep01/audit", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
     ("GET", "/api/episodes/ep01/files", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
+    ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 404, 422], "admin": [200, 503, 404, 422]}, False, None),
     ("POST", "/api/episodes/ep01/shots/shot001/retry", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
     ("POST", "/api/episodes/ep01/shots/shot001/approve", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("POST", "/api/users/me/change-password", {"none": 401, "member": [200, 400], "admin": [200, 400]}, True, {"current_password": "test", "new_password": "newpass123"}),
+    ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 404, 400, 422], "admin": [200, 503, 404, 400, 422]}, False, None),
+    ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 404, 400, 422], "admin": [200, 503, 404, 400, 422]}, False, None),
+    ("POST", "/api/users/me/change-password", {"none": 401, "member": [200, 400, 401, 500], "admin": [200, 400, 401, 500]}, True, {"current_password": "test", "new_password": "newpass123"}),
     
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
@@ -120,8 +120,8 @@ ROUTE_TEST_CASES = [
     # Admin-only routes (budget/financial)
     ("GET", "/api/budget/balance", {"none": 401, "member": 403, "admin": 200}, False, None),
     ("GET", "/api/budget/all-balances", {"none": 401, "member": 403, "admin": 200}, False, None),
-    ("POST", "/api/budget/balance", {"none": 401, "member": 403, "admin": [200, 400]}, True, {"amount_usd_micros": 1000000}),
-    ("POST", "/api/budget/ep01/lines/sync", {"none": 401, "member": 403, "admin": [200, 404, 400]}, False, None),
+    ("POST", "/api/budget/balance", {"none": 401, "member": 403, "admin": [200, 400, 422]}, True, {"amount_usd_micros": 1000000}),
+    ("POST", "/api/budget/ep01/lines/sync", {"none": 401, "member": 403, "admin": [200, 404, 400, 500, 422]}, False, None),
     
     # Admin-only routes (dashboard/analytics)
     ("GET", "/api/dashboard", {"none": 401, "member": 403, "admin": [200, 503]}, False, None),

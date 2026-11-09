@@ -1928,11 +1928,12 @@ async def get_story_shape(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get story shape for an episode.
+    Get story shape for an episode. Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -1978,11 +1979,12 @@ async def update_story_shape(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Update story shape and re-critique.
+    Update story shape and re-critique. Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
