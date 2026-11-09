@@ -26,7 +26,7 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await page.context().clearCookies();
 
   // Login with test admin user
-  await page.goto('/login');
+  await page.goto('/login?from=/studio/episodes/new');
   await page.locator('#email').fill(E2E_USER);
   await page.locator('#password').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: 'Sign In', exact: true }).first().click();
