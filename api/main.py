@@ -349,7 +349,7 @@ async def require_auth_unless_public(
                 except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
                     pass  # Invalid token, fall through to verify_auth_unified
     
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
 
 
 app = FastAPI(
@@ -532,12 +532,18 @@ def verify_upload_token(authorization: str | None = Header(None)):
 async def verify_auth_unified(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
+    require_admin: bool = True,
 ):
     """
     Unified auth: accept either Bearer token OR session cookie.
     
     This allows both programmatic access (Bearer token) and browser access (cookie).
     Fail closed: at least one must be valid.
+    
+    Args:
+        authorization: Bearer token from Authorization header
+        studio_admin_token: Session token from cookie
+        require_admin: If True, require admin role; if False, allow member or admin
     
     Returns 401 when no credential is provided or credential is invalid/expired.
     Returns 403 when authenticated but not authorized (e.g. member accessing admin route).
@@ -549,7 +555,10 @@ async def verify_auth_unified(
     cookie_error = None
     if studio_admin_token:
         try:
-            await verify_admin_cookie(studio_admin_token)
+            if require_admin:
+                await verify_admin_cookie(studio_admin_token)
+            else:
+                await verify_member_or_admin_cookie(studio_admin_token)
             return  # Cookie is valid
         except HTTPException as e:
             cookie_error = e
@@ -560,7 +569,7 @@ async def verify_auth_unified(
     if authorization and authorization.startswith("Bearer "):
         try:
             verify_admin_secret(authorization)
-            return  # Bearer token is valid
+            return  # Bearer token is valid (admin secret always has full access)
         except HTTPException as e:
             bearer_error = e
     
@@ -1371,7 +1380,7 @@ async def list_episodes(
     
     Returns episodes from the database with their current status.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     import aiosqlite
     from datetime import datetime, timezone
@@ -1407,7 +1416,7 @@ async def start_episode(
     
     Requires: Authorization header with admin secret OR session cookie (member or admin).
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
     
     # Initialize studio DB if not exists
@@ -1547,7 +1556,7 @@ async def accept_assembly_qc(
 ):
     """Human review of a blocking mute-edit QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
     so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1573,7 +1582,7 @@ async def accept_delivery_qc(
 ):
     """Human review of a blocking delivery QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
     so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1599,7 +1608,7 @@ async def request_delivery_rebuild(
 ):
     """Rebuild the delivery for the current picture after an audio-plan edit (reason required).
     Generated audio is reused by content hash; any new generation still goes through the guards."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1626,7 +1635,7 @@ async def request_edit_rebuild(
 ):
     """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (reason
     required). Picture only, no generation; the delivery is rebuilt for the new edit."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1690,7 +1699,7 @@ async def approve_gate(
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -2212,7 +2221,7 @@ async def get_dashboard(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Master admin dashboard: comprehensive view of users, spend, and activity.
+    Master admin dashboard: comprehensive view of users, spend, and activity (admin only).
     
     Returns:
     - User stats: active users (today, 7d, 30d), total users
@@ -2223,7 +2232,7 @@ async def get_dashboard(
     - Monthly run-rate projections (informational only)
     - Spend milestone notices
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Admin authorization.
     """
     if studio_admin_token:
         await verify_admin_cookie(studio_admin_token)
@@ -2807,7 +2816,7 @@ async def get_shots(
     
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -3029,7 +3038,7 @@ async def reject_still(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
 
     result = await _execute_episode_update(episode_id, "reject_shot", [shot_id, reason], "Reject")
@@ -3073,7 +3082,7 @@ async def accept_clip(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -3150,7 +3159,7 @@ async def get_g2_headcount(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only, no spend)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3177,7 +3186,7 @@ async def record_still_headcount(
     when no automatic counter is configured). The still file must be on disk. Audited."""
     from hfvg.qc.g2_headcount import record_headcount
     from hfvg.still_selection import outputs_dir, still_file
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
@@ -3217,7 +3226,7 @@ async def get_still_versions(
 ):
     """GAP-26: every still version per shot (child workflow, status), the current one and any G2
     selection. Read-only."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3244,7 +3253,7 @@ async def select_still(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
     if not reason:
@@ -3282,7 +3291,7 @@ async def resync_plans(
     clip_prompt/qc_fail_if for its clip submit and clip QC. Structural changes (shot set, shot_meta,
     refs, model, duration, end frame) are refused with 409 (they need a new G1). No spend; does NOT
     approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
     if not reason:
@@ -3303,7 +3312,7 @@ async def get_clip_plans(
 ):
     """GAP-28: per shot, the clip prompt and qc_fail_if its kept still's clip will be submitted and
     QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3427,7 +3436,7 @@ async def retry_clip(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Clip retry")  # GAP-65
     if request.clip_route is not None and not isinstance(request.clip_route.get("model", "kling"), str):
@@ -3508,7 +3517,7 @@ async def recompose_shot(
     """GAP-21: re-shoot one shot after G2 with a new composition (new still prompt + explicit refs).
     The refs must exist under the episode's refs/ dir; the prompts and the ref count are preflighted
     against the model limits BEFORE any spend. The new still parks for /recompose/decision."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Recompose")  # GAP-65
     refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
@@ -3636,7 +3645,7 @@ async def reopen_episode(
     G_FINAL_CUT again (final cut un-approved). No generation is started; every later paid step goes
     through the normal recompose / retry_clip guards. Refused unless the run COMPLETED with its final
     cut approved and nothing in flight."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="a reason is required")
@@ -3739,7 +3748,7 @@ async def _snapshot_saver_loop() -> None:
 async def save_episode_snapshot(episode_id: str, authorization: str | None = Header(None),
                                 studio_admin_token: str | None = Cookie(None)):
     """GAP-79: persist the episode workflow's reopen snapshot now (read-only on the workflow)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3766,7 +3775,7 @@ async def reopen_episode_from_saved(
     ANY workflow with the episode id is known to the server (use /reopen for a closed run). The
     snapshot is the persisted one, else rebuilt from the saved artifacts + DB; either must pass the
     GAP-41 reopen rules. No generation, no ledger change; the new run parks at G_FINAL_CUT."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="a reason is required")
@@ -3868,7 +3877,7 @@ async def get_recompose_headcount(
         load_headcounts,
     )
     from hfvg.qc.animal_count import get_animal_counter
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3909,7 +3918,7 @@ async def recompose_decision(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-21: approve (clip from the new still) or reject (no clip spend) a parked recompose still."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if request.approve:  # GAP-65: approving starts the paid clip; a reject spends nothing
         await _refuse_if_paid_gates_fail(episode_id, "Recompose approval")
@@ -3943,7 +3952,7 @@ async def grant_recompose(
 ):
     """GAP-39: reviewer grant of ONE extra recompose for a shot whose allowance is used up (no spend
     here; the recompose itself still goes through every paid guard)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -4010,7 +4019,7 @@ async def adopt_reuse(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-44: adopt an edit_plan reuse slot as a workflow shot (no spend) so it can be recomposed."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -4043,7 +4052,7 @@ async def generate_refs_route(
     """GAP-42: run versioned ref-edit jobs (refs.json to_generate entries with edit_from and an explicit
     version) while the episode is parked at G_FINAL_CUT. Every paid guard applies (provider estimate,
     L1_refs reserve, balance, episode stop); one attempt per job. Audited."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -4085,7 +4094,7 @@ async def restore_pre_recompose_outcome(
 ):
     """GAP-49: back out a recompose whose clip failed review: the shot returns to the accepted clip the
     recompose replaced and the edit is rebuilt with it (no spend). Refusals -> 409."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -4111,7 +4120,7 @@ async def set_shot_edit(
 ):
     """GAP-22: trim or drop a shot at G_FINAL_CUT (no spend). The edit is re-assembled and the
     delivery rebuilt; with a timeline_ref in the audio plan the VO/SFX/music follow the edit."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     result = await _execute_episode_update(
         episode_id, "set_shot_edit",
@@ -4152,7 +4161,7 @@ async def get_gates(
     
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -4269,7 +4278,7 @@ async def retry_shot(
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -5183,7 +5192,7 @@ async def lint_prompt_endpoint(
     Returns:
         dict with "problems" list
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.prompt_lint import lint_violations, load_lint_kit
     
@@ -5223,7 +5232,7 @@ async def set_anchor_still(
         
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not target_shot_ids:
@@ -5386,7 +5395,7 @@ async def get_models(
 ):
     """Documented limits of every model the harness offers (creator view: unknowns are 'not published',
     each value carries its source URL and check date). Requires: Authorization header OR session cookie."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     from hfvg import model_caps
 
     registry = model_caps.get_registry()
@@ -5417,7 +5426,7 @@ async def preflight_episode(
     Shots come from the request or the episode's uploaded shots.json (data/episodes/{id}/shots.json).
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
@@ -5535,7 +5544,7 @@ async def list_review_files(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Which whitelisted review files exist for the episode (for previews and downloads)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = validate_episode_id(episode_workflow_id(episode_id))
     files = {}
     for file_type in REVIEW_FILE_TYPES:
@@ -5558,7 +5567,7 @@ async def get_review_file(
 ):
     """Authenticated preview / download of a whitelisted episode file (delivery master with or without
     subs, phone version, subtitles, mute edit). Range requests are served (video seeking)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = validate_episode_id(episode_workflow_id(episode_id))
     path = review_file_path(episode_id, file_type)
     if download:
@@ -5585,7 +5594,7 @@ async def get_local_still(
     copied into the episode outputs and never uploaded until its clip is submitted), so G2 can show
     it. Only files inside DATA_DIR/episodes/<episode>/outputs/<shot>/ or, for dry-run placeholder
     stills (stored relative to the run dir), inside the dry-run output dir are served."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", shot_id):
         raise HTTPException(status_code=400, detail="Invalid shot_id")
@@ -5621,7 +5630,7 @@ async def reject_final_cut(
 ):
     """Reject the final cut at G_FINAL_CUT with a reason (approval goes through POST .../approve with
     gate_id g_final_cut). The gate stays held; fix with a clip retry, then approve again."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="A rejection reason is required")
@@ -5655,7 +5664,7 @@ async def raise_credit_cap(
 ):
     """Raise the run's credit cap and resume shots paused at the cap (workflow signal raise_credit_cap).
     Only upward: a cap at or below the current one is refused."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -5687,7 +5696,7 @@ async def resume_balance(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Resume episode and shots after balance top-up when paused_insufficient_balance."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -5709,7 +5718,7 @@ async def get_credit_status(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Credit line of the run (cap, spent, reserved, pause threshold): drives the cap-raise control."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.credit_ledger import CreditLedger
 
@@ -5748,7 +5757,7 @@ async def get_shot_states(
 ):
     """Per-shot child workflow state for review: still / clip status and the G-REC-1 moderation ladder
     (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
