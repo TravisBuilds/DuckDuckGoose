@@ -35,4 +35,5 @@ export function postJson<T = unknown>(path: string, payload: unknown): Promise<T
 }
 
 /** Same id format as the API (api/main.py EPISODE_ID_PATTERN). */
-export const EPISODE_ID_RE = /^ep[0-9]{2}$/;
+// Matches server pattern: ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?
+export const EPISODE_ID_RE = /^ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?$/;

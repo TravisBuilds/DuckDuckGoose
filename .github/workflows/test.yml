@@ -235,6 +235,7 @@ jobs:
         CI: "true"
         E2E_PYTHON: python
         E2E_ADMIN_SECRET: ci-e2e-admin-secret-only-for-this-job-000
+        DRAFT_LLM_FAKE: "1"
       run: npx playwright test -c playwright.e2e.config.ts
 
     - name: Upload Playwright trace + report on failure
