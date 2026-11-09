@@ -5264,8 +5264,21 @@ async def draft_from_idea(
     from hfvg.episode_parser import parse_beatmap
     from hfvg.shot_data import parse_shots
     
-    # Check if OpenAI API key is configured
-    if not config.OPENAI_API_KEY:
+    # Check for test-only fake LLM mode (DRAFT_LLM_FAKE=1)
+    use_fake_llm = os.getenv("DRAFT_LLM_FAKE", "0") == "1"
+    dry_run_mode = os.getenv("DRY_RUN", "true").lower() == "true"
+    
+    if use_fake_llm:
+        if not dry_run_mode:
+            logger.error("DRAFT_LLM_FAKE=1 is set but DRY_RUN=false - REFUSING to use fake LLM in live mode!")
+            raise HTTPException(
+                status_code=500,
+                detail="DRAFT_LLM_FAKE is a test-only flag and cannot be used when DRY_RUN=false"
+            )
+        logger.warning("DRAFT_LLM_FAKE=1 is set - using deterministic canned draft data (test mode only)")
+    
+    # Check if OpenAI API key is configured (skip check if using fake LLM)
+    if not use_fake_llm and not config.OPENAI_API_KEY:
         raise HTTPException(
             status_code=503,
             detail="Story writing assistant not configured. Set OPENAI_API_KEY environment variable."
@@ -5405,6 +5418,75 @@ Return ONLY valid JSON with these exact keys."""
 {f"Style/genre: {archetype_guidance}" if archetype_guidance else ""}
 
 Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a single JSON response."""
+
+    # Fake LLM mode: return deterministic canned data (test-only)
+    if use_fake_llm:
+        logger.info(f"FAKE LLM: Returning canned draft data for episode {episode_id}")
+        
+        beatmap_content = f"""# Episode {episode_id} Beatmap
+
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | S01 | 5.0 (5.0) | Workshop | Day | A | A curious robot examines dusty books on old wooden shelves | Establish setting and character | - | - | K |
+| 2 | S02 | 6.0 (6.0) | Workshop | Day | A | The robot discovers a glowing book, light emanating from its pages | Discovery moment, inciting incident | - | - | K |
+"""
+        
+        shots_data = {
+            "shots": [
+                {
+                    "id": "S01",
+                    "prompt": "A friendly metallic robot with glowing blue eyes standing in a dusty old workshop, examining ancient books on wooden shelves, warm daylight streaming through windows, photorealistic, cinematic lighting",
+                    "count": 1,
+                    "characters": ["A"],
+                    "wet": False,
+                    "model": "kling",
+                    "duration": 5,
+                    "end_frame": False,
+                    "ref_keys": []
+                },
+                {
+                    "id": "S02",
+                    "prompt": "Close-up of robot's metallic hands opening a leather-bound book that glows with magical golden light, mystical particles floating in the air, photorealistic, cinematic lighting",
+                    "count": 1,
+                    "characters": ["A"],
+                    "wet": False,
+                    "model": "kling",
+                    "duration": 6,
+                    "end_frame": False,
+                    "ref_keys": []
+                }
+            ]
+        }
+        
+        refs_data = {
+            "per_shot": {
+                "S01": [],
+                "S02": []
+            }
+        }
+        
+        prompt_kit_data = {
+            "style": style_guidance,
+            "aspect_ratio": "9:16",
+            "characters": {
+                "A": {"description": "Friendly exploration robot with metallic silver body and glowing blue optical sensors"}
+            },
+            "sets": {
+                "Workshop": "Abandoned dusty workshop with tall wooden bookshelves, old tools, and warm natural light"
+            }
+        }
+        
+        cost_estimate = offline_cost_estimate(shots_data["shots"])
+        
+        return DraftFromIdeaResponse(
+            episode_id=episode_id,
+            beatmap=beatmap_content,
+            shots_json=shots_data,
+            refs_json=refs_data,
+            prompt_kit_json=prompt_kit_data,
+            cost_estimate=cost_estimate,
+            warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)"],
+        )
 
     try:
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)

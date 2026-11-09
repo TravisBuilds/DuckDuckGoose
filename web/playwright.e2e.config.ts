@@ -8,6 +8,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const ADMIN_SECRET = process.env.E2E_ADMIN_SECRET || 'e2e-only-admin-secret-not-used-anywhere-else';
 const PYTHON = process.env.E2E_PYTHON || 'python';
+const DRAFT_LLM_FAKE = process.env.DRAFT_LLM_FAKE || '0';
 const API_PORT = 8000;
 
 export default defineConfig({
@@ -31,7 +32,7 @@ export default defineConfig({
     {
       command: `${PYTHON} ../scripts/e2e_backend.py --port ${API_PORT}`,
       url: `http://127.0.0.1:${API_PORT}/api/health`,
-      env: { ADMIN_SECRET },
+      env: { ADMIN_SECRET, DRAFT_LLM_FAKE },
       reuseExistingServer: false,
       timeout: 180_000,
       stdout: 'pipe',
