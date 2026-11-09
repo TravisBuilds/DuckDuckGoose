@@ -84,11 +84,16 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
   test('link from studio home navigates to wizard', async ({ page }) => {
     await page.goto('/studio');
 
-    // Click "Make Your Own Video"
-    await page.getByTestId('make-video-link').click();
+    // Wait for page to be fully loaded
+    await expect(page.getByTestId('make-video-link')).toBeVisible();
 
-    // Should navigate to wizard
-    await expect(page).toHaveURL('/studio/create');
+    // Click "Make Your Own Video" and wait for navigation
+    await Promise.all([
+      page.waitForURL('/studio/create', { timeout: 10000 }),
+      page.getByTestId('make-video-link').click(),
+    ]);
+
+    // Verify we're on the wizard page
     await expect(page.getByText('Make Your Own Video')).toBeVisible({ timeout: 10000 });
   });
 
