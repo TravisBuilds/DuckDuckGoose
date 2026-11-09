@@ -5214,6 +5214,294 @@ class PreflightRequest(BaseModel):
     shots: list[dict] | None = None
 
 
+class DraftFromIdeaRequest(BaseModel):
+    """Request to generate episode files from a plain-language idea."""
+    
+    idea: str = Field(..., min_length=10, max_length=2000, description="User's story idea in plain language")
+    archetype_id: str | None = Field(None, description="Optional archetype/genre preset ID")
+    target_duration: int = Field(60, ge=30, le=120, description="Target duration in seconds")
+    style_preset: str | None = Field(None, max_length=500, description="Optional style description")
+
+
+class DraftFromIdeaResponse(BaseModel):
+    """Response from draft generation."""
+    
+    episode_id: str
+    beatmap: str
+    shots_json: dict
+    refs_json: dict
+    prompt_kit_json: dict
+    story_shape: dict | None = None
+    cost_estimate: dict | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/episodes/draft-from-idea", response_model=DraftFromIdeaResponse)
+async def draft_from_idea(
+    request: DraftFromIdeaRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Generate all episode files (BEATMAP.md, shots.json, refs.json, prompt_kit.json) from a plain-language idea.
+    
+    Uses OpenAI structured output to generate files that pass existing validators.
+    Content policy: original characters only, no named IP or real people.
+    
+    Requires: Authorization header OR session cookie.
+    """
+    await verify_auth_unified(authorization, studio_admin_token)
+    
+    from hfvg.config import config
+    from openai import AsyncOpenAI
+    import tempfile
+    from hfvg.episode_parser import parse_beatmap
+    from hfvg.shot_data import parse_shots
+    
+    # Check if OpenAI API key is configured
+    if not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Story writing assistant not configured. Set OPENAI_API_KEY environment variable."
+        )
+    
+    # Generate a unique episode ID
+    import random
+    import sqlite3
+    episode_num = random.randint(10, 99)
+    episode_id = f"ep{episode_num:02d}"
+    
+    # Check if episode already exists in DB or filesystem
+    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    while (episodes_dir / episode_id).exists():
+        episode_num = random.randint(10, 99)
+        episode_id = f"ep{episode_num:02d}"
+    
+    # Build prompt for LLM
+    archetype_guidance = ""
+    if request.archetype_id:
+        archetypes_map = {
+            "nostalgia-time-travel": "dialogue episode with family memory in period detail",
+            "satire-sketch": "one-gag satire with invented stand-ins",
+            "cartoon-made-real": "animated moments recreated photoreal",
+            "cozy-hangout": "characters chilling in one cozy scene",
+            "original-mini-movie": "short wordless journey story",
+            "dreamscape": "character facing surreal dream sky",
+        }
+        archetype_guidance = archetypes_map.get(request.archetype_id, "creative short video")
+    
+    style_guidance = request.style_preset or "photorealistic, cinematic lighting"
+    
+    content_policy_warning = """
+CONTENT POLICY (CRITICAL):
+- Create ONLY original characters - no named IP, franchises, real people, or brand characters
+- If the idea mentions copyrighted names (e.g., "Spider-Man", "Mario", "Mickey Mouse"), 
+  create an original homage archetype instead (e.g., "A red-and-blue spider-themed hero")
+- Use generic descriptive names (e.g., "Hero", "Villain", "Robot", "Dragon")
+- All characters, settings, and stories must be original creations
+"""
+    
+    system_prompt = f"""You are a video production assistant that generates complete episode specifications.
+Given a user's story idea, create all required files for a {request.target_duration}s video.
+
+{content_policy_warning}
+
+Generate these files in your response as a JSON object with these keys:
+1. "beatmap_md": BEATMAP.md content (markdown table with shots)
+2. "shots_json": shots.json content (structured shot data)
+3. "refs_json": refs.json content (per-shot reference images)
+4. "prompt_kit_json": prompt_kit.json content (style, characters, sets)
+5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
+
+File format requirements:
+
+BEATMAP.md - Shot planning table:
+```
+# Episode {episode_id} Beatmap
+
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | S01 | 5.0 (5.0) | [location] | [time] | A | [action description] | [narrative purpose] | - | - | K |
+```
+- Shot IDs: S01, S02, etc.
+- Screen/gen: both same value, 5-8 seconds per shot
+- Model: K (Kling) for most shots
+- Chars: A, B, C for up to 3 main characters
+- Create {int(request.target_duration / 6)} to {int(request.target_duration / 5)} shots total
+
+shots.json:
+{{
+  "shots": [
+    {{
+      "id": "S01",
+      "prompt": "[detailed visual description for generation]",
+      "count": 1,
+      "characters": ["A"],
+      "wet": false,
+      "model": "kling",
+      "duration": 5,
+      "end_frame": false,
+      "ref_keys": []
+    }}
+  ]
+}}
+
+refs.json:
+{{
+  "per_shot": {{
+    "S01": [],
+    "S02": []
+  }}
+}}
+
+prompt_kit.json:
+{{
+  "style": "{style_guidance}",
+  "aspect_ratio": "9:16",
+  "characters": {{
+    "A": {{"description": "[main character description]"}},
+    "B": {{"description": "[second character if needed]"}}
+  }},
+  "sets": {{
+    "[LocationName]": "[location description]"
+  }}
+}}
+
+Return ONLY valid JSON with these exact keys."""
+
+    user_prompt = f"""Create a {request.target_duration}s video for this idea:
+
+{request.idea}
+
+{f"Style/genre: {archetype_guidance}" if archetype_guidance else ""}
+
+Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a single JSON response."""
+
+    try:
+        client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        
+        # Call OpenAI with structured output
+        response = await client.chat.completions.create(
+            model=config.STORY_SHAPING_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+            response_format={"type": "json_object"},
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        # Extract generated content
+        beatmap_content = result.get("beatmap_md", "")
+        shots_data = result.get("shots_json")
+        refs_data = result.get("refs_json")
+        prompt_kit_data = result.get("prompt_kit_json")
+        ip_steering = result.get("ip_steering_note", "")
+        
+        if not all([beatmap_content, shots_data, refs_data, prompt_kit_data]):
+            raise ValueError("LLM response missing required files")
+        
+        # Parse JSON strings if needed
+        if isinstance(shots_data, str):
+            shots_data = json.loads(shots_data)
+        if isinstance(refs_data, str):
+            refs_data = json.loads(refs_data)
+        if isinstance(prompt_kit_data, str):
+            prompt_kit_data = json.loads(prompt_kit_data)
+        
+        # Validate beatmap
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
+            f.write(beatmap_content)
+            beatmap_temp = f.name
+        
+        try:
+            parsed_shots = parse_beatmap(beatmap_temp)
+            if not parsed_shots:
+                raise ValueError("Beatmap parsed but contains no shots")
+        except Exception as e:
+            # Retry once with a repair prompt
+            repair_prompt = f"""The generated beatmap failed validation: {str(e)}
+
+Original beatmap:
+{beatmap_content}
+
+Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing the corrected markdown."""
+            
+            repair_response = await client.chat.completions.create(
+                model=config.STORY_SHAPING_MODEL,
+                messages=[
+                    {"role": "system", "content": "You fix invalid beatmap tables."},
+                    {"role": "user", "content": repair_prompt},
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            )
+            
+            repair_result = json.loads(repair_response.choices[0].message.content)
+            beatmap_content = repair_result.get("beatmap_md", beatmap_content)
+            
+            # Re-write and validate
+            with open(beatmap_temp, 'w', encoding='utf-8') as f:
+                f.write(beatmap_content)
+            
+            parsed_shots = parse_beatmap(beatmap_temp)
+            if not parsed_shots:
+                raise ValueError("Repaired beatmap still invalid")
+        finally:
+            Path(beatmap_temp).unlink(missing_ok=True)
+        
+        # Validate shots.json
+        try:
+            parse_shots(shots_data)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Generated shots.json failed validation: {str(e)}"
+            )
+        
+        # Validate refs.json structure
+        if not isinstance(refs_data, dict) or "per_shot" not in refs_data:
+            raise HTTPException(
+                status_code=500,
+                detail="Generated refs.json missing 'per_shot' key"
+            )
+        
+        # Validate prompt_kit.json
+        required_kit_keys = {"style", "aspect_ratio", "characters", "sets"}
+        if not all(k in prompt_kit_data for k in required_kit_keys):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
+            )
+        
+        # Generate cost estimate
+        cost_estimate = offline_cost_estimate(shots_data["shots"])
+        
+        warnings = []
+        if ip_steering:
+            warnings.append(f"Content policy note: {ip_steering}")
+        
+        return DraftFromIdeaResponse(
+            episode_id=episode_id,
+            beatmap=beatmap_content,
+            shots_json=shots_data,
+            refs_json=refs_data,
+            prompt_kit_json=prompt_kit_data,
+            cost_estimate=cost_estimate,
+            warnings=warnings,
+        )
+        
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=500,
+            detail=f"Draft generation failed: {str(e)}"
+        )
+
+
 @app.post("/api/episodes/{episode_id}/preflight")
 async def preflight_episode(
     episode_id: str,
