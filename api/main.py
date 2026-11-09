@@ -988,6 +988,7 @@ async def validate_upload(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
@@ -996,16 +997,10 @@ async def validate_upload(
     Runs same validation as /api/episodes/upload but doesn't persist anything.
     Returns validation errors if any, or success with shot count.
     
-    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
     """
-    # Get authorization from request headers directly
-    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
-    # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
+    # Auth: member or admin (middleware handles UPLOAD_TOKEN, so this only runs for session/secret auth)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     errors = []
     shots_count = 0
@@ -1109,6 +1104,8 @@ async def validate_upload(
         }
     }
 
+validate_upload.allow_members = True
+
 
 @app.post("/api/episodes/upload")
 async def upload_beatmap(
@@ -1117,25 +1114,20 @@ async def upload_beatmap(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload episode files for StoryBuilder Production tab (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
-    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
     Idempotent: Re-uploading the same episode/files is safe (deduped)
     
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Get authorization from request headers directly
-    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
-    # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
+    # Auth: member or admin (middleware handles UPLOAD_TOKEN, so this only runs for session/secret auth)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     validate_episode_id(episode_id)
     
@@ -1320,6 +1312,8 @@ async def upload_beatmap(
         },
         "beatmap_path": str(episode_dir / "BEATMAP.md"),
     }
+
+upload_beatmap.allow_members = True
 
 
 @app.post("/api/episodes/{episode_id}/upload-prompt-kit")

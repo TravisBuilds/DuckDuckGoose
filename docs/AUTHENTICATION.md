@@ -22,7 +22,8 @@ Full access to all endpoints. Admins can:
 Creators who make videos end-to-end. Members can:
 - List and view episodes
 - Start episodes (dry or live)
-- Upload episode files and shots
+- Upload episode files (beatmap, credit plan, continuity) via web UI or UPLOAD_TOKEN
+- Validate episode uploads before saving
 - Set episodes to live or dry mode
 - View and edit story shape
 - Approve or reject stills and gates
@@ -65,6 +66,7 @@ Members **cannot**:
 - Production upload endpoints only
 - `Authorization: Bearer <UPLOAD_TOKEN>`
 - Scoped to `/api/episodes/upload` and `/api/episodes/upload/validate`
+- Equivalent to member-level access for these endpoints
 
 ## Route Permission Matrix
 
@@ -106,6 +108,8 @@ Members **cannot**:
 - `GET /api/episodes/{id}/still-versions` - List still versions
 - `POST /api/episodes/{id}/final-cut/reject` - Reject final cut
 - `POST /api/users/me/change-password` - Change own password
+- `POST /api/episodes/upload` - Production upload (or via UPLOAD_TOKEN)
+- `POST /api/episodes/upload/validate` - Validate upload (or via UPLOAD_TOKEN)
 
 ### Admin-Only Routes
 - `POST /api/episodes/{id}/raise-cap` - Raise credit cap (financial)
@@ -129,8 +133,6 @@ Members **cannot**:
 - `GET /api/canary/{workflow_id}` - Get canary status
 - `POST /api/episodes/{id}/canary` - Run canary test
 - `POST /api/episodes/{id}/smoke-test` - Run smoke test
-- `POST /api/episodes/upload` - Production upload (or via UPLOAD_TOKEN)
-- `POST /api/episodes/upload/validate` - Validate upload (or via UPLOAD_TOKEN)
 - `POST /api/episodes/{id}/upload-prompt-kit` - Upload prompt kit
 - `POST /api/episodes/{id}/upload-shots` - Upload shots file
 - All other routes not explicitly listed as public or member-allowed

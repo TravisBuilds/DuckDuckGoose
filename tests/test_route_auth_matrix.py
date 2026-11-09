@@ -12,11 +12,18 @@ import pytest
 
 @pytest.fixture
 async def db_path(tmp_path, monkeypatch):
-    """Setup test database with users."""
+    """Setup test database with users and a test episode."""
+    import os
     path = str(tmp_path / "test.db")
     monkeypatch.setenv("DATABASE_PATH", path)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("DRY_RUN", "true")
     
-    from hfvg.studio_db import init_studio_db
+    # Create data directory
+    data_dir = tmp_path / "data" / "episodes" / "ep01" / "outputs"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    
+    from hfvg.studio_db import init_studio_db, create_episode
     from hfvg.users import UserManager
     from hfvg.budget import BudgetLedger
     from hfvg.cost_tracking import CostTracker
@@ -47,8 +54,11 @@ async def db_path(tmp_path, monkeypatch):
         password="member123"
     )
     
-    # Create a test episode
-    await init_studio_db(path)
+    # Create a test episode in the database
+    await create_episode(path, "ep01")
+    
+    # Initialize budget for the episode
+    await ledger.init_episode_budget("ep01")
     
     yield path, admin, member
 
@@ -90,22 +100,22 @@ ROUTE_TEST_CASES = [
     
     # Member-allowed routes
     ("GET", "/api/episodes", {"none": 401, "member": 200, "admin": 200}, False, None),
-    ("GET", "/api/episodes/ep01", {"none": 401, "member": [200, 404, 503], "admin": [200, 404, 503]}, False, None),
-    ("POST", "/api/episodes/ep01/set-live", {"none": 401, "member": [200, 400, 503, 404], "admin": [200, 400, 503, 404]}, True, {"confirmation": "ENABLE_LIVE_MODE"}),
-    ("POST", "/api/episodes/ep01/set-dry", {"none": 401, "member": [200, 503, 404], "admin": [200, 503, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 503], "admin": [200, 404, 503]}, False, None),
-    ("PUT", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 404, 422, 503], "admin": [200, 404, 422, 503]}, True, {}),
-    ("GET", "/api/episodes/ep01/budget", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/shots", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/gates", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/audit", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("GET", "/api/episodes/ep01/files", {"none": 401, "member": [200, 404], "admin": [200, 404]}, False, None),
-    ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 404, 422], "admin": [200, 503, 404, 422]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/retry", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/approve", {"none": 401, "member": [200, 503, 404, 400], "admin": [200, 503, 404, 400]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 404, 400, 422], "admin": [200, 503, 404, 400, 422]}, False, None),
-    ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 404, 400, 422], "admin": [200, 503, 404, 400, 422]}, False, None),
-    ("POST", "/api/users/me/change-password", {"none": 401, "member": [200, 400, 401, 500], "admin": [200, 400, 401, 500]}, True, {"current_password": "test", "new_password": "newpass123"}),
+    ("GET", "/api/episodes/ep01", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),  # 503 if Temporal unavailable
+    ("POST", "/api/episodes/ep01/set-live", {"none": 401, "member": [200, 503], "admin": [200, 503]}, True, {"confirmation": "ENABLE_LIVE_MODE"}),
+    ("POST", "/api/episodes/ep01/set-dry", {"none": 401, "member": [200, 503], "admin": [200, 503]}, True, {}),
+    ("GET", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),
+    ("PUT", "/api/episodes/ep01/story-shape", {"none": 401, "member": [200, 503], "admin": [200, 503]}, True, {"shot_1": {"description": "Test shot"}}),
+    ("GET", "/api/episodes/ep01/budget", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/episodes/ep01/shots", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),
+    ("GET", "/api/episodes/ep01/gates", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),
+    ("GET", "/api/episodes/ep01/audit", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/episodes/ep01/files", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test reopen"}),  # 409 if not completed
+    ("POST", "/api/episodes/ep01/shots/shot001/retry", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {}),  # 409 if not at valid gate
+    ("POST", "/api/episodes/ep01/shots/shot001/approve", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {}),  # 409 if not at G2
+    ("POST", "/api/episodes/ep01/shots/shot001/reject", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test rejection"}),  # Form data, handled by test; 409 if not at G2
+    ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test acceptance"}),  # 409 if clip not needs_review
+    ("POST", "/api/users/me/change-password", {"none": 401, "member": 200, "admin": 200}, True, {}),  # Test function sets role-specific password
     
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
@@ -150,7 +160,15 @@ def test_route_authorization_matrix(db_path, method, path, expected_per_role, re
         # Make the request
         kwargs = {"cookies": cookies} if cookies else {}
         if requires_body and body is not None:
-            kwargs["json"] = body
+            # Special case: change-password needs role-specific current password
+            if path == "/api/users/me/change-password" and role in ["member", "admin"]:
+                current_password = "member123" if role == "member" else "admin123"
+                kwargs["json"] = {"current_password": current_password, "new_password": "newpass123"}
+            # Special case: reject uses Form data (not JSON)
+            elif "reject" in path and "reason" in body:
+                kwargs["data"] = body
+            else:
+                kwargs["json"] = body
         
         if method == "GET":
             response = client.get(path, **kwargs)
@@ -166,7 +184,7 @@ def test_route_authorization_matrix(db_path, method, path, expected_per_role, re
         # Check expected status
         expected_status = expected_per_role[role]
         if isinstance(expected_status, list):
-            # Multiple acceptable statuses (e.g., 200 or 404 if resource doesn't exist)
+            # Multiple acceptable statuses (e.g., 200 or 503 if Temporal unavailable)
             assert response.status_code in expected_status, (
                 f"{role.upper()} {method} {path}: expected one of {expected_status}, got {response.status_code}. "
                 f"Response: {response.text}"
@@ -174,6 +192,59 @@ def test_route_authorization_matrix(db_path, method, path, expected_per_role, re
         else:
             assert response.status_code == expected_status, (
                 f"{role.upper()} {method} {path}: expected {expected_status}, got {response.status_code}. "
+                f"Response: {response.text}"
+            )
+
+
+def test_upload_endpoints_auth(db_path, tmp_path):
+    """Test upload endpoints with multipart form data for all roles."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import io
+    
+    # Create a minimal beatmap file
+    beatmap_content = b"# Test Beatmap\n## shot_1\nA test shot.\n"
+    
+    for role in ["none", "member", "admin"]:
+        client, cookies = get_client_and_login(role, db_path)
+        
+        # Test /api/episodes/upload/validate
+        files = {
+            "beatmap_file": ("BEATMAP.md", io.BytesIO(beatmap_content), "text/markdown"),
+            "episode_id": (None, "ep02"),
+        }
+        kwargs = {"files": files}
+        if cookies:
+            kwargs["cookies"] = cookies
+        
+        response = client.post("/api/episodes/upload/validate", **kwargs)
+        
+        if role == "none":
+            assert response.status_code == 401, f"Unauthenticated upload/validate should get 401, got {response.status_code}"
+        else:
+            # Member and admin can validate
+            assert response.status_code not in [401, 403], (
+                f"{role.upper()} upload/validate should not get 401 or 403, got {response.status_code}. "
+                f"Response: {response.text}"
+            )
+        
+        # Test /api/episodes/upload
+        files = {
+            "beatmap_file": ("BEATMAP.md", io.BytesIO(beatmap_content), "text/markdown"),
+            "episode_id": (None, "ep02"),
+        }
+        kwargs = {"files": files}
+        if cookies:
+            kwargs["cookies"] = cookies
+        
+        response = client.post("/api/episodes/upload", **kwargs)
+        
+        if role == "none":
+            assert response.status_code == 401, f"Unauthenticated upload should get 401, got {response.status_code}"
+        else:
+            # Member and admin can upload (503 acceptable if Temporal unavailable, 400 if episode exists)
+            assert response.status_code not in [401, 403], (
+                f"{role.upper()} upload should not get 401 or 403, got {response.status_code}. "
                 f"Response: {response.text}"
             )
 
