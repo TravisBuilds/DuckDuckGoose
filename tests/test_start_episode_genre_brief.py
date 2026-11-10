@@ -164,6 +164,21 @@ def test_placeholder_speaker_voices_cannot_speak_live(api):
     assert _start(api, dry_run=True).status_code == 200
 
 
+@pytest.mark.parametrize("brief", [{"archetype_id": "cozy-hangout", "target_duration_s": 12}, {}])
+def test_episode_state_reports_the_card_and_length(api, brief):
+    from fastapi.testclient import TestClient
+
+    handle = MagicMock()
+    handle.query = AsyncMock(return_value={"episode_id": EPISODE, "stage": "story_shaping", "approvals": {},
+                                           "shots": 1, **brief})
+    api.temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+    res = TestClient(api.app).get(f"/api/episodes/{EPISODE}", headers={"Authorization": f"Bearer {ADMIN_SECRET}"})
+    assert res.status_code == 200, res.text
+    handle.query.assert_awaited_once_with("get_state")
+    assert (res.json()["archetype_id"], res.json()["target_duration_s"]) == \
+        (brief.get("archetype_id"), brief.get("target_duration_s"))
+
+
 @pytest.mark.parametrize("plan", [None, {"music": {"prompt": "calm piano"}},
                                   {"vo": {"lines": [{"id": "L01", "at": 0.3, "path": "audio/locked/L01.wav"}]}}])
 def test_plans_without_lines_to_voice_start(api, plan):

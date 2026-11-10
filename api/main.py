@@ -779,6 +779,9 @@ class EpisodeStateResponse(BaseModel):
     final_cut_rejections: list = []
     failed_shots: list[dict | str] = []  # workflow state holds {shot_id, status, error} dicts (GAP-16)
     shot_outcomes: dict = {}
+    # The create wizard's card and length (workflow input genre_brief); None for other starts
+    archetype_id: str | None = None
+    target_duration_s: int | None = None
 
 
 class AssemblyAcceptRequest(BaseModel):
@@ -1738,6 +1741,8 @@ async def get_episode_state(
         final_cut_rejections=list(state.get("final_cut_rejections") or []),
         failed_shots=list(state.get("failed_shots") or []),
         shot_outcomes=dict(state.get("shot_outcomes") or {}),
+        archetype_id=state.get("archetype_id"),
+        target_duration_s=state.get("target_duration_s"),
     )
 
 
