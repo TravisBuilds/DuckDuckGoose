@@ -129,6 +129,7 @@ presets:
     template: dialogue_episode
     aspect: "9:16"
     length_s: [25, 40]
+    default_length_s: 30
     pacing:
       cuts_per_10s: 3.2
     shot_grammar: ["handheld eye-level mediums", "OTS dialogue coverage", "period interiors", "warm film grade"]
@@ -146,6 +147,7 @@ presets:
     template: gag_short
     aspect: "9:16"
     length_s: [20, 30]
+    default_length_s: 25
     pacing:
       cuts_per_10s: 1.4
     shot_grammar: ["grand interior wides", "slow-mo reveal", "reaction close-up", "brand card"]
@@ -165,6 +167,7 @@ presets:
     template: music_montage
     aspect: "9:16"
     length_s: [30, 60]
+    default_length_s: 45
     pacing:
       cuts_per_10s: 2.4
     shot_grammar: ["symmetrical wides", "insert close-ups", "protagonist in most shots"]
@@ -184,6 +187,7 @@ presets:
     template: mood_loop
     aspect: "9:16"
     length_s: [15, 30]
+    default_length_s: 20
     pacing:
       cuts_per_10s: 0
     shot_grammar: ["locked-off wide", "slow push-in", "subject walks away", "quote overlay"]
@@ -202,6 +206,7 @@ presets:
     template: mood_loop
     aspect: "9:16"
     length_s: [10, 15]
+    default_length_s: 12
     pacing:
       cuts_per_10s: 1.0
     shot_grammar: ["single slow forward dolly", "figure from behind", "deep matte painting"]
@@ -218,6 +223,7 @@ presets:
     template: music_montage
     aspect: "16:9"
     length_s: [45, 75]
+    default_length_s: 60
     pacing:
       cuts_per_10s: 2.4
     shot_grammar: ["golden-hour wides", "two-shots", "emotional tear close-up", "title card"]
@@ -236,6 +242,7 @@ presets:
     template: mood_loop
     aspect: "9:16"
     length_s: [10, 15]
+    default_length_s: 12
     pacing:
       cuts_per_10s: 0
     shot_grammar: ["static wide crowd", "micro-motion elements", "ambient weather"]
@@ -254,6 +261,7 @@ presets:
     template: music_montage
     aspect: "9:16"
     length_s: [60, 90]
+    default_length_s: 75
     pacing:
       cuts_per_10s: 3.6
     shot_grammar: ["stylized 3D", "letter inserts", "establishing wides", "travel montage"]
@@ -269,6 +277,7 @@ presets:
     template: dialogue_episode
     aspect: "16:9"
     length_s: [30, 45]
+    default_length_s: 40
     pacing:
       cuts_per_10s: 5.0
     shot_grammar: ["sitcom wides", "prop inserts", "reaction close-ups", "series bug"]
@@ -286,6 +295,7 @@ presets:
     template: mood_loop
     aspect: "9:16"
     length_s: [10, 20]
+    default_length_s: 15
     pacing:
       cuts_per_10s: 0
     shot_grammar: ["wide static", "character back to camera", "glowing surreal phenomenon"]
@@ -302,6 +312,7 @@ presets:
     template: dialogue_episode
     aspect: "16:9"
     length_s: [45, 75]
+    default_length_s: 60
     pacing:
       cuts_per_10s: 4.5
     shot_grammar: ["film-parody coverage", "costumed animal close-ups", "landscape inserts"]
@@ -318,7 +329,8 @@ presets:
     description: "A few calm scenes then a long relaxing hold"
     template: mood_loop
     aspect: "4:3"
-    length_s: [60, 600]
+    length_s: [60, 90]
+    default_length_s: 75
     pacing:
       cuts_per_10s: 0.4
       transitions: [dissolve]
@@ -337,6 +349,7 @@ presets:
     template: dialogue_episode
     aspect: "16:9"
     length_s: [90, 180]
+    default_length_s: 120
     pacing:
       cuts_per_10s: 1.5
     shot_grammar: ["painterly 3D", "group wides", "reveal shots", "character close-ups"]
@@ -354,6 +367,7 @@ presets:
     template: cozy_micro
     aspect: "9:16"
     length_s: [10, 15]
+    default_length_s: 12
     pacing:
       cuts_per_10s: 1.5
       transitions: [whip_blur]
@@ -373,6 +387,7 @@ presets:
     template: cozy_micro
     aspect: "9:16"
     length_s: [15, 20]
+    default_length_s: 18
     pacing:
       cuts_per_10s: 2.2
     shot_grammar: ["thought-bubble open", "walking mediums", "food close-ups"]
@@ -390,6 +405,7 @@ presets:
     template: continuous_pov
     aspect: "9:16"
     length_s: [20, 40]
+    default_length_s: 30
     pacing:
       cuts_per_10s: 0.5
     shot_grammar: ["true first-person", "rig anchored bottom frame", "forward travel", "no hard cuts"]
@@ -407,6 +423,7 @@ presets:
     template: mood_loop
     aspect: "9:16"
     length_s: [10, 15]
+    default_length_s: 12
     pacing:
       cuts_per_10s: 0
     shot_grammar: ["single silhouette", "dramatic spotlight", "cloth/particle motion"]
@@ -423,6 +440,7 @@ presets:
     template: continuous_pov
     aspect: "16:9"
     length_s: [15, 30]
+    default_length_s: 20
     pacing:
       cuts_per_10s: 0
     shot_grammar: ["continuous two-shot", "slow orbit/push"]
@@ -440,6 +458,7 @@ presets:
     template: cozy_micro
     aspect: "9:16"
     length_s: [10, 15]
+    default_length_s: 12
     pacing:
       cuts_per_10s: 5.0
     shot_grammar: ["top-down ingredients", "pan inserts", "pour shots", "noodle pull", "hero bowl"]
@@ -457,6 +476,7 @@ presets:
     template: gag_short
     aspect: "9:16"
     length_s: [10, 20]
+    default_length_s: 15
     pacing:
       cuts_per_10s: 1.0
     shot_grammar: ["single action shot", "live person in 2D world composite", "headline caption"]
@@ -474,6 +494,7 @@ presets:
     template: action_sequence
     aspect: "16:9"
     length_s: [20, 30]
+    default_length_s: 25
     pacing:
       cuts_per_10s: 0.3
       transitions: [whip_pan]
@@ -491,8 +512,9 @@ presets:
     name: "Full-screen action anime"
     description: "Action anime rotated to fill the phone"
     template: action_sequence
-    aspect: "16:9"  # Source aspect, rotated to 9:16 in assembly
+    aspect: "16:9_rotated_to_9:16"
     length_s: [30, 45]
+    default_length_s: 35
     pacing:
       cuts_per_10s: 5.7
     shot_grammar: ["low angles", "impact frames", "fast cuts"]
@@ -510,6 +532,7 @@ presets:
     template: music_montage
     aspect: "4:3"
     length_s: [60, 180]
+    default_length_s: 120
     pacing:
       cuts_per_10s: 3.6
     shot_grammar: ["elemental close-ups", "creature silhouettes", "title calligraphy"]
@@ -528,6 +551,7 @@ presets:
     template: continuous_pov
     aspect: "9:16"
     length_s: [45, 60]
+    default_length_s: 50
     pacing:
       cuts_per_10s: 1.3
       transitions: [jump_cut]

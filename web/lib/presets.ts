@@ -5,13 +5,15 @@ export interface PresetData {
   template: string;
   aspect: string;
   lengthRange: [number, number];
+  defaultLength: number;
   tags: string[];
   briefFields: string[];
   voiceOver: string;
   music: string;
 }
 
-// Parsed from genre_presets.draft.yaml - all content rewritten to avoid named IP
+// Mirrors hfvg/data/genre_presets.yaml field for field (tests/test_preset_sync.py fails on drift).
+// All content is original: no named IP, franchises, studios, brands or real people.
 export const presets: PresetData[] = [
   {
     id: "nostalgia-time-travel",
@@ -20,6 +22,7 @@ export const presets: PresetData[] = [
     template: "dialogue_episode",
     aspect: "9:16",
     lengthRange: [25, 40],
+    defaultLength: 30,
     tags: ["nostalgic", "dialogue", "family"],
     briefFields: ["era", "place", "cast_roles", "memory_moment"],
     voiceOver: "dialogue",
@@ -32,6 +35,7 @@ export const presets: PresetData[] = [
     template: "gag_short",
     aspect: "9:16",
     lengthRange: [20, 30],
+    defaultLength: 25,
     tags: ["comedy", "satire", "quick"],
     briefFields: ["issue", "stand_in_characters", "gag", "punchline"],
     voiceOver: "none",
@@ -44,10 +48,11 @@ export const presets: PresetData[] = [
     template: "music_montage",
     aspect: "9:16",
     lengthRange: [30, 60],
+    defaultLength: 45,
     tags: ["fantasy", "transformation", "cinematic"],
     briefFields: ["source_world", "protagonist", "moments"],
     voiceOver: "none",
-    music: "emotional piano"
+    music: "emotional piano/orchestral"
   },
   {
     id: "farewell-tribute",
@@ -56,6 +61,7 @@ export const presets: PresetData[] = [
     template: "mood_loop",
     aspect: "9:16",
     lengthRange: [15, 30],
+    defaultLength: 20,
     tags: ["emotional", "tribute", "slow"],
     briefFields: ["honoree", "setting", "quote", "dates"],
     voiceOver: "none",
@@ -68,6 +74,7 @@ export const presets: PresetData[] = [
     template: "mood_loop",
     aspect: "9:16",
     lengthRange: [10, 15],
+    defaultLength: 12,
     tags: ["artistic", "ambient", "relaxing"],
     briefFields: ["world", "palette", "figure", "creature"],
     voiceOver: "none",
@@ -80,6 +87,7 @@ export const presets: PresetData[] = [
     template: "music_montage",
     aspect: "16:9",
     lengthRange: [45, 75],
+    defaultLength: 60,
     tags: ["storytelling", "alternate", "emotional"],
     briefFields: ["story_world", "characters", "changed_moment", "ending"],
     voiceOver: "caption_only",
@@ -92,6 +100,7 @@ export const presets: PresetData[] = [
     template: "mood_loop",
     aspect: "9:16",
     lengthRange: [10, 15],
+    defaultLength: 12,
     tags: ["cozy", "lofi", "relaxing"],
     briefFields: ["place", "characters", "activity", "time_of_day"],
     voiceOver: "none",
@@ -104,6 +113,7 @@ export const presets: PresetData[] = [
     template: "music_montage",
     aspect: "9:16",
     lengthRange: [60, 90],
+    defaultLength: 75,
     tags: ["cinematic", "journey", "original"],
     briefFields: ["hero", "goal", "stops", "ending"],
     voiceOver: "caption_only",
@@ -116,10 +126,11 @@ export const presets: PresetData[] = [
     template: "dialogue_episode",
     aspect: "16:9",
     lengthRange: [30, 45],
+    defaultLength: 40,
     tags: ["comedy", "episodic", "mascot"],
     briefFields: ["mascot", "setting", "gag", "side_characters"],
     voiceOver: "dialogue",
-    music: "comedic SFX"
+    music: "comedic SFX + light bed"
   },
   {
     id: "dreamscape",
@@ -128,6 +139,7 @@ export const presets: PresetData[] = [
     template: "mood_loop",
     aspect: "9:16",
     lengthRange: [10, 20],
+    defaultLength: 15,
     tags: ["surreal", "wallpaper", "atmospheric"],
     briefFields: ["character", "setting", "phenomenon"],
     voiceOver: "none",
@@ -140,6 +152,7 @@ export const presets: PresetData[] = [
     template: "dialogue_episode",
     aspect: "16:9",
     lengthRange: [45, 75],
+    defaultLength: 60,
     tags: ["animals", "parody", "wholesome"],
     briefFields: ["story", "animal_cast", "episode_beat"],
     voiceOver: "dialogue",
@@ -151,7 +164,8 @@ export const presets: PresetData[] = [
     description: "A few calm scenes then a long relaxing hold",
     template: "mood_loop",
     aspect: "4:3",
-    lengthRange: [60, 600],
+    lengthRange: [60, 90],
+    defaultLength: 75,
     tags: ["ambient", "sleep", "relaxing"],
     briefFields: ["vessel_or_place", "traveller", "destination", "ambience"],
     voiceOver: "none",
@@ -164,6 +178,7 @@ export const presets: PresetData[] = [
     template: "dialogue_episode",
     aspect: "16:9",
     lengthRange: [90, 180],
+    defaultLength: 120,
     tags: ["series", "animated", "original"],
     briefFields: ["series_bible", "premise", "cast", "cliffhanger"],
     voiceOver: "dialogue",
@@ -176,6 +191,7 @@ export const presets: PresetData[] = [
     template: "cozy_micro",
     aspect: "9:16",
     lengthRange: [10, 15],
+    defaultLength: 12,
     tags: ["cute", "greeting", "wholesome"],
     briefFields: ["mascots", "occasion", "greeting_text"],
     voiceOver: "caption_only",
@@ -188,6 +204,7 @@ export const presets: PresetData[] = [
     template: "cozy_micro",
     aspect: "9:16",
     lengthRange: [15, 20],
+    defaultLength: 18,
     tags: ["cute", "mascot", "slice-of-life"],
     briefFields: ["mascot", "outfit", "errand", "payoff"],
     voiceOver: "caption_only",
@@ -200,6 +217,7 @@ export const presets: PresetData[] = [
     template: "continuous_pov",
     aspect: "9:16",
     lengthRange: [20, 40],
+    defaultLength: 30,
     tags: ["pov", "adventure", "immersive"],
     briefFields: ["mount", "landscape", "destination", "mood"],
     voiceOver: "none",
@@ -212,6 +230,7 @@ export const presets: PresetData[] = [
     template: "mood_loop",
     aspect: "9:16",
     lengthRange: [10, 15],
+    defaultLength: 12,
     tags: ["dramatic", "silhouette", "atmospheric"],
     briefFields: ["character", "motif", "palette"],
     voiceOver: "none",
@@ -224,6 +243,7 @@ export const presets: PresetData[] = [
     template: "continuous_pov",
     aspect: "16:9",
     lengthRange: [15, 30],
+    defaultLength: 20,
     tags: ["emotional", "3d", "cinematic"],
     briefFields: ["character_a", "character_b", "setting", "beat"],
     voiceOver: "none",
@@ -236,10 +256,11 @@ export const presets: PresetData[] = [
     template: "cozy_micro",
     aspect: "9:16",
     lengthRange: [10, 15],
+    defaultLength: 12,
     tags: ["cozy", "food", "anime"],
     briefFields: ["dish", "kitchen", "hero_moment"],
     voiceOver: "none",
-    music: "ASMR SFX"
+    music: "ASMR SFX + soft tune"
   },
   {
     id: "rewrite-the-scene",
@@ -248,6 +269,7 @@ export const presets: PresetData[] = [
     template: "gag_short",
     aspect: "9:16",
     lengthRange: [10, 20],
+    defaultLength: 15,
     tags: ["remix", "intervention", "heartwarming"],
     briefFields: ["moment", "intervener", "outcome"],
     voiceOver: "caption_only",
@@ -260,6 +282,7 @@ export const presets: PresetData[] = [
     template: "action_sequence",
     aspect: "16:9",
     lengthRange: [20, 30],
+    defaultLength: 25,
     tags: ["action", "intense", "cinematic"],
     briefFields: ["fighters", "arena", "combat_style", "finisher"],
     voiceOver: "none",
@@ -270,8 +293,9 @@ export const presets: PresetData[] = [
     name: "Full-screen action anime",
     description: "Action anime rotated to fill the phone",
     template: "action_sequence",
-    aspect: "16:9",
+    aspect: "16:9_rotated_to_9:16",
     lengthRange: [30, 45],
+    defaultLength: 35,
     tags: ["action", "anime", "intense"],
     briefFields: ["hero", "ally", "set_piece", "rescue_beat"],
     voiceOver: "none",
@@ -284,6 +308,7 @@ export const presets: PresetData[] = [
     template: "music_montage",
     aspect: "4:3",
     lengthRange: [60, 180],
+    defaultLength: 120,
     tags: ["fantasy", "painterly", "narration"],
     briefFields: ["creatures", "legend", "world", "closing_line"],
     voiceOver: "narration",
@@ -296,6 +321,7 @@ export const presets: PresetData[] = [
     template: "continuous_pov",
     aspect: "9:16",
     lengthRange: [45, 60],
+    defaultLength: 50,
     tags: ["educational", "history", "vlog"],
     briefFields: ["date_place", "host", "event", "twist"],
     voiceOver: "dialogue",
@@ -309,4 +335,42 @@ export function getPresetById(id: string): PresetData | undefined {
 
 export function getPresetsByTag(tag: string): PresetData[] {
   return presets.filter(p => p.tags.includes(tag));
+}
+
+/** Length window when the creator skips the cards (mirrors FREEFORM_PROFILE in hfvg/genre_presets.py). */
+export const FREEFORM_LENGTH_RANGE: [number, number] = [30, 120];
+export const FREEFORM_DEFAULT_LENGTH = 60;
+
+export const TEMPLATE_LABELS: Record<string, string> = {
+  mood_loop: 'Mood loops',
+  music_montage: 'Music montages',
+  dialogue_episode: 'Dialogue episodes',
+  continuous_pov: 'Continuous POV',
+  cozy_micro: 'Cozy micro moments',
+  action_sequence: 'Action',
+  gag_short: 'Gag shorts',
+};
+
+/** Length choices inside [lo, hi] (both ends and the default always included), ascending. */
+export function lengthOptions(range: [number, number], defaultLength: number): number[] {
+  const [lo, hi] = range;
+  const span = hi - lo;
+  const step = span <= 20 ? 5 : span <= 60 ? 15 : 30;
+  const values = new Set<number>([lo, hi, defaultLength]);
+  for (let v = lo + step; v < hi; v += step) values.add(v);
+  return Array.from(values).filter(v => v >= lo && v <= hi).sort((a, b) => a - b);
+}
+
+export function formatAspect(aspect: string): string {
+  return aspect === '16:9_rotated_to_9:16' ? '16:9 rotated to fill 9:16' : aspect;
+}
+
+export function soundLabel(preset: Pick<PresetData, 'voiceOver' | 'music'>): string {
+  const voice: Record<string, string> = {
+    none: 'no voice-over',
+    caption_only: 'captions, no voice-over',
+    narration: 'narrator voice',
+    dialogue: 'character voices',
+  };
+  return `${voice[preset.voiceOver] ?? preset.voiceOver} · ${preset.music}`;
 }
