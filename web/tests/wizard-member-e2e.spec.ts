@@ -1,4 +1,5 @@
-import { test, expect, type Request, type Response } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { test, expect, type Response } from '@playwright/test';
 
 /**
  * Create wizard as a MEMBER against the REAL dry-run backend (scripts/e2e_backend.py seeds the member;
@@ -13,12 +14,6 @@ const MEMBER_PASSWORD = 'e2e-member-password';
 const API = 'http://localhost:8000';
 const CARD = 'nostalgia-time-travel';
 const IDEA = 'Two friends find an old mixtape and replay the summer they recorded it';
-
-/** The JSON file of a single-file multipart upload. */
-function uploadedJson(request: Request): any {
-  const body = request.postData() ?? '';
-  return JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
-}
 
 function postTo(path: string) {
   return (r: Response) => r.request().method() === 'POST' && new URL(r.url()).pathname === path;
@@ -91,11 +86,13 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
     expect(res.status(), `${name}: ${await res.text()}`).toBe(200);
   }
 
-  const audioPlan = uploadedJson((await responses.audioPlan).request());
+  // the plan the API wrote (the backend runs on this machine; Chromium hides multipart file bodies)
+  const saved = await (await responses.audioPlan).json();
+  expect(saved.audio_plan_path).toMatch(new RegExp(`/${episodeId}/audio/audio_plan\\.json$`));
+  const audioPlan = JSON.parse(readFileSync(saved.audio_plan_path, 'utf-8'));
   expect(audioPlan.vo.speakers).toEqual({ Lead: leadVoice, Friend: friendVoice });
   expect(audioPlan.vo.lines.length).toBeGreaterThan(0);
   expect(audioPlan.vo.lines.every((line: any) => ['Lead', 'Friend'].includes(line.speaker))).toBe(true);
-  const saved = await (await responses.audioPlan).json();
   expect(saved.vo_lines).toBe(audioPlan.vo.lines.length);
   expect(saved.lines_missing_voice).toEqual([]);
 
