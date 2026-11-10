@@ -145,6 +145,8 @@ function CreateVideoWizard() {
         episode_id: episodeId,
         dry_run: dryRun,
         enable_story_shaping: true,
+        archetype_id: selectedArchetype,
+        idea: idea.trim(),
       });
 
       // Redirect to episode page

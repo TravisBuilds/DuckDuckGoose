@@ -190,6 +190,8 @@ class EpisodeWorkflowV2:
         attempt_overrides: dict[str, int] | None = None,
         reopen_from: dict | None = None,
         enable_story_shaping: bool = False,
+        archetype_id: str | None = None,
+        idea: str | None = None,
     ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
@@ -331,15 +333,43 @@ class EpisodeWorkflowV2:
             workflow.logger.info("=== STORY SHAPING STAGE ===")
             self.state.stage = PipelineStage.SCRIPT
             
-            # For now, use the episode_id as a placeholder idea
-            # In a real implementation, this would come from episode config or user input
-            story_idea = self.state.idea or f"Episode {episode_id}"
-            genre_preset = None  # Could be passed in via config
+            # Use the passed idea and archetype_id, or fall back to episode_id
+            story_idea = idea or self.state.idea or f"Episode {episode_id}"
+            
+            # Load genre preset if archetype_id provided
+            genre_preset_data = None
+            if archetype_id:
+                from hfvg.genre_presets import get_preset
+                preset = get_preset(archetype_id)
+                if preset:
+                    genre_preset_data = {
+                        "id": preset.id,
+                        "name": preset.name,
+                        "template": preset.template.value,
+                        "story_structure": preset.story_structure.value if preset.story_structure else None,
+                        "length_s": preset.length_s,
+                        "vo_mode": preset.vo_mode.value,
+                    }
+                    workflow.logger.info(f"Using genre preset: {preset.name} ({preset.template.value})")
+                else:
+                    workflow.logger.warning(f"Unknown archetype_id: {archetype_id}")
+            
+            # Store idea and preset in state for later stages
+            self.state.idea = story_idea
+            self.state.archetype_id = archetype_id
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
+            
+            # Determine target duration from preset or default to 120s
+            target_duration = 120.0
+            if genre_preset_data and genre_preset_data.get("length_s"):
+                # Use midpoint of preset range
+                length_range = genre_preset_data["length_s"]
+                target_duration = float((length_range[0] + length_range[1]) / 2)
+            
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[story_idea, genre_preset, 120.0, dry_run],
+                args=[story_idea, genre_preset_data, target_duration, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

@@ -726,6 +726,8 @@ class StartEpisodeRequest(BaseModel):
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
     attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
     enable_story_shaping: bool = Field(False, description="Enable story-shaping stage before stills generation (default: false)")
+    archetype_id: str | None = Field(None, description="Genre preset ID for story shaping (e.g., 'nostalgia-time-travel')")
+    idea: str | None = Field(None, description="User's story idea for story shaping")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -1608,7 +1610,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping, request.archetype_id, request.idea],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
