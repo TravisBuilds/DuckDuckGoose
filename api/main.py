@@ -1377,6 +1377,9 @@ async def upload_prompt_kit(
     }
 
 
+upload_prompt_kit.allow_members = True
+
+
 @app.post("/api/episodes/{episode_id}/upload-shots")
 async def upload_shots(
     episode_id: str,
@@ -1440,6 +1443,9 @@ async def upload_shots(
     }
 
 
+upload_shots.allow_members = True
+
+
 @app.post("/api/episodes/{episode_id}/upload-audio-plan")
 async def upload_audio_plan(
     episode_id: str,
@@ -1449,51 +1455,40 @@ async def upload_audio_plan(
     """
     Upload the audio plan: audio_plan.json (required).
 
-    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
-    audio_plan.json specifies VO mode, voice IDs, lines, music, and SFX for the episode.
+    Requires: Cookie auth (members allowed). Stored in data/episodes/{episode_id}/audio/audio_plan.json.
+    audio_plan.json specifies VO, music, and SFX using the real schema (vo:{voice_id, lines[...]}, music:{...}).
     """
     await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
+
+    from hfvg.audio_mix import audio_plan_path, normalize_plan
 
     audio_plan_bytes = await audio_plan_file.read()
     try:
         audio_plan_data = json.loads(audio_plan_bytes)
         
-        # Validate basic structure
-        if not isinstance(audio_plan_data, dict):
-            raise ValueError("audio_plan.json must be a JSON object")
-        
-        if "vo_mode" not in audio_plan_data:
-            raise ValueError("audio_plan.json missing required 'vo_mode' field")
-        
-        valid_vo_modes = ["none", "narration", "dialogue", "caption_only"]
-        if audio_plan_data["vo_mode"] not in valid_vo_modes:
-            raise ValueError(f"Invalid vo_mode: {audio_plan_data['vo_mode']}. Must be one of: {valid_vo_modes}")
-        
-        # Mode-specific validation
-        vo_mode = audio_plan_data["vo_mode"]
-        if vo_mode == "narration":
-            if "lines" not in audio_plan_data:
-                raise ValueError("narration mode requires 'lines' array")
-        elif vo_mode == "dialogue":
-            if "speakers" not in audio_plan_data or "lines" not in audio_plan_data:
-                raise ValueError("dialogue mode requires 'speakers' object and 'lines' array")
-        elif vo_mode == "caption_only":
-            if "captions" not in audio_plan_data:
-                raise ValueError("caption_only mode requires 'captions' array")
+        # Validate using the real normalize_plan function (dry_run=False to test live schema)
+        try:
+            normalize_plan(audio_plan_data, dry_run=False)
+        except Exception as e:
+            raise ValueError(f"Audio plan validation failed: {e}")
         
     except (ValueError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid audio_plan.json: {e}")
 
-    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
-    episode_dir.mkdir(parents=True, exist_ok=True)
-    (episode_dir / "audio_plan.json").write_bytes(audio_plan_bytes)
+    # Use the correct path: <episode>/audio/audio_plan.json
+    plan_path = audio_plan_path(episode_id)
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_bytes(audio_plan_bytes)
     
     return {
         "success": True,
         "episode_id": episode_id,
-        "vo_mode": audio_plan_data["vo_mode"],
+        "audio_plan_path": str(plan_path),
     }
+
+
+upload_audio_plan.allow_members = True
 
 
 def uploaded_shots_problems(episode_id: str) -> list[str]:
@@ -5639,7 +5634,7 @@ class DraftFromIdeaRequest(BaseModel):
     """Request to generate episode files from a plain-language idea."""
     
     idea: str = Field(..., min_length=10, max_length=2000, description="User's story idea in plain language")
-    archetype_id: str = Field(..., description="Archetype/genre preset ID (required)")
+    archetype_id: str | None = Field(None, description="Archetype/genre preset ID (optional, defaults to 'original-mini-movie')")
     target_duration: int | None = Field(None, ge=10, le=600, description="Optional duration override (uses preset range if not specified)")
     style_preset: str | None = Field(None, max_length=500, description="Optional style description")
 
@@ -5736,12 +5731,13 @@ async def draft_from_idea(
     else:
         raise HTTPException(status_code=500, detail="Failed to generate unique episode ID after 100 attempts")
     
-    # Load genre preset
-    preset = get_preset(request.archetype_id)
+    # Load genre preset (default to original-mini-movie if not specified)
+    archetype_id = request.archetype_id or "original-mini-movie"
+    preset = get_preset(archetype_id)
     if preset is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown archetype_id: {request.archetype_id}. Use one of the 24 preset IDs."
+            detail=f"Unknown archetype_id: {archetype_id}. Use one of the 24 preset IDs."
         )
     
     # Determine target duration (user override or preset default midpoint)
@@ -5843,56 +5839,81 @@ prompt_kit.json:
   }}
 }}
 
-audio_plan.json ({preset.vo_mode.value} mode):
+audio_plan.json (real schema for audio_mix.normalize_plan):
 """
     
-    # Add audio plan format based on VO mode
+    # Add audio plan format based on VO mode - REAL SCHEMA
     if preset.vo_mode.value == "none":
         system_prompt += """
 {
-  "vo_mode": "none",
-  "music": {"style": "MUSIC_STYLE", "intensity": "medium"}
+  "vo": {
+    "voice_id": null,
+    "lines": []
+  },
+  "music": {
+    "prompt": "MUSIC_DESCRIPTION_HERE",
+    "level_db": -30.0,
+    "loop": true
+  }
 }
 """
     elif preset.vo_mode.value == "narration":
         system_prompt += """
 {
-  "vo_mode": "narration",
-  "voice_id": "narrator",
-  "lines": [
-    {"text": "Narration line...", "shot_id": "S01", "timing": "start"}
-  ],
-  "music": {"style": "MUSIC_STYLE", "intensity": "low"}
+  "vo": {
+    "voice_id": null,
+    "lines": [
+      {"id": "L01", "at": 0.0, "text": "Narration text here", "subtitle": "Narration text here"}
+    ]
+  },
+  "music": {
+    "prompt": "MUSIC_DESCRIPTION_HERE",
+    "level_db": -32.0,
+    "loop": true
+  }
 }
 """
     elif preset.vo_mode.value == "dialogue":
         system_prompt += """
 {
-  "vo_mode": "dialogue",
-  "speakers": {
-    "character_a": {"voice_id": "speaker1", "name": "Character A"},
-    "character_b": {"voice_id": "speaker2", "name": "Character B"}
+  "vo": {
+    "voice_id": null,
+    "lines": [
+      {"id": "L01", "at": 0.0, "text": "Character A dialogue", "subtitle": "Character A dialogue"},
+      {"id": "L02", "at": 5.0, "text": "Character B dialogue", "subtitle": "Character B dialogue"}
+    ]
   },
-  "lines": [
-    {"speaker": "character_a", "text": "Line...", "shot_id": "S01"}
-  ],
-  "music": {"style": "MUSIC_STYLE", "intensity": "low"}
+  "music": {
+    "prompt": "MUSIC_DESCRIPTION_HERE",
+    "level_db": -32.0,
+    "loop": true
+  }
 }
 """
     elif preset.vo_mode.value == "caption_only":
         system_prompt += """
 {
-  "vo_mode": "caption_only",
-  "captions": [
-    {"text": "Caption text", "shot_id": "S01", "position": "bottom"}
-  ],
-  "music": {"style": "MUSIC_STYLE", "intensity": "medium"}
+  "vo": {
+    "voice_id": null,
+    "lines": []
+  },
+  "music": {
+    "prompt": "MUSIC_DESCRIPTION_HERE",
+    "level_db": -30.0,
+    "loop": true
+  }
 }
 """
     
     system_prompt += f"""
 
-Music style from preset: {preset.music}
+IMPORTANT for audio_plan.json:
+- vo.voice_id can be null (system will use default)
+- vo.lines: each line needs {{id, at (seconds), text, subtitle}}
+- music needs EITHER "prompt" (text description) OR "path" (library file)
+- Use "prompt" with style: {preset.music}
+- level_db typically -30 to -32 for music under VO
+- Do NOT use placeholder IDs - use null for voice_id
 
 Return ONLY valid JSON with these exact keys: beatmap_md, shots_json, refs_json, prompt_kit_json, audio_plan_json."""
 
@@ -5963,39 +5984,60 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
             }
         }
         
-        # Generate audio plan based on preset vo_mode
+        # Generate audio plan based on preset vo_mode - REAL SCHEMA
         if preset.vo_mode.value == "none":
             audio_plan_data = {
-                "vo_mode": "none",
-                "music": {"style": preset.music or "ambient", "intensity": "medium"}
+                "vo": {
+                    "voice_id": None,
+                    "lines": []
+                },
+                "music": {
+                    "prompt": f"{preset.music or 'ambient'} instrumental background music",
+                    "level_db": -30.0,
+                    "loop": True
+                }
             }
         elif preset.vo_mode.value == "narration":
             audio_plan_data = {
-                "vo_mode": "narration",
-                "voice_id": "narrator_default",
-                "lines": [
-                    {"text": "In a forgotten workshop, a curious robot awakens.", "shot_id": "S01", "timing": "start"}
-                ],
-                "music": {"style": preset.music or "gentle", "intensity": "low"}
+                "vo": {
+                    "voice_id": None,
+                    "lines": [
+                        {"id": "L01", "at": 0.0, "text": "In a forgotten workshop, a curious robot awakens.", 
+                         "subtitle": "In a forgotten workshop, a curious robot awakens."}
+                    ]
+                },
+                "music": {
+                    "prompt": f"{preset.music or 'gentle'} instrumental background music",
+                    "level_db": -32.0,
+                    "loop": True
+                }
             }
         elif preset.vo_mode.value == "dialogue":
             audio_plan_data = {
-                "vo_mode": "dialogue",
-                "speakers": {
-                    "robot": {"voice_id": "robot_voice", "name": "Robot"}
+                "vo": {
+                    "voice_id": None,
+                    "lines": [
+                        {"id": "L01", "at": 0.0, "text": "What is this place?", "subtitle": "What is this place?"},
+                        {"id": "L02", "at": 3.0, "text": "It's an old workshop.", "subtitle": "It's an old workshop."}
+                    ]
                 },
-                "lines": [
-                    {"speaker": "robot", "text": "What is this place?", "shot_id": "S01"}
-                ],
-                "music": {"style": preset.music or "mysterious", "intensity": "low"}
+                "music": {
+                    "prompt": f"{preset.music or 'mysterious'} instrumental background music",
+                    "level_db": -32.0,
+                    "loop": True
+                }
             }
         else:  # caption_only
             audio_plan_data = {
-                "vo_mode": "caption_only",
-                "captions": [
-                    {"text": "The Discovery", "shot_id": "S01", "position": "bottom"}
-                ],
-                "music": {"style": preset.music or "upbeat", "intensity": "medium"}
+                "vo": {
+                    "voice_id": None,
+                    "lines": []
+                },
+                "music": {
+                    "prompt": f"{preset.music or 'upbeat'} instrumental background music",
+                    "level_db": -30.0,
+                    "loop": True
+                }
             }
         
         cost_estimate = offline_cost_estimate(shots_data["shots"])

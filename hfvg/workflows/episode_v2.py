@@ -254,7 +254,8 @@ class EpisodeWorkflowV2:
                 # GAP-41: a reopened episode goes straight back to G_FINAL_CUT with the restored state
                 return await self._run_reopened(episode_id, reopen_from)
             result = await self._run_with_lock(
-                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, enable_story_shaping
+                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, 
+                enable_story_shaping, archetype_id, idea
             )
             return result
         finally:
@@ -273,7 +274,9 @@ class EpisodeWorkflowV2:
     async def _run_with_lock(
         self, episode_id: str, beatmap_path: str | None, dry_run: bool,
         is_canary: bool, shots_subset: list[str] | None, credit_cap: int | None,
-        enable_story_shaping: bool = False
+        enable_story_shaping: bool = False,
+        archetype_id: str | None = None,
+        idea: str | None = None,
     ) -> dict:
         """Execute workflow with run lock held."""
         
@@ -333,43 +336,28 @@ class EpisodeWorkflowV2:
             workflow.logger.info("=== STORY SHAPING STAGE ===")
             self.state.stage = PipelineStage.SCRIPT
             
-            # Use the passed idea and archetype_id, or fall back to episode_id
+            # Use the passed idea or fall back to episode_id
             story_idea = idea or self.state.idea or f"Episode {episode_id}"
             
-            # Load genre preset if archetype_id provided
-            genre_preset_data = None
-            if archetype_id:
-                from hfvg.genre_presets import get_preset
-                preset = get_preset(archetype_id)
-                if preset:
-                    genre_preset_data = {
-                        "id": preset.id,
-                        "name": preset.name,
-                        "template": preset.template.value,
-                        "story_structure": preset.story_structure.value if preset.story_structure else None,
-                        "length_s": preset.length_s,
-                        "vo_mode": preset.vo_mode.value,
-                    }
-                    workflow.logger.info(f"Using genre preset: {preset.name} ({preset.template.value})")
-                else:
-                    workflow.logger.warning(f"Unknown archetype_id: {archetype_id}")
-            
-            # Store idea and preset in state for later stages
+            # Store idea in state for later stages (don't store archetype_id - not in EpisodeState schema)
             self.state.idea = story_idea
-            self.state.archetype_id = archetype_id
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
             
             # Determine target duration from preset or default to 120s
+            # Preset data was already resolved in the API
             target_duration = 120.0
-            if genre_preset_data and genre_preset_data.get("length_s"):
-                # Use midpoint of preset range
-                length_range = genre_preset_data["length_s"]
-                target_duration = float((length_range[0] + length_range[1]) / 2)
+            genre_preset_data = None
+            if archetype_id:
+                # Preset should have been resolved in API, but we'll log it here
+                workflow.logger.info(f"Story shaping with archetype: {archetype_id}")
+                # For now, pass archetype_id as a simple string to the activity
+                # The activity will handle resolving it if needed
+                genre_preset_data = archetype_id
             
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[story_idea, genre_preset_data, target_duration, dry_run],
+                args=[episode_id, story_idea, genre_preset_data, target_duration, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
