@@ -1343,7 +1343,12 @@ async def upload_prompt_kit(
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(
+        admin_secret=None,
+        upload_token=None,
+        cookie=studio_admin_token,
+        require_admin=False
+    )
     validate_episode_id(episode_id)
     
     # Create episode directory
@@ -1458,19 +1463,26 @@ async def upload_audio_plan(
     Requires: Cookie auth (members allowed). Stored in data/episodes/{episode_id}/audio/audio_plan.json.
     audio_plan.json specifies VO, music, and SFX using the real schema (vo:{voice_id, lines[...]}, music:{...}).
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(
+        admin_secret=None,
+        upload_token=None,
+        cookie=studio_admin_token,
+        require_admin=False
+    )
     validate_episode_id(episode_id)
 
-    from hfvg.audio_mix import audio_plan_path, normalize_plan
+    from hfvg.audio_mix import audio_plan_path, normalize_plan, AudioInputError
 
     audio_plan_bytes = await audio_plan_file.read()
     try:
         audio_plan_data = json.loads(audio_plan_bytes)
         
-        # Validate using the real normalize_plan function (dry_run=False to test live schema)
+        # Validate using the real normalize_plan function
+        # base_dir is the episode directory (audio paths resolve relative to it)
+        episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
         try:
-            normalize_plan(audio_plan_data, dry_run=False)
-        except Exception as e:
+            normalize_plan(audio_plan_data, base_dir=episode_dir)
+        except AudioInputError as e:
             raise ValueError(f"Audio plan validation failed: {e}")
         
     except (ValueError, json.JSONDecodeError) as e:
@@ -5908,12 +5920,12 @@ audio_plan.json (real schema for audio_mix.normalize_plan):
     system_prompt += f"""
 
 IMPORTANT for audio_plan.json:
-- vo.voice_id can be null (system will use default)
+- vo.voice_id: use a configured ElevenLabs voice ID (required for live generation)
 - vo.lines: each line needs {{id, at (seconds), text, subtitle}}
 - music needs EITHER "prompt" (text description) OR "path" (library file)
 - Use "prompt" with style: {preset.music}
 - level_db typically -30 to -32 for music under VO
-- Do NOT use placeholder IDs - use null for voice_id
+- voice_id must be a real ElevenLabs voice ID from the user's library
 
 Return ONLY valid JSON with these exact keys: beatmap_md, shots_json, refs_json, prompt_kit_json, audio_plan_json."""
 
@@ -5985,10 +5997,13 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
         }
         
         # Generate audio plan based on preset vo_mode - REAL SCHEMA
+        # Use configured default voice or empty string (dry run will skip generation)
+        default_voice_id = os.getenv("ELEVENLABS_DEFAULT_VOICE_ID", "")
+        
         if preset.vo_mode.value == "none":
             audio_plan_data = {
                 "vo": {
-                    "voice_id": None,
+                    "voice_id": default_voice_id,
                     "lines": []
                 },
                 "music": {
@@ -6000,7 +6015,7 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
         elif preset.vo_mode.value == "narration":
             audio_plan_data = {
                 "vo": {
-                    "voice_id": None,
+                    "voice_id": default_voice_id,
                     "lines": [
                         {"id": "L01", "at": 0.0, "text": "In a forgotten workshop, a curious robot awakens.", 
                          "subtitle": "In a forgotten workshop, a curious robot awakens."}
@@ -6013,9 +6028,10 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
                 }
             }
         elif preset.vo_mode.value == "dialogue":
+            # For dialogue, use default voice for all speakers (multi-voice is F2)
             audio_plan_data = {
                 "vo": {
-                    "voice_id": None,
+                    "voice_id": default_voice_id,
                     "lines": [
                         {"id": "L01", "at": 0.0, "text": "What is this place?", "subtitle": "What is this place?"},
                         {"id": "L02", "at": 3.0, "text": "It's an old workshop.", "subtitle": "It's an old workshop."}
@@ -6030,7 +6046,7 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
         else:  # caption_only
             audio_plan_data = {
                 "vo": {
-                    "voice_id": None,
+                    "voice_id": default_voice_id,
                     "lines": []
                 },
                 "music": {
@@ -6165,12 +6181,15 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
                 detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
             )
         
-        # Validate audio_plan.json
-        if not isinstance(audio_plan_data, dict) or "vo_mode" not in audio_plan_data:
-            raise HTTPException(
-                status_code=500,
-                detail="Generated audio_plan.json missing 'vo_mode' key"
-            )
+        # Validate audio_plan.json with the real schema
+        from hfvg.audio_mix import normalize_plan, AudioInputError
+        try:
+            # Validate structure (we don't have an episode dir yet, use temp)
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                normalize_plan(audio_plan_data, base_dir=tmpdir)
+        except AudioInputError as e:
+            raise HTTPException(status_code=500, detail=f"Generated audio_plan.json validation failed: {e}")
         
         # Generate cost estimate
         cost_estimate = offline_cost_estimate(shots_data["shots"])

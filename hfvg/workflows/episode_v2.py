@@ -344,20 +344,33 @@ class EpisodeWorkflowV2:
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
             
-            # Determine target duration from preset or default to 120s
-            # Preset data was already resolved in the API
-            target_duration = 120.0
+            # archetype_id and idea are passed from API start_episode
+            # The API should also pass the target_duration and preset dict in the future,
+            # but for now we resolve the preset here
             genre_preset_data = None
+            target_duration_s = 120.0
+            
             if archetype_id:
-                # Preset should have been resolved in API, but we'll log it here
-                workflow.logger.info(f"Story shaping with archetype: {archetype_id}")
-                # For now, pass archetype_id as a simple string to the activity
-                # The activity will handle resolving it if needed
-                genre_preset_data = archetype_id
+                from hfvg.genre_presets import get_preset
+                preset = get_preset(archetype_id)
+                if preset:
+                    genre_preset_data = {
+                        "id": preset.id,
+                        "name": preset.name,
+                        "template": preset.template.value,
+                        "story_structure": preset.story_structure.value if preset.story_structure else None,
+                        "length_s": preset.length_s,
+                        "vo_mode": preset.vo_mode.value,
+                    }
+                    # Use midpoint of preset range for target duration
+                    target_duration_s = float((preset.length_s[0] + preset.length_s[1]) / 2)
+                    workflow.logger.info(f"Story shaping with preset: {preset.name}, target: {target_duration_s}s")
+                else:
+                    workflow.logger.warning(f"Unknown archetype_id: {archetype_id}")
             
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[episode_id, story_idea, genre_preset_data, target_duration, dry_run],
+                args=[episode_id, story_idea, genre_preset_data, target_duration_s, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

@@ -1,14 +1,8 @@
 """Test that members (non-admin) can complete the wizard upload steps (D8)."""
-import os
 import pytest
 import json
 from pathlib import Path
 from io import BytesIO
-
-
-# Set env vars before importing
-os.environ["ADMIN_SECRET"] = "test_admin_secret_at_least_32_chars_long_here"
-os.environ["DATABASE_PATH"] = ":memory:"
 
 
 @pytest.fixture

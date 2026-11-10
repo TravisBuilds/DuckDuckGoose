@@ -50,8 +50,9 @@ def parse_typescript_presets(ts_path: Path) -> dict[str, dict]:
 
 def test_preset_ids_match():
     """Test that all preset IDs in YAML exist in TypeScript and vice versa."""
-    yaml_path = Path("hfvg/data/genre_presets.yaml")
-    ts_path = Path("web/lib/presets.ts")
+    repo_root = Path(__file__).parent.parent
+    yaml_path = repo_root / "hfvg" / "data" / "genre_presets.yaml"
+    ts_path = repo_root / "web" / "lib" / "presets.ts"
     
     assert yaml_path.exists(), f"YAML file not found: {yaml_path}"
     assert ts_path.exists(), f"TypeScript file not found: {ts_path}"
@@ -79,8 +80,9 @@ def test_preset_ids_match():
 
 def test_preset_aspect_ratios_match():
     """Test that aspect ratios match between YAML and TypeScript."""
-    yaml_path = Path("hfvg/data/genre_presets.yaml")
-    ts_path = Path("web/lib/presets.ts")
+    repo_root = Path(__file__).parent.parent
+    yaml_path = repo_root / "hfvg" / "data" / "genre_presets.yaml"
+    ts_path = repo_root / "web" / "lib" / "presets.ts"
     
     # Load YAML
     with open(yaml_path) as f:
@@ -127,8 +129,9 @@ def test_preset_aspect_ratios_match():
 
 def test_preset_length_ranges_match():
     """Test that length ranges match between YAML and TypeScript."""
-    yaml_path = Path("hfvg/data/genre_presets.yaml")
-    ts_path = Path("web/lib/presets.ts")
+    repo_root = Path(__file__).parent.parent
+    yaml_path = repo_root / "hfvg" / "data" / "genre_presets.yaml"
+    ts_path = repo_root / "web" / "lib" / "presets.ts"
     
     # Load YAML
     with open(yaml_path) as f:
@@ -162,8 +165,9 @@ def test_preset_length_ranges_match():
 
 def test_preset_vo_mode_consistency():
     """Test that VO mode is consistent between YAML and TypeScript."""
-    yaml_path = Path("hfvg/data/genre_presets.yaml")
-    ts_path = Path("web/lib/presets.ts")
+    repo_root = Path(__file__).parent.parent
+    yaml_path = repo_root / "hfvg" / "data" / "genre_presets.yaml"
+    ts_path = repo_root / "web" / "lib" / "presets.ts"
     
     # Load YAML
     with open(yaml_path) as f:

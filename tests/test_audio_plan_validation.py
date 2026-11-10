@@ -1,53 +1,32 @@
 """Test that generated audio plans validate with load_audio_plan for all 24 presets."""
-import os
 import pytest
 import json
+import yaml
 from pathlib import Path
 
 
-# Set env vars before importing
-os.environ["ADMIN_SECRET"] = "test_admin_secret_at_least_32_chars_long_here"
-os.environ["DATABASE_PATH"] = ":memory:"
-os.environ["DRAFT_LLM_FAKE"] = "1"  # Use fake LLM for deterministic plans
-os.environ["DRY_RUN"] = "true"  # Dry run for test
-
-
-ALL_PRESET_IDS = [
-    "cute-greeting",
-    "what-if-ending",
-    "nostalgia-time-travel",
-    "cozy-hangout",
-    "dreamscape",
-    "living-painting",
-    "farewell-tribute",
-    "mascot-sketch",
-    "satire-sketch",
-    "creature-legend",
-    "animal-remake",
-    "original-series",
-    "live-action-fight",
-    "time-travel-vlog",
-    "fullscreen-action-anime",
-    "original-mini-movie",
-    "cliffhanger-serial",
-    "epic-trailer",
-    "fan-fiction",
-    "behind-the-scenes",
-    "making-of-broll",
-    "style-experiment",
-    "series-commentary",
-    "outtake-blooper",
-]
+def get_all_preset_ids():
+    """Load preset IDs from the YAML file."""
+    yaml_path = Path(__file__).parent.parent / "hfvg" / "data" / "genre_presets.yaml"
+    with open(yaml_path) as f:
+        presets = yaml.safe_load(f)
+    return list(presets.keys())
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Test client with auth."""
+    # Set env vars via monkeypatch (no module-level pollution)
+    monkeypatch.setenv("ADMIN_SECRET", "test_admin_secret_at_least_32_chars_long_here")
+    monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
+    monkeypatch.setenv("DRY_RUN", "true")
+    
     from fastapi.testclient import TestClient
     from api.main import app
     
     test_client = TestClient(app)
-    admin_secret = os.environ["ADMIN_SECRET"]
+    admin_secret = "test_admin_secret_at_least_32_chars_long_here"
     login_response = test_client.post("/api/login", json={"admin_secret": admin_secret})
     assert login_response.status_code == 200
     
@@ -57,7 +36,7 @@ def client():
     return test_client
 
 
-@pytest.mark.parametrize("archetype_id", ALL_PRESET_IDS)
+@pytest.mark.parametrize("archetype_id", get_all_preset_ids())
 def test_audio_plan_validates_for_all_presets(client, archetype_id, tmp_path):
     """Test that the generated audio plan for each preset validates with load_audio_plan (DRY_RUN=false semantics)."""
     # Generate a draft with fake LLM
@@ -106,15 +85,18 @@ def test_audio_plan_validates_for_all_presets(client, archetype_id, tmp_path):
         pytest.fail(f"Audio plan validation failed for preset {archetype_id}: {e}\nPlan: {json.dumps(audio_plan, indent=2)}")
 
 
-def test_audio_plan_schema_structure():
+def test_audio_plan_schema_structure(monkeypatch):
     """Test that the fake LLM generates the correct schema structure."""
-    os.environ["DRAFT_LLM_FAKE"] = "1"
+    monkeypatch.setenv("ADMIN_SECRET", "test_admin_secret_at_least_32_chars_long_here")
+    monkeypatch.setenv("DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
+    monkeypatch.setenv("DRY_RUN", "true")
     
     from fastapi.testclient import TestClient
     from api.main import app
     
     client = TestClient(app)
-    admin_secret = os.environ["ADMIN_SECRET"]
+    admin_secret = "test_admin_secret_at_least_32_chars_long_here"
     login_response = client.post("/api/login", json={"admin_secret": admin_secret})
     session_cookie = login_response.cookies.get("studio_admin_token")
     client.cookies.set("studio_admin_token", session_cookie)

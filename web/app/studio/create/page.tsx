@@ -69,6 +69,13 @@ function CreateVideoWizard() {
   const handleArchetypeSelect = (archetypeId: string) => {
     setSelectedArchetype(archetypeId);
     setStep('idea');
+    
+    // Reset duration to preset's midpoint when card is selected
+    const preset = presets.find(p => p.id === archetypeId);
+    if (preset) {
+      const midpoint = Math.floor((preset.lengthRange[0] + preset.lengthRange[1]) / 2);
+      setTargetDuration(midpoint);
+    }
   };
 
   const handleGenerateDraft = async () => {
@@ -208,7 +215,13 @@ function CreateVideoWizard() {
               {presets.map((preset) => (
                 <button
                   key={preset.id}
-                  onClick={() => handleArchetypeSelect(preset.id)}
+                  onClick={() => {
+                    setSelectedArchetype(preset.id);
+                    setShowArchetypes(false);
+                    // Reset duration to preset's midpoint
+                    const midpoint = Math.floor((preset.lengthRange[0] + preset.lengthRange[1]) / 2);
+                    setTargetDuration(midpoint);
+                  }}
                   className="text-left p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-500 dark:hover:border-blue-400 transition-colors"
                 >
                   <h3 className="font-semibold mb-1">{preset.name}</h3>

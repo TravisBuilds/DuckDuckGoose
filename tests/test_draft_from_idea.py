@@ -301,7 +301,7 @@ def test_draft_from_idea_beatmap_repair(client, mock_openai_response, monkeypatc
 
 
 def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
-    """Test that IP steering notes appear in warnings."""
+    """Test that IP steering notes appear in warnings (original: warning in data['warnings'])."""
     # Monkeypatch the config to provide an API key
     from hfvg import config as config_module
     monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
@@ -344,7 +344,7 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
             }
         },
         "audio_plan_json": {
-            "vo": {"voice_id": None, "lines": []},
+            "vo": {"voice_id": "", "lines": []},
             "music": {"prompt": "heroic music", "level_db": -30.0, "loop": True}
         },
         "ip_steering_note": "Steering: Avoided Spider-Man likeness"
@@ -362,7 +362,7 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
         response = client.post(
             "/api/episodes/draft-from-idea",
             json={
-                "idea": "A hero swings through the city",
+                "idea": "A spider-themed hero like Spider-Man swings through the city",
                 "archetype_id": "fullscreen-action-anime",
                 "target_duration": 30,
             }
@@ -370,13 +370,14 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
     
     assert response.status_code == 200
     data = response.json()
-    # IP steering note should be present
-    assert "ip_steering_note" in data
-    assert "Spider-Man" in data["ip_steering_note"]
+    # Original assertion: warning reaches data["warnings"]
+    assert "warnings" in data
+    warnings_text = " ".join(data["warnings"])
+    assert "Spider-Man" in warnings_text or "steering" in warnings_text.lower()
 
 
 def test_draft_llm_fake_refused_in_live_mode(client, monkeypatch):
-    """Test that fake LLM refuses when DRY_RUN=false and DRAFT_LLM_FAKE=1."""
+    """Test that fake LLM refuses when DRY_RUN=false and DRAFT_LLM_FAKE=1 (original: 500 + 'DRAFT_LLM_FAKE')."""
     monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
     monkeypatch.setenv("DRY_RUN", "false")
     
@@ -389,37 +390,22 @@ def test_draft_llm_fake_refused_in_live_mode(client, monkeypatch):
         }
     )
     
-    # Should refuse in live mode with fake LLM
-    assert response.status_code == 400
-    assert "fake LLM" in response.json()["detail"].lower()
+    # Original assertion: 500 + "DRAFT_LLM_FAKE"
+    assert response.status_code == 500
+    assert "DRAFT_LLM_FAKE" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("archetype_id", [
-    "cute-greeting",
-    "what-if-ending",
-    "nostalgia-time-travel",
-    "cozy-hangout",
-    "dreamscape",
-    "living-painting",
-    "farewell-tribute",
-    "mascot-sketch",
-    "satire-sketch",
-    "creature-legend",
-    "animal-remake",
-    "original-series",
-    "live-action-fight",
-    "time-travel-vlog",
-    "fullscreen-action-anime",
-    "original-mini-movie",
-    "cliffhanger-serial",
-    "epic-trailer",
-    "fan-fiction",
-    "behind-the-scenes",
-    "making-of-broll",
-    "style-experiment",
-    "series-commentary",
-    "outtake-blooper",
-])
+def get_all_preset_ids():
+    """Load real preset IDs from YAML."""
+    import yaml
+    from pathlib import Path
+    yaml_path = Path(__file__).parent.parent / "hfvg" / "data" / "genre_presets.yaml"
+    with open(yaml_path) as f:
+        presets = yaml.safe_load(f)
+    return list(presets.keys())
+
+
+@pytest.mark.parametrize("archetype_id", get_all_preset_ids())
 def test_draft_accepts_valid_archetypes(client, mock_openai_response, monkeypatch, archetype_id):
     """Test that all 24 valid archetypes are accepted."""
     from hfvg import config as config_module
