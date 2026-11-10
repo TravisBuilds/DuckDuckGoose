@@ -54,6 +54,7 @@ from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_s
 from hfvg.budget import BudgetLedger
 from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
 from hfvg.episode_parser import parse_beatmap
+from hfvg.genre_presets import DRAFT_MAX_S, DRAFT_MIN_S
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
@@ -726,6 +727,9 @@ class StartEpisodeRequest(BaseModel):
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
     attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
     enable_story_shaping: bool = Field(False, description="Enable story-shaping stage before stills generation (default: false)")
+    archetype_id: str | None = Field(None, description="Wizard card id (hfvg/data/genre_presets.yaml); story shaping follows its structure")
+    idea: str | None = Field(None, max_length=2000, description="The creator's idea (wizard); story shaping writes from it")
+    target_duration: int | None = Field(None, ge=DRAFT_MIN_S, le=DRAFT_MAX_S, description="Creator's length in seconds (clamped to the card's range)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -1544,15 +1548,31 @@ async def start_episode(
             detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
         )
 
+    # The wizard's brief travels as a workflow input (workflow code reads no files): the card's profile
+    # and the creator's length, clamped to the card's range, resolved here.
+    genre_brief = None
+    if request.archetype_id or request.idea or request.target_duration is not None:
+        from hfvg.genre_presets import clamp_length, resolve_profile
+        try:
+            profile = resolve_profile(request.archetype_id)
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Unknown video type {request.archetype_id!r}")
+        target_duration, _ = clamp_length(profile, request.target_duration)
+        genre_brief = {"idea": (request.idea or "").strip(), "archetype_id": request.archetype_id,
+                       "target_duration_s": target_duration, "preset": profile}
+
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Stable workflow ID for approve route to find
     workflow_id = episode_workflow_id(request.episode_id)
     
+    args = [request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping]
+    if genre_brief is not None:
+        args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
+        args=args,
         id=workflow_id,
         task_queue="hfvg-tasks",
     )

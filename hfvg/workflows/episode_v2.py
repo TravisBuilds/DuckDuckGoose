@@ -190,6 +190,7 @@ class EpisodeWorkflowV2:
         attempt_overrides: dict[str, int] | None = None,
         reopen_from: dict | None = None,
         enable_story_shaping: bool = False,
+        genre_brief: dict | None = None,
     ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
@@ -201,11 +202,18 @@ class EpisodeWorkflowV2:
             shots_subset: Optional list of shot IDs to run (e.g., ['A01', 'A02'] for canary)
             credit_cap: Optional credit cap for this run (overrides episode line cap)
             attempt_overrides: Optional shot_id -> attempt number mapping for testing retries (e.g., {'A02': 2})
+            genre_brief: Optional create-wizard brief, plain data resolved by the API (the workflow never
+                reads the preset registry): {"idea", "archetype_id", "target_duration_s", "preset"}
         
         Returns:
             dict with episode results
         """
         self.state.episode_id = episode_id
+        if genre_brief:
+            self.state.idea = str(genre_brief.get("idea") or "")
+            self.state.archetype_id = genre_brief.get("archetype_id")
+            self.state.target_duration_s = genre_brief.get("target_duration_s")
+            self.state.genre_preset = genre_brief.get("preset")
         
         # Store attempt overrides in state (these don't count against retry budget)
         if attempt_overrides:
@@ -331,15 +339,16 @@ class EpisodeWorkflowV2:
             workflow.logger.info("=== STORY SHAPING STAGE ===")
             self.state.stage = PipelineStage.SCRIPT
             
-            # For now, use the episode_id as a placeholder idea
-            # In a real implementation, this would come from episode config or user input
+            # The wizard brief (run arg genre_brief) sets idea / preset / length; other starts keep the
+            # placeholder idea, no preset and the 120 s default
             story_idea = self.state.idea or f"Episode {episode_id}"
-            genre_preset = None  # Could be passed in via config
+            genre_preset = self.state.genre_preset
+            target_duration = float(self.state.target_duration_s or 120.0)
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[story_idea, genre_preset, 120.0, dry_run],
+                args=[episode_id, story_idea, genre_preset, target_duration, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
@@ -3442,6 +3451,8 @@ class EpisodeWorkflowV2:
             "story_shape_critique": self.story_shape_critique,
             "story_shape_revision": self.story_shape_revision,
             "story_shape_log": self.story_shape_log.copy(),
+            "archetype_id": self.state.archetype_id,
+            "target_duration_s": self.state.target_duration_s,
             "shot_beats": shot_beats,
             "approvals": {
                 "story_shape": self.approved_story_shape,
