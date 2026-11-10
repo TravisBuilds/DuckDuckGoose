@@ -190,8 +190,6 @@ class EpisodeWorkflowV2:
         attempt_overrides: dict[str, int] | None = None,
         reopen_from: dict | None = None,
         enable_story_shaping: bool = False,
-        archetype_id: str | None = None,
-        idea: str | None = None,
     ) -> dict:
         """
         Execute full episode pipeline following handbook steps.
@@ -254,8 +252,7 @@ class EpisodeWorkflowV2:
                 # GAP-41: a reopened episode goes straight back to G_FINAL_CUT with the restored state
                 return await self._run_reopened(episode_id, reopen_from)
             result = await self._run_with_lock(
-                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, 
-                enable_story_shaping, archetype_id, idea
+                episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, enable_story_shaping
             )
             return result
         finally:
@@ -274,11 +271,7 @@ class EpisodeWorkflowV2:
     async def _run_with_lock(
         self, episode_id: str, beatmap_path: str | None, dry_run: bool,
         is_canary: bool, shots_subset: list[str] | None, credit_cap: int | None,
-        enable_story_shaping: bool = False,
-        archetype_id: str | None = None,
-        idea: str | None = None,
-        genre_preset_data: dict | None = None,
-        target_duration_s: float | None = None,
+        enable_story_shaping: bool = False
     ) -> dict:
         """Execute workflow with run lock held."""
         
@@ -338,27 +331,15 @@ class EpisodeWorkflowV2:
             workflow.logger.info("=== STORY SHAPING STAGE ===")
             self.state.stage = PipelineStage.SCRIPT
             
-            # Use the passed idea or fall back to episode_id
-            story_idea = idea or self.state.idea or f"Episode {episode_id}"
-            
-            # Store idea in state for later stages (don't store archetype_id - not in EpisodeState schema)
-            self.state.idea = story_idea
+            # For now, use the episode_id as a placeholder idea
+            # In a real implementation, this would come from episode config or user input
+            story_idea = self.state.idea or f"Episode {episode_id}"
+            genre_preset = None  # Could be passed in via config
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
-            
-            # Preset dict and target_duration_s are passed from API (no YAML reads in workflow)
-            # Use defaults if not provided
-            if genre_preset_data:
-                workflow.logger.info(f"Story shaping with preset: {genre_preset_data.get('name')}, target: {target_duration_s}s")
-            else:
-                workflow.logger.info(f"Story shaping with no preset, target: {target_duration_s or 120.0}s")
-            
-            # Use provided target_duration_s or default to 120
-            duration = target_duration_s if target_duration_s is not None else 120.0
-            
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[episode_id, story_idea, genre_preset_data, duration, dry_run],
+                args=[story_idea, genre_preset, 120.0, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

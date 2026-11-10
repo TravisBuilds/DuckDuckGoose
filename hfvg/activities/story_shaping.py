@@ -99,35 +99,10 @@ def _compute_input_hash(idea: str, genre_preset: str | None, target_duration: fl
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
-def _build_story_prompt(idea: str, genre_preset: str | dict | None, target_duration: float) -> str:
+def _build_story_prompt(idea: str, genre_preset: str | None, target_duration: float) -> str:
     """Build the prompt for the story shaping agent."""
     genre_guidance = ""
-    structure_guidance = ""
-    
-    # Handle genre_preset as either string (legacy) or dict (new preset data)
-    if isinstance(genre_preset, dict):
-        # New preset format
-        template = genre_preset.get("template", "")
-        story_structure = genre_preset.get("story_structure", "")
-        
-        # Map template to guidance
-        if "loop" in template:
-            genre_guidance = "Create a circular narrative that loops back to the opening image/mood."
-            structure_guidance = "Loop structure (not 3-act)"
-        elif "montage" in template:
-            genre_guidance = "Focus on thematic visual progression, not traditional plot acts."
-            structure_guidance = "Montage structure (connected beats, no acts)"
-        elif "gag" in template:
-            genre_guidance = "Setup → escalation → punchline structure for maximum comedic impact."
-            structure_guidance = "Gag structure (setup, escalation, punchline)"
-        elif "continuous" in template or "pov" in template:
-            genre_guidance = "One continuous journey/experience from start to end."
-            structure_guidance = "Continuous journey (single take feel)"
-        else:
-            genre_guidance = "Standard narrative arc with clear beginning, middle, end."
-            structure_guidance = "3-act structure"
-    elif genre_preset and isinstance(genre_preset, str):
-        # Legacy string mode
+    if genre_preset:
         presets = {
             "comedy": "Focus on comedic timing, setup/punchline structure, and character reactions.",
             "adventure": "Build tension through obstacles, discoveries, and escalating stakes.",
@@ -136,30 +111,23 @@ def _build_story_prompt(idea: str, genre_preset: str | dict | None, target_durat
             "action": "Structure around set pieces, rising danger, and a climactic confrontation.",
         }
         genre_guidance = presets.get(genre_preset.lower(), "")
-        structure_guidance = "3-act structure"
     
     max_beat_s = config.STORY_SHAPING_MAX_BEAT_DURATION_S
-    
-    # Build structure text outside f-string to avoid backslash in expression
-    if structure_guidance and structure_guidance != "3-act structure":
-        structure_text = f"   Structure: {structure_guidance}"
-    else:
-        structure_text = "   - Act 1 (setup): ~25% of time\n   - Act 2 (conflict): ~50% of time\n   - Act 3 (resolution): ~25% of time"
-    
-    genre_line = f"Genre guidance: {genre_guidance}" if genre_guidance else ""
     
     return f"""You are a story structure expert for short-form video content (~2 minutes).
 
 Given this idea:
 {idea}
 
-{genre_line}
+{f"Genre guidance ({genre_preset}): {genre_guidance}" if genre_guidance else ""}
 
 Create a story structure with:
 1. A compelling logline (one sentence)
 2. A hook that grabs attention in the first 5 seconds
-3. Beat sheet with {int(target_duration)}s total duration ({structure_guidance if structure_guidance else "3-act structure"}):
-{structure_text}
+3. A 3-act beat sheet with {int(target_duration)}s total duration:
+   - Act 1 (setup): ~25% of time
+   - Act 2 (conflict): ~50% of time
+   - Act 3 (resolution): ~25% of time
 4. A clear midpoint turn (usually end of Act 1 or middle of Act 2)
 5. A payoff that explicitly references or completes the hook
 6. Emotional arc per beat (tone/feeling)

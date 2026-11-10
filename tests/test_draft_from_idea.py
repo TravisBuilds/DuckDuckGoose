@@ -96,17 +96,6 @@ def mock_openai_response():
                 "Library": "an abandoned library with dusty shelves and glowing books"
             }
         },
-        "audio_plan_json": {
-            "vo": {
-                "voice_id": None,
-                "lines": []
-            },
-            "music": {
-                "prompt": "ambient mysterious music",
-                "level_db": -30.0,
-                "loop": True
-            }
-        },
         "ip_steering_note": ""
     }
 
@@ -126,12 +115,14 @@ def test_draft_from_idea_success(client, mock_openai_response, monkeypatch):
     mock_client.chat.completions = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
     
+    async def mock_openai_init(*args, **kwargs):
+        return mock_client
+    
     with patch('openai.AsyncOpenAI', return_value=mock_client):
         response = client.post(
             "/api/episodes/draft-from-idea",
             json={
                 "idea": "A curious robot explores an abandoned library filled with glowing books. It discovers a special book that comes alive with magical creatures.",
-                "archetype_id": "original-mini-movie",
                 "target_duration": 60,
             }
         )
@@ -176,7 +167,6 @@ def test_draft_from_idea_missing_api_key(client, monkeypatch):
         "/api/episodes/draft-from-idea",
         json={
             "idea": "A robot explores a library",
-            "archetype_id": "original-mini-movie",
             "target_duration": 60,
         }
     )
@@ -192,7 +182,6 @@ def test_draft_from_idea_invalid_request(client):
         "/api/episodes/draft-from-idea",
         json={
             "idea": "short",
-            "archetype_id": "original-mini-movie",
             "target_duration": 60,
         }
     )
@@ -203,29 +192,10 @@ def test_draft_from_idea_invalid_request(client):
         "/api/episodes/draft-from-idea",
         json={
             "idea": "A valid story idea with enough content",
-            "archetype_id": "original-mini-movie",
-            "target_duration": 700,
+            "target_duration": 200,
         }
     )
     assert response.status_code == 422
-
-
-def test_draft_from_idea_unauthorized(monkeypatch):
-    """Test that unauthenticated requests are rejected."""
-    from api.main import app
-    # Don't use the client fixture - create raw client without auth
-    test_client = TestClient(app)
-    
-    response = test_client.post(
-        "/api/episodes/draft-from-idea",
-        json={
-            "idea": "A robot explores a library",
-            "archetype_id": "original-mini-movie",
-            "target_duration": 60,
-        }
-    )
-    
-    assert response.status_code == 401
 
 
 def test_draft_from_idea_with_archetype(client, mock_openai_response, monkeypatch):
@@ -289,7 +259,6 @@ def test_draft_from_idea_beatmap_repair(client, mock_openai_response, monkeypatc
             "/api/episodes/draft-from-idea",
             json={
                 "idea": "Test idea for beatmap repair",
-                "archetype_id": "original-mini-movie",
                 "target_duration": 60,
             }
         )
@@ -332,18 +301,10 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
         "prompt_kit_json": {
             "style": "comic book style",
             "aspect_ratio": "9:16",
-            "characters": {
-                "A": {"description": "superhero"}
-            },
-            "sets": {
-                "City": "Urban cityscape"
-            }
+            "characters": {"A": {"description": "a red-and-blue spider-themed superhero"}},
+            "sets": {"City": "modern city skyline"}
         },
-        "audio_plan_json": {
-            "vo": {"voice_id": "", "lines": []},
-            "music": {"prompt": "heroic music", "level_db": -30.0, "loop": True}
-        },
-        "ip_steering_note": "Steering: Avoided Spider-Man likeness"
+        "ip_steering_note": "Changed 'Spider-Man' to an original red-and-blue spider-themed hero"
     }
     
     mock_completion = MagicMock()
@@ -359,7 +320,6 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
             "/api/episodes/draft-from-idea",
             json={
                 "idea": "Spider-Man swings through New York City",
-                "archetype_id": "fullscreen-action-anime",
                 "target_duration": 30,
             }
         )
@@ -371,124 +331,41 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
     assert "original" in data["warnings"][0].lower()
 
 
+def test_draft_from_idea_unauthorized(monkeypatch):
+    """Test that draft endpoint requires authentication."""
+    monkeypatch.setenv("ADMIN_SECRET", "a" * 32)
+    
+    from api.main import app
+    client = TestClient(app)
+    
+    response = client.post(
+        "/api/episodes/draft-from-idea",
+        json={
+            "idea": "Test without auth",
+            "target_duration": 60,
+        }
+    )
+    
+    assert response.status_code == 401
+
+
 def test_draft_llm_fake_refused_in_live_mode(client, monkeypatch):
-    """Test that fake LLM refuses when DRY_RUN=false and DRAFT_LLM_FAKE=1 (original: 500 + 'DRAFT_LLM_FAKE')."""
+    """Test that DRAFT_LLM_FAKE=1 is refused when DRY_RUN=false (live mode)."""
+    # Set DRAFT_LLM_FAKE=1 and DRY_RUN=false
     monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
     monkeypatch.setenv("DRY_RUN", "false")
     
     response = client.post(
         "/api/episodes/draft-from-idea",
         json={
-            "idea": "A robot explores a library",
-            "archetype_id": "original-mini-movie",
+            "idea": "A robot discovers a glowing book in an abandoned library",
             "target_duration": 60,
         }
     )
     
-    # Original assertion: 500 + "DRAFT_LLM_FAKE"
+    # Should refuse with 500 error
     assert response.status_code == 500
-    assert "DRAFT_LLM_FAKE" in response.json()["detail"]
-
-
-def get_all_preset_ids():
-    """Load real preset IDs from YAML."""
-    import yaml
-    from pathlib import Path
-    yaml_path = Path(__file__).parent.parent / "hfvg" / "data" / "genre_presets.yaml"
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f)
-    # YAML has top-level keys: schema_version, templates, defaults, presets
-    # We want the preset IDs, which are under presets
-    preset_ids = list(data.get("presets", {}).keys())
-    assert len(preset_ids) == 24, f"Expected 24 presets, got {len(preset_ids)}"
-    return preset_ids
-
-
-@pytest.mark.parametrize("archetype_id", get_all_preset_ids())
-def test_draft_accepts_valid_archetypes(client, mock_openai_response, monkeypatch, archetype_id):
-    """Test that all 24 valid archetypes are accepted."""
-    from hfvg import config as config_module
-    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
-    
-    mock_completion = MagicMock()
-    mock_completion.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_openai_response)))]
-    
-    mock_client = MagicMock()
-    mock_client.chat = MagicMock()
-    mock_client.chat.completions = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-    
-    with patch('openai.AsyncOpenAI', return_value=mock_client):
-        response = client.post(
-            "/api/episodes/draft-from-idea",
-            json={
-                "idea": "Test story idea",
-                "archetype_id": archetype_id,
-                "target_duration": 30,
-            }
-        )
-    
-    # Should accept all valid archetypes (200 or 503 if no API key)
-    assert response.status_code == 200
-
-
-def test_target_duration_uses_preset_range(client, mock_openai_response, monkeypatch):
-    """Test that target_duration is clamped to preset range."""
-    from hfvg import config as config_module
-    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
-    
-    mock_completion = MagicMock()
-    mock_completion.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_openai_response)))]
-    
-    mock_client = MagicMock()
-    mock_client.chat = MagicMock()
-    mock_client.chat.completions = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-    
-    with patch('openai.AsyncOpenAI', return_value=mock_client):
-        # cute-greeting has range [10, 20]s
-        response = client.post(
-            "/api/episodes/draft-from-idea",
-            json={
-                "idea": "A cute greeting",
-                "archetype_id": "cute-greeting",
-                "target_duration": 120,  # Way over the max
-            }
-        )
-    
-    assert response.status_code == 200
-    data = response.json()
-    
-    # Duration should be clamped to preset max (20s for cute-greeting)
-    # The fake LLM always returns 2 shots with fixed durations (5s + 6s = 11s)
-    total_duration = sum(shot["duration"] for shot in data["shots_json"]["shots"])
-    assert total_duration <= 20, f"Duration {total_duration}s exceeds cute-greeting max 20s"
-
-
-def test_archetype_optional_defaults_to_original_mini_movie(client, mock_openai_response, monkeypatch):
-    """Test that omitting archetype_id defaults to 'original-mini-movie' (for Skip button)."""
-    from hfvg import config as config_module
-    monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
-    
-    mock_completion = MagicMock()
-    mock_completion.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_openai_response)))]
-    
-    mock_client = MagicMock()
-    mock_client.chat = MagicMock()
-    mock_client.chat.completions = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-    
-    with patch('openai.AsyncOpenAI', return_value=mock_client):
-        response = client.post(
-            "/api/episodes/draft-from-idea",
-            json={
-                "idea": "A robot explores a library",
-                # archetype_id omitted (Skip button case)
-                "target_duration": 60,
-            }
-        )
-    
-    # Should succeed with default preset
-    assert response.status_code == 200
-    data = response.json()
-    assert "episode_id" in data
+    detail = response.json()["detail"]
+    assert "DRAFT_LLM_FAKE" in detail
+    # Should mention it's test-only or that DRY_RUN must be true
+    assert "test" in detail.lower() or "dry" in detail.lower()

@@ -726,8 +726,6 @@ class StartEpisodeRequest(BaseModel):
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
     attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
     enable_story_shaping: bool = Field(False, description="Enable story-shaping stage before stills generation (default: false)")
-    archetype_id: str | None = Field(None, description="Genre preset ID for story shaping (e.g., 'nostalgia-time-travel')")
-    idea: str | None = Field(None, description="User's story idea for story shaping")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -1343,11 +1341,7 @@ async def upload_prompt_kit(
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
-    await verify_auth_unified(
-        authorization=None,
-        studio_admin_token=studio_admin_token,
-        require_admin=False
-    )
+    await verify_admin_cookie(studio_admin_token)
     validate_episode_id(episode_id)
     
     # Create episode directory
@@ -1379,9 +1373,6 @@ async def upload_prompt_kit(
         "prompt_kit_path": str(prompt_kit_path),
         "message": "prompt_kit.json uploaded successfully"
     }
-
-
-upload_prompt_kit.allow_members = True
 
 
 @app.post("/api/episodes/{episode_id}/upload-shots")
@@ -1445,68 +1436,6 @@ async def upload_shots(
         "shots_count": shots_count,
         "refs_uploaded": refs_bytes is not None,
     }
-
-
-upload_shots.allow_members = True
-
-
-@app.post("/api/episodes/{episode_id}/upload-audio-plan")
-async def upload_audio_plan(
-    episode_id: str,
-    audio_plan_file: UploadFile = File(...),
-    studio_admin_token: str | None = Cookie(None),
-):
-    """
-    Upload the audio plan: audio_plan.json (required).
-
-    Requires: Cookie auth (members allowed). Stored in data/episodes/{episode_id}/audio/audio_plan.json.
-    audio_plan.json specifies VO, music, and SFX using the real schema (vo:{voice_id, lines[...]}, music:{...}).
-    """
-    await verify_auth_unified(
-        authorization=None,
-        studio_admin_token=studio_admin_token,
-        require_admin=False
-    )
-    validate_episode_id(episode_id)
-
-    from hfvg.audio_mix import audio_plan_path, normalize_plan, AudioInputError
-
-    audio_plan_bytes = await audio_plan_file.read()
-    try:
-        audio_plan_data = json.loads(audio_plan_bytes)
-        
-        # Validate using the real normalize_plan function
-        # base_dir is the episode directory (audio paths resolve relative to it)
-        episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
-        try:
-            normalize_plan(audio_plan_data, base_dir=episode_dir)
-        except AudioInputError as e:
-            raise ValueError(f"Audio plan validation failed: {e}")
-        
-        # Early check: if VO lines exist and voice_id is empty, reject now (before any paid steps)
-        vo = audio_plan_data.get("vo", {})
-        if vo.get("lines") and not vo.get("voice_id"):
-            raise ValueError(
-                "Audio plan has VO lines but no voice_id. "
-                "Set ELEVENLABS_DEFAULT_VOICE_ID in server environment or provide voice_id in audio plan."
-            )
-        
-    except (ValueError, json.JSONDecodeError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid audio_plan.json: {e}")
-
-    # Use the correct path: <episode>/audio/audio_plan.json
-    plan_path = audio_plan_path(episode_id)
-    plan_path.parent.mkdir(parents=True, exist_ok=True)
-    plan_path.write_bytes(audio_plan_bytes)
-    
-    return {
-        "success": True,
-        "episode_id": episode_id,
-        "audio_plan_path": str(plan_path),
-    }
-
-
-upload_audio_plan.allow_members = True
 
 
 def uploaded_shots_problems(episode_id: str) -> list[str]:
@@ -1615,23 +1544,6 @@ async def start_episode(
             detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
         )
 
-    # Early check: if audio plan has VO lines and voice_id is empty, reject before starting (before paid steps)
-    from hfvg.audio_mix import audio_plan_path
-    plan_file = audio_plan_path(request.episode_id)
-    if plan_file.exists():
-        import json as json_lib
-        try:
-            plan_data = json_lib.loads(plan_file.read_text())
-            vo = plan_data.get("vo", {})
-            if vo.get("lines") and not vo.get("voice_id"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Audio plan has VO lines but no voice_id. "
-                           "Set ELEVENLABS_DEFAULT_VOICE_ID in server environment or provide voice_id in audio plan."
-                )
-        except json_lib.JSONDecodeError:
-            pass  # Will be caught later in workflow
-    
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
@@ -1640,7 +1552,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping, request.archetype_id, request.idea, genre_preset_data, target_duration_s],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
@@ -5669,8 +5581,8 @@ class DraftFromIdeaRequest(BaseModel):
     """Request to generate episode files from a plain-language idea."""
     
     idea: str = Field(..., min_length=10, max_length=2000, description="User's story idea in plain language")
-    archetype_id: str | None = Field(None, description="Archetype/genre preset ID (optional, defaults to 'original-mini-movie')")
-    target_duration: int | None = Field(None, ge=10, le=600, description="Optional duration override (uses preset range if not specified)")
+    archetype_id: str | None = Field(None, description="Optional archetype/genre preset ID")
+    target_duration: int = Field(60, ge=30, le=120, description="Target duration in seconds")
     style_preset: str | None = Field(None, max_length=500, description="Optional style description")
 
 
@@ -5682,11 +5594,9 @@ class DraftFromIdeaResponse(BaseModel):
     shots_json: dict
     refs_json: dict
     prompt_kit_json: dict
-    audio_plan_json: dict
     story_shape: dict | None = None
     cost_estimate: dict | None = None
     warnings: list[str] = Field(default_factory=list)
-    preset_used: dict | None = None
 
 
 @app.post("/api/episodes/draft-from-idea", response_model=DraftFromIdeaResponse)
@@ -5709,7 +5619,6 @@ async def draft_from_idea(
     import tempfile
     from hfvg.episode_parser import parse_beatmap
     from hfvg.shot_data import parse_shots
-    from hfvg.genre_presets import get_preset
     
     # Check for test-only fake LLM mode (DRAFT_LLM_FAKE=1)
     use_fake_llm = os.getenv("DRAFT_LLM_FAKE", "0") == "1"
@@ -5766,25 +5675,18 @@ async def draft_from_idea(
     else:
         raise HTTPException(status_code=500, detail="Failed to generate unique episode ID after 100 attempts")
     
-    # Load genre preset (default to original-mini-movie if not specified)
-    archetype_id = request.archetype_id or "original-mini-movie"
-    preset = get_preset(archetype_id)
-    if preset is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown archetype_id: {archetype_id}. Use one of the 24 preset IDs."
-        )
-    
-    # Determine target duration (user override or preset default midpoint)
-    if request.target_duration:
-        target_duration = max(preset.length_s[0], min(request.target_duration, preset.length_s[1]))
-    else:
-        target_duration = (preset.length_s[0] + preset.length_s[1]) // 2
-    
-    # Build prompt guidance from preset
-    archetype_guidance = f"{preset.name}: {preset.description}"
-    if preset.shot_grammar:
-        archetype_guidance += f"\nShot grammar: {', '.join(preset.shot_grammar[:3])}"
+    # Build prompt for LLM
+    archetype_guidance = ""
+    if request.archetype_id:
+        archetypes_map = {
+            "nostalgia-time-travel": "dialogue episode with family memory in period detail",
+            "satire-sketch": "one-gag satire with invented stand-ins",
+            "cartoon-made-real": "animated moments recreated photoreal",
+            "cozy-hangout": "characters chilling in one cozy scene",
+            "original-mini-movie": "short wordless journey story",
+            "dreamscape": "character facing surreal dream sky",
+        }
+        archetype_guidance = archetypes_map.get(request.archetype_id, "creative short video")
     
     style_guidance = request.style_preset or "photorealistic, cinematic lighting"
     
@@ -5797,18 +5699,8 @@ CONTENT POLICY (CRITICAL):
 - All characters, settings, and stories must be original creations
 """
     
-    # Calculate shot count from preset pacing
-    estimated_shots = max(2, int(target_duration / 10 * preset.pacing.cuts_per_10s))
-    avg_shot_duration = target_duration / estimated_shots if estimated_shots > 0 else 5.0
-    
     system_prompt = f"""You are a video production assistant that generates complete episode specifications.
-Given a user's story idea, create all required files for a {target_duration}s video in the "{preset.name}" style.
-
-PRESET: {preset.name}
-Template: {preset.template.value}
-Pacing: ~{preset.pacing.cuts_per_10s} cuts per 10s (~{estimated_shots} shots total)
-VO mode: {preset.vo_mode.value}
-{f"Shot grammar: {', '.join(preset.shot_grammar[:3])}" if preset.shot_grammar else ""}
+Given a user's story idea, create all required files for a {request.target_duration}s video.
 
 {content_policy_warning}
 
@@ -5817,8 +5709,7 @@ Generate these files in your response as a JSON object with these keys:
 2. "shots_json": shots.json content (structured shot data)
 3. "refs_json": refs.json content (per-shot reference images)
 4. "prompt_kit_json": prompt_kit.json content (style, characters, sets)
-5. "audio_plan_json": audio_plan.json content (VO and music configuration)
-6. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
+5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
 
 File format requirements:
 
@@ -5831,10 +5722,10 @@ BEATMAP.md - Shot planning table:
 | 1 | S01 | 5.0 (5.0) | [location] | [time] | A | [action description] | [narrative purpose] | - | - | K |
 ```
 - Shot IDs: S01, S02, etc.
-- Screen/gen: both same value, {avg_shot_duration:.1f} seconds per shot on average
+- Screen/gen: both same value, 5-8 seconds per shot
 - Model: K (Kling) for most shots
 - Chars: A, B, C for up to 3 main characters
-- Create approximately {estimated_shots} shots total
+- Create {int(request.target_duration / 6)} to {int(request.target_duration / 5)} shots total
 
 shots.json:
 {{
@@ -5864,7 +5755,7 @@ refs.json:
 prompt_kit.json:
 {{
   "style": "{style_guidance}",
-  "aspect_ratio": "{preset.aspect}",
+  "aspect_ratio": "9:16",
   "characters": {{
     "A": {{"description": "[main character description]"}},
     "B": {{"description": "[second character if needed]"}}
@@ -5874,93 +5765,15 @@ prompt_kit.json:
   }}
 }}
 
-audio_plan.json (real schema for audio_mix.normalize_plan):
-"""
-    
-    # Add audio plan format based on VO mode - REAL SCHEMA
-    if preset.vo_mode.value == "none":
-        system_prompt += """
-{
-  "vo": {
-    "voice_id": null,
-    "lines": []
-  },
-  "music": {
-    "prompt": "MUSIC_DESCRIPTION_HERE",
-    "level_db": -30.0,
-    "loop": true
-  }
-}
-"""
-    elif preset.vo_mode.value == "narration":
-        system_prompt += """
-{
-  "vo": {
-    "voice_id": null,
-    "lines": [
-      {"id": "L01", "at": 0.0, "text": "Narration text here", "subtitle": "Narration text here"}
-    ]
-  },
-  "music": {
-    "prompt": "MUSIC_DESCRIPTION_HERE",
-    "level_db": -32.0,
-    "loop": true
-  }
-}
-"""
-    elif preset.vo_mode.value == "dialogue":
-        system_prompt += """
-{
-  "vo": {
-    "voice_id": null,
-    "lines": [
-      {"id": "L01", "at": 0.0, "text": "Character A dialogue", "subtitle": "Character A dialogue"},
-      {"id": "L02", "at": 5.0, "text": "Character B dialogue", "subtitle": "Character B dialogue"}
-    ]
-  },
-  "music": {
-    "prompt": "MUSIC_DESCRIPTION_HERE",
-    "level_db": -32.0,
-    "loop": true
-  }
-}
-"""
-    elif preset.vo_mode.value == "caption_only":
-        system_prompt += """
-{
-  "vo": {
-    "voice_id": null,
-    "lines": []
-  },
-  "music": {
-    "prompt": "MUSIC_DESCRIPTION_HERE",
-    "level_db": -30.0,
-    "loop": true
-  }
-}
-"""
-    
-    system_prompt += f"""
+Return ONLY valid JSON with these exact keys."""
 
-IMPORTANT for audio_plan.json:
-- vo.voice_id: use a configured ElevenLabs voice ID (required for live generation)
-- vo.lines: each line needs {{id, at (seconds), text, subtitle}}
-- music needs EITHER "prompt" (text description) OR "path" (library file)
-- Use "prompt" with style: {preset.music}
-- level_db typically -30 to -32 for music under VO
-- voice_id must be a real ElevenLabs voice ID from the user's library
-
-Return ONLY valid JSON with these exact keys: beatmap_md, shots_json, refs_json, prompt_kit_json, audio_plan_json."""
-
-    user_prompt = f"""Create a {target_duration}s video for this idea:
+    user_prompt = f"""Create a {request.target_duration}s video for this idea:
 
 {request.idea}
 
-Style/genre: {archetype_guidance}
+{f"Style/genre: {archetype_guidance}" if archetype_guidance else ""}
 
-Brief fields to consider: {', '.join(preset.brief_fields)}
-
-Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_plan_json) as a single JSON response."""
+Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a single JSON response."""
 
     # Fake LLM mode: return deterministic canned data (test-only)
     if use_fake_llm:
@@ -6010,7 +5823,7 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
         
         prompt_kit_data = {
             "style": style_guidance,
-            "aspect_ratio": preset.aspect,
+            "aspect_ratio": "9:16",
             "characters": {
                 "A": {"description": "Friendly exploration robot with metallic silver body and glowing blue optical sensors"}
             },
@@ -6019,75 +5832,7 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
             }
         }
         
-        # Generate audio plan based on preset vo_mode - REAL SCHEMA
-        # Use configured default voice or empty string (dry run will skip generation)
-        default_voice_id = os.getenv("ELEVENLABS_DEFAULT_VOICE_ID", "")
-        
-        if preset.vo_mode.value == "none":
-            audio_plan_data = {
-                "vo": {
-                    "voice_id": default_voice_id,
-                    "lines": []
-                },
-                "music": {
-                    "prompt": f"{preset.music or 'ambient'} instrumental background music",
-                    "level_db": -30.0,
-                    "loop": True
-                }
-            }
-        elif preset.vo_mode.value == "narration":
-            audio_plan_data = {
-                "vo": {
-                    "voice_id": default_voice_id,
-                    "lines": [
-                        {"id": "L01", "at": 0.0, "text": "In a forgotten workshop, a curious robot awakens.", 
-                         "subtitle": "In a forgotten workshop, a curious robot awakens."}
-                    ]
-                },
-                "music": {
-                    "prompt": f"{preset.music or 'gentle'} instrumental background music",
-                    "level_db": -32.0,
-                    "loop": True
-                }
-            }
-        elif preset.vo_mode.value == "dialogue":
-            # For dialogue, use default voice for all speakers (multi-voice is F2)
-            audio_plan_data = {
-                "vo": {
-                    "voice_id": default_voice_id,
-                    "lines": [
-                        {"id": "L01", "at": 0.0, "text": "What is this place?", "subtitle": "What is this place?"},
-                        {"id": "L02", "at": 3.0, "text": "It's an old workshop.", "subtitle": "It's an old workshop."}
-                    ]
-                },
-                "music": {
-                    "prompt": f"{preset.music or 'mysterious'} instrumental background music",
-                    "level_db": -32.0,
-                    "loop": True
-                }
-            }
-        else:  # caption_only
-            audio_plan_data = {
-                "vo": {
-                    "voice_id": default_voice_id,
-                    "lines": []
-                },
-                "music": {
-                    "prompt": f"{preset.music or 'upbeat'} instrumental background music",
-                    "level_db": -30.0,
-                    "loop": True
-                }
-            }
-        
         cost_estimate = offline_cost_estimate(shots_data["shots"])
-        
-        preset_summary = {
-            "id": preset.id,
-            "name": preset.name,
-            "template": preset.template.value,
-            "aspect": preset.aspect,
-            "vo_mode": preset.vo_mode.value
-        }
         
         return DraftFromIdeaResponse(
             episode_id=episode_id,
@@ -6095,10 +5840,8 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
             shots_json=shots_data,
             refs_json=refs_data,
             prompt_kit_json=prompt_kit_data,
-            audio_plan_json=audio_plan_data,
             cost_estimate=cost_estimate,
             warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)"],
-            preset_used=preset_summary,
         )
 
     try:
@@ -6123,10 +5866,9 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
         shots_data = result.get("shots_json")
         refs_data = result.get("refs_json")
         prompt_kit_data = result.get("prompt_kit_json")
-        audio_plan_data = result.get("audio_plan_json")
         ip_steering = result.get("ip_steering_note", "")
         
-        if not all([beatmap_content, shots_data, refs_data, prompt_kit_data, audio_plan_data]):
+        if not all([beatmap_content, shots_data, refs_data, prompt_kit_data]):
             raise ValueError("LLM response missing required files")
         
         # Parse JSON strings if needed
@@ -6136,8 +5878,6 @@ Generate all 5 files (beatmap_md, shots_json, refs_json, prompt_kit_json, audio_
             refs_data = json.loads(refs_data)
         if isinstance(prompt_kit_data, str):
             prompt_kit_data = json.loads(prompt_kit_data)
-        if isinstance(audio_plan_data, str):
-            audio_plan_data = json.loads(audio_plan_data)
         
         # Validate beatmap
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
@@ -6204,16 +5944,6 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
                 detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
             )
         
-        # Validate audio_plan.json with the real schema
-        from hfvg.audio_mix import normalize_plan, AudioInputError
-        try:
-            # Validate structure (we don't have an episode dir yet, use temp)
-            import tempfile
-            with tempfile.TemporaryDirectory() as tmpdir:
-                normalize_plan(audio_plan_data, base_dir=tmpdir)
-        except AudioInputError as e:
-            raise HTTPException(status_code=500, detail=f"Generated audio_plan.json validation failed: {e}")
-        
         # Generate cost estimate
         cost_estimate = offline_cost_estimate(shots_data["shots"])
         
@@ -6221,24 +5951,14 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
         if ip_steering:
             warnings.append(f"Content policy note: {ip_steering}")
         
-        preset_summary = {
-            "id": preset.id,
-            "name": preset.name,
-            "template": preset.template.value,
-            "aspect": preset.aspect,
-            "vo_mode": preset.vo_mode.value
-        }
-        
         return DraftFromIdeaResponse(
             episode_id=episode_id,
             beatmap=beatmap_content,
             shots_json=shots_data,
             refs_json=refs_data,
             prompt_kit_json=prompt_kit_data,
-            audio_plan_json=audio_plan_data,
             cost_estimate=cost_estimate,
             warnings=warnings,
-            preset_used=preset_summary,
         )
         
     except Exception as e:
