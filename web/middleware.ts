@@ -25,7 +25,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith('/studio')) {
+  if (pathname.startsWith('/studio') || pathname.startsWith('/dashboard')) {
     const token = request.cookies.get('studio_admin_token')?.value;
     const key = await sessionKeyFromEnv(process.env);
     const verdict = await verifySessionToken(token, key);
