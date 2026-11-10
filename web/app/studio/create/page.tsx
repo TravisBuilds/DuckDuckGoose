@@ -213,7 +213,13 @@ function CreateVideoWizard() {
                 >
                   <h3 className="font-semibold mb-1">{preset.name}</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{preset.description}</p>
-                  <span className="text-xs text-gray-500">{preset.lengthRange[0]}–{preset.lengthRange[1]}s</span>
+                  <div className="flex gap-2 text-xs text-gray-500">
+                    <span>{preset.lengthRange[0]}–{preset.lengthRange[1]}s</span>
+                    <span>·</span>
+                    <span>{preset.aspect}</span>
+                    <span>·</span>
+                    <span>{preset.voiceOver === 'none' ? 'music only' : preset.voiceOver}</span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -260,16 +266,31 @@ function CreateVideoWizard() {
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold mb-2">Target Length</label>
-                <select
-                  value={targetDuration}
-                  onChange={(e) => setTargetDuration(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                  data-testid="duration-select"
-                >
-                  <option value={30}>30 seconds (quick)</option>
-                  <option value={60}>60 seconds (recommended)</option>
-                  <option value={120}>2 minutes (full story)</option>
-                </select>
+                {selectedPreset ? (
+                  <select
+                    value={targetDuration}
+                    onChange={(e) => setTargetDuration(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    data-testid="duration-select"
+                  >
+                    <option value={selectedPreset.lengthRange[0]}>{selectedPreset.lengthRange[0]}s (min)</option>
+                    <option value={Math.floor((selectedPreset.lengthRange[0] + selectedPreset.lengthRange[1]) / 2)}>
+                      {Math.floor((selectedPreset.lengthRange[0] + selectedPreset.lengthRange[1]) / 2)}s (recommended)
+                    </option>
+                    <option value={selectedPreset.lengthRange[1]}>{selectedPreset.lengthRange[1]}s (max)</option>
+                  </select>
+                ) : (
+                  <select
+                    value={targetDuration}
+                    onChange={(e) => setTargetDuration(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    data-testid="duration-select"
+                  >
+                    <option value={30}>30 seconds (quick)</option>
+                    <option value={60}>60 seconds (recommended)</option>
+                    <option value={120}>2 minutes (full story)</option>
+                  </select>
+                )}
               </div>
 
               <div>

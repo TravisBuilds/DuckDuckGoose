@@ -270,7 +270,7 @@ export const presets: PresetData[] = [
     name: "Full-screen action anime",
     description: "Action anime rotated to fill the phone",
     template: "action_sequence",
-    aspect: "9:16",
+    aspect: "16:9",
     lengthRange: [30, 45],
     tags: ["action", "anime", "intense"],
     briefFields: ["hero", "ally", "set_piece", "rescue_beat"],

@@ -46,10 +46,11 @@ def test_start_episode_with_story_shaping_enabled(monkeypatch):
         assert data["episode_id"] == "ep98"
         
         # Verify workflow was started with enable_story_shaping=True (8th arg, index 7)
+        # PR #33 added archetype_id and idea args (now 10 total)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
         workflow_args = call_args.kwargs.get('args', [])
-        assert len(workflow_args) == 8, f"Should have 8 args (including enable_story_shaping), got {len(workflow_args)}"
+        assert len(workflow_args) == 10, f"Should have 10 args (added archetype_id, idea), got {len(workflow_args)}"
         assert workflow_args[7] is True, f"8th arg (enable_story_shaping) should be True, got {workflow_args[7]}"
 
 
@@ -93,8 +94,9 @@ def test_start_episode_with_story_shaping_disabled(monkeypatch):
         assert data["episode_id"] == "ep97"
         
         # Verify workflow was started with enable_story_shaping=False (8th arg, index 7)
+        # PR #33 added archetype_id and idea args (now 10 total)
         assert mock_client.start_workflow.called
         call_args = mock_client.start_workflow.call_args
         workflow_args = call_args.kwargs.get('args', [])
-        assert len(workflow_args) == 8, f"Should have 8 args (including enable_story_shaping), got {len(workflow_args)}"
+        assert len(workflow_args) == 10, f"Should have 10 args (added archetype_id, idea), got {len(workflow_args)}"
         assert workflow_args[7] is False, f"8th arg (enable_story_shaping) should be False, got {workflow_args[7]}"
