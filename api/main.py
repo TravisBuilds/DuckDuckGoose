@@ -5724,6 +5724,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
                     prompt_kit_data: dict, script: list[dict] | None, warnings: list[str]) -> DraftFromIdeaResponse:
     """Validate the drafted files and add the card's audio plan and voice slots (LLM and test drafts alike)."""
     import tempfile
+
     from hfvg import audio_mix, genre_drafts
     from hfvg.activities.audio import default_voice_id
     from hfvg.shot_data import parse_shots
@@ -5736,14 +5737,14 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
             status_code=500,
             detail=f"Generated shots.json failed validation: {str(e)}"
         )
-    
+
     # Validate refs.json structure
     if not isinstance(refs_data, dict) or "per_shot" not in refs_data:
         raise HTTPException(
             status_code=500,
             detail="Generated refs.json missing 'per_shot' key"
         )
-    
+
     # Validate prompt_kit.json
     required_kit_keys = {"style", "aspect_ratio", "characters", "sets"}
     if not all(k in prompt_kit_data for k in required_kit_keys):
@@ -6132,6 +6133,7 @@ async def pick_voice_for_description(
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     import dataclasses
+
     from hfvg import voice_picker
     from hfvg.config import config
 

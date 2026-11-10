@@ -203,6 +203,7 @@ async def test_member_completes_the_create_page(setup_db, vo_mode):
 
 def _cards() -> list[str]:
     import yaml
+
     from hfvg.genre_presets import REGISTRY_PATH
 
     return [p["id"] for p in yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8"))["presets"]]

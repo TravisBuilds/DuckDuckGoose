@@ -22,7 +22,14 @@ from hfvg.activities.story_shaping import (
 from hfvg.config import config
 from hfvg.genre_presets import REGISTRY_PATH, resolve_profile
 from hfvg.models import Act, StoryBeat, StoryShape
-from hfvg.story_structures import STRUCTURES, beat_counts, build_layout, hook_and_keyword, prompt_guidance, structure_for
+from hfvg.story_structures import (
+    STRUCTURES,
+    beat_counts,
+    build_layout,
+    hook_and_keyword,
+    prompt_guidance,
+    structure_for,
+)
 
 YAML_IDS = [p["id"] for p in yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8"))["presets"]]
 CARDS = [*YAML_IDS, None]  # None: Skip (freeform)

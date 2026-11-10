@@ -45,6 +45,7 @@ def client(monkeypatch):
     monkeypatch.delenv("ELEVENLABS_DEFAULT_VOICE_ID", raising=False)
     sys.modules.pop("api.main", None)
     from fastapi.testclient import TestClient
+
     from api.main import app
 
     test_client = TestClient(app)
@@ -146,9 +147,11 @@ def test_cards_made_for_another_aspect_say_the_studio_renders_9_16(client, arche
 
 def test_members_can_draft_with_a_card(client, monkeypatch):
     import asyncio
+
     from fastapi.testclient import TestClient
-    from hfvg.users import UserManager
+
     from api.main import app
+    from hfvg.users import UserManager
 
     users = UserManager(os.environ["DATABASE_PATH"])
     asyncio.run(users.init_db())
