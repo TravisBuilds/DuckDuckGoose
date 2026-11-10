@@ -13,11 +13,19 @@ interface DraftResponse {
   shots_json: { shots: any[] };
   refs_json: any;
   prompt_kit_json: any;
+  audio_plan_json: any;
   cost_estimate?: {
     total_usd_micros: number;
     per_shot: Record<string, { stills_usd_micros: number; clip_usd_micros: number | null }>;
   };
   warnings?: string[];
+  preset_used?: {
+    id: string;
+    name: string;
+    template: string;
+    aspect: string;
+    vo_mode: string;
+  };
 }
 
 type WizardStep = 'archetype' | 'idea' | 'review' | 'loading';
@@ -127,6 +135,11 @@ function CreateVideoWizard() {
       kitForm.append('prompt_kit_file', new File([JSON.stringify(draft.prompt_kit_json, null, 2)], 'prompt_kit.json', { type: 'application/json' }));
       await apiFetch(`/api/episodes/${episodeId}/upload-prompt-kit`, { method: 'POST', body: kitForm });
 
+      // Upload audio plan
+      const audioForm = new FormData();
+      audioForm.append('audio_plan_file', new File([JSON.stringify(draft.audio_plan_json, null, 2)], 'audio_plan.json', { type: 'application/json' }));
+      await apiFetch(`/api/episodes/${episodeId}/upload-audio-plan`, { method: 'POST', body: audioForm });
+
       // Start episode with story shaping enabled by default
       await postJson('/api/episodes', {
         episode_id: episodeId,
@@ -190,7 +203,7 @@ function CreateVideoWizard() {
             </p>
             
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              {presets.slice(0, 12).map((preset) => (
+              {presets.map((preset) => (
                 <button
                   key={preset.id}
                   onClick={() => handleArchetypeSelect(preset.id)}

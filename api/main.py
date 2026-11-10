@@ -1438,6 +1438,62 @@ async def upload_shots(
     }
 
 
+@app.post("/api/episodes/{episode_id}/upload-audio-plan")
+async def upload_audio_plan(
+    episode_id: str,
+    audio_plan_file: UploadFile = File(...),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload the audio plan: audio_plan.json (required).
+
+    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    audio_plan.json specifies VO mode, voice IDs, lines, music, and SFX for the episode.
+    """
+    await verify_admin_cookie(studio_admin_token)
+    validate_episode_id(episode_id)
+
+    audio_plan_bytes = await audio_plan_file.read()
+    try:
+        audio_plan_data = json.loads(audio_plan_bytes)
+        
+        # Validate basic structure
+        if not isinstance(audio_plan_data, dict):
+            raise ValueError("audio_plan.json must be a JSON object")
+        
+        if "vo_mode" not in audio_plan_data:
+            raise ValueError("audio_plan.json missing required 'vo_mode' field")
+        
+        valid_vo_modes = ["none", "narration", "dialogue", "caption_only"]
+        if audio_plan_data["vo_mode"] not in valid_vo_modes:
+            raise ValueError(f"Invalid vo_mode: {audio_plan_data['vo_mode']}. Must be one of: {valid_vo_modes}")
+        
+        # Mode-specific validation
+        vo_mode = audio_plan_data["vo_mode"]
+        if vo_mode == "narration":
+            if "lines" not in audio_plan_data:
+                raise ValueError("narration mode requires 'lines' array")
+        elif vo_mode == "dialogue":
+            if "speakers" not in audio_plan_data or "lines" not in audio_plan_data:
+                raise ValueError("dialogue mode requires 'speakers' object and 'lines' array")
+        elif vo_mode == "caption_only":
+            if "captions" not in audio_plan_data:
+                raise ValueError("caption_only mode requires 'captions' array")
+        
+    except (ValueError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid audio_plan.json: {e}")
+
+    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    (episode_dir / "audio_plan.json").write_bytes(audio_plan_bytes)
+    
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "vo_mode": audio_plan_data["vo_mode"],
+    }
+
+
 def uploaded_shots_problems(episode_id: str) -> list[str]:
     """Validation + preflight errors of the episode's uploaded shots.json (empty = OK or none uploaded;
     without one a dry run uses the beatmap and a live run is refused by the workflow)."""
