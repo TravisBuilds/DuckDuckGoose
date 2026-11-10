@@ -119,6 +119,12 @@ ROUTE_TEST_CASES = [
     ("POST", "/api/users/me/change-password", {"none": 401, "member": 200, "admin": 200}, True, {}),  # Test function sets role-specific password
     ("POST", "/api/episodes/draft-from-idea", {"none": 401, "member": 200, "admin": 200}, True, {"idea": "A test video", "style": "test"}),  # DRAFT_LLM_FAKE=1 returns canned data
     
+    # Member-allowed wizard upload routes (D8: allow members to complete wizard)
+    # Note: These routes use multipart/form-data file uploads, tested separately
+    # ("POST", "/api/episodes/ep01/upload-shots", {"none": 401, "member": 200, "admin": 200}, True, {}),
+    # ("POST", "/api/episodes/ep01/upload-prompt-kit", {"none": 401, "member": 200, "admin": 200}, True, {}),
+    # ("POST", "/api/episodes/ep01/upload-audio-plan", {"none": 401, "member": 200, "admin": 200}, True, {}),
+    
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
     ("POST", "/api/episodes/ep01/resume-balance", {"none": 401, "member": 403, "admin": [200, 503, 404]}, False, None),
