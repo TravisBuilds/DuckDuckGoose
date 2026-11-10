@@ -1865,8 +1865,8 @@ class EpisodeWorkflowV2:
         for line in vo.get("lines") or []:
             res = await workflow.execute_activity(
                 "generate_voiceover",
-                args=[episode_id, line.get("text") or "", vo.get("voice_id") or "", vo.get("model") or "eleven_v3",
-                      line["id"], line.get("path"), 1, user_id],
+                args=[episode_id, line.get("text") or "", line.get("voice_id") or vo.get("voice_id") or "",
+                      vo.get("model") or "eleven_v3", line["id"], line.get("path"), 1, user_id],
                 start_to_close_timeout=timedelta(minutes=5), heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=policy,
             )

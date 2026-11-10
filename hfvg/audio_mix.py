@@ -225,6 +225,48 @@ def validate_min_gap(value: Any) -> float:
     return _num(value, "min_vo_gap_s", lo, hi)
 
 
+def _speaker_voices(raw: Any) -> dict[str, str]:
+    """Optional ``vo.speakers``: speaker name -> ElevenLabs voice id ("" while not chosen yet)."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise AudioInputError("vo.speakers must map speaker names to voice ids")
+    out = {}
+    for name, voice in raw.items():
+        key = str(name).strip()
+        if not key or len(key) > 60:
+            raise AudioInputError(f"vo.speakers: speaker name {name!r} must be 1-60 characters")
+        if voice is not None and not isinstance(voice, str):
+            raise AudioInputError(f"vo.speakers[{key}] must be a voice id string")
+        out[key] = (voice or "").strip()
+    return out
+
+
+def _line_voice(line: dict, raw_line: dict, speakers: dict[str, str]) -> None:
+    """Per-line ``speaker`` / ``voice_id`` (dialogue): the line's own voice, else its speaker's.
+    Lines without either keep the plan-wide ``vo.voice_id`` (single-voice plans are unchanged)."""
+    speaker = raw_line.get("speaker")
+    if speaker is not None:
+        speaker = str(speaker).strip()
+        if not speaker:
+            raise AudioInputError(f"VO line {line['id']}: speaker must be a non-empty name")
+        if speakers and speaker not in speakers:
+            raise AudioInputError(f"VO line {line['id']}: speaker {speaker!r} is not listed in vo.speakers")
+        line["speaker"] = speaker
+    voice = str(raw_line.get("voice_id") or "").strip() or (speakers.get(speaker, "") if speaker else "")
+    if voice:
+        line["voice_id"] = voice
+
+
+def vo_lines_missing_voice(plan: dict, default_voice_id: str = "") -> list[str]:
+    """Ids of VO lines that must be generated (text, no locked file) but have no voice to use:
+    no line/speaker voice, no plan ``vo.voice_id`` and no configured default."""
+    vo = plan.get("vo") or {}
+    fallback = (vo.get("voice_id") or "").strip() or (default_voice_id or "").strip()
+    return [ln["id"] for ln in vo.get("lines") or []
+            if ln.get("text") and not ln.get("path") and not (ln.get("voice_id") or fallback)]
+
+
 def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
     """Validate an audio plan and fill defaults. Relative paths resolve against base_dir."""
     if not isinstance(raw, dict):
@@ -236,6 +278,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
     # VO tempo post step (handbook: atempo 0.90 per line in post). vo.atempo applies to GENERATED
     # lines (text only); a locked file is already final unless the line sets its own "atempo".
     vo_atempo = None if vo_raw.get("atempo") is None else _num(vo_raw["atempo"], "vo.atempo", 0.5, 2.0)
+    speakers = _speaker_voices(vo_raw.get("speakers"))
     for i, ln in enumerate(vo_raw.get("lines") or []):
         lid = str(ln.get("id") or f"L{i + 1:02d}")
         if lid in seen:
@@ -257,6 +300,7 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
             "atempo": (None if ln.get("atempo") is None else _num(ln["atempo"], f"{lid}.atempo", 0.5, 2.0))
             if "atempo" in ln else (None if ln.get("path") else vo_atempo),
         })
+        _line_voice(lines[-1], ln, speakers)
     music = None
     if raw.get("music"):
         m = raw["music"]
@@ -375,6 +419,8 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
         "phone": phone, "master": {**DEFAULT_MASTER, **(raw.get("master") or {})}, "subtitles": subs,
         "logo": logo,
     }
+    if speakers:
+        out["vo"]["speakers"] = speakers
     if timeline_ref is not None:
         out["timeline_ref"] = timeline_ref
     return out
