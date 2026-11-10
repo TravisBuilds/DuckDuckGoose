@@ -52,7 +52,7 @@ FAKE_VOICES: tuple[dict[str, Any], ...] = (
      "labels": {"gender": "male", "age": "young", "accent": "american", "descriptive": "confident",
                 "use_case": "presenter"},
      "description": "Upbeat young presenter"},
-    {"voice_id": "dryrun-voice-willow", "name": "Willow", "category": "premade",
+    {"voice_id": "dryrun-voice-quill", "name": "Quill", "category": "premade",
      "labels": {"gender": "neutral", "age": "middle aged", "accent": "american", "descriptive": "even",
                 "use_case": "documentary"},
      "description": "Clear, even documentary voice"},

@@ -97,10 +97,10 @@ async def test_try_another_excludes_every_voice_already_shown():
 
 async def test_llm_choice_is_used_when_it_names_a_listed_voice():
     voices = vp.fake_voices()
-    client = _openai_client({"voice_id": "dryrun-voice-willow", "reason": "even documentary tone"})
+    client = _openai_client({"voice_id": "dryrun-voice-quill", "reason": "even documentary tone"})
     with patch("openai.AsyncOpenAI", return_value=client):
         pick = await vp.pick_voice("something neutral", voices, role="narrator", openai_api_key="test-key")
-    assert (pick.voice_id, pick.method, pick.reason) == ("dryrun-voice-willow", "llm", "even documentary tone")
+    assert (pick.voice_id, pick.method, pick.reason) == ("dryrun-voice-quill", "llm", "even documentary tone")
     sent = _sent_listing(client)
     assert sent["wanted_voice"] == "something neutral" and sent["speaks_as"] == "narrator"
     assert {v["voice_id"] for v in sent["voices"]} == {v["voice_id"] for v in voices}
