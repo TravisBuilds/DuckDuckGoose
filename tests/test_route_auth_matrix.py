@@ -270,6 +270,39 @@ A robot discovers a glowing book.
             )
 
 
+def test_wizard_upload_endpoints_auth(db_path):
+    """The create wizard's uploads (prompt kit, shots + refs, audio plan): members and admins, never anonymous."""
+    import io
+    import json
+
+    client, cookies = get_client_and_login("member", db_path)
+    response = client.post("/api/episodes/draft-from-idea", cookies=cookies, json={
+        "idea": "A paper kite rides the wind over a quiet harbor", "archetype_id": "cozy-hangout",
+        "target_duration": 12})
+    assert response.status_code == 200, response.text
+    draft = response.json()
+
+    def files(*fields):
+        return {field: (name, io.BytesIO(json.dumps(draft[key]).encode()), "application/json")
+                for field, name, key in fields}
+
+    uploads = [
+        ("/api/episodes/ep01/upload-prompt-kit", [("prompt_kit_file", "prompt_kit.json", "prompt_kit_json")]),
+        ("/api/episodes/ep01/upload-shots", [("shots_file", "shots.json", "shots_json"),
+                                             ("refs_file", "refs.json", "refs_json")]),
+        ("/api/episodes/ep01/upload-audio-plan", [("audio_plan_file", "audio_plan.json", "audio_plan_json")]),
+    ]
+    for role, expected in (("none", 401), ("member", 200), ("admin", 200)):
+        client, cookies = get_client_and_login(role, db_path)
+        kwargs = {"cookies": cookies} if cookies else {}
+        for path, fields in uploads:
+            response = client.post(path, files=files(*fields), **kwargs)
+            assert response.status_code == expected, (
+                f"{role.upper()} POST {path}: expected {expected}, got {response.status_code}. "
+                f"Response: {response.text}"
+            )
+
+
 def test_admin_secret_bearer_token_works(db_path, monkeypatch):
     """Admin secret Bearer token should work for admin-only routes."""
     from fastapi.testclient import TestClient

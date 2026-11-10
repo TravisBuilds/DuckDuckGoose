@@ -1330,12 +1330,13 @@ upload_beatmap.allow_members = True
 async def upload_prompt_kit(
     episode_id: str,
     prompt_kit_file: UploadFile = File(...),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload prompt_kit.json for an episode.
     
-    Requires: Cookie auth
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET
     
     The prompt kit contains:
     - style: Series visual style line
@@ -1345,7 +1346,7 @@ async def upload_prompt_kit(
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Create episode directory
@@ -1378,22 +1379,26 @@ async def upload_prompt_kit(
         "message": "prompt_kit.json uploaded successfully"
     }
 
+upload_prompt_kit.allow_members = True
+
 
 @app.post("/api/episodes/{episode_id}/upload-shots")
 async def upload_shots(
     episode_id: str,
     shots_file: UploadFile = File(...),
     refs_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload the private per-shot data: shots.json (required) and refs.json (optional).
 
-    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
+    Stored in data/episodes/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.shot_data import ShotDataError, parse_shots
 
@@ -1441,6 +1446,48 @@ async def upload_shots(
         "refs_uploaded": refs_bytes is not None,
     }
 
+upload_shots.allow_members = True
+
+
+@app.post("/api/episodes/{episode_id}/upload-audio-plan")
+async def upload_audio_plan(
+    episode_id: str,
+    audio_plan_file: UploadFile = File(...),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload the episode audio plan (VO lines and their voices, music, SFX) for the delivery stage.
+
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
+    Validated with the delivery loader's own schema (hfvg.audio_mix.normalize_plan) and stored at
+    data/episodes/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
+    """
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    from hfvg import audio_mix
+    from hfvg.activities.audio import default_voice_id
+
+    content = await audio_plan_file.read()
+    plan_path = audio_mix.audio_plan_path(episode_id)
+    try:
+        plan = audio_mix.normalize_plan(json.loads(content), plan_path.parent.parent)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+    except (audio_mix.AudioInputError, AttributeError, KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid audio plan: {e}")
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_bytes(content)
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "audio_plan_path": str(plan_path),
+        "vo_lines": len(plan["vo"]["lines"]),
+        "lines_missing_voice": audio_mix.vo_lines_missing_voice(plan, default_voice_id()),
+    }
+
+upload_audio_plan.allow_members = True
+
 
 def uploaded_shots_problems(episode_id: str) -> list[str]:
     """Validation + preflight errors of the episode's uploaded shots.json (empty = OK or none uploaded;
@@ -1457,6 +1504,42 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
+
+
+def audio_plan_voice_problems(episode_id: str, live: bool) -> list[str]:
+    """Voice-over lines of the uploaded audio plan with no voice to speak them (empty = OK or no plan).
+
+    A line is spoken by its own or its speaker's voice, else the plan's voice_id, else
+    ELEVENLABS_DEFAULT_VOICE_ID. In a live run a dry-run placeholder voice (hfvg.voice_picker) is no voice.
+    """
+    from hfvg import audio_mix
+    from hfvg.activities.audio import default_voice_id
+    from hfvg.voice_picker import is_fake_voice_id
+
+    path = audio_mix.audio_plan_path(episode_id)
+    if not path.is_file():
+        return []
+    try:
+        plan = audio_mix.load_plan_file(path)
+    except audio_mix.AudioInputError:
+        return []  # the delivery stage reports an unreadable plan (load_audio_plan)
+
+    def usable(voice_id: str | None) -> str:
+        return "" if live and is_fake_voice_id(voice_id) else (voice_id or "")
+
+    vo = plan.get("vo") or {}
+    checked = {"vo": {**vo, "voice_id": usable(vo.get("voice_id")),
+                      "lines": [{**ln, "voice_id": usable(ln.get("voice_id"))} for ln in vo.get("lines") or []]}}
+    missing = audio_mix.vo_lines_missing_voice(checked, usable(default_voice_id()))
+    if not missing:
+        return []
+    placeholder = live and any(is_fake_voice_id(v) for v in
+                               [vo.get("voice_id"), *[ln.get("voice_id") for ln in vo.get("lines") or []]])
+    return [
+        f"no voice chosen for the voice-over lines {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}"
+        f"{' (dry-run preview voices cannot speak in a live run)' if placeholder else ''}. "
+        "Describe the voice on the create page and pick one, or set ELEVENLABS_DEFAULT_VOICE_ID"
+    ]
 
 
 @app.get("/api/episodes")
@@ -1546,6 +1629,13 @@ async def start_episode(
         raise HTTPException(
             status_code=400,
             detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
+        )
+
+    voice_problems = audio_plan_voice_problems(request.episode_id, live=not request.dry_run)
+    if voice_problems:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to start {request.episode_id}: {'; '.join(voice_problems)}",
         )
 
     # The wizard's brief travels as a workflow input (workflow code reads no files): the card's profile
