@@ -172,3 +172,14 @@ async def test_workflow_story_shaping_live_prompt_follows_the_card(monkeypatch):
     assert f"Format: {profile['name']} ({profile['template']})" in prompt
     assert "3-act" not in prompt
     assert [a["description"] for a in state["story_shape"]["acts"]] == [a["description"] for a in layout["acts"]]
+
+
+def test_workflow_code_never_reads_the_preset_registry():
+    """The card reaches the workflow as plain data; reading the registry file stays in the API."""
+    from pathlib import Path
+
+    from hfvg.workflows import episode_v2
+
+    source = Path(episode_v2.__file__).read_text(encoding="utf-8")
+    for name in ("genre_presets", "get_preset", "resolve_profile", "REGISTRY_PATH", "yaml", "open("):
+        assert name not in source, f"hfvg/workflows/episode_v2.py references {name!r}"
