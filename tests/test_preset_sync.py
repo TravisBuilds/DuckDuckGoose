@@ -1,4 +1,6 @@
-"""web/lib/presets.ts must mirror hfvg/data/genre_presets.yaml card for card, field for field."""
+"""web/lib/presets.ts must mirror hfvg/data/genre_presets.yaml card for card, field for field, and the
+create wizard's Skip window and card groups (web/lib/wizard.mjs) must match the API's freeform profile
+and the registry's templates."""
 
 import json
 import re
@@ -10,6 +12,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 YAML_PATH = REPO_ROOT / "hfvg" / "data" / "genre_presets.yaml"
 TS_PATH = REPO_ROOT / "web" / "lib" / "presets.ts"
+WIZARD_PATH = REPO_ROOT / "web" / "lib" / "wizard.mjs"
 
 # presets.ts key -> genre_presets.yaml key
 FIELD_MAP = {
@@ -79,3 +82,22 @@ def test_parser_sees_a_drifted_field():
     original = parse_ts_presets(text)
     changed = parse_ts_presets(drifted)
     assert [p["lengthRange"] for p in changed] != [p["lengthRange"] for p in original]
+
+
+def test_wizard_skip_window_matches_the_freeform_profile():
+    from hfvg.genre_presets import FREEFORM_PROFILE
+
+    text = WIZARD_PATH.read_text(encoding="utf-8")
+    window = re.search(r"export const FREEFORM_LENGTH_RANGE = \[(\d+), (\d+)\];", text)
+    default = re.search(r"export const FREEFORM_DEFAULT_LENGTH = (\d+);", text)
+    assert window and default, "FREEFORM_LENGTH_RANGE / FREEFORM_DEFAULT_LENGTH not found in web/lib/wizard.mjs"
+    assert [int(window.group(1)), int(window.group(2))] == list(FREEFORM_PROFILE["length_s"])
+    assert int(default.group(1)) == FREEFORM_PROFILE["default_length_s"]
+
+
+def test_wizard_groups_cover_every_template(yaml_presets):
+    text = WIZARD_PATH.read_text(encoding="utf-8")
+    block = re.search(r"export const TEMPLATE_LABELS = \{\n(.*?)\n\};", text, re.DOTALL)
+    assert block, "TEMPLATE_LABELS not found in web/lib/wizard.mjs"
+    labelled = re.findall(r"^\s*(\w+): '[^']+',$", block.group(1), flags=re.MULTILINE)
+    assert sorted(labelled) == sorted({p["template"] for p in yaml_presets})
