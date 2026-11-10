@@ -358,6 +358,32 @@ class ElevenLabsProvider(GenerationProvider):
         data = resp.json()
         return float(data["character_limit"]) - float(data["character_count"])
 
+    async def list_voices(self, max_pages: int = 10) -> list[dict[str, Any]]:
+        """Every voice the key can use: the account's own and the premade ones (GET /v2/voices,
+        paginated). Read-only, spends no credits; the key needs the Voices read permission."""
+        if self.dry_run:
+            raise ElevenLabsError("list_voices is a live call (dry runs use hfvg.voice_picker.FAKE_VOICES)")
+        voices: list[dict[str, Any]] = []
+        token = None
+        async with httpx.AsyncClient(base_url=self.api_base, timeout=30.0) as client:
+            for _ in range(max_pages):
+                params: dict[str, Any] = {"page_size": 100}
+                if token:
+                    params["next_page_token"] = token
+                resp = await client.get("/v2/voices", params=params, headers=self._headers())
+                if resp.status_code != 200:
+                    raise ElevenLabsError(f"ElevenLabs /v2/voices returned HTTP {resp.status_code}: "
+                                          f"{resp.text[:300]}", status_code=resp.status_code)
+                data = resp.json()
+                voices.extend(data.get("voices") or [])
+                token = data.get("next_page_token")
+                if not data.get("has_more") or not token:
+                    break
+        return [{"voice_id": v["voice_id"], "name": v.get("name") or v["voice_id"],
+                 "category": v.get("category") or "", "labels": dict(v.get("labels") or {}),
+                 "description": v.get("description") or "", "preview_url": v.get("preview_url")}
+                for v in voices if v.get("voice_id")]
+
     async def estimate_cost(self, job_type: str, params: dict[str, Any]) -> float:
         """Legacy credit estimate (kept for the credit ledger). Use estimate_usd() for USD."""
         duration = params.get("duration", 0.0)

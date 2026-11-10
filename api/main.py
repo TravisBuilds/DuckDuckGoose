@@ -5992,6 +5992,71 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
 draft_from_idea.allow_members = True
 
 
+class VoicePickRequest(BaseModel):
+    """A voice described in plain words; exclude_voice_ids are the voices already shown ("Try another voice")."""
+
+    description: str = Field(..., min_length=3, max_length=300)
+    exclude_voice_ids: list[str] = Field(default_factory=list, max_length=500)
+    role: str | None = Field(None, max_length=60, description="Who speaks: narrator or a speaker's name")
+
+
+class VoicePickResponse(BaseModel):
+    voice_id: str
+    name: str
+    preview_url: str | None = None
+    labels: dict[str, str] = Field(default_factory=dict)
+    description: str = ""
+    method: str  # "llm" or "label_match"
+    reason: str = ""
+    remaining: int  # voices not shown yet
+    mode: str  # "dry_run" (placeholder voices) or "live"
+
+
+@app.post("/api/voices/pick", response_model=VoicePickResponse)
+async def pick_voice_for_description(
+    request: VoicePickRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Pick the ElevenLabs voice that best fits a plain-words description (create wizard).
+
+    Lists the voices the ElevenLabs key can use (the account's and the premade ones; listing spends no
+    credits) and lets the LLM choose when OPENAI_API_KEY is set, else scores the description against the
+    voice labels. Dry runs (DRY_RUN=true) pick from placeholder voices without any network call.
+
+    Requires: session cookie (member or admin) or Bearer ADMIN_SECRET.
+    """
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    import dataclasses
+    from hfvg import voice_picker
+    from hfvg.config import config
+
+    dry_run_mode = os.getenv("DRY_RUN", "true").lower() in ("true", "1")
+    if dry_run_mode:
+        voices, llm_key = voice_picker.fake_voices(), None
+    else:
+        from hfvg.providers.elevenlabs import ElevenLabsError, ElevenLabsProvider
+        if not os.getenv("ELEVENLABS_API_KEY"):
+            raise HTTPException(status_code=503, detail="Voices are not available: ELEVENLABS_API_KEY is not set")
+        try:
+            voices = await ElevenLabsProvider(dry_run=False).list_voices()
+        except ElevenLabsError as e:
+            raise HTTPException(status_code=502, detail=f"Could not list the ElevenLabs voices: {e}")
+        if not voices:
+            raise HTTPException(status_code=404, detail="The ElevenLabs account lists no voices")
+        llm_key = config.OPENAI_API_KEY
+    try:
+        pick = await voice_picker.pick_voice(request.description, voices, request.exclude_voice_ids,
+                                             role=request.role, openai_api_key=llm_key,
+                                             model=config.STORY_SHAPING_MODEL)
+    except voice_picker.NoVoiceLeftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return VoicePickResponse(**dataclasses.asdict(pick), mode="dry_run" if dry_run_mode else "live")
+
+pick_voice_for_description.allow_members = True
+
+
 @app.post("/api/episodes/{episode_id}/preflight")
 async def preflight_episode(
     episode_id: str,

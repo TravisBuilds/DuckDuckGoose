@@ -118,6 +118,7 @@ ROUTE_TEST_CASES = [
     ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test acceptance"}),  # 409 if clip not needs_review
     ("POST", "/api/users/me/change-password", {"none": 401, "member": 200, "admin": 200}, True, {}),  # Test function sets role-specific password
     ("POST", "/api/episodes/draft-from-idea", {"none": 401, "member": 200, "admin": 200}, True, {"idea": "A test video", "style": "test"}),  # DRAFT_LLM_FAKE=1 returns canned data
+    ("POST", "/api/voices/pick", {"none": 401, "member": 200, "admin": 200}, True, {"description": "warm calm narrator"}),  # DRY_RUN=true picks a placeholder voice
     
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),

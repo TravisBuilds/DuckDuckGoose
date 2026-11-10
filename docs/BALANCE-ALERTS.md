@@ -112,7 +112,7 @@ Alternatively, via the Higgsfield website:
 
 ### ElevenLabs
 
-**Important**: The ElevenLabs API key must have TTS, SFX (sound effects), and music generation permissions enabled. When creating or regenerating the key in ElevenLabs settings, ensure all three permission scopes are selected. A key missing any of these permissions will fail with 401 errors when the harness attempts that generation type.
+**Important**: The ElevenLabs API key must have TTS, SFX (sound effects), and music generation permissions enabled, plus Voices read access: the create page's voice picker (`POST /api/voices/pick`) lists the account's and the premade voices (listing spends no credits). When creating or regenerating the key in ElevenLabs settings, ensure all of these permission scopes are selected. A key missing any of these permissions will fail with 401 errors when the harness attempts that generation type or lists voices.
 
 1. Log in to ElevenLabs → **Developer settings** → **Top Up**
 2. Set auto top-up threshold and reload amount
