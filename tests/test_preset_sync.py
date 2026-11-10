@@ -59,8 +59,11 @@ def test_preset_ids_match():
     
     # Load YAML
     with open(yaml_path) as f:
-        yaml_data = yaml.safe_load(f)
+        data = yaml.safe_load(f)
     
+    # YAML has top-level keys: schema_version, templates, defaults, presets
+    # We want the preset IDs under 'presets'
+    yaml_data = data.get("presets", {})
     yaml_ids = set(yaml_data.keys())
     
     # Parse TypeScript
@@ -135,7 +138,9 @@ def test_preset_length_ranges_match():
     
     # Load YAML
     with open(yaml_path) as f:
-        yaml_data = yaml.safe_load(f)
+        data = yaml.safe_load(f)
+    
+    yaml_data = data.get("presets", {})
     
     # Parse TypeScript
     ts_presets = parse_typescript_presets(ts_path)
@@ -171,7 +176,9 @@ def test_preset_vo_mode_consistency():
     
     # Load YAML
     with open(yaml_path) as f:
-        yaml_data = yaml.safe_load(f)
+        data = yaml.safe_load(f)
+    
+    yaml_data = data.get("presets", {})
     
     # Parse TypeScript
     ts_presets = parse_typescript_presets(ts_path)

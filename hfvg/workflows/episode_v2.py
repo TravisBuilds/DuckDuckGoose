@@ -277,6 +277,8 @@ class EpisodeWorkflowV2:
         enable_story_shaping: bool = False,
         archetype_id: str | None = None,
         idea: str | None = None,
+        genre_preset_data: dict | None = None,
+        target_duration_s: float | None = None,
     ) -> dict:
         """Execute workflow with run lock held."""
         
@@ -344,33 +346,19 @@ class EpisodeWorkflowV2:
             
             workflow.logger.info(f"Generating story shape for: {story_idea}")
             
-            # archetype_id and idea are passed from API start_episode
-            # The API should also pass the target_duration and preset dict in the future,
-            # but for now we resolve the preset here
-            genre_preset_data = None
-            target_duration_s = 120.0
+            # Preset dict and target_duration_s are passed from API (no YAML reads in workflow)
+            # Use defaults if not provided
+            if genre_preset_data:
+                workflow.logger.info(f"Story shaping with preset: {genre_preset_data.get('name')}, target: {target_duration_s}s")
+            else:
+                workflow.logger.info(f"Story shaping with no preset, target: {target_duration_s or 120.0}s")
             
-            if archetype_id:
-                from hfvg.genre_presets import get_preset
-                preset = get_preset(archetype_id)
-                if preset:
-                    genre_preset_data = {
-                        "id": preset.id,
-                        "name": preset.name,
-                        "template": preset.template.value,
-                        "story_structure": preset.story_structure.value if preset.story_structure else None,
-                        "length_s": preset.length_s,
-                        "vo_mode": preset.vo_mode.value,
-                    }
-                    # Use midpoint of preset range for target duration
-                    target_duration_s = float((preset.length_s[0] + preset.length_s[1]) / 2)
-                    workflow.logger.info(f"Story shaping with preset: {preset.name}, target: {target_duration_s}s")
-                else:
-                    workflow.logger.warning(f"Unknown archetype_id: {archetype_id}")
+            # Use provided target_duration_s or default to 120
+            duration = target_duration_s if target_duration_s is not None else 120.0
             
             story_result = await workflow.execute_activity(
                 "generate_story_shape_activity",
-                args=[episode_id, story_idea, genre_preset_data, target_duration_s, dry_run],
+                args=[episode_id, story_idea, genre_preset_data, duration, dry_run],
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

@@ -140,18 +140,26 @@ def _build_story_prompt(idea: str, genre_preset: str | dict | None, target_durat
     
     max_beat_s = config.STORY_SHAPING_MAX_BEAT_DURATION_S
     
+    # Build structure text outside f-string to avoid backslash in expression
+    if structure_guidance and structure_guidance != "3-act structure":
+        structure_text = f"   Structure: {structure_guidance}"
+    else:
+        structure_text = "   - Act 1 (setup): ~25% of time\n   - Act 2 (conflict): ~50% of time\n   - Act 3 (resolution): ~25% of time"
+    
+    genre_line = f"Genre guidance: {genre_guidance}" if genre_guidance else ""
+    
     return f"""You are a story structure expert for short-form video content (~2 minutes).
 
 Given this idea:
 {idea}
 
-{f"Genre guidance: {genre_guidance}" if genre_guidance else ""}
+{genre_line}
 
 Create a story structure with:
 1. A compelling logline (one sentence)
 2. A hook that grabs attention in the first 5 seconds
 3. Beat sheet with {int(target_duration)}s total duration ({structure_guidance if structure_guidance else "3-act structure"}):
-   {"   Structure: " + structure_guidance if structure_guidance and structure_guidance != "3-act structure" else "   - Act 1 (setup): ~25% of time\n   - Act 2 (conflict): ~50% of time\n   - Act 3 (resolution): ~25% of time"}
+{structure_text}
 4. A clear midpoint turn (usually end of Act 1 or middle of Act 2)
 5. A payoff that explicitly references or completes the hook
 6. Emotional arc per beat (tone/feeling)

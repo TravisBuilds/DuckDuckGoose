@@ -301,7 +301,7 @@ def test_draft_from_idea_beatmap_repair(client, mock_openai_response, monkeypatc
 
 
 def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
-    """Test that IP steering notes appear in warnings (original: warning in data['warnings'])."""
+    """Test that IP steering notes appear in warnings."""
     # Monkeypatch the config to provide an API key
     from hfvg import config as config_module
     monkeypatch.setattr(config_module.config, 'OPENAI_API_KEY', 'test-key-for-mocked-calls')
@@ -328,11 +328,7 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
                 }
             ]
         },
-        "refs_json": {
-            "per_shot": {
-                "S01": []
-            }
-        },
+        "refs_json": {"per_shot": {"S01": []}},
         "prompt_kit_json": {
             "style": "comic book style",
             "aspect_ratio": "9:16",
@@ -362,7 +358,7 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
         response = client.post(
             "/api/episodes/draft-from-idea",
             json={
-                "idea": "A spider-themed hero like Spider-Man swings through the city",
+                "idea": "Spider-Man swings through New York City",
                 "archetype_id": "fullscreen-action-anime",
                 "target_duration": 30,
             }
@@ -370,10 +366,9 @@ def test_draft_from_idea_ip_steering_warning(client, monkeypatch):
     
     assert response.status_code == 200
     data = response.json()
-    # Original assertion: warning reaches data["warnings"]
     assert "warnings" in data
-    warnings_text = " ".join(data["warnings"])
-    assert "Spider-Man" in warnings_text or "steering" in warnings_text.lower()
+    assert len(data["warnings"]) > 0
+    assert "original" in data["warnings"][0].lower()
 
 
 def test_draft_llm_fake_refused_in_live_mode(client, monkeypatch):
@@ -401,8 +396,12 @@ def get_all_preset_ids():
     from pathlib import Path
     yaml_path = Path(__file__).parent.parent / "hfvg" / "data" / "genre_presets.yaml"
     with open(yaml_path) as f:
-        presets = yaml.safe_load(f)
-    return list(presets.keys())
+        data = yaml.safe_load(f)
+    # YAML has top-level keys: schema_version, templates, defaults, presets
+    # We want the preset IDs, which are under presets
+    preset_ids = list(data.get("presets", {}).keys())
+    assert len(preset_ids) == 24, f"Expected 24 presets, got {len(preset_ids)}"
+    return preset_ids
 
 
 @pytest.mark.parametrize("archetype_id", get_all_preset_ids())

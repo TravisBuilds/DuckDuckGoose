@@ -9,8 +9,12 @@ def get_all_preset_ids():
     """Load preset IDs from the YAML file."""
     yaml_path = Path(__file__).parent.parent / "hfvg" / "data" / "genre_presets.yaml"
     with open(yaml_path) as f:
-        presets = yaml.safe_load(f)
-    return list(presets.keys())
+        data = yaml.safe_load(f)
+    # YAML has top-level keys: schema_version, templates, defaults, presets
+    # We want the preset IDs, which are under presets
+    preset_ids = list(data.get("presets", {}).keys())
+    assert len(preset_ids) == 24, f"Expected 24 presets, got {len(preset_ids)}"
+    return preset_ids
 
 
 @pytest.fixture

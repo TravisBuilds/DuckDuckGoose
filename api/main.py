@@ -1344,9 +1344,8 @@ async def upload_prompt_kit(
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
     await verify_auth_unified(
-        admin_secret=None,
-        upload_token=None,
-        cookie=studio_admin_token,
+        authorization=None,
+        studio_admin_token=studio_admin_token,
         require_admin=False
     )
     validate_episode_id(episode_id)
@@ -1464,9 +1463,8 @@ async def upload_audio_plan(
     audio_plan.json specifies VO, music, and SFX using the real schema (vo:{voice_id, lines[...]}, music:{...}).
     """
     await verify_auth_unified(
-        admin_secret=None,
-        upload_token=None,
-        cookie=studio_admin_token,
+        authorization=None,
+        studio_admin_token=studio_admin_token,
         require_admin=False
     )
     validate_episode_id(episode_id)
@@ -1484,6 +1482,14 @@ async def upload_audio_plan(
             normalize_plan(audio_plan_data, base_dir=episode_dir)
         except AudioInputError as e:
             raise ValueError(f"Audio plan validation failed: {e}")
+        
+        # Early check: if VO lines exist and voice_id is empty, reject now (before any paid steps)
+        vo = audio_plan_data.get("vo", {})
+        if vo.get("lines") and not vo.get("voice_id"):
+            raise ValueError(
+                "Audio plan has VO lines but no voice_id. "
+                "Set ELEVENLABS_DEFAULT_VOICE_ID in server environment or provide voice_id in audio plan."
+            )
         
     except (ValueError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid audio_plan.json: {e}")
@@ -1609,6 +1615,23 @@ async def start_episode(
             detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
         )
 
+    # Early check: if audio plan has VO lines and voice_id is empty, reject before starting (before paid steps)
+    from hfvg.audio_mix import audio_plan_path
+    plan_file = audio_plan_path(request.episode_id)
+    if plan_file.exists():
+        import json as json_lib
+        try:
+            plan_data = json_lib.loads(plan_file.read_text())
+            vo = plan_data.get("vo", {})
+            if vo.get("lines") and not vo.get("voice_id"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Audio plan has VO lines but no voice_id. "
+                           "Set ELEVENLABS_DEFAULT_VOICE_ID in server environment or provide voice_id in audio plan."
+                )
+        except json_lib.JSONDecodeError:
+            pass  # Will be caught later in workflow
+    
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
@@ -1617,7 +1640,7 @@ async def start_episode(
     
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping, request.archetype_id, request.idea],
+        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping, request.archetype_id, request.idea, genre_preset_data, target_duration_s],
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
