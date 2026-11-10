@@ -152,6 +152,18 @@ def test_placeholder_voices_cannot_speak_live(api):
     assert _start(api, dry_run=True).status_code == 200
 
 
+def test_placeholder_speaker_voices_cannot_speak_live(api):
+    _plan({"vo": {"speakers": {"Lead": "real-lead", "Friend": "dryrun-voice-cedar"}, "lines": [
+        {"id": "L01", "at": 0.3, "text": "Look up", "speaker": "Lead"},
+        {"id": "L02", "at": 3.0, "text": "I see it", "speaker": "Friend"}]}})
+    live = _start(api, dry_run=False)
+    assert live.status_code == 400
+    detail = live.json()["detail"]
+    assert "voice-over lines L02 (dry-run preview voices cannot speak in a live run)." in detail
+    api.temporal_client.start_workflow.assert_not_called()
+    assert _start(api, dry_run=True).status_code == 200
+
+
 @pytest.mark.parametrize("plan", [None, {"music": {"prompt": "calm piano"}},
                                   {"vo": {"lines": [{"id": "L01", "at": 0.3, "path": "audio/locked/L01.wav"}]}}])
 def test_plans_without_lines_to_voice_start(api, plan):
