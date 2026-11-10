@@ -1,11 +1,42 @@
 'use client';
 
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatUsd } from '@/lib/money';
-import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
+import { apiFetch, postJson } from '@/lib/studio-api';
 import { presets, getPresetById } from '@/lib/presets';
+import {
+  FREEFORM_DEFAULT_LENGTH,
+  FREEFORM_LENGTH_RANGE,
+  TEMPLATE_LABELS,
+  applyVoiceChoices,
+  briefFieldLabel,
+  composeIdea,
+  formatAspect,
+  groupByTemplate,
+  lengthOptions,
+  slotToken,
+  soundLabel,
+  voiceBlockMessage,
+  type VoiceChoices,
+  type VoicePick,
+  type VoiceSlot,
+} from '@/lib/wizard.mjs';
+
+/** The card a draft follows (api/main.py DRAFT_PRESET_FIELDS). */
+interface DraftPreset {
+  id: string;
+  name: string;
+  template: string;
+  story_structure: string;
+  aspect: string;
+  vo_mode: string;
+  music_mode: string;
+  music: string;
+  length_s: [number, number];
+  default_length_s: number;
+}
 
 interface DraftResponse {
   episode_id: string;
@@ -13,32 +44,202 @@ interface DraftResponse {
   shots_json: { shots: any[] };
   refs_json: any;
   prompt_kit_json: any;
+  audio_plan_json: any;
   cost_estimate?: {
     total_usd_micros: number;
     per_shot: Record<string, { stills_usd_micros: number; clip_usd_micros: number | null }>;
   };
   warnings?: string[];
+  archetype_id?: string | null;
+  preset?: DraftPreset | null;
+  target_duration?: number | null;
+  voice_slots?: VoiceSlot[];
+  default_voice_available?: boolean;
+}
+
+interface VoiceState {
+  description: string;
+  choice: VoicePick | null;
+  shown: string[];
+  busy: boolean;
+  error: string | null;
 }
 
 type WizardStep = 'archetype' | 'idea' | 'review' | 'loading';
 
+const CARD_GROUPS = groupByTemplate(presets);
+
+function emptyVoice(): VoiceState {
+  return { description: '', choice: null, shown: [], busy: false, error: null };
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Voice state for a new draft: slots that are still there keep their description and voice. */
+function voicesForDraft(slots: VoiceSlot[], previous: Record<string, VoiceState>): Record<string, VoiceState> {
+  return Object.fromEntries(
+    slots.map(slot => [slot.key, { ...(previous[slot.key] ?? emptyVoice()), busy: false, error: null }]),
+  );
+}
+
+function VoicePreview({ pick, token }: { pick: VoicePick; token: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [playError, setPlayError] = useState<string | null>(null);
+
+  if (!pick.preview_url) {
+    return <span className="text-xs text-gray-500">No preview for this voice</span>;
+  }
+
+  const toggle = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!audio.paused) {
+      audio.pause();
+      audio.currentTime = 0;
+      return;
+    }
+    setPlayError(null);
+    try {
+      await audio.play();
+    } catch (e) {
+      setPlayError(`Could not play the preview: ${errorText(e)}`);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={toggle}
+        className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700"
+        data-testid={`voice-play-${token}`}
+      >
+        {playing ? '■ Stop' : '▶ Play preview'}
+      </button>
+      <audio
+        ref={audioRef}
+        src={pick.preview_url}
+        preload="none"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        data-testid={`voice-audio-${token}`}
+      />
+      {playError && <span className="text-xs text-red-700 dark:text-red-300">{playError}</span>}
+    </>
+  );
+}
+
+function VoiceSlotPicker({
+  slot,
+  state,
+  onDescription,
+  onFind,
+  onRetry,
+}: {
+  slot: VoiceSlot;
+  state: VoiceState;
+  onDescription: (text: string) => void;
+  onFind: () => void;
+  onRetry: () => void;
+}) {
+  const token = slotToken(slot.key);
+  const inputId = `voice-description-${token}`;
+  const choice = state.choice;
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0" data-testid={`voice-slot-${token}`}>
+      <label htmlFor={inputId} className="block text-sm font-semibold">
+        {slot.label}: describe the voice
+      </label>
+      <p className="text-xs text-gray-500 mb-2">
+        {slot.lines} voice-over line{slot.lines === 1 ? '' : 's'}
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          id={inputId}
+          type="text"
+          value={state.description}
+          onChange={(e) => onDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !state.busy) onFind();
+          }}
+          maxLength={300}
+          placeholder={`e.g. ${slot.suggestion}`}
+          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+          data-testid={inputId}
+        />
+        <button
+          type="button"
+          onClick={onFind}
+          disabled={state.busy || state.description.trim().length < 3}
+          className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-semibold disabled:opacity-50"
+          data-testid={`voice-find-${token}`}
+        >
+          {state.busy ? 'Finding…' : 'Find a voice'}
+        </button>
+      </div>
+      {state.error && (
+        <p className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid={`voice-error-${token}`}>
+          {state.error}
+        </p>
+      )}
+      {choice && (
+        <div
+          className="mt-3 flex flex-wrap items-center gap-3 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3"
+          data-testid={`voice-choice-${token}`}
+          data-voice-id={choice.voice_id}
+        >
+          <span className="text-sm">
+            Voice: <strong data-testid={`voice-name-${token}`}>{choice.name}</strong>
+          </span>
+          <VoicePreview key={choice.voice_id} pick={choice} token={token} />
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={state.busy}
+            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+            data-testid={`voice-retry-${token}`}
+          >
+            Try another voice
+          </button>
+          {choice.reason && <p className="w-full text-xs text-gray-500">{choice.reason}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CreateVideoWizard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const preselectedArchetype = searchParams?.get('archetype');
+  const preselectedPreset = getPresetById(searchParams?.get('archetype') ?? '');
 
-  const [step, setStep] = useState<WizardStep>(preselectedArchetype ? 'idea' : 'archetype');
-  const [selectedArchetype, setSelectedArchetype] = useState<string | null>(preselectedArchetype);
+  const [step, setStep] = useState<WizardStep>(preselectedPreset ? 'idea' : 'archetype');
+  const [selectedArchetype, setSelectedArchetype] = useState<string | null>(preselectedPreset?.id ?? null);
+  const [templateFilter, setTemplateFilter] = useState<string | null>(null);
   const [idea, setIdea] = useState('');
-  const [targetDuration, setTargetDuration] = useState(60);
+  const [briefAnswers, setBriefAnswers] = useState<Record<string, string>>({});
+  const [targetDuration, setTargetDuration] = useState(preselectedPreset?.defaultLength ?? FREEFORM_DEFAULT_LENGTH);
   const [stylePreset, setStylePreset] = useState('');
   const [draft, setDraft] = useState<DraftResponse | null>(null);
+  const [submittedIdea, setSubmittedIdea] = useState('');
+  const [voices, setVoices] = useState<Record<string, VoiceState>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
 
-  const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) : null;
+  const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) ?? null : null;
+  const lengthRange = selectedPreset?.lengthRange ?? FREEFORM_LENGTH_RANGE;
+  const recommendedLength = selectedPreset?.defaultLength ?? FREEFORM_DEFAULT_LENGTH;
+  const voiceSlots = draft?.voice_slots ?? [];
+  const voiceChoices: VoiceChoices = Object.fromEntries(
+    Object.entries(voices).map(([key, state]) => [key, state.choice]),
+  );
+  const voiceBlock = draft ? voiceBlockMessage(voiceSlots, voiceChoices, !!draft.default_voice_available) : null;
 
   // Check if live mode is available on mount
   React.useEffect(() => {
@@ -59,8 +260,26 @@ function CreateVideoWizard() {
   }, []);
 
   const handleArchetypeSelect = (archetypeId: string) => {
-    setSelectedArchetype(archetypeId);
+    const preset = getPresetById(archetypeId);
+    if (!preset) return;
+    setSelectedArchetype(preset.id);
+    setTargetDuration(preset.defaultLength);
+    setBriefAnswers({});
+    setError(null);
     setStep('idea');
+  };
+
+  const handleSkipCards = () => {
+    setSelectedArchetype(null);
+    setTargetDuration(FREEFORM_DEFAULT_LENGTH);
+    setBriefAnswers({});
+    setError(null);
+    setStep('idea');
+  };
+
+  const handleChangeStyle = () => {
+    setError(null);
+    setStep('archetype');
   };
 
   const handleGenerateDraft = async () => {
@@ -69,28 +288,27 @@ function CreateVideoWizard() {
       return;
     }
 
+    const fullIdea = composeIdea(idea, selectedPreset?.briefFields ?? [], briefAnswers);
+    const returnStep: WizardStep = draft ? 'review' : 'idea';
     setError(null);
     setBusy(true);
     setStep('loading');
 
     try {
       const response = await postJson<DraftResponse>('/api/episodes/draft-from-idea', {
-        idea: idea.trim(),
+        idea: fullIdea,
         archetype_id: selectedArchetype,
         target_duration: targetDuration,
         style_preset: stylePreset || null,
       });
 
       setDraft(response);
+      setSubmittedIdea(fullIdea);
+      setVoices(previous => voicesForDraft(response.voice_slots ?? [], previous));
       setStep('review');
     } catch (e) {
-      const errorMsg = e instanceof ApiError 
-        ? e.message 
-        : e instanceof Error 
-        ? e.message 
-        : String(e);
-      setError(errorMsg);
-      setStep('idea');
+      setError(errorText(e));
+      setStep(returnStep);
     } finally {
       setBusy(false);
     }
@@ -100,8 +318,38 @@ function CreateVideoWizard() {
     await handleGenerateDraft();
   };
 
+  const patchVoice = (key: string, patch: Partial<VoiceState>) => {
+    setVoices(previous => ({ ...previous, [key]: { ...(previous[key] ?? emptyVoice()), ...patch } }));
+  };
+
+  /** "Find a voice" starts over; "Try another voice" leaves out every voice shown so far. */
+  const findVoice = async (slot: VoiceSlot, another: boolean) => {
+    const current = voices[slot.key] ?? emptyVoice();
+    const description = current.description.trim();
+    if (description.length < 3) {
+      patchVoice(slot.key, { error: 'Describe the voice in a few words first.' });
+      return;
+    }
+    const exclude = another ? current.shown : [];
+    patchVoice(slot.key, { busy: true, error: null });
+    try {
+      const pick = await postJson<VoicePick>('/api/voices/pick', {
+        description,
+        exclude_voice_ids: exclude,
+        role: slot.role === 'narrator' ? 'narrator' : slot.speaker,
+      });
+      patchVoice(slot.key, { busy: false, choice: pick, shown: [...exclude, pick.voice_id] });
+    } catch (e) {
+      patchVoice(slot.key, { busy: false, error: errorText(e) });
+    }
+  };
+
   const handleStartEpisode = async (dryRun: boolean) => {
     if (!draft) return;
+    if (voiceBlock) {
+      setError(voiceBlock);
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -127,22 +375,27 @@ function CreateVideoWizard() {
       kitForm.append('prompt_kit_file', new File([JSON.stringify(draft.prompt_kit_json, null, 2)], 'prompt_kit.json', { type: 'application/json' }));
       await apiFetch(`/api/episodes/${episodeId}/upload-prompt-kit`, { method: 'POST', body: kitForm });
 
+      if (draft.audio_plan_json) {
+        const audioPlan = applyVoiceChoices(draft.audio_plan_json, voiceSlots, voiceChoices);
+        const audioForm = new FormData();
+        audioForm.append('audio_plan_file', new File([JSON.stringify(audioPlan, null, 2)], 'audio_plan.json', { type: 'application/json' }));
+        await apiFetch(`/api/episodes/${episodeId}/upload-audio-plan`, { method: 'POST', body: audioForm });
+      }
+
       // Start episode with story shaping enabled by default
       await postJson('/api/episodes', {
         episode_id: episodeId,
         dry_run: dryRun,
         enable_story_shaping: true,
+        archetype_id: draft.archetype_id ?? selectedArchetype,
+        idea: submittedIdea,
+        target_duration: draft.target_duration ?? targetDuration,
       });
 
       // Redirect to episode page
       router.push(`/studio/episodes/${episodeId}`);
     } catch (e) {
-      const errorMsg = e instanceof ApiError 
-        ? e.message 
-        : e instanceof Error 
-        ? e.message 
-        : String(e);
-      setError(errorMsg);
+      setError(errorText(e));
       setBusy(false);
     }
   };
@@ -161,6 +414,19 @@ function CreateVideoWizard() {
     );
   }
 
+  const errorBox = error && (
+    <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-sm text-red-800 dark:text-red-200">
+      {error}
+    </div>
+  );
+  const visibleGroups = CARD_GROUPS.filter(group => !templateFilter || group.template === templateFilter);
+  const filterClass = (active: boolean) =>
+    `px-3 py-1 rounded-full border text-sm ${
+      active
+        ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white'
+        : 'border-gray-300 dark:border-gray-700 hover:border-blue-500'
+    }`;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
@@ -176,35 +442,69 @@ function CreateVideoWizard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {error && (
-          <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-sm text-red-800 dark:text-red-200">
-            {error}
-          </div>
-        )}
+        {step !== 'review' && errorBox}
 
         {step === 'archetype' && (
           <section>
             <h2 className="text-xl font-semibold mb-4">Step 1: Choose a Style</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Pick a genre or style that fits your story. You can customize everything later.
+              Pick a video type. It sets the length range, picture format and sound; you tell the story next.
             </p>
-            
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              {presets.slice(0, 12).map((preset) => (
+
+            <div className="flex flex-wrap gap-2 mb-6" role="group" aria-label="Filter by template">
+              <button
+                type="button"
+                aria-pressed={!templateFilter}
+                onClick={() => setTemplateFilter(null)}
+                className={filterClass(!templateFilter)}
+                data-testid="template-filter-all"
+              >
+                All ({presets.length})
+              </button>
+              {CARD_GROUPS.map(group => (
                 <button
-                  key={preset.id}
-                  onClick={() => handleArchetypeSelect(preset.id)}
-                  className="text-left p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-500 dark:hover:border-blue-400 transition-colors"
+                  key={group.template}
+                  type="button"
+                  aria-pressed={templateFilter === group.template}
+                  onClick={() => setTemplateFilter(group.template)}
+                  className={filterClass(templateFilter === group.template)}
+                  data-testid={`template-filter-${group.template}`}
                 >
-                  <h3 className="font-semibold mb-1">{preset.name}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{preset.description}</p>
-                  <span className="text-xs text-gray-500">{preset.lengthRange[0]}–{preset.lengthRange[1]}s</span>
+                  {group.label} ({group.presets.length})
                 </button>
               ))}
             </div>
 
+            {visibleGroups.map(group => (
+              <div key={group.template} className="mb-8" data-testid={`preset-group-${group.template}`}>
+                <h3 className="text-lg font-semibold mb-3">{group.label}</h3>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {group.presets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleArchetypeSelect(preset.id)}
+                      className="text-left p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-500 dark:hover:border-blue-400 transition-colors"
+                      data-testid={`preset-card-${preset.id}`}
+                    >
+                      <h4 className="font-semibold mb-1">{preset.name}</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{preset.description}</p>
+                      <div className="flex flex-wrap gap-x-2 text-xs text-gray-500">
+                        <span data-testid={`card-length-${preset.id}`}>{preset.lengthRange[0]}–{preset.lengthRange[1]}s</span>
+                        <span>·</span>
+                        <span data-testid={`card-aspect-${preset.id}`}>{formatAspect(preset.aspect)}</span>
+                        <span>·</span>
+                        <span data-testid={`card-sound-${preset.id}`}>{soundLabel(preset)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
             <button
-              onClick={() => setStep('idea')}
+              type="button"
+              onClick={handleSkipCards}
               className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
             >
               Skip - I'll describe my style in the next step →
@@ -212,18 +512,33 @@ function CreateVideoWizard() {
           </section>
         )}
 
-        {step === 'idea' && !draft && (
+        {step === 'idea' && (
           <section className="space-y-6">
             <div>
-              <Link href="/studio/create" className="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+              <button
+                type="button"
+                onClick={handleChangeStyle}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                data-testid="change-style"
+              >
                 ← Change style
-              </Link>
+              </button>
             </div>
 
-            {selectedPreset && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            {selectedPreset ? (
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4" data-testid="selected-style">
                 <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Style: {selectedPreset.name}</p>
                 <p className="text-xs text-blue-700 dark:text-blue-300">{selectedPreset.description}</p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  {TEMPLATE_LABELS[selectedPreset.template] ?? selectedPreset.template} · {selectedPreset.lengthRange[0]}–{selectedPreset.lengthRange[1]}s · {formatAspect(selectedPreset.aspect)} · {soundLabel(selectedPreset)}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4" data-testid="selected-style">
+                <p className="text-sm font-semibold">Style: Freeform</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  No video type picked: describe the style in your own words. {FREEFORM_LENGTH_RANGE[0]}–{FREEFORM_LENGTH_RANGE[1]}s · 9:16.
+                </p>
               </div>
             )}
 
@@ -242,6 +557,29 @@ function CreateVideoWizard() {
               />
             </div>
 
+            {selectedPreset && selectedPreset.briefFields.length > 0 && (
+              <fieldset className="border border-gray-200 dark:border-gray-700 rounded-lg p-4" data-testid="brief-fields">
+                <legend className="px-1 text-sm font-semibold">Optional details for {selectedPreset.name}</legend>
+                <p className="text-xs text-gray-500 mb-3">Fill in any that help; leave the rest blank.</p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {selectedPreset.briefFields.map(field => (
+                    <label key={field} className="block text-sm">
+                      <span className="block font-medium mb-1">{briefFieldLabel(field)}</span>
+                      <input
+                        type="text"
+                        value={briefAnswers[field] ?? ''}
+                        onChange={(e) => setBriefAnswers(previous => ({ ...previous, [field]: e.target.value }))}
+                        placeholder="Optional"
+                        maxLength={300}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                        data-testid={`brief-${field}`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold mb-2">Target Length</label>
@@ -251,9 +589,11 @@ function CreateVideoWizard() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
                   data-testid="duration-select"
                 >
-                  <option value={30}>30 seconds (quick)</option>
-                  <option value={60}>60 seconds (recommended)</option>
-                  <option value={120}>2 minutes (full story)</option>
+                  {lengthOptions(lengthRange, recommendedLength).map(seconds => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} seconds{seconds === recommendedLength ? ' (recommended)' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -314,6 +654,16 @@ function CreateVideoWizard() {
                 <p>
                   <span className="font-medium">Episode:</span> {draft.episode_id}
                 </p>
+                {draft.preset && (
+                  <p data-testid="review-video-type">
+                    <span className="font-medium">Video type:</span> {draft.preset.name}
+                  </p>
+                )}
+                {draft.target_duration != null && (
+                  <p data-testid="review-length">
+                    <span className="font-medium">Length:</span> {draft.target_duration} seconds
+                  </p>
+                )}
                 <p>
                   <span className="font-medium">Shots:</span> {draft.shots_json.shots.length}
                 </p>
@@ -335,6 +685,30 @@ function CreateVideoWizard() {
                 ))}
               </div>
             </div>
+
+            {voiceSlots.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6" data-testid="voices-section">
+                <h3 className="font-semibold mb-1">Voices</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Describe each voice in plain words and we pick a matching one. Play it, and try another until it fits.
+                </p>
+                <div className="space-y-4">
+                  {voiceSlots.map(slot => (
+                    <VoiceSlotPicker
+                      key={slot.key}
+                      slot={slot}
+                      state={voices[slot.key] ?? emptyVoice()}
+                      onDescription={(text) => patchVoice(slot.key, { description: text })}
+                      onFind={() => findVoice(slot, false)}
+                      onRetry={() => findVoice(slot, true)}
+                    />
+                  ))}
+                </div>
+                {draft.default_voice_available && (
+                  <p className="text-xs text-gray-500 mt-4">Lines without a chosen voice use the studio's default voice.</p>
+                )}
+              </div>
+            )}
 
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <h3 className="font-semibold mb-3">Shot List</h3>
@@ -360,13 +734,22 @@ function CreateVideoWizard() {
               </button>
 
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                {errorBox}
+                {voiceBlock && (
+                  <p
+                    className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 text-sm text-amber-900 dark:text-amber-200"
+                    data-testid="voice-block"
+                  >
+                    {voiceBlock}
+                  </p>
+                )}
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
                 
                 <div className="space-y-3">
                   {liveAvailable ? (
                     <button
                       onClick={() => setShowLiveConfirm(true)}
-                      disabled={busy}
+                      disabled={busy || !!voiceBlock}
                       className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-left"
                       data-testid="make-video-button"
                     >
@@ -388,7 +771,7 @@ function CreateVideoWizard() {
 
                   <button
                     onClick={() => handleStartEpisode(true)}
-                    disabled={busy}
+                    disabled={busy || !!voiceBlock}
                     className="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                     data-testid="preview-button"
                   >

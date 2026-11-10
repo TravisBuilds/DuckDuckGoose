@@ -118,6 +118,7 @@ ROUTE_TEST_CASES = [
     ("POST", "/api/episodes/ep01/shots/shot001/accept-clip", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test acceptance"}),  # 409 if clip not needs_review
     ("POST", "/api/users/me/change-password", {"none": 401, "member": 200, "admin": 200}, True, {}),  # Test function sets role-specific password
     ("POST", "/api/episodes/draft-from-idea", {"none": 401, "member": 200, "admin": 200}, True, {"idea": "A test video", "style": "test"}),  # DRAFT_LLM_FAKE=1 returns canned data
+    ("POST", "/api/voices/pick", {"none": 401, "member": 200, "admin": 200}, True, {"description": "warm calm narrator"}),  # DRY_RUN=true picks a placeholder voice
     
     # Admin-only routes (financial controls)
     ("POST", "/api/episodes/ep01/raise-cap", {"none": 401, "member": 403, "admin": [200, 503, 404, 400]}, True, {"new_cap": 1000, "reason": "test"}),
@@ -266,6 +267,39 @@ A robot discovers a glowing book.
             assert upload_response.status_code in [200, 503], (
                 f"{role.upper()} upload expected 200 or 503, got {upload_response.status_code}. "
                 f"Response: {upload_response.text}"
+            )
+
+
+def test_wizard_upload_endpoints_auth(db_path):
+    """The create wizard's uploads (prompt kit, shots + refs, audio plan): members and admins, never anonymous."""
+    import io
+    import json
+
+    client, cookies = get_client_and_login("member", db_path)
+    response = client.post("/api/episodes/draft-from-idea", cookies=cookies, json={
+        "idea": "A paper kite rides the wind over a quiet harbor", "archetype_id": "cozy-hangout",
+        "target_duration": 12})
+    assert response.status_code == 200, response.text
+    draft = response.json()
+
+    def files(*fields):
+        return {field: (name, io.BytesIO(json.dumps(draft[key]).encode()), "application/json")
+                for field, name, key in fields}
+
+    uploads = [
+        ("/api/episodes/ep01/upload-prompt-kit", [("prompt_kit_file", "prompt_kit.json", "prompt_kit_json")]),
+        ("/api/episodes/ep01/upload-shots", [("shots_file", "shots.json", "shots_json"),
+                                             ("refs_file", "refs.json", "refs_json")]),
+        ("/api/episodes/ep01/upload-audio-plan", [("audio_plan_file", "audio_plan.json", "audio_plan_json")]),
+    ]
+    for role, expected in (("none", 401), ("member", 200), ("admin", 200)):
+        client, cookies = get_client_and_login(role, db_path)
+        kwargs = {"cookies": cookies} if cookies else {}
+        for path, fields in uploads:
+            response = client.post(path, files=files(*fields), **kwargs)
+            assert response.status_code == expected, (
+                f"{role.upper()} POST {path}: expected {expected}, got {response.status_code}. "
+                f"Response: {response.text}"
             )
 
 

@@ -15,6 +15,7 @@ from temporalio import activity
 
 from hfvg.models import Act, StoryBeat, StoryShape, StoryShapeCritique
 from hfvg.config import config
+from hfvg.story_structures import build_layout, prompt_guidance, structure_for
 
 
 # Test stub for deterministic testing
@@ -93,45 +94,76 @@ def set_test_stub_story_shape(story_shape: StoryShape | None) -> None:
     _test_stub_story_shape = story_shape
 
 
-def _compute_input_hash(idea: str, genre_preset: str | None, target_duration: float) -> str:
+STORY_SHAPE_CACHE_VERSION = 2  # 2: genre structures (a v1 entry must not answer a v2 request)
+
+LEGACY_GENRE_GUIDANCE = {
+    "comedy": "Focus on comedic timing, setup/punchline structure, and character reactions.",
+    "adventure": "Build tension through obstacles, discoveries, and escalating stakes.",
+    "slice-of-life": "Emphasize relatable moments, small victories, and emotional resonance.",
+    "mystery": "Create intrigue with clues, red herrings, and a satisfying reveal.",
+    "action": "Structure around set pieces, rising danger, and a climactic confrontation.",
+}
+
+VO_MODE_TEXT = {
+    "none": "no voice-over (picture, music and sound effects carry the story)",
+    "caption_only": "no voice-over; on-screen captions or title cards carry the words",
+    "narration": "one narrator voice-over",
+    "dialogue": "speaker-tagged dialogue between the characters",
+}
+
+
+def _compute_input_hash(idea: str, genre_preset: str | dict | None, target_duration: float) -> str:
     """Compute deterministic hash of inputs for caching."""
-    content = f"{idea}|{genre_preset or ''}|{target_duration}"
+    preset_key = json.dumps(genre_preset, sort_keys=True) if isinstance(genre_preset, dict) else (genre_preset or "")
+    content = f"v{STORY_SHAPE_CACHE_VERSION}|{idea}|{preset_key}|{target_duration}"
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
-def _build_story_prompt(idea: str, genre_preset: str | None, target_duration: float) -> str:
-    """Build the prompt for the story shaping agent."""
-    genre_guidance = ""
-    if genre_preset:
-        presets = {
-            "comedy": "Focus on comedic timing, setup/punchline structure, and character reactions.",
-            "adventure": "Build tension through obstacles, discoveries, and escalating stakes.",
-            "slice-of-life": "Emphasize relatable moments, small victories, and emotional resonance.",
-            "mystery": "Create intrigue with clues, red herrings, and a satisfying reveal.",
-            "action": "Structure around set pieces, rising danger, and a climactic confrontation.",
-        }
-        genre_guidance = presets.get(genre_preset.lower(), "")
-    
+def _genre_context(genre_preset: str | dict | None) -> str:
+    """The card facts (a resolved preset profile) or the legacy one-word genre hint."""
+    if isinstance(genre_preset, dict):
+        vo_mode = str(genre_preset.get("vo_mode") or "none")
+        lines = [f"Format: {genre_preset.get('name', 'Freeform')} ({genre_preset.get('template', 'freeform')})",
+                 f"Aspect ratio: {genre_preset.get('aspect', '9:16')}",
+                 f"Sound: {VO_MODE_TEXT.get(vo_mode, vo_mode)}; music: {genre_preset.get('music') or 'none'}"]
+        if genre_preset.get("shot_grammar"):
+            lines.append("Shot grammar: " + ", ".join(genre_preset["shot_grammar"]))
+        if genre_preset.get("brief_fields"):
+            lines.append("Cover these brief fields: " + ", ".join(genre_preset["brief_fields"]))
+        return "\n".join(lines)
+    if isinstance(genre_preset, str) and genre_preset:
+        guidance = LEGACY_GENRE_GUIDANCE.get(genre_preset.lower(), "")
+        return f"Genre guidance ({genre_preset}): {guidance}" if guidance else ""
+    return ""
+
+
+def _build_story_prompt(idea: str, genre_preset: str | dict | None, target_duration: float) -> str:
+    """Build the prompt for the story shaping agent.
+
+    genre_preset is the card's resolved profile dict (its story_structure picks the sections), a
+    legacy one-word genre hint, or None (three acts)."""
     max_beat_s = config.STORY_SHAPING_MAX_BEAT_DURATION_S
+    seconds = int(round(target_duration))
+    context = _genre_context(genre_preset)
+    structure = prompt_guidance(genre_preset, float(target_duration), max_beat_s)
     
-    return f"""You are a story structure expert for short-form video content (~2 minutes).
+    return f"""You are a story structure expert for short-form video content ({seconds} seconds).
 
 Given this idea:
 {idea}
 
-{f"Genre guidance ({genre_preset}): {genre_guidance}" if genre_guidance else ""}
+{context}
+
+{structure}
 
 Create a story structure with:
 1. A compelling logline (one sentence)
 2. A hook that grabs attention in the first 5 seconds
-3. A 3-act beat sheet with {int(target_duration)}s total duration:
-   - Act 1 (setup): ~25% of time
-   - Act 2 (conflict): ~50% of time
-   - Act 3 (resolution): ~25% of time
-4. A clear midpoint turn (usually end of Act 1 or middle of Act 2)
+3. A beat sheet with {seconds}s total duration, grouped into the acts listed above
+4. A clear midpoint beat
 5. A payoff that explicitly references or completes the hook
 6. Emotional arc per beat (tone/feeling)
-7. Each beat should be 5-{max_beat_s}s (no longer than {max_beat_s}s)
+7. Each beat should be no longer than {max_beat_s:g}s
 
 Return JSON with this structure:
 {{
@@ -174,6 +206,42 @@ def _flatten_acts_to_beats(acts: list[dict]) -> list[StoryBeat]:
                 shot_ids=beat_data.get("shot_ids", []),
             ))
     return beats
+
+
+def _acts_and_beats(result_data: dict, genre_preset: str | dict | None) -> tuple[list[Act], list[StoryBeat]]:
+    """Acts and the flat beat list from a model reply with nested acts[].beats or flat beats.
+
+    StoryShape needs at least one act (at most 5): flat beats become one act named after the
+    structure; acts past the fifth fold into the fifth."""
+    nested = [a for a in result_data.get("acts") or [] if isinstance(a, dict) and a.get("beats")]
+    if not nested:
+        beats = [StoryBeat(**beat) for beat in result_data["beats"]]
+        total = sum(b.target_duration_s for b in beats)
+        return [Act(act_number=1, description=structure_for(genre_preset).title,
+                    target_duration_s=max(total, 0.1), beat_ids=[b.beat_id for b in beats])], beats
+    beats = _flatten_acts_to_beats(nested)
+    durations = {b.beat_id: b.target_duration_s for b in beats}
+    acts: list[Act] = []
+    for i, act in enumerate(nested, start=1):
+        ids = [b["beat_id"] for b in act["beats"]]
+        seconds = float(act.get("target_duration_s") or sum(durations[b] for b in ids))
+        if i > 5:
+            acts[-1].beat_ids.extend(ids)
+            acts[-1].target_duration_s += seconds
+            continue
+        acts.append(Act(act_number=i, description=str(act.get("description") or act.get("name") or f"Act {i}"),
+                        target_duration_s=max(seconds, 0.1), beat_ids=ids))
+    return acts, beats
+
+
+def _keep_act_names(acts: list[Act], beats: list[StoryBeat]) -> list[Act] | None:
+    """The original acts with re-summed durations when a flat-beats revision kept every beat id."""
+    seconds = {b.beat_id: b.target_duration_s for b in beats}
+    assigned = [beat_id for act in acts for beat_id in act.beat_ids]
+    if not assigned or sorted(assigned) != sorted(seconds):
+        return None
+    return [act.model_copy(update={"target_duration_s": max(sum(seconds[i] for i in act.beat_ids), 0.1)})
+            for act in acts]
 
 
 def _check_payoff_hook_reference(hook: str, payoff: str) -> bool:
@@ -256,7 +324,7 @@ def _critique_story_shape(story: StoryShape) -> StoryShapeCritique:
 async def generate_story_shape_activity(
     episode_id: str,
     idea: str,
-    genre_preset: str | None = None,
+    genre_preset: dict | str | None = None,
     target_duration: float = 120.0,
     dry_run: bool = True,
 ) -> dict[str, Any]:
@@ -269,7 +337,9 @@ async def generate_story_shape_activity(
     Args:
         episode_id: Episode identifier for caching
         idea: User's story idea
-        genre_preset: Optional genre hint (comedy, adventure, slice-of-life, mystery, action)
+        genre_preset: The card's resolved preset profile (dict; its story_structure picks loop /
+            montage / gag / continuous / ... sections), or a legacy genre hint (comedy, adventure,
+            slice-of-life, mystery, action), or None (three acts)
         target_duration: Target episode duration in seconds (default 120s)
         dry_run: If True, use test stub (no paid API calls)
         
@@ -298,57 +368,19 @@ async def generate_story_shape_activity(
         if _test_stub_story_shape:
             story = _test_stub_story_shape
         else:
+            # Deterministic shape in the card's structure (loop, montage, gag, ...), sized to target
+            layout = build_layout(genre_preset, idea, float(target_duration),
+                                  config.STORY_SHAPING_MAX_BEAT_DURATION_S)
             story = StoryShape(
-                logline="Test story logline",
-                hook="An exciting opening moment",
+                logline=layout["logline"],
+                hook=layout["hook"],
                 hook_deadline_s=5.0,
-                acts=[
-                    Act(
-                        act_number=1,
-                        description="Setup",
-                        target_duration_s=30.0,
-                        beat_ids=["beat_1"],
-                    ),
-                    Act(
-                        act_number=2,
-                        description="Confrontation",
-                        target_duration_s=60.0,
-                        beat_ids=["beat_2"],
-                    ),
-                    Act(
-                        act_number=3,
-                        description="Resolution",
-                        target_duration_s=30.0,
-                        beat_ids=["beat_3"],
-                    ),
-                ],
-                beats=[
-                    StoryBeat(
-                        beat_id="beat_1",
-                        description="Setup and introduction",
-                        emotional_tone="curiosity",
-                        target_duration_s=30.0,
-                        shot_ids=[],
-                    ),
-                    StoryBeat(
-                        beat_id="beat_2",
-                        description="Conflict emerges",
-                        emotional_tone="tension",
-                        target_duration_s=60.0,
-                        shot_ids=[],
-                    ),
-                    StoryBeat(
-                        beat_id="beat_3",
-                        description="Resolution and payoff",
-                        emotional_tone="relief",
-                        target_duration_s=30.0,
-                        shot_ids=[],
-                    ),
-                ],
-                midpoint_beat_id="beat_2",
-                payoff="The exciting moment pays off with a satisfying conclusion",
+                acts=[Act(**act) for act in layout["acts"]],
+                beats=[StoryBeat(**beat) for beat in layout["beats"]],
+                midpoint_beat_id=layout["midpoint_beat_id"],
+                payoff=layout["payoff"],
                 payoff_references_hook=True,
-                total_duration_s=target_duration,
+                total_duration_s=layout["total_duration_s"],
             )
         
         result = {
@@ -388,25 +420,13 @@ async def generate_story_shape_activity(
         
         result_data = json.loads(response.choices[0].message.content)
         
-        # Handle act structure or flat beats
-        if "acts" in result_data:
-            beats = _flatten_acts_to_beats(result_data["acts"])
-        else:
-            beats = [
-                StoryBeat(
-                    beat_id=beat["beat_id"],
-                    description=beat["description"],
-                    emotional_tone=beat["emotional_tone"],
-                    target_duration_s=beat["target_duration_s"],
-                    shot_ids=beat.get("shot_ids", []),
-                )
-                for beat in result_data["beats"]
-            ]
+        acts, beats = _acts_and_beats(result_data, genre_preset)
         
         story = StoryShape(
             logline=result_data["logline"],
             hook=result_data["hook"],
             hook_deadline_s=result_data.get("hook_deadline_s", 5.0),
+            acts=acts,
             beats=beats,
             midpoint_beat_id=result_data["midpoint_beat_id"],
             payoff=result_data["payoff"],
@@ -539,16 +559,15 @@ Return the revised structure as JSON with the same schema. Keep what works, fix 
         
         result_data = json.loads(response.choices[0].message.content)
         
-        # Handle act structure or flat beats
-        if "acts" in result_data:
-            beats = _flatten_acts_to_beats(result_data["acts"])
-        else:
-            beats = [StoryBeat(**beat) for beat in result_data["beats"]]
+        acts, beats = _acts_and_beats(result_data, None)
+        if not any(isinstance(a, dict) and a.get("beats") for a in result_data.get("acts") or []):
+            acts = _keep_act_names(story.acts, beats) or acts
         
         revised = StoryShape(
             logline=result_data["logline"],
             hook=result_data["hook"],
             hook_deadline_s=result_data.get("hook_deadline_s", 5.0),
+            acts=acts,
             beats=beats,
             midpoint_beat_id=result_data["midpoint_beat_id"],
             payoff=result_data["payoff"],

@@ -83,4 +83,14 @@ test.describe('Login Redirect Fix', () => {
     await page.waitForURL('/studio/episodes/ep04', { timeout: 5000 });
     expect(page.url()).toContain('/studio/episodes/ep04');
   });
+
+  test('should redirect /dashboard to /login when not authenticated', async ({ page }) => {
+    // Try to access /dashboard without session cookie
+    await page.goto('/dashboard');
+
+    // Should be redirected to /login with from parameter
+    await page.waitForURL(/\/login\?from=%2Fdashboard/, { timeout: 5000 });
+    expect(page.url()).toContain('/login');
+    expect(page.url()).toContain('from=%2Fdashboard');
+  });
 });

@@ -39,6 +39,11 @@ def _db_path() -> str:
     return os.getenv("DATABASE_PATH", "./data/studio.db")
 
 
+def default_voice_id() -> str:
+    """ELEVENLABS_DEFAULT_VOICE_ID: optional voice for VO lines whose plan names none."""
+    return os.getenv("ELEVENLABS_DEFAULT_VOICE_ID", "").strip()
+
+
 def _check_elevenlabs_credentials() -> None:
     """Verify ElevenLabs API key before any spend/reservation. Raises non-retryable error if missing."""
     if _dry_run():
@@ -245,6 +250,7 @@ async def generate_voiceover(episode_id: str, script: str, voice_id: str, model:
     ``take`` > 1 is a deliberate re-roll of the same text: it gets its own content key (so it is
     a new guarded generation, then reused by hash); take 1 keeps the original key."""
     _beat({"stage": "voiceover", "line": line_id})
+    voice_id = voice_id or default_voice_id()
     if locked_path:
         p = Path(locked_path)
         if p.is_file():

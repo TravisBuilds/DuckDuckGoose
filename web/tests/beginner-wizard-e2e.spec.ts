@@ -148,4 +148,143 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
     const warningText = await page.textContent('body');
     expect(warningText).toContain('Test mode');
   });
+
+  // The tests below never start an episode: this file runs before full-episode-e2e, which needs the
+  // account's run lock. wizard-member-e2e (runs last) starts the wizard's episode.
+
+  test('step 1 shows all 24 cards grouped by template with length, aspect and sound', async ({ page }) => {
+    await page.goto('/studio/create');
+    await expect(page.getByText('Step 1: Choose a Style')).toBeVisible();
+    await expect(page.locator('[data-testid^="preset-card-"]')).toHaveCount(24);
+    await expect(page.locator('[data-testid^="preset-group-"]')).toHaveCount(7);
+    await expect(page.getByTestId('preset-group-mood_loop')).toContainText('Mood loops');
+
+    await expect(page.getByTestId('card-length-cozy-hangout')).toHaveText('10–15s');
+    await expect(page.getByTestId('card-aspect-cozy-hangout')).toHaveText('9:16');
+    await expect(page.getByTestId('card-sound-cozy-hangout')).toHaveText('no voice-over · lo-fi');
+    await expect(page.getByTestId('card-length-creature-legend')).toHaveText('60–180s');
+    await expect(page.getByTestId('card-aspect-creature-legend')).toHaveText('4:3');
+    await expect(page.getByTestId('card-sound-creature-legend')).toHaveText('narrator voice · score');
+    await expect(page.getByTestId('card-aspect-fullscreen-action-anime')).toHaveText('16:9 rotated to fill 9:16');
+    await expect(page.getByTestId('card-sound-time-travel-vlog')).toHaveText('a voice per speaker · light score');
+
+    await page.getByTestId('template-filter-dialogue_episode').click();
+    await expect(page.locator('[data-testid^="preset-group-"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid^="preset-card-"]')).toHaveCount(4);
+    await expect(page.getByTestId('preset-card-nostalgia-time-travel')).toBeVisible();
+    await page.getByTestId('template-filter-all').click();
+    await expect(page.locator('[data-testid^="preset-card-"]')).toHaveCount(24);
+  });
+
+  test('a card opens step 2 with its brief prompts and length range; each pick resets the length', async ({ page }) => {
+    const durationValues = () =>
+      page.getByTestId('duration-select').locator('option').evaluateAll(opts => opts.map(o => (o as HTMLOptionElement).value));
+    await page.goto('/studio/create');
+
+    await page.getByTestId('preset-card-nostalgia-time-travel').click();
+    await expect(page.getByText('Step 2: Describe Your Video')).toBeVisible();
+    await expect(page.getByTestId('selected-style')).toContainText('Style: Back to the 2000s');
+    await expect(page.getByTestId('duration-select')).toHaveValue('30');
+    expect(await durationValues()).toEqual(['25', '30', '35', '40']);
+    for (const field of ['era', 'place', 'cast_roles', 'memory_moment']) {
+      await expect(page.getByTestId(`brief-${field}`)).toBeVisible();
+    }
+    await page.getByTestId('duration-select').selectOption('40');
+
+    await page.getByTestId('change-style').click();
+    await expect(page.getByText('Step 1: Choose a Style')).toBeVisible();
+    await page.getByTestId('preset-card-creature-legend').click();
+    await expect(page.getByTestId('duration-select')).toHaveValue('120');
+    expect(await durationValues()).toEqual(['60', '90', '120', '150', '180']);
+
+    await page.getByTestId('change-style').click();
+    await page.getByText('Skip - I\'ll describe my style').click();
+    await expect(page.getByTestId('selected-style')).toContainText('Style: Freeform');
+    await expect(page.getByTestId('duration-select')).toHaveValue('60');
+    expect(await durationValues()).toEqual(['30', '60', '90', '120']);
+    await expect(page.getByTestId('brief-fields')).toHaveCount(0);
+
+    await page.getByTestId('change-style').click();
+    await page.getByTestId('preset-card-nostalgia-time-travel').click();
+    await expect(page.getByTestId('duration-select')).toHaveValue('30');
+  });
+
+  test('a card picked in the gallery opens step 2 at its default length', async ({ page }) => {
+    await page.goto('/studio/create?archetype=cozy-hangout');
+    await expect(page.getByText('Step 2: Describe Your Video')).toBeVisible();
+    await expect(page.getByTestId('selected-style')).toContainText('Style: Cozy hangout loop');
+    await expect(page.getByTestId('duration-select')).toHaveValue('12');
+
+    await page.goto('/studio/create?archetype=no-such-card');
+    await expect(page.getByText('Step 1: Choose a Style')).toBeVisible();
+  });
+
+  test('the draft follows the card: brief answers and length reach the API', async ({ page }) => {
+    await page.goto('/studio/create');
+    await page.getByTestId('preset-card-cozy-hangout').click();
+    await page.getByTestId('idea-input').fill('A sleepy cat watches rain on a window');
+    await page.getByTestId('brief-place').fill('attic reading nook');
+    await page.getByTestId('duration-select').selectOption('15');
+
+    const draftRequest = page.waitForRequest(r => r.url().endsWith('/api/episodes/draft-from-idea'));
+    await page.getByTestId('generate-button').click();
+    const sent = (await draftRequest).postDataJSON();
+    expect(sent.archetype_id).toBe('cozy-hangout');
+    expect(sent.target_duration).toBe(15);
+    expect(sent.idea).toBe('A sleepy cat watches rain on a window\n\nPlace: attic reading nook');
+
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 60000 });
+    await expect(page.getByTestId('review-video-type')).toHaveText('Video type: Cozy hangout loop');
+    await expect(page.getByTestId('review-length')).toHaveText('Length: 15 seconds');
+    await expect(page.getByTestId('voices-section')).toHaveCount(0);
+    await expect(page.getByTestId('voice-block')).toHaveCount(0);
+    await expect(page.getByTestId('preview-button')).toBeEnabled();
+  });
+
+  test('narration card: describe the voice, play it, try others until every voice was heard', async ({ page }) => {
+    await page.goto('/studio/create');
+    await page.getByTestId('preset-card-creature-legend').click();
+    await page.getByTestId('idea-input').fill('Lantern moths guide lost travellers home through a foggy valley');
+    await page.getByTestId('generate-button').click();
+    await expect(page.getByText('Step 3: Review & Start')).toBeVisible({ timeout: 60000 });
+
+    await expect(page.locator('[data-testid^="voice-slot-"]')).toHaveCount(1);
+    const description = page.getByTestId('voice-description-narrator');
+    await expect(description).toHaveAttribute('placeholder', 'e.g. calm, warm storyteller voice');
+    await expect(page.getByTestId('voice-block')).toHaveText(
+      'Choose a voice before starting: Narrator. Describe each voice above and press "Find a voice".');
+    await expect(page.getByTestId('preview-button')).toBeDisabled();
+    await expect(page.getByTestId('voice-find-narrator')).toBeDisabled();
+
+    await description.fill('warm calm storyteller');
+    await page.getByTestId('voice-find-narrator').click();
+    const choice = page.getByTestId('voice-choice-narrator');
+    await expect(choice).toHaveAttribute('data-voice-id', /^dryrun-voice-/);
+    await expect(page.getByTestId('voice-block')).toHaveCount(0);
+    await expect(page.getByTestId('preview-button')).toBeEnabled();
+
+    const audio = page.getByTestId('voice-audio-narrator');
+    await expect(audio).toHaveAttribute('src', /^data:audio\/wav;base64,/);
+    await page.getByTestId('voice-play-narrator').click();
+    await expect.poll(() => audio.evaluate(a => (a as HTMLAudioElement).played.length)).toBeGreaterThan(0);
+
+    const heard = [await choice.getAttribute('data-voice-id')];
+    const names = [await page.getByTestId('voice-name-narrator').textContent()];
+    for (let i = 0; i < 7; i++) {
+      await page.getByTestId('voice-retry-narrator').click();
+      await expect(choice).not.toHaveAttribute('data-voice-id', heard[heard.length - 1]!);
+      heard.push(await choice.getAttribute('data-voice-id'));
+      names.push(await page.getByTestId('voice-name-narrator').textContent());
+    }
+    expect(new Set(heard).size).toBe(8);
+    expect(new Set(names).size).toBe(8);
+
+    await page.getByTestId('voice-retry-narrator').click();
+    await expect(page.getByTestId('voice-error-narrator')).toContainText('You have heard every available voice');
+    await expect(choice).toHaveAttribute('data-voice-id', heard[7]!);
+
+    await page.getByTestId('voice-find-narrator').click();
+    await expect(page.getByTestId('voice-error-narrator')).toHaveCount(0);
+    await expect(choice).toHaveAttribute('data-voice-id', heard[0]!);
+  });
 });

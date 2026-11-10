@@ -102,6 +102,9 @@ class EpisodeState(BaseModel):
     episode_id: str
     stage: PipelineStage
     idea: str
+    archetype_id: str | None = None  # wizard card id (None: no card / freeform)
+    target_duration_s: float | None = None  # creator's length, already clamped to the card's range
+    genre_preset: dict | None = None  # the card's profile (hfvg.genre_presets), resolved by the API
     readback_approved: bool = False
     storyboard_approved: bool = False
     storyboard: Optional[Storyboard] = None

@@ -1,0 +1,567 @@
+# Genre presets registry for DuckDuckGoose video harness
+# Version 0.1 - 24 archetype cards organized into 7 template groups
+# All content is original or uses public-domain references only (no named IP)
+
+schema_version: "0.1"
+
+# Template definitions: shared defaults for each format family
+templates:
+  mood_loop:
+    description: "1-3 shots, slow dolly/parallax, seamless loop, music only"
+    length_s: [10, 90]
+    pacing:
+      cuts_per_10s: 0.3
+      transitions: [cut, dissolve]
+    vo_mode: none
+    music_mode: required
+    video_prompt_mode: loop
+    story_structure: loop
+    stage_overrides:
+      plan: "1-3 shot cards, seamless loop prompt"
+      stills: "1 hero still with upscale for wallpaper quality"
+      video: "prompt_mode=loop, first/last frame match required"
+      assembly: "loop seam check, optional text card overlay"
+
+  music_montage:
+    description: "8-30 cinematic shots cut to music, little or no dialogue, title/end card"
+    length_s: [30, 180]
+    pacing:
+      cuts_per_10s: 3.0
+      transitions: [cut, dissolve]
+    vo_mode: caption_only
+    music_mode: required
+    video_prompt_mode: cut
+    story_structure: montage
+    stage_overrides:
+      plan: "beats on music bar grid; pick music style first"
+      audio: "music before cut timing, optional narration overlay"
+      assembly: "title/end card rendering"
+
+  dialogue_episode:
+    description: "Character sitcom/series with shot-reverse-shot coverage and subtitles"
+    length_s: [30, 180]
+    pacing:
+      cuts_per_10s: 3.0
+      transitions: [cut]
+    vo_mode: dialogue
+    music_mode: optional
+    video_prompt_mode: cut
+    story_structure: episode_cliffhanger
+    stage_overrides:
+      plan: "script with speaker-tagged lines, shot-reverse-shot coverage"
+      audio: "voice lock per character with speaker mapping"
+      assembly: "burned subtitles, optional series bug"
+
+  continuous_pov:
+    description: "One continuous camera path (FPV/selfie/orbit), clips chained last->first frame"
+    length_s: [20, 60]
+    pacing:
+      cuts_per_10s: 0.5
+      transitions: [cut, dissolve]
+    vo_mode: none
+    music_mode: optional
+    video_prompt_mode: continuous
+    story_structure: continuous_journey
+    stage_overrides:
+      plan: "camera path description, not cut list; continuity notes"
+      video: "prompt_mode=continuous, chain last->first frame with end_frame refs"
+      assembly: "seam QC check for continuity breaks"
+
+  cozy_micro:
+    description: "10-20s cute moments with macro/insert shots and strong style lock"
+    length_s: [10, 20]
+    pacing:
+      cuts_per_10s: 3.0
+      transitions: [cut, whip_blur]
+    vo_mode: caption_only
+    music_mode: required
+    video_prompt_mode: cut
+    story_structure: micro_arc
+    stage_overrides:
+      stills: "style lock mandatory, macro insert library"
+      audio: "ASMR SFX emphasis with soft music bed"
+
+  action_sequence:
+    description: "Choreographed fight/chase with fast cuts or one-take whips, heavy SFX"
+    length_s: [20, 60]
+    pacing:
+      cuts_per_10s: 5.0
+      transitions: [cut, whip_pan]
+    vo_mode: none
+    music_mode: required
+    video_prompt_mode: cut
+    story_structure: escalation
+    stage_overrides:
+      plan: "choreography beats with set-piece escalation"
+      audio: "SFX-heavy with score bed"
+    gates_add: [moderation_precheck, manual_review]
+
+  gag_short:
+    description: "Single premise -> escalation -> punchline/caption card, 10-30s"
+    length_s: [10, 30]
+    pacing:
+      cuts_per_10s: 1.5
+      transitions: [cut]
+    vo_mode: caption_only
+    music_mode: required
+    video_prompt_mode: cut
+    story_structure: escalation_punchline
+    stage_overrides:
+      plan: "premise -> escalation -> punchline structure"
+      assembly: "caption/punchline card, AI disclosure label"
+
+# Common defaults inherited by all presets (gates are additive)
+defaults:
+  gates: [brief_safety, beatmap_approval, stills_strip, stills_safety, final_approval]
+  ip_mode: original_only
+  video:
+    retry_max_per_shot: 1
+    model_routing: auto
+  budget:
+    cap_source: user_request
+    stop_at_pct: 80
+
+# All 24 presets (original content, no named IP)
+presets:
+  - id: nostalgia-time-travel
+    name: "Back to the 2000s"
+    description: "A family memory brought back in period detail"
+    template: dialogue_episode
+    aspect: "9:16"
+    length_s: [25, 40]
+    default_length_s: 30
+    pacing:
+      cuts_per_10s: 3.2
+    shot_grammar: ["handheld eye-level mediums", "OTS dialogue coverage", "period interiors", "warm film grade"]
+    brief_fields: ["era", "place", "cast_roles", "memory_moment"]
+    vo_mode: dialogue
+    music: "soft nostalgic"
+    identity_locks: [character, setting, style]
+    risk_flags: [trademark, synthetic_human]
+    stage_overrides:
+      stills: "scrub recognizable brand logos from period settings"
+
+  - id: satire-sketch
+    name: "Satire sketch"
+    description: "A one-gag satire with invented stand-ins"
+    template: gag_short
+    aspect: "9:16"
+    length_s: [20, 30]
+    default_length_s: 25
+    pacing:
+      cuts_per_10s: 1.4
+    shot_grammar: ["grand interior wides", "slow-mo reveal", "reaction close-up", "brand card"]
+    brief_fields: ["issue", "stand_in_characters", "gag", "punchline"]
+    vo_mode: none
+    music: "orchestral pomp"
+    identity_locks: [character, setting]
+    risk_flags: [political, real_likeness]
+    stage_overrides:
+      stills: "real-person likeness HARD BLOCK - use caricature or invented figures only"
+      assembly: "AI satire disclosure label"
+    gates_add: [manual_review]
+
+  - id: cartoon-made-real
+    name: "Cartoon world, made real"
+    description: "Iconic animated moments recreated photoreal"
+    template: music_montage
+    aspect: "9:16"
+    length_s: [30, 60]
+    default_length_s: 45
+    pacing:
+      cuts_per_10s: 2.4
+    shot_grammar: ["symmetrical wides", "insert close-ups", "protagonist in most shots"]
+    brief_fields: ["source_world", "protagonist", "moments"]
+    vo_mode: none
+    music: "emotional piano/orchestral"
+    identity_locks: [character, style, setting]
+    risk_flags: [ip_thirdparty]
+    stage_overrides:
+      stills: "2D->photoreal style lock with consistency checks"
+    gates_add: [ip_attestation]
+    ip_mode: public_domain_ok
+
+  - id: farewell-tribute
+    name: "Farewell tribute"
+    description: "A single-shot goodbye with a quote card"
+    template: mood_loop
+    aspect: "9:16"
+    length_s: [15, 30]
+    default_length_s: 20
+    pacing:
+      cuts_per_10s: 0
+    shot_grammar: ["locked-off wide", "slow push-in", "subject walks away", "quote overlay"]
+    brief_fields: ["honoree", "setting", "quote", "dates"]
+    vo_mode: none
+    music: "swelling score"
+    identity_locks: [character, setting, likeness_consent]
+    risk_flags: [real_likeness, ip_thirdparty, factual_claims]
+    stage_overrides:
+      assembly: "quote/date text card overlay"
+    gates_add: [likeness_consent, fact_check]
+
+  - id: living-painting
+    name: "Living painting"
+    description: "A slow walk into an illustrated world"
+    template: mood_loop
+    aspect: "9:16"
+    length_s: [10, 15]
+    default_length_s: 12
+    pacing:
+      cuts_per_10s: 1.0
+    shot_grammar: ["single slow forward dolly", "figure from behind", "deep matte painting"]
+    brief_fields: ["world", "palette", "figure", "creature"]
+    vo_mode: none
+    music: "ambient"
+    identity_locks: [style, character]
+    risk_flags: []
+    ip_mode: public_domain_ok
+
+  - id: what-if-ending
+    name: "What-if ending"
+    description: "Retell a story moment with a new ending"
+    template: music_montage
+    aspect: "16:9"
+    length_s: [45, 75]
+    default_length_s: 60
+    pacing:
+      cuts_per_10s: 2.4
+    shot_grammar: ["golden-hour wides", "two-shots", "emotional tear close-up", "title card"]
+    brief_fields: ["story_world", "characters", "changed_moment", "ending"]
+    vo_mode: caption_only
+    music: "melancholic score"
+    identity_locks: [character, setting]
+    risk_flags: [ip_thirdparty, minors]
+    stage_overrides:
+      stills: "age-consistency lock for character continuity"
+    gates_add: [ip_attestation]
+
+  - id: cozy-hangout
+    name: "Cozy hangout loop"
+    description: "Your characters chilling in one cozy scene"
+    template: mood_loop
+    aspect: "9:16"
+    length_s: [10, 15]
+    default_length_s: 12
+    pacing:
+      cuts_per_10s: 0
+    shot_grammar: ["static wide crowd", "micro-motion elements", "ambient weather"]
+    brief_fields: ["place", "characters", "activity", "time_of_day"]
+    vo_mode: none
+    music: "lo-fi"
+    identity_locks: [character, setting]
+    risk_flags: [ip_thirdparty]
+    stage_overrides:
+      stills: "4K upscale for wallpaper quality"
+    gates_add: [ip_attestation]
+
+  - id: original-mini-movie
+    name: "Original mini-movie"
+    description: "A short wordless journey story"
+    template: music_montage
+    aspect: "9:16"
+    length_s: [60, 90]
+    default_length_s: 75
+    pacing:
+      cuts_per_10s: 3.6
+    shot_grammar: ["stylized 3D", "letter inserts", "establishing wides", "travel montage"]
+    brief_fields: ["hero", "goal", "stops", "ending"]
+    vo_mode: caption_only
+    music: "gentle orchestral"
+    identity_locks: [character, prop, style]
+    risk_flags: []
+
+  - id: mascot-sketch
+    name: "Recurring mascot sketch"
+    description: "Episodic comedy starring your non-human mascot"
+    template: dialogue_episode
+    aspect: "16:9"
+    length_s: [30, 45]
+    default_length_s: 40
+    pacing:
+      cuts_per_10s: 5.0
+    shot_grammar: ["sitcom wides", "prop inserts", "reaction close-ups", "series bug"]
+    brief_fields: ["mascot", "setting", "gag", "side_characters"]
+    vo_mode: dialogue
+    music: "comedic SFX + light bed"
+    identity_locks: [character, prop, setting, voice]
+    risk_flags: [synthetic_human]
+    stage_overrides:
+      plan: "episode-number continuity tracking"
+
+  - id: dreamscape
+    name: "Dreamscape wallpaper"
+    description: "Your character facing a surreal dream sky"
+    template: mood_loop
+    aspect: "9:16"
+    length_s: [10, 20]
+    default_length_s: 15
+    pacing:
+      cuts_per_10s: 0
+    shot_grammar: ["wide static", "character back to camera", "glowing surreal phenomenon"]
+    brief_fields: ["character", "setting", "phenomenon"]
+    vo_mode: none
+    music: "dreamy"
+    identity_locks: [character, style]
+    risk_flags: [ip_thirdparty]
+    gates_add: [ip_attestation]
+
+  - id: animal-remake
+    name: "Animal cast remake"
+    description: "A story replayed by animals"
+    template: dialogue_episode
+    aspect: "16:9"
+    length_s: [45, 75]
+    default_length_s: 60
+    pacing:
+      cuts_per_10s: 4.5
+    shot_grammar: ["film-parody coverage", "costumed animal close-ups", "landscape inserts"]
+    brief_fields: ["story", "animal_cast", "episode_beat"]
+    vo_mode: dialogue
+    music: "score pastiche"
+    identity_locks: [character, setting]
+    risk_flags: [ip_thirdparty]
+    gates_add: [ip_attestation]
+    ip_mode: public_domain_ok
+
+  - id: ambience-journey
+    name: "Sleep / ambience journey"
+    description: "A few calm scenes then a long relaxing hold"
+    template: mood_loop
+    aspect: "4:3"
+    length_s: [60, 90]
+    default_length_s: 75
+    pacing:
+      cuts_per_10s: 0.4
+      transitions: [dissolve]
+    shot_grammar: ["3-4 calm setups", "soft dissolves", "long final hold"]
+    brief_fields: ["vessel_or_place", "traveller", "destination", "ambience"]
+    vo_mode: none
+    music: "ambient"
+    identity_locks: [character, setting]
+    risk_flags: []
+    stage_overrides:
+      assembly: "loop-extend final clip for sleep mode"
+
+  - id: original-series
+    name: "Original series episode"
+    description: "An episode of your own animated series"
+    template: dialogue_episode
+    aspect: "16:9"
+    length_s: [90, 180]
+    default_length_s: 120
+    pacing:
+      cuts_per_10s: 1.5
+    shot_grammar: ["painterly 3D", "group wides", "reveal shots", "character close-ups"]
+    brief_fields: ["series_bible", "premise", "cast", "cliffhanger"]
+    vo_mode: dialogue
+    music: "score"
+    identity_locks: [character, setting, style, voice]
+    risk_flags: []
+    stage_overrides:
+      plan: "series memory for continuity"
+
+  - id: cute-greeting
+    name: "Cute holiday greeting"
+    description: "Plush mascots wishing a happy occasion"
+    template: cozy_micro
+    aspect: "9:16"
+    length_s: [10, 15]
+    default_length_s: 12
+    pacing:
+      cuts_per_10s: 1.5
+      transitions: [whip_blur]
+    shot_grammar: ["walking wide", "seated back view"]
+    brief_fields: ["mascots", "occasion", "greeting_text"]
+    vo_mode: caption_only
+    music: "soft"
+    identity_locks: [character, style]
+    risk_flags: [ip_thirdparty]
+    stage_overrides:
+      assembly: "greeting card text overlay"
+    gates_add: [ip_attestation]
+
+  - id: mascot-day
+    name: "Mascot day-in-the-life"
+    description: "Your animal mascot runs a tiny errand"
+    template: cozy_micro
+    aspect: "9:16"
+    length_s: [15, 20]
+    default_length_s: 18
+    pacing:
+      cuts_per_10s: 2.2
+    shot_grammar: ["thought-bubble open", "walking mediums", "food close-ups"]
+    brief_fields: ["mascot", "outfit", "errand", "payoff"]
+    vo_mode: caption_only
+    music: "upbeat"
+    identity_locks: [character, prop, setting]
+    risk_flags: []
+    stage_overrides:
+      assembly: "thought bubble overlay"
+
+  - id: ride-along-pov
+    name: "Ride-along POV"
+    description: "First-person ride through an epic landscape"
+    template: continuous_pov
+    aspect: "9:16"
+    length_s: [20, 40]
+    default_length_s: 30
+    pacing:
+      cuts_per_10s: 0.5
+    shot_grammar: ["true first-person", "rig anchored bottom frame", "forward travel", "no hard cuts"]
+    brief_fields: ["mount", "landscape", "destination", "mood"]
+    vo_mode: none
+    music: "ambient + wind"
+    identity_locks: [pov_rig, setting]
+    risk_flags: []
+    stage_overrides:
+      video: "rig no-drift check for locked POV elements"
+
+  - id: character-spotlight
+    name: "Character spotlight loop"
+    description: "Your character's silhouette in a dramatic spotlight"
+    template: mood_loop
+    aspect: "9:16"
+    length_s: [10, 15]
+    default_length_s: 12
+    pacing:
+      cuts_per_10s: 0
+    shot_grammar: ["single silhouette", "dramatic spotlight", "cloth/particle motion"]
+    brief_fields: ["character", "motif", "palette"]
+    vo_mode: none
+    music: "atmospheric"
+    identity_locks: [character, style]
+    risk_flags: [ip_thirdparty]
+    gates_add: [ip_attestation]
+
+  - id: 3d-moment
+    name: "3D character moment"
+    description: "One continuous emotional beat between two characters"
+    template: continuous_pov
+    aspect: "16:9"
+    length_s: [15, 30]
+    default_length_s: 20
+    pacing:
+      cuts_per_10s: 0
+    shot_grammar: ["continuous two-shot", "slow orbit/push"]
+    brief_fields: ["character_a", "character_b", "setting", "beat"]
+    vo_mode: none
+    music: "bed"
+    identity_locks: [character, setting]
+    risk_flags: []
+    stage_overrides:
+      video: "multi-reference character locking"
+
+  - id: anime-cooking
+    name: "Cozy anime cooking"
+    description: "A hand-painted anime dish coming together"
+    template: cozy_micro
+    aspect: "9:16"
+    length_s: [10, 15]
+    default_length_s: 12
+    pacing:
+      cuts_per_10s: 5.0
+    shot_grammar: ["top-down ingredients", "pan inserts", "pour shots", "noodle pull", "hero bowl"]
+    brief_fields: ["dish", "kitchen", "hero_moment"]
+    vo_mode: none
+    music: "ASMR SFX + soft tune"
+    identity_locks: [style, setting]
+    risk_flags: []
+    stage_overrides:
+      plan: "no studio names in prompts - generic anime style"
+
+  - id: rewrite-the-scene
+    name: "Rewrite the scene"
+    description: "Step in and change a sad story moment"
+    template: gag_short
+    aspect: "9:16"
+    length_s: [10, 20]
+    default_length_s: 15
+    pacing:
+      cuts_per_10s: 1.0
+    shot_grammar: ["single action shot", "live person in 2D world composite", "headline caption"]
+    brief_fields: ["moment", "intervener", "outcome"]
+    vo_mode: caption_only
+    music: "bed"
+    identity_locks: [likeness_consent, style]
+    risk_flags: [ip_thirdparty, real_likeness]
+    gates_add: [likeness_consent, ip_attestation]
+    ip_mode: public_domain_ok
+
+  - id: live-action-fight
+    name: "Live-action fight scene"
+    description: "A one-take showdown between original fighters"
+    template: action_sequence
+    aspect: "16:9"
+    length_s: [20, 30]
+    default_length_s: 25
+    pacing:
+      cuts_per_10s: 0.3
+      transitions: [whip_pan]
+    shot_grammar: ["one-take", "whip pans", "impact craters", "energy VFX"]
+    brief_fields: ["fighters", "arena", "combat_style", "finisher"]
+    vo_mode: none
+    music: "SFX-heavy"
+    identity_locks: [character, setting]
+    risk_flags: [violence, sexualization, ip_thirdparty]
+    stage_overrides:
+      video: "one-take route (Seedance choreography model)"
+    gates_add: [ip_attestation]
+
+  - id: fullscreen-action-anime
+    name: "Full-screen action anime"
+    description: "Action anime rotated to fill the phone"
+    template: action_sequence
+    aspect: "16:9_rotated_to_9:16"
+    length_s: [30, 45]
+    default_length_s: 35
+    pacing:
+      cuts_per_10s: 5.7
+    shot_grammar: ["low angles", "impact frames", "fast cuts"]
+    brief_fields: ["hero", "ally", "set_piece", "rescue_beat"]
+    vo_mode: none
+    music: "score + SFX"
+    identity_locks: [character, setting]
+    risk_flags: [violence]
+    stage_overrides:
+      assembly: "rotate_to_fill: 16:9 source rotated to fill 9:16 portrait"
+
+  - id: creature-legend
+    name: "Fantasy creature legend"
+    description: "A painterly legend of magical creatures"
+    template: music_montage
+    aspect: "4:3"
+    length_s: [60, 180]
+    default_length_s: 120
+    pacing:
+      cuts_per_10s: 3.6
+    shot_grammar: ["elemental close-ups", "creature silhouettes", "title calligraphy"]
+    brief_fields: ["creatures", "legend", "world", "closing_line"]
+    vo_mode: narration
+    music: "score"
+    identity_locks: [character, style]
+    risk_flags: []
+    stage_overrides:
+      assembly: "title card with calligraphy"
+    ip_mode: public_domain_ok
+
+  - id: time-travel-vlog
+    name: "Time-travel history vlog"
+    description: "A host vlogs from a real historical moment"
+    template: continuous_pov
+    aspect: "9:16"
+    length_s: [45, 60]
+    default_length_s: 50
+    pacing:
+      cuts_per_10s: 1.3
+      transitions: [jump_cut]
+    shot_grammar: ["selfie-arm POV", "talk to camera", "walk-and-talk"]
+    brief_fields: ["date_place", "host", "event", "twist"]
+    vo_mode: dialogue
+    music: "light score"
+    identity_locks: [character, setting, voice]
+    risk_flags: [factual_claims, synthetic_human]
+    stage_overrides:
+      assembly: "subtitles required"
+    gates_add: [fact_check]
+    ip_mode: public_domain_ok

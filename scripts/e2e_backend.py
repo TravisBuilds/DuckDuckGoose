@@ -50,7 +50,7 @@ async def _main(port: int) -> None:
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import init_studio_db
     from hfvg.temporal_converter import temporal_data_converter
-    from hfvg.users import UserManager, ROLE_ADMIN
+    from hfvg.users import UserManager, ROLE_ADMIN, ROLE_MEMBER
     from hfvg.worker import PRODUCTION_ACTIVITIES, PRODUCTION_WORKFLOWS
 
     db = os.environ["DATABASE_PATH"]
@@ -69,6 +69,16 @@ async def _main(port: int) -> None:
             password="e2e-test-password"
         )
         print("[e2e-backend] Seeded test admin: e2e@test.local", flush=True)
+    except ValueError:
+        pass  # User already exists (reused server)
+    try:
+        await user_mgr.create_user(
+            name="E2E Test Member",
+            email="e2e-member@test.local",
+            role=ROLE_MEMBER,
+            password="e2e-member-password"
+        )
+        print("[e2e-backend] Seeded test member: e2e-member@test.local", flush=True)
     except ValueError:
         pass  # User already exists (reused server)
 

@@ -54,6 +54,7 @@ from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_s
 from hfvg.budget import BudgetLedger
 from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
 from hfvg.episode_parser import parse_beatmap
+from hfvg.genre_presets import DRAFT_MAX_S, DRAFT_MIN_S
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
@@ -726,6 +727,9 @@ class StartEpisodeRequest(BaseModel):
     credit_cap: int | None = Field(None, description="Credit cap for this run (overrides episode line cap)")
     attempt_overrides: dict[str, int] | None = Field(None, description="Shot ID -> attempt number overrides (e.g., {'A02': 2} starts A02 as first retry)")
     enable_story_shaping: bool = Field(False, description="Enable story-shaping stage before stills generation (default: false)")
+    archetype_id: str | None = Field(None, description="Wizard card id (hfvg/data/genre_presets.yaml); story shaping follows its structure")
+    idea: str | None = Field(None, max_length=2000, description="The creator's idea (wizard); story shaping writes from it")
+    target_duration: int | None = Field(None, ge=DRAFT_MIN_S, le=DRAFT_MAX_S, description="Creator's length in seconds (clamped to the card's range)")
 
 
 class StartEpisodeResponse(BaseModel):
@@ -775,6 +779,9 @@ class EpisodeStateResponse(BaseModel):
     final_cut_rejections: list = []
     failed_shots: list[dict | str] = []  # workflow state holds {shot_id, status, error} dicts (GAP-16)
     shot_outcomes: dict = {}
+    # The create wizard's card and length (workflow input genre_brief); None for other starts
+    archetype_id: str | None = None
+    target_duration_s: int | None = None
 
 
 class AssemblyAcceptRequest(BaseModel):
@@ -1326,12 +1333,13 @@ upload_beatmap.allow_members = True
 async def upload_prompt_kit(
     episode_id: str,
     prompt_kit_file: UploadFile = File(...),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload prompt_kit.json for an episode.
     
-    Requires: Cookie auth
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET
     
     The prompt kit contains:
     - style: Series visual style line
@@ -1341,7 +1349,7 @@ async def upload_prompt_kit(
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Create episode directory
@@ -1374,22 +1382,26 @@ async def upload_prompt_kit(
         "message": "prompt_kit.json uploaded successfully"
     }
 
+upload_prompt_kit.allow_members = True
+
 
 @app.post("/api/episodes/{episode_id}/upload-shots")
 async def upload_shots(
     episode_id: str,
     shots_file: UploadFile = File(...),
     refs_file: UploadFile = File(None),
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
     Upload the private per-shot data: shots.json (required) and refs.json (optional).
 
-    Requires: Cookie auth. Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
+    Stored in data/episodes/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
     """
-    await verify_admin_cookie(studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.shot_data import ShotDataError, parse_shots
 
@@ -1437,6 +1449,48 @@ async def upload_shots(
         "refs_uploaded": refs_bytes is not None,
     }
 
+upload_shots.allow_members = True
+
+
+@app.post("/api/episodes/{episode_id}/upload-audio-plan")
+async def upload_audio_plan(
+    episode_id: str,
+    audio_plan_file: UploadFile = File(...),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Upload the episode audio plan (VO lines and their voices, music, SFX) for the delivery stage.
+
+    Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
+    Validated with the delivery loader's own schema (hfvg.audio_mix.normalize_plan) and stored at
+    data/episodes/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
+    """
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    from hfvg import audio_mix
+    from hfvg.activities.audio import default_voice_id
+
+    content = await audio_plan_file.read()
+    plan_path = audio_mix.audio_plan_path(episode_id)
+    try:
+        plan = audio_mix.normalize_plan(json.loads(content), plan_path.parent.parent)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+    except (audio_mix.AudioInputError, AttributeError, KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid audio plan: {e}")
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_bytes(content)
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "audio_plan_path": str(plan_path),
+        "vo_lines": len(plan["vo"]["lines"]),
+        "lines_missing_voice": audio_mix.vo_lines_missing_voice(plan, default_voice_id()),
+    }
+
+upload_audio_plan.allow_members = True
+
 
 def uploaded_shots_problems(episode_id: str) -> list[str]:
     """Validation + preflight errors of the episode's uploaded shots.json (empty = OK or none uploaded;
@@ -1453,6 +1507,42 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
+
+
+def audio_plan_voice_problems(episode_id: str, live: bool) -> list[str]:
+    """Voice-over lines of the uploaded audio plan with no voice to speak them (empty = OK or no plan).
+
+    A line is spoken by its own or its speaker's voice, else the plan's voice_id, else
+    ELEVENLABS_DEFAULT_VOICE_ID. In a live run a dry-run placeholder voice (hfvg.voice_picker) is no voice.
+    """
+    from hfvg import audio_mix
+    from hfvg.activities.audio import default_voice_id
+    from hfvg.voice_picker import is_fake_voice_id
+
+    path = audio_mix.audio_plan_path(episode_id)
+    if not path.is_file():
+        return []
+    try:
+        plan = audio_mix.load_plan_file(path)
+    except audio_mix.AudioInputError:
+        return []  # the delivery stage reports an unreadable plan (load_audio_plan)
+
+    def usable(voice_id: str | None) -> str:
+        return "" if live and is_fake_voice_id(voice_id) else (voice_id or "")
+
+    vo = plan.get("vo") or {}
+    checked = {"vo": {**vo, "voice_id": usable(vo.get("voice_id")),
+                      "lines": [{**ln, "voice_id": usable(ln.get("voice_id"))} for ln in vo.get("lines") or []]}}
+    missing = audio_mix.vo_lines_missing_voice(checked, usable(default_voice_id()))
+    if not missing:
+        return []
+    placeholder = live and any(is_fake_voice_id(v) for v in
+                               [vo.get("voice_id"), *[ln.get("voice_id") for ln in vo.get("lines") or []]])
+    return [
+        f"no voice chosen for the voice-over lines {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}"
+        f"{' (dry-run preview voices cannot speak in a live run)' if placeholder else ''}. "
+        "Describe the voice on the create page and pick one, or set ELEVENLABS_DEFAULT_VOICE_ID"
+    ]
 
 
 @app.get("/api/episodes")
@@ -1544,15 +1634,38 @@ async def start_episode(
             detail=f"Refusing to start {request.episode_id}: {'; '.join(shots_problems[:10])}",
         )
 
+    voice_problems = audio_plan_voice_problems(request.episode_id, live=not request.dry_run)
+    if voice_problems:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to start {request.episode_id}: {'; '.join(voice_problems)}",
+        )
+
+    # The wizard's brief travels as a workflow input (workflow code reads no files): the card's profile
+    # and the creator's length, clamped to the card's range, resolved here.
+    genre_brief = None
+    if request.archetype_id or request.idea or request.target_duration is not None:
+        from hfvg.genre_presets import clamp_length, resolve_profile
+        try:
+            profile = resolve_profile(request.archetype_id)
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Unknown video type {request.archetype_id!r}")
+        target_duration, _ = clamp_length(profile, request.target_duration)
+        genre_brief = {"idea": (request.idea or "").strip(), "archetype_id": request.archetype_id,
+                       "target_duration_s": target_duration, "preset": profile}
+
     # Start workflow
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Stable workflow ID for approve route to find
     workflow_id = episode_workflow_id(request.episode_id)
     
+    args = [request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping]
+    if genre_brief is not None:
+        args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
-        args=[request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping],
+        args=args,
         id=workflow_id,
         task_queue="hfvg-tasks",
     )
@@ -1628,6 +1741,8 @@ async def get_episode_state(
         final_cut_rejections=list(state.get("final_cut_rejections") or []),
         failed_shots=list(state.get("failed_shots") or []),
         shot_outcomes=dict(state.get("shot_outcomes") or {}),
+        archetype_id=state.get("archetype_id"),
+        target_duration_s=state.get("target_duration_s"),
     )
 
 
@@ -5581,8 +5696,8 @@ class DraftFromIdeaRequest(BaseModel):
     """Request to generate episode files from a plain-language idea."""
     
     idea: str = Field(..., min_length=10, max_length=2000, description="User's story idea in plain language")
-    archetype_id: str | None = Field(None, description="Optional archetype/genre preset ID")
-    target_duration: int = Field(60, ge=30, le=120, description="Target duration in seconds")
+    archetype_id: str | None = Field(None, description="Optional wizard card id (hfvg/data/genre_presets.yaml); empty = freeform")
+    target_duration: int = Field(60, ge=DRAFT_MIN_S, le=DRAFT_MAX_S, description="Target duration in seconds (clamped to the card's length range)")
     style_preset: str | None = Field(None, max_length=500, description="Optional style description")
 
 
@@ -5597,6 +5712,84 @@ class DraftFromIdeaResponse(BaseModel):
     story_shape: dict | None = None
     cost_estimate: dict | None = None
     warnings: list[str] = Field(default_factory=list)
+    archetype_id: str | None = None
+    preset: dict | None = None  # the card the plan follows: name, template, story structure, aspect, sound
+    target_duration: int | None = None  # the length the plan uses, clamped to the card's range
+    audio_plan_json: dict | None = None  # hfvg.audio_mix.normalize_plan schema; the wizard adds the chosen voices
+    voice_slots: list[dict] = Field(default_factory=list)  # voices the wizard asks for (hfvg.genre_drafts.voice_slots)
+    default_voice_available: bool = False  # ELEVENLABS_DEFAULT_VOICE_ID voices lines nobody chose a voice for
+
+
+DRAFT_PRESET_FIELDS = ("id", "name", "template", "story_structure", "aspect", "vo_mode", "music_mode", "music",
+                       "length_s", "default_length_s")
+
+
+def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None, target_duration: int,
+                    beatmap_content: str, parsed_shots: list[dict], shots_data: dict, refs_data: dict,
+                    prompt_kit_data: dict, script: list[dict] | None, warnings: list[str]) -> DraftFromIdeaResponse:
+    """Validate the drafted files and add the card's audio plan and voice slots (LLM and test drafts alike)."""
+    import tempfile
+
+    from hfvg import audio_mix, genre_drafts
+    from hfvg.activities.audio import default_voice_id
+    from hfvg.shot_data import parse_shots
+
+    # Validate shots.json
+    try:
+        parse_shots(shots_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generated shots.json failed validation: {str(e)}"
+        )
+
+    # Validate refs.json structure
+    if not isinstance(refs_data, dict) or "per_shot" not in refs_data:
+        raise HTTPException(
+            status_code=500,
+            detail="Generated refs.json missing 'per_shot' key"
+        )
+
+    # Validate prompt_kit.json
+    required_kit_keys = {"style", "aspect_ratio", "characters", "sets"}
+    if not all(k in prompt_kit_data for k in required_kit_keys):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
+        )
+
+    screen_times = [float(s["screen_time"]) for s in parsed_shots]
+    audio_plan, audio_warnings = genre_drafts.build_audio_plan(profile, screen_times, script)
+    try:
+        audio_mix.normalize_plan(audio_plan, Path(tempfile.gettempdir()))
+    except audio_mix.AudioInputError as e:
+        raise HTTPException(status_code=500, detail=f"Generated audio plan failed validation: {e}")
+
+    warnings = list(warnings)
+    if profile["aspect"] != "9:16":
+        aspect = profile["aspect"].replace("_rotated_to_", " rotated to ")
+        warnings.append(f"{profile['name']} is designed for {aspect}; the studio renders 9:16 for now, "
+                        f"so the shots are framed for 9:16.")
+    planned = sum(screen_times)
+    if abs(planned - target_duration) > max(5.0, 0.25 * target_duration):
+        warnings.append(f"The plan runs {planned:g} seconds; you asked for {target_duration}.")
+    warnings.extend(audio_warnings)
+
+    return DraftFromIdeaResponse(
+        episode_id=episode_id,
+        beatmap=beatmap_content,
+        shots_json=shots_data,
+        refs_json=refs_data,
+        prompt_kit_json=prompt_kit_data,
+        cost_estimate=offline_cost_estimate(shots_data["shots"]),
+        warnings=warnings,
+        archetype_id=archetype_id,
+        preset={k: profile.get(k) for k in DRAFT_PRESET_FIELDS},
+        target_duration=target_duration,
+        audio_plan_json=audio_plan,
+        voice_slots=genre_drafts.voice_slots(audio_plan, profile),
+        default_voice_available=bool(default_voice_id()),
+    )
 
 
 @app.post("/api/episodes/draft-from-idea", response_model=DraftFromIdeaResponse)
@@ -5606,9 +5799,12 @@ async def draft_from_idea(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Generate all episode files (BEATMAP.md, shots.json, refs.json, prompt_kit.json) from a plain-language idea.
+    Generate all episode files (BEATMAP.md, shots.json, refs.json, prompt_kit.json) from a plain-language idea,
+    plus the audio plan (data/episodes/{id}/audio/audio_plan.json schema) of the chosen wizard card.
     
-    Uses OpenAI structured output to generate files that pass existing validators.
+    Uses OpenAI structured output to generate files that pass existing validators. The card
+    (archetype_id, hfvg/data/genre_presets.yaml) sets the shot pacing, sound and script shape; no card
+    means the freeform profile. The length is clamped to the card's range, with a warning saying so.
     Content policy: original characters only, no named IP or real people.
     
     Requires: Authorization header OR session cookie (member or admin).
@@ -5617,8 +5813,9 @@ async def draft_from_idea(
     
     from hfvg.config import config
     import tempfile
+    from hfvg import genre_drafts
     from hfvg.episode_parser import parse_beatmap
-    from hfvg.shot_data import parse_shots
+    from hfvg.genre_presets import FREEFORM_ID, clamp_length, resolve_profile
     
     # Check for test-only fake LLM mode (DRAFT_LLM_FAKE=1)
     use_fake_llm = os.getenv("DRAFT_LLM_FAKE", "0") == "1"
@@ -5639,6 +5836,16 @@ async def draft_from_idea(
             status_code=503,
             detail="Story writing assistant not configured. Set OPENAI_API_KEY environment variable."
         )
+
+    try:
+        profile = resolve_profile(request.archetype_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown video type {request.archetype_id!r}: pick a card on the create page or leave it empty",
+        )
+    target_duration, length_note = clamp_length(profile, request.target_duration)
+    voiced = profile.get("vo_mode") in ("narration", "dialogue")
     
     # Generate a unique episode ID matching pattern: ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?
     # Format: ep{2 digits}{3 lowercase letters} (e.g., ep42abc)
@@ -5675,18 +5882,20 @@ async def draft_from_idea(
     else:
         raise HTTPException(status_code=500, detail="Failed to generate unique episode ID after 100 attempts")
     
-    # Build prompt for LLM
-    archetype_guidance = ""
-    if request.archetype_id:
-        archetypes_map = {
-            "nostalgia-time-travel": "dialogue episode with family memory in period detail",
-            "satire-sketch": "one-gag satire with invented stand-ins",
-            "cartoon-made-real": "animated moments recreated photoreal",
-            "cozy-hangout": "characters chilling in one cozy scene",
-            "original-mini-movie": "short wordless journey story",
-            "dreamscape": "character facing surreal dream sky",
-        }
-        archetype_guidance = archetypes_map.get(request.archetype_id, "creative short video")
+    # Build prompt for LLM: freeform keeps the generic pacing, a card brings its own rules
+    if profile["id"] == FREEFORM_ID:
+        per_shot_rule = "Screen/gen: both same value, 5-8 seconds per shot"
+        count_rule = f"Create {int(target_duration / 6)} to {int(target_duration / 5)} shots total"
+        card_rules = ""
+        card_line = ""
+    else:
+        lengths = genre_drafts.shot_lengths(profile, target_duration)
+        per_shot_rule = f"Screen/gen: both same value, whole seconds, {min(lengths)}-{max(lengths)} seconds per shot"
+        count_rule = f"Create {len(lengths)} shots total; their durations add up to {target_duration}s"
+        card_rules = f"\nVIDEO TYPE (follow it):\n{genre_drafts.llm_instructions(profile, target_duration)}\n"
+        card_line = f"Video type: {profile['name']}"
+    script_key = '\n6. "audio_script": the voice-over script described under VIDEO TYPE' if voiced else ""
+    file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json" + (", audio_script" if voiced else "")
     
     style_guidance = request.style_preset or "photorealistic, cinematic lighting"
     
@@ -5700,16 +5909,16 @@ CONTENT POLICY (CRITICAL):
 """
     
     system_prompt = f"""You are a video production assistant that generates complete episode specifications.
-Given a user's story idea, create all required files for a {request.target_duration}s video.
+Given a user's story idea, create all required files for a {target_duration}s video.
 
 {content_policy_warning}
-
+{card_rules}
 Generate these files in your response as a JSON object with these keys:
 1. "beatmap_md": BEATMAP.md content (markdown table with shots)
 2. "shots_json": shots.json content (structured shot data)
 3. "refs_json": refs.json content (per-shot reference images)
 4. "prompt_kit_json": prompt_kit.json content (style, characters, sets)
-5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
+5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created{script_key}
 
 File format requirements:
 
@@ -5722,10 +5931,10 @@ BEATMAP.md - Shot planning table:
 | 1 | S01 | 5.0 (5.0) | [location] | [time] | A | [action description] | [narrative purpose] | - | - | K |
 ```
 - Shot IDs: S01, S02, etc.
-- Screen/gen: both same value, 5-8 seconds per shot
+- {per_shot_rule}
 - Model: K (Kling) for most shots
 - Chars: A, B, C for up to 3 main characters
-- Create {int(request.target_duration / 6)} to {int(request.target_duration / 5)} shots total
+- {count_rule}
 
 shots.json:
 {{
@@ -5767,81 +5976,30 @@ prompt_kit.json:
 
 Return ONLY valid JSON with these exact keys."""
 
-    user_prompt = f"""Create a {request.target_duration}s video for this idea:
+    user_prompt = f"""Create a {target_duration}s video for this idea:
 
 {request.idea}
 
-{f"Style/genre: {archetype_guidance}" if archetype_guidance else ""}
+{card_line}
 
-Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a single JSON response."""
+Generate all the files ({file_keys}) as a single JSON response."""
 
-    # Fake LLM mode: return deterministic canned data (test-only)
+    lead_warnings = [length_note] if length_note else []
+
+    # Fake LLM mode: return a deterministic draft for the card (test-only)
     if use_fake_llm:
         logger.info(f"FAKE LLM: Returning canned draft data for episode {episode_id}")
-        
-        beatmap_content = f"""# Episode {episode_id} Beatmap
-
-| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | S01 | 5.0 (5.0) | Workshop | Day | A | A curious robot examines dusty books on old wooden shelves | Establish setting and character | - | - | K |
-| 2 | S02 | 6.0 (6.0) | Workshop | Day | A | The robot discovers a glowing book, light emanating from its pages | Discovery moment, inciting incident | - | - | K |
-"""
-        
-        shots_data = {
-            "shots": [
-                {
-                    "id": "S01",
-                    "prompt": "A friendly metallic robot with glowing blue eyes standing in a dusty old workshop, examining ancient books on wooden shelves, warm daylight streaming through windows, photorealistic, cinematic lighting",
-                    "count": 1,
-                    "characters": ["A"],
-                    "wet": False,
-                    "model": "kling",
-                    "duration": 5,
-                    "end_frame": False,
-                    "ref_keys": []
-                },
-                {
-                    "id": "S02",
-                    "prompt": "Close-up of robot's metallic hands opening a leather-bound book that glows with magical golden light, mystical particles floating in the air, photorealistic, cinematic lighting",
-                    "count": 1,
-                    "characters": ["A"],
-                    "wet": False,
-                    "model": "kling",
-                    "duration": 6,
-                    "end_frame": False,
-                    "ref_keys": []
-                }
-            ]
-        }
-        
-        refs_data = {
-            "per_shot": {
-                "S01": [],
-                "S02": []
-            }
-        }
-        
-        prompt_kit_data = {
-            "style": style_guidance,
-            "aspect_ratio": "9:16",
-            "characters": {
-                "A": {"description": "Friendly exploration robot with metallic silver body and glowing blue optical sensors"}
-            },
-            "sets": {
-                "Workshop": "Abandoned dusty workshop with tall wooden bookshelves, old tools, and warm natural light"
-            }
-        }
-        
-        cost_estimate = offline_cost_estimate(shots_data["shots"])
-        
-        return DraftFromIdeaResponse(
-            episode_id=episode_id,
-            beatmap=beatmap_content,
-            shots_json=shots_data,
-            refs_json=refs_data,
-            prompt_kit_json=prompt_kit_data,
-            cost_estimate=cost_estimate,
-            warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)"],
+        fake = genre_drafts.fake_draft(profile, request.idea, episode_id, target_duration, style_guidance)
+        with tempfile.TemporaryDirectory(prefix="draft_") as tmp:
+            fake_beatmap = Path(tmp) / "BEATMAP.md"
+            fake_beatmap.write_text(fake["beatmap_md"], encoding="utf-8")
+            parsed_shots = parse_beatmap(str(fake_beatmap))
+        return _draft_response(
+            episode_id=episode_id, profile=profile, archetype_id=request.archetype_id,
+            target_duration=target_duration, beatmap_content=fake["beatmap_md"], parsed_shots=parsed_shots,
+            shots_data=fake["shots_json"], refs_data=fake["refs_json"], prompt_kit_data=fake["prompt_kit_json"],
+            script=fake["audio_script"],
+            warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)", *lead_warnings],
         )
 
     try:
@@ -5920,45 +6078,16 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
         finally:
             Path(beatmap_temp).unlink(missing_ok=True)
         
-        # Validate shots.json
-        try:
-            parse_shots(shots_data)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Generated shots.json failed validation: {str(e)}"
-            )
-        
-        # Validate refs.json structure
-        if not isinstance(refs_data, dict) or "per_shot" not in refs_data:
-            raise HTTPException(
-                status_code=500,
-                detail="Generated refs.json missing 'per_shot' key"
-            )
-        
-        # Validate prompt_kit.json
-        required_kit_keys = {"style", "aspect_ratio", "characters", "sets"}
-        if not all(k in prompt_kit_data for k in required_kit_keys):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
-            )
-        
-        # Generate cost estimate
-        cost_estimate = offline_cost_estimate(shots_data["shots"])
-        
         warnings = []
         if ip_steering:
             warnings.append(f"Content policy note: {ip_steering}")
         
-        return DraftFromIdeaResponse(
-            episode_id=episode_id,
-            beatmap=beatmap_content,
-            shots_json=shots_data,
-            refs_json=refs_data,
-            prompt_kit_json=prompt_kit_data,
-            cost_estimate=cost_estimate,
-            warnings=warnings,
+        return _draft_response(
+            episode_id=episode_id, profile=profile, archetype_id=request.archetype_id,
+            target_duration=target_duration, beatmap_content=beatmap_content, parsed_shots=parsed_shots,
+            shots_data=shots_data, refs_data=refs_data, prompt_kit_data=prompt_kit_data,
+            script=genre_drafts.script_from_llm(result) if voiced else None,
+            warnings=warnings + lead_warnings,
         )
         
     except Exception as e:
@@ -5970,6 +6099,72 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
         )
 
 draft_from_idea.allow_members = True
+
+
+class VoicePickRequest(BaseModel):
+    """A voice described in plain words; exclude_voice_ids are the voices already shown ("Try another voice")."""
+
+    description: str = Field(..., min_length=3, max_length=300)
+    exclude_voice_ids: list[str] = Field(default_factory=list, max_length=500)
+    role: str | None = Field(None, max_length=60, description="Who speaks: narrator or a speaker's name")
+
+
+class VoicePickResponse(BaseModel):
+    voice_id: str
+    name: str
+    preview_url: str | None = None
+    labels: dict[str, str] = Field(default_factory=dict)
+    description: str = ""
+    method: str  # "llm" or "label_match"
+    reason: str = ""
+    remaining: int  # voices not shown yet
+    mode: str  # "dry_run" (placeholder voices) or "live"
+
+
+@app.post("/api/voices/pick", response_model=VoicePickResponse)
+async def pick_voice_for_description(
+    request: VoicePickRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Pick the ElevenLabs voice that best fits a plain-words description (create wizard).
+
+    Lists the voices the ElevenLabs key can use (the account's and the premade ones; listing spends no
+    credits) and lets the LLM choose when OPENAI_API_KEY is set, else scores the description against the
+    voice labels. Dry runs (DRY_RUN=true) pick from placeholder voices without any network call.
+
+    Requires: session cookie (member or admin) or Bearer ADMIN_SECRET.
+    """
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    import dataclasses
+
+    from hfvg import voice_picker
+    from hfvg.config import config
+
+    dry_run_mode = os.getenv("DRY_RUN", "true").lower() in ("true", "1")
+    if dry_run_mode:
+        voices, llm_key = voice_picker.fake_voices(), None
+    else:
+        from hfvg.providers.elevenlabs import ElevenLabsError, ElevenLabsProvider
+        if not os.getenv("ELEVENLABS_API_KEY"):
+            raise HTTPException(status_code=503, detail="Voices are not available: ELEVENLABS_API_KEY is not set")
+        try:
+            voices = await ElevenLabsProvider(dry_run=False).list_voices()
+        except ElevenLabsError as e:
+            raise HTTPException(status_code=502, detail=f"Could not list the ElevenLabs voices: {e}")
+        if not voices:
+            raise HTTPException(status_code=404, detail="The ElevenLabs account lists no voices")
+        llm_key = config.OPENAI_API_KEY
+    try:
+        pick = await voice_picker.pick_voice(request.description, voices, request.exclude_voice_ids,
+                                             role=request.role, openai_api_key=llm_key,
+                                             model=config.STORY_SHAPING_MODEL)
+    except voice_picker.NoVoiceLeftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return VoicePickResponse(**dataclasses.asdict(pick), mode="dry_run" if dry_run_mode else "live")
+
+pick_voice_for_description.allow_members = True
 
 
 @app.post("/api/episodes/{episode_id}/preflight")

@@ -13,7 +13,7 @@ const API_PORT = 8000;
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(full-episode-e2e|beginner-wizard-e2e)\.spec\.ts$/,
+  testMatch: /(full-episode-e2e|beginner-wizard-e2e|wizard-member-e2e)\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
