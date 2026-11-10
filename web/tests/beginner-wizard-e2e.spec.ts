@@ -5,14 +5,16 @@ import { test, expect } from '@playwright/test';
  * Tests draft generation, ID validation, and episode start.
  */
 
-const ADMIN_SECRET = process.env.E2E_ADMIN_SECRET || 'e2e-only-admin-secret-not-used-anywhere-else';
+const E2E_USER = 'e2e@test.local';
+const E2E_PASSWORD = 'e2e-test-password';
 
 test.describe('Beginner Video Creation Wizard E2E', () => {
   test.beforeEach(async ({ page }) => {
-    // Authenticate
+    // Authenticate with test user
     await page.goto('/login');
-    await page.locator('#secret').fill(ADMIN_SECRET);
-    await page.getByRole('button', { name: 'Access Console' }).click();
+    await page.locator('#email').fill(E2E_USER);
+    await page.locator('#password').fill(E2E_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In', exact: true }).first().click();
     await expect(page).toHaveURL(/\/studio$/);
   });
 

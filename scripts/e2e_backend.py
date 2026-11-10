@@ -50,12 +50,27 @@ async def _main(port: int) -> None:
     from hfvg.credit_ledger import CreditLedger
     from hfvg.studio_db import init_studio_db
     from hfvg.temporal_converter import temporal_data_converter
+    from hfvg.users import UserManager, ROLE_ADMIN
     from hfvg.worker import PRODUCTION_ACTIVITIES, PRODUCTION_WORKFLOWS
 
     db = os.environ["DATABASE_PATH"]
     await init_studio_db(db)
     await BudgetLedger(db).init_db()
     await CreditLedger(db).init_db()
+    
+    # Seed test admin user for e2e
+    user_mgr = UserManager(db)
+    await user_mgr.init_db()
+    try:
+        await user_mgr.create_user(
+            name="E2E Test Admin",
+            email="e2e@test.local",
+            role=ROLE_ADMIN,
+            password="e2e-test-password"
+        )
+        print("[e2e-backend] Seeded test admin: e2e@test.local", flush=True)
+    except ValueError:
+        pass  # User already exists (reused server)
 
     async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
         target = env.client.service_client.config.target_host

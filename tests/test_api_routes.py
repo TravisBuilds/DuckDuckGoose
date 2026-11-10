@@ -183,6 +183,7 @@ PUBLIC_ALLOWLIST = {
     ("GET", "/gates"),
     ("POST", "/api/login"),
     ("POST", "/api/logout"),
+    ("POST", "/api/auth/set-password"),  # Token-based password setting (public, no prior auth)
 }
 # FastAPI's own documentation routes (not APIRoute; they expose the schema, no data).
 FRAMEWORK_DOC_PATHS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}

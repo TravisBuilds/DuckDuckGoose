@@ -6,25 +6,24 @@ import { useRouter } from 'next/navigation';
 
 export default function StudioHomePage() {
   const [apiHealth, setApiHealth] = useState<any>(null);
+  const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
     checkAPIHealth();
+    fetchEpisodes();
   }, []);
 
   const checkAPIHealth = async () => {
     try {
-      // Session cookie is httpOnly - can't read it in JS
-      // Just make API call with credentials: 'include' - if unauthorized, redirect to login
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       
       const response = await fetch(`${apiUrl}/api/health`, {
-        credentials: 'include',  // Send httpOnly cookie
+        credentials: 'include',
       });
 
       if (response.status === 401 || response.status === 403) {
-        // Not authenticated - redirect to login
         router.push('/login?from=/studio');
         return;
       }
@@ -40,6 +39,28 @@ export default function StudioHomePage() {
       setApiHealth({ status: 'error', error: String(error) });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchEpisodes = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${apiUrl}/api/episodes`, {
+        credentials: 'include',
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        router.push('/login?from=/studio');
+        return;
+      }
+
+      if (response.ok) {
+        const data = await response.json();
+        setEpisodes(data.episodes || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch episodes:', error);
     }
   };
 
@@ -75,6 +96,12 @@ export default function StudioHomePage() {
               </p>
             </div>
             <div className="flex items-center gap-4">
+              <Link
+                href="/studio/users"
+                className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
+              >
+                Users
+              </Link>
               <Link
                 href="/"
                 className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
@@ -137,9 +164,42 @@ export default function StudioHomePage() {
 
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <h2 className="text-lg font-semibold mb-4">Recent Episodes</h2>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            <p>No episodes found. Start a new episode to begin production.</p>
-          </div>
+          {episodes.length === 0 ? (
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              <p>No episodes found. Start a new episode to begin production.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {episodes.map((ep) => (
+                <Link
+                  key={ep.episode_id}
+                  href={`/studio/episodes/${ep.episode_id}`}
+                  className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-medium">{ep.episode_id}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(ep.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {ep.live_mode && (
+                        <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded">
+                          LIVE
+                        </span>
+                      )}
+                      {ep.g108_approved && (
+                        <span className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded">
+                          G1.08 ✓
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 p-6 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">

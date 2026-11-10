@@ -2,6 +2,7 @@
 test still has to supply a lint-clean prompt and shot_meta for live submits)."""
 
 import os
+import sys
 import pytest
 from pathlib import Path
 
@@ -54,3 +55,21 @@ def _restore_real_image_normalize():
     restore_normalize()
     yield
     restore_normalize()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Reset login rate limiter between tests to prevent cross-test contamination."""
+    # Clear rate limiter state before each test
+    if 'api.main' in sys.modules:
+        api_main = sys.modules['api.main']
+        if hasattr(api_main, '_LOGIN_ATTEMPTS'):
+            api_main._LOGIN_ATTEMPTS.clear()
+    
+    yield
+    
+    # Clear again after test
+    if 'api.main' in sys.modules:
+        api_main = sys.modules['api.main']
+        if hasattr(api_main, '_LOGIN_ATTEMPTS'):
+            api_main._LOGIN_ATTEMPTS.clear()

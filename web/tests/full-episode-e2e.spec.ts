@@ -7,7 +7,8 @@ import path from 'node:path';
  * No page.route mocks: every click goes through the API and the workflow.
  */
 
-const ADMIN_SECRET = process.env.E2E_ADMIN_SECRET || 'e2e-only-admin-secret-not-used-anywhere-else';
+const E2E_USER = 'e2e@test.local';
+const E2E_PASSWORD = 'e2e-test-password';
 const FIXTURES = path.join(__dirname, 'fixtures', 'e2e');
 const EPISODE = 'ep71';
 
@@ -24,8 +25,11 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await expect(page).toHaveURL(/\/login\?.*reason=invalid/);
   await page.context().clearCookies();
 
-  await page.locator('#secret').fill(ADMIN_SECRET);
-  await page.getByRole('button', { name: 'Access Console' }).click();
+  // Login with test admin user
+  await page.goto('/login?from=/studio/episodes/new');
+  await page.locator('#email').fill(E2E_USER);
+  await page.locator('#password').fill(E2E_PASSWORD);
+  await page.getByRole('button', { name: 'Sign In', exact: true }).first().click();
   await expect(page).toHaveURL(/\/studio\/episodes\/new$/);
 
   // --- new episode: a bad shots.json is caught by preflight and Start stays disabled ---

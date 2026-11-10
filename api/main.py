@@ -109,6 +109,68 @@ SESSION_TTL_SECONDS = 86400
 SESSION_KEY_CONTEXT = b"hfvg-studio-session-v1"
 _SESSION_NONCE_RE = r"[A-Za-z0-9_-]{16,64}"
 
+# Login rate limiting: simple in-memory tracker
+# Key: email, Value: (attempt_count, first_attempt_time, lockout_until)
+_LOGIN_ATTEMPTS: dict[str, tuple[int, float, float]] = {}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300  # 5 minutes
+LOCKOUT_DURATION_SECONDS = 900  # 15 minutes
+
+
+def check_rate_limit(email: str) -> tuple[bool, str]:
+    """
+    Check if login is rate limited for an email.
+    
+    Returns:
+        (allowed, message): (True, "") if allowed, (False, reason) if blocked
+    """
+    import time
+    
+    now = time.time()
+    email_lower = email.lower()
+    
+    if email_lower in _LOGIN_ATTEMPTS:
+        attempts, first_attempt, lockout_until = _LOGIN_ATTEMPTS[email_lower]
+        
+        # Check if currently locked out
+        if lockout_until > now:
+            remaining = int(lockout_until - now)
+            return False, f"Too many failed attempts. Try again in {remaining} seconds."
+        
+        # Reset if outside window
+        if now - first_attempt > LOGIN_WINDOW_SECONDS:
+            del _LOGIN_ATTEMPTS[email_lower]
+            return True, ""
+        
+        # Check if exceeded attempts within window
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            # Start lockout
+            _LOGIN_ATTEMPTS[email_lower] = (attempts, first_attempt, now + LOCKOUT_DURATION_SECONDS)
+            return False, f"Too many failed attempts. Account locked for {LOCKOUT_DURATION_SECONDS // 60} minutes."
+        
+    return True, ""
+
+
+def record_failed_login(email: str):
+    """Record a failed login attempt."""
+    import time
+    
+    now = time.time()
+    email_lower = email.lower()
+    
+    if email_lower in _LOGIN_ATTEMPTS:
+        attempts, first_attempt, lockout_until = _LOGIN_ATTEMPTS[email_lower]
+        _LOGIN_ATTEMPTS[email_lower] = (attempts + 1, first_attempt, lockout_until)
+    else:
+        _LOGIN_ATTEMPTS[email_lower] = (1, now, 0)
+
+
+def clear_failed_logins(email: str):
+    """Clear failed login attempts after successful login."""
+    email_lower = email.lower()
+    if email_lower in _LOGIN_ATTEMPTS:
+        del _LOGIN_ATTEMPTS[email_lower]
+
 
 def session_signing_key() -> bytes:
     """Signing key for session tokens (fail closed: raises ValueError when not configured)."""
@@ -177,6 +239,11 @@ async def _ensure_sessions_table(db) -> None:
         await db.execute("ALTER TABLE sessions ADD COLUMN role TEXT")
     except:
         pass  # Column already exists
+
+
+def get_cookie_secure_flag() -> bool:
+    """Get session cookie Secure flag from environment (default: False)."""
+    return os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
 
 async def create_session(user_id: str = "admin", role: str = "admin") -> str:
@@ -320,15 +387,21 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/gates"),        # static gates page (no data; it calls the authenticated API)
     ("POST", "/api/login"),
     ("POST", "/api/logout"),  # idempotent: revokes the presented session, clears the cookie
+    ("POST", "/api/auth/set-password"),  # token-based password setting (public, no auth required)
 })
 
 
-async def require_auth_unless_public(
+async def require_admin_auth(
     request: Request,
     authorization: str | None = Header(None, include_in_schema=False),
     studio_admin_token: str | None = Cookie(None, include_in_schema=False),
 ):
-    """App-wide auth guard: every route not in PUBLIC_ROUTES needs a valid session or Bearer secret."""
+    """
+    FAIL CLOSED: Admin-only auth middleware (default for all routes).
+    
+    Routes can opt-in to allow members by setting route.allow_members = True.
+    New routes that forget auth checks default to admin-only.
+    """
     route = request.scope.get("route")
     path = getattr(route, "path", None) or request.url.path
     method = "GET" if request.method == "HEAD" else request.method
@@ -350,13 +423,16 @@ async def require_auth_unless_public(
                 except (UnicodeDecodeError, UnicodeEncodeError, AttributeError):
                     pass  # Invalid token, fall through to verify_auth_unified
     
-    await verify_auth_unified(authorization, studio_admin_token)
+    # Check if route explicitly allows members (via endpoint function attribute)
+    endpoint = getattr(route, "endpoint", None) if route else None
+    allow_members = getattr(endpoint, "allow_members", False) if endpoint else False
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=not allow_members)
 
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    dependencies=[Depends(require_auth_unless_public)],
+    dependencies=[Depends(require_admin_auth)],
     title="DuckDuckGoose Studio API",
     description="Backend API for the DuckDuckGoose video production console",
     version="1.0.0",
@@ -403,6 +479,43 @@ async def verify_admin_cookie(studio_admin_token: str | None = Cookie(None)):
             status_code=403,
             detail="Admin access required."
         )
+
+
+async def verify_member_or_admin_cookie(studio_admin_token: str | None = Cookie(None)) -> tuple[str, str]:
+    """
+    Verify member or admin auth from httpOnly cookie (fail closed).
+    
+    Args:
+        studio_admin_token: Session token from cookie
+    
+    Returns:
+        Tuple of (user_id, role)
+        
+    Raises:
+        HTTPException: 401 if unauthenticated
+    """
+    if not studio_admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please log in."
+        )
+    
+    if not await verify_session_token(studio_admin_token):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired session. Please log in again."
+        )
+    
+    user_id = await get_user_id_from_session(studio_admin_token)
+    role = await get_session_role(studio_admin_token)
+    
+    if not user_id or not role:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid session data."
+        )
+    
+    return (user_id, role)
 
 
 def verify_admin_secret(authorization: str | None = Header(None)):
@@ -498,12 +611,18 @@ def verify_upload_token(authorization: str | None = Header(None)):
 async def verify_auth_unified(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
+    require_admin: bool = True,
 ):
     """
     Unified auth: accept either Bearer token OR session cookie.
     
     This allows both programmatic access (Bearer token) and browser access (cookie).
     Fail closed: at least one must be valid.
+    
+    Args:
+        authorization: Bearer token from Authorization header
+        studio_admin_token: Session token from cookie
+        require_admin: If True, require admin role; if False, allow member or admin
     
     Returns 401 when no credential is provided or credential is invalid/expired.
     Returns 403 when authenticated but not authorized (e.g. member accessing admin route).
@@ -515,7 +634,10 @@ async def verify_auth_unified(
     cookie_error = None
     if studio_admin_token:
         try:
-            await verify_admin_cookie(studio_admin_token)
+            if require_admin:
+                await verify_admin_cookie(studio_admin_token)
+            else:
+                await verify_member_or_admin_cookie(studio_admin_token)
             return  # Cookie is valid
         except HTTPException as e:
             cookie_error = e
@@ -526,7 +648,7 @@ async def verify_auth_unified(
     if authorization and authorization.startswith("Bearer "):
         try:
             verify_admin_secret(authorization)
-            return  # Bearer token is valid
+            return  # Bearer token is valid (admin secret always has full access)
         except HTTPException as e:
             bearer_error = e
     
@@ -804,13 +926,22 @@ async def login(request: LoginRequest, response: Response):
     
     # Method 2: Member email + password
     elif request.email and request.password:
+        # Check rate limit
+        allowed, message = check_rate_limit(request.email)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=message)
+        
         from hfvg.users import UserManager
         mgr = UserManager(DATABASE_PATH)
         await mgr.init_db()
         
         user_info = await mgr.authenticate_password(request.email, request.password)
         if not user_info:
+            record_failed_login(request.email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Clear failed attempts on successful login
+        clear_failed_logins(request.email)
     
     # Method 3: Member API token
     elif request.api_token:
@@ -831,7 +962,7 @@ async def login(request: LoginRequest, response: Response):
         key="studio_admin_token",
         value=session_token,
         httponly=True,
-        secure=False,  # Set True in production with HTTPS
+        secure=get_cookie_secure_flag(),
         samesite="lax",
         max_age=86400,  # 24 hours
     )
@@ -866,7 +997,6 @@ async def validate_upload(
     beatmap_file: UploadFile = File(...),
     credit_plan_file: UploadFile = File(None),
     continuity_file: UploadFile = File(None),
-    studio_admin_token: str | None = Cookie(None),
 ):
     """
     Validate episode upload files WITHOUT saving (dry-run validation).
@@ -874,16 +1004,10 @@ async def validate_upload(
     Runs same validation as /api/episodes/upload but doesn't persist anything.
     Returns validation errors if any, or success with shot count.
     
-    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
+    Handled by middleware (require_admin_auth with .allow_members = True)
     """
-    # Get authorization from request headers directly
-    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
-    # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
+    # Auth handled by middleware
     
     errors = []
     shots_count = 0
@@ -987,6 +1111,8 @@ async def validate_upload(
         }
     }
 
+validate_upload.allow_members = True
+
 
 @app.post("/api/episodes/upload")
 async def upload_beatmap(
@@ -1000,20 +1126,14 @@ async def upload_beatmap(
     """
     Upload episode files for StoryBuilder Production tab (BEATMAP required, CREDIT-PLAN and CONTINUITY optional).
     
-    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie
+    Auth: Bearer token (UPLOAD_TOKEN or ADMIN_SECRET) OR session cookie (member or admin)
+    Handled by middleware (require_admin_auth with .allow_members = True)
     Idempotent: Re-uploading the same episode/files is safe (deduped)
     
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Get authorization from request headers directly
-    authorization = request.headers.get("authorization") or request.headers.get("Authorization")
-    
-    # Auth: accept either upload token (Bearer) or session cookie
-    if authorization:
-        verify_upload_token(authorization)
-    else:
-        await verify_admin_cookie(studio_admin_token)
+    # Auth handled by middleware (no additional check needed here)
     
     validate_episode_id(episode_id)
     
@@ -1199,6 +1319,8 @@ async def upload_beatmap(
         "beatmap_path": str(episode_dir / "BEATMAP.md"),
     }
 
+upload_beatmap.allow_members = True
+
 
 @app.post("/api/episodes/{episode_id}/upload-prompt-kit")
 async def upload_prompt_kit(
@@ -1333,6 +1455,40 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
 
 
+@app.get("/api/episodes")
+async def list_episodes():
+    """
+    List all episodes (member or admin).
+    
+    Returns episodes from the database with their current status.
+    """
+    
+    import aiosqlite
+    from datetime import datetime, timezone
+    
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT episode_id, live_mode, g108_approved, created_at
+            FROM episodes
+            ORDER BY created_at DESC
+            LIMIT 100
+        """) as cursor:
+            episodes = []
+            async for row in cursor:
+                episodes.append({
+                    "episode_id": row["episode_id"],
+                    "live_mode": bool(row["live_mode"]),
+                    "g108_approved": bool(row["g108_approved"]),
+                    "created_at": row["created_at"]
+                })
+    
+    return {"episodes": episodes}
+
+
+# Mark list_episodes to allow members
+list_episodes.allow_members = True
+
 @app.post("/api/episodes", response_model=StartEpisodeResponse)
 async def start_episode(
     request: StartEpisodeRequest,
@@ -1342,9 +1498,9 @@ async def start_episode(
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization header with admin secret OR session cookie (member or admin).
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
     
     # Initialize studio DB if not exists
@@ -1409,6 +1565,9 @@ async def start_episode(
     )
 
 
+# Mark start_episode to allow members
+start_episode.allow_members = True
+
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeStateResponse)
 async def get_episode_state(
     episode_id: str,
@@ -1418,13 +1577,10 @@ async def get_episode_state(
     """
     Get current episode workflow state.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization (member or admin).
     """
-    # Accept either Bearer token or session cookie
-    if studio_admin_token:
-        await verify_admin_cookie(studio_admin_token)
-    else:
-        verify_admin_secret(authorization)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
@@ -1475,6 +1631,9 @@ async def get_episode_state(
     )
 
 
+# Mark get_episode_state to allow members
+get_episode_state.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/assembly/accept")
 async def accept_assembly_qc(
     episode_id: str,
@@ -1484,7 +1643,7 @@ async def accept_assembly_qc(
 ):
     """Human review of a blocking mute-edit QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
     so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1510,7 +1669,7 @@ async def accept_delivery_qc(
 ):
     """Human review of a blocking delivery QC verdict (FAIL / NEEDS_REVIEW): accept it with a reason
     so G_FINAL_CUT can be approved. The workflow ignores it when nothing is blocking."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1536,7 +1695,7 @@ async def request_delivery_rebuild(
 ):
     """Rebuild the delivery for the current picture after an audio-plan edit (reason required).
     Generated audio is reused by content hash; any new generation still goes through the guards."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1563,7 +1722,7 @@ async def request_edit_rebuild(
 ):
     """GAP-29: re-assemble the mute edit for unchanged clips after an edit_plan.json change (reason
     required). Picture only, no generation; the delivery is rebuilt for the new edit."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -1627,7 +1786,7 @@ async def approve_gate(
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -1759,6 +1918,9 @@ async def approve_gate(
         raise HTTPException(status_code=500, detail=f"Error sending approval: {str(e)}")
 
 
+# Mark approve_gate to allow members
+approve_gate.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/story-shape")
 async def get_story_shape(
     episode_id: str,
@@ -1766,11 +1928,12 @@ async def get_story_shape(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get story shape for an episode.
+    Get story shape for an episode. Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -1805,6 +1968,9 @@ async def get_story_shape(
         raise HTTPException(status_code=500, detail=f"Error fetching story shape: {str(e)}")
 
 
+# Mark get_story_shape to allow members
+get_story_shape.allow_members = True
+
 @app.put("/api/episodes/{episode_id}/story-shape")
 async def update_story_shape(
     episode_id: str,
@@ -1813,11 +1979,12 @@ async def update_story_shape(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Update story shape and re-critique.
+    Update story shape and re-critique. Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -1858,6 +2025,9 @@ async def update_story_shape(
         raise HTTPException(status_code=500, detail=f"Error updating story shape: {str(e)}")
 
 
+# Mark update_story_shape to allow members
+update_story_shape.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/budget", response_model=BudgetResponse)
 async def get_budget_status(
     episode_id: str,
@@ -1865,15 +2035,12 @@ async def get_budget_status(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get budget status for an episode.
+    Get budget status for an episode (read-only). Member or admin.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    # Accept either Bearer token or session cookie
-    if studio_admin_token:
-        await verify_admin_cookie(studio_admin_token)
-    else:
-        verify_admin_secret(authorization)
+    # Member or admin access (read-only view of episode budget)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     validate_episode_id(episode_id)
     
@@ -1916,6 +2083,9 @@ async def get_budget_status(
         balance=summary["balance"],
     )
 
+
+# Mark get_budget_status to allow members
+get_budget_status.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/jobs")
 async def get_job_ledger(
@@ -2149,7 +2319,7 @@ async def get_dashboard(
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Master admin dashboard: comprehensive view of users, spend, and activity.
+    Master admin dashboard: comprehensive view of users, spend, and activity (admin only).
     
     Returns:
     - User stats: active users (today, 7d, 30d), total users
@@ -2160,7 +2330,7 @@ async def get_dashboard(
     - Monthly run-rate projections (informational only)
     - Spend milestone notices
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Admin authorization.
     """
     if studio_admin_token:
         await verify_admin_cookie(studio_admin_token)
@@ -2532,7 +2702,7 @@ class CreateUserRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     email: str = Field(..., min_length=3, max_length=200)
     role: str = Field(default="member", pattern="^(admin|member)$")
-    password: str | None = Field(None, min_length=8)
+    password: str | None = Field(None, min_length=8, description="Optional: if omitted, generates invite link")
 
 
 @app.post("/api/users")
@@ -2541,7 +2711,12 @@ async def create_user(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """Create a new user (admin only)."""
+    """
+    Create a new user (admin only).
+    
+    If password is provided, user can login immediately.
+    If password is omitted, generates a single-use invite link (72h expiry).
+    """
     if studio_admin_token:
         await verify_admin_cookie(studio_admin_token)
     else:
@@ -2557,9 +2732,132 @@ async def create_user(
             role=request.role,
             password=request.password
         )
-        return {"success": True, "user": user}
+        
+        response = {"success": True, "user": user}
+        
+        # If no password provided, generate invite link
+        if not request.password:
+            token = await user_mgr.create_password_reset_token(user["user_id"])
+            # Build the set-password URL (frontend will render the form)
+            base_url = os.getenv("STUDIO_BASE_URL", "http://localhost:3000")
+            invite_url = f"{base_url}/set-password?token={token}"
+            # If no password provided, generate invite link
+        if not request.password:
+            token = await user_mgr.create_password_reset_token(user["user_id"])
+            # Build the set-password URL (frontend will render the form)
+            base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
+            invite_url = f"{base_url}/set-password?token={token}"
+            response["invite_url"] = invite_url
+            response["message"] = "User created. Share the invite link (valid for 72 hours)."
+        
+        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+
+
+@app.post("/api/users/me/change-password")
+async def change_own_password(
+    request: ChangePasswordRequest,
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Change current user's password (member or admin)."""
+    user_id, role = await verify_member_or_admin_cookie(studio_admin_token)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    # Get user details to verify current password
+    user = await user_mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    auth = await user_mgr.authenticate_password(user["email"], request.current_password)
+    if not auth:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Change password
+    success = await user_mgr.change_password(user_id, request.new_password)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to change password")
+    
+    return {"success": True, "message": "Password changed successfully"}
+# Mark change_own_password to allow members
+change_own_password.allow_members = True
+
+
+
+@app.post("/api/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """
+    Generate a password reset link for a user (admin only).
+    
+    Returns a single-use, 72-hour expiring link that the user can use to set their password.
+    """
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+    else:
+        verify_admin_secret(authorization)
+    
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    # Verify user exists
+    user = await user_mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Generate reset token
+    token = await user_mgr.create_password_reset_token(user_id)
+    
+    # Build the set-password URL
+    base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000")
+    reset_url = f"{base_url}/set-password?token={token}"
+    
+    return {
+        "success": True,
+        "reset_url": reset_url,
+        "expires_hours": 72,
+        "message": "Password reset link generated (valid for 72 hours)"
+    }
+
+
+class SetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=1, description="Password reset token from invite/reset link")
+    new_password: str = Field(..., min_length=8, description="New password to set")
+
+
+@app.post("/api/auth/set-password")
+async def set_password_with_token(request: SetPasswordRequest):
+    """
+    Set password using a reset token (public endpoint, no auth required).
+    
+    Consumes a single-use token from an invite or password reset link.
+    """
+    from hfvg.users import UserManager
+    user_mgr = UserManager(DATABASE_PATH)
+    
+    success = await user_mgr.set_password_with_token(request.token, request.new_password)
+    
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid, expired, or already used token"
+        )
+    
+    return {
+        "success": True,
+        "message": "Password set successfully. You can now log in."
+    }
 
 
 @app.get("/api/users/{user_id}")
@@ -2625,7 +2923,7 @@ async def get_shots(
     
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -2678,18 +2976,23 @@ async def get_shots(
     }
 
 
+# Mark get_shots to allow members
+get_shots.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/approve")
 async def approve_still(
     episode_id: str,
     shot_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Approve still for a shot (sends signal to workflow).
+    Approve still for a shot (sends signal to workflow). Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Validate shot_id format
@@ -2807,6 +3110,9 @@ async def approve_still(
         raise HTTPException(status_code=500, detail=f"Error approving still: {str(e)}")
 
 
+# Mark approve_still to allow members
+approve_still.allow_members = True
+
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
     """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
     if not temporal_client:
@@ -2847,7 +3153,7 @@ async def reject_still(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
 
     result = await _execute_episode_update(episode_id, "reject_shot", [shot_id, reason], "Reject")
@@ -2871,6 +3177,9 @@ async def reject_still(
             "result": result}
 
 
+# Mark reject_still to allow members
+reject_still.allow_members = True
+
 class AcceptClipRequest(BaseModel):
     reason: str = Field(..., min_length=1, description="Why the needs_review clip is kept as is (audited)")
     take: int | None = Field(None, ge=0, description="Keep an earlier clip take instead of the latest "
@@ -2891,7 +3200,7 @@ async def accept_clip(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -2942,6 +3251,9 @@ async def accept_clip(
             "message": f"Clip {shot_id} accepted; the edit is rebuilt with it"}
 
 
+# Mark accept_clip to allow members
+accept_clip.allow_members = True
+
 async def _g2_headcount(episode_id: str, handle, overrides: dict[str, str] | None = None) -> dict:
     """GAP-27 headcount report over the kept still of every shot (fails closed if unreadable)."""
     from hfvg.qc.g2_headcount import g2_headcount_report
@@ -2968,7 +3280,7 @@ async def get_g2_headcount(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only, no spend)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -2995,7 +3307,7 @@ async def record_still_headcount(
     when no automatic counter is configured). The still file must be on disk. Audited."""
     from hfvg.qc.g2_headcount import record_headcount
     from hfvg.still_selection import outputs_dir, still_file
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
@@ -3035,7 +3347,7 @@ async def get_still_versions(
 ):
     """GAP-26: every still version per shot (child workflow, status), the current one and any G2
     selection. Read-only."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3044,6 +3356,9 @@ async def get_still_versions(
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not read still versions: {e}")
 
+
+# Mark get_still_versions to allow members
+get_still_versions.allow_members = True
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/select-still")
 async def select_still(
@@ -3062,7 +3377,7 @@ async def select_still(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
     if not reason:
@@ -3083,6 +3398,9 @@ async def select_still(
             "message": f"{shot_id} will use still v{request.version} at G2 (G2 itself is NOT approved)"}
 
 
+# Mark select_still to allow members
+select_still.allow_members = True
+
 class ResyncPlansRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000, description="Why the package is re-synced (audited)")
 
@@ -3100,7 +3418,7 @@ async def resync_plans(
     clip_prompt/qc_fail_if for its clip submit and clip QC. Structural changes (shot set, shot_meta,
     refs, model, duration, end frame) are refused with 409 (they need a new G1). No spend; does NOT
     approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
     if not reason:
@@ -3113,6 +3431,9 @@ async def resync_plans(
             "message": f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"}
 
 
+# Mark resync_plans to allow members
+resync_plans.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/clip-plans")
 async def get_clip_plans(
     episode_id: str,
@@ -3121,7 +3442,7 @@ async def get_clip_plans(
 ):
     """GAP-28: per shot, the clip prompt and qc_fail_if its kept still's clip will be submitted and
     QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3143,6 +3464,9 @@ async def get_clip_plans(
         row["lint_problems"] = lint_problems(episode_id, sid, row.get("clip_prompt") or "", meta, [], live, kind="clip")
     return plans
 
+
+# Mark get_clip_plans to allow members
+get_clip_plans.allow_members = True
 
 async def _paid_gate_problem(episode_id: str) -> str | None:
     """GAP-65: the submit-time live gates (smoke test freshness, GC.01 manual balance freshness),
@@ -3245,7 +3569,7 @@ async def retry_clip(
 
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Clip retry")  # GAP-65
     if request.clip_route is not None and not isinstance(request.clip_route.get("model", "kling"), str):
@@ -3278,6 +3602,9 @@ async def retry_clip(
 
 _REF_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
+
+# Mark retry_clip to allow members
+retry_clip.allow_members = True
 
 class RecomposeRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000, description="Who asked and why (audited)")
@@ -3326,7 +3653,7 @@ async def recompose_shot(
     """GAP-21: re-shoot one shot after G2 with a new composition (new still prompt + explicit refs).
     The refs must exist under the episode's refs/ dir; the prompts and the ref count are preflighted
     against the model limits BEFORE any spend. The new still parks for /recompose/decision."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Recompose")  # GAP-65
     refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
@@ -3454,7 +3781,7 @@ async def reopen_episode(
     G_FINAL_CUT again (final cut un-approved). No generation is started; every later paid step goes
     through the normal recompose / retry_clip guards. Refused unless the run COMPLETED with its final
     cut approved and nothing in flight."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="a reason is required")
@@ -3515,6 +3842,9 @@ _gap79_log = __import__("logging").getLogger("hfvg.api.snapshots")
 SNAPSHOT_SAVE_INTERVAL_S = float(os.getenv("SNAPSHOT_SAVE_INTERVAL_S", "300"))
 
 
+# Mark reopen_episode to allow members
+reopen_episode.allow_members = True
+
 def _episodes_root() -> Path:
     return Path(os.getenv("EPISODES_DIR", "./data/episodes"))
 
@@ -3557,7 +3887,7 @@ async def _snapshot_saver_loop() -> None:
 async def save_episode_snapshot(episode_id: str, authorization: str | None = Header(None),
                                 studio_admin_token: str | None = Cookie(None)):
     """GAP-79: persist the episode workflow's reopen snapshot now (read-only on the workflow)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3584,7 +3914,7 @@ async def reopen_episode_from_saved(
     ANY workflow with the episode id is known to the server (use /reopen for a closed run). The
     snapshot is the persisted one, else rebuilt from the saved artifacts + DB; either must pass the
     GAP-41 reopen rules. No generation, no ledger change; the new run parks at G_FINAL_CUT."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="a reason is required")
@@ -3672,6 +4002,9 @@ async def reopen_episode_from_saved(
             "message": f"{episode_id} reopened from saved state ({source}) at G_FINAL_CUT (final cut un-approved)"}
 
 
+# Mark reopen_episode_from_saved to allow members
+reopen_episode_from_saved.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/recompose-headcount")
 async def get_recompose_headcount(
     episode_id: str,
@@ -3686,7 +4019,7 @@ async def get_recompose_headcount(
         load_headcounts,
     )
     from hfvg.qc.animal_count import get_animal_counter
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -3727,7 +4060,7 @@ async def recompose_decision(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-21: approve (clip from the new still) or reject (no clip spend) a parked recompose still."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if request.approve:  # GAP-65: approving starts the paid clip; a reject spends nothing
         await _refuse_if_paid_gates_fail(episode_id, "Recompose approval")
@@ -3761,7 +4094,7 @@ async def grant_recompose(
 ):
     """GAP-39: reviewer grant of ONE extra recompose for a shot whose allowance is used up (no spend
     here; the recompose itself still goes through every paid guard)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -3828,7 +4161,7 @@ async def adopt_reuse(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-44: adopt an edit_plan reuse slot as a workflow shot (no spend) so it can be recomposed."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -3861,7 +4194,7 @@ async def generate_refs_route(
     """GAP-42: run versioned ref-edit jobs (refs.json to_generate entries with edit_from and an explicit
     version) while the episode is parked at G_FINAL_CUT. Every paid guard applies (provider estimate,
     L1_refs reserve, balance, episode stop); one attempt per job. Audited."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -3903,7 +4236,7 @@ async def restore_pre_recompose_outcome(
 ):
     """GAP-49: back out a recompose whose clip failed review: the shot returns to the accepted clip the
     recompose replaced and the edit is rebuilt with it (no spend). Refusals -> 409."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
@@ -3929,7 +4262,7 @@ async def set_shot_edit(
 ):
     """GAP-22: trim or drop a shot at G_FINAL_CUT (no spend). The edit is re-assembled and the
     delivery rebuilt; with a timeline_ref in the audio plan the VO/SFX/music follow the edit."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     result = await _execute_episode_update(
         episode_id, "set_shot_edit",
@@ -3970,7 +4303,7 @@ async def get_gates(
     
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -3994,17 +4327,22 @@ async def get_gates(
     }
 
 
+# Mark get_gates to allow members
+get_gates.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Get audit trail for episode.
+    Get audit trail for episode. Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     import aiosqlite
@@ -4033,18 +4371,23 @@ async def get_audit_trail(
     }
 
 
+# Mark get_audit_trail to allow members
+get_audit_trail.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/set-live")
 async def set_live_mode_endpoint(
     episode_id: str,
     request: SetLiveModeRequest,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Switch episode to live (paid) mode with confirmation.
+    Switch episode to live (paid) mode with confirmation. Member or admin.
     
-    Requires: Cookie auth + confirmation string "ENABLE_LIVE_MODE"
+    Requires: Auth + confirmation string "ENABLE_LIVE_MODE"
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if request.confirmation != "ENABLE_LIVE_MODE":
@@ -4063,6 +4406,9 @@ async def set_live_mode_endpoint(
         "message": "Episode switched to LIVE mode. Paid generation enabled.",
     }
 
+
+# Mark set_live_mode_endpoint to allow members
+set_live_mode_endpoint.allow_members = True
 
 class RetryShotRequest(BaseModel):
     prompt_append: str | None = Field(None, max_length=1000,
@@ -4087,7 +4433,7 @@ async def retry_shot(
     
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not temporal_client:
@@ -4179,17 +4525,22 @@ async def retry_shot(
         raise HTTPException(status_code=500, detail=f"Error sending retry signal: {str(e)}")
 
 
+# Mark retry_shot to allow members
+retry_shot.allow_members = True
+
 @app.post("/api/episodes/{episode_id}/set-dry")
 async def set_dry_mode_endpoint(
     episode_id: str,
+    authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
     """
-    Switch episode to dry-run mode (disable paid generation).
+    Switch episode to dry-run mode (disable paid generation). Member or admin.
     
-    Requires: Cookie auth
+    Requires: Auth
     """
-    await verify_admin_cookie(studio_admin_token)
+    # Member or admin access
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     # Set live mode to false in database
@@ -4202,6 +4553,9 @@ async def set_dry_mode_endpoint(
         "message": "Episode switched to DRY-RUN mode. Paid generation disabled.",
     }
 
+
+# Mark set_dry_mode_endpoint to allow members
+set_dry_mode_endpoint.allow_members = True
 
 @app.post("/api/episodes/{episode_id}/approve-g108")
 async def approve_g108_endpoint(
@@ -4993,7 +5347,7 @@ async def lint_prompt_endpoint(
     """
     Lint a prompt for violations.
     
-    Requires: Authorization header with admin secret OR session cookie.
+    Requires: Authorization header with admin secret OR admin session cookie.
     
     Args:
         request: dict with "prompt" (str), optional "shot_meta" (dict), optional "live" (bool), optional "episode_id" (str)
@@ -5001,7 +5355,7 @@ async def lint_prompt_endpoint(
     Returns:
         dict with "problems" list
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     
     from hfvg.prompt_lint import lint_violations, load_lint_kit
     
@@ -5041,7 +5395,7 @@ async def set_anchor_still(
         
     Requires: Authorization header with admin secret OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     
     if not target_shot_ids:
@@ -5204,7 +5558,7 @@ async def get_models(
 ):
     """Documented limits of every model the harness offers (creator view: unknowns are 'not published',
     each value carries its source URL and check date). Requires: Authorization header OR session cookie."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     from hfvg import model_caps
 
     registry = model_caps.get_registry()
@@ -5257,12 +5611,11 @@ async def draft_from_idea(
     Uses OpenAI structured output to generate files that pass existing validators.
     Content policy: original characters only, no named IP or real people.
     
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header OR session cookie (member or admin).
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.config import config
-    from openai import AsyncOpenAI
     import tempfile
     from hfvg.episode_parser import parse_beatmap
     from hfvg.shot_data import parse_shots
@@ -5492,6 +5845,7 @@ Generate all 4 files (beatmap_md, shots_json, refs_json, prompt_kit_json) as a s
         )
 
     try:
+        from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
         
         # Call OpenAI with structured output
@@ -5615,6 +5969,8 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
             detail=f"Draft generation failed: {str(e)}"
         )
 
+draft_from_idea.allow_members = True
+
 
 @app.post("/api/episodes/{episode_id}/preflight")
 async def preflight_episode(
@@ -5628,7 +5984,7 @@ async def preflight_episode(
     Shots come from the request or the episode's uploaded shots.json (data/episodes/{id}/shots.json).
     Requires: Authorization header OR session cookie.
     """
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
@@ -5659,6 +6015,9 @@ async def preflight_episode(
         "cost_estimate": offline_cost_estimate(shots),
     }
 
+
+# Mark preflight_episode to allow members
+preflight_episode.allow_members = True
 
 def offline_cost_estimate(shots: list[dict], pre_approved: set[str] | None = None) -> dict:
     """Offline USD estimate for a shot list (no provider call): the per-call estimates the dry
@@ -5746,7 +6105,7 @@ async def list_review_files(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Which whitelisted review files exist for the episode (for previews and downloads)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = validate_episode_id(episode_workflow_id(episode_id))
     files = {}
     for file_type in REVIEW_FILE_TYPES:
@@ -5759,6 +6118,9 @@ async def list_review_files(
     return {"episode_id": episode_id, "files": files}
 
 
+# Mark list_review_files to allow members
+list_review_files.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/files/{file_type}")
 async def get_review_file(
     episode_id: str,
@@ -5769,7 +6131,7 @@ async def get_review_file(
 ):
     """Authenticated preview / download of a whitelisted episode file (delivery master with or without
     subs, phone version, subtitles, mute edit). Range requests are served (video seeking)."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = validate_episode_id(episode_workflow_id(episode_id))
     path = review_file_path(episode_id, file_type)
     if download:
@@ -5785,6 +6147,9 @@ async def get_review_file(
 _STILL_MEDIA_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 
 
+# Mark get_review_file to allow members
+get_review_file.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/shots/{shot_id}/still")
 async def get_local_still(
     episode_id: str,
@@ -5796,7 +6161,7 @@ async def get_local_still(
     copied into the episode outputs and never uploaded until its clip is submitted), so G2 can show
     it. Only files inside DATA_DIR/episodes/<episode>/outputs/<shot>/ or, for dry-run placeholder
     stills (stored relative to the run dir), inside the dry-run output dir are served."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", shot_id):
         raise HTTPException(status_code=400, detail="Invalid shot_id")
@@ -5819,6 +6184,9 @@ async def get_local_still(
     return FileResponse(path=path, media_type=_STILL_MEDIA_TYPES[path.suffix.lower()], content_disposition_type="inline")
 
 
+# Mark get_local_still to allow members
+get_local_still.allow_members = True
+
 class FinalCutRejectRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000)
 
@@ -5832,7 +6200,7 @@ async def reject_final_cut(
 ):
     """Reject the final cut at G_FINAL_CUT with a reason (approval goes through POST .../approve with
     gate_id g_final_cut). The gate stays held; fix with a clip retry, then approve again."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="A rejection reason is required")
@@ -5853,6 +6221,9 @@ async def reject_final_cut(
     return {"success": True, "episode_id": episode_id, "message": "Final cut rejected", "reason": request.reason.strip()}
 
 
+# Mark reject_final_cut to allow members
+reject_final_cut.allow_members = True
+
 class RaiseCapRequest(BaseModel):
     new_cap: int = Field(..., gt=0, description="New credit cap for the run (credits)")
 
@@ -5865,8 +6236,8 @@ async def raise_credit_cap(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Raise the run's credit cap and resume shots paused at the cap (workflow signal raise_credit_cap).
-    Only upward: a cap at or below the current one is refused."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    Only upward: a cap at or below the current one is refused. Admin-only (financial control)."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -5897,8 +6268,8 @@ async def resume_balance(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """Resume episode and shots after balance top-up when paused_insufficient_balance."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    """Resume episode and shots after balance top-up when paused_insufficient_balance. Admin-only (financial control)."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=True)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
@@ -5920,7 +6291,7 @@ async def get_credit_status(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Credit line of the run (cap, spent, reserved, pause threshold): drives the cap-raise control."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     from hfvg.credit_ledger import CreditLedger
 
@@ -5959,7 +6330,7 @@ async def get_shot_states(
 ):
     """Per-shot child workflow state for review: still / clip status and the G-REC-1 moderation ladder
     (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable."""
-    await verify_auth_unified(authorization, studio_admin_token)
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
