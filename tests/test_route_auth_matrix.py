@@ -199,55 +199,73 @@ def test_route_authorization_matrix(db_path, method, path, expected_per_role, re
 
 
 def test_upload_endpoints_auth(db_path, tmp_path):
-    """Test upload endpoints with multipart form data for all roles."""
+    """Test upload endpoints with multipart form data for all roles, asserting exact success codes."""
     from fastapi.testclient import TestClient
     from api.main import app
     import io
     
-    # Create a minimal beatmap file
-    beatmap_content = b"# Test Beatmap\n## shot_1\nA test shot.\n"
+    # Create a valid minimal beatmap that passes validation
+    beatmap_content = b"""# Test Episode
+
+## shot_1
+
+**Duration:** 5 seconds
+
+A robot discovers a glowing book.
+
+**Visual Style:** Animated, colorful
+
+**Camera:** Wide shot
+"""
     
-    for role in ["none", "member", "admin"]:
-        client, cookies = get_client_and_login(role, db_path)
+    for role in ["none", "member", "admin", "upload_token"]:
+        if role == "upload_token":
+            # Test with UPLOAD_TOKEN bearer auth
+            import os
+            upload_token = os.getenv("UPLOAD_TOKEN")
+            if not upload_token:
+                continue  # Skip if UPLOAD_TOKEN not configured
+            client = TestClient(app)
+            kwargs = {"headers": {"Authorization": f"Bearer {upload_token}"}}
+        else:
+            client, cookies = get_client_and_login(role, db_path)
+            kwargs = {"cookies": cookies} if cookies else {}
         
         # Test /api/episodes/upload/validate
         files = {
             "beatmap_file": ("BEATMAP.md", io.BytesIO(beatmap_content), "text/markdown"),
-            "episode_id": (None, "ep02"),
         }
-        kwargs = {"files": files}
-        if cookies:
-            kwargs["cookies"] = cookies
-        
-        response = client.post("/api/episodes/upload/validate", **kwargs)
+        data = {"episode_id": "ep99"}
+        validate_response = client.post("/api/episodes/upload/validate", files=files, data=data, **kwargs)
         
         if role == "none":
-            assert response.status_code == 401, f"Unauthenticated upload/validate should get 401, got {response.status_code}"
+            assert validate_response.status_code == 401, (
+                f"Unauthenticated upload/validate expected 401, got {validate_response.status_code}"
+            )
         else:
-            # Member and admin can validate
-            assert response.status_code not in [401, 403], (
-                f"{role.upper()} upload/validate should not get 401 or 403, got {response.status_code}. "
-                f"Response: {response.text}"
+            # Member, admin, and UPLOAD_TOKEN should get exactly 200 with valid beatmap
+            assert validate_response.status_code == 200, (
+                f"{role.upper()} upload/validate expected 200, got {validate_response.status_code}. "
+                f"Response: {validate_response.text}"
             )
         
         # Test /api/episodes/upload
         files = {
             "beatmap_file": ("BEATMAP.md", io.BytesIO(beatmap_content), "text/markdown"),
-            "episode_id": (None, "ep02"),
         }
-        kwargs = {"files": files}
-        if cookies:
-            kwargs["cookies"] = cookies
-        
-        response = client.post("/api/episodes/upload", **kwargs)
+        data = {"episode_id": "ep99"}
+        upload_response = client.post("/api/episodes/upload", files=files, data=data, **kwargs)
         
         if role == "none":
-            assert response.status_code == 401, f"Unauthenticated upload should get 401, got {response.status_code}"
+            assert upload_response.status_code == 401, (
+                f"Unauthenticated upload expected 401, got {upload_response.status_code}"
+            )
         else:
-            # Member and admin can upload (503 acceptable if Temporal unavailable, 400 if episode exists)
-            assert response.status_code not in [401, 403], (
-                f"{role.upper()} upload should not get 401 or 403, got {response.status_code}. "
-                f"Response: {response.text}"
+            # Member, admin, and UPLOAD_TOKEN should get exactly 200 on first upload
+            # (503 acceptable if Temporal not available in test environment)
+            assert upload_response.status_code in [200, 503], (
+                f"{role.upper()} upload expected 200 or 503, got {upload_response.status_code}. "
+                f"Response: {upload_response.text}"
             )
 
 

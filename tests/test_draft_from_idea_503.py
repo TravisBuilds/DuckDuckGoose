@@ -77,8 +77,23 @@ def get_client_and_login(role: str, db_path):
         return client, None
 
 
-def test_draft_from_idea_503_without_openai_key(db_path_no_fake):
-    """Test that draft-from-idea returns exactly 503 when OPENAI_API_KEY is not configured."""
+def test_draft_from_idea_503_without_openai_key(db_path_no_fake, monkeypatch):
+    """Test that draft-from-idea returns exactly 503 when OPENAI_API_KEY is not configured.
+    
+    Hermetic: explicitly unsets env var and resets config attribute to ensure
+    test passes regardless of ambient state or test order.
+    """
+    import os
+    
+    # Ensure OPENAI_API_KEY is unset in environment (hermetic regardless of ambient state)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DRAFT_LLM_FAKE", raising=False)
+    
+    # Reset config class attribute to force reload from (now-unset) environment
+    # This makes the test hermetic when run after tests that set OPENAI_API_KEY
+    from hfvg import config as config_module
+    config_module.config.OPENAI_API_KEY = None
+    
     for role in ["none", "member", "admin"]:
         client, cookies = get_client_and_login(role, db_path_no_fake)
         
