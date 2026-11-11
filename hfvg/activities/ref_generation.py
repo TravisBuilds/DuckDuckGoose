@@ -9,6 +9,7 @@ from hfvg.defaults import REF_MODEL_PATH, REF_RESOLUTION
 
 from hfvg.config import config
 from hfvg.credit_ledger import CreditLedger
+from hfvg.paths import dry_run_outputs_dir
 from hfvg.providers.higgsfield import HiggsfieldProvider
 
 
@@ -90,7 +91,7 @@ async def generate_ref_activity(
     if dry_run:
         import temporalio.activity
         workflow_id = temporalio.activity.info().workflow_id
-        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
+        scratch_dir = dry_run_outputs_dir() / workflow_id / "refs"
         scratch_dir.mkdir(parents=True, exist_ok=True)
         # Check original location for existing files, but work in scratch
         output_path = str(scratch_dir / Path(original_output_path).name)
@@ -699,7 +700,7 @@ async def generate_ref_edit_activity(
     original_output_path = output_path
     if dry_run:
         workflow_id = activity.info().workflow_id
-        scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")
+        scratch_dir = dry_run_outputs_dir() / workflow_id / "refs"
         scratch_dir.mkdir(parents=True, exist_ok=True)
         output_path = str(scratch_dir / Path(original_output_path).name)
 

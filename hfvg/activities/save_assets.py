@@ -5,6 +5,8 @@ import httpx
 from pathlib import Path
 from temporalio import activity
 
+from hfvg.paths import outputs_dir
+
 
 @activity.defn
 async def save_asset_locally(
@@ -36,8 +38,8 @@ async def save_asset_locally(
     elif asset_url.endswith(".webp"):
         ext = ".webp"
     
-    # Create output directory structure: data/episodes/{episode}/outputs/{shot}/
-    output_dir = Path("data/episodes") / episode_id / "outputs" / shot_id
+    # <DATA_DIR>/episodes/{episode}/outputs/{shot}/: where the API serves stills and clips from
+    output_dir = outputs_dir(episode_id, shot_id)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Filename: still_v1.jpg, clip_v1.mp4, etc.

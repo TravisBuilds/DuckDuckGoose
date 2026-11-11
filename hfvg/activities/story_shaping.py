@@ -15,6 +15,7 @@ from temporalio import activity
 
 from hfvg.models import Act, StoryBeat, StoryShape, StoryShapeCritique
 from hfvg.config import config
+from hfvg.paths import data_dir
 from hfvg.story_structures import build_layout, prompt_guidance, structure_for
 
 
@@ -23,11 +24,10 @@ _test_stub_story_shape: StoryShape | None = None
 
 
 def _get_cache_db_path() -> Path:
-    """Get the path to the story shape cache database."""
-    # Use ./data as default, create if needed
-    data_dir = Path("./data")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "story_shape_cache.db"
+    """Get the path to the story shape cache database (under DATA_DIR, created if needed)."""
+    cache_dir = data_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / "story_shape_cache.db"
 
 
 def _init_cache_db() -> None:

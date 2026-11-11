@@ -30,6 +30,7 @@ from typing import Any, Callable
 import numpy as np
 
 from hfvg import aspect
+from hfvg.paths import episodes_dir
 
 SR = 48000
 DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
@@ -87,7 +88,7 @@ class LoudnormParseError(RuntimeError):
 
 
 def episodes_root() -> Path:
-    return Path(os.getenv("EPISODES_DIR") or "./data/episodes")
+    return episodes_dir()
 
 
 def episode_dir(episode_id: str) -> Path:
@@ -103,7 +104,7 @@ def audio_plan_path(episode_id: str, root: Path | None = None) -> Path:
 
 
 def delivery_paths(episode_id: str, root: Path | None = None) -> dict[str, str]:
-    """Deterministic output paths under ./data/episodes/{id}/delivery/."""
+    """Deterministic output paths under <EPISODES_DIR>/{id}/delivery/."""
     d = delivery_dir(episode_id, root)
     return {
         "dir": str(d),

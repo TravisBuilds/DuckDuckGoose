@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hfvg import paths
 from hfvg.qc.animal_count import (
     DEFAULT_CONFIDENCE_THRESHOLD, FAIL, NEEDS_REVIEW, PASS, AnimalCounter, get_animal_counter,
 )
@@ -40,7 +41,7 @@ def expected_cast(shot_meta: dict | None) -> dict[str, int] | None:
 
 
 def headcounts_path(episode_id: str, episodes_dir: str | os.PathLike | None = None) -> Path:
-    root = Path(episodes_dir if episodes_dir is not None else os.getenv("EPISODES_DIR", "./data/episodes"))
+    root = Path(episodes_dir) if episodes_dir is not None else paths.episodes_dir()
     return root / episode_id / "g2_headcounts.json"
 
 
@@ -161,7 +162,7 @@ async def g2_headcount_report(episode_id: str, versions: dict, plans: dict[str, 
     Returns {"status", "blocking": [shots that FAIL and are not overridden], "shots": {...}}."""
     decisions = decisions or {}
     overrides = overrides or {}
-    data_root = Path(data_dir if data_dir is not None else os.getenv("DATA_DIR", "./data"))
+    data_root = Path(data_dir) if data_dir is not None else paths.data_dir()
     reviewer = ReviewerHeadcountCounter(load_headcounts(episode_id, episodes_dir),
                                         counter if counter is not None else get_animal_counter())
     shots: dict[str, Any] = {}

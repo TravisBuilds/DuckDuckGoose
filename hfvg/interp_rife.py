@@ -34,6 +34,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from hfvg.paths import episodes_dir
+
 RIFE_FORMAT_VERSION = 1
 HEARTBEAT_EVERY_S = 20.0
 
@@ -112,7 +114,7 @@ def cache_dir() -> Path:
     d = os.getenv("RIFE_CACHE_DIR", "").strip()
     if d:
         return Path(d)
-    return Path(os.getenv("EPISODES_DIR", "./data/episodes")).resolve().parent / "cache" / "rife"
+    return episodes_dir().resolve().parent / "cache" / "rife"
 
 
 def allocate_frames(segments: list[list[float]], total_frames: int) -> list[int]:

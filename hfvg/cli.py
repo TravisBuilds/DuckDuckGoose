@@ -7,6 +7,7 @@ import os
 import click
 from temporalio.client import Client
 
+from hfvg import paths
 from hfvg.config import config
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ReconcilePendingJobsWorkflow
 
@@ -25,7 +26,7 @@ def lint(episode_id: str):
     from pathlib import Path
     
     # Check if episode directory exists
-    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    episode_dir = paths.episode_dir(episode_id)
     if not episode_dir.exists():
         click.echo(f"❌ Episode directory not found: {episode_dir}", err=True)
         import sys
@@ -655,7 +656,7 @@ def start_v2(episode_id: str, beatmap: str | None, dry_run: bool, shots: str | N
 
 @cli.command()
 @click.argument("episode_id")
-@click.option("--shots", "shots_path", default=None, help="shots.json path (default: data/episodes/<id>/shots.json)")
+@click.option("--shots", "shots_path", default=None, help="shots.json path (default: $EPISODES_DIR/<id>/shots.json)")
 def preflight(episode_id: str, shots_path: str | None):
     """
     Check every shot of an episode against the model limits (no provider calls).
@@ -670,7 +671,7 @@ def preflight(episode_id: str, shots_path: str | None):
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
 
-    path = Path(shots_path) if shots_path else Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    path = Path(shots_path) if shots_path else paths.episode_dir(episode_id) / "shots.json"
     if not path.exists():
         click.echo(f"❌ {path} not found", err=True)
         sys.exit(1)
@@ -936,8 +937,8 @@ def mix(episode_dir: str, mute: str | None, plan_file: str | None, dry_run: bool
     Exit code 1 when delivery QC FAILs.
 
     Example:
-        hfvg mix ./data/episodes/ep01
-        hfvg deliver ./data/episodes/ep01 --dry-run
+        hfvg mix "$EPISODES_DIR/ep01"
+        hfvg deliver "$EPISODES_DIR/ep01" --dry-run
     """
     result = _mix_episode_dir(episode_dir, mute, plan_file, dry_run)
     qc, manifest = result["qc"], result["manifest"]
@@ -1043,7 +1044,7 @@ def select_still(episode_id: str, shot_id: str, version: int, reason: str, data_
                                       data_converter=temporal_data_converter)
         live = os.getenv("DRY_RUN", "true").lower() != "true"
         plan, problems = await check_selection(client, episode_id, episode_id, shot_id, version, live=live,
-                                               data_dir=data_dir or os.getenv("DATA_DIR", "./data"))
+                                               data_dir=data_dir or paths.data_dir())
         if problems:
             click.echo(f"❌ Cannot select {shot_id} v{version}: " + "; ".join(problems), err=True)
             sys.exit(1)

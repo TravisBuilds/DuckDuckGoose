@@ -671,8 +671,12 @@ pytest -m "not slow"
 
 ### Episode Data
 
-- `EPISODES_DIR` - Episode data directory (default: ./data/episodes)
+- `DATA_DIR` - Data root (default: ./data): generated outputs in `$DATA_DIR/episodes/<episode>/outputs/<shot>/`, dry-run scratch in `$DATA_DIR/dry_run_outputs`, run reports in `$DATA_DIR/reports`, lead refs and the story shape cache
+- `EPISODES_DIR` - Episode inputs: `BEATMAP.md`, `shots.json`, `refs.json`, `prompt_kit.json` (default: `$DATA_DIR/episodes`)
+- `HFVG_EPISODES_DIR` - Optional override for where reconcile lands late assets (default: `$EPISODES_DIR`)
 - `NORMALIZED_CACHE_DIR` - Normalized reference cache (default: ./data/normalized)
+
+With neither variable set, everything resolves under `./data`, so run the worker, the API and the CLI from the repository root. Relative values resolve against each process's cwd: when the processes run from different directories (docker-compose runs the worker from `/app` and the API from `/app/api`), set absolute paths and give every process the same values, e.g. `DATA_DIR=/data` and `EPISODES_DIR=/data/episodes`.
 
 ### Model Capabilities
 

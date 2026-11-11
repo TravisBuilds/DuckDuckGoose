@@ -18,9 +18,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any
+
+from hfvg import paths
 
 EDIT_PLAN_NAME = "edit_plan.json"
 EDIT_PLAN_VERSION = 1
@@ -480,7 +481,7 @@ def stage_episode(spec_path: str | Path, episode_dir: str | Path) -> dict[str, A
 
 
 def load_edit_plan(episode_id: str) -> dict[str, Any] | None:
-    p = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / EDIT_PLAN_NAME
+    p = paths.episode_dir(episode_id) / EDIT_PLAN_NAME
     if not p.is_file():
         return None
     return json.loads(p.read_text(encoding="utf-8"))

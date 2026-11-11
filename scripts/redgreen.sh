@@ -1427,7 +1427,7 @@ test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_harness_pr10_items_remaining.py::test_verify_episode_files_honors_episodes_dir" \
-    sed -i 's|episodes_dir = Path(os\.getenv("EPISODES_DIR", "\./data/episodes"))|episodes_dir = Path(".")  # MUTATED|'
+    sed -i 's|shots_json_path = episode_dir(episode_id) / "shots.json"|shots_json_path = Path(episode_id) / "shots.json"  # MUTATED|'
 
 # 131: 3h - CLI retry-shot uses execute_update
 test_mutation 131 "3h: CLI retry-shot uses execute_update" \
@@ -3063,6 +3063,134 @@ test_mutation 408 "recompose grant limited to MAX_RECOMPOSE_GRANTS_PER_SHOT" \
     "hfvg/workflows/episode_v2.py" \
     "tests/test_gap39_recompose_grant.py::test_grant_recompose_problem_max_grants_reached" \
     sed -i 's/if int(self.recompose_grants.get(shot_id, 0)) >= self.MAX_RECOMPOSE_GRANTS_PER_SHOT:/if False:  # MUTATED: no grant limit/'
+
+# 409-429: hosted data paths (worker cwd /app, API cwd /app/api, DATA_DIR=/data, EPISODES_DIR=/data/episodes).
+# Each mutation reintroduces a cwd-relative data/... path or breaks the hfvg/paths.py resolution order.
+# 409: preflight reads the episode inputs from EPISODES_DIR
+test_mutation 409 "preflight reads the episode from EPISODES_DIR" \
+    "hfvg/activities/preflight.py" \
+    "tests/test_hosted_data_paths.py::test_preflight_reads_the_episode_from_episodes_dir" \
+    sed -i 's|base_path = episode_dir(episode_id)$|base_path = Path(f"data/episodes/{episode_id}")  # MUTATED: cwd-relative|'
+
+# 410: saved assets land where the API serves them (DATA_DIR/episodes/<ep>/outputs/<shot>)
+test_mutation 410 "saved assets land under DATA_DIR outputs" \
+    "hfvg/activities/save_assets.py" \
+    "tests/test_hosted_data_paths.py::test_save_asset_lands_in_the_data_dir_outputs_the_api_reads" \
+    sed -i 's|output_dir = outputs_dir(episode_id, shot_id)$|output_dir = Path(f"data/episodes/{episode_id}/outputs/{shot_id}")  # MUTATED: cwd-relative|'
+
+# 411: mute edit reads the GAP-76 shot metadata from EPISODES_DIR/<ep>/shots.json
+test_mutation 411 "mute edit reads shots.json from EPISODES_DIR" \
+    "hfvg/activities/media.py" \
+    "tests/test_hosted_data_paths.py::test_mute_edit_reads_shot_metadata_from_episodes_dir" \
+    sed -i 's|_sj = json.loads(shots_json_path(episode_id).read_text(encoding="utf-8"))$|_sj = json.loads(Path(f"data/episodes/{episode_id}/shots.json").read_text(encoding="utf-8"))  # MUTATED: cwd-relative|'
+
+# 412: dry-run ref generation scratch lives under DATA_DIR/dry_run_outputs
+test_mutation 412 "ref generation dry-run scratch under DATA_DIR" \
+    "hfvg/activities/ref_generation.py" \
+    "tests/test_hosted_data_paths.py::test_ref_generation_dry_run_scratch_is_under_data_dir" \
+    sed -i '/^async def generate_ref_activity(/,/^async def load_refs_to_generate_activity(/ s|scratch_dir = dry_run_outputs_dir() / workflow_id / "refs"$|scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")  # MUTATED: cwd-relative|'
+
+# 413: dry-run ref edit scratch lives under DATA_DIR/dry_run_outputs
+test_mutation 413 "ref edit dry-run scratch under DATA_DIR" \
+    "hfvg/activities/ref_generation.py" \
+    "tests/test_hosted_data_paths.py::test_ref_generation_dry_run_scratch_is_under_data_dir" \
+    sed -i '/^async def generate_ref_edit_activity(/,$ s|scratch_dir = dry_run_outputs_dir() / workflow_id / "refs"$|scratch_dir = Path(f"data/dry_run_outputs/{workflow_id}/refs")  # MUTATED: cwd-relative|'
+
+# 414: reconcile lands late assets under EPISODES_DIR when HFVG_EPISODES_DIR is unset
+test_mutation 414 "reconcile output root honours EPISODES_DIR" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_hosted_data_paths.py::test_reconcile_lands_late_assets_under_episodes_dir" \
+    sed -i 's|return Path(override) if override else episodes_dir()$|return Path(override) if override else Path("data/episodes")  # MUTATED: EPISODES_DIR ignored|'
+
+# 415: HFVG_EPISODES_DIR still overrides the reconcile output root
+test_mutation 415 "reconcile HFVG_EPISODES_DIR override wins" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_hosted_data_paths.py::test_reconcile_lands_late_assets_under_episodes_dir" \
+    sed -i 's|return Path(override) if override else episodes_dir()$|return episodes_dir()  # MUTATED: override ignored|'
+
+# 416: dry-run placeholder stills from poll_job_status land under DATA_DIR/dry_run_outputs
+test_mutation 416 "poll_job_status dry-run placeholder under DATA_DIR" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_hosted_data_paths.py::test_stills_written_by_the_worker_are_served_by_the_api_from_another_cwd" \
+    sed -i '/^async def poll_job_status(/,/^async def commit_job_credits(/ s|output_dir = dry_run_outputs_dir()$|output_dir = Path("./data/dry_run_outputs")  # MUTATED: cwd-relative|'
+
+# 417: await_job_enforced dry-run placeholder dir (static guard)
+test_mutation 417 "await_job_enforced dry-run placeholder not hardcoded" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_no_hardcoded_data_paths.py::test_no_hardcoded_episode_or_dry_run_paths_outside_the_helper" \
+    sed -i '/^async def await_job_enforced(/,$ s|output_dir = dry_run_outputs_dir()$|output_dir = Path("./data/dry_run_outputs")  # MUTATED: cwd-relative|'
+
+# 418: the API (cwd /app/api) serves dry-run placeholder stills from DATA_DIR/dry_run_outputs
+test_mutation 418 "API still preview dry-run root from DATA_DIR" \
+    "api/main.py" \
+    "tests/test_hosted_data_paths.py::test_stills_written_by_the_worker_are_served_by_the_api_from_another_cwd" \
+    sed -i 's|dry_root = paths.dry_run_outputs_dir().resolve()$|dry_root = Path("./data/dry_run_outputs").resolve()  # MUTATED: cwd-relative|'
+
+# 419: the API (cwd /app/api) serves saved stills from DATA_DIR/episodes/<ep>/outputs/<shot>
+test_mutation 419 "API still preview outputs root from DATA_DIR" \
+    "api/main.py" \
+    "tests/test_hosted_data_paths.py::test_stills_written_by_the_worker_are_served_by_the_api_from_another_cwd" \
+    sed -i 's|root = paths.outputs_dir(episode_id, shot_id).resolve()$|root = (Path("./data/episodes") / episode_id / "outputs" / shot_id).resolve()  # MUTATED: cwd-relative|'
+
+# 420: run reports are written under DATA_DIR/reports
+test_mutation 420 "run report saved under DATA_DIR" \
+    "hfvg/activities/run_report.py" \
+    "tests/test_hosted_data_paths.py::test_run_report_and_story_shape_cache_live_under_data_dir" \
+    sed -i 's|output_dir = data_dir() / "reports"$|output_dir = "./data/reports"  # MUTATED: cwd-relative|'
+
+# 421: the story shape cache lives under DATA_DIR
+test_mutation 421 "story shape cache under DATA_DIR" \
+    "hfvg/activities/story_shaping.py" \
+    "tests/test_hosted_data_paths.py::test_run_report_and_story_shape_cache_live_under_data_dir" \
+    sed -i 's|cache_dir = data_dir()$|cache_dir = Path("./data")  # MUTATED: cwd-relative|'
+
+# 422: data_dir() honours DATA_DIR
+test_mutation 422 "data_dir honours DATA_DIR" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_episodes_dir_falls_back_to_data_dir" \
+    sed -i 's|return _env_path("DATA_DIR") or Path("data")$|return Path("data")  # MUTATED: DATA_DIR ignored|'
+
+# 423: episodes_dir() honours EPISODES_DIR (the production bug)
+test_mutation 423 "episodes_dir honours EPISODES_DIR" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_episodes_dir_wins_for_inputs_and_outputs_stay_under_data_dir" \
+    sed -i 's|return _env_path("EPISODES_DIR") or data_dir() / "episodes"$|return data_dir() / "episodes"  # MUTATED: EPISODES_DIR ignored|'
+
+# 424: episodes_dir() falls back to DATA_DIR/episodes
+test_mutation 424 "episodes_dir falls back to DATA_DIR/episodes" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_episodes_dir_falls_back_to_data_dir" \
+    sed -i 's|return _env_path("EPISODES_DIR") or data_dir() / "episodes"$|return _env_path("EPISODES_DIR") or Path("data") / "episodes"  # MUTATED: no DATA_DIR fallback|'
+
+# 425: outputs stay under DATA_DIR even when EPISODES_DIR points elsewhere
+test_mutation 425 "outputs_dir stays under DATA_DIR" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_episodes_dir_wins_for_inputs_and_outputs_stay_under_data_dir" \
+    sed -i 's|root = data_dir() / "episodes" / episode_id / "outputs"$|root = episodes_dir() / episode_id / "outputs"  # MUTATED: outputs follow EPISODES_DIR|'
+
+# 426: dry-run outputs live under DATA_DIR
+test_mutation 426 "dry_run_outputs_dir under DATA_DIR" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_episodes_dir_wins_for_inputs_and_outputs_stay_under_data_dir" \
+    sed -i 's|return data_dir() / "dry_run_outputs"$|return Path("data") / "dry_run_outputs"  # MUTATED: DATA_DIR ignored|'
+
+# 427: a blank DATA_DIR / EPISODES_DIR means unset
+test_mutation 427 "blank path env values mean unset" \
+    "hfvg/paths.py" \
+    "tests/test_paths.py::test_blank_values_mean_unset" \
+    sed -i 's|value = os.getenv(name, "").strip()$|value = os.getenv(name, "")  # MUTATED: blank not unset|'
+
+# 428: shots.json default path resolves under EPISODES_DIR
+test_mutation 428 "shots_json_path default under EPISODES_DIR" \
+    "hfvg/shot_data.py" \
+    "tests/test_hosted_data_paths.py::test_mute_edit_reads_shot_metadata_from_episodes_dir" \
+    sed -i 's|return episode_dir(episode_id) / "shots.json"$|return Path(f"data/episodes/{episode_id}/shots.json")  # MUTATED: cwd-relative|'
+
+# 429: EPISODES_DIR / DATA_DIR are read only by hfvg/paths.py (static guard)
+test_mutation 429 "audio_mix episodes root via hfvg.paths" \
+    "hfvg/audio_mix.py" \
+    "tests/test_no_hardcoded_data_paths.py::test_episodes_and_data_dir_env_vars_are_read_only_by_the_helper" \
+    sed -i '/^def episodes_root() -> Path:$/{n;s|return episodes_dir()$|return Path(os.getenv("EPISODES_DIR") or "./data/episodes")  # MUTATED: own env read|;}'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

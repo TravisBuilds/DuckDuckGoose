@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hfvg.paths import episode_dir
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")
@@ -334,7 +336,7 @@ def load_lint_kit(episode_id: str) -> LintKit:
     if override:
         path = Path(override)
     else:
-        path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "prompt_kit.json"
+        path = episode_dir(episode_id) / "prompt_kit.json"
     if not path.is_file():
         raise PromptLintError(f"No prompt lint kit found for {episode_id} (looked at {path})")
     try:

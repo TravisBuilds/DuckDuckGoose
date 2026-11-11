@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from hfvg import paths
 from hfvg.pre_approved import STILL_EXTENSIONS
 from hfvg.shot_data import shots_json_path
 
@@ -28,7 +28,7 @@ def resolve_pre_approved_path(episode_id: str, path: str) -> Path:
 
 def outputs_dir(episode_id: str, shot_id: str) -> Path:
     """Same layout as the G2 anchor lookup in the API: <DATA_DIR>/episodes/<ep>/outputs/<shot>/."""
-    return Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs" / shot_id
+    return paths.outputs_dir(episode_id, shot_id)
 
 
 def _sha256(path: Path) -> str:

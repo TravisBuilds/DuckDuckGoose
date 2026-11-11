@@ -8,6 +8,7 @@ from typing import Any
 from temporalio import activity
 
 from hfvg.errors import FatalError
+from hfvg.paths import episode_dir
 
 
 class PreflightError(FatalError):
@@ -40,7 +41,7 @@ async def preflight_validate_episode_activity(
     """
     from hfvg.episode_parser import parse_beatmap
     
-    base_path = Path(f"data/episodes/{episode_id}")
+    base_path = episode_dir(episode_id)
     problems = []
     
     # 1. Check beatmap exists and is parseable (same path workflow uses)

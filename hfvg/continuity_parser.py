@@ -32,7 +32,7 @@ def load_prompt_kit(episode_path: str | Path) -> dict[str, Any] | None:
     }
     
     Args:
-        episode_path: Path to episode directory (e.g., data/episodes/ep04)
+        episode_path: Path to episode directory (e.g., <EPISODES_DIR>/ep04)
     
     Returns:
         Parsed prompt kit dict, or None if file doesn't exist
