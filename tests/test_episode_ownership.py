@@ -290,6 +290,19 @@ async def test_starting_a_new_episode_records_the_member_as_its_owner(studio):
     studio.temporal_client.start_workflow.assert_not_called()
 
 
+async def test_a_start_whose_owner_cannot_be_recorded_does_not_start(studio, monkeypatch):
+    import aiosqlite
+
+    async def locked(*_a, **_k):
+        raise aiosqlite.OperationalError("database is locked")
+
+    monkeypatch.setattr(studio, "create_episode", locked)
+    res = _write(_client(studio, "owner"), "POST", "/api/episodes", "ep87lck", _draft(studio))
+    assert res.status_code == 503 and "database is locked" in res.json()["detail"]
+    studio.temporal_client.start_workflow.assert_not_called()
+    assert _owner_of("ep87lck") is None
+
+
 async def test_bearer_secret_starts_without_claiming_an_owner(studio):
     assert _write(_client(studio, "bearer"), "POST", "/api/episodes", "ep85cli", _draft(studio)).status_code == 200
     assert _owner_of("ep85cli") == "legacy/shared"

@@ -745,6 +745,19 @@ async def require_episode_owner(episode_id: str, authorization: str | None,
             f"Episode {episode_id} belongs to another member; only its owner or an admin can change it"))
 
 
+async def record_new_episode(episode_id: str, beatmap_path: str | None, studio_admin_token: str | None) -> None:
+    """The episode's row with the session user as its owner (none for a Bearer token). INSERT OR
+    IGNORE: an existing row keeps its owner. A studio DB without tables (DATABASE_PATH=":memory:")
+    has no owners to keep and records nothing; other DB errors answer 503."""
+    import aiosqlite
+    user_id = await get_user_id_from_session(studio_admin_token) if studio_admin_token else None
+    try:
+        await create_episode(DATABASE_PATH, episode_id, beatmap_path, user_id=user_id)
+    except aiosqlite.OperationalError as e:
+        if "no such table" not in str(e):
+            raise HTTPException(status_code=503, detail=f"studio database error: {e}")
+
+
 # Request/Response models
 def episode_workflow_id(episode_id: str) -> str:
     """Temporal workflow id of the episode workflow: the bare episode id (``ep04``).
@@ -1755,9 +1768,8 @@ async def start_episode(
     args = [request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping]
     if genre_brief is not None:
         args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
-    # INSERT OR IGNORE: only a new episode gets an owner here; the run's upsert keeps it
-    await create_episode(DATABASE_PATH, request.episode_id, beatmap_path,
-                         user_id=await get_user_id_from_session(studio_admin_token) if studio_admin_token else None)
+    # only a new episode gets an owner here; the run's upsert keeps it
+    await record_new_episode(request.episode_id, beatmap_path, studio_admin_token)
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
         args=args,
