@@ -7,6 +7,7 @@ import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 import EpisodeRunPanel from '@/components/EpisodeRunPanel';
 import StoryShapePanel from '@/components/StoryShapePanel';
+import { apiFetch, postJson } from '@/lib/studio-api';
 
 interface EpisodeState {
   episode_id: string;
@@ -266,35 +267,24 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const handleStoryShapeUpdate = async (updatedStoryShape: any) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/story-shape`, {
+      // PUT .../story-shape takes the outline itself as the body
+      await apiFetch(`/api/episodes/${episodeId}/story-shape`, {
         method: 'PUT',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story_shape: updatedStoryShape }),
+        body: JSON.stringify(updatedStoryShape),
       });
-
-      if (!response.ok) throw new Error('Update failed');
       await loadEpisodeData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Update failed');
+      alert(err instanceof Error ? `Update failed: ${err.message}` : 'Update failed');
     }
   };
 
   const handleStoryShapeApprove = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiUrl}/api/episodes/${episodeId}/approve`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gate_id: 'story_shape' }),
-      });
-
-      if (!response.ok) throw new Error('Approval failed');
+      await postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'story_shape' });
       await loadEpisodeData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Approval failed');
+      alert(err instanceof Error ? `Approval failed: ${err.message}` : 'Approval failed');
     }
   };
 

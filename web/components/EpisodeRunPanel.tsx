@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { balanceDisplay, parseBalanceInput } from '@/lib/balance.mjs';
 import type { HiggsfieldBalance } from '@/lib/balance.mjs';
+import { runEndedView } from '@/lib/run-outcome.mjs';
+import type { RunInfo } from '@/lib/run-outcome.mjs';
 
 /**
  * Drives a whole episode run from the studio (G-UI-1): G1 approval, per-shot G2 decisions,
@@ -40,6 +42,7 @@ export interface RunState {
   active_stall_alerts: number;
   assembly: StageView | null;
   delivery: StageView | null;
+  run: RunInfo | null;
 }
 interface ShotState {
   available: boolean;
@@ -79,6 +82,7 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
     active_stall_alerts: raw.active_stall_alerts ?? 0,
     assembly: raw.assembly ?? null,
     delivery: raw.delivery ?? null,
+    run: raw.run ?? null,
   };
 }
 
@@ -207,6 +211,7 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
   }
   if (!state) return <div className={card}>Loading run state…</div>;
 
+  const ended = runEndedView(state.run);
   const gate = state.current_gate;
   const shotIds = Array.from(new Set([
     ...Object.keys(shotStates), ...Object.keys(state.shot_outcomes), ...Object.keys(state.shot_decisions),
@@ -239,6 +244,25 @@ export default function EpisodeRunPanel({ episodeId, onChanged }: { episodeId: s
               <li key={a.job_id}>{a.shot_id ?? '—'} · {a.job_type} · {a.minutes_stalled} min · {a.status}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {ended && (
+        <div role={ended.tone === 'error' ? 'alert' : 'status'} data-testid="run-ended" data-tone={ended.tone}
+          className={`mb-6 p-4 rounded-lg border ${ended.tone === 'error' ? 'border-red-300 bg-red-50 text-red-900' : 'border-green-300 bg-green-50 text-green-900'}`}>
+          <p className="font-semibold" data-testid="run-ended-title">{ended.title}</p>
+          {ended.reason && <p className="text-sm mt-1 break-words" data-testid="run-ended-reason">{ended.reason}</p>}
+          {ended.canStartAgain && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button data-testid="start-again" disabled={busy}
+                onClick={() => {
+                  if (ended.confirm && !window.confirm(ended.confirm)) return;
+                  act('Start again', () => postJson(`/api/episodes/${episodeId}/start-again`, {}));
+                }}
+                className={`${btn} bg-red-700 text-white`}>Start again</button>
+              <span className="text-sm">A new run with the same inputs; this one takes no more actions.</span>
+            </div>
+          )}
         </div>
       )}
 

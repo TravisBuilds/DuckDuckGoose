@@ -782,6 +782,11 @@ class EpisodeStateResponse(BaseModel):
     # The create wizard's card and length (workflow input genre_brief); None for other starts
     archetype_id: str | None = None
     target_duration_s: int | None = None
+    # The workflow run behind this state (_episode_run): {"run_id", "status" (Temporal: RUNNING, FAILED,
+    # TERMINATED, COMPLETED ...), "ended", "outcome" (failed / terminated / canceled / timed out /
+    # completed), "reason" (short, why it did not complete), "dry_run", "can_start_again"}. An ended
+    # run refuses every action with a 409. None when Temporal cannot describe the run.
+    run: dict | None = None
 
 
 class AssemblyAcceptRequest(BaseModel):
@@ -1743,11 +1748,178 @@ async def get_episode_state(
         shot_outcomes=dict(state.get("shot_outcomes") or {}),
         archetype_id=state.get("archetype_id"),
         target_duration_s=state.get("target_duration_s"),
+        run=await _episode_run(handle),
     )
 
 
 # Mark get_episode_state to allow members
 get_episode_state.allow_members = True
+
+
+# ---------------------------------------------------------------- runs that have ended
+# A run that has ended (failed, terminated, canceled, timed out or completed) takes no more signals or
+# updates: Temporal answers them NOT_FOUND ("workflow execution already completed"), which the routes
+# used to turn into 500s. The episode routes refuse them up front with a 409 that says how the run
+# ended, GET /api/episodes/{id} reports it (run) and POST .../start-again starts a new run.
+_RUN_OUTCOMES = {"FAILED": "failed", "TERMINATED": "terminated", "CANCELED": "canceled",
+                 "TIMED_OUT": "timed out", "COMPLETED": "completed"}
+_ENDED_RUNS: dict[str, tuple[dict, list | None]] = {}  # run_id -> (run view, start inputs); never changes
+
+
+def _short_reason(text: str) -> str | None:
+    text = " ".join(str(text).split())
+    return (text[:297] + "...") if len(text) > 300 else (text or None)
+
+
+def _failure_reason(err: BaseException) -> str | None:
+    """Short reason of a closed run's failure: its innermost cause, after the activity or child
+    workflow it came from ("revise_story_shape_activity: TypeError: ...")."""
+    where, cause = None, err.__cause__
+    while cause is not None:
+        where = where or getattr(cause, "activity_type", None) or getattr(cause, "workflow_type", None)
+        if cause.__cause__ is None:
+            break
+        cause = cause.__cause__
+    if cause is None:
+        return _short_reason(str(err))
+    return _short_reason(f"{where}: {cause}" if where else str(cause))
+
+
+async def _ended_run(workflow_id: str, run_id: str, status: str, workflow_type: str | None) -> tuple[dict, list | None]:
+    """The view of a closed run (outcome and reason from its result) and the inputs it was started with."""
+    from datetime import timedelta
+
+    from temporalio.client import WorkflowFailureError
+    if run_id in _ENDED_RUNS:
+        return _ENDED_RUNS[run_id]
+    closed = temporal_client.get_workflow_handle(workflow_id, run_id=run_id)
+    outcome, reason, known = _RUN_OUTCOMES[status], None, True
+    try:
+        result = await closed.result(follow_runs=False, rpc_timeout=timedelta(seconds=10))
+        if isinstance(result, dict) and result.get("status") == "failed":  # the workflow's early refusals
+            outcome, reason = "failed", _short_reason(result.get("error") or "")
+    except WorkflowFailureError as e:
+        reason = _failure_reason(e)
+    except Exception:
+        known = False
+    inputs = None
+    try:
+        async for event in closed.fetch_history_events(page_size=1):
+            payloads = event.workflow_execution_started_event_attributes.input.payloads
+            inputs = list(await temporal_client.data_converter.decode(payloads)) if payloads else []
+            break
+    except Exception:
+        known = False
+    reopened = bool(inputs and len(inputs) > 6 and inputs[6])
+    view = {
+        "run_id": run_id, "status": status, "ended": True, "outcome": outcome, "reason": reason,
+        "dry_run": (bool(inputs[2]) if len(inputs) > 2 else True) if inputs is not None else None,
+        "can_start_again": (outcome != "completed" and inputs is not None and not reopened
+                            and workflow_type == "EpisodeWorkflowV2"),
+    }
+    if known:
+        if len(_ENDED_RUNS) >= 256:
+            _ENDED_RUNS.pop(next(iter(_ENDED_RUNS)))
+        _ENDED_RUNS[run_id] = (view, inputs)
+    return view, inputs
+
+
+async def _episode_run(handle) -> dict | None:
+    """How the episode workflow's latest run stands (EpisodeStateResponse.run). None when Temporal
+    cannot describe it: a run that is not known to have ended is never refused."""
+    from temporalio.client import WorkflowExecutionStatus
+    try:
+        desc = await handle.describe()
+    except Exception:
+        return None
+    status = getattr(desc, "status", None)
+    if not isinstance(status, WorkflowExecutionStatus):
+        return None
+    if status.name not in _RUN_OUTCOMES:
+        return {"run_id": desc.run_id, "status": status.name, "ended": False, "outcome": None,
+                "reason": None, "dry_run": None, "can_start_again": False}
+    view, _ = await _ended_run(desc.id, desc.run_id, status.name, desc.workflow_type)
+    return view
+
+
+def _ended_run_detail(run: dict) -> str:
+    how = f"{run['outcome']}: {run['reason']}" if run.get("reason") else run["outcome"]
+    then = ("Start it again." if run["can_start_again"]
+            else "Reopen the episode to change it." if run["outcome"] == "completed" else "")
+    return f"This run has ended ({how}). {then}".rstrip()
+
+
+async def _refuse_ended_run(episode_id: str) -> None:
+    """409 instead of a signal or update to an episode run that has ended."""
+    if not temporal_client:
+        return
+    run = await _episode_run(temporal_client.get_workflow_handle(episode_workflow_id(episode_id)))
+    if run and run["ended"]:
+        raise HTTPException(status_code=409, detail=_ended_run_detail(run))
+
+
+@app.post("/api/episodes/{episode_id}/start-again")
+async def start_episode_again(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Start a NEW run of an episode whose last run ended without finishing (failed, terminated,
+    canceled, timed out, or returned status "failed"), with the inputs that run was started with (same
+    workflow id; the ended run stays in the history). Refused while a run is open, after a completed
+    run (reopen it instead) and for a reopened run. POST /api/episodes's refusals apply to the files
+    as they are now."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    episode_id = episode_workflow_id(episode_id)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    from temporalio.common import WorkflowIDReusePolicy
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+    from temporalio.service import RPCError, RPCStatusCode
+
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+
+    handle = temporal_client.get_workflow_handle(episode_id)
+    try:
+        desc = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise
+    if desc.status is None or desc.status.name not in _RUN_OUTCOMES:
+        raise HTTPException(status_code=409, detail=f"{episode_id} is still running "
+                            f"({desc.status.name if desc.status else None}); only a run that has ended can be started again")
+    run, inputs = await _ended_run(desc.id, desc.run_id, desc.status.name, desc.workflow_type)
+    if not run["can_start_again"]:
+        why = ("it completed; reopen the episode to change it" if run["outcome"] == "completed"
+               else "its inputs could not be read" if inputs is None
+               else "it was a reopened run" if len(inputs) > 6 and inputs[6]
+               else f"it is not an episode run ({desc.workflow_type})")
+        raise HTTPException(status_code=409, detail=f"Cannot start {episode_id} again: {why}")
+    beatmap_path, dry_run = inputs[1] if len(inputs) > 1 else None, run["dry_run"]
+    if beatmap_path and not Path(beatmap_path).is_file():
+        raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: its beatmap "
+                            f"{beatmap_path} is gone (upload BEATMAP.md again)")
+    problems = uploaded_shots_problems(episode_id) + audio_plan_voice_problems(episode_id, live=not dry_run)
+    if problems:
+        raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
+    try:
+        new = await temporal_client.start_workflow(
+            EpisodeWorkflowV2.run, args=inputs, id=episode_id, task_queue="hfvg-tasks",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    except WorkflowAlreadyStartedError:
+        raise HTTPException(status_code=409, detail=f"{episode_id} was started again already")
+    await _audit(episode_id, "start_again", f"run {desc.run_id} ended ({run['outcome']}: {run['reason']}); "
+                 f"started run {new.result_run_id} with the same inputs (dry_run={dry_run})")
+    return {"success": True, "episode_id": episode_id, "workflow_id": episode_id, "from_run_id": desc.run_id,
+            "run_id": new.result_run_id, "dry_run": dry_run,
+            "message": f"{episode_id} started again (dry_run={dry_run})"}
+
+
+# Mark start_episode_again to allow members
+start_episode_again.allow_members = True
 
 @app.post("/api/episodes/{episode_id}/assembly/accept")
 async def accept_assembly_qc(
@@ -1764,6 +1936,7 @@ async def accept_assembly_qc(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         await handle.signal("accept_assembly_qc", request.reason.strip())
@@ -1790,6 +1963,7 @@ async def accept_delivery_qc(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         await handle.signal("accept_delivery_qc", request.reason.strip())
@@ -1816,6 +1990,7 @@ async def request_delivery_rebuild(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         await handle.signal("request_delivery_rebuild", request.reason.strip())
@@ -1843,6 +2018,7 @@ async def request_edit_rebuild(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         await handle.signal("request_edit_rebuild", request.reason.strip())
@@ -1906,6 +2082,7 @@ async def approve_gate(
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     
     try:
         # Find the EpisodeWorkflowV2 only (not child shot workflows)
@@ -2104,6 +2281,7 @@ async def update_story_shape(
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     
     try:
         workflows = temporal_client.list_workflows(
@@ -3232,6 +3410,7 @@ async def _execute_episode_update(episode_id: str, update: str, args: list, acti
     """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     workflow_id = episode_workflow_id(episode_id)
     try:
         handle = temporal_client.get_workflow_handle(workflow_id)
@@ -3499,6 +3678,7 @@ async def select_still(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     plan, problems = await _select_still_checked(episode_id, shot_id, request.version)
     if problems:
         raise HTTPException(status_code=409, detail=f"Cannot select {shot_id} v{request.version}: "
@@ -3686,6 +3866,7 @@ async def retry_clip(
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Clip retry")  # GAP-65
     if request.clip_route is not None and not isinstance(request.clip_route.get("model", "kling"), str):
         raise HTTPException(status_code=422, detail="invalid clip_route: model must be a string")
@@ -3770,6 +3951,7 @@ async def recompose_shot(
     against the model limits BEFORE any spend. The new still parks for /recompose/decision."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Recompose")  # GAP-65
     refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
     refs: list[str] = []
@@ -4177,6 +4359,7 @@ async def recompose_decision(
     """GAP-21: approve (clip from the new still) or reject (no clip spend) a parked recompose still."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     if request.approve:  # GAP-65: approving starts the paid clip; a reject spends nothing
         await _refuse_if_paid_gates_fail(episode_id, "Recompose approval")
     result = await _execute_episode_update(
@@ -4280,6 +4463,7 @@ async def adopt_reuse(
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
+    await _refuse_ended_run(episode_id)
     fields = _adopt_reuse_fields(episode_id, shot_id, request.shot)
     result = await _execute_episode_update(
         episode_id, "adopt_reuse_slot", [shot_id, request.reason.strip(), request.template_shot_id, fields],
@@ -4313,6 +4497,7 @@ async def generate_refs_route(
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
+    await _refuse_ended_run(episode_id)
     from hfvg.activities.ref_generation import ref_edit_specs_for
     from hfvg.shot_data import refs_json_path
     try:
@@ -4553,6 +4738,7 @@ async def retry_shot(
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     
     # Find the episode workflow
     workflow_id = episode_workflow_id(episode_id)
@@ -6401,6 +6587,7 @@ async def reject_final_cut(
         raise HTTPException(status_code=422, detail="A rejection reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
     try:
         state = await handle.query("get_state")
@@ -6436,6 +6623,7 @@ async def raise_credit_cap(
     validate_episode_id(episode_id)
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     from hfvg.credit_ledger import CreditLedger
 
     try:
