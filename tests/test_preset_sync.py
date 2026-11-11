@@ -26,6 +26,7 @@ FIELD_MAP = {
     "briefFields": "brief_fields",
     "voiceOver": "vo_mode",
     "music": "music",
+    "onScreenText": "on_screen_text",
 }
 
 

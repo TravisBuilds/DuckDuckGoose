@@ -22,11 +22,14 @@ import re
 import shutil
 import statistics
 import tempfile
+import textwrap
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+
+from hfvg import aspect
 
 SR = 48000
 DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
@@ -52,6 +55,16 @@ DEFAULT_PHONE = {"max_mb": 50.0, "video_kbps": None, "max_video_kbps": 3000, "mi
 DEFAULT_MASTER = {"crf": 18, "preset": "fast", "audio_kbps": 192}
 DEFAULT_SUBTITLES = {"burn": True, "font": "Arial", "fontsize": 64, "fonts_dir": None,
                      "max_line_chars": 24, "margin_v": 260}
+# Opening title card / end card (plain drawtext, so DRY_RUN renders them too)
+TEXT_CARD_KINDS = ("title_card", "end_card")
+DEFAULT_TEXT_CARD = {"visible_s": 2.5, "fade_s": 0.4}
+TEXT_CARD_MAX_CHARS = 80
+TEXT_CARD_MAX_LINES = 3
+TEXT_CARD_FONT_FRAC = 0.075      # of the picture's shorter side (81 px on 1080)
+TEXT_CARD_MIN_FONT_FRAC = 0.035
+TEXT_CARD_BOX_ALPHA = 0.55
+TEXT_CARD_PIXEL_DIFF = 40        # delivery QC: grey levels a drawn card pixel differs from the mute assembly by
+TEXT_CARD_MIN_CHANGED = 0.003    # ...and the share of the card's band that must have changed
 
 Heartbeat = Callable[[dict], None]
 
@@ -204,6 +217,60 @@ def validate_bed_dips(raw: Any) -> list[dict]:
                     "ramp_s": _num(d.get("ramp_s", 0.15), f"bed_dips[{i}].ramp_s", 0.0, 2.0),
                     "note": str(d.get("note") or "")})
     return out
+
+
+def validate_text_card(raw: Any, name: str) -> dict | None:
+    """Optional ``title_card`` / ``end_card``: {"text", "visible_s", "fade_s"}. The title card is on
+    screen from the first frame for visible_s and fades out; the end card fades in visible_s before
+    the end and holds to the last frame. Both are drawn into every picture deliverable."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("text"), str):
+        raise AudioInputError(f"{name} must be an object with a text string, got {raw!r}")
+    text = " ".join("".join(ch if ch.isprintable() else " " for ch in raw["text"]).split())
+    if not text:
+        raise AudioInputError(f"{name}.text is empty")
+    if len(text) > TEXT_CARD_MAX_CHARS:
+        raise AudioInputError(f"{name}.text has {len(text)} characters (at most {TEXT_CARD_MAX_CHARS})")
+    visible = _num(raw.get("visible_s", DEFAULT_TEXT_CARD["visible_s"]), f"{name}.visible_s", 0.5, 10.0)
+    fade = _num(raw.get("fade_s", DEFAULT_TEXT_CARD["fade_s"]), f"{name}.fade_s", 0.0, 2.0)
+    if 2 * fade > visible:
+        raise AudioInputError(f"{name}.fade_s {fade:g}s is more than half of visible_s {visible:g}s")
+    return {"text": text, "visible_s": visible, "fade_s": fade}
+
+
+def text_card_windows(plan: dict, total_s: float) -> dict[str, tuple[float, float]]:
+    """Edit seconds each card is on screen. Refuses a title and an end card that would overlap."""
+    out = {}
+    if plan.get("title_card"):
+        out["title_card"] = (0.0, round(min(total_s, plan["title_card"]["visible_s"]), 4))
+    if plan.get("end_card"):
+        out["end_card"] = (round(max(0.0, total_s - plan["end_card"]["visible_s"]), 4), round(total_s, 4))
+    if len(out) == 2 and out["title_card"][1] > out["end_card"][0]:
+        raise AudioInputError(
+            f"title_card ({plan['title_card']['visible_s']:g}s) and end_card ({plan['end_card']['visible_s']:g}s) "
+            f"overlap on the {total_s:.2f}s picture; shorten their visible_s")
+    return out
+
+
+def text_card_layout(text: str, width: int, height: int) -> tuple[list[str], int]:
+    """Centred lines (at most TEXT_CARD_MAX_LINES) and font size for a card, scaled to the picture's
+    shorter side so 9:16, 16:9 and 4:3 all read the same; long titles wrap, then shrink."""
+    short = min(width, height)
+    size = max(12, round(short * TEXT_CARD_FONT_FRAC))
+    floor = max(10, round(short * TEXT_CARD_MIN_FONT_FRAC))
+    while True:
+        per_line = max(6, int(width * 0.84 / (size * 0.6)))
+        lines = textwrap.wrap(text, per_line, break_on_hyphens=False)
+        if len(lines) <= TEXT_CARD_MAX_LINES or size <= floor:
+            return lines[:TEXT_CARD_MAX_LINES], size
+        size = max(floor, int(size * 0.85))
+
+
+def text_card_frames(window: tuple[float, float], fps: float, frames: int) -> tuple[int, int]:
+    """[first, end) frames a card can touch (one frame of slack at the fade edge)."""
+    t0, t1 = window
+    return max(0, math.floor(t0 * fps) - (1 if t0 > 0 else 0)), min(frames, math.ceil(t1 * fps) + 1)
 
 
 def dip_envelope(n: int, dips: list[dict]) -> np.ndarray:
@@ -410,6 +477,9 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
     timeline_ref = None
     if raw.get("timeline_ref") is not None:
         timeline_ref = validate_timeline(raw["timeline_ref"], "timeline_ref")
+    cards = {kind: validate_text_card(raw.get(kind), kind) for kind in TEXT_CARD_KINDS}
+    if cards["end_card"] and logo:
+        raise AudioInputError("end_card and logo both fill the end of the picture; keep one of them")
     out = {
         "version": DELIVERY_VERSION,
         "min_vo_gap_s": validate_min_gap(raw.get("min_vo_gap_s", DEFAULT_MIN_VO_GAP_S)),
@@ -423,6 +493,8 @@ def normalize_plan(raw: dict, base_dir: str | Path) -> dict:
         out["vo"]["speakers"] = speakers
     if timeline_ref is not None:
         out["timeline_ref"] = timeline_ref
+    # only present when set, so plans without cards keep their delivery input key
+    out.update({kind: card for kind, card in cards.items() if card})
     return out
 
 
@@ -1085,9 +1157,11 @@ def _ass_escape(s: str) -> str:
     return s.replace("\\", "/").replace("{", "(").replace("}", ")")
 
 
-def write_ass(cues: list[dict], path: str, subs: dict) -> None:
+def write_ass(cues: list[dict], path: str, subs: dict, play_res: tuple[int, int] = (1080, 1920)) -> None:
+    """play_res: the ASS script canvas (libass scales it to the picture); fontsize and margin_v are
+    in its units. 1080x1920 for 9:16 pictures, hfvg.aspect.subtitle_style for the others."""
     head = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n"
+        f"[Script Info]\nScriptType: v4.00+\nPlayResX: {play_res[0]}\nPlayResY: {play_res[1]}\nWrapStyle: 2\n"
         "ScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
         "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
@@ -1255,22 +1329,36 @@ def misaligned_frames(ref: np.ndarray, pic: np.ndarray, upto: int | None = None,
     return bad
 
 
+def blank_frames(frames: np.ndarray, blank: list[tuple[int, int]] | None) -> np.ndarray:
+    """Zero the [start, end) frame ranges a text card covers. The mute assembly has no card, so
+    those frames are left out of the sync comparison (in both pictures, so they always match)."""
+    if not blank:
+        return frames
+    out = frames.copy()
+    for a, b in blank:
+        out[max(0, a):max(0, b)] = 0
+    return out
+
+
 async def encode_picture_checked(encode: Callable[[], Any], ref: str | Path, out: str | Path,
                                  upto: int, what: str, crop_top_frac: float | None = None,
                                  ref_frames: np.ndarray | None = None,
-                                 tries: int = PICTURE_SYNC_TRIES, heartbeat=None) -> dict:
+                                 tries: int = PICTURE_SYNC_TRIES, heartbeat=None,
+                                 blank: list[tuple[int, int]] | None = None) -> dict:
     """Run encode() (writes out) until its picture matches ref frame for frame, up to tries."""
     if ref_frames is None:
         ref_frames = await grey_frames(ref, upto, crop_top_frac)
+    ref_frames = blank_frames(ref_frames, blank)
     log = []
     for attempt in range(1, tries + 1):
         await encode()
-        bad = misaligned_frames(ref_frames, await grey_frames(out, upto, crop_top_frac), upto)
+        bad = misaligned_frames(ref_frames, blank_frames(await grey_frames(out, upto, crop_top_frac), blank), upto)
         log.append({"attempt": attempt, "misaligned": len(bad), "frames": [list(b) for b in bad[:12]]})
         if heartbeat:
             heartbeat({"stage": "picture_sync", "what": what, "attempt": attempt, "misaligned": len(bad)})
         if not bad:
-            return {"what": what, "checked_frames": int(upto), "attempts": log}
+            return {"what": what, "checked_frames": int(upto), "attempts": log,
+                    **({"skipped_card_frames": [list(b) for b in blank]} if blank else {})}
     raise PictureSyncError(f"GAP-60: {what} picture is out of step with the mute assembly after "
                            f"{tries} encodes (frame, shows): {log[-1]['frames']}")
 
@@ -1320,6 +1408,90 @@ async def overlay_logo(mute: str, logo: dict, total_s: float, out: str, master: 
                    *cfr_args(rate, frames), "-t", f"{total_s:.4f}", out], "logo overlay")
 
 
+async def draw_text_cards(src: str, plan: dict, windows: dict[str, tuple[float, float]], total_s: float,
+                          out: str, cwd: str, frames: int | None = None) -> dict[str, dict]:
+    """Title / end card drawn into the picture with plain drawtext: centred white lines on a
+    translucent black box, alpha fades at the inner edge. Each line is its own drawtext reading a
+    text file in cwd (expansion=none), so no character of the text needs filter escaping. Uses the
+    fontconfig default sans font, like the subtitles."""
+    info = await probe(src)
+    v = next(s for s in info.get("streams", []) if s.get("codec_type") == "video")
+    w, h = int(v["width"]), int(v["height"])
+    rate = video_rate(info)
+    if frames is None:
+        frames = await count_frames(src)
+    filters, layout = [], {}
+    for kind, (t0, t1) in windows.items():
+        card = plan[kind]
+        lines, size = text_card_layout(card["text"], w, h)
+        line_h, border = round(size * 1.55), max(2, round(size * 0.18))
+        top = (h - line_h * len(lines)) / 2
+        band = [round(max(0.0, top - border) / h, 5), round(min(h, top + line_h * len(lines) + border) / h, 5)]
+        fade = card["fade_s"]
+        if fade <= 0:
+            alpha = "1"
+        elif kind == "title_card":
+            alpha = f"max(0,min(1,({t1:.4f}-t)/{fade:.4f}))"
+        else:
+            alpha = f"max(0,min(1,(t-{t0:.4f})/{fade:.4f}))"
+        for i, line in enumerate(lines):
+            name = f"{kind}_{i}.txt"
+            (Path(cwd) / name).write_text(line, encoding="utf-8")
+            filters.append(
+                f"drawtext=textfile={name}:expansion=none:font=Sans:fontsize={size}:fontcolor=white:"
+                f"box=1:boxcolor=black@{TEXT_CARD_BOX_ALPHA}:boxborderw={border}:"
+                f"x=(w-text_w)/2:y=(h-{line_h * len(lines)})/2+{i * line_h}+({line_h}-text_h)/2:"
+                f"alpha='{alpha}':enable='between(t,{t0:.4f},{t1:.4f})'")
+        layout[kind] = {"text": card["text"], "lines": lines, "fontsize": size, "start_s": t0, "end_s": t1,
+                        "fade_s": fade, "band": band}
+    master = plan["master"]
+    await run_cmd(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", src, "-vf", ",".join([*filters, "format=yuv420p"]),
+                   "-an", "-c:v", "libx264", "-preset", str(master["preset"]), "-crf", str(master["crf"]),
+                   "-pix_fmt", "yuv420p", *cfr_args(rate, frames), "-t", f"{total_s:.4f}", out],
+                   "text cards", cwd=cwd)
+    return layout
+
+
+async def card_band_frames(path: str | Path, indices: list[int], band: list[float],
+                           size: tuple[int, int]) -> np.ndarray:
+    """Grey frames (these indices) of the horizontal band a text card is drawn in, scaled to size
+    (w, h) so deliverables of any resolution compare with the mute assembly. -reinit_filter 0: select
+    counts frames from the start of the file even where the colour properties change (a mute picture
+    the assembler did not make, e.g. hfvg mix --mute), which makes ffmpeg 7.0+ rebuild its filters."""
+    sel = "+".join(f"eq(n,{i})" for i in sorted(set(indices)))
+    y0, y1 = band
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-v", "error", "-reinit_filter", "0", "-i", str(path), "-map", "0:v:0", "-vf",
+        f"select='{sel}',crop=iw:ih*{y1 - y0:.5f}:0:ih*{y0:.5f},scale={size[0]}:{size[1]},format=gray",
+        "-fps_mode", "passthrough", "-f", "rawvideo", "-", stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE)
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        raise PictureSyncError(f"cannot decode {path} for the text card check: {err.decode()[-300:]}")
+    return np.frombuffer(out, np.uint8).reshape(-1, size[1], size[0])
+
+
+def card_changed_fraction(pic: np.ndarray, ref: np.ndarray) -> float:
+    """Smallest per-frame share of band pixels that differ by more than TEXT_CARD_PIXEL_DIFF grey
+    levels (drawn text / box) from the mute assembly; codec noise stays far below that."""
+    if len(pic) != len(ref) or not len(ref):
+        return 0.0
+    return min(float((np.abs(p.astype(np.int16) - r) > TEXT_CARD_PIXEL_DIFF).mean()) for p, r in zip(pic, ref))
+
+
+def text_card_check_frames(card: dict, fps: float, frames: int) -> list[int]:
+    """Up to three frames where the card is fully faded in (QC compares them with the mute assembly)."""
+    t0, t1, fade = card["start_s"], card["end_s"], card.get("fade_s", 0.0)
+    if card["start_s"] <= 0:
+        a, b = 0, math.floor((t1 - fade) * fps) - 1
+    else:
+        a, b = math.ceil((t0 + fade) * fps) + 1, frames - 1
+    a, b = max(0, a), min(frames - 1, b)
+    if b < a:
+        a = b = min(frames - 1, max(0, round((t0 + t1) / 2 * fps)))
+    return sorted({a, (a + b) // 2, b})
+
+
 async def final_mix(stems: dict[str, str], total_s: float, out_wav: str) -> None:
     """Sum stems (VO trimmed), makeup gain and master true-peak limiter (reference chain)."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
@@ -1367,20 +1539,38 @@ def _ass_filter(ass: str, fonts_dir: str | None) -> str:
     return f
 
 
+def subtitle_settings(subs: dict, width: int, height: int) -> tuple[dict, tuple[int, int]]:
+    """The plan's subtitle settings for a picture of this size and the ASS canvas they are in. A
+    landscape / square picture whose plan kept a 9:16 default (DEFAULT_SUBTITLES fontsize,
+    margin_v, max_line_chars) gets the readable value of its aspect (hfvg.aspect.SUBTITLE_STYLE)."""
+    style = aspect.subtitle_style(width, height)
+    if style["aspect"] == aspect.PORTRAIT:
+        return subs, style["play_res"]
+    tuned = dict(subs)
+    for key in ("fontsize", "margin_v", "max_line_chars"):
+        if subs.get(key) == DEFAULT_SUBTITLES[key]:
+            tuned[key] = style[key]
+    return tuned, style["play_res"]
+
+
 async def mix_and_deliver(
     episode_id: str, mute_path: str, plan: dict, *, root: Path | None = None,
     picture_duration: float | None = None, heartbeat: Heartbeat = _noop,
+    canvas_aspect: str | None = None,
 ) -> dict:
     """Build the full delivery from a mute picture and resolved plan (every input path on disk).
 
     Returns the manifest. Outputs land atomically under {episode}/delivery/; an existing
-    delivery with the same content-hash input key is reused as-is."""
+    delivery with the same content-hash input key is reused as-is. canvas_aspect (the episode
+    canvas, hfvg.aspect; None = not stated) is recorded for delivery QC, which then requires the
+    picture to have that shape; the deliverables keep the picture's size."""
     paths = delivery_paths(episode_id, root)
     mute = Path(mute_path)
     if not mute.is_file():
         raise AudioInputError(f"mute picture not found: {mute}")
     total_s = picture_duration or await probe_duration(mute)
     heartbeat({"stage": "inputs", "picture_s": total_s})
+    card_windows = text_card_windows(plan, total_s)
 
     lines = plan["vo"]["lines"]
     inputs: list[str] = [ln["path"] for ln in lines]
@@ -1406,8 +1596,15 @@ async def mix_and_deliver(
         n = int(round(total_s * SR))
         # GAP-55: every picture deliverable must carry exactly the mute assembly's frames at CFR.
         src_frames = await count_frames(mute)
-        src_rate = video_rate(await probe(mute))
+        mute_info = await probe(mute)
+        src_rate = video_rate(mute_info)
         cfr = cfr_args(src_rate, src_frames)
+        mute_v = next((s for s in mute_info.get("streams", []) if s.get("codec_type") == "video"), {})
+        pic_w, pic_h = int(mute_v.get("width") or 0), int(mute_v.get("height") or 0)
+        pw, ph = plan["phone"].get("width"), plan["phone"].get("height")
+        if pw and pic_w and pic_h and abs(pw * pic_h - ph * pic_w) > 0.01 * ph * pic_w:
+            raise AudioInputError(f"phone size {pw}x{ph} is not the shape of the {pic_w}x{pic_h} picture "
+                                  f"(the phone file would be stretched); drop phone width/height or match the picture")
         logo_info = None
         # GAP-60: every re-encoded picture is checked frame by frame against the mute assembly
         # (frames before the logo window; subtitle area cropped off for the burned encodes).
@@ -1467,6 +1664,31 @@ async def mix_and_deliver(
                 heartbeat=heartbeat))
             logo_info = {**plan["logo"], "start_s": start,
                          "hold_s": round(total_s - start - plan["logo"]["fade_in_s"], 4)}
+            mute = Path(pic)
+        cards_info: dict[str, dict] = {}
+        card_blank: list[tuple[int, int]] = []
+        if card_windows:
+            heartbeat({"stage": "text_cards", "cards": sorted(card_windows)})
+            fps_f = float(Fraction(src_rate))
+            frame_windows = {k: text_card_frames(w, fps_f, src_frames) for k, w in card_windows.items()}
+            card_blank = sorted(frame_windows.values())
+            pic = str(work / "picture_cards.mp4")
+            if sync_ref_full is None:
+                sync_ref_full = await grey_frames(ref_mute, sync_upto)
+            card_src = str(mute)
+
+            async def cards_counted() -> None:
+                cards_info.update(await draw_text_cards(card_src, plan, card_windows, total_s, pic, str(work),
+                                                        frames=src_frames))
+                got = await count_frames(pic)
+                if got != src_frames:
+                    raise RuntimeError(f"text card frame count {got} != mute assembly {src_frames} (GAP-55)")
+
+            picture_sync.append(await encode_picture_checked(
+                cards_counted, ref_mute, pic, sync_upto, "picture_cards", ref_frames=sync_ref_full,
+                heartbeat=heartbeat, blank=card_blank))
+            for kind, fw in frame_windows.items():
+                cards_info[kind]["frames"] = list(fw)
             mute = Path(pic)
         heartbeat({"stage": "vo_bus", "lines": len(placed)})
         vo_wav = str(work / "vo.wav")
@@ -1551,11 +1773,11 @@ async def mix_and_deliver(
         mix_wav = str(work / "mix.wav")
 
         # ---- subtitles
-        subs = plan["subtitles"]
+        subs, play_res = subtitle_settings(plan["subtitles"], pic_w, pic_h)
         cues = build_cues(placed, int(subs["max_line_chars"]))
         ass = str(work / Path(paths["ass"]).name)
         srt = str(work / Path(paths["srt"]).name)
-        write_ass(cues, ass, subs)
+        write_ass(cues, ass, subs, play_res)
         write_srt(cues, srt)
         burn = bool(subs.get("burn", True)) and bool(cues)
 
@@ -1585,7 +1807,7 @@ async def mix_and_deliver(
                            "-b:a", akbps, "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart",
                            master], "burn subtitles", cwd=str(work)),
                 ref_mute, master, sync_upto, "subs", crop_top_frac=PICTURE_SYNC_SUBS_CROP,
-                ref_frames=sync_ref_top, heartbeat=heartbeat))
+                ref_frames=sync_ref_top, heartbeat=heartbeat, blank=card_blank))
 
         heartbeat({"stage": "phone_encode"})
         phone_cfg = {**plan["phone"], "cfr": cfr}  # GAP-55
@@ -1601,7 +1823,7 @@ async def mix_and_deliver(
                 lambda: encode_phone(str(mute), phone_pcm, ass if burn else None, phone, total_s, kb, phone_cfg,
                                      str(work), subs.get("fonts_dir")),
                 ref_mute, phone, sync_upto, f"phone@{kb}k", crop_top_frac=PICTURE_SYNC_SUBS_CROP,
-                ref_frames=sync_ref_top, heartbeat=heartbeat))
+                ref_frames=sync_ref_top, heartbeat=heartbeat, blank=card_blank))
 
         await phone_checked(kbps)
         size = Path(phone).stat().st_size
@@ -1631,12 +1853,16 @@ async def mix_and_deliver(
             "episode_id": episode_id, "version": DELIVERY_VERSION, "dry_run": False, "input_key": key,
             "mute_path": str(mute), "picture_duration_s": round(total_s, 4),
             "source_mute_path": str(mute_path), "picture_frames": src_frames, "picture_fps": src_rate,
+            "picture_width": pic_w, "picture_height": pic_h, "canvas_aspect": canvas_aspect,
+            "subtitle_style": {"play_res": list(play_res), **{k: subs[k] for k in ("fontsize", "margin_v",
+                                                                                   "max_line_chars")}},
             "inputs": {p: h for p, h in hashes.items()},
             "vo_lines": [{**{k: ln[k] for k in ("id", "at", "dur", "gain_db", "path")},
                           "atempo": ln.get("atempo"), "source_path": ln.get("source_path", ln["path"]),
                           "subtitle_dur": ln.get("subtitle_dur"), "speech_end_s": ln.get("speech_end_s")}
                          for ln in placed],
             "logo": logo_info,
+            "title_card": cards_info.get("title_card"), "end_card": cards_info.get("end_card"),
             "placement": placement, "min_vo_gap_s": plan["min_vo_gap_s"],
             "music": music_info, "sfx": sfx_info, "bed_dips": dips,
             "loudness_target": plan["loudness"], "loudnorm": ln_info, "mix_loudness": mix_meas,
@@ -1661,9 +1887,40 @@ async def mix_and_deliver(
 # ---------------------------------------------------------------------------- delivery QC
 
 
+async def _text_card_checks(manifest: dict, plan: dict, want: list[str], add: Callable[..., None]) -> None:
+    """Every card the plan asks for must be in the manifest and visibly drawn into each picture
+    deliverable (its band differs from the mute assembly while the card is fully faded in)."""
+    outs = manifest.get("outputs") or {}
+    src = manifest.get("source_mute_path")
+    for kind in TEXT_CARD_KINDS:
+        card = manifest.get(kind)
+        if not card and not plan.get(kind):
+            continue
+        if not card or not card.get("band"):
+            add(f"{kind}_drawn", False, None, "card in the delivery manifest")
+            continue
+        if not src or not Path(src).is_file():
+            add(f"{kind}_drawn", False, None, "mute assembly on disk to compare", src)
+            continue
+        frames = int(manifest.get("picture_frames") or 0)
+        idx = text_card_check_frames(card, float(Fraction(manifest.get("picture_fps") or "24/1")), frames)
+        y0, y1 = card["band"]
+        w = max(16, int(manifest.get("picture_width") or 1080) // 4 // 2 * 2)
+        size = (w, max(2, int(round((y1 - y0) * int(manifest.get("picture_height") or 1920) / 4)) // 2 * 2))
+        ref = await card_band_frames(src, idx, card["band"], size)
+        for name in want:
+            path = (outs.get(name) or {}).get("path")
+            if not path or not Path(path).is_file():
+                continue
+            changed = card_changed_fraction(await card_band_frames(path, idx, card["band"], size), ref)
+            add(f"{name}_{kind}_drawn", changed >= TEXT_CARD_MIN_CHANGED, round(changed, 4),
+                f">={TEXT_CARD_MIN_CHANGED} of the card band changed", path)
+
+
 async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None = None) -> dict:
-    """Measure the delivered files: streams, duration vs picture, loudness tolerance, true-peak
-    ceiling, subtitle cues, VO gap and phone size. Verdict PASS or FAIL (blocking)."""
+    """Measure the delivered files: streams, picture size and shape vs the episode canvas, duration
+    vs picture, loudness tolerance, true-peak ceiling, subtitle cues, VO gap and phone size.
+    Verdict PASS or FAIL (blocking)."""
     loud = plan["loudness"]
     pic = float(picture_duration or manifest["picture_duration_s"])
     checks: list[dict] = []
@@ -1692,6 +1949,10 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
             want_frames = int(round(pic * float(num) / float(den or 1)))
         frames = await count_frames(path) if v else 0
         add(f"{name}_frame_count", frames == int(want_frames), frames, int(want_frames), path)
+        if manifest.get("picture_width") and v and not (name == "phone" and (manifest.get("phone") or {}).get("width")):
+            dims = f"{v[0].get('width')}x{v[0].get('height')}"
+            want_dims = f"{manifest['picture_width']}x{manifest['picture_height']}"
+            add(f"{name}_dims", dims == want_dims, dims, want_dims, path)
         dur = float(info.get("format", {}).get("duration") or 0.0)
         add(f"{name}_duration", abs(dur - pic) <= DURATION_TOLERANCE_S, round(dur, 3),
             f"{pic:.3f}+-{DURATION_TOLERANCE_S}", path)
@@ -1724,12 +1985,17 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
         add("subtitle_timing", bool(found) and dev <= CUE_TOLERANCE_S, round(dev, 3), CUE_TOLERANCE_S, ass)
         add("subtitle_max_two_lines", all(n <= 2 for _, _, n in found), max((n for *_, n in found), default=0),
             2, ass)
+    if manifest.get("picture_width") and manifest.get("canvas_aspect"):
+        shape = aspect.aspect_of_size(manifest["picture_width"], manifest["picture_height"])
+        add("picture_aspect", shape == manifest["canvas_aspect"], shape, manifest["canvas_aspect"],
+            manifest.get("mute_path"))
     gap = (manifest.get("placement") or {}).get("min_gap_s")
     if gap is not None:
         add("vo_min_gap", gap >= plan["min_vo_gap_s"] - 1e-6, gap, plan["min_vo_gap_s"])
     logo_m, logo_p = manifest.get("logo") or {}, plan.get("logo") or {}
     if logo_p.get("min_hold_s") is not None and logo_m.get("hold_s") is not None:
         add("logo_hold", logo_m["hold_s"] >= logo_p["min_hold_s"] - 1e-6, logo_m["hold_s"], logo_p["min_hold_s"])
+    await _text_card_checks(manifest, plan, want, add)
     failed = [c for c in checks if not c["ok"]]
     verdict = "FAIL" if failed else "PASS"
     return {"verdict": verdict, "blocking": verdict in ("FAIL", "NEEDS_REVIEW"), "checks": checks,

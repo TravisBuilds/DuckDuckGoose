@@ -146,11 +146,22 @@ async def approve_g108_activity(episode_id: str) -> None:
     
     G1 approval implies credit plan approval (they're presented together),
     so this is called automatically when G1 is approved.
+
+    The workflow calls it in live runs only, before the first paid ref or still, so the audio plan's
+    voices are checked again here: a plan whose voice-over lines cannot be spoken stops the run now
+    (non-retryable VoiceCheckFailed) instead of at the voice-over after the stills and clips are paid.
     
     Args:
         episode_id: Episode identifier
     """
+    from temporalio.exceptions import ApplicationError
     from hfvg.studio_db import approve_g108
+    from hfvg.voice_check import audio_plan_voice_problems
+
+    problems = audio_plan_voice_problems(episode_id, live=True)
+    if problems:
+        raise ApplicationError(f"Refusing to spend on {episode_id}: {'; '.join(problems)}",
+                               type="VoiceCheckFailed", non_retryable=True)
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     await approve_g108(db_path, episode_id, user="workflow")

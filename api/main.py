@@ -58,6 +58,7 @@ from hfvg.genre_presets import DRAFT_MAX_S, DRAFT_MIN_S
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+from hfvg.voice_check import audio_plan_voice_problems, plan_voice_problems
 
 # Get ADMIN_SECRET - can be overridden in tests
 def get_admin_secret() -> str:
@@ -428,6 +429,11 @@ async def require_admin_auth(
     endpoint = getattr(route, "endpoint", None) if route else None
     allow_members = getattr(endpoint, "allow_members", False) if endpoint else False
     await verify_auth_unified(authorization, studio_admin_token, require_admin=not allow_members)
+    # A member's write to an episode named in the path: only its owner (or an admin). Routes with the
+    # episode id in the form or body (upload, start) check it themselves.
+    if (allow_members and method != "GET" and "episode_id" in request.path_params
+            and not getattr(endpoint, "read_only", False)):
+        await require_episode_owner(request.path_params["episode_id"], authorization, studio_admin_token)
 
 
 logger = logging.getLogger(__name__)
@@ -681,6 +687,75 @@ async def verify_auth_unified(
         status_code=401,
         detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
     )
+
+
+# ---------------------------------------------------------------- episode ownership
+# The owner of an episode is episodes.user_id: the session user who created its row (the BEATMAP
+# upload, the wizard's first upload, a start or a start again). Members change, approve and start
+# again only their own episodes; admins (admin session, Bearer ADMIN_SECRET) any. Episodes without an
+# owner (no row yet, rows from before owners were recorded, rows created with a Bearer token: NULL or
+# 'legacy/shared') keep the old rule: any member (and the UPLOAD_TOKEN) may change them. Reads are not
+# checked here; they follow the existing visibility rules. docs/AUTHENTICATION.md has the table.
+
+async def _studio_row(sql: str, params: tuple) -> tuple | None:
+    """One row of the studio DB; None when the table does not exist yet (503 on other DB errors)."""
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            return await (await db.execute(sql, params)).fetchone()
+    except aiosqlite.OperationalError as e:
+        if "no such table" in str(e):
+            return None
+        raise HTTPException(status_code=503, detail=f"studio database error: {e}")
+
+
+async def _episode_actor(authorization: str | None, studio_admin_token: str | None) -> tuple[str | None, bool]:
+    """(user id, is admin) of the caller. A valid session cookie decides, as in verify_auth_unified;
+    without one only the Bearer ADMIN_SECRET is an admin. The UPLOAD_TOKEN is member-level and names
+    no user, so it (like any other credential) changes only episodes without an owner."""
+    if studio_admin_token:
+        role = await get_session_role(studio_admin_token)
+        if role:
+            return await get_user_id_from_session(studio_admin_token), role == "admin"
+    try:
+        verify_admin_secret(authorization)
+    except (HTTPException, ValueError):
+        return None, False
+    return None, True
+
+
+async def episode_owner(episode_id: str) -> str | None:
+    """The user id that owns the episode, None when it has no owner."""
+    from hfvg.users import LEGACY_USER_ID
+    row = await _studio_row("SELECT user_id FROM episodes WHERE episode_id = ?",
+                            (episode_workflow_id(episode_id),))
+    owner = row[0] if row else None
+    return None if owner in (None, "", LEGACY_USER_ID) else owner
+
+
+async def require_episode_owner(episode_id: str, authorization: str | None,
+                                studio_admin_token: str | None) -> None:
+    """403 unless the caller may change the episode: an admin, its owner, or anyone while it has none."""
+    user_id, is_admin = await _episode_actor(authorization, studio_admin_token)
+    if is_admin:
+        return
+    owner = await episode_owner(episode_id)
+    if owner is not None and owner != user_id:
+        raise HTTPException(status_code=403, detail=(
+            f"Episode {episode_id} belongs to another member; only its owner or an admin can change it"))
+
+
+async def record_new_episode(episode_id: str, beatmap_path: str | None, studio_admin_token: str | None) -> None:
+    """The episode's row with the session user as its owner (none for a Bearer token). INSERT OR
+    IGNORE: an existing row keeps its owner. A studio DB without tables (DATABASE_PATH=":memory:")
+    has no owners to keep and records nothing; other DB errors answer 503."""
+    import aiosqlite
+    user_id = await get_user_id_from_session(studio_admin_token) if studio_admin_token else None
+    try:
+        await create_episode(DATABASE_PATH, episode_id, beatmap_path, user_id=user_id)
+    except aiosqlite.OperationalError as e:
+        if "no such table" not in str(e):
+            raise HTTPException(status_code=503, detail=f"studio database error: {e}")
 
 
 # Request/Response models
@@ -1145,9 +1220,10 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Auth handled by middleware (no additional check needed here)
+    # Auth handled by middleware; the episode id comes in the form, so ownership is checked here
     
     validate_episode_id(episode_id)
+    await require_episode_owner(episode_id, request.headers.get("authorization"), studio_admin_token)
     
     # Return 409 while workflow is running (fail closed: 503 on Temporal errors)
     if not temporal_client:
@@ -1156,9 +1232,8 @@ async def upload_beatmap(
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         desc = await handle.describe()
-        # Check if workflow exists and is running
-        from temporalio.client import WorkflowExecutionStatus
-        if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+        # The workflow exists: refused until its run has ended, as for the other episode files
+        if not _run_ended(desc.status):
             raise HTTPException(
                 status_code=409,
                 detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
@@ -1334,6 +1409,59 @@ async def upload_beatmap(
 upload_beatmap.allow_members = True
 
 
+async def _open_episode_run(episode_id: str) -> dict | None:
+    """The episode's open workflow run as {"run_id", "reopened", "live"}, None when no run is open.
+
+    An episode without a DB row has never run (a run records its row before anything is generated).
+    Otherwise Temporal decides: the run is open until Temporal reports it ended (_run_ended, the
+    statuses of the ended-run 409). Its reopen_snapshot says whether it is a reopened run (GAP-41 /
+    GAP-79: its own entry ends its reopen_log) and whether it is live. Fails closed: 503 when Temporal
+    cannot answer, and a run that cannot answer the query counts as live and not reopened. Without a
+    Temporal client (tests and tools; the API's startup connects or fails) a held run lock refuses.
+    """
+    from temporalio.service import RPCError, RPCStatusCode
+    if not await _studio_row("SELECT 1 FROM episodes WHERE episode_id = ?", (episode_id,)):
+        return None
+    if not temporal_client:
+        if await _studio_row("SELECT 1 FROM run_locks WHERE episode_id = ?", (episode_id,)):
+            raise HTTPException(status_code=503, detail=(
+                f"{episode_id} holds the run lock and Temporal is not connected to check its run"))
+        return None
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+    try:
+        desc = await handle.describe()
+    except Exception as e:
+        if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
+            raise HTTPException(status_code=503, detail=f"Temporal error: {e}")
+        return None
+    if _run_ended(desc.status):
+        return None
+    try:
+        snapshot = await temporal_client.get_workflow_handle(handle.id, run_id=desc.run_id).query("reopen_snapshot")
+        attrs = snapshot["attrs"]
+    except Exception:
+        attrs = {}
+    log = attrs.get("reopen_log") or []
+    return {"run_id": desc.run_id, "reopened": bool(log) and log[-1].get("run_id") == desc.run_id,
+            "live": not attrs.get("_dry_run", False)}
+
+
+async def _refuse_upload_during_run(episode_id: str, reopened_ok: bool = False) -> dict | None:
+    """409 while the episode has an open run (unless reopened_ok and the run is a reopened one): the
+    run already validated and is using these files. Returns the open run, if any."""
+    run = await _open_episode_run(episode_id)
+    if run and not (reopened_ok and run["reopened"]):
+        raise HTTPException(status_code=409, detail=(
+            f"Episode {episode_id} has a run in progress (run {run['run_id']}); its files cannot change "
+            f"until the run ends{' or the episode is reopened at the final cut' if reopened_ok else ''}"))
+    return run
+
+
+def _start_refused_during_run(episode_id: str, run_id: str | None) -> str:
+    return (f"Episode {episode_id} has a run in progress{f' (run {run_id})' if run_id else ''}; "
+            "it cannot be started again until that run ends")
+
+
 @app.post("/api/episodes/{episode_id}/upload-prompt-kit")
 async def upload_prompt_kit(
     episode_id: str,
@@ -1353,9 +1481,11 @@ async def upload_prompt_kit(
     - sets: Map of set IDs to descriptions
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
+    Refused (409) while the episode has a run in progress.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_upload_during_run(episode_id)
     
     # Create episode directory
     episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
@@ -1405,9 +1535,12 @@ async def upload_shots(
     Stored in data/episodes/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
+    Refused (409) while the episode has a run in progress, reopened or not: recompose and clip
+    retries read these files for paid generation.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_upload_during_run(episode_id)
     from hfvg.shot_data import ShotDataError, parse_shots
 
     shots_bytes = await shots_file.read()
@@ -1470,9 +1603,14 @@ async def upload_audio_plan(
     Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
     Validated with the delivery loader's own schema (hfvg.audio_mix.normalize_plan) and stored at
     data/episodes/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
+
+    Refused (409) while the episode has a run in progress, unless the run is a reopened one parked at
+    the final cut (its delivery is rebuilt from the new plan); then every voice-over line must have a
+    voice the run can use (400 otherwise), as at the start.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    run = await _refuse_upload_during_run(episode_id, reopened_ok=True)
     from hfvg import audio_mix
     from hfvg.activities.audio import default_voice_id
 
@@ -1484,6 +1622,10 @@ async def upload_audio_plan(
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     except (audio_mix.AudioInputError, AttributeError, KeyError, TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid audio plan: {e}")
+    voice_problems = plan_voice_problems(plan, live=run["live"]) if run else []
+    if voice_problems:
+        raise HTTPException(status_code=400, detail=(
+            f"Refusing the audio plan of reopened {episode_id}: {'; '.join(voice_problems)}"))
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_bytes(content)
     return {
@@ -1512,42 +1654,6 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
-
-
-def audio_plan_voice_problems(episode_id: str, live: bool) -> list[str]:
-    """Voice-over lines of the uploaded audio plan with no voice to speak them (empty = OK or no plan).
-
-    A line is spoken by its own or its speaker's voice, else the plan's voice_id, else
-    ELEVENLABS_DEFAULT_VOICE_ID. In a live run a dry-run placeholder voice (hfvg.voice_picker) is no voice.
-    """
-    from hfvg import audio_mix
-    from hfvg.activities.audio import default_voice_id
-    from hfvg.voice_picker import is_fake_voice_id
-
-    path = audio_mix.audio_plan_path(episode_id)
-    if not path.is_file():
-        return []
-    try:
-        plan = audio_mix.load_plan_file(path)
-    except audio_mix.AudioInputError:
-        return []  # the delivery stage reports an unreadable plan (load_audio_plan)
-
-    def usable(voice_id: str | None) -> str:
-        return "" if live and is_fake_voice_id(voice_id) else (voice_id or "")
-
-    vo = plan.get("vo") or {}
-    checked = {"vo": {**vo, "voice_id": usable(vo.get("voice_id")),
-                      "lines": [{**ln, "voice_id": usable(ln.get("voice_id"))} for ln in vo.get("lines") or []]}}
-    missing = audio_mix.vo_lines_missing_voice(checked, usable(default_voice_id()))
-    if not missing:
-        return []
-    placeholder = live and any(is_fake_voice_id(v) for v in
-                               [vo.get("voice_id"), *[ln.get("voice_id") for ln in vo.get("lines") or []]])
-    return [
-        f"no voice chosen for the voice-over lines {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}"
-        f"{' (dry-run preview voices cannot speak in a live run)' if placeholder else ''}. "
-        "Describe the voice on the create page and pick one, or set ELEVENLABS_DEFAULT_VOICE_ID"
-    ]
 
 
 @app.get("/api/episodes")
@@ -1593,16 +1699,23 @@ async def start_episode(
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret OR session cookie (member or admin).
+    Requires: Authorization header with admin secret OR session cookie (member or admin); a member
+    starts only an episode of their own or one without an owner. A new episode (no DB row yet) is
+    recorded with the session user as its owner. Refused (409) while the episode has a run in
+    progress, before its beatmap or row is touched.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
+    await require_episode_owner(request.episode_id, authorization, studio_admin_token)
     
     # Initialize studio DB if not exists
     await init_studio_db(DATABASE_PATH)
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    run = await _open_episode_run(request.episode_id)
+    if run:
+        raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, run["run_id"]))
     
     # Save beatmap content if provided
     beatmap_path: str | None = None
@@ -1660,6 +1773,8 @@ async def start_episode(
                        "target_duration_s": target_duration, "preset": profile}
 
     # Start workflow
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Stable workflow ID for approve route to find
@@ -1668,12 +1783,17 @@ async def start_episode(
     args = [request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping]
     if genre_brief is not None:
         args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
-    handle = await temporal_client.start_workflow(
-        EpisodeWorkflowV2.run,
-        args=args,
-        id=workflow_id,
-        task_queue="hfvg-tasks",
-    )
+    # only a new episode gets an owner here; the run's upsert keeps it
+    await record_new_episode(request.episode_id, beatmap_path, studio_admin_token)
+    try:
+        handle = await temporal_client.start_workflow(
+            EpisodeWorkflowV2.run,
+            args=args,
+            id=workflow_id,
+            task_queue="hfvg-tasks",
+        )
+    except WorkflowAlreadyStartedError as e:  # Temporal's own check: an open run the one above did not see
+        raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, e.run_id)) from e
     
     return StartEpisodeResponse(
         workflow_id=handle.id,
@@ -1764,6 +1884,13 @@ get_episode_state.allow_members = True
 _RUN_OUTCOMES = {"FAILED": "failed", "TERMINATED": "terminated", "CANCELED": "canceled",
                  "TIMED_OUT": "timed out", "COMPLETED": "completed"}
 _ENDED_RUNS: dict[str, tuple[dict, list | None]] = {}  # run_id -> (run view, start inputs); never changes
+
+
+def _run_ended(status) -> bool:
+    """Temporal reports the run as ended (_RUN_OUTCOMES). The upload routes refuse new files for every
+    other status, an unknown one included, so a run whose files are refused is never one whose actions
+    get the ended-run 409, and an ended run's files can be fixed before it is started again."""
+    return getattr(status, "name", None) in _RUN_OUTCOMES
 
 
 def _short_reason(text: str) -> str | None:
@@ -1868,7 +1995,8 @@ async def start_episode_again(
     canceled, timed out, or returned status "failed"), with the inputs that run was started with (same
     workflow id; the ended run stays in the history). Refused while a run is open, after a completed
     run (reopen it instead) and for a reopened run. POST /api/episodes's refusals apply to the files
-    as they are now."""
+    as they are now. A member starts only their own episodes again, or one without an owner (the
+    ownership check of require_admin_auth); the episode's row is recorded as on a start."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
@@ -1904,6 +2032,7 @@ async def start_episode_again(
     problems = uploaded_shots_problems(episode_id) + audio_plan_voice_problems(episode_id, live=not dry_run)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
+    await record_new_episode(episode_id, beatmap_path, studio_admin_token)
     try:
         new = await temporal_client.start_workflow(
             EpisodeWorkflowV2.run, args=inputs, id=episode_id, task_queue="hfvg-tasks",
@@ -4077,7 +4206,8 @@ async def reopen_episode(
     query, no spend) and starts a NEW run with the same workflow id that restores the state and parks at
     G_FINAL_CUT again (final cut un-approved). No generation is started; every later paid step goes
     through the normal recompose / retry_clip guards. Refused unless the run COMPLETED with its final
-    cut approved and nothing in flight."""
+    cut approved and nothing in flight, and while a voice-over line of the audio plan has no voice the
+    reopened run could use (a rebuilt delivery would fail at the voice-over after paid changes)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
@@ -4109,6 +4239,9 @@ async def reopen_episode(
     if problem:
         raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {problem}")
     attrs = snapshot["attrs"]
+    voice_problems = audio_plan_voice_problems(episode_id, live=not bool(attrs.get("_dry_run", True)))
+    if voice_problems:
+        raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {'; '.join(voice_problems)}")
     new = await temporal_client.start_workflow(
         _EW.run,
         args=[episode_id, attrs.get("_beatmap_path"), bool(attrs.get("_dry_run", True)), None, None, None,
@@ -4210,7 +4343,8 @@ async def reopen_episode_from_saved(
     """GAP-79: reopen an episode at G_FINAL_CUT when its Temporal history is gone. Refused (409) while
     ANY workflow with the episode id is known to the server (use /reopen for a closed run). The
     snapshot is the persisted one, else rebuilt from the saved artifacts + DB; either must pass the
-    GAP-41 reopen rules. No generation, no ledger change; the new run parks at G_FINAL_CUT."""
+    GAP-41 reopen rules and the audio plan's voices are checked as on /reopen. No generation, no
+    ledger change; the new run parks at G_FINAL_CUT."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
@@ -4278,6 +4412,9 @@ async def reopen_episode_from_saved(
     if problem:
         raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {problem}")
     attrs = snapshot["attrs"]
+    voice_problems = audio_plan_voice_problems(episode_id, live=not bool(attrs.get("_dry_run", True)))
+    if voice_problems:
+        raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {'; '.join(voice_problems)}")
     new = await temporal_client.start_workflow(
         _EW.run,
         args=[episode_id, attrs.get("_beatmap_path"), bool(attrs.get("_dry_run", True)), None, None, None,
@@ -5904,16 +6041,48 @@ class DraftFromIdeaResponse(BaseModel):
     audio_plan_json: dict | None = None  # hfvg.audio_mix.normalize_plan schema; the wizard adds the chosen voices
     voice_slots: list[dict] = Field(default_factory=list)  # voices the wizard asks for (hfvg.genre_drafts.voice_slots)
     default_voice_available: bool = False  # ELEVENLABS_DEFAULT_VOICE_ID voices lines nobody chose a voice for
+    title: str | None = None  # episode title, the opening title card's text
 
 
 DRAFT_PRESET_FIELDS = ("id", "name", "template", "story_structure", "aspect", "vo_mode", "music_mode", "music",
-                       "length_s", "default_length_s")
+                       "length_s", "default_length_s", "on_screen_text")
+
+
+def _draft_aspect(profile: dict) -> tuple[str, str | None]:
+    """(aspect the card's stills and clips are generated and delivered in, note for the wizard).
+
+    16:9 and 4:3 cards render at their own aspect; the rotated card and a still model that cannot
+    make the card's aspect render 9:16, with a note saying so."""
+    from hfvg import aspect
+    from hfvg.config import still_model_path
+    from hfvg.model_caps import UnknownModelError, get_registry
+
+    card = profile.get("aspect") or aspect.PORTRAIT
+    shot_aspect = aspect.generation_aspect(card)
+    shown = card.replace("_rotated_to_", " rotated to ")
+    if shot_aspect != card:
+        return shot_aspect, (f"{profile['name']} is designed for {shown}; the studio renders it 9:16, "
+                             f"so the shots are framed for 9:16.")
+    if shot_aspect == aspect.PORTRAIT:
+        return shot_aspect, None
+    model = still_model_path()
+    try:
+        allowed = get_registry().resolve(model).limit("aspect_ratios")
+    except UnknownModelError:
+        allowed = None
+    values = getattr(allowed, "value", None)
+    if isinstance(values, list) and shot_aspect not in values:
+        return aspect.PORTRAIT, (f"{profile['name']} is designed for {shown}, but the still model {model} "
+                                 f"cannot make {shown} images, so the shots are framed for 9:16.")
+    return shot_aspect, None
 
 
 def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None, target_duration: int,
                     beatmap_content: str, parsed_shots: list[dict], shots_data: dict, refs_data: dict,
-                    prompt_kit_data: dict, script: list[dict] | None, warnings: list[str]) -> DraftFromIdeaResponse:
-    """Validate the drafted files and add the card's audio plan and voice slots (LLM and test drafts alike)."""
+                    prompt_kit_data: dict, script: list[dict] | None, warnings: list[str],
+                    title: str | None = None) -> DraftFromIdeaResponse:
+    """Validate the drafted files and add the card's audio plan (with the card's subtitle / title
+    card / end card defaults) and voice slots (LLM and test drafts alike)."""
     import tempfile
 
     from hfvg import audio_mix, genre_drafts
@@ -5944,18 +6113,21 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
             detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
         )
 
+    shot_aspect, aspect_note = _draft_aspect(profile)
+    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}
+    shots_data = {**shots_data, "shots": [{**s, "aspect_ratio": shot_aspect} for s in shots_data["shots"]]}
+
     screen_times = [float(s["screen_time"]) for s in parsed_shots]
     audio_plan, audio_warnings = genre_drafts.build_audio_plan(profile, screen_times, script)
+    audio_plan = genre_drafts.apply_on_screen_text(audio_plan, profile, title, sum(screen_times))
     try:
         audio_mix.normalize_plan(audio_plan, Path(tempfile.gettempdir()))
     except audio_mix.AudioInputError as e:
         raise HTTPException(status_code=500, detail=f"Generated audio plan failed validation: {e}")
 
     warnings = list(warnings)
-    if profile["aspect"] != "9:16":
-        aspect = profile["aspect"].replace("_rotated_to_", " rotated to ")
-        warnings.append(f"{profile['name']} is designed for {aspect}; the studio renders 9:16 for now, "
-                        f"so the shots are framed for 9:16.")
+    if aspect_note:
+        warnings.append(aspect_note)
     planned = sum(screen_times)
     if abs(planned - target_duration) > max(5.0, 0.25 * target_duration):
         warnings.append(f"The plan runs {planned:g} seconds; you asked for {target_duration}.")
@@ -5975,6 +6147,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
         audio_plan_json=audio_plan,
         voice_slots=genre_drafts.voice_slots(audio_plan, profile),
         default_voice_available=bool(default_voice_id()),
+        title=title,
     )
 
 
@@ -5998,9 +6171,8 @@ async def draft_from_idea(
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.config import config
-    import tempfile
-    from hfvg import genre_drafts
-    from hfvg.episode_parser import parse_beatmap
+    from hfvg import draft_repair, genre_drafts
+    from hfvg.episode_parser import parse_beatmap_text
     from hfvg.genre_presets import FREEFORM_ID, clamp_length, resolve_profile
     
     # Check for test-only fake LLM mode (DRAFT_LLM_FAKE=1)
@@ -6070,20 +6242,22 @@ async def draft_from_idea(
     
     # Build prompt for LLM: freeform keeps the generic pacing, a card brings its own rules
     if profile["id"] == FREEFORM_ID:
-        per_shot_rule = "Screen/gen: both same value, 5-8 seconds per shot"
+        per_shot_rule = "Shot length: 5-8 seconds per shot"
         count_rule = f"Create {int(target_duration / 6)} to {int(target_duration / 5)} shots total"
         card_rules = ""
         card_line = ""
     else:
         lengths = genre_drafts.shot_lengths(profile, target_duration)
-        per_shot_rule = f"Screen/gen: both same value, whole seconds, {min(lengths)}-{max(lengths)} seconds per shot"
+        per_shot_rule = f"Shot length: {min(lengths)}-{max(lengths)} seconds per shot"
         count_rule = f"Create {len(lengths)} shots total; their durations add up to {target_duration}s"
         card_rules = f"\nVIDEO TYPE (follow it):\n{genre_drafts.llm_instructions(profile, target_duration)}\n"
         card_line = f"Video type: {profile['name']}"
-    script_key = '\n6. "audio_script": the voice-over script described under VIDEO TYPE' if voiced else ""
-    file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json" + (", audio_script" if voiced else "")
+    script_key = '\n7. "audio_script": the voice-over script described under VIDEO TYPE' if voiced else ""
+    file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json, title" + (", audio_script" if voiced else "")
     
     style_guidance = request.style_preset or "photorealistic, cinematic lighting"
+    shot_aspect, _ = _draft_aspect(profile)
+    framing = {"9:16": "vertical", "3:4": "vertical", "1:1": "square"}.get(shot_aspect, "landscape")
     
     content_policy_warning = """
 CONTENT POLICY (CRITICAL):
@@ -6104,7 +6278,8 @@ Generate these files in your response as a JSON object with these keys:
 2. "shots_json": shots.json content (structured shot data)
 3. "refs_json": refs.json content (per-shot reference images)
 4. "prompt_kit_json": prompt_kit.json content (style, characters, sets)
-5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created{script_key}
+5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
+6. "title": a short original episode title (2-6 words, no quotes, no named IP) for the opening title card{script_key}
 
 File format requirements:
 
@@ -6112,15 +6287,18 @@ BEATMAP.md - Shot planning table:
 ```
 # Episode {episode_id} Beatmap
 
-| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | S01 | 5.0 (5.0) | [location] | [time] | A | [action description] | [narrative purpose] | - | - | K |
+{draft_repair.TABLE_HEADER}
+{draft_repair.TABLE_SEPARATOR}
+{draft_repair.PROMPT_EXAMPLE_ROW}
 ```
 - Shot IDs: S01, S02, etc.
 - {per_shot_rule}
-- Model: K (Kling) for most shots
+{draft_repair.table_rules_text()}
+- Use K (Kling) for most shots
 - Chars: A, B, C for up to 3 main characters
 - {count_rule}
+- One row per shots_json shot, same ids and order; Screen (gen) holds that shot's duration
+- Every shot is framed {framing} ({shot_aspect}): compose the prompts for that frame
 
 shots.json:
 {{
@@ -6132,7 +6310,7 @@ shots.json:
       "characters": ["A"],
       "wet": false,
       "model": "kling",
-      "duration": 5,
+      "duration": 6,
       "end_frame": false,
       "ref_keys": []
     }}
@@ -6150,7 +6328,7 @@ refs.json:
 prompt_kit.json:
 {{
   "style": "{style_guidance}",
-  "aspect_ratio": "9:16",
+  "aspect_ratio": "{shot_aspect}",
   "characters": {{
     "A": {{"description": "[main character description]"}},
     "B": {{"description": "[second character if needed]"}}
@@ -6176,45 +6354,73 @@ Generate all the files ({file_keys}) as a single JSON response."""
     if use_fake_llm:
         logger.info(f"FAKE LLM: Returning canned draft data for episode {episode_id}")
         fake = genre_drafts.fake_draft(profile, request.idea, episode_id, target_duration, style_guidance)
-        with tempfile.TemporaryDirectory(prefix="draft_") as tmp:
-            fake_beatmap = Path(tmp) / "BEATMAP.md"
-            fake_beatmap.write_text(fake["beatmap_md"], encoding="utf-8")
-            parsed_shots = parse_beatmap(str(fake_beatmap))
+        parsed_shots = parse_beatmap_text(fake["beatmap_md"])
         return _draft_response(
             episode_id=episode_id, profile=profile, archetype_id=request.archetype_id,
             target_duration=target_duration, beatmap_content=fake["beatmap_md"], parsed_shots=parsed_shots,
             shots_data=fake["shots_json"], refs_data=fake["refs_json"], prompt_kit_data=fake["prompt_kit_json"],
             script=fake["audio_script"],
             warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)", *lead_warnings],
+            title=fake["title"],
         )
 
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-        
-        # Call OpenAI with structured output
+        log_ctx = {"episode_id": episode_id, "card": request.archetype_id, "target_s": target_duration}
+
+        def _json_object(content: str | None) -> dict | None:
+            try:
+                value = json.loads(content)
+            except (TypeError, ValueError):
+                return None
+            return value if isinstance(value, dict) else None
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
         response = await client.chat.completions.create(
             model=config.STORY_SHAPING_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.7,
             response_format={"type": "json_object"},
         )
-        
-        result = json.loads(response.choices[0].message.content)
-        
-        # Extract generated content
-        beatmap_content = result.get("beatmap_md", "")
-        shots_data = result.get("shots_json")
-        refs_data = result.get("refs_json")
-        prompt_kit_data = result.get("prompt_kit_json")
+        raw = response.choices[0].message.content
+        result = _json_object(raw) or {}
+
+        # A long draft can come back without some files (or cut off): ask again for just those
+        for attempt in range(1, draft_repair.MAX_FILE_RETRIES + 1):
+            if draft_repair.fill_refs(result):
+                draft_repair.log_problem("refs_json rebuilt", attempt=attempt, problem="refs_json missing", **log_ctx)
+            missing = draft_repair.missing_files(result)
+            if not missing:
+                break
+            draft_repair.log_problem("missing files", attempt=attempt, problem=", ".join(missing), **log_ctx)
+            retry = await client.chat.completions.create(
+                model=config.STORY_SHAPING_MODEL,
+                messages=[*messages, {"role": "assistant", "content": raw or ""},
+                          {"role": "user", "content": draft_repair.missing_files_prompt(missing)}],
+                temperature=0.7,
+                response_format={"type": "json_object"},
+            )
+            for key, value in (_json_object(retry.choices[0].message.content) or {}).items():
+                if not result.get(key):
+                    result[key] = value
+        draft_repair.fill_refs(result)
+        missing = draft_repair.missing_files(result)
+        if missing:
+            draft_repair.log_problem("missing files unrecovered", attempt=draft_repair.MAX_FILE_RETRIES,
+                                     problem=", ".join(missing), **log_ctx)
+            raise ValueError(f"LLM response missing required files ({', '.join(missing)}) after "
+                             f"{draft_repair.MAX_FILE_RETRIES} retries")
+
+        beatmap_content = result["beatmap_md"]
+        shots_data = result["shots_json"]
+        refs_data = result["refs_json"]
+        prompt_kit_data = result["prompt_kit_json"]
         ip_steering = result.get("ip_steering_note", "")
-        
-        if not all([beatmap_content, shots_data, refs_data, prompt_kit_data]):
-            raise ValueError("LLM response missing required files")
-        
+
         # Parse JSON strings if needed
         if isinstance(shots_data, str):
             shots_data = json.loads(shots_data)
@@ -6222,48 +6428,36 @@ Generate all the files ({file_keys}) as a single JSON response."""
             refs_data = json.loads(refs_data)
         if isinstance(prompt_kit_data, str):
             prompt_kit_data = json.loads(prompt_kit_data)
-        
-        # Validate beatmap
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
-            f.write(beatmap_content)
-            beatmap_temp = f.name
-        
-        try:
-            parsed_shots = parse_beatmap(beatmap_temp)
-            if not parsed_shots:
-                raise ValueError("Beatmap parsed but contains no shots")
-        except Exception as e:
-            # Retry once with a repair prompt
-            repair_prompt = f"""The generated beatmap failed validation: {str(e)}
 
-Original beatmap:
-{beatmap_content}
-
-Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing the corrected markdown."""
-            
+        # The table must parse and list the shots.json shots with their lengths; each repair is
+        # sent the exact problem of the previous table
+        parsed_shots, problem, row = draft_repair.check_beatmap(beatmap_content, shots_data)
+        attempt = 0
+        while problem and attempt < draft_repair.MAX_BEATMAP_REPAIRS:
+            attempt += 1
+            draft_repair.log_problem("beatmap", attempt=attempt, problem=problem, row=row, **log_ctx)
             repair_response = await client.chat.completions.create(
                 model=config.STORY_SHAPING_MODEL,
                 messages=[
                     {"role": "system", "content": "You fix invalid beatmap tables."},
-                    {"role": "user", "content": repair_prompt},
+                    {"role": "user", "content": draft_repair.repair_prompt(problem, beatmap_content, shots_data)},
                 ],
                 temperature=0.3,
                 response_format={"type": "json_object"},
             )
-            
-            repair_result = json.loads(repair_response.choices[0].message.content)
-            beatmap_content = repair_result.get("beatmap_md", beatmap_content)
-            
-            # Re-write and validate
-            with open(beatmap_temp, 'w', encoding='utf-8') as f:
-                f.write(beatmap_content)
-            
-            parsed_shots = parse_beatmap(beatmap_temp)
-            if not parsed_shots:
-                raise ValueError("Repaired beatmap still invalid")
-        finally:
-            Path(beatmap_temp).unlink(missing_ok=True)
-        
+            repaired = (_json_object(repair_response.choices[0].message.content) or {}).get("beatmap_md")
+            if isinstance(repaired, str) and repaired.strip():
+                beatmap_content = repaired
+            parsed_shots, problem, row = draft_repair.check_beatmap(beatmap_content, shots_data)
+        if problem:
+            draft_repair.log_problem("beatmap unrepaired", attempt=attempt, problem=problem, row=row, **log_ctx)
+            raise HTTPException(
+                status_code=500,
+                detail=(f"Draft generation failed: the shot table (BEATMAP) was still unreadable after "
+                        f"{draft_repair.MAX_BEATMAP_REPAIRS} repairs: {problem}. {draft_repair.format_help()}. "
+                        "Try again, or shorten or rephrase the idea."),
+            )
+
         warnings = []
         if ip_steering:
             warnings.append(f"Content policy note: {ip_steering}")
@@ -6274,6 +6468,7 @@ Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing t
             shots_data=shots_data, refs_data=refs_data, prompt_kit_data=prompt_kit_data,
             script=genre_drafts.script_from_llm(result) if voiced else None,
             warnings=warnings + lead_warnings,
+            title=genre_drafts.episode_title(result.get("title"), request.idea),
         )
         
     except Exception as e:
@@ -6399,6 +6594,7 @@ async def preflight_episode(
 
 # Mark preflight_episode to allow members
 preflight_episode.allow_members = True
+preflight_episode.read_only = True  # a POST that only reports: any member, as for reads
 
 def offline_cost_estimate(shots: list[dict], pre_approved: set[str] | None = None) -> dict:
     """Offline USD estimate for a shot list (no provider call): the per-call estimates the dry

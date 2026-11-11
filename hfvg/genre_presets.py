@@ -16,6 +16,8 @@ import yaml
 
 REGISTRY_PATH = Path(__file__).parent / "data" / "genre_presets.yaml"
 VALID_ASPECTS = ("9:16", "16:9", "4:3", "16:9_rotated_to_9:16")
+# What a card switches on in the create wizard by default, in this order (hfvg.genre_drafts.apply_on_screen_text)
+ON_SCREEN_TEXT = ("subtitles", "title_card", "end_card")
 
 # Bounds of any requested draft length; each card then clamps to its own length_s range.
 DRAFT_MIN_S = 10
@@ -39,6 +41,7 @@ FREEFORM_PROFILE: dict[str, Any] = {
     "vo_mode": "none",
     "music_mode": "optional",
     "music": "cinematic underscore",
+    "on_screen_text": [],
     "risk_flags": [],
     "gates_add": [],
     "ip_mode": "original_only",
@@ -175,6 +178,7 @@ class GenrePreset:
     music_mode: MusicMode = MusicMode.OPTIONAL
     video_prompt_mode: VideoPromptMode | None = None
     story_structure: StoryStructure | None = None
+    on_screen_text: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if len(self.length_s) != 2 or not all(isinstance(v, int) for v in self.length_s):
@@ -191,6 +195,9 @@ class GenrePreset:
                 f"Preset {self.id}: default_length_s {self.default_length_s} outside {self.length_s}")
         if self.aspect not in VALID_ASPECTS:
             raise ValueError(f"Preset {self.id}: invalid aspect ratio {self.aspect}")
+        if [v for v in ON_SCREEN_TEXT if v in self.on_screen_text] != list(self.on_screen_text):
+            raise ValueError(f"Preset {self.id}: on_screen_text {self.on_screen_text} must list each of "
+                             f"{', '.join(ON_SCREEN_TEXT)} at most once, in that order")
 
     def profile(self) -> dict[str, Any]:
         """JSON-safe snapshot of everything drafting, story shaping and audio need from the card."""
@@ -210,6 +217,7 @@ class GenrePreset:
             "vo_mode": self.vo_mode.value,
             "music_mode": self.music_mode.value,
             "music": self.music,
+            "on_screen_text": list(self.on_screen_text),
             "risk_flags": [f.value for f in self.risk_flags],
             "gates_add": [g.value for g in self.gates_add],
             "ip_mode": self.ip_mode.value,
@@ -281,6 +289,7 @@ def _preset(raw: dict[str, Any], templates: dict[str, TemplateData],
         brief_fields=list(raw.get("brief_fields") or []),
         vo_mode=VOMode(raw.get("vo_mode", template.vo_mode.value)),
         music=raw.get("music", ""),
+        on_screen_text=list(raw.get("on_screen_text") or []),
         music_mode=MusicMode(raw.get("music_mode", template.music_mode.value)),
         video_prompt_mode=VideoPromptMode(raw.get("video_prompt_mode", template.video_prompt_mode.value)),
         story_structure=StoryStructure(raw.get("story_structure", template.story_structure.value)),
@@ -341,7 +350,8 @@ def resolve_profile(archetype_id: str | None) -> dict[str, Any]:
 
     Raises KeyError for an id that is not in the registry."""
     if not archetype_id or archetype_id == FREEFORM_ID:
-        return {**FREEFORM_PROFILE, "length_s": list(FREEFORM_PROFILE["length_s"])}
+        return {**FREEFORM_PROFILE, "length_s": list(FREEFORM_PROFILE["length_s"]),
+                "on_screen_text": list(FREEFORM_PROFILE["on_screen_text"])}
     preset = get_preset(archetype_id)
     if preset is None:
         raise KeyError(archetype_id)

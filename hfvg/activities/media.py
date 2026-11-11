@@ -11,13 +11,20 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from hfvg.aspect import AspectError, canvas
 from hfvg.config import config
 
 
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
 EDIT_FPS_ALLOWED = (24, 25, 30)  # GAP-33: allowed edit frame rates
-EDIT_FORMAT_VERSION = 2  # bump when the normalization below changes (invalidates cached edits); 2 = GAP-47 lanczos
+EDIT_FORMAT_VERSION = 3  # bump when the normalization below changes (invalidates cached edits); 2 = GAP-47 lanczos, 3 = BT.709
 EDIT_SCALE_FLAGS = "lanczos"  # GAP-47: upscale filter (720p Seedance -> 1080x1920); ffmpeg default was bicubic
+# Every shot leaves the normaliser as BT.709 limited range, converted from the colours its clip declares
+# (an untagged clip is read the way ffmpeg reads it, as BT.601) and tagged so: the stream-copied assembly
+# never changes colour properties at a cut, where ffmpeg 7.0+ rebuilds its filters (frame numbers restart)
+# and 8.x converts each side by its own tags.
+EDIT_SCALE_COLOR = "out_range=tv:out_color_matrix=bt709"
+EDIT_COLOR_TAGS = "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
 MUTE_EDIT_NAME = "mute_assembly.mp4"
 MUTE_MANIFEST_NAME = "assembly_manifest.json"
 # A generated clip may run a few frames short of its nominal duration; a trim_out within this
@@ -231,22 +238,23 @@ def _apply_edit_plan(entries: list[dict[str, Any]], plan: dict[str, Any]) -> tup
     return merged, dissolves, notes
 
 
-def edit_normalize_vf(fps: int) -> str:
-    """The per-shot normalize chain (fps, lanczos scale-to-fit, pad, square pixels, end hold)."""
-    return (f"fps={fps},scale={EDIT_WIDTH}:{EDIT_HEIGHT}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS},"
-            f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"tpad=stop_mode=clone:stop_duration=1")
+def edit_normalize_vf(fps: int, width: int = EDIT_WIDTH, height: int = EDIT_HEIGHT) -> str:
+    """The per-shot normalize chain (fps, lanczos scale-to-fit, pad, square pixels, end hold, BT.709)."""
+    return (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS}:"
+            f"{EDIT_SCALE_COLOR},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+            f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
 
 
 async def render_shot_preview(clip_path: str, screen_s: float, out_path: str, fps: int = 24,
                               ops: dict[str, Any] | None = None, trim_in: float = 0.0,
-                              extra_frames: int = 0) -> dict[str, Any]:
+                              extra_frames: int = 0, canvas_aspect: str | None = None) -> dict[str, Any]:
     """GAP-51: render ONE shot exactly as assemble_mute_edit would normalize it (same filters, same
     ops validation) to ``out_path`` - for reviewing a crop/segment plan before it goes in the edit
     plan. Free, local, writes only ``out_path`` (and, for interp "rife", the shared RIFE cache, so a
     preview pre-warms the assembly). ``extra_frames`` = a GAP-62 transition tail (rendered past the slot
-    exactly as the assembler would)."""
+    exactly as the assembler would). ``canvas_aspect``: the episode canvas (None = 9:16)."""
     from hfvg.edit_plan import shot_ops_speed, speed_warnings, validate_shot_ops
+    width, height = canvas(canvas_aspect)
     src = Path(clip_path)
     e = {"shot_id": "preview", "clip_path": str(src)}
     src_dur = await _probe_duration(src)
@@ -254,18 +262,19 @@ async def render_shot_preview(clip_path: str, screen_s: float, out_path: str, fp
     frames = slot_frames + int(extra_frames)
     warnings: list[dict[str, Any]] = []
     if ops:
-        canon = validate_shot_ops("preview", {"reason": "preview", **ops, "sha256": ops.get("sha256") or _sha256(src)}, EDIT_WIDTH)
+        canon = validate_shot_ops("preview", {"reason": "preview", **ops, "sha256": ops.get("sha256") or _sha256(src)},
+                                  width, width / height)
         canon["speed"] = shot_ops_speed(canon, float(screen_s))
         warnings = speed_warnings("preview", canon, canon["speed"])
         render_ops = _extended_ops(canon, slot_frames, frames, fps)
-        args = await _shot_ops_input_args("preview", e, render_ops, src_dur, trim_in, fps, edit_normalize_vf(fps),
-                                          frames=frames)
+        args = await _shot_ops_input_args("preview", e, render_ops, src_dur, trim_in, fps,
+                                          edit_normalize_vf(fps, width, height), frames=frames)
     else:
         canon = None
         if extra_frames and trim_in + frames / fps > src_dur + 0.5 / fps:
             raise ApplicationError(f"preview: no source handle for {extra_frames} transition frames",
                                    type="TransitionOutOfRange", non_retryable=True)
-        args = ["-ss", f"{trim_in:.3f}", "-i", str(src), "-vf", edit_normalize_vf(fps)]
+        args = ["-ss", f"{trim_in:.3f}", "-i", str(src), "-vf", edit_normalize_vf(fps, width, height)]
     await _run(["ffmpeg", "-y", "-v", "error", *args, "-frames:v", str(frames), "-r", str(fps),
                 "-pix_fmt", EDIT_PIX_FMT, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-video_track_timescale", "15360", "-an", str(out_path)], "ffmpeg preview")
@@ -330,12 +339,14 @@ async def assemble_mute_edit(
     episode_id: str,
     shots: list[dict[str, Any]],
     clip_paths: dict[str, str],
-    output_dir: str | None = None
+    output_dir: str | None = None,
+    canvas_aspect: str | None = None,
 ) -> dict[str, Any]:
-    """Mute 9:16 picture edit from the approved clips (picture lock input).
+    """Mute picture edit from the approved clips (picture lock input).
 
-    Per shot: trim [trim_in, trim_out) from the shot plan, normalize to 1080x1920 @ the edit fps (30, or the edit plan's "fps"; GAP-33) yuv420p
-    (letterbox/pillarbox, square pixels, no audio), exact frame count; then concat in the given shot
+    Per shot: trim [trim_in, trim_out) from the shot plan, normalize to the episode canvas
+    (hfvg.aspect: 1080x1920 for 9:16, the default; 1920x1080 for 16:9; 1440x1080 for 4:3) @ the edit fps (30, or the edit plan's "fps"; GAP-33) yuv420p
+    (letterbox/pillarbox only for a clip of another shape, square pixels, no audio), exact frame count; then concat in the given shot
     order. Output path is deterministic ({edit_dir}/mute_assembly.mp4) and written atomically.
 
     Idempotent and input-aware: the manifest records a key over (clip content sha256, trims, order,
@@ -348,6 +359,10 @@ async def assemble_mute_edit(
     Returns {"assembly_path", "manifest", "duration", "input_key", "reused", "dry_run"}.
     """
     activity.heartbeat({"stage": "assembly_start", "shots": len(shots)})
+    try:
+        width, height = canvas(canvas_aspect)
+    except AspectError as e:
+        raise ApplicationError(f"Mute edit canvas: {e}", type="EditPlanMismatch", non_retryable=True) from None
     entries = _plan_entries(shots, clip_paths)
     from hfvg.edit_plan import load_edit_plan
     edit_plan = load_edit_plan(episode_id)
@@ -389,7 +404,7 @@ async def assemble_mute_edit(
     # GAP-51: per-shot picture ops (multi-segment cut + retime, punch-in crop), bound to a clip sha256
     from hfvg.edit_plan import EditPlanError, parse_shot_ops, shot_ops_speed
     try:
-        shot_ops = parse_shot_ops(edit_plan, EDIT_WIDTH) if edit_plan else {}
+        shot_ops = parse_shot_ops(edit_plan, width, width / height) if edit_plan else {}
     except EditPlanError as e:
         raise ApplicationError(f"Edit plan shot_ops: {e}", type="EditPlanMismatch", non_retryable=True)
     # GAP-62: timeline-neutral transitions (outgoing shot renders a tail blended over the incoming head)
@@ -451,6 +466,7 @@ async def assemble_mute_edit(
                     "dissolves": {a: d for a, _b, d in dissolves},
                     "recipe": recipe,  # Task 5: include recipe
                     "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5
+                    "format": {"width": width, "height": height, "fps": fps, "pix_fmt": EDIT_PIX_FMT},
                     "dry_run": True
                 },
                 "duration": round(duration, 3),
@@ -500,7 +516,7 @@ async def assemble_mute_edit(
         if e["shot_id"] in tail_of:
             row.append({"tail_frames": tail_of[e["shot_id"]]})
         key_src.append(row)
-    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [EDIT_WIDTH, EDIT_HEIGHT, fps, EDIT_PIX_FMT],
+    key_obj = {"v": EDIT_FORMAT_VERSION, "fmt": [width, height, fps, EDIT_PIX_FMT],
                "inputs": key_src}
     if dissolves:
         key_obj["dissolves"] = [[a, b, d] for a, b, d in dissolves]
@@ -524,17 +540,18 @@ async def assemble_mute_edit(
     out_dir.mkdir(parents=True, exist_ok=True)
     # same chain as edit_normalize_vf (the GAP-51 preview uses that helper; kept inline here so the
     # r8 lanczos source check still sees the scale flags in the assembler itself)
-    vf = (f"fps={fps},scale={EDIT_WIDTH}:{EDIT_HEIGHT}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS},"
-          f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-          f"tpad=stop_mode=clone:stop_duration=1")
+    vf = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS}:"
+          f"{EDIT_SCALE_COLOR},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+          f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
     if recipe:
         vf = (f"setpts={recipe['speed']:g}*PTS,fps={fps},"
-              f"scale={EDIT_WIDTH}:{EDIT_HEIGHT}:flags={recipe['scale_flags']}:force_original_aspect_ratio=decrease,"
-              f"pad={EDIT_WIDTH}:{EDIT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+              f"scale={width}:{height}:flags={recipe['scale_flags']}:{EDIT_SCALE_COLOR}:"
+              f"force_original_aspect_ratio=decrease,"
+              f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
               + (f"{recipe['post_vf']}," if recipe["post_vf"] else "")
-              + "tpad=stop_mode=clone:stop_duration=1")
+              + f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
     else:
-        assert vf == edit_normalize_vf(fps)
+        assert vf == edit_normalize_vf(fps, width, height)
     manifest_clips: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(dir=str(out_dir)) as tmpdir:
         tmp = Path(tmpdir)
@@ -713,7 +730,7 @@ async def assemble_mute_edit(
         "edit_plan": ({"reused_shots": [c["id"] for c in manifest_clips if c.get("reused")], **plan_notes}
                       if edit_plan else None),
         "total_duration": total,
-        "format": {"width": EDIT_WIDTH, "height": EDIT_HEIGHT, "fps": fps, "pix_fmt": EDIT_PIX_FMT},  # Task 5: use fps from recipe
+        "format": {"width": width, "height": height, "fps": fps, "pix_fmt": EDIT_PIX_FMT},  # Task 5: use fps from recipe
         "recipe": recipe,  # Task 5: include recipe in manifest
         "tail_hold_s": recipe.get("tail_hold_s", 0.0) if recipe else 0.0,  # Task 5: include tail_hold_s
         "input_key": input_key,

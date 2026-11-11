@@ -10,7 +10,11 @@ export interface PresetData {
   briefFields: string[];
   voiceOver: string;
   music: string;
+  /** Text the create wizard switches on by default: "subtitles", "title_card", "end_card". */
+  onScreenText: OnScreenTextKind[];
 }
+
+export type OnScreenTextKind = 'subtitles' | 'title_card' | 'end_card';
 
 // Mirrors hfvg/data/genre_presets.yaml field for field (tests/test_preset_sync.py fails on drift).
 // All content is original: no named IP, franchises, studios, brands or real people.
@@ -26,7 +30,8 @@ export const presets: PresetData[] = [
     tags: ["nostalgic", "dialogue", "family"],
     briefFields: ["era", "place", "cast_roles", "memory_moment"],
     voiceOver: "dialogue",
-    music: "soft nostalgic"
+    music: "soft nostalgic",
+    onScreenText: ["subtitles", "title_card"]
   },
   {
     id: "satire-sketch",
@@ -39,7 +44,8 @@ export const presets: PresetData[] = [
     tags: ["comedy", "satire", "quick"],
     briefFields: ["issue", "stand_in_characters", "gag", "punchline"],
     voiceOver: "none",
-    music: "orchestral pomp"
+    music: "orchestral pomp",
+    onScreenText: ["end_card"]
   },
   {
     id: "cartoon-made-real",
@@ -52,7 +58,8 @@ export const presets: PresetData[] = [
     tags: ["fantasy", "transformation", "cinematic"],
     briefFields: ["source_world", "protagonist", "moments"],
     voiceOver: "none",
-    music: "emotional piano/orchestral"
+    music: "emotional piano/orchestral",
+    onScreenText: ["title_card", "end_card"]
   },
   {
     id: "farewell-tribute",
@@ -65,7 +72,8 @@ export const presets: PresetData[] = [
     tags: ["emotional", "tribute", "slow"],
     briefFields: ["honoree", "setting", "quote", "dates"],
     voiceOver: "none",
-    music: "swelling score"
+    music: "swelling score",
+    onScreenText: ["end_card"]
   },
   {
     id: "living-painting",
@@ -78,7 +86,8 @@ export const presets: PresetData[] = [
     tags: ["artistic", "ambient", "relaxing"],
     briefFields: ["world", "palette", "figure", "creature"],
     voiceOver: "none",
-    music: "ambient"
+    music: "ambient",
+    onScreenText: []
   },
   {
     id: "what-if-ending",
@@ -91,7 +100,8 @@ export const presets: PresetData[] = [
     tags: ["storytelling", "alternate", "emotional"],
     briefFields: ["story_world", "characters", "changed_moment", "ending"],
     voiceOver: "caption_only",
-    music: "melancholic score"
+    music: "melancholic score",
+    onScreenText: ["title_card", "end_card"]
   },
   {
     id: "cozy-hangout",
@@ -104,7 +114,8 @@ export const presets: PresetData[] = [
     tags: ["cozy", "lofi", "relaxing"],
     briefFields: ["place", "characters", "activity", "time_of_day"],
     voiceOver: "none",
-    music: "lo-fi"
+    music: "lo-fi",
+    onScreenText: []
   },
   {
     id: "original-mini-movie",
@@ -117,7 +128,8 @@ export const presets: PresetData[] = [
     tags: ["cinematic", "journey", "original"],
     briefFields: ["hero", "goal", "stops", "ending"],
     voiceOver: "caption_only",
-    music: "gentle orchestral"
+    music: "gentle orchestral",
+    onScreenText: ["title_card", "end_card"]
   },
   {
     id: "mascot-sketch",
@@ -130,7 +142,8 @@ export const presets: PresetData[] = [
     tags: ["comedy", "episodic", "mascot"],
     briefFields: ["mascot", "setting", "gag", "side_characters"],
     voiceOver: "dialogue",
-    music: "comedic SFX + light bed"
+    music: "comedic SFX + light bed",
+    onScreenText: ["subtitles", "title_card"]
   },
   {
     id: "dreamscape",
@@ -143,7 +156,8 @@ export const presets: PresetData[] = [
     tags: ["surreal", "wallpaper", "atmospheric"],
     briefFields: ["character", "setting", "phenomenon"],
     voiceOver: "none",
-    music: "dreamy"
+    music: "dreamy",
+    onScreenText: []
   },
   {
     id: "animal-remake",
@@ -156,7 +170,8 @@ export const presets: PresetData[] = [
     tags: ["animals", "parody", "wholesome"],
     briefFields: ["story", "animal_cast", "episode_beat"],
     voiceOver: "dialogue",
-    music: "score pastiche"
+    music: "score pastiche",
+    onScreenText: ["subtitles", "title_card"]
   },
   {
     id: "ambience-journey",
@@ -169,7 +184,8 @@ export const presets: PresetData[] = [
     tags: ["ambient", "sleep", "relaxing"],
     briefFields: ["vessel_or_place", "traveller", "destination", "ambience"],
     voiceOver: "none",
-    music: "ambient"
+    music: "ambient",
+    onScreenText: []
   },
   {
     id: "original-series",
@@ -182,7 +198,8 @@ export const presets: PresetData[] = [
     tags: ["series", "animated", "original"],
     briefFields: ["series_bible", "premise", "cast", "cliffhanger"],
     voiceOver: "dialogue",
-    music: "score"
+    music: "score",
+    onScreenText: ["subtitles", "title_card", "end_card"]
   },
   {
     id: "cute-greeting",
@@ -195,7 +212,8 @@ export const presets: PresetData[] = [
     tags: ["cute", "greeting", "wholesome"],
     briefFields: ["mascots", "occasion", "greeting_text"],
     voiceOver: "caption_only",
-    music: "soft"
+    music: "soft",
+    onScreenText: ["end_card"]
   },
   {
     id: "mascot-day",
@@ -208,7 +226,8 @@ export const presets: PresetData[] = [
     tags: ["cute", "mascot", "slice-of-life"],
     briefFields: ["mascot", "outfit", "errand", "payoff"],
     voiceOver: "caption_only",
-    music: "upbeat"
+    music: "upbeat",
+    onScreenText: []
   },
   {
     id: "ride-along-pov",
@@ -221,7 +240,8 @@ export const presets: PresetData[] = [
     tags: ["pov", "adventure", "immersive"],
     briefFields: ["mount", "landscape", "destination", "mood"],
     voiceOver: "none",
-    music: "ambient + wind"
+    music: "ambient + wind",
+    onScreenText: []
   },
   {
     id: "character-spotlight",
@@ -234,7 +254,8 @@ export const presets: PresetData[] = [
     tags: ["dramatic", "silhouette", "atmospheric"],
     briefFields: ["character", "motif", "palette"],
     voiceOver: "none",
-    music: "atmospheric"
+    music: "atmospheric",
+    onScreenText: []
   },
   {
     id: "3d-moment",
@@ -247,7 +268,8 @@ export const presets: PresetData[] = [
     tags: ["emotional", "3d", "cinematic"],
     briefFields: ["character_a", "character_b", "setting", "beat"],
     voiceOver: "none",
-    music: "bed"
+    music: "bed",
+    onScreenText: []
   },
   {
     id: "anime-cooking",
@@ -260,7 +282,8 @@ export const presets: PresetData[] = [
     tags: ["cozy", "food", "anime"],
     briefFields: ["dish", "kitchen", "hero_moment"],
     voiceOver: "none",
-    music: "ASMR SFX + soft tune"
+    music: "ASMR SFX + soft tune",
+    onScreenText: ["title_card"]
   },
   {
     id: "rewrite-the-scene",
@@ -273,7 +296,8 @@ export const presets: PresetData[] = [
     tags: ["remix", "intervention", "heartwarming"],
     briefFields: ["moment", "intervener", "outcome"],
     voiceOver: "caption_only",
-    music: "bed"
+    music: "bed",
+    onScreenText: ["title_card"]
   },
   {
     id: "live-action-fight",
@@ -286,7 +310,8 @@ export const presets: PresetData[] = [
     tags: ["action", "intense", "cinematic"],
     briefFields: ["fighters", "arena", "combat_style", "finisher"],
     voiceOver: "none",
-    music: "SFX-heavy"
+    music: "SFX-heavy",
+    onScreenText: ["title_card"]
   },
   {
     id: "fullscreen-action-anime",
@@ -299,7 +324,8 @@ export const presets: PresetData[] = [
     tags: ["action", "anime", "intense"],
     briefFields: ["hero", "ally", "set_piece", "rescue_beat"],
     voiceOver: "none",
-    music: "score + SFX"
+    music: "score + SFX",
+    onScreenText: []
   },
   {
     id: "creature-legend",
@@ -312,7 +338,8 @@ export const presets: PresetData[] = [
     tags: ["fantasy", "painterly", "narration"],
     briefFields: ["creatures", "legend", "world", "closing_line"],
     voiceOver: "narration",
-    music: "score"
+    music: "score",
+    onScreenText: ["subtitles", "title_card", "end_card"]
   },
   {
     id: "time-travel-vlog",
@@ -325,7 +352,8 @@ export const presets: PresetData[] = [
     tags: ["educational", "history", "vlog"],
     briefFields: ["date_place", "host", "event", "twist"],
     voiceOver: "dialogue",
-    music: "light score"
+    music: "light score",
+    onScreenText: ["subtitles"]
   }
 ];
 

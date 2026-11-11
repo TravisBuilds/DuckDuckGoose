@@ -119,11 +119,13 @@ SHOT_OPS_WARN_SPEED = 0.7
 SHOT_OPS_SMOOTH_INTERP = ("mci", "rife")
 
 
-def validate_shot_ops(sid: str, ops: Any, out_width: int = 1080) -> dict[str, Any]:
+def validate_shot_ops(sid: str, ops: Any, out_width: int = 1080,
+                      out_aspect: float = SHOT_OPS_ASPECT) -> dict[str, Any]:
     """Static validation of one shot's ops (no file access). Returns a canonical copy.
 
     Raises EditPlanError on unknown keys, a missing/bad sha256, unordered or overlapping segments,
-    a crop that is not 9:16 (within 1%), odd-sized, or would be upscaled more than 2x."""
+    a crop that is not the canvas shape (out_aspect = width / height, 9:16 by default; within 1%),
+    odd-sized, or would be upscaled more than 2x."""
     if not isinstance(ops, dict):
         raise EditPlanError(f"shot_ops {sid}: must be an object")
     unknown = set(ops) - SHOT_OPS_KEYS
@@ -167,8 +169,9 @@ def validate_shot_ops(sid: str, ops: Any, out_width: int = 1080) -> dict[str, An
         x, y, w, h = c
         if x < 0 or y < 0 or w < 2 or h < 2 or w % 2 or h % 2:
             raise EditPlanError(f"shot_ops {sid}: crop {c} must be non-negative with even w/h")
-        if abs((w / h) - SHOT_OPS_ASPECT) / SHOT_OPS_ASPECT > SHOT_OPS_ASPECT_TOL:
-            raise EditPlanError(f"shot_ops {sid}: crop {c} is not 9:16 (would letterbox)")
+        if abs((w / h) - out_aspect) / out_aspect > SHOT_OPS_ASPECT_TOL:
+            shape = "9:16" if out_aspect == SHOT_OPS_ASPECT else f"the {out_aspect:.3f} canvas shape"
+            raise EditPlanError(f"shot_ops {sid}: crop {c} is not {shape} (would letterbox)")
         if out_width / w > SHOT_OPS_MAX_CROP_UPSCALE + 1e-9:
             raise EditPlanError(f"shot_ops {sid}: crop {c} needs a {out_width / w:.2f}x upscale "
                                 f"(max {SHOT_OPS_MAX_CROP_UPSCALE}x)")
@@ -210,7 +213,8 @@ def speed_warnings(sid: str, ops: dict[str, Any] | None, speed: float,
     return out
 
 
-def parse_shot_ops(plan: dict[str, Any] | None, out_width: int = 1080) -> dict[str, dict[str, Any]]:
+def parse_shot_ops(plan: dict[str, Any] | None, out_width: int = 1080,
+                   out_aspect: float = SHOT_OPS_ASPECT) -> dict[str, dict[str, Any]]:
     """All shot_ops of an edit plan, validated (shot ids must be in the edit order)."""
     raw = (plan or {}).get("shot_ops") or {}
     if not isinstance(raw, dict):
@@ -220,7 +224,7 @@ def parse_shot_ops(plan: dict[str, Any] | None, out_width: int = 1080) -> dict[s
     for sid, ops in raw.items():
         if sid not in order:
             raise EditPlanError(f"shot_ops {sid}: not in the edit order")
-        out[sid] = validate_shot_ops(sid, ops, out_width)
+        out[sid] = validate_shot_ops(sid, ops, out_width, out_aspect)
     return out
 
 

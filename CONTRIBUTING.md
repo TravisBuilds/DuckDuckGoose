@@ -59,8 +59,10 @@ await workflow.execute_activity(
 **The run lock means:**
 - Only ONE episode run per account (`account_identifier`, default `"default"`) at a time
 - A second episode start fails while the lock is held
-- The lock is released when the workflow ends; a holder that is no longer running, or older
-  than `RUN_LOCK_STALE_TIMEOUT_SECONDS` (default 3600), is reclaimed
+- The lock is released when the workflow ends. A holder whose run Temporal reports ended (for
+  example terminated) is reclaimed at once; a holder whose run is open keeps it, however long it
+  waits at a gate. Only when Temporal cannot describe the holder is a lock older than
+  `RUN_LOCK_STALE_TIMEOUT_SECONDS` (default 3600) reclaimed
 
 ## Testing Requirements
 

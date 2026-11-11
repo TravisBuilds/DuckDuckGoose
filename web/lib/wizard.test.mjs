@@ -1,16 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  END_CARD_TEXT,
   FREEFORM_DEFAULT_LENGTH,
   FREEFORM_LENGTH_RANGE,
   TEMPLATE_LABELS,
+  TEXT_CARD_MAX_CHARS,
+  applyOnScreenText,
   applyVoiceChoices,
   briefFieldLabel,
+  cardTiming,
   composeIdea,
   formatAspect,
   groupByTemplate,
+  hasVoiceLines,
   lengthOptions,
   missingVoiceSlots,
+  onScreenTextDefaults,
+  onScreenTextProblem,
   slotToken,
   soundLabel,
   voiceBlockMessage,
@@ -120,4 +127,71 @@ test('plans without voice-over come back unchanged', () => {
   const plan = { music: { prompt: 'calm piano', loop: true, level_db: -18 } };
   assert.deepEqual(applyVoiceChoices(plan, [], {}), plan);
   assert.deepEqual(applyVoiceChoices(null, [NARRATOR], { narrator: { voice_id: 'v' } }), {});
+});
+
+const VOICED_PLAN = {
+  vo: { voice_id: null, lines: [{ id: 'L01', at: 0.3, text: 'Hi' }] },
+  subtitles: { burn: true },
+  title_card: { text: 'The Clockwork Heron' },
+};
+
+test('text on screen starts from the card suggestion; subtitles need voice-over lines', () => {
+  assert.deepEqual(onScreenTextDefaults(['subtitles', 'title_card'], VOICED_PLAN, 'The Clockwork Heron'), {
+    subtitles: true, titleCard: true, titleText: 'The Clockwork Heron', endCard: false, endText: END_CARD_TEXT,
+  });
+  const music = { music: { prompt: 'x' } };
+  assert.equal(hasVoiceLines(music), false);
+  assert.deepEqual(onScreenTextDefaults(['subtitles', 'end_card'], music, '  Kite   Night '), {
+    subtitles: false, titleCard: false, titleText: 'Kite Night', endCard: true, endText: 'The End',
+  });
+  assert.deepEqual(onScreenTextDefaults([], null, null), {
+    subtitles: false, titleCard: false, titleText: '', endCard: false, endText: 'The End',
+  });
+});
+
+test('the switches are written into the uploaded audio plan', () => {
+  const choices = { subtitles: false, titleCard: true, titleText: ' Puddle  Season ', endCard: true, endText: 'See you' };
+  const out = applyOnScreenText(VOICED_PLAN, choices, 35);
+  assert.deepEqual(out.subtitles, { burn: false });
+  assert.deepEqual(out.title_card, { text: 'Puddle Season' });
+  assert.deepEqual(out.end_card, { text: 'See you' });
+  assert.deepEqual(out.vo, VOICED_PLAN.vo);
+  assert.deepEqual(VOICED_PLAN.title_card, { text: 'The Clockwork Heron' }, 'the draft plan is not mutated');
+
+  const off = applyOnScreenText(VOICED_PLAN, { ...choices, subtitles: true, titleCard: false, endCard: false }, 35);
+  assert.deepEqual(off.subtitles, { burn: true });
+  assert.equal('title_card' in off, false);
+  assert.equal('end_card' in off, false);
+
+  const music = applyOnScreenText({ music: { prompt: 'x' } }, { ...choices, subtitles: true }, 35);
+  assert.equal('subtitles' in music, false, 'no voice-over, no subtitle setting');
+});
+
+test('short videos get short cards so the title and the end card both fit', () => {
+  assert.deepEqual(cardTiming(35), {});
+  assert.deepEqual(cardTiming(10), {});
+  assert.deepEqual(cardTiming(3), { visible_s: 0.8, fade_s: 0.2 });
+  assert.deepEqual(cardTiming(6), { visible_s: 1.5, fade_s: 0.38 });
+  assert.deepEqual(cardTiming(9), { visible_s: 2.3, fade_s: 0.4 });
+  assert.deepEqual(cardTiming(0), {});
+  for (let total = 1; total < 10; total += 0.5) {
+    const { visible_s: visible, fade_s: fade } = cardTiming(total);
+    assert.ok(2 * visible <= total + 1e-9 || visible === 0.5, `${total}: ${visible}`);
+    assert.ok(2 * fade <= visible, `${total}: ${fade} of ${visible}`);
+  }
+  const out = applyOnScreenText({ title_card: { text: 'x', visible_s: 9, fade_s: 1 } },
+    { subtitles: false, titleCard: true, titleText: 'Hi', endCard: true, endText: 'Bye' }, 6);
+  assert.deepEqual(out.title_card, { text: 'Hi', visible_s: 1.5, fade_s: 0.38 });
+  assert.deepEqual(out.end_card, { text: 'Bye', visible_s: 1.5, fade_s: 0.38 });
+});
+
+test('start is blocked while a switched-on card has no text or too much', () => {
+  const ok = { subtitles: true, titleCard: true, titleText: 'Hi', endCard: false, endText: '' };
+  assert.equal(onScreenTextProblem(ok), null);
+  assert.equal(onScreenTextProblem(null), null);
+  assert.equal(onScreenTextProblem({ ...ok, titleText: '   ' }), 'Type the title for the title card, or switch it off.');
+  assert.equal(onScreenTextProblem({ ...ok, endCard: true }), 'Type the end card text, or switch it off.');
+  assert.equal(onScreenTextProblem({ ...ok, titleText: 'x'.repeat(TEXT_CARD_MAX_CHARS + 1) }),
+    `The title is longer than ${TEXT_CARD_MAX_CHARS} characters.`);
+  assert.equal(TEXT_CARD_MAX_CHARS, 80);
 });

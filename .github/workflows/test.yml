@@ -36,7 +36,7 @@ jobs:
 
   test-python:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +79,8 @@ jobs:
         pip install -e ".[dev]"
 
     - name: Run tests
-      timeout-minutes: 15
+      # a hung test is still stopped by its own timeout (--timeout=30 or @pytest.mark.timeout)
+      timeout-minutes: 25
       env:
         REQUIRE_FFMPEG: "1"
       run: |
@@ -162,6 +163,15 @@ jobs:
         # Check that ffmpeg is installed
         docker run --rm duckduckgoose-api:test ffmpeg -version || {
           echo "ERROR: ffmpeg not found in API image"
+          exit 1
+        }
+
+        # Subtitles and title/end cards are drawn with drawtext and a fontconfig "Sans" font
+        docker run --rm duckduckgoose-api:test ffmpeg -hide_banner -loglevel error \
+          -f lavfi -i color=c=black:s=320x240:d=0.2 \
+          -vf "drawtext=text=Title:expansion=none:font=Sans:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.55" \
+          -frames:v 1 -f null - || {
+          echo "ERROR: ffmpeg drawtext with a Sans font does not work in API image"
           exit 1
         }
         

@@ -115,3 +115,73 @@ export function applyVoiceChoices(plan, slots, choices) {
   }
   return out;
 }
+
+/** Title / end card text limit (hfvg.audio_mix.TEXT_CARD_MAX_CHARS) and the end card's default text. */
+export const TEXT_CARD_MAX_CHARS = 80;
+export const END_CARD_TEXT = 'The End';
+
+function cardText(text) {
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * visible_s / fade_s of a title or end card on a short video, so both fit; {} keeps the plan
+ * defaults from 10 s up (hfvg.genre_drafts.card_timing).
+ */
+export function cardTiming(totalSeconds) {
+  if (!(totalSeconds > 0) || totalSeconds >= 10) return {};
+  const visible = Math.max(0.5, Math.round((totalSeconds / 4) * 10) / 10);
+  return { visible_s: visible, fade_s: Math.round(Math.min(0.4, visible / 4) * 100) / 100 };
+}
+
+/**
+ * The "Text on screen" switches for a draft, starting from the card's suggestion (its
+ * on_screen_text: "subtitles", "title_card", "end_card"). Subtitles need voice-over lines.
+ */
+export function onScreenTextDefaults(suggested, plan, title) {
+  const want = new Set(suggested || []);
+  return {
+    subtitles: hasVoiceLines(plan) && want.has('subtitles'),
+    titleCard: want.has('title_card'),
+    titleText: cardText(plan?.title_card?.text ?? title ?? ''),
+    endCard: want.has('end_card'),
+    endText: cardText(plan?.end_card?.text ?? END_CARD_TEXT),
+  };
+}
+
+export function hasVoiceLines(plan) {
+  return Boolean(plan?.vo?.lines?.length);
+}
+
+/** Why Start is blocked by the text switches, or null. */
+export function onScreenTextProblem(choices) {
+  if (choices?.titleCard && !cardText(choices.titleText)) return 'Type the title for the title card, or switch it off.';
+  if (choices?.endCard && !cardText(choices.endText)) return 'Type the end card text, or switch it off.';
+  for (const [on, text, name] of [[choices?.titleCard, choices?.titleText, 'title'], [choices?.endCard, choices?.endText, 'end card']]) {
+    if (on && cardText(text).length > TEXT_CARD_MAX_CHARS) return `The ${name} is longer than ${TEXT_CARD_MAX_CHARS} characters.`;
+  }
+  return null;
+}
+
+/**
+ * A copy of the audio plan with the text switches: subtitles.burn (plans with voice-over; the .srt
+ * is delivered either way), title_card / end_card {text, visible_s on short videos} or none.
+ */
+export function applyOnScreenText(plan, choices, totalSeconds) {
+  const out = JSON.parse(JSON.stringify(plan ?? {}));
+  if (hasVoiceLines(out)) out.subtitles = { ...(out.subtitles || {}), burn: Boolean(choices?.subtitles) };
+  const timing = cardTiming(totalSeconds);
+  const cards = [['title_card', choices?.titleCard, choices?.titleText], ['end_card', choices?.endCard, choices?.endText]];
+  for (const [key, on, text] of cards) {
+    const clean = cardText(text);
+    if (on && clean) {
+      const card = { ...(out[key] || {}), text: clean };
+      delete card.visible_s;
+      delete card.fade_s;
+      out[key] = { ...card, ...timing };
+    } else {
+      delete out[key];
+    }
+  }
+  return out;
+}
