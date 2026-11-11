@@ -1639,8 +1639,10 @@ class EpisodeWorkflowV2:
 
     def _canvas_args(self) -> list[str]:
         """Trailing canvas_aspect argument of assemble_mute_edit / mix_and_deliver: the aspect most
-        of the edit's shots are generated in. Empty for 9:16, so those calls keep their old inputs."""
-        canvas = episode_aspect((s.get("params") or {}).get("aspect_ratio") for s in self.assembly_shots)
+        of the edit's shots are generated in. Empty for 9:16 and for a workflow without shot plans,
+        so those calls keep their old inputs."""
+        shots = getattr(self, "assembly_shots", None) or []
+        canvas = episode_aspect((s.get("params") or {}).get("aspect_ratio") for s in shots)
         return [] if canvas == PORTRAIT else [canvas]
 
     def _assembly_signature(self) -> list:
