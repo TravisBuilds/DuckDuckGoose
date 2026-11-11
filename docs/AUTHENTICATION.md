@@ -38,9 +38,9 @@ Creators who make videos end-to-end. Members can:
 - View clip plans and resync
 - Change their own password
 
-The episode writes above (uploads, start, approvals, retries, reopen, set-live/set-dry, story shape,
-resync, final-cut reject) apply to **their own episodes** and to episodes without an owner; see
-[Episode ownership](#episode-ownership).
+The episode writes above (uploads, start, start again, approvals, retries, reopen, set-live/set-dry,
+story shape, resync, final-cut reject) apply to **their own episodes** and to episodes without an
+owner; see [Episode ownership](#episode-ownership).
 
 Members **cannot**:
 - Raise credit caps or resume balance after insufficient funds (financial controls)
@@ -77,7 +77,8 @@ Members **cannot**:
 ## Episode ownership
 
 The owner of an episode is `episodes.user_id` in the studio database: the session user who created the
-episode's row (the first BEATMAP upload, the create wizard's first upload, or `POST /api/episodes`).
+episode's row (the first BEATMAP upload, the create wizard's first upload, `POST /api/episodes`, or
+`POST /api/episodes/{id}/start-again` for an episode that has no row).
 
 | Caller | Episode it owns | Another member's episode | Episode without an owner |
 |---|---|---|---|
@@ -89,8 +90,17 @@ episode's row (the first BEATMAP upload, the create wizard's first upload, or `P
   created before owners were recorded, or created with a Bearer token. They keep the behaviour from
   before ownership: any member may change them. Nothing assigns them an owner later: the owner is
   only written when the row is created.
-- A member's first write (BEATMAP upload or start) on a new episode id makes them its owner. Admin
-  sessions own what they create (`user_id` `admin`); Bearer tokens leave the episode without an owner.
+- A member's first write (BEATMAP upload, start or start again) on a new episode id makes them its
+  owner. Admin sessions own what they create (`user_id` `admin`); Bearer tokens leave the episode
+  without an owner.
+- Start again (`POST /api/episodes/{id}/start-again`) is a write like the others: a member starts only
+  their own episode again, or one without an owner; an admin any. It keeps the owner of an existing
+  row (starting an ownerless episode again does not claim it) and records the row only when it is
+  missing, as a start does. The `UPLOAD_TOKEN` cannot start anything.
+- The ownership check comes before the route's own checks: a member gets the `403` for another
+  member's episode whether its run is open or has ended. The run checks are for callers who may act on
+  the episode: while a run is open its files are refused (`409`), once it has ended its actions are
+  refused (`409`, "This run has ended ...") and its files may change before it is started again.
 - Writes are every member-allowed non-GET route with `{episode_id}` in the path (checked by
   `require_admin_auth`) plus `POST /api/episodes/upload` and `POST /api/episodes` (checked in the
   handler, the id is in the form/body). Routes that only report (`POST /api/episodes/{id}/preflight`)
