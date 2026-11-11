@@ -429,6 +429,8 @@ CREATE TABLE anchor_stills (
 
 ### Filesystem Layout
 
+`data/` is `$DATA_DIR` (default `./data`) and `episodes/` is `$EPISODES_DIR` (default `$DATA_DIR/episodes`), both resolved by `hfvg/paths.py`. Generated outputs always land in `$DATA_DIR/episodes/<episode>/outputs/<shot>/`, and dry-run scratch in `$DATA_DIR/dry_run_outputs/`.
+
 ```
 data/
 ├── studio.db                      # SQLite database
@@ -586,7 +588,7 @@ data/
 - [ ] Set `ADMIN_SECRET` (min 32 chars, from secrets manager)
 - [ ] Set provider API keys (`HIGGSFIELD_API_KEY`, etc.)
 - [ ] Configure `DATABASE_PATH` (persistent volume)
-- [ ] Set `EPISODES_DIR` (persistent volume)
+- [ ] Set `DATA_DIR` and `EPISODES_DIR` to absolute paths on the persistent volume, with the same values for the API and the worker
 - [ ] Deploy Temporal server (prod cluster, not dev); set `TEMPORAL_ADDRESS` (API) and `TEMPORAL_HOST` (worker/CLI)
 - [ ] Scale workers (multiple replicas)
 - [ ] Set `DRY_RUN=false` for live mode (and enable each episode with `POST /api/episodes/{id}/set-live`)

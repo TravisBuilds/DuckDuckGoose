@@ -291,8 +291,9 @@ See [`.env.example`](.env.example) for all available environment variables.
 - `MODEL_PATH_KLING`: Kling video model (default: kling-video/v3.0/pro/image-to-video)
 - `MODEL_PATH_SEEDANCE`: Seedance video model (default: bytedance/seedance-2.5/image-to-video)
 
-**Episode Data:**
-- `EPISODES_DIR`: Episode data directory (default: ./data/episodes)
+**Episode Data** (resolved by `hfvg/paths.py`; relative values resolve against each process's cwd, so deployments use absolute paths shared by the API and the worker):
+- `DATA_DIR`: Data root (default: ./data). Generated outputs land in `$DATA_DIR/episodes/<episode>/outputs/<shot>/`, dry-run scratch in `$DATA_DIR/dry_run_outputs`, reports in `$DATA_DIR/reports`
+- `EPISODES_DIR`: Episode inputs (`BEATMAP.md`, `shots.json`, `refs.json`, `prompt_kit.json`) (default: `$DATA_DIR/episodes`)
 
 ## CLI Reference
 
