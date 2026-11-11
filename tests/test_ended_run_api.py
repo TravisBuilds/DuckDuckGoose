@@ -12,10 +12,18 @@ import sys
 from pathlib import Path
 
 import aiosqlite
+import pytest
 from temporalio import activity, workflow
 
 from tests.test_story_revise_live import (
-    ADMIN_SECRET, FLAGGED_PAYOFF, fake_openai, live_activities, model_reply, start, studio, wait_for,
+    ADMIN_SECRET,
+    FLAGGED_PAYOFF,
+    fake_openai,
+    live_activities,
+    model_reply,
+    start,
+    studio,
+    wait_for,
 )
 
 # Every other route that signals or updates the episode run (approve and the story-outline save are
@@ -214,6 +222,23 @@ async def test_completed_run_is_refused_and_cannot_be_started_again(monkeypatch)
             409, f"Cannot start {ep} again: it completed; reopen the episode to change it")
         res = await api.post("/api/episodes/ep85none/start-again")
         assert (res.status_code, res.json()["detail"]) == (404, "No workflow found for episode ep85none")
+
+
+@pytest.mark.parametrize("run, detail", [
+    ({"outcome": "failed", "reason": "parse_beatmap_activity: ShotDataError: no shots.json", "can_start_again": True},
+     "This run has ended (failed: parse_beatmap_activity: ShotDataError: no shots.json). Start it again."),
+    ({"outcome": "timed out", "reason": None, "can_start_again": True}, "This run has ended (timed out). Start it again."),
+    ({"outcome": "completed", "reason": None, "can_start_again": False},
+     "This run has ended (completed). Reopen the episode to change it."),
+    # a reopened run, or one whose start inputs could not be read: start-again would refuse it
+    ({"outcome": "failed", "reason": "boom", "can_start_again": False}, "This run has ended (failed: boom)."),
+])
+def test_the_409_only_offers_what_start_again_allows(monkeypatch, run, detail):
+    monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
+    sys.modules.pop("api.main", None)
+    import api.main as api_main
+
+    assert api_main._ended_run_detail(run) == detail
 
 
 async def test_a_run_temporal_cannot_describe_is_never_refused(monkeypatch):

@@ -1788,6 +1788,7 @@ def _failure_reason(err: BaseException) -> str | None:
 async def _ended_run(workflow_id: str, run_id: str, status: str, workflow_type: str | None) -> tuple[dict, list | None]:
     """The view of a closed run (outcome and reason from its result) and the inputs it was started with."""
     from datetime import timedelta
+
     from temporalio.client import WorkflowFailureError
     if run_id in _ENDED_RUNS:
         return _ENDED_RUNS[run_id]
@@ -1843,8 +1844,9 @@ async def _episode_run(handle) -> dict | None:
 
 def _ended_run_detail(run: dict) -> str:
     how = f"{run['outcome']}: {run['reason']}" if run.get("reason") else run["outcome"]
-    then = "Reopen the episode to change it." if run["outcome"] == "completed" else "Start it again."
-    return f"This run has ended ({how}). {then}"
+    then = ("Start it again." if run["can_start_again"]
+            else "Reopen the episode to change it." if run["outcome"] == "completed" else "")
+    return f"This run has ended ({how}). {then}".rstrip()
 
 
 async def _refuse_ended_run(episode_id: str) -> None:
@@ -1875,6 +1877,7 @@ async def start_episode_again(
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
     from temporalio.service import RPCError, RPCStatusCode
+
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 
     handle = temporal_client.get_workflow_handle(episode_id)
