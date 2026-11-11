@@ -35,6 +35,7 @@ import httpx
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger
+from hfvg.paths import episodes_dir
 
 MAX_LAND_ATTEMPTS = 5
 
@@ -322,7 +323,8 @@ async def _attach(db, job: dict, url: str, local_path: str, sha: str) -> bool:
 
 
 def _output_root() -> Path:
-    return Path(os.getenv("HFVG_EPISODES_DIR", "data/episodes"))
+    override = os.getenv("HFVG_EPISODES_DIR", "").strip()
+    return Path(override) if override else episodes_dir()
 
 
 @activity.defn

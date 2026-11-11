@@ -50,6 +50,7 @@ from temporalio.client import Client as TemporalClient
 from temporalio.client import WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
 
+from hfvg import paths
 from hfvg.studio_db import init_studio_db, create_episode, set_live_mode as db_set_live_mode, approve_g108, insert_shots_from_beatmap
 from hfvg.budget import BudgetLedger
 from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
@@ -769,7 +770,7 @@ def episode_workflow_id(episode_id: str) -> str:
 
 
 # The one episode id format of the API, the workflow ids (ep04, children ep04-shot-A01) and the
-# episode directories (data/episodes/ep04/). StartEpisodeRequest enforces it, so no episode with
+# episode directories (<EPISODES_DIR>/ep04/). StartEpisodeRequest enforces it, so no episode with
 # another id can be started through the API; every route (incl. the file route) uses the same check.
 # Optional lowercase suffix for a cut of an episode (ep05full: the full Ep05 next to the ep05
 # teaser). It must start with a letter, so ep001 stays invalid; no "-" (child ids are
@@ -1277,7 +1278,7 @@ async def upload_beatmap(
     upload_hash = hasher.hexdigest()[:16]
     
     # Check for existing upload with same hash (idempotent retry detection)
-    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    episodes_dir = paths.episodes_dir()
     episode_dir = episodes_dir / episode_id
     hash_file = episode_dir / ".upload_hash"
     
@@ -1480,7 +1481,7 @@ async def upload_prompt_kit(
     - characters: Map of codes to {description, ref}
     - sets: Map of set IDs to descriptions
     
-    Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
+    Stored in <EPISODES_DIR>/{episode_id}/prompt_kit.json (not committed to repo).
     Refused (409) while the episode has a run in progress.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
@@ -1488,7 +1489,7 @@ async def upload_prompt_kit(
     await _refuse_upload_during_run(episode_id)
     
     # Create episode directory
-    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    episode_dir = paths.episode_dir(episode_id)
     episode_dir.mkdir(parents=True, exist_ok=True)
     
     # Save prompt_kit.json
@@ -1532,7 +1533,7 @@ async def upload_shots(
     Upload the private per-shot data: shots.json (required) and refs.json (optional).
 
     Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
-    Stored in data/episodes/{episode_id}/ (gitignored, never committed).
+    Stored in <EPISODES_DIR>/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
     Refused (409) while the episode has a run in progress, reopened or not: recompose and clip
@@ -1571,7 +1572,7 @@ async def upload_shots(
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid refs.json: {e}")
 
-    episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    episode_dir = paths.episode_dir(episode_id)
     episode_dir.mkdir(parents=True, exist_ok=True)
     (episode_dir / "shots.json").write_bytes(shots_bytes)
     if refs_bytes is not None:
@@ -1602,7 +1603,7 @@ async def upload_audio_plan(
 
     Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
     Validated with the delivery loader's own schema (hfvg.audio_mix.normalize_plan) and stored at
-    data/episodes/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
+    <EPISODES_DIR>/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
 
     Refused (409) while the episode has a run in progress, unless the run is a reopened one parked at
     the final cut (its delivery is rebuilt from the new plan); then every voice-over line must have a
@@ -1645,7 +1646,7 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
 
-    path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    path = paths.episode_dir(episode_id) / "shots.json"
     if not path.exists():
         return []
     try:
@@ -1719,7 +1720,7 @@ async def start_episode(
     
     # Save beatmap content if provided
     beatmap_path: str | None = None
-    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    episodes_dir = paths.episodes_dir()
     if request.beatmap_content:
         beatmap_dir = episodes_dir / request.episode_id
         beatmap_dir.mkdir(parents=True, exist_ok=True)
@@ -3691,8 +3692,8 @@ async def _g2_headcount(episode_id: str, handle, overrides: dict[str, str] | Non
         raise HTTPException(status_code=409, detail=f"G2 headcount check unavailable (fails closed): {e}")
     return await g2_headcount_report(episode_id, versions if isinstance(versions, dict) else {},
                                      plans, (state or {}).get("shot_decisions") if isinstance(state, dict) else {},
-                                     data_dir=os.getenv("DATA_DIR", "./data"),
-                                     episodes_dir=os.getenv("EPISODES_DIR", "./data/episodes"),
+                                     data_dir=paths.data_dir(),
+                                     episodes_dir=paths.episodes_dir(),
                                      overrides=overrides)
 
 
@@ -3734,12 +3735,12 @@ async def record_still_headcount(
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
-    if still_file(outputs_dir(episode_id, shot_id, os.getenv("DATA_DIR", "./data")), request.version) is None:
+    if still_file(outputs_dir(episode_id, shot_id, paths.data_dir()), request.version) is None:
         raise HTTPException(status_code=409, detail=f"still v{request.version} of {shot_id} not on disk")
     row = record_headcount(episode_id, shot_id, request.version,
                            {"cast": request.cast, "duck": request.duck, "other": request.other},
                            by="admin", note=request.note.strip(),
-                           episodes_dir=os.getenv("EPISODES_DIR", "./data/episodes"))
+                           episodes_dir=paths.episodes_dir())
     await _audit(episode_id, "g2_headcount",
                  f"{shot_id} v{request.version}: cast={request.cast} duck={request.duck} "
                  f"other={request.other} {request.note.strip()}")
@@ -3757,7 +3758,7 @@ async def _select_still_checked(episode_id: str, shot_id: str, version: int) -> 
     live = os.getenv("DRY_RUN", "true").lower() != "true"
     try:
         return await check_selection(temporal_client, episode_id, episode_workflow_id(episode_id), shot_id,
-                                     version, live=live, data_dir=os.getenv("DATA_DIR", "./data"))
+                                     version, live=live, data_dir=paths.data_dir())
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not read still versions: {e}")
 
@@ -4049,7 +4050,7 @@ def _recompose_plate(episode_id: str, shot_id: str, manifest_path: str, approved
     """GAP-53: load + verify a plate manifest for a recompose (inside the episode dir, passed, this shot,
     PNG unchanged).  Raises HTTPException before any spend."""
     from hfvg.plate_composite import PlateSpecError, load_passed_manifest, sha256_file
-    ep_dir = (Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id).resolve()
+    ep_dir = paths.episode_dir(episode_id).resolve()
     mp = Path(manifest_path)
     mp = (mp if mp.is_absolute() else ep_dir / mp).resolve()
     if ep_dir not in mp.parents:
@@ -4082,7 +4083,7 @@ async def recompose_shot(
     validate_episode_id(episode_id)
     await _refuse_ended_run(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Recompose")  # GAP-65
-    refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
+    refs_dir = paths.episode_dir(episode_id) / "refs"
     refs: list[str] = []
     for key in request.ref_keys:
         if not _REF_KEY_RE.match(key):
@@ -4276,7 +4277,7 @@ SNAPSHOT_SAVE_INTERVAL_S = float(os.getenv("SNAPSHOT_SAVE_INTERVAL_S", "300"))
 reopen_episode.allow_members = True
 
 def _episodes_root() -> Path:
-    return Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    return paths.episodes_dir()
 
 
 async def _save_episode_snapshot(episode_id: str) -> dict:
@@ -4463,8 +4464,8 @@ async def get_recompose_headcount(
     except Exception as e:
         raise HTTPException(status_code=409, detail=f"recompose headcount unavailable (fails closed): {e}")
     reviewer = ReviewerHeadcountCounter(
-        load_headcounts(episode_id, os.getenv("EPISODES_DIR", "./data/episodes")), get_animal_counter())
-    out_root = Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs"
+        load_headcounts(episode_id, paths.episodes_dir()), get_animal_counter())
+    out_root = paths.outputs_dir(episode_id)
     shots = {}
     for sid in sorted(plans):
         row = plans[sid] or {}
@@ -4576,7 +4577,7 @@ def _adopt_reuse_fields(episode_id: str, shot_id: str, entry: dict) -> dict:
     slot_len = float(reuse["trim_out"]) - float(reuse.get("trim_in", 0.0))
     if abs((float(trim.get("out", 0.0)) - float(trim.get("in", 0.0))) - slot_len) > 1e-6:
         raise HTTPException(status_code=409, detail=f"{shot_id} trim length must equal the reuse slot's {slot_len}s")
-    refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
+    refs_dir = paths.episode_dir(episode_id) / "refs"
     fields = {"prompt": parsed["prompt"], "shot_meta": parsed["shot_meta"], "params": parsed["params"],
               "trim": trim, "tags": parsed.get("tags") or [], "ref_keys": parsed.get("ref_keys") or [],
               "refs": [str((refs_dir / f"{k}.png").resolve()) for k in (parsed.get("ref_keys") or [])
@@ -5248,7 +5249,7 @@ async def run_canary(
     
     canary_shot_meta: dict | None = None  # prompt-lint metadata (set when the beatmap shot is found)
     # Load beatmap to get full shot data for prompt building
-    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    episodes_dir = paths.episodes_dir()
     beatmap_path = episodes_dir / episode_id / "BEATMAP.md"
     episode_path = episodes_dir / episode_id
     
@@ -5263,7 +5264,7 @@ async def run_canary(
             raise HTTPException(
                 status_code=400,
                 detail=f"Live mode requires prompt_kit.json for {episode_id}. "
-                       "Create data/episodes/{episode_id}/prompt_kit.json with style, characters, aspect_ratio, and sets. "
+                       f"Create {episode_path / 'prompt_kit.json'} with style, characters, aspect_ratio, and sets. "
                        "See docs for format."
             )
         
@@ -5623,7 +5624,7 @@ async def lint_episode(
     warnings = []
     
     # Check BEATMAP.md exists
-    beatmap_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
+    beatmap_dir = paths.episode_dir(episode_id)
     beatmap_path = beatmap_dir / "BEATMAP.md"
     if not beatmap_path.exists():
         issues.append(f"BEATMAP.md missing at {beatmap_path}")
@@ -5719,7 +5720,7 @@ async def set_ref_versions(
     validate_episode_id(episode_id)
     
     # Load refs.json
-    refs_json_path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs.json"
+    refs_json_path = paths.episode_dir(episode_id) / "refs.json"
     if not refs_json_path.exists():
         raise HTTPException(
             status_code=404,
@@ -5904,9 +5905,7 @@ async def set_anchor_still(
         
         # Find the local file for this still
         # Pattern: {data_dir}/episodes/{episode_id}/outputs/{shot_id}/still_v{version}.{ext}
-        import os
-        data_dir = Path(os.getenv("DATA_DIR", "./data"))
-        output_dir = data_dir / "episodes" / episode_id / "outputs" / anchor_shot_id
+        output_dir = paths.outputs_dir(episode_id, anchor_shot_id)
         if not output_dir.exists():
             raise HTTPException(
                 status_code=404,
@@ -6159,7 +6158,7 @@ async def draft_from_idea(
 ):
     """
     Generate all episode files (BEATMAP.md, shots.json, refs.json, prompt_kit.json) from a plain-language idea,
-    plus the audio plan (data/episodes/{id}/audio/audio_plan.json schema) of the chosen wizard card.
+    plus the audio plan (<EPISODES_DIR>/{id}/audio/audio_plan.json schema) of the chosen wizard card.
     
     Uses OpenAI structured output to generate files that pass existing validators. The card
     (archetype_id, hfvg/data/genre_presets.yaml) sets the shot pacing, sound and script shape; no card
@@ -6210,7 +6209,7 @@ async def draft_from_idea(
     import random
     import string
     
-    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
+    episodes_dir = paths.episodes_dir()
     
     # Initialize studio DB if not exists to check existing episodes
     await init_studio_db(DATABASE_PATH)
@@ -6557,7 +6556,7 @@ async def preflight_episode(
 ):
     """Per-shot pass/fail against the model limits, same rules as G1 and submit (no provider calls).
 
-    Shots come from the request or the episode's uploaded shots.json (data/episodes/{id}/shots.json).
+    Shots come from the request or the episode's uploaded shots.json (<EPISODES_DIR>/{id}/shots.json).
     Requires: Authorization header OR session cookie.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
@@ -6568,7 +6567,7 @@ async def preflight_episode(
     if request and request.shots:
         shots = request.shots
     else:
-        shots_path = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+        shots_path = paths.episode_dir(episode_id) / "shots.json"
         if not shots_path.exists():
             raise HTTPException(status_code=404, detail=f"No shots.json uploaded for {episode_id}")
         try:
@@ -6751,9 +6750,8 @@ async def get_local_still(
     still = (row[0] if row else None) or ""
     if not still or still.startswith(("http://", "https://")):
         raise HTTPException(status_code=404, detail="No local still for this shot")
-    root = (Path(os.getenv("DATA_DIR", "./data")) / "episodes" / episode_id / "outputs" / shot_id).resolve()
-    from hfvg.activities.studio_generation import DRY_RUN_OUTPUT_DIR
-    dry_root = DRY_RUN_OUTPUT_DIR.resolve()
+    root = paths.outputs_dir(episode_id, shot_id).resolve()
+    dry_root = paths.dry_run_outputs_dir().resolve()
     path = Path(still).resolve()
     inside = path.is_relative_to(root) or path.is_relative_to(dry_root)
     if not inside or not path.is_file() or path.suffix.lower() not in _STILL_MEDIA_TYPES:

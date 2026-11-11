@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 
 from hfvg.aspect import AspectError, canvas
 from hfvg.config import config
+from hfvg.paths import episode_dir
 
 
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
@@ -102,7 +103,7 @@ def edit_dir(episode_id: str, output_dir: str | None = None) -> Path:
     """Deterministic directory of an episode's mute picture edit."""
     if output_dir:
         return Path(output_dir)
-    return Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "edit"
+    return episode_dir(episode_id) / "edit"
 
 
 def _sha256(path: Path) -> str:
@@ -365,11 +366,12 @@ async def assemble_mute_edit(
         raise ApplicationError(f"Mute edit canvas: {e}", type="EditPlanMismatch", non_retryable=True) from None
     entries = _plan_entries(shots, clip_paths)
     from hfvg.edit_plan import load_edit_plan
+    from hfvg.shot_data import shots_json_path
     edit_plan = load_edit_plan(episode_id)
     # GAP-76: shot metadata (object_contact tag / motion text) for the slow-action rule; reuse shot_meta wins
     shot_meta_of: dict[str, dict] = {}
     try:
-        _sj = json.loads((Path("data/episodes") / episode_id / "shots.json").read_text(encoding="utf-8"))
+        _sj = json.loads(shots_json_path(episode_id).read_text(encoding="utf-8"))
         for _s in (_sj.get("shots") if isinstance(_sj, dict) else None) or []:
             if isinstance(_s, dict) and _s.get("id"):
                 shot_meta_of[_s["id"]] = _s

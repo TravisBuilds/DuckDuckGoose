@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 
 from hfvg.config import config
+from hfvg.paths import data_dir
 from hfvg.providers.base import GenerationProvider, ProviderJob, ProviderJobStatus
 
 API_BASE = os.getenv("ELEVENLABS_API_BASE", "https://api.elevenlabs.io")
@@ -211,7 +212,7 @@ class ElevenLabsProvider(GenerationProvider):
         self.mock_balance = 5000.0  # Mock balance for dry-run
         self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
         self.api_base = (api_base or API_BASE).rstrip("/")
-        self.output_dir = Path(output_dir or os.getenv("ELEVENLABS_OUTPUT_DIR") or "./data/audio_cache")
+        self.output_dir = Path(output_dir or os.getenv("ELEVENLABS_OUTPUT_DIR") or data_dir() / "audio_cache")
         self._jobs: dict[str, dict[str, Any]] = {}
         if not self.dry_run and not self.api_key:
             raise ValueError("ELEVENLABS_API_KEY is required for live ElevenLabs calls")

@@ -1427,7 +1427,7 @@ test_mutation 129 "3f: .jpeg glob when resolving G2-approved anchor still" \
 test_mutation 130 "3g: verify_episode_files_activity honours EPISODES_DIR" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_harness_pr10_items_remaining.py::test_verify_episode_files_honors_episodes_dir" \
-    sed -i 's|episodes_dir = Path(os\.getenv("EPISODES_DIR", "\./data/episodes"))|episodes_dir = Path(".")  # MUTATED|'
+    sed -i 's|shots_json_path = episode_dir(episode_id) / "shots.json"|shots_json_path = Path(episode_id) / "shots.json"  # MUTATED|'
 
 # 131: 3h - CLI retry-shot uses execute_update
 test_mutation 131 "3h: CLI retry-shot uses execute_update" \

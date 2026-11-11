@@ -1,9 +1,9 @@
 """Activity to generate run report at workflow completion."""
 
 from datetime import datetime
-from pathlib import Path
 from temporalio import activity
 
+from hfvg.paths import data_dir
 from hfvg.run_report import create_run_report
 
 
@@ -60,7 +60,7 @@ async def generate_run_report(
     )
     
     # Save to reports directory
-    output_dir = Path("./data/reports")
+    output_dir = data_dir() / "reports"
     paths = report.save(output_dir)
     
     activity.logger.info(f"Run report saved: {paths}")

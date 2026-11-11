@@ -53,10 +53,7 @@ from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider, Seedance
 from hfvg.providers.base import ProviderJobStatus
 from hfvg.routing import plan_route
 from hfvg.estimates import clip_call_usd_micros, still_call_usd_micros
-
-# Dry-run placeholder stills/clips are written here, relative to the worker cwd (the run dir);
-# the studio still route serves stills from it too.
-DRY_RUN_OUTPUT_DIR = Path("./data/dry_run_outputs")
+from hfvg.paths import data_dir, dry_run_outputs_dir, episode_dir
 
 
 LEAD_REF_MAX_BYTES = 50 * 1024 * 1024
@@ -119,7 +116,7 @@ async def _localize_lead_ref(lead_ref: str, episode_id: str, shot_id: str) -> tu
     if len(data) > LEAD_REF_MAX_BYTES:
         raise ValueError(f"Lead ref (start still) for {shot_id} is too large: {len(data)} bytes")
     ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, ".img")
-    out_dir = Path(os.getenv("DATA_DIR", "./data")) / "lead_refs"
+    out_dir = data_dir() / "lead_refs"
     out_dir.mkdir(parents=True, exist_ok=True)
     sha = hashlib.sha256(data).hexdigest()
     out = out_dir / f"{episode_id}-{shot_id}-{sha[:16]}{ext}"
@@ -234,9 +231,7 @@ async def verify_episode_files_activity(episode_id: str) -> dict:
     Raises:
         FileNotFoundError: If shots.json is missing in live mode
     """
-    from pathlib import Path
-    episodes_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes"))
-    shots_json_path = episodes_dir / episode_id / "shots.json"
+    shots_json_path = episode_dir(episode_id) / "shots.json"
     
     if not shots_json_path.exists():
         raise FileNotFoundError(
@@ -1430,7 +1425,7 @@ async def poll_job_status(
         await asyncio.sleep(0.1)
         
         # Create real placeholder file
-        output_dir = DRY_RUN_OUTPUT_DIR
+        output_dir = dry_run_outputs_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Use job_id in filename (it already contains episode and shot info)
@@ -1725,7 +1720,7 @@ async def await_job_enforced(
         await asyncio.sleep(0.2)
         
         # Create real placeholder file
-        output_dir = DRY_RUN_OUTPUT_DIR
+        output_dir = dry_run_outputs_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Use job_id in filename (it already contains episode and shot info)

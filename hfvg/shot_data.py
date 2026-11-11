@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from hfvg.paths import episode_dir
 from hfvg.qc.clip_constraints import ConstraintError, validate_constraints
 from hfvg.qc.continuity import ContinuityError, validate_hard_checks
 from hfvg.routing import MODELS
@@ -28,14 +29,14 @@ def shots_json_path(episode_id: str) -> Path:
     override = os.getenv("SHOTS_JSON_PATH", "").strip()
     if override:
         return Path(override)
-    return Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "shots.json"
+    return episode_dir(episode_id) / "shots.json"
 
 
 def refs_json_path(episode_id: str) -> Path:
     override = os.getenv("REFS_JSON_PATH", "").strip()
     if override:
         return Path(override)
-    return Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs.json"
+    return episode_dir(episode_id) / "refs.json"
 
 
 def _read_json(path: Path, what: str) -> Any:

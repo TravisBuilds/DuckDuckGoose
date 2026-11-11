@@ -1,5 +1,6 @@
 """PR10 remaining items: 3f (jpeg anchor), 3g (EPISODES_DIR), 3h (CLI retry), 9 (cap update)."""
 import os
+import re
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -72,16 +73,23 @@ async def test_g2_approved_jpeg_anchor_glob(tmp_path, monkeypatch):
 
 # 3g: EPISODES_DIR in verify_episode_files_activity test
 @pytest.mark.asyncio
-async def test_verify_episode_files_honors_episodes_dir():
+async def test_verify_episode_files_honors_episodes_dir(tmp_path, monkeypatch):
     """Test that verify_episode_files_activity uses EPISODES_DIR env var."""
-    with patch.dict(os.environ, {"EPISODES_DIR": "/custom/episodes"}):
+    custom = tmp_path / "custom" / "episodes"
+    (custom / "ep77").mkdir(parents=True)
+    (custom / "ep77" / "shots.json").write_text('{"shots": []}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)  # nothing under the cwd: only EPISODES_DIR has the episode
+    with patch.dict(os.environ, {"EPISODES_DIR": str(custom)}):
         # The activity should construct paths using EPISODES_DIR
         # We'll test that the path construction includes the custom dir
-        from hfvg.activities import studio_generation
-        import inspect
-        source = inspect.getsource(studio_generation.verify_episode_files_activity)
-        assert "EPISODES_DIR" in source or "DATA_DIR" in source, \
-            "verify_episode_files_activity should use EPISODES_DIR or DATA_DIR"
+        try:
+            result = await verify_episode_files_activity("ep77")
+        except FileNotFoundError as e:
+            result = {"passed": False, "error": str(e)}
+        assert result == {"passed": True, "missing_files": []}, \
+            f"verify_episode_files_activity should use EPISODES_DIR or DATA_DIR: {result}"
+        with pytest.raises(FileNotFoundError, match=re.escape(str(custom / "ep78" / "shots.json"))):
+            await verify_episode_files_activity("ep78")
 
 
 # 3h: CLI retry-shot uses execute_update and exits nonzero on refusal
@@ -120,18 +128,22 @@ def test_create_episode_line_updates_cap_logic():
 
 # Item 5: Files use EPISODES_DIR/DATA_DIR env vars
 def test_episodes_dir_used_in_api_and_cli():
-    """Test that api/main.py and cli.py use EPISODES_DIR env var instead of hardcoded paths."""
-    
+    """Test that api/main.py and cli.py use EPISODES_DIR env var instead of hardcoded paths
+    (the env var is read in one place, hfvg/paths.py, which both call)."""
+    paths_source = (Path(__file__).parent.parent / "hfvg" / "paths.py").read_text()
+    assert '_env_path("EPISODES_DIR")' in paths_source, \
+        "hfvg/paths.py should read the EPISODES_DIR env var"
+
     # Check CLI lint command uses EPISODES_DIR
     cli_path = Path(__file__).parent.parent / "hfvg" / "cli.py"
     cli_source = cli_path.read_text()
-    assert 'os.getenv("EPISODES_DIR"' in cli_source, \
-        "CLI should use EPISODES_DIR env var"
+    assert "paths.episode_dir(" in cli_source, \
+        "CLI should use EPISODES_DIR env var (hfvg.paths.episode_dir)"
     
     # Check API routes use EPISODES_DIR
     api_path = Path(__file__).parent.parent / "api" / "main.py"
     api_source = api_path.read_text()
     # Count occurrences of EPISODES_DIR usage in api routes
-    episodes_dir_count = api_source.count('os.getenv("EPISODES_DIR"')
+    episodes_dir_count = api_source.count("paths.episode_dir(") + api_source.count("paths.episodes_dir(")
     assert episodes_dir_count >= 5, \
         f"API should use EPISODES_DIR in multiple routes (upload, canary, smoke, set-ref-versions), found {episodes_dir_count} uses"
