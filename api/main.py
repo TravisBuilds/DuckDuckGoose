@@ -1457,6 +1457,11 @@ async def _refuse_upload_during_run(episode_id: str, reopened_ok: bool = False) 
     return run
 
 
+def _start_refused_during_run(episode_id: str, run_id: str | None) -> str:
+    return (f"Episode {episode_id} has a run in progress{f' (run {run_id})' if run_id else ''}; "
+            "it cannot be started again until that run ends")
+
+
 @app.post("/api/episodes/{episode_id}/upload-prompt-kit")
 async def upload_prompt_kit(
     episode_id: str,
@@ -1696,7 +1701,8 @@ async def start_episode(
     
     Requires: Authorization header with admin secret OR session cookie (member or admin); a member
     starts only an episode of their own or one without an owner. A new episode (no DB row yet) is
-    recorded with the session user as its owner.
+    recorded with the session user as its owner. Refused (409) while the episode has a run in
+    progress, before its beatmap or row is touched.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
@@ -1707,6 +1713,9 @@ async def start_episode(
     
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    run = await _open_episode_run(request.episode_id)
+    if run:
+        raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, run["run_id"]))
     
     # Save beatmap content if provided
     beatmap_path: str | None = None
@@ -1764,6 +1773,8 @@ async def start_episode(
                        "target_duration_s": target_duration, "preset": profile}
 
     # Start workflow
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     
     # Stable workflow ID for approve route to find
@@ -1774,12 +1785,15 @@ async def start_episode(
         args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
     # only a new episode gets an owner here; the run's upsert keeps it
     await record_new_episode(request.episode_id, beatmap_path, studio_admin_token)
-    handle = await temporal_client.start_workflow(
-        EpisodeWorkflowV2.run,
-        args=args,
-        id=workflow_id,
-        task_queue="hfvg-tasks",
-    )
+    try:
+        handle = await temporal_client.start_workflow(
+            EpisodeWorkflowV2.run,
+            args=args,
+            id=workflow_id,
+            task_queue="hfvg-tasks",
+        )
+    except WorkflowAlreadyStartedError as e:  # Temporal's own check: an open run the one above did not see
+        raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, e.run_id)) from e
     
     return StartEpisodeResponse(
         workflow_id=handle.id,

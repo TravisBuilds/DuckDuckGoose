@@ -108,6 +108,8 @@ Start a new episode workflow.
 }
 ```
 
+**409 Conflict:** the episode has a run in progress (`"Episode ep04 has a run in progress (run ...); it cannot be started again until that run ends"`). Nothing is written; start it again once that run has ended.
+
 ### `GET /api/episodes/{episode_id}`
 
 Get current episode state.
