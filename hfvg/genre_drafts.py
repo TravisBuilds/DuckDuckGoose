@@ -199,7 +199,7 @@ def llm_instructions(profile: dict, target_s: int) -> str:
     lines = [
         f"Card: {profile.get('name')} ({profile.get('template')}). {TEMPLATE_RULES.get(profile.get('template'), '')}",
         f"Aspect ratio of the card: {profile.get('aspect')}",
-        f"Length: {target_s}s in total. Plan {len(lengths)} shots of {lo}-{hi}s each (whole seconds, 3-15s), "
+        f"Length: {target_s}s in total. Plan {len(lengths)} shots of {lo}-{hi}s each (3-15s per shot), "
         f"so the shot durations add up to {target_s}s.",
     ]
     if profile.get("shot_grammar"):

@@ -5812,9 +5812,8 @@ async def draft_from_idea(
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     
     from hfvg.config import config
-    import tempfile
-    from hfvg import genre_drafts
-    from hfvg.episode_parser import parse_beatmap
+    from hfvg import draft_repair, genre_drafts
+    from hfvg.episode_parser import parse_beatmap_text
     from hfvg.genre_presets import FREEFORM_ID, clamp_length, resolve_profile
     
     # Check for test-only fake LLM mode (DRAFT_LLM_FAKE=1)
@@ -5884,13 +5883,13 @@ async def draft_from_idea(
     
     # Build prompt for LLM: freeform keeps the generic pacing, a card brings its own rules
     if profile["id"] == FREEFORM_ID:
-        per_shot_rule = "Screen/gen: both same value, 5-8 seconds per shot"
+        per_shot_rule = "Shot length: 5-8 seconds per shot"
         count_rule = f"Create {int(target_duration / 6)} to {int(target_duration / 5)} shots total"
         card_rules = ""
         card_line = ""
     else:
         lengths = genre_drafts.shot_lengths(profile, target_duration)
-        per_shot_rule = f"Screen/gen: both same value, whole seconds, {min(lengths)}-{max(lengths)} seconds per shot"
+        per_shot_rule = f"Shot length: {min(lengths)}-{max(lengths)} seconds per shot"
         count_rule = f"Create {len(lengths)} shots total; their durations add up to {target_duration}s"
         card_rules = f"\nVIDEO TYPE (follow it):\n{genre_drafts.llm_instructions(profile, target_duration)}\n"
         card_line = f"Video type: {profile['name']}"
@@ -5926,15 +5925,17 @@ BEATMAP.md - Shot planning table:
 ```
 # Episode {episode_id} Beatmap
 
-| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | S01 | 5.0 (5.0) | [location] | [time] | A | [action description] | [narrative purpose] | - | - | K |
+{draft_repair.TABLE_HEADER}
+{draft_repair.TABLE_SEPARATOR}
+{draft_repair.PROMPT_EXAMPLE_ROW}
 ```
 - Shot IDs: S01, S02, etc.
 - {per_shot_rule}
-- Model: K (Kling) for most shots
+{draft_repair.table_rules_text()}
+- Use K (Kling) for most shots
 - Chars: A, B, C for up to 3 main characters
 - {count_rule}
+- One row per shots_json shot, same ids and order; Screen (gen) holds that shot's duration
 
 shots.json:
 {{
@@ -5946,7 +5947,7 @@ shots.json:
       "characters": ["A"],
       "wet": false,
       "model": "kling",
-      "duration": 5,
+      "duration": 6,
       "end_frame": false,
       "ref_keys": []
     }}
@@ -5990,10 +5991,7 @@ Generate all the files ({file_keys}) as a single JSON response."""
     if use_fake_llm:
         logger.info(f"FAKE LLM: Returning canned draft data for episode {episode_id}")
         fake = genre_drafts.fake_draft(profile, request.idea, episode_id, target_duration, style_guidance)
-        with tempfile.TemporaryDirectory(prefix="draft_") as tmp:
-            fake_beatmap = Path(tmp) / "BEATMAP.md"
-            fake_beatmap.write_text(fake["beatmap_md"], encoding="utf-8")
-            parsed_shots = parse_beatmap(str(fake_beatmap))
+        parsed_shots = parse_beatmap_text(fake["beatmap_md"])
         return _draft_response(
             episode_id=episode_id, profile=profile, archetype_id=request.archetype_id,
             target_duration=target_duration, beatmap_content=fake["beatmap_md"], parsed_shots=parsed_shots,
@@ -6005,30 +6003,60 @@ Generate all the files ({file_keys}) as a single JSON response."""
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-        
-        # Call OpenAI with structured output
+        log_ctx = {"episode_id": episode_id, "card": request.archetype_id, "target_s": target_duration}
+
+        def _json_object(content: str | None) -> dict | None:
+            try:
+                value = json.loads(content)
+            except (TypeError, ValueError):
+                return None
+            return value if isinstance(value, dict) else None
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
         response = await client.chat.completions.create(
             model=config.STORY_SHAPING_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.7,
             response_format={"type": "json_object"},
         )
-        
-        result = json.loads(response.choices[0].message.content)
-        
-        # Extract generated content
-        beatmap_content = result.get("beatmap_md", "")
-        shots_data = result.get("shots_json")
-        refs_data = result.get("refs_json")
-        prompt_kit_data = result.get("prompt_kit_json")
+        raw = response.choices[0].message.content
+        result = _json_object(raw) or {}
+
+        # A long draft can come back without some files (or cut off): ask again for just those
+        for attempt in range(1, draft_repair.MAX_FILE_RETRIES + 1):
+            if draft_repair.fill_refs(result):
+                draft_repair.log_problem("refs_json rebuilt", attempt=attempt, problem="refs_json missing", **log_ctx)
+            missing = draft_repair.missing_files(result)
+            if not missing:
+                break
+            draft_repair.log_problem("missing files", attempt=attempt, problem=", ".join(missing), **log_ctx)
+            retry = await client.chat.completions.create(
+                model=config.STORY_SHAPING_MODEL,
+                messages=[*messages, {"role": "assistant", "content": raw or ""},
+                          {"role": "user", "content": draft_repair.missing_files_prompt(missing)}],
+                temperature=0.7,
+                response_format={"type": "json_object"},
+            )
+            for key, value in (_json_object(retry.choices[0].message.content) or {}).items():
+                if not result.get(key):
+                    result[key] = value
+        draft_repair.fill_refs(result)
+        missing = draft_repair.missing_files(result)
+        if missing:
+            draft_repair.log_problem("missing files unrecovered", attempt=draft_repair.MAX_FILE_RETRIES,
+                                     problem=", ".join(missing), **log_ctx)
+            raise ValueError(f"LLM response missing required files ({', '.join(missing)}) after "
+                             f"{draft_repair.MAX_FILE_RETRIES} retries")
+
+        beatmap_content = result["beatmap_md"]
+        shots_data = result["shots_json"]
+        refs_data = result["refs_json"]
+        prompt_kit_data = result["prompt_kit_json"]
         ip_steering = result.get("ip_steering_note", "")
-        
-        if not all([beatmap_content, shots_data, refs_data, prompt_kit_data]):
-            raise ValueError("LLM response missing required files")
-        
+
         # Parse JSON strings if needed
         if isinstance(shots_data, str):
             shots_data = json.loads(shots_data)
@@ -6036,48 +6064,36 @@ Generate all the files ({file_keys}) as a single JSON response."""
             refs_data = json.loads(refs_data)
         if isinstance(prompt_kit_data, str):
             prompt_kit_data = json.loads(prompt_kit_data)
-        
-        # Validate beatmap
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
-            f.write(beatmap_content)
-            beatmap_temp = f.name
-        
-        try:
-            parsed_shots = parse_beatmap(beatmap_temp)
-            if not parsed_shots:
-                raise ValueError("Beatmap parsed but contains no shots")
-        except Exception as e:
-            # Retry once with a repair prompt
-            repair_prompt = f"""The generated beatmap failed validation: {str(e)}
 
-Original beatmap:
-{beatmap_content}
-
-Fix the beatmap to be valid. Return JSON with just "beatmap_md" key containing the corrected markdown."""
-            
+        # The table must parse and list the shots.json shots with their lengths; each repair is
+        # sent the exact problem of the previous table
+        parsed_shots, problem, row = draft_repair.check_beatmap(beatmap_content, shots_data)
+        attempt = 0
+        while problem and attempt < draft_repair.MAX_BEATMAP_REPAIRS:
+            attempt += 1
+            draft_repair.log_problem("beatmap", attempt=attempt, problem=problem, row=row, **log_ctx)
             repair_response = await client.chat.completions.create(
                 model=config.STORY_SHAPING_MODEL,
                 messages=[
                     {"role": "system", "content": "You fix invalid beatmap tables."},
-                    {"role": "user", "content": repair_prompt},
+                    {"role": "user", "content": draft_repair.repair_prompt(problem, beatmap_content, shots_data)},
                 ],
                 temperature=0.3,
                 response_format={"type": "json_object"},
             )
-            
-            repair_result = json.loads(repair_response.choices[0].message.content)
-            beatmap_content = repair_result.get("beatmap_md", beatmap_content)
-            
-            # Re-write and validate
-            with open(beatmap_temp, 'w', encoding='utf-8') as f:
-                f.write(beatmap_content)
-            
-            parsed_shots = parse_beatmap(beatmap_temp)
-            if not parsed_shots:
-                raise ValueError("Repaired beatmap still invalid")
-        finally:
-            Path(beatmap_temp).unlink(missing_ok=True)
-        
+            repaired = (_json_object(repair_response.choices[0].message.content) or {}).get("beatmap_md")
+            if isinstance(repaired, str) and repaired.strip():
+                beatmap_content = repaired
+            parsed_shots, problem, row = draft_repair.check_beatmap(beatmap_content, shots_data)
+        if problem:
+            draft_repair.log_problem("beatmap unrepaired", attempt=attempt, problem=problem, row=row, **log_ctx)
+            raise HTTPException(
+                status_code=500,
+                detail=(f"Draft generation failed: the shot table (BEATMAP) was still unreadable after "
+                        f"{draft_repair.MAX_BEATMAP_REPAIRS} repairs: {problem}. {draft_repair.format_help()}. "
+                        "Try again, or shorten or rephrase the idea."),
+            )
+
         warnings = []
         if ip_steering:
             warnings.append(f"Content policy note: {ip_steering}")

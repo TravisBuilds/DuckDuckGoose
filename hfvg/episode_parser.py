@@ -28,25 +28,41 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     - has_end_frame: bool (marked with ⇥)
     - duck_role: "host", "absent", or "present"
     """
-    content = Path(beatmap_path).read_text(encoding="utf-8")
-    
-    shots = []
-    
-    # Find all table rows with shot data
-    # Format: | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
-    # Need to match rows that start with | number | shot_id | and end with | K or S |
-    pattern = r'\|\s*(\d+)\s*\|\s*([A-Z]{1,3}\d+[a-zA-Z]*)\s*\|\s*([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])'
-    
-    for match in re.finditer(pattern, content, re.MULTILINE):
-        shots.append(_build_shot(
+    return parse_beatmap_text(Path(beatmap_path).read_text(encoding="utf-8"))
+
+
+def parse_beatmap_text(content: str) -> list[dict[str, Any]]:
+    """parse_beatmap for BEATMAP.md content already in memory (draft checks)."""
+    # A shot table with a header row (| # | ID | Screen ... | Model |) is read by its header and every
+    # row is checked; only documents without one fall back to the legacy row regex.
+    shots = _parse_header_tables(content)
+    if not shots:
+        return _legacy_rows(content)
+    seen = {s["shot_id"] for s in shots}
+    stray = [s["shot_id"] for s in _legacy_rows(content) if s["shot_id"] not in seen]
+    if stray:
+        raise BeatmapFormatError(
+            f"BEATMAP shot {stray[0]}: row is outside the shot table; keep every shot row directly under "
+            "the table header (no blank lines or text between rows)", stray[0])
+    return shots
+
+
+# Format: | # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+# (rows that start with | number | shot_id | and end with | K or S |)
+_LEGACY_ROW = re.compile(
+    r'\|\s*(\d+)\s*\|\s*([A-Z]{1,3}\d+[a-zA-Z]*)\s*\|\s*([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*\|([^|]*)\|([^|]*)\|'
+    r'([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])')
+
+
+def _legacy_rows(content: str) -> list[dict[str, Any]]:
+    return [
+        _build_shot(
             int(match.group(1)), match.group(2).strip(), float(match.group(3)), float(match.group(4)),
             '⇥' in match.group(5), match.group(6).strip(), match.group(7).strip(), match.group(8).strip(),
             match.group(9).strip(), match.group(10).strip(), match.group(13).strip(),
-        ))
-    if not shots:
-        # Studio tables with extra columns (e.g. "N") or long model names ("kling"): header-driven
-        shots = _parse_header_tables(content)
-    return shots
+        )
+        for match in _LEGACY_ROW.finditer(content)
+    ]
 
 
 def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float, has_end_frame: bool,
@@ -115,7 +131,36 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
 
 
 _MODEL_CODES = {"k": "K", "kling": "K", "s": "S", "seedance": "S"}
-_SCREEN_RE = re.compile(r"^([\d.]+)\s*\(([\d.]+)\)\s*(⇥?)\s*$")
+# Screen (gen) cell: "6 (6)", "6.0 (6.0)", "5.5 (6.0) ⇥"; a bare "6" or "6s" / "6s (6s)" reads as
+# screen = gen. Anything else (ranges, words, "~6", "6 sec") is refused.
+_SECONDS = r"(\d+(?:\.\d+)?)\s*(?:s(?![a-z]))?"
+_SCREEN_RE = re.compile(rf"^{_SECONDS}\s*(?:\(\s*{_SECONDS}\s*\))?\s*(⇥?)\s*$", re.IGNORECASE)
+SCREEN_CELL_FORMAT = "'<seconds> (<seconds>)' with no units, e.g. '6 (6)' or '6.0 (6.0)'"
+MODEL_CELL_FORMAT = "K (Kling) or S (Seedance)"
+_SHOWN_CELL_CHARS = 40
+_SHOT_COLUMNS = ("#", "id", "screen", "room", "tod", "chars", "action", "purpose", "model")
+
+
+class BeatmapFormatError(ValueError):
+    """A BEATMAP shot row the parser refuses; the message says what the cell must look like."""
+
+    def __init__(self, message: str, shot_id: str | None = None, row: str = ""):
+        super().__init__(message)
+        self.shot_id = shot_id
+        self.row = row
+
+
+def parse_screen_cell(screen: str) -> tuple[float, float, bool] | None:
+    """(screen_time, gen_time, has_end_frame) of a Screen (gen) cell, None when it does not read as one."""
+    m = _SCREEN_RE.match(screen.strip())
+    if not m:
+        return None
+    screen_s = float(m.group(1))
+    return screen_s, float(m.group(2)) if m.group(2) else screen_s, bool(m.group(3))
+
+
+def _show(cell: str) -> str:
+    return repr(cell if len(cell) <= _SHOWN_CELL_CHARS else cell[:_SHOWN_CELL_CHARS - 3] + "...")
 
 
 def _cells(line: str) -> list[str]:
@@ -125,8 +170,8 @@ def _cells(line: str) -> list[str]:
 def _parse_header_tables(content: str) -> list[dict[str, Any]]:
     """Shot tables located by their header (| # | ID | Screen ... | Model |), any column order/extra
     columns. Rows marked REUSE in the screen cell are reused locked clips (hfvg.edit_plan), not
-    generated, and are skipped. Any other row whose screen cell does not read "S (G) [⇥]" or whose
-    model is unknown is refused (ValueError): a shot is never silently dropped."""
+    generated, and are skipped. Any other row whose cells do not read (see SCREEN_CELL_FORMAT and
+    MODEL_CELL_FORMAT) is refused with BeatmapFormatError: a shot is never silently dropped."""
     shots: list[dict[str, Any]] = []
     lines = content.splitlines()
     i = 0
@@ -139,23 +184,38 @@ def _parse_header_tables(content: str) -> list[dict[str, Any]]:
                     if h == prefix or h.startswith(prefix):
                         return j
                 return None
-            idx = {k: col(k) for k in ("#", "id", "screen", "room", "tod", "chars", "action", "purpose", "model")}
+            idx = {k: col(k) for k in _SHOT_COLUMNS}
             if all(v is not None for v in idx.values()):
                 i += 2  # skip the |---| separator
                 while i < len(lines) and lines[i].lstrip().startswith("|"):
-                    cells = _cells(lines[i])
+                    row = lines[i].strip()
+                    cells = _cells(row)
                     i += 1
                     if len(cells) < len(head):
-                        raise ValueError(f"BEATMAP row has {len(cells)} cells, header has {len(head)}: {cells[:2]}")
+                        raise BeatmapFormatError(
+                            f"BEATMAP row has {len(cells)} cells, header has {len(head)}: {cells[:2]}", row=row)
                     sid, screen = cells[idx["id"]], cells[idx["screen"]]
                     if "REUSE" in screen.upper():
                         continue
-                    m = _SCREEN_RE.match(screen)
-                    model = _MODEL_CODES.get(cells[idx["model"]].strip().lower())
-                    if not m or not model:
-                        raise ValueError(f"BEATMAP shot {sid}: unparseable screen {screen!r} or model {cells[idx['model']]!r}")
+                    if any(cells[len(head):]):
+                        raise BeatmapFormatError(
+                            f"BEATMAP shot {sid}: row has {len(cells)} cells, header has {len(head)}; a '|' "
+                            "inside a cell splits it (write the text without '|')", sid, row)
+                    timing = parse_screen_cell(screen)
+                    if timing is None:
+                        raise BeatmapFormatError(
+                            f"BEATMAP shot {sid}: Screen (gen) cell {_show(screen)} must read {SCREEN_CELL_FORMAT}", sid, row)
+                    model_cell = cells[idx["model"]]
+                    model = _MODEL_CODES.get(model_cell.strip().lower())
+                    if not model:
+                        raise BeatmapFormatError(
+                            f"BEATMAP shot {sid}: Model cell {_show(model_cell)} must be {MODEL_CELL_FORMAT}", sid, row)
+                    number = cells[idx["#"]]
+                    if not number.isdigit():
+                        raise BeatmapFormatError(
+                            f"BEATMAP shot {sid}: # cell {_show(number)} must be the shot number (1, 2, 3 ...)", sid, row)
                     shots.append(_build_shot(
-                        int(cells[idx["#"]]), sid, float(m.group(1)), float(m.group(2)), bool(m.group(3)),
+                        int(number), sid, *timing,
                         cells[idx["room"]], cells[idx["tod"]], cells[idx["chars"]], cells[idx["action"]],
                         cells[idx["purpose"]], model,
                     ))
