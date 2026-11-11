@@ -1232,9 +1232,8 @@ async def upload_beatmap(
     try:
         handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
         desc = await handle.describe()
-        # Check if workflow exists and is running
-        from temporalio.client import WorkflowExecutionStatus
-        if desc.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+        # The workflow exists: refused until its run has ended, as for the other episode files
+        if not _run_ended(desc.status):
             raise HTTPException(
                 status_code=409,
                 detail=f"Episode {episode_id} workflow is currently running. Cannot upload while workflow is active."
@@ -1414,12 +1413,12 @@ async def _open_episode_run(episode_id: str) -> dict | None:
     """The episode's open workflow run as {"run_id", "reopened", "live"}, None when no run is open.
 
     An episode without a DB row has never run (a run records its row before anything is generated).
-    Otherwise Temporal decides; the run's reopen_snapshot says whether it is a reopened run (GAP-41 /
+    Otherwise Temporal decides: the run is open until Temporal reports it ended (_run_ended, the
+    statuses of the ended-run 409). Its reopen_snapshot says whether it is a reopened run (GAP-41 /
     GAP-79: its own entry ends its reopen_log) and whether it is live. Fails closed: 503 when Temporal
     cannot answer, and a run that cannot answer the query counts as live and not reopened. Without a
     Temporal client (tests and tools; the API's startup connects or fails) a held run lock refuses.
     """
-    from temporalio.client import WorkflowExecutionStatus
     from temporalio.service import RPCError, RPCStatusCode
     if not await _studio_row("SELECT 1 FROM episodes WHERE episode_id = ?", (episode_id,)):
         return None
@@ -1435,7 +1434,7 @@ async def _open_episode_run(episode_id: str) -> dict | None:
         if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
             raise HTTPException(status_code=503, detail=f"Temporal error: {e}")
         return None
-    if desc.status not in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+    if _run_ended(desc.status):
         return None
     try:
         snapshot = await temporal_client.get_workflow_handle(handle.id, run_id=desc.run_id).query("reopen_snapshot")
@@ -1871,6 +1870,13 @@ get_episode_state.allow_members = True
 _RUN_OUTCOMES = {"FAILED": "failed", "TERMINATED": "terminated", "CANCELED": "canceled",
                  "TIMED_OUT": "timed out", "COMPLETED": "completed"}
 _ENDED_RUNS: dict[str, tuple[dict, list | None]] = {}  # run_id -> (run view, start inputs); never changes
+
+
+def _run_ended(status) -> bool:
+    """Temporal reports the run as ended (_RUN_OUTCOMES). The upload routes refuse new files for every
+    other status, an unknown one included, so a run whose files are refused is never one whose actions
+    get the ended-run 409, and an ended run's files can be fixed before it is started again."""
+    return getattr(status, "name", None) in _RUN_OUTCOMES
 
 
 def _short_reason(text: str) -> str | None:

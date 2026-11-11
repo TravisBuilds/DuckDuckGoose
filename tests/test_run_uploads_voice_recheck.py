@@ -226,6 +226,72 @@ async def test_an_episode_that_never_ran_does_not_ask_temporal(api, route):
     api.temporal_client.handle.describe.assert_not_called()
 
 
+# ------------------------------------------------------------------ the upload refusal and the ended-run 409
+BEATMAP = """# Episode ep71vc Beatmap
+
+| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | A01 | 6.0 (6.0) | Harbor | Dusk | A | A paper kite lifts off the pier | Open | - | - | K |
+"""
+
+
+@pytest.mark.parametrize("status", [s.name for s in WorkflowExecutionStatus] + [None])
+async def test_a_run_has_its_files_refused_or_its_actions_refused_never_both(api, status):
+    """Every status Temporal can report makes the run open (all four uploads refused, the ended-run check
+    lets actions through) or ended (uploads accepted, actions get the ended-run 409). A status Temporal
+    does not report counts as open."""
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+    client = _temporal("RUNNING", attrs={"reopen_log": [], "_dry_run": True})
+    client.handle.describe = AsyncMock(return_value=MagicMock(
+        id=EP, run_id="run-1", status=getattr(WorkflowExecutionStatus, status) if status else None,
+        workflow_type="EpisodeWorkflowV2"))
+    api.temporal_client = client
+    try:
+        await api._refuse_ended_run(EP)
+        action_refused = None
+    except HTTPException as e:
+        action_refused = (e.status_code, e.detail)
+    uploads = {route: _post(api, route) for route in ROUTES}
+    uploads["upload"] = TestClient(api.app).post("/api/episodes/upload", headers=AUTH, data={"episode_id": EP},
+                                                files={"beatmap_file": ("BEATMAP.md", BEATMAP.encode(), "text/markdown")})
+    answers = {route: res.status_code for route, res in uploads.items()}
+    if status in ("RUNNING", "CONTINUED_AS_NEW", None):
+        assert action_refused is None
+        assert answers == {route: 409 for route in answers}, {r: res.text for r, res in uploads.items()}
+    else:
+        assert action_refused is not None and action_refused[0] == 409, action_refused
+        assert action_refused[1].startswith(f"This run has ended ({api._RUN_OUTCOMES[status]}")
+        assert answers == {route: 200 for route in answers}, {r: res.text for r, res in uploads.items()}
+
+
+async def test_an_ended_live_run_takes_new_files_and_start_again_checks_their_voices(api):
+    """The hand-over: once the live run has failed its audio plan may change (no run is using it), and
+    start-again checks the voices before the new run; the new run refuses the files again."""
+    from fastapi.testclient import TestClient
+    from tests.test_episode_ownership import _ended_run
+    api.temporal_client = _temporal("FAILED")
+    inputs = _ended_run(api, EP, dry_run=False)
+    again = TestClient(api.app)
+    for plan, refused in ((VOICELESS, NO_VOICE), (PREVIEW_VOICE, "dry-run preview voices cannot speak in a live run")):
+        assert _post(api, "upload-audio-plan", audio_plan=plan).status_code == 200
+        res = again.post(f"/api/episodes/{EP}/start-again", headers=AUTH)
+        assert res.status_code == 400, res.text
+        assert res.json()["detail"].startswith(f"Refusing to start {EP} again: {NO_VOICE}")
+        assert refused in res.json()["detail"]
+    api.temporal_client.start_workflow.assert_not_called()
+    assert _post(api, "upload-audio-plan", audio_plan=REAL_VOICE).status_code == 200
+    res = again.post(f"/api/episodes/{EP}/start-again", headers=AUTH)
+    assert res.status_code == 200, res.text
+    assert api.temporal_client.start_workflow.call_args.kwargs["args"] == inputs
+
+    api.temporal_client.handle.describe = AsyncMock(return_value=MagicMock(
+        id=EP, run_id="run-new", status=WorkflowExecutionStatus.RUNNING, workflow_type="EpisodeWorkflowV2"))
+    res = _post(api, "upload-audio-plan", audio_plan=VOICELESS)
+    assert res.status_code == 409 and "has a run in progress (run run-new)" in res.json()["detail"]
+    assert json.loads(_stored("upload-audio-plan").read_text()) == REAL_VOICE
+
+
 # ------------------------------------------------------------------ reopen re-checks the voices
 def _snapshot(dry_run: bool) -> dict:
     return {"version": 1, "episode_id": EP, "state": {"pending_retries": {}},
