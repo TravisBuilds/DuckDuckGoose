@@ -691,11 +691,11 @@ async def verify_auth_unified(
 
 # ---------------------------------------------------------------- episode ownership
 # The owner of an episode is episodes.user_id: the session user who created its row (the BEATMAP
-# upload, the wizard's first upload, or the start). Members change and approve only their own
-# episodes; admins (admin session, Bearer ADMIN_SECRET) any. Episodes without an owner (no row yet,
-# rows from before owners were recorded, rows created with a Bearer token: NULL or 'legacy/shared')
-# keep the old rule: any member (and the UPLOAD_TOKEN) may change them. Reads are not checked here;
-# they follow the existing visibility rules. docs/AUTHENTICATION.md has the table.
+# upload, the wizard's first upload, a start or a start again). Members change, approve and start
+# again only their own episodes; admins (admin session, Bearer ADMIN_SECRET) any. Episodes without an
+# owner (no row yet, rows from before owners were recorded, rows created with a Bearer token: NULL or
+# 'legacy/shared') keep the old rule: any member (and the UPLOAD_TOKEN) may change them. Reads are not
+# checked here; they follow the existing visibility rules. docs/AUTHENTICATION.md has the table.
 
 async def _studio_row(sql: str, params: tuple) -> tuple | None:
     """One row of the studio DB; None when the table does not exist yet (503 on other DB errors)."""
@@ -1975,7 +1975,8 @@ async def start_episode_again(
     canceled, timed out, or returned status "failed"), with the inputs that run was started with (same
     workflow id; the ended run stays in the history). Refused while a run is open, after a completed
     run (reopen it instead) and for a reopened run. POST /api/episodes's refusals apply to the files
-    as they are now."""
+    as they are now. A member starts only their own episodes again, or one without an owner (the
+    ownership check of require_admin_auth); the episode's row is recorded as on a start."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
@@ -2011,6 +2012,7 @@ async def start_episode_again(
     problems = uploaded_shots_problems(episode_id) + audio_plan_voice_problems(episode_id, live=not dry_run)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
+    await record_new_episode(episode_id, beatmap_path, studio_admin_token)
     try:
         new = await temporal_client.start_workflow(
             EpisodeWorkflowV2.run, args=inputs, id=episode_id, task_queue="hfvg-tasks",
