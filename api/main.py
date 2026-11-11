@@ -429,6 +429,11 @@ async def require_admin_auth(
     endpoint = getattr(route, "endpoint", None) if route else None
     allow_members = getattr(endpoint, "allow_members", False) if endpoint else False
     await verify_auth_unified(authorization, studio_admin_token, require_admin=not allow_members)
+    # A member's write to an episode named in the path: only its owner (or an admin). Routes with the
+    # episode id in the form or body (upload, start) check it themselves.
+    if (allow_members and method != "GET" and "episode_id" in request.path_params
+            and not getattr(endpoint, "read_only", False)):
+        await require_episode_owner(request.path_params["episode_id"], authorization, studio_admin_token)
 
 
 logger = logging.getLogger(__name__)
@@ -684,6 +689,14 @@ async def verify_auth_unified(
     )
 
 
+# ---------------------------------------------------------------- episode ownership
+# The owner of an episode is episodes.user_id: the session user who created its row (the BEATMAP
+# upload, the wizard's first upload, or the start). Members change and approve only their own
+# episodes; admins (admin session, Bearer ADMIN_SECRET) any. Episodes without an owner (no row yet,
+# rows from before owners were recorded, rows created with a Bearer token: NULL or 'legacy/shared')
+# keep the old rule: any member (and the UPLOAD_TOKEN) may change them. Reads are not checked here;
+# they follow the existing visibility rules. docs/AUTHENTICATION.md has the table.
+
 async def _studio_row(sql: str, params: tuple) -> tuple | None:
     """One row of the studio DB; None when the table does not exist yet (503 on other DB errors)."""
     import aiosqlite
@@ -694,6 +707,42 @@ async def _studio_row(sql: str, params: tuple) -> tuple | None:
         if "no such table" in str(e):
             return None
         raise HTTPException(status_code=503, detail=f"studio database error: {e}")
+
+
+async def _episode_actor(authorization: str | None, studio_admin_token: str | None) -> tuple[str | None, bool]:
+    """(user id, is admin) of the caller. A valid session cookie decides, as in verify_auth_unified;
+    without one only the Bearer ADMIN_SECRET is an admin. The UPLOAD_TOKEN is member-level and names
+    no user, so it (like any other credential) changes only episodes without an owner."""
+    if studio_admin_token:
+        role = await get_session_role(studio_admin_token)
+        if role:
+            return await get_user_id_from_session(studio_admin_token), role == "admin"
+    try:
+        verify_admin_secret(authorization)
+    except (HTTPException, ValueError):
+        return None, False
+    return None, True
+
+
+async def episode_owner(episode_id: str) -> str | None:
+    """The user id that owns the episode, None when it has no owner."""
+    from hfvg.users import LEGACY_USER_ID
+    row = await _studio_row("SELECT user_id FROM episodes WHERE episode_id = ?",
+                            (episode_workflow_id(episode_id),))
+    owner = row[0] if row else None
+    return None if owner in (None, "", LEGACY_USER_ID) else owner
+
+
+async def require_episode_owner(episode_id: str, authorization: str | None,
+                                studio_admin_token: str | None) -> None:
+    """403 unless the caller may change the episode: an admin, its owner, or anyone while it has none."""
+    user_id, is_admin = await _episode_actor(authorization, studio_admin_token)
+    if is_admin:
+        return
+    owner = await episode_owner(episode_id)
+    if owner is not None and owner != user_id:
+        raise HTTPException(status_code=403, detail=(
+            f"Episode {episode_id} belongs to another member; only its owner or an admin can change it"))
 
 
 # Request/Response models
@@ -1153,9 +1202,10 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Auth handled by middleware (no additional check needed here)
+    # Auth handled by middleware; the episode id comes in the form, so ownership is checked here
     
     validate_episode_id(episode_id)
+    await require_episode_owner(episode_id, request.headers.get("authorization"), studio_admin_token)
     
     # Return 409 while workflow is running (fail closed: 503 on Temporal errors)
     if not temporal_client:
@@ -1627,10 +1677,13 @@ async def start_episode(
     """
     Start a new episode workflow.
     
-    Requires: Authorization header with admin secret OR session cookie (member or admin).
+    Requires: Authorization header with admin secret OR session cookie (member or admin); a member
+    starts only an episode of their own or one without an owner. A new episode (no DB row yet) is
+    recorded with the session user as its owner.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
+    await require_episode_owner(request.episode_id, authorization, studio_admin_token)
     
     # Initialize studio DB if not exists
     await init_studio_db(DATABASE_PATH)
@@ -1702,6 +1755,9 @@ async def start_episode(
     args = [request.episode_id, beatmap_path, request.dry_run, request.shots_subset, request.credit_cap, request.attempt_overrides, None, request.enable_story_shaping]
     if genre_brief is not None:
         args.append(genre_brief)  # optional 9th input; starts without a brief keep the 8-argument form
+    # INSERT OR IGNORE: only a new episode gets an owner here; the run's upsert keeps it
+    await create_episode(DATABASE_PATH, request.episode_id, beatmap_path,
+                         user_id=await get_user_id_from_session(studio_admin_token) if studio_admin_token else None)
     handle = await temporal_client.start_workflow(
         EpisodeWorkflowV2.run,
         args=args,
@@ -6318,6 +6374,7 @@ async def preflight_episode(
 
 # Mark preflight_episode to allow members
 preflight_episode.allow_members = True
+preflight_episode.read_only = True  # a POST that only reports: any member, as for reads
 
 def offline_cost_estimate(shots: list[dict], pre_approved: set[str] | None = None) -> dict:
     """Offline USD estimate for a shot list (no provider call): the per-call estimates the dry

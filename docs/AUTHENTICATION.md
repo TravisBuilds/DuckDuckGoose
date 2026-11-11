@@ -38,6 +38,10 @@ Creators who make videos end-to-end. Members can:
 - View clip plans and resync
 - Change their own password
 
+The episode writes above (uploads, start, approvals, retries, reopen, set-live/set-dry, story shape,
+resync, final-cut reject) apply to **their own episodes** and to episodes without an owner; see
+[Episode ownership](#episode-ownership).
+
 Members **cannot**:
 - Raise credit caps or resume balance after insufficient funds (financial controls)
 - Access dashboard or spending analytics
@@ -67,7 +71,33 @@ Members **cannot**:
 - Production upload endpoints only
 - `Authorization: Bearer <UPLOAD_TOKEN>`
 - Scoped to `/api/episodes/upload` and `/api/episodes/upload/validate`
-- Equivalent to member-level access for these endpoints
+- Equivalent to member-level access for these endpoints; it names no user, so it uploads only to
+  episodes without an owner
+
+## Episode ownership
+
+The owner of an episode is `episodes.user_id` in the studio database: the session user who created the
+episode's row (the first BEATMAP upload, the create wizard's first upload, or `POST /api/episodes`).
+
+| Caller | Episode it owns | Another member's episode | Episode without an owner |
+|---|---|---|---|
+| Member session | write and approve | **403** | write and approve (old rule) |
+| Admin session, `Bearer <ADMIN_SECRET>` | write and approve | write and approve | write and approve |
+| `Bearer <UPLOAD_TOKEN>` (upload route only) | — | **403** | upload |
+
+- **Without an owner** means no row yet, or a row whose `user_id` is NULL or `legacy/shared`: episodes
+  created before owners were recorded, or created with a Bearer token. They keep the behaviour from
+  before ownership: any member may change them. Nothing assigns them an owner later: the owner is
+  only written when the row is created.
+- A member's first write (BEATMAP upload or start) on a new episode id makes them its owner. Admin
+  sessions own what they create (`user_id` `admin`); Bearer tokens leave the episode without an owner.
+- Writes are every member-allowed non-GET route with `{episode_id}` in the path (checked by
+  `require_admin_auth`) plus `POST /api/episodes/upload` and `POST /api/episodes` (checked in the
+  handler, the id is in the form/body). Routes that only report (`POST /api/episodes/{id}/preflight`)
+  set `read_only = True` and are not checked.
+- Reads are unchanged: every member still lists and views every episode.
+- A refused write answers `403` with `Episode <id> belongs to another member; only its owner or an
+  admin can change it` and changes nothing.
 
 ## Route Permission Matrix
 
@@ -151,6 +181,10 @@ async def list_episodes():
 
 list_episodes.allow_members = True
 ```
+
+A member-allowed route with `{episode_id}` in its path and a method other than GET is an episode
+write: the middleware also requires the caller to own the episode (or be an admin). A POST that only
+reports sets `route_function.read_only = True` as well.
 
 ### Verification Functions
 - `verify_auth_unified(authorization, studio_admin_token, require_admin=True)` - Unified auth check
