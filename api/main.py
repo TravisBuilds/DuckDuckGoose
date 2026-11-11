@@ -3675,6 +3675,7 @@ async def select_still(
         raise HTTPException(status_code=422, detail="reason is required")
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
     plan, problems = await _select_still_checked(episode_id, shot_id, request.version)
     if problems:
         raise HTTPException(status_code=409, detail=f"Cannot select {shot_id} v{request.version}: "
@@ -3862,6 +3863,7 @@ async def retry_clip(
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Clip retry")  # GAP-65
     if request.clip_route is not None and not isinstance(request.clip_route.get("model", "kling"), str):
         raise HTTPException(status_code=422, detail="invalid clip_route: model must be a string")
@@ -3946,6 +3948,7 @@ async def recompose_shot(
     against the model limits BEFORE any spend. The new still parks for /recompose/decision."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     await _refuse_if_paid_gates_fail(episode_id, "Recompose")  # GAP-65
     refs_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id / "refs"
     refs: list[str] = []
@@ -4353,6 +4356,7 @@ async def recompose_decision(
     """GAP-21: approve (clip from the new still) or reject (no clip spend) a parked recompose still."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_ended_run(episode_id)
     if request.approve:  # GAP-65: approving starts the paid clip; a reject spends nothing
         await _refuse_if_paid_gates_fail(episode_id, "Recompose approval")
     result = await _execute_episode_update(
@@ -4456,6 +4460,7 @@ async def adopt_reuse(
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
+    await _refuse_ended_run(episode_id)
     fields = _adopt_reuse_fields(episode_id, shot_id, request.shot)
     result = await _execute_episode_update(
         episode_id, "adopt_reuse_slot", [shot_id, request.reason.strip(), request.template_shot_id, fields],
@@ -4489,6 +4494,7 @@ async def generate_refs_route(
     validate_episode_id(episode_id)
     if not request.reason.strip():
         raise HTTPException(status_code=422, detail="reason is required")
+    await _refuse_ended_run(episode_id)
     from hfvg.activities.ref_generation import ref_edit_specs_for
     from hfvg.shot_data import refs_json_path
     try:
