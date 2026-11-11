@@ -17,8 +17,14 @@ from hfvg.config import config
 
 EDIT_WIDTH, EDIT_HEIGHT, EDIT_FPS, EDIT_PIX_FMT = 1080, 1920, 30, "yuv420p"
 EDIT_FPS_ALLOWED = (24, 25, 30)  # GAP-33: allowed edit frame rates
-EDIT_FORMAT_VERSION = 2  # bump when the normalization below changes (invalidates cached edits); 2 = GAP-47 lanczos
+EDIT_FORMAT_VERSION = 3  # bump when the normalization below changes (invalidates cached edits); 2 = GAP-47 lanczos, 3 = BT.709
 EDIT_SCALE_FLAGS = "lanczos"  # GAP-47: upscale filter (720p Seedance -> 1080x1920); ffmpeg default was bicubic
+# Every shot leaves the normaliser as BT.709 limited range, converted from the colours its clip declares
+# (an untagged clip is read the way ffmpeg reads it, as BT.601) and tagged so: the stream-copied assembly
+# never changes colour properties at a cut, where ffmpeg 7.0+ rebuilds its filters (frame numbers restart)
+# and 8.x converts each side by its own tags.
+EDIT_SCALE_COLOR = "out_range=tv:out_color_matrix=bt709"
+EDIT_COLOR_TAGS = "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
 MUTE_EDIT_NAME = "mute_assembly.mp4"
 MUTE_MANIFEST_NAME = "assembly_manifest.json"
 # A generated clip may run a few frames short of its nominal duration; a trim_out within this
@@ -233,10 +239,10 @@ def _apply_edit_plan(entries: list[dict[str, Any]], plan: dict[str, Any]) -> tup
 
 
 def edit_normalize_vf(fps: int, width: int = EDIT_WIDTH, height: int = EDIT_HEIGHT) -> str:
-    """The per-shot normalize chain (fps, lanczos scale-to-fit, pad, square pixels, end hold)."""
-    return (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS},"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"tpad=stop_mode=clone:stop_duration=1")
+    """The per-shot normalize chain (fps, lanczos scale-to-fit, pad, square pixels, end hold, BT.709)."""
+    return (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS}:"
+            f"{EDIT_SCALE_COLOR},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+            f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
 
 
 async def render_shot_preview(clip_path: str, screen_s: float, out_path: str, fps: int = 24,
@@ -534,15 +540,16 @@ async def assemble_mute_edit(
     out_dir.mkdir(parents=True, exist_ok=True)
     # same chain as edit_normalize_vf (the GAP-51 preview uses that helper; kept inline here so the
     # r8 lanczos source check still sees the scale flags in the assembler itself)
-    vf = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS},"
-          f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-          f"tpad=stop_mode=clone:stop_duration=1")
+    vf = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease:flags={EDIT_SCALE_FLAGS}:"
+          f"{EDIT_SCALE_COLOR},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+          f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
     if recipe:
         vf = (f"setpts={recipe['speed']:g}*PTS,fps={fps},"
-              f"scale={width}:{height}:flags={recipe['scale_flags']}:force_original_aspect_ratio=decrease,"
+              f"scale={width}:{height}:flags={recipe['scale_flags']}:{EDIT_SCALE_COLOR}:"
+              f"force_original_aspect_ratio=decrease,"
               f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
               + (f"{recipe['post_vf']}," if recipe["post_vf"] else "")
-              + "tpad=stop_mode=clone:stop_duration=1")
+              + f"tpad=stop_mode=clone:stop_duration=1,{EDIT_COLOR_TAGS}")
     else:
         assert vf == edit_normalize_vf(fps, width, height)
     manifest_clips: list[dict[str, Any]] = []

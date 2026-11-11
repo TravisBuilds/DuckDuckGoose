@@ -1455,11 +1455,13 @@ async def draw_text_cards(src: str, plan: dict, windows: dict[str, tuple[float, 
 async def card_band_frames(path: str | Path, indices: list[int], band: list[float],
                            size: tuple[int, int]) -> np.ndarray:
     """Grey frames (these indices) of the horizontal band a text card is drawn in, scaled to size
-    (w, h) so deliverables of any resolution compare with the mute assembly."""
+    (w, h) so deliverables of any resolution compare with the mute assembly. -reinit_filter 0: select
+    counts frames from the start of the file even where the colour properties change (a mute picture
+    the assembler did not make, e.g. hfvg mix --mute), which makes ffmpeg 7.0+ rebuild its filters."""
     sel = "+".join(f"eq(n,{i})" for i in sorted(set(indices)))
     y0, y1 = band
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0", "-vf",
+        "ffmpeg", "-nostdin", "-v", "error", "-reinit_filter", "0", "-i", str(path), "-map", "0:v:0", "-vf",
         f"select='{sel}',crop=iw:ih*{y1 - y0:.5f}:0:ih*{y0:.5f},scale={size[0]}:{size[1]},format=gray",
         "-fps_mode", "passthrough", "-f", "rawvideo", "-", stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE)

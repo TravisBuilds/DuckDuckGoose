@@ -291,7 +291,7 @@ def test_edit_scale_is_lanczos_and_format_bumped():
     import inspect
 
     from hfvg.activities import media
-    assert media.EDIT_SCALE_FLAGS == "lanczos" and media.EDIT_FORMAT_VERSION == 2
+    assert media.EDIT_SCALE_FLAGS == "lanczos" and media.EDIT_FORMAT_VERSION == 3
     assert ":flags={EDIT_SCALE_FLAGS}" in inspect.getsource(media.assemble_mute_edit)
 
 

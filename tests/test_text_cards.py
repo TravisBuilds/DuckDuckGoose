@@ -292,6 +292,174 @@ async def test_subtitles_off_still_delivers_the_srt_on_the_vo_timing(tmp_path, m
     assert {c["name"] for c in qc["checks"]} >= {"subtitle_timing", "subtitle_cue_count"}
 
 
+# ------------------------------------------------------------------ clips that declare different colours
+
+COLOUR_TAGS = {  # how a provider's clip declares its colours (untagged first: nothing to inherit)
+    "untagged": [],
+    "bt709": ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"],
+    "smpte170m": ["-color_primaries", "smpte170m", "-color_trc", "smpte170m", "-colorspace", "smpte170m"],
+}
+BT709 = ("tv", "bt709", "bt709", "bt709")  # range, matrix, primaries, transfer
+
+
+def _tagged_clip(path: Path, size: str, tags: list[str], seconds: float = 2.0) -> str:
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=30",
+                    "-t", f"{seconds}", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", *tags,
+                    str(path)], capture_output=True, check=True, timeout=60)
+    return str(path)
+
+
+def _frame_colours(path) -> list[tuple]:
+    """(range, matrix, primaries, transfer) of every frame, as the decoder reports them."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "frame=color_range,color_space,color_primaries,color_transfer", "-of", "json", str(path)],
+                         capture_output=True, text=True, check=True, timeout=120).stdout
+    return [(f.get("color_range"), f.get("color_space"), f.get("color_primaries"), f.get("color_transfer"))
+            for f in json.loads(out)["frames"]]
+
+
+def _rgb(path, frames: int) -> np.ndarray:
+    """The first frames as RGB, each converted with the colours the file declares (ffmpeg's reading)."""
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-frames:v", str(frames), "-vf", "format=rgb24",
+                          "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=60).stdout
+    return np.frombuffer(out, np.uint8).astype(np.int16)
+
+
+def _band_frames_in_order(path, band: list[float], size: tuple[int, int]) -> np.ndarray:
+    """Every frame's card band (card_band_frames' crop and scale) in decode order, without select."""
+    y0, y1 = band
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-vf",
+                          f"crop=iw:ih*{y1 - y0:.5f}:0:ih*{y0:.5f},scale={size[0]}:{size[1]},format=gray",
+                          "-fps_mode", "passthrough", "-f", "rawvideo", "-"],
+                         capture_output=True, check=True, timeout=60).stdout
+    return np.frombuffer(out, np.uint8).reshape(-1, size[1], size[0])
+
+
+@needs_ffmpeg
+@pytest.mark.asyncio
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize("canvas_aspect", ["9:16", "16:9", "4:3"])
+async def test_cards_pass_qc_on_an_edit_of_clips_with_different_colour_tags(tmp_path, monkeypatch, canvas_aspect):
+    """D1: one edit's shots came untagged, BT.709 and BT.601. The mute assembly is a stream copy of the
+    normalised shots and delivery QC picks the card frames in it by number; ffmpeg 7.0+ rebuilds its filters
+    where the colour properties change and restarts that count, so every card check failed on cards that
+    were drawn. Every normalised shot is BT.709 now, so the assembly is uniform, and QC passes."""
+    from hfvg.activities.media import assemble_mute_edit
+    from tests.test_picture_assembly_round3 import HB
+
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "data" / "episodes"))
+    mute, _ = episode(tmp_path, "ep74", seconds=6.0)  # its VO, music, SFX and audio plan
+    size = {"9:16": "360x640", "16:9": "640x360", "4:3": "480x360"}[canvas_aspect]
+    shots = [{"shot_id": f"S0{i}", "duration": 2.0} for i in (1, 2, 3)]
+    clips = {s["shot_id"]: _tagged_clip(tmp_path / f"{s['shot_id']}_{tag}.mp4", size, tags)
+             for s, (tag, tags) in zip(shots, COLOUR_TAGS.items())}
+    assert len({_frame_colours(c)[0] for c in clips.values()}) == 3
+    res = await HB().run(assemble_mute_edit, "ep74", shots, clips, str(mute.parent), canvas_aspect)
+    assert Path(res["assembly_path"]) == mute and res["reused"] is False
+    w, h = aspect.canvas(canvas_aspect)
+    colours = _frame_colours(mute)
+    assert len(colours) == 180 and set(colours) == {BT709}, set(colours)
+
+    plan = normalize_plan({**json.loads((mute.parent.parent / "audio" / "audio_plan.json").read_text()),
+                           "title_card": {"text": "The Paper Kite", "visible_s": 1.5},
+                           "end_card": {"text": "The End", "visible_s": 1.5}}, mute.parent.parent)
+    manifest = await audio_mix.mix_and_deliver("ep74", str(mute), plan, canvas_aspect=canvas_aspect)
+    assert (manifest["picture_width"], manifest["picture_height"]) == (w, h)
+    qc = await audio_mix.delivery_qc(manifest, plan)
+    assert qc["verdict"] == "PASS", qc["failed"]
+    checks = {c["name"]: c for c in qc["checks"]}
+    for name in ("nosubs", "phone", "master_subs"):
+        for kind in ("title_card", "end_card"):
+            check = checks[f"{name}_{kind}_drawn"]
+            assert check["ok"] and check["value"] >= audio_mix.TEXT_CARD_MIN_CHANGED, check
+
+
+@needs_ffmpeg
+@pytest.mark.asyncio
+async def test_card_frames_are_counted_across_a_colour_change(tmp_path, monkeypatch):
+    """A mute picture the assembler did not make (hfvg mix --mute) can change colour properties at its
+    cuts. card_band_frames reads exactly the frames it asks for there, the same as decoding every frame in
+    order, and asks ffmpeg (-reinit_filter 0) not to rebuild its filters at a cut: 7.0+ would restart
+    select's frame count (5.1 and 6.1 rebuild them only for a new frame size or pixel format)."""
+    parts = [_tagged_clip(tmp_path / f"{tag}.mp4", "320x180", tags, 1.0) for tag, tags in COLOUR_TAGS.items()]
+    listing = tmp_path / "parts.txt"
+    listing.write_text("".join(f"file '{p}'\n" for p in parts))
+    mixed = tmp_path / "mixed.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy",
+                    str(mixed)], capture_output=True, check=True, timeout=60)
+    assert len(set(_frame_colours(mixed))) == 3
+    band, size = [0.3, 0.7], (80, 18)
+    every = _band_frames_in_order(mixed, band, size)
+    assert len(every) == 90
+
+    commands = []
+    spawn = audio_mix.asyncio.create_subprocess_exec
+
+    async def recorded(*cmd, **kwargs):
+        commands.append(list(cmd))
+        return await spawn(*cmd, **kwargs)
+
+    monkeypatch.setattr(audio_mix.asyncio, "create_subprocess_exec", recorded)
+    picked = [3, 29, 30, 47, 60, 89]
+    frames = await audio_mix.card_band_frames(mixed, picked, band, size)
+    assert frames.shape == (len(picked), size[1], size[0])
+    assert np.array_equal(frames, every[picked])
+    (cmd,) = commands
+    assert cmd[cmd.index("-reinit_filter") + 1] == "0" and cmd.index("-reinit_filter") < cmd.index("-i"), cmd
+
+
+@needs_ffmpeg
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+@pytest.mark.parametrize("tag", list(COLOUR_TAGS))
+async def test_a_normalised_shot_is_bt709_with_the_colours_its_clip_declares(tmp_path, tag):
+    """The normaliser converts to BT.709 limited range and tags it (an untagged clip read as ffmpeg reads
+    it, BT.601): the colours stay what the clip declared. Relabelling a BT.601 clip without converting it
+    is ~9 levels off on these bars."""
+    from hfvg.activities.media import render_shot_preview
+
+    src = _tagged_clip(tmp_path / f"{tag}.mp4", "1080x1920", COLOUR_TAGS[tag], 1.0)
+    out = await render_shot_preview(src, 0.5, str(tmp_path / "preview.mp4"), 30)
+    assert set(_frame_colours(out["path"])) == {BT709}
+    off = float(np.abs(_rgb(out["path"], 10) - _rgb(src, 10)).mean())
+    assert off < 2.5, off
+
+
+@needs_ffmpeg
+@pytest.mark.asyncio
+@pytest.mark.timeout(300)
+async def test_an_edit_assembled_before_every_shot_was_bt709_is_assembled_again(tmp_path, monkeypatch):
+    """The normaliser before edit format 3 kept each clip's colour tags, so its assembly changes colour
+    properties at the cuts, where ffmpeg 8 reads each side by its own tags and the GAP-60 sync guard sees
+    frames out of step. Format 3 never reuses that assembly: the edit is made again, BT.709 throughout."""
+    from hfvg.activities import media
+    from tests.test_picture_assembly_round3 import HB
+
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
+    edit = tmp_path / "episodes" / "ep75" / "edit"
+    mute, manifest = edit / media.MUTE_EDIT_NAME, edit / media.MUTE_MANIFEST_NAME
+    shots = [{"shot_id": f"S0{i}", "duration": 2.0} for i in (1, 2, 3)]
+    clips = {s["shot_id"]: _tagged_clip(tmp_path / f"{s['shot_id']}_{tag}.mp4", "360x640", tags)
+             for s, (tag, tags) in zip(shots, COLOUR_TAGS.items())}
+    args = ("ep75", shots, clips, str(edit), "9:16")
+    with monkeypatch.context() as m:
+        m.setattr(media, "EDIT_FORMAT_VERSION", 2)
+        first = await HB().run(media.assemble_mute_edit, *args)
+        listing = tmp_path / "stale.txt"  # the shots with the tags their clips came with, as format 2 left them
+        listing.write_text("".join(f"file '{clips[s['shot_id']]}'\n" for s in shots))
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy",
+                        "-f", "mp4", str(mute)], capture_output=True, check=True, timeout=60)
+        manifest.write_text(json.dumps({**json.loads(manifest.read_text()), "size_bytes": mute.stat().st_size}))
+        assert len(set(_frame_colours(mute))) == 3
+        stale = await HB().run(media.assemble_mute_edit, *args)
+        assert stale["reused"] is True and stale["input_key"] == first["input_key"]
+    again = await HB().run(media.assemble_mute_edit, *args)
+    assert again["reused"] is False and again["input_key"] != first["input_key"]
+    assert set(_frame_colours(mute)) == {BT709}
+
+
 # ------------------------------------------------------------------ the draft's defaults
 
 @pytest.fixture
