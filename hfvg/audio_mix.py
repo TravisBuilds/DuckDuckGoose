@@ -28,6 +28,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from hfvg import aspect
+
 SR = 48000
 DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
 # 4: GAP-34 bed_dips (music+SFX gain dips over reviewer-flagged bursts), GAP-35 per-line subtitle_dur
@@ -1085,9 +1087,11 @@ def _ass_escape(s: str) -> str:
     return s.replace("\\", "/").replace("{", "(").replace("}", ")")
 
 
-def write_ass(cues: list[dict], path: str, subs: dict) -> None:
+def write_ass(cues: list[dict], path: str, subs: dict, play_res: tuple[int, int] = (1080, 1920)) -> None:
+    """play_res: the ASS script canvas (libass scales it to the picture); fontsize and margin_v are
+    in its units. 1080x1920 for 9:16 pictures, hfvg.aspect.subtitle_style for the others."""
     head = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n"
+        f"[Script Info]\nScriptType: v4.00+\nPlayResX: {play_res[0]}\nPlayResY: {play_res[1]}\nWrapStyle: 2\n"
         "ScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
         "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
@@ -1367,14 +1371,31 @@ def _ass_filter(ass: str, fonts_dir: str | None) -> str:
     return f
 
 
+def subtitle_settings(subs: dict, width: int, height: int) -> tuple[dict, tuple[int, int]]:
+    """The plan's subtitle settings for a picture of this size and the ASS canvas they are in. A
+    landscape / square picture whose plan kept a 9:16 default (DEFAULT_SUBTITLES fontsize,
+    margin_v, max_line_chars) gets the readable value of its aspect (hfvg.aspect.SUBTITLE_STYLE)."""
+    style = aspect.subtitle_style(width, height)
+    if style["aspect"] == aspect.PORTRAIT:
+        return subs, style["play_res"]
+    tuned = dict(subs)
+    for key in ("fontsize", "margin_v", "max_line_chars"):
+        if subs.get(key) == DEFAULT_SUBTITLES[key]:
+            tuned[key] = style[key]
+    return tuned, style["play_res"]
+
+
 async def mix_and_deliver(
     episode_id: str, mute_path: str, plan: dict, *, root: Path | None = None,
     picture_duration: float | None = None, heartbeat: Heartbeat = _noop,
+    canvas_aspect: str | None = None,
 ) -> dict:
     """Build the full delivery from a mute picture and resolved plan (every input path on disk).
 
     Returns the manifest. Outputs land atomically under {episode}/delivery/; an existing
-    delivery with the same content-hash input key is reused as-is."""
+    delivery with the same content-hash input key is reused as-is. canvas_aspect (the episode
+    canvas, hfvg.aspect; None = not stated) is recorded for delivery QC, which then requires the
+    picture to have that shape; the deliverables keep the picture's size."""
     paths = delivery_paths(episode_id, root)
     mute = Path(mute_path)
     if not mute.is_file():
@@ -1406,8 +1427,15 @@ async def mix_and_deliver(
         n = int(round(total_s * SR))
         # GAP-55: every picture deliverable must carry exactly the mute assembly's frames at CFR.
         src_frames = await count_frames(mute)
-        src_rate = video_rate(await probe(mute))
+        mute_info = await probe(mute)
+        src_rate = video_rate(mute_info)
         cfr = cfr_args(src_rate, src_frames)
+        mute_v = next((s for s in mute_info.get("streams", []) if s.get("codec_type") == "video"), {})
+        pic_w, pic_h = int(mute_v.get("width") or 0), int(mute_v.get("height") or 0)
+        pw, ph = plan["phone"].get("width"), plan["phone"].get("height")
+        if pw and pic_w and pic_h and abs(pw * pic_h - ph * pic_w) > 0.01 * ph * pic_w:
+            raise AudioInputError(f"phone size {pw}x{ph} is not the shape of the {pic_w}x{pic_h} picture "
+                                  f"(the phone file would be stretched); drop phone width/height or match the picture")
         logo_info = None
         # GAP-60: every re-encoded picture is checked frame by frame against the mute assembly
         # (frames before the logo window; subtitle area cropped off for the burned encodes).
@@ -1551,11 +1579,11 @@ async def mix_and_deliver(
         mix_wav = str(work / "mix.wav")
 
         # ---- subtitles
-        subs = plan["subtitles"]
+        subs, play_res = subtitle_settings(plan["subtitles"], pic_w, pic_h)
         cues = build_cues(placed, int(subs["max_line_chars"]))
         ass = str(work / Path(paths["ass"]).name)
         srt = str(work / Path(paths["srt"]).name)
-        write_ass(cues, ass, subs)
+        write_ass(cues, ass, subs, play_res)
         write_srt(cues, srt)
         burn = bool(subs.get("burn", True)) and bool(cues)
 
@@ -1631,6 +1659,9 @@ async def mix_and_deliver(
             "episode_id": episode_id, "version": DELIVERY_VERSION, "dry_run": False, "input_key": key,
             "mute_path": str(mute), "picture_duration_s": round(total_s, 4),
             "source_mute_path": str(mute_path), "picture_frames": src_frames, "picture_fps": src_rate,
+            "picture_width": pic_w, "picture_height": pic_h, "canvas_aspect": canvas_aspect,
+            "subtitle_style": {"play_res": list(play_res), **{k: subs[k] for k in ("fontsize", "margin_v",
+                                                                                   "max_line_chars")}},
             "inputs": {p: h for p, h in hashes.items()},
             "vo_lines": [{**{k: ln[k] for k in ("id", "at", "dur", "gain_db", "path")},
                           "atempo": ln.get("atempo"), "source_path": ln.get("source_path", ln["path"]),
@@ -1662,8 +1693,9 @@ async def mix_and_deliver(
 
 
 async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None = None) -> dict:
-    """Measure the delivered files: streams, duration vs picture, loudness tolerance, true-peak
-    ceiling, subtitle cues, VO gap and phone size. Verdict PASS or FAIL (blocking)."""
+    """Measure the delivered files: streams, picture size and shape vs the episode canvas, duration
+    vs picture, loudness tolerance, true-peak ceiling, subtitle cues, VO gap and phone size.
+    Verdict PASS or FAIL (blocking)."""
     loud = plan["loudness"]
     pic = float(picture_duration or manifest["picture_duration_s"])
     checks: list[dict] = []
@@ -1692,6 +1724,10 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
             want_frames = int(round(pic * float(num) / float(den or 1)))
         frames = await count_frames(path) if v else 0
         add(f"{name}_frame_count", frames == int(want_frames), frames, int(want_frames), path)
+        if manifest.get("picture_width") and v and not (name == "phone" and (manifest.get("phone") or {}).get("width")):
+            dims = f"{v[0].get('width')}x{v[0].get('height')}"
+            want_dims = f"{manifest['picture_width']}x{manifest['picture_height']}"
+            add(f"{name}_dims", dims == want_dims, dims, want_dims, path)
         dur = float(info.get("format", {}).get("duration") or 0.0)
         add(f"{name}_duration", abs(dur - pic) <= DURATION_TOLERANCE_S, round(dur, 3),
             f"{pic:.3f}+-{DURATION_TOLERANCE_S}", path)
@@ -1724,6 +1760,10 @@ async def delivery_qc(manifest: dict, plan: dict, picture_duration: float | None
         add("subtitle_timing", bool(found) and dev <= CUE_TOLERANCE_S, round(dev, 3), CUE_TOLERANCE_S, ass)
         add("subtitle_max_two_lines", all(n <= 2 for _, _, n in found), max((n for *_, n in found), default=0),
             2, ass)
+    if manifest.get("picture_width") and manifest.get("canvas_aspect"):
+        shape = aspect.aspect_of_size(manifest["picture_width"], manifest["picture_height"])
+        add("picture_aspect", shape == manifest["canvas_aspect"], shape, manifest["canvas_aspect"],
+            manifest.get("mute_path"))
     gap = (manifest.get("placement") or {}).get("min_gap_s")
     if gap is not None:
         add("vo_min_gap", gap >= plan["min_vo_gap_s"] - 1e-6, gap, plan["min_vo_gap_s"])

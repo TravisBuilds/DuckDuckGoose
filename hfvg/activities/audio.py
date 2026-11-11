@@ -23,7 +23,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from hfvg import audio_mix
+from hfvg import aspect, audio_mix
 from hfvg.audio_mix import AudioInputError
 
 DEFAULT_VO_MODEL = "eleven_v3"
@@ -414,11 +414,14 @@ def _dry_manifest(episode_id: str, mute_path: str, reason: str) -> dict[str, Any
 
 @activity.defn
 async def mix_and_deliver(episode_id: str, mute_path: str, plan: dict[str, Any],
-                          picture_duration: float | None = None) -> dict[str, Any]:
+                          picture_duration: float | None = None,
+                          canvas_aspect: str | None = None) -> dict[str, Any]:
     """Mix the resolved plan under the locked mute picture and write every deliverable.
 
     Live: a missing picture or input file is a non-retryable error. DRY_RUN with a stand-in
-    picture (the dry assembly writes no file) returns the deterministic paths flagged dry_run."""
+    picture (the dry assembly writes no file) returns the deterministic paths flagged dry_run.
+    canvas_aspect: the episode canvas (hfvg.aspect; None = 9:16), the shape of the stand-in picture
+    and of every picture deliverable (delivery QC compares them)."""
     _beat({"stage": "mix_start", "episode": episode_id})
     mute = Path(mute_path) if mute_path else None
     picture_stand_in = False
@@ -434,11 +437,12 @@ async def mix_and_deliver(episode_id: str, mute_path: str, plan: dict[str, Any],
     if mute is None or not mute.is_file():
         # B7: the dry assembly renders nothing; a black stand-in picture of the PLANNED length lets
         # VO placement, ducking, subtitles and loudness run for real (manifest stays dry_run).
-        mute = await _stand_in_picture(episode_id, float(picture_duration))
+        mute = await _stand_in_picture(episode_id, float(picture_duration), canvas_aspect)
         picture_stand_in = True
     try:
         manifest = await audio_mix.mix_and_deliver(episode_id, str(mute), plan,
-                                                   picture_duration=picture_duration, heartbeat=_beat)
+                                                   picture_duration=picture_duration, heartbeat=_beat,
+                                                   canvas_aspect=canvas_aspect)
     except AudioInputError as e:
         raise _missing(str(e), type(e).__name__) from None
     stand_ins = sorted(plan.get("dry_inputs") or []) + (["picture"] if picture_stand_in else [])
@@ -447,16 +451,19 @@ async def mix_and_deliver(episode_id: str, mute_path: str, plan: dict[str, Any],
     return manifest
 
 
-async def _stand_in_picture(episode_id: str, seconds: float) -> Path:
-    """DRY_RUN black mute picture (540x960, 24 fps) of exactly the planned picture length."""
-    out = audio_mix.episode_dir(episode_id) / "dry" / f"mute_standin_{int(round(seconds * 1000))}ms.mp4"
+async def _stand_in_picture(episode_id: str, seconds: float, canvas_aspect: str | None = None) -> Path:
+    """DRY_RUN black mute picture (half the canvas: 540x960 for 9:16, 960x540 for 16:9, 720x540 for
+    4:3; 24 fps) of exactly the planned picture length."""
+    w, h = (c // 2 for c in aspect.canvas(canvas_aspect))
+    shape = "" if (w, h) == (540, 960) else f"_{w}x{h}"
+    out = audio_mix.episode_dir(episode_id) / "dry" / f"mute_standin_{int(round(seconds * 1000))}ms{shape}.mp4"
     if out.is_file():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.stem + ".part" + out.suffix)
     await audio_mix.run_cmd(
         ["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i",
-         f"color=c=black:s=540x960:r=24:d={seconds:.3f}", "-c:v", "libx264", "-preset", "ultrafast",
+         f"color=c=black:s={w}x{h}:r=24:d={seconds:.3f}", "-c:v", "libx264", "-preset", "ultrafast",
          "-pix_fmt", "yuv420p", "-an", str(tmp)], "dry-run stand-in picture")
     os.replace(tmp, out)
     return out

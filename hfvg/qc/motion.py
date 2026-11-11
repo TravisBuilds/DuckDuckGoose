@@ -55,12 +55,16 @@ def _run_stillgate_analysis(mute_path: str | Path, manifest: dict[str, Any]) -> 
     """
     Run stillgate motion analysis on a mute cut (direct implementation).
     
-    Decode at 180x320 gray, consecutive-frame |diff| (dissolve overlaps excluded).
+    Decode at 180x320 gray (a landscape edit: 320 wide at its own shape, e.g. 320x180 for 16:9),
+    consecutive-frame |diff| (dissolve overlaps excluded).
     
     Returns:
         List of per-shot dicts with id, t0, t1, mean_fd, peak_fd, verdict
     """
     W, H = 180, 320
+    fmt = manifest.get("format") or {}
+    if fmt.get("width", 0) > fmt.get("height", 0):
+        W, H = 320, max(2, int(round(320 * fmt["height"] / fmt["width"] / 2)) * 2)
     fps = 24
     
     # Decode video to grayscale, resampled to the analysis rate: segment windows are indexed as

@@ -10,6 +10,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from hfvg.plan_resync import clip_fields, plan_resync  # GAP-28 (pure, deterministic)
+    from hfvg.aspect import PORTRAIT, episode_aspect  # pure
     from hfvg import budget
     from hfvg.config import config  # Non-deterministic module with os.getenv
     from hfvg.activities import (
@@ -1636,6 +1637,12 @@ class EpisodeWorkflowV2:
             paths[sid] = path
         return entries, paths, missing, excluded
 
+    def _canvas_args(self) -> list[str]:
+        """Trailing canvas_aspect argument of assemble_mute_edit / mix_and_deliver: the aspect most
+        of the edit's shots are generated in. Empty for 9:16, so those calls keep their old inputs."""
+        canvas = episode_aspect((s.get("params") or {}).get("aspect_ratio") for s in self.assembly_shots)
+        return [] if canvas == PORTRAIT else [canvas]
+
     def _assembly_signature(self) -> list:
         sig = []
         for shot in self.assembly_shots:
@@ -1733,7 +1740,7 @@ class EpisodeWorkflowV2:
                 assembly_cap = ASSEMBLY_RIFE_CAP_MIN
                 result = await workflow.execute_activity(
                     assemble_mute_edit,
-                    args=[episode_id, entries, paths, None],
+                    args=[episode_id, entries, paths, None, *self._canvas_args()],
                     start_to_close_timeout=timedelta(minutes=assembly_cap),
                     heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=1),
@@ -1940,7 +1947,7 @@ class EpisodeWorkflowV2:
                 plan = await self._resolve_audio_inputs(episode_id, plan, picture_s)
                 self.delivery_phase = PipelineStage.FINAL_MIX.value
                 manifest = await workflow.execute_activity(
-                    mix_and_deliver, args=[episode_id, path, plan, picture_arg],
+                    mix_and_deliver, args=[episode_id, path, plan, picture_arg, *self._canvas_args()],
                     start_to_close_timeout=timedelta(minutes=60), heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=policy,
                 )

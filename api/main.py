@@ -5724,6 +5724,35 @@ DRAFT_PRESET_FIELDS = ("id", "name", "template", "story_structure", "aspect", "v
                        "length_s", "default_length_s")
 
 
+def _draft_aspect(profile: dict) -> tuple[str, str | None]:
+    """(aspect the card's stills and clips are generated and delivered in, note for the wizard).
+
+    16:9 and 4:3 cards render at their own aspect; the rotated card and a still model that cannot
+    make the card's aspect render 9:16, with a note saying so."""
+    from hfvg import aspect
+    from hfvg.config import still_model_path
+    from hfvg.model_caps import UnknownModelError, get_registry
+
+    card = profile.get("aspect") or aspect.PORTRAIT
+    shot_aspect = aspect.generation_aspect(card)
+    shown = card.replace("_rotated_to_", " rotated to ")
+    if shot_aspect != card:
+        return shot_aspect, (f"{profile['name']} is designed for {shown}; the studio renders it 9:16, "
+                             f"so the shots are framed for 9:16.")
+    if shot_aspect == aspect.PORTRAIT:
+        return shot_aspect, None
+    model = still_model_path()
+    try:
+        allowed = get_registry().resolve(model).limit("aspect_ratios")
+    except UnknownModelError:
+        allowed = None
+    values = getattr(allowed, "value", None)
+    if isinstance(values, list) and shot_aspect not in values:
+        return aspect.PORTRAIT, (f"{profile['name']} is designed for {shown}, but the still model {model} "
+                                 f"cannot make {shown} images, so the shots are framed for 9:16.")
+    return shot_aspect, None
+
+
 def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None, target_duration: int,
                     beatmap_content: str, parsed_shots: list[dict], shots_data: dict, refs_data: dict,
                     prompt_kit_data: dict, script: list[dict] | None, warnings: list[str]) -> DraftFromIdeaResponse:
@@ -5758,6 +5787,10 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
             detail=f"Generated prompt_kit.json missing required keys: {required_kit_keys}"
         )
 
+    shot_aspect, aspect_note = _draft_aspect(profile)
+    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}
+    shots_data = {**shots_data, "shots": [{**s, "aspect_ratio": shot_aspect} for s in shots_data["shots"]]}
+
     screen_times = [float(s["screen_time"]) for s in parsed_shots]
     audio_plan, audio_warnings = genre_drafts.build_audio_plan(profile, screen_times, script)
     try:
@@ -5766,10 +5799,8 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
         raise HTTPException(status_code=500, detail=f"Generated audio plan failed validation: {e}")
 
     warnings = list(warnings)
-    if profile["aspect"] != "9:16":
-        aspect = profile["aspect"].replace("_rotated_to_", " rotated to ")
-        warnings.append(f"{profile['name']} is designed for {aspect}; the studio renders 9:16 for now, "
-                        f"so the shots are framed for 9:16.")
+    if aspect_note:
+        warnings.append(aspect_note)
     planned = sum(screen_times)
     if abs(planned - target_duration) > max(5.0, 0.25 * target_duration):
         warnings.append(f"The plan runs {planned:g} seconds; you asked for {target_duration}.")
@@ -5897,6 +5928,8 @@ async def draft_from_idea(
     file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json" + (", audio_script" if voiced else "")
     
     style_guidance = request.style_preset or "photorealistic, cinematic lighting"
+    shot_aspect, _ = _draft_aspect(profile)
+    framing = {"9:16": "vertical", "3:4": "vertical", "1:1": "square"}.get(shot_aspect, "landscape")
     
     content_policy_warning = """
 CONTENT POLICY (CRITICAL):
@@ -5936,6 +5969,7 @@ BEATMAP.md - Shot planning table:
 - Chars: A, B, C for up to 3 main characters
 - {count_rule}
 - One row per shots_json shot, same ids and order; Screen (gen) holds that shot's duration
+- Every shot is framed {framing} ({shot_aspect}): compose the prompts for that frame
 
 shots.json:
 {{
@@ -5965,7 +5999,7 @@ refs.json:
 prompt_kit.json:
 {{
   "style": "{style_guidance}",
-  "aspect_ratio": "9:16",
+  "aspect_ratio": "{shot_aspect}",
   "characters": {{
     "A": {{"description": "[main character description]"}},
     "B": {{"description": "[second character if needed]"}}

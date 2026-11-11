@@ -16,6 +16,7 @@ import yaml
 
 from hfvg import genre_drafts
 from hfvg.activities.audio import dry_vo_seconds
+from hfvg.aspect import generation_aspect
 from hfvg.audio_mix import normalize_plan
 from hfvg.episode_parser import parse_beatmap
 from hfvg.genre_presets import REGISTRY_PATH, clamp_length, resolve_profile
@@ -73,10 +74,11 @@ def test_test_draft_follows_the_card(client, archetype_id, tmp_path):
     assert data["preset"]["story_structure"] == profile["story_structure"]
     assert data["preset"]["vo_mode"] == profile["vo_mode"]
     assert data["target_duration"] == target
-    assert data["prompt_kit_json"]["aspect_ratio"] == "9:16"
+    assert data["prompt_kit_json"]["aspect_ratio"] == generation_aspect(profile["aspect"])
     assert data["default_voice_available"] is False
 
     shots = data["shots_json"]["shots"]
+    assert [s["aspect_ratio"] for s in shots] == [generation_aspect(profile["aspect"])] * len(shots)
     parse_shots(data["shots_json"])
     assert preflight_plans(shots)["errors"] == []
     assert sum(s["duration"] for s in shots) == target
@@ -139,10 +141,12 @@ def test_unknown_card_is_refused(client):
 
 @pytest.mark.parametrize("archetype_id", PRESET_IDS)
 def test_cards_made_for_another_aspect_say_the_studio_renders_9_16(client, archetype_id):
+    """Only the rotated card still renders 9:16; 16:9 and 4:3 cards render at their own aspect."""
     profile = resolve_profile(archetype_id)
     warnings = _draft(client, archetype_id, profile["default_length_s"]).json()["warnings"]
-    aspect_notes = [w for w in warnings if "renders 9:16" in w]
-    assert len(aspect_notes) == (0 if profile["aspect"] == "9:16" else 1)
+    aspect_notes = [w for w in warnings if "renders" in w and "9:16" in w]
+    assert len(aspect_notes) == (1 if profile["aspect"] == "16:9_rotated_to_9:16" else 0)
+    assert not [w for w in warnings if "for now" in w]
 
 
 def test_members_can_draft_with_a_card(client, monkeypatch):

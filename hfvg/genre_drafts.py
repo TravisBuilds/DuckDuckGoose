@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from hfvg import aspect
 from hfvg.config import config
 from hfvg.story_structures import build_layout, hook_and_keyword
 
@@ -223,8 +224,9 @@ def llm_instructions(profile: dict, target_s: int) -> str:
 
 def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: str) -> dict:
     """Deterministic DRAFT_LLM_FAKE draft for any card (test/e2e only): files that pass the real
-    validators, shot lengths from the card's pacing and a script for voice cards."""
+    validators, shot lengths from the card's pacing, the card's aspect and a script for voice cards."""
     lengths = shot_lengths(profile, target_s)
+    shot_aspect = aspect.generation_aspect(profile.get("aspect"))
     layout = build_layout(profile, idea, float(target_s), config.STORY_SHAPING_MAX_BEAT_DURATION_S)
     _, keyword = hook_and_keyword(idea)
     short = _clean(idea, 90)
@@ -242,7 +244,7 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
                     f"{acts[i - 1]} | - | - | K |")
         shots.append({"id": sid, "prompt": _clean(f"{frame}, {short}, {style}", 400), "count": 1,
                       "characters": chars, "wet": False, "model": "kling", "duration": d,
-                      "end_frame": False, "ref_keys": []})
+                      "aspect_ratio": shot_aspect, "end_frame": False, "ref_keys": []})
     beatmap = (f"# Episode {episode_id} Beatmap\n\n"
                "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
                "|---|---|---|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
@@ -265,7 +267,7 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
         "beatmap_md": beatmap,
         "shots_json": {"shots": shots},
         "refs_json": {"per_shot": {s["id"]: [] for s in shots}},
-        "prompt_kit_json": {"style": style, "aspect_ratio": "9:16", "characters": characters,
+        "prompt_kit_json": {"style": style, "aspect_ratio": shot_aspect, "characters": characters,
                             "sets": {"Scene": f"original setting for: {short}"}},
         "audio_script": script,
     }
