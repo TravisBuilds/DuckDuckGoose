@@ -132,12 +132,12 @@ test('plans without voice-over come back unchanged', () => {
 const VOICED_PLAN = {
   vo: { voice_id: null, lines: [{ id: 'L01', at: 0.3, text: 'Hi' }] },
   subtitles: { burn: true },
-  title_card: { text: 'The Lighthouse' },
+  title_card: { text: 'The Clockwork Heron' },
 };
 
 test('text on screen starts from the card suggestion; subtitles need voice-over lines', () => {
-  assert.deepEqual(onScreenTextDefaults(['subtitles', 'title_card'], VOICED_PLAN, 'The Lighthouse'), {
-    subtitles: true, titleCard: true, titleText: 'The Lighthouse', endCard: false, endText: END_CARD_TEXT,
+  assert.deepEqual(onScreenTextDefaults(['subtitles', 'title_card'], VOICED_PLAN, 'The Clockwork Heron'), {
+    subtitles: true, titleCard: true, titleText: 'The Clockwork Heron', endCard: false, endText: END_CARD_TEXT,
   });
   const music = { music: { prompt: 'x' } };
   assert.equal(hasVoiceLines(music), false);
@@ -150,13 +150,13 @@ test('text on screen starts from the card suggestion; subtitles need voice-over 
 });
 
 test('the switches are written into the uploaded audio plan', () => {
-  const choices = { subtitles: false, titleCard: true, titleText: ' Mixtape  Summer ', endCard: true, endText: 'See you' };
+  const choices = { subtitles: false, titleCard: true, titleText: ' Puddle  Season ', endCard: true, endText: 'See you' };
   const out = applyOnScreenText(VOICED_PLAN, choices, 35);
   assert.deepEqual(out.subtitles, { burn: false });
-  assert.deepEqual(out.title_card, { text: 'Mixtape Summer' });
+  assert.deepEqual(out.title_card, { text: 'Puddle Season' });
   assert.deepEqual(out.end_card, { text: 'See you' });
   assert.deepEqual(out.vo, VOICED_PLAN.vo);
-  assert.deepEqual(VOICED_PLAN.title_card, { text: 'The Lighthouse' }, 'the draft plan is not mutated');
+  assert.deepEqual(VOICED_PLAN.title_card, { text: 'The Clockwork Heron' }, 'the draft plan is not mutated');
 
   const off = applyOnScreenText(VOICED_PLAN, { ...choices, subtitles: true, titleCard: false, endCard: false }, 35);
   assert.deepEqual(off.subtitles, { burn: true });

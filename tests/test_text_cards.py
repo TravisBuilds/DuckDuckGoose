@@ -30,7 +30,7 @@ from tests.test_picture_assembly_round3 import needs_ffmpeg
 RAW_PRESETS = yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8"))["presets"]
 PRESET_IDS = [p["id"] for p in RAW_PRESETS]
 ADMIN_SECRET = "text-cards-admin-secret-0123456789abcdef"
-IDEA = "A lighthouse keeper befriends a lost paper kite on a windy evening by the harbor"
+IDEA = "A clockwork heron learns to fish in a puddle after the rain"
 
 
 def _raises(fn, *args) -> str:
@@ -94,16 +94,16 @@ def test_a_card_without_the_field_suggests_nothing(tmp_path):
 def test_cards_are_optional_and_validated(tmp_path):
     plan = normalize_plan({}, tmp_path)
     assert "title_card" not in plan and "end_card" not in plan
-    plan = normalize_plan({"title_card": {"text": "  The   Lighthouse\nKeeper "}, "end_card": {"text": "The End",
+    plan = normalize_plan({"title_card": {"text": "  The   Clockwork\nHeron "}, "end_card": {"text": "The End",
                                                                                          "visible_s": 4, "fade_s": 0}},
                           tmp_path)
-    assert plan["title_card"] == {"text": "The Lighthouse Keeper", "visible_s": 2.5, "fade_s": 0.4}
+    assert plan["title_card"] == {"text": "The Clockwork Heron", "visible_s": 2.5, "fade_s": 0.4}
     assert plan["end_card"] == {"text": "The End", "visible_s": 4.0, "fade_s": 0.0}
 
     def bad(card):
         return _raises(normalize_plan, {"title_card": card}, tmp_path)
 
-    assert "object with a text string" in bad("The Lighthouse")
+    assert "object with a text string" in bad("The Clockwork Heron")
     assert "object with a text string" in bad({"text": 7})
     assert "title_card.text is empty" in bad({"text": " \t\n"})
     assert "81 characters (at most 80)" in bad({"text": "x" * 81})
@@ -141,10 +141,10 @@ def test_card_windows_and_overlap():
 @pytest.mark.parametrize("size", [(1080, 1920), (1920, 1080), (1440, 1080), (540, 960)])
 def test_card_text_size_follows_the_shorter_side(size):
     w, h = size
-    lines, font = audio_mix.text_card_layout("The Lighthouse", w, h)
-    assert lines == ["The Lighthouse"]
+    lines, font = audio_mix.text_card_layout("The Clockwork", w, h)
+    assert lines == ["The Clockwork"]
     assert font == round(min(w, h) * audio_mix.TEXT_CARD_FONT_FRAC)
-    long_text = "A Very Long Title About The Lighthouse Keeper And The Paper Kite On A Windy Night"[:80]
+    long_text = "A Very Long Title About The Clockwork Heron And The Paper Boat On A Rainy Night"[:80]
     lines, font = audio_mix.text_card_layout(long_text, w, h)
     assert 1 <= len(lines) <= audio_mix.TEXT_CARD_MAX_LINES
     assert " ".join(lines) == long_text
@@ -324,7 +324,7 @@ def test_the_draft_carries_the_card_text_defaults(client, archetype_id, tmp_path
     data = _draft(client, archetype_id, profile["default_length_s"])
     want = profile["on_screen_text"]
     assert data["preset"]["on_screen_text"] == want
-    assert data["title"] == "The Lighthouse"
+    assert data["title"] == "The Clockwork"
     plan = data["audio_plan_json"]
     has_lines = bool((plan.get("vo") or {}).get("lines"))
     assert has_lines == (profile["vo_mode"] in ("narration", "dialogue")), archetype_id
@@ -332,7 +332,7 @@ def test_the_draft_carries_the_card_text_defaults(client, archetype_id, tmp_path
         assert plan["subtitles"] == {"burn": "subtitles" in want}
     else:
         assert "subtitles" not in plan
-    assert plan.get("title_card") == ({"text": "The Lighthouse"} if "title_card" in want else None)
+    assert plan.get("title_card") == ({"text": "The Clockwork"} if "title_card" in want else None)
     assert plan.get("end_card") == ({"text": "The End"} if "end_card" in want else None)
     normalized = normalize_plan(plan, tmp_path)
     assert normalized["subtitles"]["burn"] == ("subtitles" in want or not has_lines)
@@ -360,8 +360,8 @@ def _llm(result: dict):
     return client
 
 
-@pytest.mark.parametrize("title, shown", [('  "Mixtape Summer" ', "Mixtape Summer"), (None, "The Lighthouse"),
-                                          ("", "The Lighthouse"), (42, "The Lighthouse")])
+@pytest.mark.parametrize("title, shown", [('  "Puddle Season" ', "Puddle Season"), (None, "The Clockwork"),
+                                          ("", "The Clockwork"), (42, "The Clockwork")])
 def test_the_llm_names_the_episode(client, monkeypatch, title, shown):
     from hfvg.config import config
 

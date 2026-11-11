@@ -79,7 +79,7 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
   await expect(page.getByTestId('ost-end-card')).not.toBeChecked();
   await expect(page.getByTestId('ost-end-text')).toHaveCount(0);
   await expect(page.getByTestId('ost-title-text')).toHaveValue('The Friends');
-  await page.getByTestId('ost-title-text').fill('Mixtape Summer');
+  await page.getByTestId('ost-title-text').fill('Puddle Season');
   await page.getByTestId('ost-end-card').check();
   await expect(page.getByTestId('ost-end-text')).toHaveValue('The End');
   await page.getByTestId('ost-end-text').fill('  ');
@@ -113,7 +113,7 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
   expect(saved.vo_lines).toBe(audioPlan.vo.lines.length);
   expect(saved.lines_missing_voice).toEqual([]);
   expect(audioPlan.subtitles).toEqual({ burn: true });
-  expect(audioPlan.title_card).toEqual({ text: 'Mixtape Summer' });
+  expect(audioPlan.title_card).toEqual({ text: 'Puddle Season' });
   expect(audioPlan.end_card).toEqual({ text: 'See you next summer' });
 
   const started = (await responses.start).request().postDataJSON();
