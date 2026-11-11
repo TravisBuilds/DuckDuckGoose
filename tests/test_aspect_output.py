@@ -25,7 +25,7 @@ from hfvg import aspect, audio_mix, genre_drafts
 from hfvg.activities import audio as audio_act
 from hfvg.activities.media import assemble_mute_edit, render_shot_preview
 from hfvg.edit_plan import EditPlanError, validate_shot_ops
-from hfvg.genre_presets import REGISTRY_PATH, VALID_ASPECTS, resolve_profile
+from hfvg.genre_presets import ON_SCREEN_TEXT, REGISTRY_PATH, VALID_ASPECTS, resolve_profile
 from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
 from hfvg.qc.clip_expect import expected_clip_dims
 from hfvg.qc.motion import _run_stillgate_analysis
@@ -421,6 +421,12 @@ def test_the_end_to_end_cards_cover_every_template_and_aspect():
     assert {resolve_profile(card)["aspect"] for card in E2E_CARDS.values()} == {"9:16", "16:9", "4:3"}
 
 
+def test_the_end_to_end_cards_cover_every_text_on_screen():
+    suggested = [resolve_profile(card)["on_screen_text"] for card in E2E_CARDS.values()]
+    assert {kind for kinds in suggested for kind in kinds} == set(ON_SCREEN_TEXT)
+    assert [] in suggested
+
+
 class AspectClips(ClipFactory):
     """Real moving clips at each episode's shot aspect (what the provider returns for that frame)."""
 
@@ -446,7 +452,8 @@ class AspectClips(ClipFactory):
 
 
 def _write_one_shot_episode(root: Path, ep: str, card: str, data: dict) -> str:
-    """The card's draft cut to its first shot (E2E_SHOT_S long) with the card's audio plan for it."""
+    """The card's draft cut to its first shot (E2E_SHOT_S long) with the card's audio plan for it,
+    including the subtitles / title card / end card the card suggests."""
     shot = {**data["shots_json"]["shots"][0], "duration": E2E_SHOT_S}
     header, separator, first = [ln for ln in data["beatmap"].splitlines() if ln.startswith("|")][:3]
     cells = first.split("|")
@@ -459,6 +466,7 @@ def _write_one_shot_episode(root: Path, ep: str, card: str, data: dict) -> str:
     script = [{"speaker": ln.get("speaker") or "Narrator", "text": ln["text"]}
               for ln in (data["audio_plan_json"].get("vo") or {}).get("lines") or []]
     plan, _ = genre_drafts.build_audio_plan(resolve_profile(card), [float(E2E_SHOT_S)], script or None)
+    plan = genre_drafts.apply_on_screen_text(plan, resolve_profile(card), data["title"], float(E2E_SHOT_S))
     (root / "audio").mkdir()
     (root / "audio" / "audio_plan.json").write_text(json.dumps({**plan, **FAST_ENCODE}))
     return str(root / "BEATMAP.md")
@@ -522,7 +530,8 @@ async def _run_to_delivery(env, h: Harness, ep: str, beatmap: str) -> tuple:
 async def test_one_card_per_template_renders_its_aspect_end_to_end(dry_env, tmp_path, monkeypatch, no_counter):  # noqa: F811
     """Draft (API) -> stills submitted in the card's aspect -> real clips of that shape -> real mute
     edit on the card's canvas -> assembly QC -> delivery (dry stand-in audio, real picture) whose
-    every picture file ffprobes at the canvas size with square pixels and no bars."""
+    every picture file ffprobes at the canvas size with square pixels and no bars, and carries the
+    card's suggested burned subtitles, title card and end card (measured by delivery QC)."""
     monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
     monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
     sys.modules.pop("api.main", None)
@@ -570,4 +579,11 @@ async def test_one_card_per_template_renders_its_aspect_end_to_end(dry_env, tmp_
                     assert (int(v["width"]), int(v["height"])) == (w, h_px), (card, name)
                     assert v.get("sample_aspect_ratio", "1:1") in ("1:1", "N/A"), (card, name)
                     assert aspect.aspect_of_size(int(v["width"]), int(v["height"])) == card_aspect, (card, name)
+                want = resolve_profile(card)["on_screen_text"]
+                assert d["manifest"]["subtitles_burned"] == ("subtitles" in want), card
+                assert Path(d["manifest"]["outputs"]["srt"]["path"]).is_file(), card
+                for kind in ("title_card", "end_card"):
+                    assert bool(d["manifest"].get(kind)) == (kind in want), (card, kind)
+                    drawn = {c["name"]: c["ok"] for c in d["qc"]["checks"] if c["name"].endswith(f"_{kind}_drawn")}
+                    assert drawn == ({f"{n}_{kind}_drawn": True for n in outputs} if kind in want else {}), (card, drawn)
                 await handle.terminate("aspect e2e done")

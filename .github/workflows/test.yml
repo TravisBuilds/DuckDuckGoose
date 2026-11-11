@@ -164,6 +164,15 @@ jobs:
           echo "ERROR: ffmpeg not found in API image"
           exit 1
         }
+
+        # Subtitles and title/end cards are drawn with drawtext and a fontconfig "Sans" font
+        docker run --rm duckduckgoose-api:test ffmpeg -hide_banner -loglevel error \
+          -f lavfi -i color=c=black:s=320x240:d=0.2 \
+          -vf "drawtext=text=Title:expansion=none:font=Sans:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.55" \
+          -frames:v 1 -f null - || {
+          echo "ERROR: ffmpeg drawtext with a Sans font does not work in API image"
+          exit 1
+        }
         
         echo "✓ API image contains all required runtime files"
 

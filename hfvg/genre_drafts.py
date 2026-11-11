@@ -23,6 +23,8 @@ VO_CHARS_PER_S = 15.0  # speaking rate the dry stand-ins assume (hfvg.activities
 MUSIC_BED_DB = -30.2  # under a voice-over (normalize_plan default)
 MUSIC_ONLY_DB = -18.0  # the music carries the soundtrack
 VO_MODEL = "eleven_v3"
+TITLE_MAX_CHARS = 60  # the title card allows 80 (hfvg.audio_mix.TEXT_CARD_MAX_CHARS)
+END_CARD_TEXT = "The End"
 
 NARRATOR = "Narrator"
 VOICE_HINTS = {
@@ -159,6 +161,41 @@ def build_audio_plan(profile: dict, screen_times: list[float], script: list[dict
     return plan, warnings
 
 
+def card_timing(total_s: float) -> dict:
+    """visible_s / fade_s of a title or end card on a short video (a quarter of it, at least 0.5 s;
+    fades a quarter of that) so both cards fit; {} keeps the plan defaults
+    (hfvg.audio_mix.DEFAULT_TEXT_CARD) from 10 s up. Mirrored by cardTiming in web/lib/wizard.mjs."""
+    if total_s >= 10.0:
+        return {}
+    visible = max(0.5, math.floor(total_s / 4 * 10 + 0.5) / 10)  # half up, like Math.round
+    return {"visible_s": visible, "fade_s": round(min(0.4, visible / 4), 2)}
+
+
+def episode_title(title: Any, idea: str) -> str:
+    """The drafted title (one line, at most TITLE_MAX_CHARS), else 'The <keyword>' from the idea."""
+    text = _clean(title if isinstance(title, str) else "", TITLE_MAX_CHARS).strip(" \"'")
+    if text:
+        return text
+    _, keyword = hook_and_keyword(idea)
+    return f"The {keyword[:1].upper()}{keyword[1:]}" if keyword else "Untitled Episode"
+
+
+def apply_on_screen_text(plan: dict, profile: dict, title: str | None, total_s: float) -> dict:
+    """The card's ``on_screen_text`` suggestion written into a drafted audio plan: subtitles burned
+    in or not (plans with VO lines; the .srt is delivered either way), the opening title card with
+    the episode title, the end card. The wizard shows these as its defaults."""
+    want = set(profile.get("on_screen_text") or [])
+    out = dict(plan)
+    if (out.get("vo") or {}).get("lines"):
+        out["subtitles"] = {**(out.get("subtitles") or {}), "burn": "subtitles" in want}
+    timing = card_timing(total_s)
+    if "title_card" in want and title:
+        out["title_card"] = {"text": _clean(title, TITLE_MAX_CHARS), **timing}
+    if "end_card" in want:
+        out["end_card"] = {"text": END_CARD_TEXT, **timing}
+    return out
+
+
 def _template_sfx(profile: dict, screen_times: list[float], total: float) -> list[dict]:
     template = profile.get("template")
     last_at = round(total - screen_times[-1], 2) if screen_times else 0.0
@@ -224,7 +261,8 @@ def llm_instructions(profile: dict, target_s: int) -> str:
 
 def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: str) -> dict:
     """Deterministic DRAFT_LLM_FAKE draft for any card (test/e2e only): files that pass the real
-    validators, shot lengths from the card's pacing, the card's aspect and a script for voice cards."""
+    validators, shot lengths from the card's pacing, the card's aspect, a script for voice cards and
+    a title."""
     lengths = shot_lengths(profile, target_s)
     shot_aspect = aspect.generation_aspect(profile.get("aspect"))
     layout = build_layout(profile, idea, float(target_s), config.STORY_SHAPING_MAX_BEAT_DURATION_S)
@@ -270,6 +308,7 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
         "prompt_kit_json": {"style": style, "aspect_ratio": shot_aspect, "characters": characters,
                             "sets": {"Scene": f"original setting for: {short}"}},
         "audio_script": script,
+        "title": episode_title(None, idea),
     }
 
 

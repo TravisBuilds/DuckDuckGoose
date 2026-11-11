@@ -72,6 +72,23 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
   await expect(page.getByTestId('voice-block')).toHaveCount(0);
   await expect(page.getByTestId('preview-button')).toBeEnabled();
 
+  // text on screen starts from the card (subtitles + title card, no end card); the title is the draft's
+  await expect(page.getByTestId('ost-subtitles')).toBeChecked();
+  await expect(page.getByTestId('ost-subtitles')).toBeEnabled();
+  await expect(page.getByTestId('ost-title-card')).toBeChecked();
+  await expect(page.getByTestId('ost-end-card')).not.toBeChecked();
+  await expect(page.getByTestId('ost-end-text')).toHaveCount(0);
+  await expect(page.getByTestId('ost-title-text')).toHaveValue('The Friends');
+  await page.getByTestId('ost-title-text').fill('Mixtape Summer');
+  await page.getByTestId('ost-end-card').check();
+  await expect(page.getByTestId('ost-end-text')).toHaveValue('The End');
+  await page.getByTestId('ost-end-text').fill('  ');
+  await expect(page.getByTestId('text-block')).toHaveText('Type the end card text, or switch it off.');
+  await expect(page.getByTestId('preview-button')).toBeDisabled();
+  await page.getByTestId('ost-end-text').fill('See you next summer');
+  await expect(page.getByTestId('text-block')).toHaveCount(0);
+  await expect(page.getByTestId('preview-button')).toBeEnabled();
+
   const episodeId = (await page.locator('text=/Episode: ep[0-9]{2}[a-z]{3}/').textContent())!.replace('Episode: ', '');
   const responses: Record<string, Promise<Response>> = {
     beatmap: page.waitForResponse(postTo('/api/episodes/upload')),
@@ -95,6 +112,9 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
   expect(audioPlan.vo.lines.every((line: any) => ['Lead', 'Friend'].includes(line.speaker))).toBe(true);
   expect(saved.vo_lines).toBe(audioPlan.vo.lines.length);
   expect(saved.lines_missing_voice).toEqual([]);
+  expect(audioPlan.subtitles).toEqual({ burn: true });
+  expect(audioPlan.title_card).toEqual({ text: 'Mixtape Summer' });
+  expect(audioPlan.end_card).toEqual({ text: 'See you next summer' });
 
   const started = (await responses.start).request().postDataJSON();
   expect(started).toEqual({

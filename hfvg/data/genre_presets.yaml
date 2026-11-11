@@ -122,6 +122,8 @@ defaults:
     stop_at_pct: 80
 
 # All 24 presets (original content, no named IP)
+# on_screen_text: what the create wizard switches on by default (each card lists it, possibly empty):
+#   subtitles (burned in from the voice-over script), title_card (opening episode title), end_card.
 presets:
   - id: nostalgia-time-travel
     name: "Back to the 2000s"
@@ -136,6 +138,7 @@ presets:
     brief_fields: ["era", "place", "cast_roles", "memory_moment"]
     vo_mode: dialogue
     music: "soft nostalgic"
+    on_screen_text: [subtitles, title_card]
     identity_locks: [character, setting, style]
     risk_flags: [trademark, synthetic_human]
     stage_overrides:
@@ -154,6 +157,7 @@ presets:
     brief_fields: ["issue", "stand_in_characters", "gag", "punchline"]
     vo_mode: none
     music: "orchestral pomp"
+    on_screen_text: [end_card]
     identity_locks: [character, setting]
     risk_flags: [political, real_likeness]
     stage_overrides:
@@ -174,6 +178,7 @@ presets:
     brief_fields: ["source_world", "protagonist", "moments"]
     vo_mode: none
     music: "emotional piano/orchestral"
+    on_screen_text: [title_card, end_card]
     identity_locks: [character, style, setting]
     risk_flags: [ip_thirdparty]
     stage_overrides:
@@ -194,6 +199,7 @@ presets:
     brief_fields: ["honoree", "setting", "quote", "dates"]
     vo_mode: none
     music: "swelling score"
+    on_screen_text: [end_card]
     identity_locks: [character, setting, likeness_consent]
     risk_flags: [real_likeness, ip_thirdparty, factual_claims]
     stage_overrides:
@@ -213,6 +219,7 @@ presets:
     brief_fields: ["world", "palette", "figure", "creature"]
     vo_mode: none
     music: "ambient"
+    on_screen_text: []
     identity_locks: [style, character]
     risk_flags: []
     ip_mode: public_domain_ok
@@ -230,6 +237,7 @@ presets:
     brief_fields: ["story_world", "characters", "changed_moment", "ending"]
     vo_mode: caption_only
     music: "melancholic score"
+    on_screen_text: [title_card, end_card]
     identity_locks: [character, setting]
     risk_flags: [ip_thirdparty, minors]
     stage_overrides:
@@ -249,6 +257,7 @@ presets:
     brief_fields: ["place", "characters", "activity", "time_of_day"]
     vo_mode: none
     music: "lo-fi"
+    on_screen_text: []
     identity_locks: [character, setting]
     risk_flags: [ip_thirdparty]
     stage_overrides:
@@ -268,6 +277,7 @@ presets:
     brief_fields: ["hero", "goal", "stops", "ending"]
     vo_mode: caption_only
     music: "gentle orchestral"
+    on_screen_text: [title_card, end_card]
     identity_locks: [character, prop, style]
     risk_flags: []
 
@@ -284,6 +294,7 @@ presets:
     brief_fields: ["mascot", "setting", "gag", "side_characters"]
     vo_mode: dialogue
     music: "comedic SFX + light bed"
+    on_screen_text: [subtitles, title_card]
     identity_locks: [character, prop, setting, voice]
     risk_flags: [synthetic_human]
     stage_overrides:
@@ -302,6 +313,7 @@ presets:
     brief_fields: ["character", "setting", "phenomenon"]
     vo_mode: none
     music: "dreamy"
+    on_screen_text: []
     identity_locks: [character, style]
     risk_flags: [ip_thirdparty]
     gates_add: [ip_attestation]
@@ -319,6 +331,7 @@ presets:
     brief_fields: ["story", "animal_cast", "episode_beat"]
     vo_mode: dialogue
     music: "score pastiche"
+    on_screen_text: [subtitles, title_card]
     identity_locks: [character, setting]
     risk_flags: [ip_thirdparty]
     gates_add: [ip_attestation]
@@ -338,6 +351,7 @@ presets:
     brief_fields: ["vessel_or_place", "traveller", "destination", "ambience"]
     vo_mode: none
     music: "ambient"
+    on_screen_text: []
     identity_locks: [character, setting]
     risk_flags: []
     stage_overrides:
@@ -356,6 +370,7 @@ presets:
     brief_fields: ["series_bible", "premise", "cast", "cliffhanger"]
     vo_mode: dialogue
     music: "score"
+    on_screen_text: [subtitles, title_card, end_card]
     identity_locks: [character, setting, style, voice]
     risk_flags: []
     stage_overrides:
@@ -375,6 +390,7 @@ presets:
     brief_fields: ["mascots", "occasion", "greeting_text"]
     vo_mode: caption_only
     music: "soft"
+    on_screen_text: [end_card]
     identity_locks: [character, style]
     risk_flags: [ip_thirdparty]
     stage_overrides:
@@ -394,6 +410,7 @@ presets:
     brief_fields: ["mascot", "outfit", "errand", "payoff"]
     vo_mode: caption_only
     music: "upbeat"
+    on_screen_text: []
     identity_locks: [character, prop, setting]
     risk_flags: []
     stage_overrides:
@@ -412,6 +429,7 @@ presets:
     brief_fields: ["mount", "landscape", "destination", "mood"]
     vo_mode: none
     music: "ambient + wind"
+    on_screen_text: []
     identity_locks: [pov_rig, setting]
     risk_flags: []
     stage_overrides:
@@ -430,6 +448,7 @@ presets:
     brief_fields: ["character", "motif", "palette"]
     vo_mode: none
     music: "atmospheric"
+    on_screen_text: []
     identity_locks: [character, style]
     risk_flags: [ip_thirdparty]
     gates_add: [ip_attestation]
@@ -447,6 +466,7 @@ presets:
     brief_fields: ["character_a", "character_b", "setting", "beat"]
     vo_mode: none
     music: "bed"
+    on_screen_text: []
     identity_locks: [character, setting]
     risk_flags: []
     stage_overrides:
@@ -465,6 +485,7 @@ presets:
     brief_fields: ["dish", "kitchen", "hero_moment"]
     vo_mode: none
     music: "ASMR SFX + soft tune"
+    on_screen_text: [title_card]
     identity_locks: [style, setting]
     risk_flags: []
     stage_overrides:
@@ -483,6 +504,7 @@ presets:
     brief_fields: ["moment", "intervener", "outcome"]
     vo_mode: caption_only
     music: "bed"
+    on_screen_text: [title_card]
     identity_locks: [likeness_consent, style]
     risk_flags: [ip_thirdparty, real_likeness]
     gates_add: [likeness_consent, ip_attestation]
@@ -502,6 +524,7 @@ presets:
     brief_fields: ["fighters", "arena", "combat_style", "finisher"]
     vo_mode: none
     music: "SFX-heavy"
+    on_screen_text: [title_card]
     identity_locks: [character, setting]
     risk_flags: [violence, sexualization, ip_thirdparty]
     stage_overrides:
@@ -521,6 +544,7 @@ presets:
     brief_fields: ["hero", "ally", "set_piece", "rescue_beat"]
     vo_mode: none
     music: "score + SFX"
+    on_screen_text: []
     identity_locks: [character, setting]
     risk_flags: [violence]
     stage_overrides:
@@ -539,6 +563,7 @@ presets:
     brief_fields: ["creatures", "legend", "world", "closing_line"]
     vo_mode: narration
     music: "score"
+    on_screen_text: [subtitles, title_card, end_card]
     identity_locks: [character, style]
     risk_flags: []
     stage_overrides:
@@ -559,6 +584,7 @@ presets:
     brief_fields: ["date_place", "host", "event", "twist"]
     vo_mode: dialogue
     music: "light score"
+    on_screen_text: [subtitles]
     identity_locks: [character, setting, voice]
     risk_flags: [factual_claims, synthetic_human]
     stage_overrides:

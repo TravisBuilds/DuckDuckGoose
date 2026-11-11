@@ -43,3 +43,24 @@ export declare function voiceBlockMessage(
   defaultVoiceAvailable: boolean
 ): string | null;
 export declare function applyVoiceChoices<P>(plan: P, slots: VoiceSlot[], choices: VoiceChoices): P;
+
+/** The create wizard's "Text on screen" switches. */
+export interface OnScreenTextChoices {
+  subtitles: boolean;
+  titleCard: boolean;
+  titleText: string;
+  endCard: boolean;
+  endText: string;
+}
+
+export declare const TEXT_CARD_MAX_CHARS: number;
+export declare const END_CARD_TEXT: string;
+export declare function cardTiming(totalSeconds: number): { visible_s?: number; fade_s?: number };
+export declare function hasVoiceLines(plan: unknown): boolean;
+export declare function onScreenTextDefaults(
+  suggested: readonly string[] | null | undefined,
+  plan: unknown,
+  title: string | null | undefined
+): OnScreenTextChoices;
+export declare function onScreenTextProblem(choices: OnScreenTextChoices | null | undefined): string | null;
+export declare function applyOnScreenText<P>(plan: P, choices: OnScreenTextChoices, totalSeconds: number): P;

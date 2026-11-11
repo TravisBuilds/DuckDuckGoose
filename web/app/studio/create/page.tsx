@@ -10,15 +10,21 @@ import {
   FREEFORM_DEFAULT_LENGTH,
   FREEFORM_LENGTH_RANGE,
   TEMPLATE_LABELS,
+  TEXT_CARD_MAX_CHARS,
+  applyOnScreenText,
   applyVoiceChoices,
   briefFieldLabel,
   composeIdea,
   formatAspect,
   groupByTemplate,
+  hasVoiceLines,
   lengthOptions,
+  onScreenTextDefaults,
+  onScreenTextProblem,
   slotToken,
   soundLabel,
   voiceBlockMessage,
+  type OnScreenTextChoices,
   type VoiceChoices,
   type VoicePick,
   type VoiceSlot,
@@ -36,6 +42,7 @@ interface DraftPreset {
   music: string;
   length_s: [number, number];
   default_length_s: number;
+  on_screen_text?: string[];
 }
 
 interface DraftResponse {
@@ -55,6 +62,7 @@ interface DraftResponse {
   target_duration?: number | null;
   voice_slots?: VoiceSlot[];
   default_voice_available?: boolean;
+  title?: string | null;
 }
 
 interface VoiceState {
@@ -227,6 +235,7 @@ function CreateVideoWizard() {
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [submittedIdea, setSubmittedIdea] = useState('');
   const [voices, setVoices] = useState<Record<string, VoiceState>>({});
+  const [textOnScreen, setTextOnScreen] = useState<OnScreenTextChoices | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
@@ -240,6 +249,9 @@ function CreateVideoWizard() {
     Object.entries(voices).map(([key, state]) => [key, state.choice]),
   );
   const voiceBlock = draft ? voiceBlockMessage(voiceSlots, voiceChoices, !!draft.default_voice_available) : null;
+  const textBlock = draft ? onScreenTextProblem(textOnScreen) : null;
+  const startBlock = voiceBlock ?? textBlock;
+  const draftSeconds = (draft?.shots_json.shots ?? []).reduce((total, shot) => total + (Number(shot.duration) || 0), 0);
 
   // Check if live mode is available on mount
   React.useEffect(() => {
@@ -305,6 +317,11 @@ function CreateVideoWizard() {
       setDraft(response);
       setSubmittedIdea(fullIdea);
       setVoices(previous => voicesForDraft(response.voice_slots ?? [], previous));
+      setTextOnScreen(onScreenTextDefaults(
+        response.preset?.on_screen_text ?? selectedPreset?.onScreenText ?? [],
+        response.audio_plan_json,
+        response.title,
+      ));
       setStep('review');
     } catch (e) {
       setError(errorText(e));
@@ -344,10 +361,14 @@ function CreateVideoWizard() {
     }
   };
 
+  const patchText = (patch: Partial<OnScreenTextChoices>) => {
+    setTextOnScreen(previous => (previous ? { ...previous, ...patch } : previous));
+  };
+
   const handleStartEpisode = async (dryRun: boolean) => {
     if (!draft) return;
-    if (voiceBlock) {
-      setError(voiceBlock);
+    if (startBlock) {
+      setError(startBlock);
       return;
     }
 
@@ -376,7 +397,8 @@ function CreateVideoWizard() {
       await apiFetch(`/api/episodes/${episodeId}/upload-prompt-kit`, { method: 'POST', body: kitForm });
 
       if (draft.audio_plan_json) {
-        const audioPlan = applyVoiceChoices(draft.audio_plan_json, voiceSlots, voiceChoices);
+        const withVoices = applyVoiceChoices(draft.audio_plan_json, voiceSlots, voiceChoices);
+        const audioPlan = textOnScreen ? applyOnScreenText(withVoices, textOnScreen, draftSeconds) : withVoices;
         const audioForm = new FormData();
         audioForm.append('audio_plan_file', new File([JSON.stringify(audioPlan, null, 2)], 'audio_plan.json', { type: 'application/json' }));
         await apiFetch(`/api/episodes/${episodeId}/upload-audio-plan`, { method: 'POST', body: audioForm });
@@ -710,6 +732,72 @@ function CreateVideoWizard() {
               </div>
             )}
 
+            {textOnScreen && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6" data-testid="on-screen-text">
+                <h3 className="font-semibold mb-1">Text on screen</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {draft.preset ? `Set up the way ${draft.preset.name} videos usually look. ` : ''}
+                  A subtitle file (.srt) comes with the video either way.
+                </p>
+                <div className="space-y-3 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={textOnScreen.subtitles}
+                      disabled={!hasVoiceLines(draft.audio_plan_json)}
+                      onChange={(e) => patchText({ subtitles: e.target.checked })}
+                      data-testid="ost-subtitles"
+                    />
+                    <span>
+                      Subtitles burned into the picture
+                      {!hasVoiceLines(draft.audio_plan_json) && ' (this draft has no voice-over)'}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={textOnScreen.titleCard}
+                      onChange={(e) => patchText({ titleCard: e.target.checked })}
+                      data-testid="ost-title-card"
+                    />
+                    <span>Opening title card</span>
+                  </label>
+                  {textOnScreen.titleCard && (
+                    <input
+                      type="text"
+                      value={textOnScreen.titleText}
+                      onChange={(e) => patchText({ titleText: e.target.value })}
+                      maxLength={TEXT_CARD_MAX_CHARS}
+                      aria-label="Title card text"
+                      placeholder="Episode title"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                      data-testid="ost-title-text"
+                    />
+                  )}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={textOnScreen.endCard}
+                      onChange={(e) => patchText({ endCard: e.target.checked })}
+                      data-testid="ost-end-card"
+                    />
+                    <span>End card</span>
+                  </label>
+                  {textOnScreen.endCard && (
+                    <input
+                      type="text"
+                      value={textOnScreen.endText}
+                      onChange={(e) => patchText({ endText: e.target.value })}
+                      maxLength={TEXT_CARD_MAX_CHARS}
+                      aria-label="End card text"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                      data-testid="ost-end-text"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <h3 className="font-semibold mb-3">Shot List</h3>
               <div className="space-y-3">
@@ -743,13 +831,21 @@ function CreateVideoWizard() {
                     {voiceBlock}
                   </p>
                 )}
+                {textBlock && (
+                  <p
+                    className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 text-sm text-amber-900 dark:text-amber-200"
+                    data-testid="text-block"
+                  >
+                    {textBlock}
+                  </p>
+                )}
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
                 
                 <div className="space-y-3">
                   {liveAvailable ? (
                     <button
                       onClick={() => setShowLiveConfirm(true)}
-                      disabled={busy || !!voiceBlock}
+                      disabled={busy || !!startBlock}
                       className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-left"
                       data-testid="make-video-button"
                     >
@@ -771,7 +867,7 @@ function CreateVideoWizard() {
 
                   <button
                     onClick={() => handleStartEpisode(true)}
-                    disabled={busy || !!voiceBlock}
+                    disabled={busy || !!startBlock}
                     className="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-700 rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                     data-testid="preview-button"
                   >

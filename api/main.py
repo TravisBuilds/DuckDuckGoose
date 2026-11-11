@@ -5718,10 +5718,11 @@ class DraftFromIdeaResponse(BaseModel):
     audio_plan_json: dict | None = None  # hfvg.audio_mix.normalize_plan schema; the wizard adds the chosen voices
     voice_slots: list[dict] = Field(default_factory=list)  # voices the wizard asks for (hfvg.genre_drafts.voice_slots)
     default_voice_available: bool = False  # ELEVENLABS_DEFAULT_VOICE_ID voices lines nobody chose a voice for
+    title: str | None = None  # episode title, the opening title card's text
 
 
 DRAFT_PRESET_FIELDS = ("id", "name", "template", "story_structure", "aspect", "vo_mode", "music_mode", "music",
-                       "length_s", "default_length_s")
+                       "length_s", "default_length_s", "on_screen_text")
 
 
 def _draft_aspect(profile: dict) -> tuple[str, str | None]:
@@ -5755,8 +5756,10 @@ def _draft_aspect(profile: dict) -> tuple[str, str | None]:
 
 def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None, target_duration: int,
                     beatmap_content: str, parsed_shots: list[dict], shots_data: dict, refs_data: dict,
-                    prompt_kit_data: dict, script: list[dict] | None, warnings: list[str]) -> DraftFromIdeaResponse:
-    """Validate the drafted files and add the card's audio plan and voice slots (LLM and test drafts alike)."""
+                    prompt_kit_data: dict, script: list[dict] | None, warnings: list[str],
+                    title: str | None = None) -> DraftFromIdeaResponse:
+    """Validate the drafted files and add the card's audio plan (with the card's subtitle / title
+    card / end card defaults) and voice slots (LLM and test drafts alike)."""
     import tempfile
 
     from hfvg import audio_mix, genre_drafts
@@ -5793,6 +5796,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
 
     screen_times = [float(s["screen_time"]) for s in parsed_shots]
     audio_plan, audio_warnings = genre_drafts.build_audio_plan(profile, screen_times, script)
+    audio_plan = genre_drafts.apply_on_screen_text(audio_plan, profile, title, sum(screen_times))
     try:
         audio_mix.normalize_plan(audio_plan, Path(tempfile.gettempdir()))
     except audio_mix.AudioInputError as e:
@@ -5820,6 +5824,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
         audio_plan_json=audio_plan,
         voice_slots=genre_drafts.voice_slots(audio_plan, profile),
         default_voice_available=bool(default_voice_id()),
+        title=title,
     )
 
 
@@ -5924,8 +5929,8 @@ async def draft_from_idea(
         count_rule = f"Create {len(lengths)} shots total; their durations add up to {target_duration}s"
         card_rules = f"\nVIDEO TYPE (follow it):\n{genre_drafts.llm_instructions(profile, target_duration)}\n"
         card_line = f"Video type: {profile['name']}"
-    script_key = '\n6. "audio_script": the voice-over script described under VIDEO TYPE' if voiced else ""
-    file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json" + (", audio_script" if voiced else "")
+    script_key = '\n7. "audio_script": the voice-over script described under VIDEO TYPE' if voiced else ""
+    file_keys = "beatmap_md, shots_json, refs_json, prompt_kit_json, title" + (", audio_script" if voiced else "")
     
     style_guidance = request.style_preset or "photorealistic, cinematic lighting"
     shot_aspect, _ = _draft_aspect(profile)
@@ -5950,7 +5955,8 @@ Generate these files in your response as a JSON object with these keys:
 2. "shots_json": shots.json content (structured shot data)
 3. "refs_json": refs.json content (per-shot reference images)
 4. "prompt_kit_json": prompt_kit.json content (style, characters, sets)
-5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created{script_key}
+5. "ip_steering_note": If the idea mentioned copyrighted content, explain the original alternatives you created
+6. "title": a short original episode title (2-6 words, no quotes, no named IP) for the opening title card{script_key}
 
 File format requirements:
 
@@ -6032,6 +6038,7 @@ Generate all the files ({file_keys}) as a single JSON response."""
             shots_data=fake["shots_json"], refs_data=fake["refs_json"], prompt_kit_data=fake["prompt_kit_json"],
             script=fake["audio_script"],
             warnings=["Test mode: Using canned draft data (DRAFT_LLM_FAKE=1)", *lead_warnings],
+            title=fake["title"],
         )
 
     try:
@@ -6138,6 +6145,7 @@ Generate all the files ({file_keys}) as a single JSON response."""
             shots_data=shots_data, refs_data=refs_data, prompt_kit_data=prompt_kit_data,
             script=genre_drafts.script_from_llm(result) if voiced else None,
             warnings=warnings + lead_warnings,
+            title=genre_drafts.episode_title(result.get("title"), request.idea),
         )
         
     except Exception as e:
