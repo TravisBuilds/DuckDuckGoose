@@ -9,7 +9,7 @@ description = "Temporal-based workflow harness for turning ideas into finished s
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "temporalio>=1.8.0",
+    "temporalio>=1.15.0",
     "aiohttp>=3.9.0",
     "aiosqlite>=0.20.0",
     "bcrypt>=4.0.0",

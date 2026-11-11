@@ -23,18 +23,21 @@ async def acquire_run_lock(
         episode_id: Episode identifier
         workflow_id: Temporal workflow ID
         account_identifier: Account/org identifier for the lock
-        stale_timeout_seconds: Timeout after which a lock is considered stale and can be reclaimed.
+        stale_timeout_seconds: Timeout after which a lock is considered stale and can be reclaimed,
+                               when Temporal cannot describe its holder.
                                Defaults to RUN_LOCK_STALE_TIMEOUT_SECONDS env var (default: 3600)
     
     Returns:
         dict with acquired (bool), existing_episode (str|None), reclaimed (bool)
     
     Raises:
-        ValueError: If another episode is already running on this account (and lock is not stale)
+        ValueError: If another episode is already running on this account (Temporal reports its run
+                    open, or it cannot be described and the lock is not stale)
     """
     import aiosqlite
     from temporalio import activity as temporal_activity
     from temporalio.client import WorkflowExecutionStatus
+    from temporalio.service import RPCError
     
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     ledger = CreditLedger(db_path)
@@ -67,46 +70,43 @@ async def acquire_run_lock(
                     await db.commit()
                     existing = None
             if existing:
-                # Check if existing workflow is still running via Temporal describe
+                # Temporal decides: a holder whose run is open keeps the lock however long it waits (a gate),
+                # and one whose run has ended (a terminated run never releases it) loses it at once. The
+                # lock's age decides only when Temporal cannot say (no client, unknown workflow, no server).
+                status = None
                 try:
-                    client = temporal_activity.info().workflow_client()
-                    handle = client.get_workflow_handle(existing_workflow_id)
-                    desc = await handle.describe()
-                    
-                    # If workflow is terminated/completed/failed, reclaim the lock
-                    if desc.status in (
-                        WorkflowExecutionStatus.COMPLETED,
-                        WorkflowExecutionStatus.FAILED,
-                        WorkflowExecutionStatus.TERMINATED,
-                        WorkflowExecutionStatus.TIMED_OUT,
-                        WorkflowExecutionStatus.CANCELED,
-                    ):
-                        activity.logger.warning(
-                            f"Reclaiming stale lock from terminated workflow {existing_workflow_id} "
-                            f"(status: {desc.status.name}, episode: {existing_episode})"
-                        )
-                        # Delete stale lock
-                        await db.execute(
-                            "DELETE FROM run_locks WHERE account_identifier = ?",
-                            (account_identifier,)
-                        )
-                        await db.commit()
-                    else:
-                        # Workflow is still running, cannot acquire
-                        activity.logger.error(
-                            f"Run lock acquisition failed for {episode_id}: "
-                            f"account {account_identifier} already running {existing_episode} "
-                            f"(workflow {existing_workflow_id}, status: {desc.status.name})"
-                        )
-                        raise ValueError(
-                            f"Account {account_identifier} already has episode {existing_episode} running. "
-                            "Wait for it to complete or terminate it first."
-                        )
-                except Exception as e:
-                    # If describe fails (workflow not found), assume stale and continue with time-based check
+                    desc = await temporal_activity.client().get_workflow_handle(existing_workflow_id).describe()
+                    status = desc.status
+                except (RuntimeError, RPCError) as e:
                     activity.logger.warning(
                         f"Could not describe workflow {existing_workflow_id}: {e}. "
                         "Falling back to time-based stale check."
+                    )
+                if status in (
+                    WorkflowExecutionStatus.COMPLETED,
+                    WorkflowExecutionStatus.FAILED,
+                    WorkflowExecutionStatus.TERMINATED,
+                    WorkflowExecutionStatus.TIMED_OUT,
+                    WorkflowExecutionStatus.CANCELED,
+                ):
+                    activity.logger.warning(
+                        f"Reclaiming stale lock from terminated workflow {existing_workflow_id} "
+                        f"(status: {status.name}, episode: {existing_episode})"
+                    )
+                    await db.execute(
+                        "DELETE FROM run_locks WHERE account_identifier = ?",
+                        (account_identifier,)
+                    )
+                    await db.commit()
+                elif status is not None:
+                    activity.logger.error(
+                        f"Run lock acquisition failed for {episode_id}: "
+                        f"account {account_identifier} already running {existing_episode} "
+                        f"(workflow {existing_workflow_id}, status: {status.name})"
+                    )
+                    raise ValueError(
+                        f"Account {account_identifier} already has episode {existing_episode} running. "
+                        "Wait for it to complete or terminate it first."
                     )
     
     # Acquire lock (will use time-based stale check if workflow describe failed)
