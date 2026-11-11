@@ -58,6 +58,7 @@ from hfvg.genre_presets import DRAFT_MAX_S, DRAFT_MIN_S
 from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
+from hfvg.voice_check import audio_plan_voice_problems, plan_voice_problems
 
 # Get ADMIN_SECRET - can be overridden in tests
 def get_admin_secret() -> str:
@@ -681,6 +682,18 @@ async def verify_auth_unified(
         status_code=401,
         detail="Authentication required. Provide either session cookie or 'Authorization: Bearer <ADMIN_SECRET>'"
     )
+
+
+async def _studio_row(sql: str, params: tuple) -> tuple | None:
+    """One row of the studio DB; None when the table does not exist yet (503 on other DB errors)."""
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            return await (await db.execute(sql, params)).fetchone()
+    except aiosqlite.OperationalError as e:
+        if "no such table" in str(e):
+            return None
+        raise HTTPException(status_code=503, detail=f"studio database error: {e}")
 
 
 # Request/Response models
@@ -1329,6 +1342,54 @@ async def upload_beatmap(
 upload_beatmap.allow_members = True
 
 
+async def _open_episode_run(episode_id: str) -> dict | None:
+    """The episode's open workflow run as {"run_id", "reopened", "live"}, None when no run is open.
+
+    An episode without a DB row has never run (a run records its row before anything is generated).
+    Otherwise Temporal decides; the run's reopen_snapshot says whether it is a reopened run (GAP-41 /
+    GAP-79: its own entry ends its reopen_log) and whether it is live. Fails closed: 503 when Temporal
+    cannot answer, and a run that cannot answer the query counts as live and not reopened. Without a
+    Temporal client (tests and tools; the API's startup connects or fails) a held run lock refuses.
+    """
+    from temporalio.client import WorkflowExecutionStatus
+    from temporalio.service import RPCError, RPCStatusCode
+    if not await _studio_row("SELECT 1 FROM episodes WHERE episode_id = ?", (episode_id,)):
+        return None
+    if not temporal_client:
+        if await _studio_row("SELECT 1 FROM run_locks WHERE episode_id = ?", (episode_id,)):
+            raise HTTPException(status_code=503, detail=(
+                f"{episode_id} holds the run lock and Temporal is not connected to check its run"))
+        return None
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+    try:
+        desc = await handle.describe()
+    except Exception as e:
+        if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
+            raise HTTPException(status_code=503, detail=f"Temporal error: {e}")
+        return None
+    if desc.status not in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW):
+        return None
+    try:
+        snapshot = await temporal_client.get_workflow_handle(handle.id, run_id=desc.run_id).query("reopen_snapshot")
+        attrs = snapshot["attrs"]
+    except Exception:
+        attrs = {}
+    log = attrs.get("reopen_log") or []
+    return {"run_id": desc.run_id, "reopened": bool(log) and log[-1].get("run_id") == desc.run_id,
+            "live": not attrs.get("_dry_run", False)}
+
+
+async def _refuse_upload_during_run(episode_id: str, reopened_ok: bool = False) -> dict | None:
+    """409 while the episode has an open run (unless reopened_ok and the run is a reopened one): the
+    run already validated and is using these files. Returns the open run, if any."""
+    run = await _open_episode_run(episode_id)
+    if run and not (reopened_ok and run["reopened"]):
+        raise HTTPException(status_code=409, detail=(
+            f"Episode {episode_id} has a run in progress (run {run['run_id']}); its files cannot change "
+            f"until the run ends{' or the episode is reopened at the final cut' if reopened_ok else ''}"))
+    return run
+
+
 @app.post("/api/episodes/{episode_id}/upload-prompt-kit")
 async def upload_prompt_kit(
     episode_id: str,
@@ -1348,9 +1409,11 @@ async def upload_prompt_kit(
     - sets: Map of set IDs to descriptions
     
     Stored in data/episodes/{episode_id}/prompt_kit.json (not committed to repo).
+    Refused (409) while the episode has a run in progress.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_upload_during_run(episode_id)
     
     # Create episode directory
     episode_dir = Path(os.getenv("EPISODES_DIR", "./data/episodes")) / episode_id
@@ -1400,9 +1463,12 @@ async def upload_shots(
     Stored in data/episodes/{episode_id}/ (gitignored, never committed).
     shots.json is validated (count, characters, wet, model, duration, end_frame, prompt, ref_keys);
     the workflow loads it (or SHOTS_JSON_PATH / REFS_JSON_PATH) and refuses live runs without it.
+    Refused (409) while the episode has a run in progress, reopened or not: recompose and clip
+    retries read these files for paid generation.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    await _refuse_upload_during_run(episode_id)
     from hfvg.shot_data import ShotDataError, parse_shots
 
     shots_bytes = await shots_file.read()
@@ -1465,9 +1531,14 @@ async def upload_audio_plan(
     Requires: session cookie (member or admin; the create wizard uploads it) or Bearer ADMIN_SECRET.
     Validated with the delivery loader's own schema (hfvg.audio_mix.normalize_plan) and stored at
     data/episodes/{episode_id}/audio/audio_plan.json, the path load_audio_plan reads.
+
+    Refused (409) while the episode has a run in progress, unless the run is a reopened one parked at
+    the final cut (its delivery is rebuilt from the new plan); then every voice-over line must have a
+    voice the run can use (400 otherwise), as at the start.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    run = await _refuse_upload_during_run(episode_id, reopened_ok=True)
     from hfvg import audio_mix
     from hfvg.activities.audio import default_voice_id
 
@@ -1479,6 +1550,10 @@ async def upload_audio_plan(
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     except (audio_mix.AudioInputError, AttributeError, KeyError, TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid audio plan: {e}")
+    voice_problems = plan_voice_problems(plan, live=run["live"]) if run else []
+    if voice_problems:
+        raise HTTPException(status_code=400, detail=(
+            f"Refusing the audio plan of reopened {episode_id}: {'; '.join(voice_problems)}"))
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_bytes(content)
     return {
@@ -1507,42 +1582,6 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
-
-
-def audio_plan_voice_problems(episode_id: str, live: bool) -> list[str]:
-    """Voice-over lines of the uploaded audio plan with no voice to speak them (empty = OK or no plan).
-
-    A line is spoken by its own or its speaker's voice, else the plan's voice_id, else
-    ELEVENLABS_DEFAULT_VOICE_ID. In a live run a dry-run placeholder voice (hfvg.voice_picker) is no voice.
-    """
-    from hfvg import audio_mix
-    from hfvg.activities.audio import default_voice_id
-    from hfvg.voice_picker import is_fake_voice_id
-
-    path = audio_mix.audio_plan_path(episode_id)
-    if not path.is_file():
-        return []
-    try:
-        plan = audio_mix.load_plan_file(path)
-    except audio_mix.AudioInputError:
-        return []  # the delivery stage reports an unreadable plan (load_audio_plan)
-
-    def usable(voice_id: str | None) -> str:
-        return "" if live and is_fake_voice_id(voice_id) else (voice_id or "")
-
-    vo = plan.get("vo") or {}
-    checked = {"vo": {**vo, "voice_id": usable(vo.get("voice_id")),
-                      "lines": [{**ln, "voice_id": usable(ln.get("voice_id"))} for ln in vo.get("lines") or []]}}
-    missing = audio_mix.vo_lines_missing_voice(checked, usable(default_voice_id()))
-    if not missing:
-        return []
-    placeholder = live and any(is_fake_voice_id(v) for v in
-                               [vo.get("voice_id"), *[ln.get("voice_id") for ln in vo.get("lines") or []]])
-    return [
-        f"no voice chosen for the voice-over lines {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}"
-        f"{' (dry-run preview voices cannot speak in a live run)' if placeholder else ''}. "
-        "Describe the voice on the create page and pick one, or set ELEVENLABS_DEFAULT_VOICE_ID"
-    ]
 
 
 @app.get("/api/episodes")
@@ -3895,7 +3934,8 @@ async def reopen_episode(
     query, no spend) and starts a NEW run with the same workflow id that restores the state and parks at
     G_FINAL_CUT again (final cut un-approved). No generation is started; every later paid step goes
     through the normal recompose / retry_clip guards. Refused unless the run COMPLETED with its final
-    cut approved and nothing in flight."""
+    cut approved and nothing in flight, and while a voice-over line of the audio plan has no voice the
+    reopened run could use (a rebuilt delivery would fail at the voice-over after paid changes)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
@@ -3927,6 +3967,9 @@ async def reopen_episode(
     if problem:
         raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {problem}")
     attrs = snapshot["attrs"]
+    voice_problems = audio_plan_voice_problems(episode_id, live=not bool(attrs.get("_dry_run", True)))
+    if voice_problems:
+        raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {'; '.join(voice_problems)}")
     new = await temporal_client.start_workflow(
         _EW.run,
         args=[episode_id, attrs.get("_beatmap_path"), bool(attrs.get("_dry_run", True)), None, None, None,
@@ -4028,7 +4071,8 @@ async def reopen_episode_from_saved(
     """GAP-79: reopen an episode at G_FINAL_CUT when its Temporal history is gone. Refused (409) while
     ANY workflow with the episode id is known to the server (use /reopen for a closed run). The
     snapshot is the persisted one, else rebuilt from the saved artifacts + DB; either must pass the
-    GAP-41 reopen rules. No generation, no ledger change; the new run parks at G_FINAL_CUT."""
+    GAP-41 reopen rules and the audio plan's voices are checked as on /reopen. No generation, no
+    ledger change; the new run parks at G_FINAL_CUT."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not request.reason.strip():
@@ -4096,6 +4140,9 @@ async def reopen_episode_from_saved(
     if problem:
         raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {problem}")
     attrs = snapshot["attrs"]
+    voice_problems = audio_plan_voice_problems(episode_id, live=not bool(attrs.get("_dry_run", True)))
+    if voice_problems:
+        raise HTTPException(status_code=409, detail=f"Cannot reopen {episode_id}: {'; '.join(voice_problems)}")
     new = await temporal_client.start_workflow(
         _EW.run,
         args=[episode_id, attrs.get("_beatmap_path"), bool(attrs.get("_dry_run", True)), None, None, None,
