@@ -534,7 +534,7 @@ async def revise_story_shape_activity(
         prompt = f"""Revise this story structure based on critique.
 
 Original:
-{json.dumps(story.model_dump(), indent=2)}
+{json.dumps(story.model_dump(mode="json"), indent=2)}
 
 Critique issues:
 {json.dumps(critique.issues, indent=2)}
