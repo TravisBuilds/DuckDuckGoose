@@ -114,6 +114,7 @@ export default function StoryShapePanel({
               <>
                 {!isEditing && (
                   <button
+                    data-testid="story-edit"
                     onClick={handleEdit}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
                     disabled={loading}
@@ -122,6 +123,7 @@ export default function StoryShapePanel({
                   </button>
                 )}
                 <button
+                  data-testid="story-approve"
                   onClick={handleApprove}
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
                   disabled={loading || isEditing}
@@ -140,6 +142,7 @@ export default function StoryShapePanel({
           <h3 className="text-sm font-medium text-gray-500 mb-2">Logline</h3>
           {isEditing ? (
             <input
+              data-testid="story-logline-input"
               type="text"
               value={editedShape?.logline || ''}
               onChange={(e) =>
@@ -148,7 +151,7 @@ export default function StoryShapePanel({
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           ) : (
-            <p className="text-lg">{story_shape.logline}</p>
+            <p className="text-lg" data-testid="story-logline">{story_shape.logline}</p>
           )}
         </div>
 
@@ -288,6 +291,7 @@ export default function StoryShapePanel({
               Cancel
             </button>
             <button
+              data-testid="story-save"
               onClick={handleSave}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
               disabled={loading}
