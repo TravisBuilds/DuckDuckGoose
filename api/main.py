@@ -6736,7 +6736,7 @@ async def get_local_still(
     """Authenticated preview of a shot's start still when it is a local file (a pre-approved still is
     copied into the episode outputs and never uploaded until its clip is submitted), so G2 can show
     it. Only files inside DATA_DIR/episodes/<episode>/outputs/<shot>/ or, for dry-run placeholder
-    stills (stored relative to the run dir), inside the dry-run output dir are served."""
+    stills, inside DATA_DIR/dry_run_outputs/ are served."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", shot_id):

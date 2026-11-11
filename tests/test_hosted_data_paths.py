@@ -173,24 +173,29 @@ async def test_reconcile_lands_late_assets_under_episodes_dir(hosted, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_dry_run_still_written_by_the_worker_is_served_by_the_api_from_another_cwd(hosted, monkeypatch):
-    """The worker (cwd /app) writes the dry-run placeholder and records its path as still_url; the API
-    (cwd /app/api) must resolve the same dry-run dir to serve it at G2."""
+async def test_stills_written_by_the_worker_are_served_by_the_api_from_another_cwd(hosted, monkeypatch):
+    """The worker (cwd /app) records where it wrote a still as still_url; the API (cwd /app/api) must
+    resolve the same outputs and dry-run dirs to serve it at G2."""
+    from hfvg.activities.save_assets import save_asset_locally
     from hfvg.activities.studio_generation import poll_job_status
     from hfvg.studio_db import create_episode, init_studio_db
     await init_studio_db(hosted.db)
     await create_episode(hosted.db, EP)
-    polled = await ActivityEnvironment().run(poll_job_status, "still-ep42-A02-dry", "still", EP)
+    env = ActivityEnvironment()
+    polled = await env.run(poll_job_status, "still-ep42-A02-dry", "still", EP)
     placeholder = hosted.data / "dry_run_outputs" / "still-ep42-A02-dry.jpg"
     assert polled["status"] == "completed" and polled["output_url"] == str(placeholder), polled
-    assert placeholder.is_file()
+    saved = await env.run(save_asset_locally, EP, "A01", polled["output_url"], "still", 1)
+    assert saved == str(hosted.data / "episodes" / EP / "outputs" / "A01" / "still_v1.jpg"), saved
     hosted.assert_cwd_clean()
 
+    stills = {"A01": saved, "A02": polled["output_url"]}
     async with aiosqlite.connect(hosted.db) as db:
-        await db.execute(
-            "INSERT INTO shots (id, episode_id, shot_id, status, still_url, qc_results) VALUES (?,?,?,?,?,?)",
-            (f"{EP}-A02", EP, "A02", "still_ready", polled["output_url"],
-             json.dumps({"still_qc": {"pre_approved": False}})))
+        for shot_id, still_url in stills.items():
+            await db.execute(
+                "INSERT INTO shots (id, episode_id, shot_id, status, still_url, qc_results) VALUES (?,?,?,?,?,?)",
+                (f"{EP}-{shot_id}", EP, shot_id, "still_ready", still_url,
+                 json.dumps({"still_qc": {"pre_approved": shot_id == "A01"}})))
         await db.commit()
     api_cwd = hosted.cwd / "api"
     api_cwd.mkdir()
@@ -202,12 +207,12 @@ async def test_dry_run_still_written_by_the_worker_is_served_by_the_api_from_ano
         from api.main import app
         client = TestClient(app)
         cookies = client.post("/api/login", json={"admin_secret": "h" * 40}).cookies
-        r = client.get(f"/api/episodes/{EP}/shots/A02/still", cookies=cookies)
+        served = {s: client.get(f"/api/episodes/{EP}/shots/{s}/still", cookies=cookies) for s in stills}
     finally:
         sys.modules.pop("api.main", None)
-    assert r.status_code == 200, (r.status_code, r.text)
-    assert r.content == placeholder.read_bytes()
-    assert sorted(p.name for p in api_cwd.rglob("*")) == []
+    assert {s: r.status_code for s, r in served.items()} == {"A01": 200, "A02": 200}
+    assert all(r.content == Path(stills[s]).read_bytes() for s, r in served.items())
+    assert list(api_cwd.rglob("*")) == []
 
 
 @pytest.mark.asyncio
