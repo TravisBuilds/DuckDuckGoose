@@ -82,6 +82,7 @@ Members **cannot**:
 ### Member & Admin Routes
 - `GET /api/episodes` - List all episodes
 - `POST /api/episodes` - Start a new episode
+- `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
 - `GET /api/episodes/{id}` - Get episode details
 - `POST /api/episodes/{id}/set-live` - Set episode to live mode
 - `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
