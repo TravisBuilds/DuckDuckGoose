@@ -112,4 +112,12 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await expectMessage(page, /Approve final cut: done/);
   await expect(page.getByTestId('final-approved')).toBeVisible();
   await expect(page.getByTestId('passed-gates')).toContainText('G_FINAL_CUT');
+
+  // --- the run completes: the page says so (no Start again) and actions on it get a 409 ---
+  await expect(page.getByTestId('run-ended-title')).toHaveText('This run completed.');
+  await expect(page.getByTestId('run-ended-reason')).toHaveCount(0);
+  await expect(page.getByTestId('start-again')).toHaveCount(0);
+  await page.getByTestId('new-cap').fill('700');
+  await page.getByTestId('raise-cap').click();
+  await expectMessage(page, /^Raise cap refused \(409\): This run has ended \(completed\)\. Reopen the episode to change it\.$/);
 });

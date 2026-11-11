@@ -45,6 +45,7 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/shots/{shot_id}/retry"),
     ("POST", "/api/episodes/{ep}/set-dry"),
     ("POST", "/api/episodes/{ep}/final-cut/reject"),
+    ("POST", "/api/episodes/{ep}/start-again"),
 ]
 # The writes whose episode id is in the form / body check ownership in the handler.
 BODY_WRITES = [("POST", "/api/episodes/upload"), ("POST", "/api/episodes")]

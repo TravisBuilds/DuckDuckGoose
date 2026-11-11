@@ -135,4 +135,14 @@ test('a member makes a dialogue video: a voice per speaker, then Preview Only', 
     const state = await res.json();
     return `${state.archetype_id} ${state.target_duration_s}`;
   }, { timeout: 60_000 }).toBe(`${CARD} 35`);
+
+  // the member edits the story outline and saves it on the open run (the PUT body is the outline itself)
+  await expect(page.getByTestId('run-ended')).toHaveCount(0);
+  await page.getByTestId('story-edit').click();
+  await page.getByTestId('story-logline-input').fill('Two old friends replay the summer of their mixtape');
+  await page.getByTestId('story-save').click();
+  await expect(page.getByTestId('story-logline')).toHaveText('Two old friends replay the summer of their mixtape');
+  const story = await (await page.request.get(`${API}/api/episodes/${episodeId}/story-shape`)).json();
+  expect(story.story_shape.logline).toBe('Two old friends replay the summer of their mixtape');
+  expect(story.log.at(-1).action).toBe('updated');
 });
