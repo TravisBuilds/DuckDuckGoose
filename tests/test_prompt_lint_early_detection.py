@@ -51,7 +51,7 @@ def _episode(ep: str, kit=FREEFORM_KIT) -> Path:
     """The free-form episode's files as the create wizard uploads them."""
     d = paths.episode_dir(ep)
     d.mkdir(parents=True, exist_ok=True)
-    rows = "\n".join(f"| {i} | {sid} | 8.0 (8.0) | Pass | Day | A | beat {i} | Story | - | - | K |"
+    rows = "\n".join(f"| {i} | {sid} | 8.0 (8.0) | Harbor | Day | A | beat {i} | Story | - | - | K |"
                      for i, sid in enumerate(SHOT_IDS, start=1))
     (d / "BEATMAP.md").write_text(
         f"# Episode {ep} Beatmap\n\n| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out "

@@ -312,7 +312,7 @@ def test_lint_report_marks_the_default_profile_once(episodes):
 
 # ---------------------------------------------------------------- draft-from-idea kits
 DRAFT_ADMIN = "default-lint-draft-admin-0123456789abcdef"
-IDEA = "A field captain and his aide hold a mountain pass through one long night"
+IDEA = "A ringmaster and his stagehand keep a harbor show going through one stormy night"
 
 
 @pytest.fixture
@@ -343,12 +343,12 @@ def _writer_reply() -> dict:
     from hfvg import draft_repair
 
     shots = json.loads((FIXTURE / "shots.json").read_text(encoding="utf-8"))["shots"]
-    rows = "\n".join(f"| {i} | {s['id']} | {s['duration']} ({s['duration']}) | Pass | Night | A | beat {i} | Story "
+    rows = "\n".join(f"| {i} | {s['id']} | {s['duration']} ({s['duration']}) | Harbor | Night | A | beat {i} | Story "
                      "| - | - | K |" for i, s in enumerate(shots, start=1))
     return {"beatmap_md": f"# Episode Beatmap\n\n{draft_repair.TABLE_HEADER}\n{draft_repair.TABLE_SEPARATOR}\n{rows}\n",
             "shots_json": {"shots": shots}, "refs_json": {"per_shot": {s["id"]: [] for s in shots}},
             "prompt_kit_json": {**FREEFORM_KIT, "lint": SYNTHETIC_LINT_KIT}, "ip_steering_note": "",
-            "title": "The Long Night"}
+            "title": "The Show Goes On"}
 
 
 def _draft(client, source: str, monkeypatch) -> dict:
