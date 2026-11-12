@@ -3222,6 +3222,36 @@ test_mutation 434 "default lint profile has no bare-waves rule" \
     "tests/test_default_prompt_lint.py::test_default_profile_requires_no_series_clauses" \
     sed -i 's/^\(    if \)kit\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
 
+# 435: the live episode preflight refuses a lint kit the paid submits cannot load
+test_mutation 435 "live preflight refuses a broken prompt lint kit" \
+    "hfvg/activities/preflight.py" \
+    "tests/test_prompt_lint_early_detection.py::test_live_preflight_refuses_a_lint_kit_that_cannot_load[unknown-lint-value]" \
+    sed -i 's/^                problems.extend(lint_kit_problems(episode_id))$/                pass  # MUTATED/'
+
+# 436: the G1 plan shows what the prompt lint gate will decide
+test_mutation 436 "G1 plan carries the prompt lint preview" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_prompt_lint_early_detection.py::test_g1_plan_shows_the_default_profile_and_what_it_will_refuse" \
+    sed -i 's/^    preflight_fields\["prompt_lint"\] = _prompt_lint_preview(episode_id, shots, pre_approved)$/    pass  # MUTATED/'
+
+# 437: like the submit gate, the G1 lint preview skips the still of a pre-approved shot
+test_mutation 437 "G1 prompt lint preview skips pre-approved stills" \
+    "hfvg/activities/g1_plan.py" \
+    "tests/test_prompt_lint_early_detection.py::test_g1_plan_shows_the_default_profile_and_what_it_will_refuse" \
+    sed -i 's/^\(    plans = .*"pre_approved_still": \)s\["shot_id"\] in pre_approved\(} for s in shots}\)$/\1False\2  # MUTATED/'
+
+# 438: POST /api/episodes refuses a live start while the lint kit cannot load
+test_mutation 438 "live start refused for a broken prompt lint kit" \
+    "api/main.py" \
+    "tests/test_prompt_lint_early_detection.py::test_live_start_is_refused_while_the_lint_kit_cannot_load[unknown-lint-value]" \
+    sed -i 's/^    lint_problems = \[\] if request.dry_run else lint_kit_problems(request.episode_id)$/    lint_problems = []  # MUTATED/'
+
+# 439: start-again of a live run re-checks the lint kit
+test_mutation 439 "live start-again refused for a broken prompt lint kit" \
+    "api/main.py" \
+    "tests/test_prompt_lint_early_detection.py::test_start_again_rechecks_the_lint_kit_of_a_live_run[False]" \
+    sed -i 's/^    problems += \[\] if dry_run else lint_kit_problems(episode_id)$/    problems += []  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
