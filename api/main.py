@@ -60,7 +60,7 @@ from hfvg.credit_plan_parser import parse_credit_plan
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 from hfvg.voice_check import audio_plan_voice_problems, plan_voice_problems
-from hfvg.prompt_lint import lint_kit_problems
+from hfvg.prompt_lint import DEFAULT_LINT_PROFILE, lint_kit_problems
 
 # Get ADMIN_SECRET - can be overridden in tests
 def get_admin_secret() -> str:
@@ -6091,7 +6091,8 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
                     prompt_kit_data: dict, script: list[dict] | None, warnings: list[str],
                     title: str | None = None) -> DraftFromIdeaResponse:
     """Validate the drafted files and add the card's audio plan (with the card's subtitle / title
-    card / end card defaults) and voice slots (LLM and test drafts alike)."""
+    card / end card defaults) and voice slots (LLM and test drafts alike). The prompt kit names the
+    built-in default lint profile: draft prompts are free-form, with no series lint clauses."""
     import tempfile
 
     from hfvg import audio_mix, genre_drafts
@@ -6123,7 +6124,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
         )
 
     shot_aspect, aspect_note = _draft_aspect(profile)
-    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}
+    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect, "lint": DEFAULT_LINT_PROFILE}
     shots_data = {**shots_data, "shots": [{**s, "aspect_ratio": shot_aspect} for s in shots_data["shots"]]}
 
     screen_times = [float(s["screen_time"]) for s in parsed_shots]

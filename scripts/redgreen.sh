@@ -3252,6 +3252,12 @@ test_mutation 439 "live start-again refused for a broken prompt lint kit" \
     "tests/test_prompt_lint_early_detection.py::test_start_again_rechecks_the_lint_kit_of_a_live_run[False]" \
     sed -i 's/^    problems += \[\] if dry_run else lint_kit_problems(episode_id)$/    problems += []  # MUTATED/'
 
+# 440: draft-from-idea kits name the built-in default lint profile (over any model-invented lint)
+test_mutation 440 "draft-from-idea prompt kit names the default lint profile" \
+    "api/main.py" \
+    "tests/test_default_prompt_lint.py::test_drafts_name_the_default_profile_and_pass_every_gate[writer]" \
+    sed -i 's/^    prompt_kit_data = {\*\*prompt_kit_data, "aspect_ratio": shot_aspect, "lint": DEFAULT_LINT_PROFILE}$/    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

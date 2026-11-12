@@ -308,3 +308,97 @@ def test_lint_report_marks_the_default_profile_once(episodes):
     assert sorted(report) == ["*", "S99"] and "no 'lint' section" in report["*"][0]
     assert report["S99"] == ["still: content-policy hard-stop term: 'sexy' (docs/CONTENT-POLICY.md)",
                              "clip: content-policy hard-stop term: 'sexy' (docs/CONTENT-POLICY.md)"]
+
+
+# ---------------------------------------------------------------- draft-from-idea kits
+DRAFT_ADMIN = "default-lint-draft-admin-0123456789abcdef"
+IDEA = "A field captain and his aide hold a mountain pass through one long night"
+
+
+@pytest.fixture
+def draft_client(monkeypatch):
+    """The API in dry mode, logged in as admin; each test mocks the story writer."""
+    import sys
+
+    from fastapi.testclient import TestClient
+
+    from hfvg.config import config
+
+    monkeypatch.setenv("ADMIN_SECRET", DRAFT_ADMIN)
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.delenv("DRAFT_LLM_FAKE", raising=False)
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key-for-mocked-calls")
+    sys.modules.pop("api.main", None)
+    from api.main import app
+
+    client = TestClient(app)
+    login = client.post("/api/login", json={"admin_secret": DRAFT_ADMIN})
+    assert login.status_code == 200
+    client.cookies.set("studio_admin_token", login.cookies.get("studio_admin_token"))
+    return client
+
+
+def _writer_reply() -> dict:
+    """The story writer's files for the free-form fixture; its kit carries a model-invented lint object."""
+    from hfvg import draft_repair
+
+    shots = json.loads((FIXTURE / "shots.json").read_text(encoding="utf-8"))["shots"]
+    rows = "\n".join(f"| {i} | {s['id']} | {s['duration']} ({s['duration']}) | Pass | Night | A | beat {i} | Story "
+                     "| - | - | K |" for i, s in enumerate(shots, start=1))
+    return {"beatmap_md": f"# Episode Beatmap\n\n{draft_repair.TABLE_HEADER}\n{draft_repair.TABLE_SEPARATOR}\n{rows}\n",
+            "shots_json": {"shots": shots}, "refs_json": {"per_shot": {s["id"]: [] for s in shots}},
+            "prompt_kit_json": {**FREEFORM_KIT, "lint": SYNTHETIC_LINT_KIT}, "ip_steering_note": "",
+            "title": "The Long Night"}
+
+
+def _draft(client, source: str, monkeypatch) -> dict:
+    from unittest.mock import patch
+
+    from tests.test_draft_repair import _openai
+
+    body = {"idea": IDEA, "target_duration": 30}
+    if source == "fake":  # DRAFT_LLM_FAKE: the canned test draft (hfvg.genre_drafts)
+        monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
+        res = client.post("/api/episodes/draft-from-idea", json=body)
+    else:
+        with patch("openai.AsyncOpenAI", return_value=_openai(_writer_reply())):
+            res = client.post("/api/episodes/draft-from-idea", json=body)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+@pytest.mark.parametrize("source", ["writer", "fake"])
+async def test_drafts_name_the_default_profile_and_pass_every_gate(draft_client, monkeypatch, source):
+    import os
+
+    from hfvg.activities.preflight import PreflightError, preflight_validate_episode_activity
+    from hfvg.budget import BudgetLedger
+
+    draft = _draft(draft_client, source, monkeypatch)
+    assert draft["prompt_kit_json"].get("lint") == "default", draft["prompt_kit_json"]
+
+    # Stored as the create wizard uploads them (web/app/studio/create/page.tsx)
+    ep = draft["episode_id"]
+    d = paths.episode_dir(ep)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "BEATMAP.md").write_text(draft["beatmap"], encoding="utf-8")
+    for name in ("shots", "refs", "prompt_kit"):
+        (d / f"{name}.json").write_text(json.dumps(draft[f"{name}_json"]), encoding="utf-8")
+    monkeypatch.delenv("PROMPT_LINT_KIT_PATH")
+
+    plans = parse_shots(draft["shots_json"])
+    assert lint_summary(ep, plans) == {"ok": True, "profile": "default", "notice": None, "kit_error": None,
+                                       "shots": {}, "problem_count": 0}
+    for sid, plan in plans.items():
+        for kind in ("still", "clip"):
+            err = _gate(ep, plan, kind)
+            assert err is None, f"{sid} {kind}: {err}"
+
+    monkeypatch.setenv("HIGGSFIELD_API_KEY", "synthetic-not-a-key")
+    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    await ledger.init_db()
+    await ledger.set_manual_balance(50_000_000, set_by="test")
+    try:
+        await ActivityEnvironment().run(preflight_validate_episode_activity, ep, None, True)
+    except PreflightError as e:
+        pytest.fail(f"live preflight refused the draft: {e.problems}")
