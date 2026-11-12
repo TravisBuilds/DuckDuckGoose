@@ -1,0 +1,15 @@
+{
+  "style": "photorealistic, cinematic lighting",
+  "aspect_ratio": "16:9",
+  "characters": {
+    "A": {
+      "description": "a self-assured field captain in a long military greatcoat, quick with orders and quicker to take credit"
+    },
+    "B": {
+      "description": "the captain's deadpan aide, loyal and unflappable, always carrying a field radio"
+    }
+  },
+  "sets": {
+    "Mountain Pass": "a dusty, war-scarred mountain pass at dawn, littered with the remnants of battle and weary survivors"
+  }
+}

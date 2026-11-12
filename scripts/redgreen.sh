@@ -3192,6 +3192,36 @@ test_mutation 429 "audio_mix episodes root via hfvg.paths" \
     "tests/test_no_hardcoded_data_paths.py::test_episodes_and_data_dir_env_vars_are_read_only_by_the_helper" \
     sed -i '/^def episodes_root() -> Path:$/{n;s|return episodes_dir()$|return Path(os.getenv("EPISODES_DIR") or "./data/episodes")  # MUTATED: own env read|;}'
 
+# 430: a per-episode prompt kit with no "lint" section gets the built-in default profile
+test_mutation 430 "kit without a lint section uses the default lint profile" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_default_prompt_lint.py::test_freeform_draft_kit_and_shots_pass_the_default_profile_with_zero_hits" \
+    sed -i 's/^    if "lint" not in data and override:$/    if "lint" not in data:  # MUTATED/'
+
+# 431: the default profile refuses content-policy hard-stop terms before any spend
+test_mutation 431 "default lint profile refuses hard-stop terms" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_default_prompt_lint.py::test_live_still_with_a_hard_stop_term_is_refused_before_any_spend" \
+    sed -i 's/^        for term in hard:$/        for term in ():  # MUTATED/'
+
+# 432: the default profile refuses what the live still precheck refuses (substrings)
+test_mutation 432 "default lint profile refuses the precheck banned words" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_default_prompt_lint.py::test_default_profile_refuses_exactly_what_the_live_still_precheck_refuses[explicitly]" \
+    sed -i 's/^        for word in precheck_banned_words(prompt):$/        for word in ():  # MUTATED/'
+
+# 433: a "lint" value that is neither an object nor "default" fails closed
+test_mutation 433 "unknown lint value fails closed" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_default_prompt_lint.py::test_any_other_lint_value_fails_closed_before_spend[strict]" \
+    sed -i 's/^    if "lint" in data and data\["lint"\] != DEFAULT_LINT_PROFILE:$/    if False:  # MUTATED/'
+
+# 434: the default profile leaves the series bare-"waves" rule off
+test_mutation 434 "default lint profile has no bare-waves rule" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_default_prompt_lint.py::test_default_profile_requires_no_series_clauses" \
+    sed -i 's/^\(    if \)kit\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

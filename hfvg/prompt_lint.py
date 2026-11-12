@@ -5,6 +5,10 @@ Clause texts (count clause, locked-camera clause, real-time pattern, antler/duck
 decor list) come from a LintKit loaded from the per-episode ``prompt_kit.json`` (``"lint"`` section)
 or from the file named by ``PROMPT_LINT_KIT_PATH``; none is hardcoded here.
 
+A per-episode kit with no ``"lint"`` key (e.g. a draft-from-idea kit) or with ``"lint": "default"``
+gets the built-in default profile instead (:func:`default_lint_kit`): content-policy terms and the
+motion rules, no series clauses. A ``"lint"`` object is parsed exactly as before.
+
 shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]),
 optional ``antler`` / ``duck`` flags (clause required whatever the character codes say).
 
@@ -19,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hfvg.content_policy import hard_stop_terms, precheck_banned_words
 from hfvg.paths import episode_dir
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,12 @@ DEFAULT_CARRY_VERBS = (
     "carry", "carries", "carrying", "carried", "hold", "holds", "holding", "held",
 )
 
+# Built-in default profile: only rules that hold for any episode. "realistic wild", bare "waves"
+# and the moose carry/hold rule are series style rules (and "realistic wild" matches "photorealistic
+# wildlife"), so they stay with the kits that ask for them.
+DEFAULT_LINT_PROFILE = "default"
+DEFAULT_PROFILE_FORBIDDEN_PHRASES = ("nothing else moves",)
+
 
 class PromptLintError(ValueError):
     """The prompt violates the lint rules (refused before any paid call)."""
@@ -35,6 +46,8 @@ class PromptLintError(ValueError):
 
 @dataclass(frozen=True)
 class LintKit:
+    # The three clause rules are required in a kit's own "lint" object and empty (off) only in
+    # the built-in default profile.
     count_template: str  # must contain "{n}", e.g. "<clause with {n}>"
     realtime_pattern: str  # regex for the real-time / no-slow-motion clause
     locked_camera_clause: str  # required on exterior/water shots
@@ -60,6 +73,11 @@ class LintKit:
     # never also carry a realism word (realistic / photoreal / lifelike ...).
     duck_names: tuple[str, ...] = ()
     duck_realism_words: tuple[str, ...] = ()
+    # Built-in default profile only (a kit's "lint" object never sets these): the content-policy
+    # terms (hfvg.content_policy) refused anywhere in the prompt, and the series bare-"waves" rule off.
+    content_policy_terms: bool = False
+    forbid_bare_waves: bool = True
+    profile: str = "kit"  # "kit": the kit's own "lint" rules; "default": default_lint_kit()
     _extra: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
@@ -132,6 +150,27 @@ def parse_continuity_locks(raw: Any) -> tuple:
         seen.add(lid)
         out.append((("id", lid), ("when", when), ("kinds", tuple(kinds)), ("text", text)))
     return tuple(out)
+
+
+def default_lint_kit(continuity_locks: Any = None) -> LintKit:
+    """The built-in default profile, for kits written without series lint rules (free-form prompts).
+
+    Kept: the content-policy terms (docs/CONTENT-POLICY.md hard-stop terms plus the still precheck's
+    banned words), "nothing else moves", the clip motion rules, the kit's continuity locks
+    (GAP-40), the duck realism split and the fail-closed antler/duck shot_meta flags. Off: every
+    series clause (count, real-time, locked-camera, antler/duck/bath) and the series style rules.
+    """
+    return LintKit(
+        count_template="",
+        realtime_pattern="",
+        locked_camera_clause="",
+        forbidden_phrases=DEFAULT_PROFILE_FORBIDDEN_PHRASES,
+        moose_names=(),
+        content_policy_terms=True,
+        forbid_bare_waves=False,
+        continuity_locks=parse_continuity_locks(continuity_locks),
+        profile=DEFAULT_LINT_PROFILE,
+    )
 
 
 def _lock(item) -> dict:
@@ -227,7 +266,7 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
     count = meta.get("count")
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         problems.append("shot_meta.count must be a non-negative integer")
-    else:
+    elif kit.count_template:
         pattern = re.escape(kit.count_template.strip()).replace(re.escape("{n}"), r"(\d+)")
         found = [int(m) for m in re.findall(pattern, prompt, flags=re.IGNORECASE)]
         if not found:
@@ -236,11 +275,12 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
             problems.append(f"count clause mismatch: prompt says {found}, shot_meta.count is {count}")
 
     # 2. Locked camera clause on exterior / water shots
-    if (meta.get("exterior") or meta.get("water")) and not _contains(prompt, kit.locked_camera_clause):
+    if (kit.locked_camera_clause and (meta.get("exterior") or meta.get("water"))
+            and not _contains(prompt, kit.locked_camera_clause)):
         problems.append(f"missing locked-camera clause on exterior/water shot: {kit.locked_camera_clause!r}")
 
     # 3. Real-time / no slow motion clause
-    if not re.search(kit.realtime_pattern, prompt, flags=re.IGNORECASE | re.DOTALL):
+    if kit.realtime_pattern and not re.search(kit.realtime_pattern, prompt, flags=re.IGNORECASE | re.DOTALL):
         problems.append("missing real-time / no-slow-motion clause")
 
     # 4. Forbidden phrases
@@ -248,7 +288,7 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
     for phrase in kit.forbidden_phrases:
         if phrase.lower() in lowered:
             problems.append(f"forbidden phrase: {phrase!r}")
-    if re.search(r"\bwaves\b", prompt, flags=re.IGNORECASE):
+    if kit.forbid_bare_waves and re.search(r"\bwaves\b", prompt, flags=re.IGNORECASE):
         problems.append("bare 'waves' is forbidden (only 'ONE small wave')")
 
     # 5. Carry/hold verbs for a moose
@@ -262,6 +302,15 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
     for word in kit.banned_decor:
         if word and re.search(rf"\b{re.escape(word)}\b", prompt, flags=re.IGNORECASE):
             problems.append(f"banned decor word: {word!r}")
+    # 6b. Content-policy terms (built-in default profile), each read the way its own check reads
+    # it: hard-stop terms as whole words (moderation ladder), banned words as substrings (still precheck)
+    if kit.content_policy_terms:
+        hard = hard_stop_terms(prompt)
+        for term in hard:
+            problems.append(f"content-policy hard-stop term: {term!r} (docs/CONTENT-POLICY.md)")
+        for word in precheck_banned_words(prompt):
+            if word not in hard:
+                problems.append(f"banned word {word!r}: the live still precheck refuses it (docs/CONTENT-POLICY.md)")
 
     # 7. Antler clause when an antler character is present; 8. duck clause when duck present
     present = {str(c).lower() for c in (meta.get("characters") or [])}
@@ -330,8 +379,15 @@ def lint_prompt(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> None:
         raise PromptLintError("Prompt lint failed: " + "; ".join(problems))
 
 
-def load_lint_kit(episode_id: str) -> LintKit:
-    """Load the lint kit: PROMPT_LINT_KIT_PATH file, else <EPISODES_DIR>/<episode>/prompt_kit.json 'lint'."""
+def resolve_lint_kit(episode_id: str) -> tuple[LintKit, str | None]:
+    """(kit, notice): the episode's lint kit, and a notice when the built-in default profile
+    applies only because the per-episode prompt_kit.json has no "lint" key (None otherwise).
+
+    PROMPT_LINT_KIT_PATH file (a bare lint section or a full kit), else
+    <EPISODES_DIR>/<episode>/prompt_kit.json. A "lint" object is the kit's own rules; ``"lint":
+    "default"`` (or, per-episode, no "lint" key) is :func:`default_lint_kit`. Raises PromptLintError
+    for a missing or unreadable kit, any other "lint" value, or an override with no lint rules.
+    """
     override = os.getenv("PROMPT_LINT_KIT_PATH", "").strip()
     if override:
         path = Path(override)
@@ -343,17 +399,49 @@ def load_lint_kit(episode_id: str) -> LintKit:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise PromptLintError(f"Cannot read prompt lint kit {path}: {e}") from e
+    if not isinstance(data, dict):
+        raise PromptLintError(f"Prompt lint kit {path} must be a JSON object")
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
     if override and section is data and isinstance(data, dict) and "count_template" not in data:
         section = None  # a full prompt_kit.json without a lint section, not a bare lint file
     if not isinstance(section, dict):
-        raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
+        return _default_profile(path, data, bool(override))
     if section is not data and "continuity_locks" not in section and "continuity_locks" in data:
         # GAP-40: the kit's top-level continuity_locks (CONTINUITY section) apply to the lint too
         section = {**section, "continuity_locks": data["continuity_locks"]}
-    return LintKit.from_dict(section)
+    return LintKit.from_dict(section), None
+
+
+def _default_profile(path: Path, data: dict, override: bool) -> tuple[LintKit, str | None]:
+    """A kit without a "lint" object: the default profile when it asks for it (or, per-episode,
+    has no "lint" key at all), else the error the kit has always raised."""
+    if "lint" in data and data["lint"] != DEFAULT_LINT_PROFILE:
+        raise PromptLintError(f"Prompt lint kit {path}: \"lint\" must be an object (the kit's own rules) or "
+                              f"\"{DEFAULT_LINT_PROFILE}\" (the built-in default profile), got {json.dumps(data['lint'])}")
+    if "lint" not in data and override:
+        raise PromptLintError(f"Prompt lint kit {path} has no 'lint' section")
+    notice = None if "lint" in data else (
+        f"Prompt lint kit {path} has no 'lint' section: the built-in default lint profile applies "
+        "(content-policy terms and motion rules, no series clauses)")
+    # GAP-40: the kit's top-level continuity locks apply to the default profile too
+    return default_lint_kit(data.get("continuity_locks")), notice
+
+
+def load_lint_kit(episode_id: str) -> LintKit:
+    """The episode's lint kit (:func:`resolve_lint_kit` without the notice)."""
+    return resolve_lint_kit(episode_id)[0]
+
+
+def lint_kit_problems(episode_id: str) -> list[str]:
+    """Why the lint kit the paid submits would use cannot load ([] when it loads): checked by the
+    live preflight and live starts so a broken lint config refuses before any spend."""
+    try:
+        resolve_lint_kit(episode_id)
+    except PromptLintError as e:
+        return [f"prompt lint kit: {e}"]
+    return []
 
 
 def apply_continuity_locks(episode_id: str, prompt: str, shot_meta: dict[str, Any] | None,
@@ -369,28 +457,45 @@ def apply_continuity_locks(episode_id: str, prompt: str, shot_meta: dict[str, An
     return inject_continuity_locks(prompt, shot_meta, kit, kind)
 
 
-def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
-    """Offline lint of every prompt a live run would submit (preflight; no provider call).
+def lint_summary(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Offline lint of every prompt a live run would submit (G1 plan / preflight; no provider call).
 
-    ``plans`` is ``shot_data.parse_shots`` output. A shot with a pre-approved start still submits
-    no still, so only its clip prompt (clip_prompt, else the still prompt) is linted; otherwise
-    both. Returns {shot_id: [problem, ...]} for shots with problems; a missing/broken kit is
-    reported once under "*". Same kit and rules as the live submit gate (enforce_prompt_lint).
+    ``plans`` maps shot id -> plan with ``prompt``, ``clip_prompt``, ``shot_meta`` and
+    ``pre_approved_still`` (``shot_data.parse_shots`` output, or the merged shot plans). A shot with
+    a pre-approved start still submits no still, so only its clip prompt (clip_prompt, else the
+    still prompt) is linted; otherwise both. Same kit, continuity-lock injection and rules as the
+    live submit gate (apply_continuity_locks + enforce_prompt_lint). JSON-safe result:
+    ``{"ok", "profile": "kit" | "default" | None, "notice", "kit_error", "shots": {shot_id:
+    [problem, ...]} (shots with problems only), "problem_count"}``.
     """
     try:
-        kit = load_lint_kit(episode_id)
+        kit, notice = resolve_lint_kit(episode_id)
     except PromptLintError as e:
-        return {"*": [str(e)]}
-    out: dict[str, list[str]] = {}
+        return {"ok": False, "profile": None, "notice": None, "kit_error": str(e), "shots": {},
+                "problem_count": 0}
+    shots: dict[str, list[str]] = {}
     for sid, plan in plans.items():
         meta = plan.get("shot_meta") or {}
         problems: list[str] = []
         if not plan.get("pre_approved_still"):
-            problems += [f"still: {p}" for p in lint_violations(plan.get("prompt") or "", meta, kit)]
-        clip = plan.get("clip_prompt") or plan.get("prompt") or ""
+            still, _ = inject_continuity_locks(plan.get("prompt") or "", meta, kit, "still")
+            problems += [f"still: {p}" for p in lint_violations(still, meta, kit)]
+        clip, _ = inject_continuity_locks(plan.get("clip_prompt") or plan.get("prompt") or "", meta, kit, "clip")
         problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]
         if problems:
-            out[sid] = problems
+            shots[sid] = problems
+    return {"ok": not shots, "profile": kit.profile, "notice": notice, "kit_error": None, "shots": shots,
+            "problem_count": sum(len(p) for p in shots.values())}
+
+
+def lint_report(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """:func:`lint_summary` as {shot_id: [problem, ...]} for shots with problems; a missing/broken
+    kit, or the notice that the built-in default profile applies, is reported once under "*"."""
+    summary = lint_summary(episode_id, plans)
+    if summary["kit_error"]:
+        return {"*": [summary["kit_error"]]}
+    out: dict[str, list[str]] = {"*": [summary["notice"]]} if summary["notice"] else {}
+    out.update(summary["shots"])
     return out
 
 
