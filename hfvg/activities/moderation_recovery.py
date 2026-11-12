@@ -40,7 +40,7 @@ import aiosqlite
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, RoundBudgetError, get_budget_settings
-from hfvg.content_policy import HARD_STOP
+from hfvg.content_policy import HARD_STOP, WORD_RE, hard_stop_terms  # noqa: F401  (HARD_STOP re-exported)
 from hfvg.pricing import clip_estimate_usd_micros
 
 ROUND_FOR_KIND = {"still": "G2_STILLS", "clip": "G3_CLIPS"}
@@ -60,18 +60,7 @@ NEUTRALIZE: dict[str, str] = {
 
 REPLACEMENT_VOCAB: frozenset[str] = frozenset(v for v in NEUTRALIZE.values() if v)
 
-_WORD = re.compile(r"[A-Za-z]+(?:-[A-Za-z]+)*")
-
 DEFAULT_FALLBACK_MODELS = "seedance:kling"
-
-
-def _words(text: str) -> list[str]:
-    return [w.lower() for w in _WORD.findall(text or "")]
-
-
-def hard_stop_terms(prompt: str) -> list[str]:
-    """HARD_STOP terms present in the prompt (whole words, case-insensitive), sorted."""
-    return sorted({w for w in _words(prompt) if w in HARD_STOP})
 
 
 def sanitize_prompt(prompt: str) -> tuple[str, list[dict[str, str]]]:
@@ -89,7 +78,7 @@ def sanitize_prompt(prompt: str) -> tuple[str, list[dict[str, str]]]:
         changes.append({"word": word, "replacement": repl})
         return repl
 
-    text = _WORD.sub(_sub, prompt or "")
+    text = WORD_RE.sub(_sub, prompt or "")
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\s+([,.;:!?])", r"\1", text)
     text = re.sub(r",\s*(?:and|or)\s*(?=[,.;!?])", "", text)  # "x, and, y" -> "x, y"
