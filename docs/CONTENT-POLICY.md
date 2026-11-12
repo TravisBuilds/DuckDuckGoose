@@ -149,7 +149,11 @@ The system includes automated checks:
 1. **Prompt Lint** (`hfvg/prompt_lint.py`)
    - Runs before estimate / reserve / provider call
    - Live mode: any violation (or a missing lint kit / shot_meta) refuses; dry mode: warn only
-   - Clause texts come from the per-episode `prompt_kit.json` `"lint"` section (or `PROMPT_LINT_KIT_PATH`)
+   - Clause texts come from the per-episode `prompt_kit.json` `"lint"` section (or `PROMPT_LINT_KIT_PATH`);
+     a kit without one (draft-from-idea and other free-form kits) gets the
+     [built-in default profile](#built-in-default-profile)
+   - A lint kit that cannot load refuses a live start and the live preflight, before any spend; the
+     G1 plan shows what the lint will refuse, per shot (`prompt_lint`)
 
 2. **Provider Moderation**
    - Higgsfield has built-in content filters
@@ -242,6 +246,39 @@ Develop your own characters with unique traits:
 6. **Banned decor list** (per kit)
 7. **Antler clause** when an antler character is present
 8. **Duck clause** when the duck is present
+
+### Which rules apply
+
+The `"lint"` value of the episode's `prompt_kit.json` decides (a `PROMPT_LINT_KIT_PATH` file must
+hold lint rules, or `"lint": "default"`):
+
+| `"lint"` | Rules |
+|---|---|
+| an object | the kit's own rules above, unchanged |
+| `"default"`, or no `"lint"` key | the built-in default profile below |
+| anything else | refused (fail closed) at the live preflight, a live start and every live submit |
+
+Draft-from-idea kits are written with `"lint": "default"`.
+
+### Built-in default profile
+
+For free-form prompts, which carry none of a series' phrasing. It keeps the checks that hold for
+any episode:
+
+1. **Hard-stop terms** ([list below](#hard-stop-terms-never-rewritten-always-human-review)), read as
+   whole words the way the moderation ladder reads them: the ladder never rewrites them, so the lint
+   refuses them before anything is sent
+2. **Precheck words** `nsfw`, `explicit`, `gore` (substring match): what the live still precheck
+   refuses, now refused at the lint step for stills and clips alike
+3. **Forbidden phrase** `"nothing else moves"` and the clip motion rules (a clip prompt may not
+   freeze the scene)
+4. **Continuity locks** from the kit's top-level `continuity_locks` (injected, then required)
+5. **Shot metadata**, fail closed: `shot_meta.count` must be a non-negative integer, and a shot
+   flagged `antler` or `duck` is refused (the profile has no clause to require)
+
+It requires no count clause, real-time clause or locked-camera clause, and drops the series style
+rules (bare "waves", `"realistic wild"`, which also matches "photorealistic wildlife", moose
+carry/hold verbs, banned decor, antler / duck / bath clauses).
 
 ## Moderation Recovery Ladder
 
