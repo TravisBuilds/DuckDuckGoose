@@ -40,6 +40,7 @@ import aiosqlite
 from temporalio import activity
 
 from hfvg.budget import BudgetLedger, RoundBudgetError, get_budget_settings
+from hfvg.content_policy import HARD_STOP
 from hfvg.pricing import clip_estimate_usd_micros
 
 ROUND_FOR_KIND = {"still": "G2_STILLS", "clip": "G3_CLIPS"}
@@ -56,12 +57,6 @@ NEUTRALIZE: dict[str, str] = {
     # violence-ish words with harmless meanings (a film shoot, a "killer" view)
     "bloody": "", "gory": "", "killer": "", "shoot": "film", "shooting": "filming",
 }
-
-# Terms the ladder NEVER rewrites: their presence means a human must look at the prompt.
-HARD_STOP: frozenset[str] = frozenset({
-    "nude", "naked", "nudity", "topless", "undressed", "sexual", "sexy", "erotic", "sensual",
-    "seductive", "provocative", "lingerie", "explicit", "intimate", "fetish",
-})
 
 REPLACEMENT_VOCAB: frozenset[str] = frozenset(v for v in NEUTRALIZE.values() if v)
 
