@@ -10,6 +10,7 @@ from pathlib import Path
 
 from temporalio import activity
 
+from hfvg import subproc
 from hfvg.config import config
 from hfvg.content_policy import PRECHECK_BANNED
 from hfvg.qc.clip_constraints import (
@@ -27,6 +28,21 @@ RESOLUTION_TOLERANCE_FRAC = 0.01  # per side: 1% (12.8 px on 1280)
 def _dims_close(w: int, h: int, ew: int, eh: int, frac: float = RESOLUTION_TOLERANCE_FRAC) -> bool:
     """True when each side is within ``frac`` of the expected size."""
     return abs(w - ew) <= ew * frac and abs(h - eh) <= eh * frac
+
+
+def _text(data: bytes) -> str:
+    return data.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+
+
+async def _run_text(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """subprocess.run(cmd, capture_output=True, text=True, timeout=timeout) without blocking the
+    worker's event loop (every activity on the worker stops heartbeating while it is blocked);
+    a cancelled attempt kills the child (hfvg.subproc)."""
+    try:
+        code, out, err = await subproc.run(cmd, Path(cmd[0]).name, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise subprocess.TimeoutExpired(cmd, timeout) from None
+    return subprocess.CompletedProcess(cmd, code, _text(out), _text(err))
 
 
 @activity.defn
@@ -229,7 +245,7 @@ async def check_motion_qc(
             "-of", "json",
             video_path
         ]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+        result = await _run_text(probe_cmd, timeout=30)
         
         if result.returncode != 0:
             issues.append(f"ffprobe failed: {result.stderr[:200]}")
@@ -282,7 +298,7 @@ async def check_motion_qc(
             "-f", "null",
             "-"
         ]
-        result = subprocess.run(blackdetect_cmd, capture_output=True, text=True, timeout=60)
+        result = await _run_text(blackdetect_cmd, timeout=60)
         
         # Parse blackdetect output from stderr
         black_duration = 0.0
@@ -310,7 +326,7 @@ async def check_motion_qc(
             "-f", "null",
             "-"
         ]
-        result = subprocess.run(freezedetect_cmd, capture_output=True, text=True, timeout=60)
+        result = await _run_text(freezedetect_cmd, timeout=60)
         
         # Parse freezedetect output from stderr
         freeze_detected = False
@@ -609,10 +625,10 @@ async def check_assembly_qc(
         return result("NEEDS_REVIEW", f"mute edit missing or empty: {assembly_path}")
 
     from hfvg.qc.animal_count import check_shot_animals, get_animal_counter
-    from hfvg.qc.motion import check_motion
+    from hfvg.qc.motion import check_motion_async
 
     try:
-        rows = await asyncio.to_thread(check_motion, assembly_path, manifest)
+        rows = await check_motion_async(assembly_path, manifest)
     except Exception as e:  # could not analyse -> a human must look; never a silent pass
         activity.logger.error(f"Assembly motion QC error for {episode_id}: {e}")
         return result("NEEDS_REVIEW", f"motion QC error: {str(e)[:200]}")

@@ -2186,7 +2186,7 @@ test_mutation 261 "Up-to-date mute edit is reused (idempotency)" \
 test_mutation 262 "Assembly QC runs the stillgate on the mute edit" \
     "hfvg/activities/qc.py" \
     "tests/test_picture_assembly_round3.py::TestAssemblyQC::test_still_only_shot_fails" \
-    sed -i 's/^        rows = await asyncio\.to_thread(check_motion, assembly_path, manifest)$/        rows = []  # MUTATED/'
+    sed -i 's/^        rows = await check_motion_async(assembly_path, manifest)$/        rows = []  # MUTATED/'
 
 # 263: G-QC-2b: Stillgate decodes at its analysis fps (30 fps edit windows)
 test_mutation 263 "Stillgate resamples to its analysis fps before windowing" \
