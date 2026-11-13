@@ -90,6 +90,31 @@ async def test_cancel_kills_the_child_and_its_process_group(tmp_path):
     assert wait_dead([grandchild], 2.0) == [], "the child's own child (same process group) is still running"
 
 
+async def test_cancel_while_the_child_starts_kills_it_and_its_group(tmp_path, monkeypatch):
+    """A cancel can land while create_subprocess_exec is still connecting the child's pipes (a loaded
+    worker widens that window: the full suite hit it). asyncio's own cleanup kills the child alone and
+    on 3.11/3.12 then waits until the pipes close, i.e. for as long as the child's children run."""
+    pids = tmp_path / "pids"
+    real = asyncio.create_subprocess_exec
+    starting = asyncio.Event()
+
+    async def slow_start(*a, **k):  # the child and its own child run, the start has not returned yet
+        proc = await real(*a, **k)
+        await _until(lambda: pids.exists() and len(pids.read_text().split()) == 2, 10, "grandchild started")
+        starting.set()
+        await asyncio.sleep(0.2)  # the cancel lands here
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", slow_start)
+    task = asyncio.ensure_future(subproc.run(["sh", "-c", f"sleep 30 & echo $$ $! > {pids}; wait"], "group"))
+    await starting.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, 5)
+    child, grandchild = (int(p) for p in pids.read_text().split())
+    assert wait_dead([child, grandchild], 2.0) == [], "a child cancelled while starting (or its own child) is still running"
+
+
 async def test_timeout_kills_the_child(tmp_path):
     pid = tmp_path / "pid"
     with pytest.raises(TimeoutError):

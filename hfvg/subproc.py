@@ -97,18 +97,37 @@ async def _kill(proc: asyncio.subprocess.Process) -> None:
         pass
 
 
+async def _start(cmd: list[str], cwd: str | None, stdin: int) -> asyncio.subprocess.Process:
+    """create_subprocess_exec that a cancellation does not interrupt halfway.
+
+    Cancelled while the child's pipes are being connected, asyncio kills that child alone and (3.11,
+    3.12) then waits until every pipe closes, i.e. for as long as a child of the child holds them. So
+    the start is finished and the whole process group killed before the cancellation propagates."""
+    start = asyncio.ensure_future(asyncio.create_subprocess_exec(
+        *cmd, cwd=cwd, stdin=stdin, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        start_new_session=True))
+    try:
+        return await asyncio.shield(start)
+    except asyncio.CancelledError:
+        while not start.done():  # milliseconds; a repeated cancel must not orphan the child
+            try:
+                await asyncio.wait({start})
+            except asyncio.CancelledError:
+                pass
+        if not start.cancelled() and start.exception() is None:
+            await _kill(start.result())
+        raise
+
+
 async def run(cmd: list[str], what: str, *, cwd: str | None = None, stdin: bytes | None = None,
               timeout: float | None = None) -> tuple[int, bytes, bytes]:
     """Run ``cmd`` to completion without blocking the event loop: (returncode, stdout, stderr).
 
-    Inside an activity it heartbeats while the child runs (keep_alive). Cancellation, ``timeout``
-    (seconds; raises TimeoutError) or any other error while waiting kills the child's process group
-    and reaps the child before the exception propagates. stdin is /dev/null unless bytes are given."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, cwd=cwd,
-        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        start_new_session=True)
+    Inside an activity it heartbeats while the child runs (keep_alive). Cancellation (also while the
+    child is starting), ``timeout`` (seconds; raises TimeoutError) or any other error while waiting
+    kills the child's process group and reaps the child before the exception propagates. stdin is
+    /dev/null unless bytes are given."""
+    proc = await _start(cmd, cwd, asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL)
     try:
         comm = proc.communicate(stdin)
         if timeout is not None:
