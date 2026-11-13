@@ -103,6 +103,22 @@ def alive(pid: int) -> bool:
     return _state(pid) not in (None, "Z", "X")
 
 
+def describe(pid: int) -> str:
+    """``pid N [state] command line`` for an assertion message."""
+    state = _state(pid)
+    return f"pid {pid} gone" if state is None else f"pid {pid} [{state}] {_cmdline(pid).strip()!r}"
+
+
+def kill_group(pgid: int, members: list[int]) -> None:
+    """SIGKILL process group ``pgid`` while one of ``members`` still runs (a running member keeps the
+    group id from being reused), so what a failed check left running does not outlive the test."""
+    if any(alive(p) for p in members):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def wait_dead(pids: list[int], timeout: float = 5.0) -> list[int]:
     """The pids still alive after ``timeout`` seconds (blocks: only once no worker needs the loop)."""
     end = time.monotonic() + timeout

@@ -25,7 +25,7 @@ from hfvg.activities.media import assemble_mute_edit
 from hfvg.activities.qc import check_assembly_qc, check_motion_qc
 from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
 from tests.lint_helpers import lint_meta
-from tests.slow_bin import TimedHeartbeats, alive, slow, wait_dead  # noqa: F401
+from tests.slow_bin import TimedHeartbeats, alive, describe, kill_group, slow, wait_dead  # noqa: F401
 from tests.test_audio_delivery import episode
 from tests.test_audio_round4_activities import API, MP3, _init_db, live  # noqa: F401
 from tests.test_picture_assembly_round3 import MOVING, make_clip, make_color_clip, no_counter  # noqa: F401
@@ -78,16 +78,26 @@ async def test_outside_an_activity_run_just_runs():
     assert (rc, out) == (0, b""), "a child without stdin bytes must read /dev/null, not the worker's stdin"
 
 
+def _outcome(task: asyncio.Future) -> str:
+    return "cancelled" if task.cancelled() else repr(task.exception() or task.result())
+
+
 async def test_cancel_kills_the_child_and_its_process_group(tmp_path):
     pids = tmp_path / "pids"
     task = asyncio.ensure_future(subproc.run(["sh", "-c", f"sleep 30 & echo $$ $! > {pids}; wait"], "group"))
     await _until(lambda: pids.exists() and len(pids.read_text().split()) == 2, 10, "child started")
     child, grandchild = (int(p) for p in pids.read_text().split())
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert not alive(child), "the cancelled child is still running (it was not reaped before the error)"
-    assert wait_dead([grandchild], 2.0) == [], "the child's own child (same process group) is still running"
+    try:
+        assert not task.done(), f"the child ended before the cancel: {_outcome(task)}"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not alive(child), (
+            f"the cancelled child is still running (it was not reaped before the error): {describe(child)}")
+        assert wait_dead([grandchild], 2.0) == [], (
+            f"the child's own child (same process group) is still running: {describe(grandchild)}")
+    finally:
+        kill_group(child, [child, grandchild])
 
 
 async def test_cancel_while_the_child_starts_kills_it_and_its_group(tmp_path, monkeypatch):
@@ -108,11 +118,16 @@ async def test_cancel_while_the_child_starts_kills_it_and_its_group(tmp_path, mo
     monkeypatch.setattr(asyncio, "create_subprocess_exec", slow_start)
     task = asyncio.ensure_future(subproc.run(["sh", "-c", f"sleep 30 & echo $$ $! > {pids}; wait"], "group"))
     await starting.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, 5)
     child, grandchild = (int(p) for p in pids.read_text().split())
-    assert wait_dead([child, grandchild], 2.0) == [], "a child cancelled while starting (or its own child) is still running"
+    try:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+        left = wait_dead([child, grandchild], 2.0)
+        assert left == [], (
+            f"a child cancelled while starting (or its own child) is still running: {[describe(p) for p in left]}")
+    finally:
+        kill_group(child, [child, grandchild])
 
 
 async def test_timeout_kills_the_child(tmp_path):
