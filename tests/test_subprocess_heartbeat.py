@@ -248,9 +248,11 @@ async def test_clip_motion_qc_heartbeats_and_keeps_the_event_loop_free(tmp_path,
             lags.append(loop.time() - t - 0.05)
 
     tick = asyncio.ensure_future(ticker())
+    await asyncio.sleep(0.1)  # the ticker is waiting in its sleep when the activity starts
     hb = TimedHeartbeats(HEARTBEAT_S)
     try:
         result = await hb.run(check_motion_qc, str(clip), 2.0, "360x640", "9:16")
+        await asyncio.sleep(0.1)  # a tick that spanned a blocked loop is recorded when it resumes
     finally:
         tick.cancel()
     assert result["passed"], result["issues"]
