@@ -3312,6 +3312,19 @@ test_mutation 449 "child cancelled while starting is killed with its process gro
     "tests/test_subprocess_heartbeat.py::test_cancel_while_the_child_starts_kills_it_and_its_group" \
     sed -i 's/^        return await asyncio\.shield(start)$/        return await start  # MUTATED/'
 
+# 450: the process checks' alive() treats a pid reaped between its open() and read() of
+#      /proc/<pid>/stat (ESRCH) as gone instead of raising (444's restored run failed on this in CI)
+test_mutation 450 "alive() survives a reap between open and read" \
+    "tests/slow_bin.py" \
+    "tests/test_slow_bin.py::test_alive_is_false_for_a_process_reaped_between_open_and_read" \
+    sed -i 's/^    except (FileNotFoundError, ProcessLookupError, IndexError):$/    except (FileNotFoundError, IndexError):  # MUTATED/'
+
+# 451: alive() treats a pid that is being reaped (state X) as gone, like a zombie
+test_mutation 451 "alive() counts a process being reaped as gone" \
+    "tests/slow_bin.py" \
+    "tests/test_slow_bin.py::test_alive_is_false_for_a_process_being_reaped" \
+    sed -i 's/^    return _state(pid) not in (None, "Z", "X")$/    return _state(pid) not in (None, "Z")  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

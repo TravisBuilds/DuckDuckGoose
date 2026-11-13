@@ -84,16 +84,23 @@ def _children(pid: int) -> list[int]:
     return kids
 
 
+def _state(pid: int) -> str | None:
+    """The state letter in /proc/<pid>/stat; None once the pid is gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError, IndexError):
+        # reaped while we look: open() gives ENOENT or ESRCH, a read() after open() gives ESRCH
+        return None
+
+
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    try:  # a zombie still answers kill(0)
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except (FileNotFoundError, IndexError):
-        return False
+    # kill(0) still answers for a zombie (Z) and while its parent or init reaps it (X)
+    return _state(pid) not in (None, "Z", "X")
 
 
 def wait_dead(pids: list[int], timeout: float = 5.0) -> list[int]:
