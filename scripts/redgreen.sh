@@ -3306,6 +3306,12 @@ test_mutation 448 "RIFE frame check heartbeats while it runs" \
     "tests/test_subprocess_heartbeat.py::test_rife_retime_heartbeats_through_a_slow_frame_check" \
     sed -i 's/^            await subproc\.keep_alive(asyncio\.to_thread(check_interp_frames, /            await (lambda aw, what: aw)(asyncio.to_thread(check_interp_frames, /'
 
+# 449: a cancel that lands while the child is starting still kills the child and its process group
+test_mutation 449 "child cancelled while starting is killed with its process group" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancel_while_the_child_starts_kills_it_and_its_group" \
+    sed -i 's/^        return await asyncio\.shield(start)$/        return await start  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
