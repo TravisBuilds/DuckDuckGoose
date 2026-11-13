@@ -1,10 +1,10 @@
 """The production failure on a real Temporal server: local dev server, real worker, real heartbeats.
 
 main e1c5181: mix_and_deliver heartbeat only between its steps. One phone encode outlasted the 2 min
-heartbeat timeout, so the server timed the attempt out ("activity Heartbeat timeout"), and because a
-worker hears of a timeout or a cancel only in a heartbeat response, the encode went on running next to
-the retry. A TTS call slower than generate_voiceover's 1 min heartbeat timeout had the same fate, and
-its retry paid for the line a second time. Each activity is scheduled here the way the episode
+heartbeat timeout, so the attempt timed out ("activity Heartbeat timeout"); the SDK cancelled it on
+the worker, but the cancelled proc.communicate() left ffmpeg running next to the retry. A TTS call
+slower than generate_voiceover's 1 min heartbeat timeout had the same fate, and its retry paid for
+the line a second time. Each activity is scheduled here the way the episode
 workflow schedules it (heartbeat timeout, retries), with the timeout scaled down and one child or
 provider call held longer than it."""
 

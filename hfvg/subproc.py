@@ -3,8 +3,8 @@
 The heartbeat timeout of an activity (1-2 min in the episode workflow) is there to notice a dead
 worker, not a slow step. An activity that heartbeats only between its steps is timed out by any single
 step that outlasts it - one ffmpeg encode of a long 1080x1920 cut on a small droplet, a RIFE render, a
-slow provider call - and the worker only learns about the timeout from its next heartbeat, so the
-timed-out attempt kept encoding next to its retry (both slower, so every retry timed out the same way).
+slow provider call. The SDK then cancels the attempt on the worker, and a child that is not killed
+with it keeps running next to the retry (both slower, so every retry timed out the same way).
 
 - ``run``: a child process that heartbeats every ``beat_interval()`` while it runs (inside an activity)
   and, when the awaiting task is cancelled or fails, is killed with its whole process group and reaped
