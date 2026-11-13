@@ -3258,6 +3258,48 @@ test_mutation 440 "draft-from-idea prompt kit names the default lint profile" \
     "tests/test_default_prompt_lint.py::test_drafts_name_the_default_profile_and_pass_every_gate[writer]" \
     sed -i 's/^    prompt_kit_data = {\*\*prompt_kit_data, "aspect_ratio": shot_aspect, "lint": DEFAULT_LINT_PROFILE}$/    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}  # MUTATED/'
 
+# 441: an activity heartbeats while its ffmpeg child runs (an encode longer than the heartbeat timeout)
+test_mutation 441 "mix_and_deliver heartbeats through an encode longer than the heartbeat timeout" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_mix_and_deliver_heartbeats_through_an_encode_longer_than_the_heartbeat_timeout" \
+    sed -i 's/^        out, err = await keep_alive(comm, what)$/        out, err = await comm  # MUTATED/'
+
+# 442: the keep-alive beats at least 4x per heartbeat timeout (the 20 s default outlasts a short one)
+test_mutation 442 "keep-alive interval follows the attempt's heartbeat timeout" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_run_heartbeats_while_the_child_runs" \
+    sed -i 's/^        every = min(every, timeout\.total_seconds() \/ 4)$/        pass  # MUTATED/'
+
+# 443: a cancelled delivery (cancel delivered in a heartbeat response) kills its encode
+test_mutation 443 "cancelled delivery kills its encode (real Temporal server)" \
+    "hfvg/subproc.py" \
+    "tests/test_temporal_heartbeat_timeout.py::test_cancelling_a_delivery_kills_its_encode" \
+    sed -i 's/^        await _kill(proc)$/        pass  # MUTATED/'
+
+# 444: ...and the child's own children (process group)
+test_mutation 444 "cancelled child is killed with its process group" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancel_kills_the_child_and_its_process_group" \
+    sed -i 's/^            os\.killpg(proc\.pid, signal\.SIGKILL)$/            pass  # MUTATED/'
+
+# 445: a provider call longer than the heartbeat timeout keeps its attempt (the retry would pay again)
+test_mutation 445 "slow TTS call is paid for once (real Temporal server)" \
+    "hfvg/activities/audio.py" \
+    "tests/test_temporal_heartbeat_timeout.py::test_a_tts_call_longer_than_the_heartbeat_timeout_is_paid_for_once" \
+    sed -i 's/^        result = await subproc\.keep_alive(call(), f"{kind} {asset_id} provider call")$/        result = await call()  # MUTATED/'
+
+# 446: a cancelled attempt cancels its RIFE render (so media._run kills the child)
+test_mutation 446 "cancelled attempt stops its RIFE render" \
+    "hfvg/interp_rife.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancelled_rife_render_does_not_outlive_the_attempt" \
+    sed -i 's/^        if not task\.done():$/        if False:  # MUTATED/'
+
+# 447: clip motion QC runs ffmpeg off the worker's event loop
+test_mutation 447 "clip motion QC keeps the worker's event loop free" \
+    "hfvg/activities/qc.py" \
+    "tests/test_subprocess_heartbeat.py::test_clip_motion_qc_heartbeats_and_keeps_the_event_loop_free" \
+    sed -i 's/^        result = await _run_text(blackdetect_cmd, timeout=60)$/        result = subprocess.run(blackdetect_cmd, capture_output=True, text=True, timeout=60)  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
