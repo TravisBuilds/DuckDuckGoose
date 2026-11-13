@@ -616,3 +616,8 @@ repo**: they come from the `lint` section of the per-episode `prompt_kit.json` (
 `PROMPT_LINT_KIT_PATH`). Kit fields: `count_template` (with `{n}`), `realtime_pattern` (regex),
 `locked_camera_clause`, `antler_clause`, `antler_characters`, `duck_clause`, `duck_characters`, `banned_decor`,
 optional `forbidden_phrases`, `moose_names`, `carry_verbs`. `shot_meta`: `count`, `exterior`, `water`, `characters`.
+A per-episode kit with no `lint` key, or `"lint": "default"` (draft-from-idea kits), gets the built-in default
+profile (`default_lint_kit`: content-policy terms, "nothing else moves", the clip motion rules, the kit's
+continuity locks; no series clauses; docs/CONTENT-POLICY.md "Built-in default profile"); any other `lint` value
+refuses. A kit that cannot load refuses the live preflight and a live start (`lint_kit_problems`), and the G1
+plan carries `prompt_lint` (`lint_summary`: profile, kit error, per-shot problems).

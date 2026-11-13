@@ -11,6 +11,7 @@ from pathlib import Path
 from temporalio import activity
 
 from hfvg.config import config
+from hfvg.content_policy import PRECHECK_BANNED
 from hfvg.qc.clip_constraints import (
     FAIL as CONSTRAINT_FAIL,
     PASS as CONSTRAINT_PASS,
@@ -52,9 +53,7 @@ async def precheck_still_qc(episode_id: str, shot_id: str, prompt: str, params: 
     if not prompt or len(prompt) < 10:
         issues.append("Prompt too short")
     
-    # Check for banned words (example)
-    banned_words = ["nsfw", "explicit", "gore"]
-    if any(word in prompt.lower() for word in banned_words):
+    if any(word in prompt.lower() for word in PRECHECK_BANNED):
         issues.append("Prompt contains banned content")
     
     passed = len(issues) == 0

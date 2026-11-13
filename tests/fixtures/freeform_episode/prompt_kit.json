@@ -1,0 +1,15 @@
+{
+  "style": "photorealistic, cinematic lighting",
+  "aspect_ratio": "16:9",
+  "characters": {
+    "A": {
+      "description": "a pompous ringmaster in a red tailcoat and top hat who announces every small success as a triumph"
+    },
+    "B": {
+      "description": "the ringmaster's unflappable stagehand, dry-witted and patient, never without a coil of rope over one shoulder"
+    }
+  },
+  "sets": {
+    "Harbor Square": "a cobbled harbor square on a windy evening, strung with lanterns and crowded with stalls and fishing boats"
+  }
+}

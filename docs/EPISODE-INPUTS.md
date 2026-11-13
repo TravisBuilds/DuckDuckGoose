@@ -38,6 +38,9 @@ An episode workflow requires several input files in `data/episodes/{episode_id}/
 - **Format:** JSON object with prompt guidance, style templates, and ref usage examples
 - **Validation:** Must be valid JSON
 - **Used by:** Shot generation for prompt formatting
+- **Prompt lint (`"lint"`):** an object holds the series' own lint rules; `"default"` or no `"lint"`
+  key selects the built-in default profile (draft-from-idea kits are written with `"lint": "default"`).
+  Any other value is refused. See docs/CONTENT-POLICY.md "Prompt Lint Rules".
 
 ### 5. Reference Images (if using pre-existing refs)
 - **Purpose:** Character sheets, scene references, style guides
@@ -62,7 +65,7 @@ Before spending credits at gate 1, the episode workflow validates:
 1. ✅ Beatmap exists and is parseable
 2. ✅ `shots.json` exists, shot IDs match beatmap
 3. ✅ `refs.json` exists and is valid
-4. ✅ `prompt_kit.json` exists and is valid JSON
+4. ✅ `prompt_kit.json` exists and is valid JSON; live mode: its prompt lint kit loads
 5. ✅ All required refs (used in shots) either exist or are in `to_generate`
 6. ✅ Model configs are valid (supported model, valid params)
 7. ✅ Live mode: API key is configured

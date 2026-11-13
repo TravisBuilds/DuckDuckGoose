@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from hfvg import paths
+from hfvg.content_policy import PRECHECK_BANNED
 
 STILL_EXTS = (".jpg", ".jpeg", ".png", ".webp")
-PRECHECK_BANNED = ("nsfw", "explicit", "gore")  # same rules as activities.qc.precheck_still_qc
 
 
 def outputs_dir(episode_id: str, shot_id: str, data_dir: str | os.PathLike | None = None) -> Path:

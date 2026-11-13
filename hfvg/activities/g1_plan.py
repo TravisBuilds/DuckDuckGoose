@@ -108,6 +108,19 @@ def _moderation_preview(shots: list[dict], pre_approved: set[str]) -> dict:
     return out
 
 
+def _prompt_lint_preview(episode_id: str, shots: list[dict], pre_approved: set[str]) -> dict:
+    """What the prompt lint gate will decide at each paid submit (hfvg.prompt_lint.lint_summary: the
+    profile in force, a kit that cannot load, per-shot problems), so it shows at G1, before any spend."""
+    from hfvg.prompt_lint import lint_summary
+    plans = {s["shot_id"]: {**s, "pre_approved_still": s["shot_id"] in pre_approved} for s in shots}
+    summary = lint_summary(episode_id, plans)
+    problems = [summary["kit_error"]] if summary["kit_error"] else [
+        f"{sid}: {p}" for sid, shot_problems in summary["shots"].items() for p in shot_problems]
+    for text in problems:
+        activity.logger.warning(f"[G1 prompt lint] {text}")
+    return summary
+
+
 async def preflight_g1(episode_id: str, shots: list[dict]) -> dict:
     """Preflight every shot (still start/end + clip) against the model caps registry."""
     from hfvg.preflight import preflight_plans
@@ -155,6 +168,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     preflight_fields["pre_approved_stills"] = sorted(pre_approved)
     preflight_fields["picture_seconds"] = picture_seconds(shots)
     preflight_fields["moderation_lint"] = _moderation_preview(shots, pre_approved)
+    preflight_fields["prompt_lint"] = _prompt_lint_preview(episode_id, shots, pre_approved)
 
     # Dry run: the same per-call estimates the dry submits reserve (hfvg.estimates), no network.
     if dry_run:

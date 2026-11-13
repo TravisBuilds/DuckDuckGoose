@@ -32,7 +32,7 @@ async def preflight_validate_episode_activity(
     1. Beatmap exists and is parseable
     2. shots.json exists, shot IDs match beatmap
     3. refs.json exists and is valid
-    4. prompt_kit.json exists and is valid JSON
+    4. prompt_kit.json exists and is valid JSON; live mode: the prompt lint kit loads
     5. All required refs (used in shots) either exist or are in to_generate
     6. Model configs are valid (supported model, valid params)
     7. Live mode: API key is configured
@@ -184,6 +184,12 @@ async def preflight_validate_episode_activity(
             json.loads(prompt_kit_path.read_text(encoding="utf-8"))
         except Exception as e:
             problems.append(f"Invalid prompt_kit.json: {e}")
+        else:
+            # 4b. Live: the lint kit every paid submit loads (the kit's "lint" rules, the built-in
+            # default profile, or PROMPT_LINT_KIT_PATH) must load here, not at the first still
+            if is_live:
+                from hfvg.prompt_lint import lint_kit_problems
+                problems.extend(lint_kit_problems(episode_id))
     
     # 5. Check that all refs used in shots are available or to_generate
     # Extract ref keys from shot prompts (look for r_* patterns)
