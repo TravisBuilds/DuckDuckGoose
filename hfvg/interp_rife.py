@@ -182,12 +182,18 @@ Beat = Callable[[dict[str, Any]], None]
 
 async def _run_with_heartbeat(run: Runner, cmd: list[str], what: str, beat: Beat | None, info: dict) -> str:
     task = asyncio.ensure_future(run(cmd, what))
-    while True:
-        done, _ = await asyncio.wait({task}, timeout=HEARTBEAT_EVERY_S)
-        if done:
-            return task.result()
-        if beat:
-            beat({"stage": "rife", **info})
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=HEARTBEAT_EVERY_S)
+            if done:
+                return task.result()
+            if beat:
+                beat({"stage": "rife", **info})
+    finally:
+        # a cancelled attempt stops the render too: run() kills its child only when it is cancelled
+        if not task.done():
+            task.cancel()
+            await asyncio.wait({task})
 
 
 async def _probe_stream(run: Runner, path: Path) -> tuple[float, int]:

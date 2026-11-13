@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from hfvg import aspect
+from hfvg import aspect, subproc
 from hfvg.paths import episodes_dir
 
 SR = 48000
@@ -134,15 +134,12 @@ def sha256_file(path: str | Path) -> str:
 
 async def run_cmd(cmd: list[str], what: str, cwd: str | None = None,
                   stdin: bytes | None = None) -> tuple[bytes, str]:
-    """Run a subprocess without blocking the event loop. Returns (stdout bytes, stderr text)."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, cwd=cwd,
-        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    out, err = await proc.communicate(stdin)
+    """Run a subprocess without blocking the event loop (hfvg.subproc: inside an activity it heartbeats
+    while the child runs and kills it when the attempt is cancelled). Returns (stdout bytes, stderr text)."""
+    code, out, err = await subproc.run(cmd, what, cwd=cwd, stdin=stdin)
     err_s = err.decode("utf-8", errors="replace")
-    if proc.returncode != 0:
-        raise RuntimeError(f"{what} failed (exit {proc.returncode}): {err_s[-800:]}")
+    if code != 0:
+        raise RuntimeError(f"{what} failed (exit {code}): {err_s[-800:]}")
     return out, err_s
 
 
@@ -1295,11 +1292,10 @@ async def grey_frames(path: str | Path, upto: int, crop_top_frac: float | None =
     vf = (f"crop=iw:trunc(ih*{crop_top_frac:.4f}/2)*2:0:0," if crop_top_frac else "")
     h = int(round(PICTURE_SYNC_H * (crop_top_frac or 1.0)))
     vf += f"scale={PICTURE_SYNC_W}:{h},format=gray"
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0", "-frames:v", str(upto),
-        "-vf", vf, "-f", "rawvideo", "-", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    out, err = await proc.communicate()
-    if proc.returncode != 0:
+    code, out, err = await subproc.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0", "-frames:v", str(upto),
+         "-vf", vf, "-f", "rawvideo", "-"], f"picture sync decode {Path(path).name}")
+    if code != 0:
         raise PictureSyncError(f"cannot decode {path} for the picture sync check: {err.decode()[-300:]}")
     return np.frombuffer(out, np.uint8).reshape(-1, h, PICTURE_SYNC_W)
 
@@ -1461,13 +1457,11 @@ async def card_band_frames(path: str | Path, indices: list[int], band: list[floa
     the assembler did not make, e.g. hfvg mix --mute), which makes ffmpeg 7.0+ rebuild its filters."""
     sel = "+".join(f"eq(n,{i})" for i in sorted(set(indices)))
     y0, y1 = band
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-nostdin", "-v", "error", "-reinit_filter", "0", "-i", str(path), "-map", "0:v:0", "-vf",
-        f"select='{sel}',crop=iw:ih*{y1 - y0:.5f}:0:ih*{y0:.5f},scale={size[0]}:{size[1]},format=gray",
-        "-fps_mode", "passthrough", "-f", "rawvideo", "-", stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
-    out, err = await proc.communicate()
-    if proc.returncode != 0:
+    code, out, err = await subproc.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-reinit_filter", "0", "-i", str(path), "-map", "0:v:0", "-vf",
+         f"select='{sel}',crop=iw:ih*{y1 - y0:.5f}:0:ih*{y0:.5f},scale={size[0]}:{size[1]},format=gray",
+         "-fps_mode", "passthrough", "-f", "rawvideo", "-"], f"text card decode {Path(path).name}")
+    if code != 0:
         raise PictureSyncError(f"cannot decode {path} for the text card check: {err.decode()[-300:]}")
     return np.frombuffer(out, np.uint8).reshape(-1, size[1], size[0])
 

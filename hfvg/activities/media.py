@@ -11,6 +11,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from hfvg import subproc
 from hfvg.aspect import AspectError, canvas
 from hfvg.config import config
 from hfvg.paths import episode_dir
@@ -115,28 +116,13 @@ def _sha256(path: Path) -> str:
 
 
 async def _run(cmd: list[str], what: str) -> str:
-    """Run ffmpeg/ffprobe without blocking the activity's event loop (heartbeats keep flowing)."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    try:
-        out, err = await proc.communicate()
-    except asyncio.CancelledError:
-        # GAP-70 (r12): a cancelled / timed-out activity attempt must not leave its child running.
-        # 548 attempt 1's rife-ncnn kept rendering after the cancel (CPU contention with attempt 2,
-        # whose heartbeats then lapsed) and its TemporaryDirectory cleanup failed "Directory not empty".
-        if proc.returncode is None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-            try:
-                await asyncio.shield(proc.wait())
-            except asyncio.CancelledError:
-                pass
-        raise
-    if proc.returncode != 0:
-        raise RuntimeError(f"{what} failed ({proc.returncode}): {err.decode(errors='replace')[-800:]}")
+    """Run ffmpeg/ffprobe/rife without blocking the activity's event loop, heartbeating while the child
+    runs (hfvg.subproc). GAP-70: a cancelled / timed-out attempt kills the child (and its process
+    group) before the error propagates - a surviving render starves the retry and blocks its own
+    TemporaryDirectory cleanup."""
+    code, out, err = await subproc.run(cmd, what)
+    if code != 0:
+        raise RuntimeError(f"{what} failed ({code}): {err.decode(errors='replace')[-800:]}")
     return out.decode(errors="replace")
 
 
