@@ -16,7 +16,8 @@ Rules
     mezzanine, so a preview pre-warms the assembly and a timed-out activity attempt resumes.
   - GAP-81: fresh renders and cache hits are checked frame by frame against their source neighbours
     (RifeBadOutput, fail closed; a bad cache entry is moved to <cache>/bad and re-rendered).
-  - Long runs heartbeat through the injected callback (Temporal heartbeat timeout is 2 min).
+  - Long runs heartbeat (Temporal heartbeat timeout is 2 min): the injected callback around renders,
+    hfvg.subproc while the frame check runs.
 
 Env: RIFE_NCNN_BIN (binary path), RIFE_MODEL_DIR (default <bin dir>/rife-v4.6), RIFE_THREADS
 (default 1:2:2), RIFE_CACHE_DIR (default <EPISODES_DIR>/../cache/rife).
@@ -34,6 +35,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from hfvg import subproc
 from hfvg.paths import episodes_dir
 
 RIFE_FORMAT_VERSION = 1
@@ -296,9 +298,11 @@ async def rife_retime(clip_path: str, clip_sha256: str, segments: list[list[floa
             if len(outs) < n_out:
                 raise RuntimeError(f"rife segment {si}: {len(outs)} frames < {n_out}")
             # GAP-81: fail closed on a render that is not made of in-betweens of its inputs
-            # (GAP-82: CPU-bound -> worker thread, so the activity heartbeat keeps flowing)
-            await asyncio.to_thread(check_interp_frames, outs[:n_out], sorted(ind.glob("*.png")), k / n_req,
-                                    f"rife segment {si}")
+            # (GAP-82: CPU-bound -> worker thread, so the event loop stays free; hundreds of full-size
+            # PNGs can outlast the heartbeat timeout, so the attempt heartbeats while it runs)
+            await subproc.keep_alive(asyncio.to_thread(check_interp_frames, outs[:n_out], sorted(ind.glob("*.png")),
+                                                       k / n_req, f"rife segment {si}"),
+                                     f"rife segment {si} frame check")
             for j in range(n_out):
                 os.link(outs[j], final / f"{n_done + j:08d}.png")
             n_done += n_out

@@ -28,7 +28,8 @@ from tests.lint_helpers import lint_meta
 from tests.slow_bin import TimedHeartbeats, alive, slow, wait_dead  # noqa: F401
 from tests.test_audio_delivery import episode
 from tests.test_audio_round4_activities import API, MP3, _init_db, live  # noqa: F401
-from tests.test_picture_assembly_round3 import make_clip, make_color_clip, no_counter  # noqa: F401
+from tests.test_picture_assembly_round3 import MOVING, make_clip, make_color_clip, no_counter  # noqa: F401
+from tests.test_r12_gaps import fake_rife  # noqa: F401
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None and os.getenv("REQUIRE_FFMPEG") != "1", reason="ffmpeg not installed")
@@ -270,3 +271,24 @@ async def test_cancelled_rife_render_does_not_outlive_the_attempt(tmp_path):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert wait_dead([int(pid.read_text())], 3.0) == [], "the RIFE render outlived its cancelled attempt"
+
+
+@needs_ffmpeg
+@pytest.mark.timeout(120)
+async def test_rife_retime_heartbeats_through_a_slow_frame_check(tmp_path, fake_rife, monkeypatch):  # noqa: F811
+    """GAP-82 moved the GAP-81 frame check (hundreds of full-size PNGs) to a worker thread: the event
+    loop stays free, but the attempt sent no heartbeat until the check returned."""
+    import hashlib
+    import time
+    real = interp_rife.check_interp_frames
+
+    def slow_check(*a, **k):
+        time.sleep(HOLD_S)
+        return real(*a, **k)
+    monkeypatch.setattr(interp_rife, "check_interp_frames", slow_check)
+    clip = make_clip(tmp_path / "a.mp4", 2.0, MOVING, size="72x128", rate=24)
+    sha = hashlib.sha256(clip.read_bytes()).hexdigest()
+    hb = TimedHeartbeats(HEARTBEAT_S)
+    r = await hb.run(interp_rife.rife_retime, str(clip), sha, [[0.0, 1.5]], 60, 24, media._run, media._beat)
+    assert not r["cached"]
+    _silence_ok(hb, "rife_retime")
