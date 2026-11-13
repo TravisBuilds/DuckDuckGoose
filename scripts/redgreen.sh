@@ -3300,6 +3300,12 @@ test_mutation 447 "clip motion QC keeps the worker's event loop free" \
     "tests/test_subprocess_heartbeat.py::test_clip_motion_qc_heartbeats_and_keeps_the_event_loop_free" \
     sed -i 's/^        result = await _run_text(blackdetect_cmd, timeout=60)$/        result = subprocess.run(blackdetect_cmd, capture_output=True, text=True, timeout=60)  # MUTATED/'
 
+# 448: the RIFE frame check (worker thread, hundreds of full-size PNGs) heartbeats while it runs
+test_mutation 448 "RIFE frame check heartbeats while it runs" \
+    "hfvg/interp_rife.py" \
+    "tests/test_subprocess_heartbeat.py::test_rife_retime_heartbeats_through_a_slow_frame_check" \
+    sed -i 's/^            await subproc\.keep_alive(asyncio\.to_thread(check_interp_frames, /            await (lambda aw, what: aw)(asyncio.to_thread(check_interp_frames, /'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
