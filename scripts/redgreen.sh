@@ -72,8 +72,11 @@ get_skip_reason() {
 MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 CURRENT_COMMIT="$(git rev-parse HEAD)"
+# pytest output of the latest run_test (run_test runs in a subshell: $$ stays this shell's pid)
+LAST_RUN_OUTPUT="/tmp/redgreen_last_run_$$.txt"
 
 cleanup_worktree() {
+    rm -f "$LAST_RUN_OUTPUT"
     if [ -d "$MUTATION_WORKTREE" ]; then
         echo "Cleaning up worktree at $MUTATION_WORKTREE"
         git worktree remove --force "$MUTATION_WORKTREE" 2>/dev/null || true
@@ -138,12 +141,14 @@ run_test() {
     local test_name=$1
     local junit_xml="/tmp/redgreen_junit_$$_$(date +%s).xml"
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
+    rm -f "$LAST_RUN_OUTPUT"
     
     # Run pytest with JUnit XML output
     # 180s timeout with signal method (kills cleanly, writes junit)
     # faulthandler_timeout (160s) dumps stacks 20s before kill for diagnostics
     python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
+    cp "$tmp_output" "$LAST_RUN_OUTPUT" 2>/dev/null || true
     
     # Check for timeout: junit "Failed: Timeout" or missing junit with timeout banner
     local is_timeout=false
@@ -223,6 +228,22 @@ run_test() {
     return 0
 }
 
+# Why a run did not end as expected: the tail of its pytest output goes to the log, the whole output
+# to REDGREEN_ARTIFACTS_DIR (CI uploads it when the job fails). Call right after that run_test.
+report_last_run() {
+    local phase=$1
+    local test_name=$2
+    [ -s "$LAST_RUN_OUTPUT" ] || return 0
+    echo "----- pytest output of the $phase run (last 80 lines) -----"
+    tail -n 80 "$LAST_RUN_OUTPUT" || true
+    echo "----- end of pytest output -----"
+    if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+        mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+        local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
+        cp "$LAST_RUN_OUTPUT" "$REDGREEN_ARTIFACTS_DIR/${phase}_run_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+    fi
+}
+
 # Test one probe (classifier verification)
 test_probe() {
     local num=$1
@@ -241,7 +262,8 @@ test_probe() {
     baseline_result=$(run_test "$test")
     
     if [ "$baseline_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Baseline test does not pass ($baseline_result)${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -277,6 +299,7 @@ test_probe() {
     
     if [ "$mutated_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Mutation caused syntax error${NC}"
+        report_last_run probe "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -298,6 +321,7 @@ test_probe() {
     # Check if classification matches expected
     if [ "$mutated_result" != "$expected_class" ]; then
         echo -e "${RED}✗ FAIL: Expected $expected_class but got $mutated_result${NC}"
+        report_last_run probe "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -347,6 +371,7 @@ test_mutation() {
     
     if [ "$baseline_result" = "INVALID" ]; then
         echo -e "${RED}✗ INVALID: Baseline test has errors (syntax/import/SQL)${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("INVALID")
@@ -357,6 +382,7 @@ test_mutation() {
     
     if [ "$baseline_result" = "TIMEOUT" ]; then
         echo -e "${RED}✗ TIMEOUT: Baseline test timed out${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -366,7 +392,8 @@ test_mutation() {
     fi
     
     if [ "$baseline_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Baseline test does not pass ($baseline_result)${NC}"
+        report_last_run baseline "$test"
         # Save artifact for baseline failure
         if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
             mkdir -p "$REDGREEN_ARTIFACTS_DIR"
@@ -407,6 +434,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "INVALID" ]; then
         echo -e "${RED}✗ INVALID: Mutation caused syntax error${NC}"
+        report_last_run mutant "$test"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -418,6 +446,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "TIMEOUT" ]; then
         echo -e "${RED}✗ TIMEOUT: Mutated test timed out${NC}"
+        report_last_run mutant "$test"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -429,6 +458,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "FAIL_OTHER" ]; then
         echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        report_last_run mutant "$test"
         # Save artifact for non-AssertionError mutant failure
         if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
             mkdir -p "$REDGREEN_ARTIFACTS_DIR"
@@ -482,6 +512,7 @@ test_mutation() {
     
     if [ "$restored_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Restored test has errors${NC}"
+        report_last_run restored "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -491,7 +522,8 @@ test_mutation() {
     fi
     
     if [ "$restored_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Restored test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Restored test does not pass ($restored_result)${NC}"
+        report_last_run restored "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
