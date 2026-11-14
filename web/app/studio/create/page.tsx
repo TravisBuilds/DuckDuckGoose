@@ -29,6 +29,24 @@ import {
   type VoicePick,
   type VoiceSlot,
 } from '@/lib/wizard.mjs';
+import {
+  PICTURE_ACCEPT,
+  castImportBody,
+  castRowsProblem,
+  draftCastRows,
+  emptyRights,
+  kitWithCast,
+  pictureProblem,
+  rightsFields,
+  rightsProblem,
+  shotsWithCast,
+  type CastCharacter,
+  type DraftCastEntry,
+  type DraftCastRow,
+  type ImportedCharacter,
+  type RightsAnswers,
+  type SeriesInfo,
+} from '@/lib/cast.mjs';
 
 /** The card a draft follows (api/main.py DRAFT_PRESET_FIELDS). */
 interface DraftPreset {
@@ -63,6 +81,7 @@ interface DraftResponse {
   voice_slots?: VoiceSlot[];
   default_voice_available?: boolean;
   title?: string | null;
+  cast?: DraftCastEntry[];
 }
 
 interface VoiceState {
@@ -240,6 +259,12 @@ function CreateVideoWizard() {
   const [busy, setBusy] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
+  const [castRows, setCastRows] = useState<DraftCastRow[]>([]);
+  const [castPictures, setCastPictures] = useState<Record<string, File | null>>({});
+  const [castRights, setCastRights] = useState<RightsAnswers>(emptyRights());
+  const [seriesList, setSeriesList] = useState<SeriesInfo[] | null>(null);
+  const [seriesId, setSeriesId] = useState('');
+  const [seriesCast, setSeriesCast] = useState<CastCharacter[]>([]);
 
   const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) ?? null : null;
   const lengthRange = selectedPreset?.lengthRange ?? FREEFORM_LENGTH_RANGE;
@@ -250,7 +275,13 @@ function CreateVideoWizard() {
   );
   const voiceBlock = draft ? voiceBlockMessage(voiceSlots, voiceChoices, !!draft.default_voice_available) : null;
   const textBlock = draft ? onScreenTextProblem(textOnScreen) : null;
-  const startBlock = voiceBlock ?? textBlock;
+  const chosenPictures = Object.values(castPictures).filter((file): file is File => !!file);
+  const castBlock = draft
+    ? castRowsProblem(castRows)
+      ?? chosenPictures.map(file => pictureProblem(file, null)).find(Boolean)
+      ?? (chosenPictures.length > 0 ? rightsProblem(castRights) : null)
+    : null;
+  const startBlock = voiceBlock ?? textBlock ?? castBlock;
   const draftSeconds = (draft?.shots_json.shots ?? []).reduce((total, shot) => total + (Number(shot.duration) || 0), 0);
 
   // Check if live mode is available on mount
@@ -270,6 +301,31 @@ function CreateVideoWizard() {
     };
     checkLiveAvailability();
   }, []);
+
+  // Series the creator may add this video to (their own, or any for an admin)
+  React.useEffect(() => {
+    if (step !== 'review' || seriesList !== null) return;
+    apiFetch<{ series: SeriesInfo[] }>('/api/series')
+      .then(res => setSeriesList(res.series.filter(s => s.can_edit)))
+      .catch(() => setSeriesList([]));
+  }, [step, seriesList]);
+
+  const chooseSeries = async (id: string) => {
+    setSeriesId(id);
+    setSeriesCast([]);
+    setCastRows(rows => rows.map(row => ({ ...row, seriesSlug: '' })));
+    if (!id) return;
+    try {
+      const res = await apiFetch<{ characters: CastCharacter[] }>(`/api/series/${encodeURIComponent(id)}`);
+      setSeriesCast(res.characters);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+
+  const patchCastRow = (code: string, patch: Partial<DraftCastRow>) => {
+    setCastRows(rows => rows.map(row => (row.code === code ? { ...row, ...patch } : row)));
+  };
 
   const handleArchetypeSelect = (archetypeId: string) => {
     const preset = getPresetById(archetypeId);
@@ -316,6 +372,8 @@ function CreateVideoWizard() {
 
       setDraft(response);
       setSubmittedIdea(fullIdea);
+      setCastRows(draftCastRows(response.cast));
+      setCastPictures({});
       setVoices(previous => voicesForDraft(response.voice_slots ?? [], previous));
       setTextOnScreen(onScreenTextDefaults(
         response.preset?.on_screen_text ?? selectedPreset?.onScreenText ?? [],
@@ -385,15 +443,38 @@ function CreateVideoWizard() {
       beatmapForm.append('beatmap_file', new File([draft.beatmap], 'BEATMAP.md', { type: 'text/markdown' }));
       await apiFetch('/api/episodes/upload', { method: 'POST', body: beatmapForm });
 
+      // The drafted characters join the episode's cast (or its series' cast); each shot then names who
+      // is in it, so every still gets their description and pictures
+      let shotsJson = draft.shots_json;
+      let promptKit = draft.prompt_kit_json;
+      if (castRows.length > 0) {
+        if (seriesId) await postJson(`/api/episodes/${episodeId}/series`, { series_id: seriesId });
+        const imported = await postJson<{ characters: ImportedCharacter[] }>(
+          `/api/episodes/${episodeId}/cast/import`, castImportBody(castRows, seriesCast));
+        shotsJson = shotsWithCast(draft.shots_json, castRows, imported.characters);
+        promptKit = kitWithCast(draft.prompt_kit_json, castRows, seriesCast);
+        for (const character of imported.characters) {
+          const picture = character.code ? castPictures[character.code] : null;
+          if (!picture) continue;
+          const pictureForm = new FormData();
+          pictureForm.append('image_file', picture);
+          for (const [key, value] of rightsFields(castRights)) pictureForm.append(key, value);
+          pictureForm.append('primary', 'true');
+          await apiFetch(
+            `/api/episodes/${episodeId}/cast/${character.character_id}/versions/${character.default_version}/images`,
+            { method: 'POST', body: pictureForm });
+        }
+      }
+
       // Upload shots and refs
       const shotsForm = new FormData();
-      shotsForm.append('shots_file', new File([JSON.stringify(draft.shots_json, null, 2)], 'shots.json', { type: 'application/json' }));
+      shotsForm.append('shots_file', new File([JSON.stringify(shotsJson, null, 2)], 'shots.json', { type: 'application/json' }));
       shotsForm.append('refs_file', new File([JSON.stringify(draft.refs_json, null, 2)], 'refs.json', { type: 'application/json' }));
       await apiFetch(`/api/episodes/${episodeId}/upload-shots`, { method: 'POST', body: shotsForm });
 
       // Upload prompt kit
       const kitForm = new FormData();
-      kitForm.append('prompt_kit_file', new File([JSON.stringify(draft.prompt_kit_json, null, 2)], 'prompt_kit.json', { type: 'application/json' }));
+      kitForm.append('prompt_kit_file', new File([JSON.stringify(promptKit, null, 2)], 'prompt_kit.json', { type: 'application/json' }));
       await apiFetch(`/api/episodes/${episodeId}/upload-prompt-kit`, { method: 'POST', body: kitForm });
 
       if (draft.audio_plan_json) {
@@ -697,15 +778,174 @@ function CreateVideoWizard() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6" data-testid="review-cast">
               <h3 className="font-semibold mb-3">Characters</h3>
-              <div className="space-y-2">
-                {Object.entries(draft.prompt_kit_json.characters || {}).map(([code, char]: [string, any]) => (
-                  <div key={code} className="text-sm">
-                    <span className="font-medium">{code}:</span> {char.description}
+              {castRows.length === 0 ? (
+                <div className="space-y-2">
+                  {Object.entries(draft.prompt_kit_json.characters || {}).map(([code, char]: [string, any]) => (
+                    <div key={code} className="text-sm">
+                      <span className="font-medium">{code}:</span> {char.description}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Everyone here joins your video&apos;s cast. Their name and look go into every shot they are in, so
+                    describe the look the same way you want it on screen. A picture is optional; on the video&apos;s
+                    page you can lock each look with a character sheet.
+                  </p>
+                  {seriesList && seriesList.length > 0 && (
+                    <label className="block text-sm mb-4">
+                      <span className="block font-medium mb-1">Series (optional)</span>
+                      <select
+                        value={seriesId}
+                        onChange={(e) => chooseSeries(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                        data-testid="cast-series-select"
+                      >
+                        <option value="">Only this video</option>
+                        {seriesList.map(s => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
+                      </select>
+                      <span className="block text-xs text-gray-500 mt-1">
+                        Pick a series to reuse its cast and their locked looks.
+                      </span>
+                    </label>
+                  )}
+                  <div className="space-y-4">
+                    {castRows.map(row => {
+                      const same = row.seriesSlug ? seriesCast.find(c => c.slug === row.seriesSlug) : undefined;
+                      const picture = castPictures[row.code] ?? null;
+                      const pictureIssue = picture ? pictureProblem(picture, null) : null;
+                      return (
+                        <div
+                          key={row.code}
+                          className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0"
+                          data-testid={`cast-row-${row.code}`}
+                        >
+                          {seriesCast.length > 0 && (
+                            <label className="block text-sm mb-2">
+                              <span className="block font-medium mb-1">Same as in the series</span>
+                              <select
+                                value={row.seriesSlug}
+                                onChange={(e) => {
+                                  patchCastRow(row.code, { seriesSlug: e.target.value });
+                                  setCastPictures(previous => ({ ...previous, [row.code]: null }));
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                                data-testid={`cast-same-${row.code}`}
+                              >
+                                <option value="">No, new in this video</option>
+                                {seriesCast.map(c => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+                              </select>
+                            </label>
+                          )}
+                          {same ? (
+                            <p className="text-sm">
+                              <span className="font-medium">{same.name}</span>
+                              {same.description ? `: ${same.description}` : ''}
+                            </p>
+                          ) : (
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                value={row.name}
+                                onChange={(e) => patchCastRow(row.code, { name: e.target.value })}
+                                maxLength={60}
+                                aria-label="Name"
+                                placeholder="Name"
+                                className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                                data-testid={`cast-name-${row.code}`}
+                              />
+                              <input
+                                type="text"
+                                value={row.role}
+                                onChange={(e) => patchCastRow(row.code, { role: e.target.value })}
+                                maxLength={80}
+                                aria-label="Part they play"
+                                placeholder="Part they play, e.g. the lead"
+                                className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                              />
+                              <textarea
+                                value={row.description}
+                                onChange={(e) => patchCastRow(row.code, { description: e.target.value })}
+                                maxLength={600}
+                                rows={2}
+                                aria-label="What they look like"
+                                placeholder="What they look like: age, build, face, hair, colours, clothing"
+                                className="sm:col-span-2 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                                data-testid={`cast-description-${row.code}`}
+                              />
+                              <label className="sm:col-span-2 text-sm">
+                                <span className="block font-medium mb-1">Picture (optional)</span>
+                                <input
+                                  type="file"
+                                  accept={PICTURE_ACCEPT}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] ?? null;
+                                    setCastPictures(previous => ({ ...previous, [row.code]: file }));
+                                  }}
+                                  className="text-sm"
+                                  data-testid={`cast-picture-${row.code}`}
+                                />
+                              </label>
+                              {pictureIssue && <p className="sm:col-span-2 text-xs text-red-700 dark:text-red-300">{pictureIssue}</p>}
+                            </div>
+                          )}
+                          {row.shots.length > 0 && (
+                            <p className="text-xs text-gray-500 mt-1">In {row.shots.join(', ')}</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                  {chosenPictures.length > 0 && (
+                    <fieldset className="mt-4 text-sm space-y-1" data-testid="cast-rights">
+                      <legend className="font-medium mb-1">Whose pictures are these?</legend>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="cast-rights"
+                          checked={castRights.rights === 'original'}
+                          onChange={() => setCastRights({ ...castRights, rights: 'original' })}
+                          data-testid="cast-rights-original"
+                        />
+                        I made them myself (my own original work)
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="cast-rights"
+                          checked={castRights.rights === 'owned'}
+                          onChange={() => setCastRights({ ...castRights, rights: 'owned' })}
+                          data-testid="cast-rights-owned"
+                        />
+                        I own the rights to use them
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={castRights.realPerson}
+                          onChange={(e) => setCastRights({ ...castRights, realPerson: e.target.checked, likenessConsent: false })}
+                          data-testid="cast-real-person"
+                        />
+                        One of them shows a real person
+                      </label>
+                      {castRights.realPerson && (
+                        <label className="flex items-center gap-2 ml-6">
+                          <input
+                            type="checkbox"
+                            checked={castRights.likenessConsent}
+                            onChange={(e) => setCastRights({ ...castRights, likenessConsent: e.target.checked })}
+                            data-testid="cast-likeness-consent"
+                          />
+                          They agreed to their likeness being used in this video
+                        </label>
+                      )}
+                    </fieldset>
+                  )}
+                </>
+              )}
             </div>
 
             {voiceSlots.length > 0 && (
@@ -837,6 +1077,14 @@ function CreateVideoWizard() {
                     data-testid="text-block"
                   >
                     {textBlock}
+                  </p>
+                )}
+                {!voiceBlock && !textBlock && castBlock && (
+                  <p
+                    className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 text-sm text-amber-900 dark:text-amber-200"
+                    data-testid="cast-block"
+                  >
+                    {castBlock}
                   </p>
                 )}
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>

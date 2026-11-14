@@ -44,6 +44,7 @@ from hfvg.pricing import (
     usd_to_micros,
 )
 from hfvg.credit_pricing import estimate_still_credits, estimate_clip_credits
+from hfvg.cast_prompt import inject_cast_prompt
 from hfvg.prompt_lint import apply_continuity_locks, enforce_prompt_lint
 from hfvg import moderation_lint
 
@@ -408,6 +409,7 @@ async def submit_still_job_enforced(
     if dry_run_env:
         # GAP-40: harness-injected continuity locks (prompt kit CONTINUITY) before the lint
         prompt, _locks = apply_continuity_locks(episode_id, prompt, shot_meta, live=False, kind="still")
+        prompt, _cast = inject_cast_prompt(prompt, shot_meta)
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
         # B5: playbook moderation lint (dry never refuses; a hard violation records would_refuse)
         lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)
@@ -454,6 +456,10 @@ async def submit_still_job_enforced(
     prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=True, kind="still")
     if locks_added:
         activity.logger.info(f"{episode_id}/{shot_id} still: continuity locks injected {locks_added}")
+    # Cast: each in-frame character's locked description and the no-text constraint (rule 13 requires them)
+    prompt, cast_added = inject_cast_prompt(prompt, shot_meta)
+    if cast_added:
+        activity.logger.info(f"{episode_id}/{shot_id} still: cast prompt injected {cast_added}")
     # Prompt lint gate: refuses before provider init, estimate, reserve
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
     # B5: playbook moderation lint, same position (hard rules refuse before estimate/reserve)

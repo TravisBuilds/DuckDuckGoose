@@ -280,6 +280,20 @@ It requires no count clause, real-time clause or locked-camera clause, and drops
 rules (bare "waves", `"realistic wild"`, which also matches "photorealistic wildlife", moose
 carry/hold verbs, banned decor, antler / duck / bath clauses).
 
+### Cast and on-image text (every profile, still prompts; rule 13 in `hfvg/prompt_lint.py`)
+
+For shots with a `cast` or a text policy (docs/CAST.md), the still submit injects text and the lint
+then requires it, so a skipped injection refuses live:
+
+- each character in frame must carry its description clause (the locked description once the look
+  is locked);
+- under the `no_text` policy, the prompt must carry "No text, no captions, no speech bubbles, no
+  lettering." and must not ask for words in the image (speech or thought bubbles, captions,
+  subtitles, lettering, a sign that reads "...", and similar). Negated mentions such as "no
+  captions" are fine. A shot that needs words sets `"allow_text": true`.
+
+Shots without a cast or a text policy are linted exactly as before.
+
 ## Moderation Recovery Ladder
 
 When a provider **content-blocks** a still or clip (provider status `nsfw`/`blocked`, classified

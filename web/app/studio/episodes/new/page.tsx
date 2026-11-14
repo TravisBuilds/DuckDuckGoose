@@ -17,6 +17,7 @@ interface PreflightReport {
   shots: Record<string, ShotPreflight>;
   errors: { message?: string }[];
   has_errors: boolean;
+  cast_errors?: string[];
   cost_estimate?: CostEstimate;
 }
 interface LintReport { status: 'pass' | 'fail'; issues: string[]; warnings: string[] }
@@ -193,6 +194,19 @@ export default function NewEpisodePage() {
                   <span className="block text-xs text-yellow-700">Unpriced: {preflight.cost_estimate.unpriced.join('; ')}</span>
                 )}
               </p>
+            )}
+            {(preflight.cast_errors ?? []).length > 0 && (
+              <div className="mb-3 text-sm text-red-700 dark:text-red-300" data-testid="preflight-cast-errors">
+                <p className="font-semibold">Cast (who is in each shot):</p>
+                {(preflight.cast_errors ?? []).map((m, i) => <div key={`c${i}`} className="text-xs ml-4">{m}</div>)}
+                <p className="text-xs text-gray-600 dark:text-gray-400 ml-4 mt-1">
+                  Add the missing people in the Cast panel on{' '}
+                  <Link href={`/studio/episodes/${episodeId}`} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank">
+                    the episode page
+                  </Link>
+                  , then validate again.
+                </p>
+              </div>
             )}
             <ul className="space-y-1">
               {Object.entries(preflight.shots).map(([sid, shot]) => (

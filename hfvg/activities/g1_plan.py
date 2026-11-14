@@ -5,6 +5,7 @@ from pathlib import Path
 
 from temporalio import activity
 
+from hfvg.cast_prompt import with_cast_prompts
 from hfvg.estimates import dry_shot_estimate, seedance_resolution
 from hfvg.pre_approved import pre_approved_ids
 from hfvg.pricing import micros_to_usd_str
@@ -121,6 +122,23 @@ def _prompt_lint_preview(episode_id: str, shots: list[dict], pre_approved: set[s
     return summary
 
 
+def _cast_preview(shots: list[dict]) -> dict:
+    """Who is in frame per shot and how many of the shot's refs come from the cast library ({} when
+    no shot has a cast, so the plan of an episode without a cast is unchanged)."""
+    from hfvg.cast_prompt import cast_entries, is_cast_key
+    out: dict[str, dict] = {}
+    for shot in shots:
+        entries = cast_entries(shot.get("shot_meta"))
+        if not entries:
+            continue
+        out[shot["shot_id"]] = {
+            "characters": [{"character": c.get("character"), "version": c.get("version"),
+                            "name": c.get("name"), "locked": bool(c.get("locked"))} for c in entries],
+            "cast_refs": sum(1 for k in shot.get("ref_keys") or [] if is_cast_key(k)),
+        }
+    return out
+
+
 async def preflight_g1(episode_id: str, shots: list[dict]) -> dict:
     """Preflight every shot (still start/end + clip) against the model caps registry."""
     from hfvg.preflight import preflight_plans
@@ -167,8 +185,11 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     pre_approved = await _pre_approved_ids(episode_id, shots)
     preflight_fields["pre_approved_stills"] = sorted(pre_approved)
     preflight_fields["picture_seconds"] = picture_seconds(shots)
-    preflight_fields["moderation_lint"] = _moderation_preview(shots, pre_approved)
+    preflight_fields["moderation_lint"] = _moderation_preview(with_cast_prompts(shots), pre_approved)
     preflight_fields["prompt_lint"] = _prompt_lint_preview(episode_id, shots, pre_approved)
+    cast = _cast_preview(shots)
+    if cast:
+        preflight_fields["cast"] = cast
 
     # Dry run: the same per-call estimates the dry submits reserve (hfvg.estimates), no network.
     if dry_run:

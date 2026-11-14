@@ -10,6 +10,8 @@ One run:
    - failed / blocked / canceled -> ``release_job_budget`` + ``release_credits_activity``
      (idempotent; a committed job is never released).
    - still running -> left pending for the next scheduled run.
+   Character sheet jobs (``castsheet-...``) are settled by ``reconcile_cast_sheet_job_activity``
+   instead (same commit/release rules; the image goes to the cast library, not to a shot).
 3. Late assets whose landing failed earlier are re-landed (no re-poll, no second commit).
 
 Schedule: :func:`ensure_reconcile_schedule` creates/updates the Temporal Schedule
@@ -26,6 +28,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
+    from hfvg.activities.cast_sheet import reconcile_cast_sheet_job_activity
     from hfvg.activities.credit_activities import commit_credits_activity, release_credits_activity
     from hfvg.activities.reconcile import (
         MAX_LAND_ATTEMPTS,
@@ -80,6 +83,16 @@ class ReconcilePendingJobsWorkflow:
             try:
                 if job["phase"] == "land":
                     await self._land(job, job["output_url"], summary, quick)
+                    continue
+                if job["job_type"] == "cast_sheet":
+                    outcome = await workflow.execute_activity(
+                        reconcile_cast_sheet_job_activity, job,
+                        start_to_close_timeout=timedelta(minutes=5), retry_policy=quick)
+                    summary[outcome] += 1
+                    if outcome != "still_pending":
+                        await workflow.execute_activity(
+                            record_reconcile_outcome, args=[job, outcome, "cast sheet"],
+                            start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                     continue
                 status = await workflow.execute_activity(
                     poll_job_status, args=[job["job_id"], job["job_type"], job["episode_id"]],

@@ -5,6 +5,7 @@ import { use } from 'react';
 import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
+import CastPanel from '@/components/CastPanel';
 import EpisodeRunPanel from '@/components/EpisodeRunPanel';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { apiFetch, postJson } from '@/lib/studio-api';
@@ -491,6 +492,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Run control: gates, per-shot decisions, retries, cap, QC, final cut (G-UI-1) */}
         <EpisodeRunPanel episodeId={episodeId} onChanged={loadEpisodeData} />
+
+        {/* Cast: characters, reference pictures, locked character sheets, who is in each shot */}
+        <CastPanel episodeId={episodeId} />
 
         {/* Story Shape Panel */}
         {storyShape && storyShape.story_shape && (

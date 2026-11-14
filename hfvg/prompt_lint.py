@@ -10,7 +10,8 @@ gets the built-in default profile instead (:func:`default_lint_kit`): content-po
 motion rules, no series clauses. A ``"lint"`` object is parsed exactly as before.
 
 shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]),
-optional ``antler`` / ``duck`` flags (clause required whatever the character codes say).
+optional ``antler`` / ``duck`` flags (clause required whatever the character codes say), optional
+``cast`` / ``text_policy`` (planned by hfvg.cast_plan; still prompts only, rule 13).
 
 Live mode: any violation (or missing kit / shot_meta) refuses. Dry mode: warn only.
 """
@@ -23,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hfvg.cast_prompt import cast_lint_violations, inject_cast_prompt
 from hfvg.content_policy import hard_stop_terms, precheck_banned_words
 from hfvg.paths import episode_dir
 
@@ -347,6 +349,11 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
             problems.append(f"missing continuity lock {lock['id']!r} ({kind})")
     # 12. GAP-40: no realism word attached to the duck
     problems.extend(duck_realism_violations(prompt, meta, kit))
+    # 13. Cast (still prompts): each character in frame carries its locked description and, under the
+    # no_text policy, the no-text constraint with no request for on-image words (the submit injects
+    # both; hfvg.cast_prompt). Shots without shot_meta cast / text_policy: no-op.
+    if kind == "still":
+        problems.extend(cast_lint_violations(prompt, meta))
     return problems
 
 
@@ -463,8 +470,8 @@ def lint_summary(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str,
     ``plans`` maps shot id -> plan with ``prompt``, ``clip_prompt``, ``shot_meta`` and
     ``pre_approved_still`` (``shot_data.parse_shots`` output, or the merged shot plans). A shot with
     a pre-approved start still submits no still, so only its clip prompt (clip_prompt, else the
-    still prompt) is linted; otherwise both. Same kit, continuity-lock injection and rules as the
-    live submit gate (apply_continuity_locks + enforce_prompt_lint). JSON-safe result:
+    still prompt) is linted; otherwise both. Same kit, continuity-lock and cast injection and rules as
+    the live submit gate (apply_continuity_locks + inject_cast_prompt + enforce_prompt_lint). JSON-safe result:
     ``{"ok", "profile": "kit" | "default" | None, "notice", "kit_error", "shots": {shot_id:
     [problem, ...]} (shots with problems only), "problem_count"}``.
     """
@@ -479,6 +486,7 @@ def lint_summary(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str,
         problems: list[str] = []
         if not plan.get("pre_approved_still"):
             still, _ = inject_continuity_locks(plan.get("prompt") or "", meta, kit, "still")
+            still, _ = inject_cast_prompt(still, meta)
             problems += [f"still: {p}" for p in lint_violations(still, meta, kit)]
         clip, _ = inject_continuity_locks(plan.get("clip_prompt") or plan.get("prompt") or "", meta, kit, "clip")
         problems += [f"clip: {p}" for p in clip_lint_violations(clip, meta, kit)]

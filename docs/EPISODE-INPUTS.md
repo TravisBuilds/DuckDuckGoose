@@ -194,6 +194,42 @@ In dry runs, audio placement, ducking and loudness are checked against planned l
 
 Live delivery without a real picture refuses.
 
+## Cast options (`shots.json`, `prompt_kit.json`)
+
+The cast library is described in docs/CAST.md, and the Cast panel in docs/CAST-HOWTO.md. The panel
+writes these keys for you.
+
+### Who is in frame (`cast`)
+
+```json
+{"shot_id": "A03", "cast": ["mara", {"character": "tobi", "version": 2}], ...}
+```
+
+- Each entry is a character id (its slug in the episode's cast, which is the series cast when the
+  episode is in a series) or `{"character": ..., "version": n}`. Without a version, the character's
+  default version is used: the first locked version, else version 1. At most 6 entries, no repeats.
+- Planning runs when the run starts (in an activity), and preflight and G1 preview it. Per character
+  in frame, it adds the identity refs (the locked sheet, else the uploads, primary first). With two or
+  more characters it adds a lineup sheet. When the refs would go over the still model's max refs
+  (`hfvg/data/model_caps.json`, one slot kept free), the rest are merged into a grid sheet. The keys
+  go after the shot's own `ref_keys`, and refs.json needs no entry for them.
+- Every still prompt for the shot gets each character's description (the locked description for a
+  locked version).
+- An unknown character or version, or a locked sheet whose files changed, refuses the run. Preflight
+  reports these in `cast_errors`.
+- `ref_keys` and refs.json keep working as before, alone or together with `cast`.
+
+### Words in the picture (`allow_text`, `prompt_kit.json` `text_policy`)
+
+- A shot with a `cast` gets "No text, no captions, no speech bubbles, no lettering." in every still
+  prompt, and lint rule 13 refuses a prompt that asks for words (docs/CONTENT-POLICY.md).
+- `"allow_text": true` on a shot (a sign, a title card) turns the constraint off for that shot.
+  `"allow_text": false` turns it on, even for a shot without a cast.
+- In `prompt_kit.json`, `"text_policy": "no_text"` applies it to every shot, and `"allow_text"` turns
+  it off for every shot. A shot's own `allow_text` wins over the kit. Other values are refused.
+- Shots without `cast` or `allow_text`, in kits without `text_policy`, are planned and prompted
+  exactly as before.
+
 ## Round 7 environment
 
 | Variable | Meaning |

@@ -448,6 +448,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+try:  # "api.main" in tests and the e2e backend; "main" when uvicorn runs from api/ (the image, local dev)
+    from api import cast_routes
+except ImportError:
+    import cast_routes
+
+# Added before CORS so its 413 for an oversized cast upload still carries the CORS headers
+app.add_middleware(cast_routes.CastUploadLimit)
+
 # CORS middleware (configurable origins)
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
 app.add_middleware(
@@ -1506,6 +1514,12 @@ async def upload_prompt_kit(
             raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'style' field")
         if "characters" not in prompt_kit_data:
             raise HTTPException(status_code=400, detail="prompt_kit.json must contain 'characters' field")
+        if isinstance(prompt_kit_data, dict):
+            from hfvg.cast_prompt import parse_text_policy
+            try:
+                parse_text_policy(prompt_kit_data.get("text_policy"), "prompt_kit.json")
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
@@ -1581,12 +1595,17 @@ async def upload_shots(
     
     # Count shots (plans can be dict or list)
     shots_count = len(plans) if isinstance(plans, (list, dict)) else 0
+    # a cast that names characters the episode's cast lacks is reported now and refused at the start
+    from hfvg.cast_plan import cast_problems
+    has_cast = any(p.get("cast") for p in (plans.values() if isinstance(plans, dict) else plans))
+    problems = await asyncio.to_thread(cast_problems, episode_id, json.loads(shots_bytes)) if has_cast else []
     
     return {
         "success": True,
         "episode_id": episode_id,
         "shots_count": shots_count,
         "refs_uploaded": refs_bytes is not None,
+        "cast_problems": problems,
     }
 
 upload_shots.allow_members = True
@@ -1644,6 +1663,7 @@ upload_audio_plan.allow_members = True
 def uploaded_shots_problems(episode_id: str) -> list[str]:
     """Validation + preflight errors of the episode's uploaded shots.json (empty = OK or none uploaded;
     without one a dry run uses the beatmap and a live run is refused by the workflow)."""
+    from hfvg.cast_plan import cast_problems
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
 
@@ -1655,7 +1675,8 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
         parse_shots(raw)
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
-    return [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
+    problems = [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
+    return problems + [f"cast: {e}" for e in cast_problems(episode_id, raw)]
 
 
 @app.get("/api/episodes")
@@ -1747,7 +1768,7 @@ async def start_episode(
     
     # G-UI-1: an uploaded shots.json must validate and pass preflight BEFORE anything starts (the new
     # episode page shows the same report; this is the server-side refusal, not a UI-only check).
-    shots_problems = uploaded_shots_problems(request.episode_id)
+    shots_problems = await asyncio.to_thread(uploaded_shots_problems, request.episode_id)
     if shots_problems:
         raise HTTPException(
             status_code=400,
@@ -2039,7 +2060,8 @@ async def start_episode_again(
     if beatmap_path and not Path(beatmap_path).is_file():
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: its beatmap "
                             f"{beatmap_path} is gone (upload BEATMAP.md again)")
-    problems = uploaded_shots_problems(episode_id) + audio_plan_voice_problems(episode_id, live=not dry_run)
+    problems = (await asyncio.to_thread(uploaded_shots_problems, episode_id)
+                + audio_plan_voice_problems(episode_id, live=not dry_run))
     problems += [] if dry_run else lint_kit_problems(episode_id)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
@@ -6051,6 +6073,9 @@ class DraftFromIdeaResponse(BaseModel):
     voice_slots: list[dict] = Field(default_factory=list)  # voices the wizard asks for (hfvg.genre_drafts.voice_slots)
     default_voice_available: bool = False  # ELEVENLABS_DEFAULT_VOICE_ID voices lines nobody chose a voice for
     title: str | None = None  # episode title, the opening title card's text
+    # the drafted characters ({code, slug, name, role, description, shots}): the wizard adds them to
+    # the episode's cast and gives the shots their cast before it uploads them
+    cast: list[dict] = Field(default_factory=list)
 
 
 DRAFT_PRESET_FIELDS = ("id", "name", "template", "story_structure", "aspect", "vo_mode", "music_mode", "music",
@@ -6097,6 +6122,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
 
     from hfvg import audio_mix, genre_drafts
     from hfvg.activities.audio import default_voice_id
+    from hfvg.cast_prompt import draft_cast
     from hfvg.shot_data import parse_shots
 
     # Validate shots.json
@@ -6126,6 +6152,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
     shot_aspect, aspect_note = _draft_aspect(profile)
     prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect, "lint": DEFAULT_LINT_PROFILE}
     shots_data = {**shots_data, "shots": [{**s, "aspect_ratio": shot_aspect} for s in shots_data["shots"]]}
+    prompt_kit_data, cast = draft_cast(prompt_kit_data, shots_data["shots"])
 
     screen_times = [float(s["screen_time"]) for s in parsed_shots]
     audio_plan, audio_warnings = genre_drafts.build_audio_plan(profile, screen_times, script)
@@ -6158,6 +6185,7 @@ def _draft_response(*, episode_id: str, profile: dict, archetype_id: str | None,
         voice_slots=genre_drafts.voice_slots(audio_plan, profile),
         default_voice_available=bool(default_voice_id()),
         title=title,
+        cast=cast,
     )
 
 
@@ -6309,6 +6337,8 @@ BEATMAP.md - Shot planning table:
 - {count_rule}
 - One row per shots_json shot, same ids and order; Screen (gen) holds that shot's duration
 - Every shot is framed {framing} ({shot_aspect}): compose the prompts for that frame
+- No words in the pictures: prompts never ask for captions, speech bubbles, lettering or signs with
+  writing (on-screen words are added in the edit)
 
 shots.json:
 {{
@@ -6340,8 +6370,9 @@ prompt_kit.json:
   "style": "{style_guidance}",
   "aspect_ratio": "{shot_aspect}",
   "characters": {{
-    "A": {{"description": "[main character description]"}},
-    "B": {{"description": "[second character if needed]"}}
+    "A": {{"name": "[short original name]", "role": "[lead, friend, rival...]",
+           "description": "[how they look, the same in every shot: build, age, face, hair, colours, clothing]"}},
+    "B": {{"name": "[second character if needed]", "role": "[role]", "description": "[how they look]"}}
   }},
   "sets": {{
     "[LocationName]": "[location description]"
@@ -6591,13 +6622,18 @@ async def preflight_episode(
     report = preflight_plans(shots)
     errors = [v for v in report["violations"] if v["severity"] == "error"]
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
+    # who is in frame (shots' cast): what the run's planning would refuse, from the episode's cast
+    from hfvg.cast_plan import cast_problems
+    cast_errors = (await asyncio.to_thread(cast_problems, episode_id, {"shots": shots})
+                   if any(isinstance(s, dict) and s.get("cast") for s in shots) else [])
     return {
         "episode_id": episode_id,
         "shots": report["shots"],
         "violations": report["violations"],
         "errors": errors,
         "warnings": warnings,
-        "has_errors": bool(errors),
+        "has_errors": bool(errors) or bool(cast_errors),
+        "cast_errors": cast_errors,
         "cost_estimate": offline_cost_estimate(shots),
     }
 
@@ -6952,6 +6988,11 @@ async def get_shot_states(
             "moderation_lint": child.get("moderation_lint") or {},
         }
     return {"episode_id": episode_id, "shots": out}
+
+
+# Cast library (series, characters, reference uploads, character sheets): api/cast_routes.py
+cast_routes.bind(sys.modules[__name__])
+cast_routes.register(app)
 
 
 if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app
