@@ -1768,7 +1768,7 @@ async def start_episode(
     
     # G-UI-1: an uploaded shots.json must validate and pass preflight BEFORE anything starts (the new
     # episode page shows the same report; this is the server-side refusal, not a UI-only check).
-    shots_problems = uploaded_shots_problems(request.episode_id)
+    shots_problems = await asyncio.to_thread(uploaded_shots_problems, request.episode_id)
     if shots_problems:
         raise HTTPException(
             status_code=400,
@@ -2060,7 +2060,8 @@ async def start_episode_again(
     if beatmap_path and not Path(beatmap_path).is_file():
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: its beatmap "
                             f"{beatmap_path} is gone (upload BEATMAP.md again)")
-    problems = uploaded_shots_problems(episode_id) + audio_plan_voice_problems(episode_id, live=not dry_run)
+    problems = (await asyncio.to_thread(uploaded_shots_problems, episode_id)
+                + audio_plan_voice_problems(episode_id, live=not dry_run))
     problems += [] if dry_run else lint_kit_problems(episode_id)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
