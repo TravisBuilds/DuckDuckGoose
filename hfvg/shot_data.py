@@ -8,6 +8,10 @@ lists). Paths come from ``SHOTS_JSON_PATH`` / ``REFS_JSON_PATH`` or default to
 Live mode (DRY_RUN=false or a non-dry episode) refuses when the data is missing or inconsistent.
 A ref whose file is not on disk is NEVER dropped silently: it is listed in ``missing_refs`` and the
 shot is held at G2.01 until the file exists.
+
+A shot may declare who is in frame (``cast``); planning (``hfvg.cast_plan``) adds those characters'
+identity refs after the refs.json refs (``cast:`` ref keys, resolved from the cast library, not from
+refs.json) and their locked descriptions to ``shot_meta``. Shots without a cast are unchanged.
 """
 
 import json
@@ -15,6 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from hfvg.cast_prompt import parse_cast_request
 from hfvg.paths import episode_dir
 from hfvg.qc.clip_constraints import ConstraintError, validate_constraints
 from hfvg.qc.continuity import ContinuityError, validate_hard_checks
@@ -152,7 +157,23 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             "pre_approved_still": pre_approved,
             "qc_fail_if": list(qc_fail_if or []),
         }
+        _parse_cast_fields(item, sid, out[sid])
     return out
+
+
+def _parse_cast_fields(item: dict, sid: str, plan: dict[str, Any]) -> None:
+    """Optional ``cast`` (who is in frame, hfvg.cast_prompt) and ``allow_text`` (this shot may show
+    on-image text). Absent keys leave the plan exactly as before."""
+    try:
+        cast = parse_cast_request(item.get("cast"), sid)
+    except ValueError as e:
+        raise ShotDataError(f"shots.json {e}") from None
+    if cast:
+        plan["cast"] = cast
+    if "allow_text" in item:
+        if not isinstance(item["allow_text"], bool):
+            raise ShotDataError(f"shots.json shot {sid}: allow_text must be true or false")
+        plan["allow_text"] = item["allow_text"]
 
 
 def _number(value: Any, key: str, sid: str) -> float:
@@ -292,8 +313,12 @@ def resolve_refs(
     resolves to that shot's pre-approved start still, so an owner-approved still can be the
     continuity ref of other shots. Naming a shot without a pre-approved still is an error.
 
+    Cast ref keys (``cast:...``, planned from the cast library) are not refs.json entries: they are
+    resolved from the key and follow the refs.json refs.
+
     Returns {shot_id: {"refs": [path-or-url of refs that exist], "missing_refs": [keys not on disk]}}.
     """
+    from hfvg.cast_plan import resolve_cast_refs, split_keys
     pre_approved_paths = pre_approved_paths or {}
     path = refs_json_path(episode_id)
     if not path.is_file():
@@ -302,7 +327,8 @@ def resolve_refs(
     if not isinstance(per_shot, dict):
         raise ShotDataError("refs.json must contain a 'per_shot' object")
     out: dict[str, dict[str, list]] = {}
-    for sid, keys in ref_keys_by_shot.items():
+    for sid, all_keys in ref_keys_by_shot.items():
+        keys, cast_keys = split_keys(list(all_keys))
         entries = per_shot.get(sid)
         if not isinstance(entries, list):
             raise ShotDataError(f"refs.json has no ref list for shot {sid}")
@@ -332,6 +358,10 @@ def resolve_refs(
                 refs.append(ref_path)
             else:
                 missing.append(entry["key"])
+        if cast_keys:
+            cast_resolved = resolve_cast_refs(cast_keys)
+            refs += cast_resolved["refs"]
+            missing += cast_resolved["missing_refs"]
         out[sid] = {"refs": refs, "missing_refs": missing}
     return out
 
@@ -350,7 +380,7 @@ def load_shot_plans(episode_id: str, require: bool) -> dict[str, dict[str, Any]]
     if not refs_json_path(episode_id).is_file() and not require:
         for plan in plans.values():
             plan.update({"refs": [], "missing_refs": []})
-        return plans
+        return _with_cast(episode_id, plans, require)
     resolved = resolve_refs(
         episode_id,
         {sid: p["ref_keys"] for sid, p in plans.items()},
@@ -358,6 +388,16 @@ def load_shot_plans(episode_id: str, require: bool) -> dict[str, dict[str, Any]]
     )
     for sid, plan in plans.items():
         plan.update(resolved[sid])
+    return _with_cast(episode_id, plans, require)
+
+
+def _with_cast(episode_id: str, plans: dict[str, dict[str, Any]], live: bool) -> dict[str, dict[str, Any]]:
+    """Cast planning and the text policy (hfvg.cast_plan). An unknown character or a broken locked
+    sheet refuses, dry and live (the same as a refs.json mismatch)."""
+    from hfvg.cast_plan import plan_cast
+    report = plan_cast(episode_id, plans, live=live)
+    if report["errors"]:
+        raise ShotDataError("Cast: " + "; ".join(report["errors"]))
     return plans
 
 
