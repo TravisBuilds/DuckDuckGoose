@@ -46,6 +46,23 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/set-dry"),
     ("POST", "/api/episodes/{ep}/final-cut/reject"),
     ("POST", "/api/episodes/{ep}/start-again"),
+    # cast library (api/cast_routes.py): a series cast also needs the series' owner (test_cast_api.py)
+    ("POST", "/api/episodes/{ep}/series"),
+    ("POST", "/api/episodes/{ep}/cast"),
+    ("POST", "/api/episodes/{ep}/cast/import"),
+    ("POST", "/api/episodes/{ep}/cast/shots"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/delete"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/images"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/images/{image_id}/primary"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/images/{image_id}/delete"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/estimate"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/generate"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/pick"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/reject"),
+    ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/approve"),
 ]
 # The writes whose episode id is in the form / body check ownership in the handler.
 BODY_WRITES = [("POST", "/api/episodes/upload"), ("POST", "/api/episodes")]
@@ -56,6 +73,7 @@ NOT_EPISODE_WRITES = [
     ("POST", "/api/episodes/draft-from-idea"),
     ("POST", "/api/voices/pick"),
     ("POST", "/api/users/me/change-password"),
+    ("POST", "/api/series"),  # a new series owned by the caller
 ]
 REFUSED = "belongs to another member; only its owner or an admin can change it"
 
@@ -158,7 +176,7 @@ def _draft(api_main) -> dict:
 
 def _write(client, method: str, path: str, ep: str, draft: dict | None = None):
     """A request to a write route with a body good enough to get past validation."""
-    url = path.format(ep=ep, shot_id="A01")
+    url = path.format(ep=ep, shot_id="A01", character_id="ch_000000000000", version=1, image_id="ci_000000000000")
     if path == "/api/episodes/upload":
         return client.post(url, data={"episode_id": ep}, files={
             "beatmap_file": ("BEATMAP.md", io.BytesIO(draft["beatmap"].encode()), "text/markdown")})

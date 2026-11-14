@@ -286,9 +286,12 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
     beatmap = (f"# Episode {episode_id} Beatmap\n\n"
                "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
                "|---|---|---|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
-    characters = {"A": {"description": f"original lead character of the story: {short}"}}
+    names = speakers if two_hander else []
+    characters = {"A": {"name": names[0] if names else "Lead", "role": "lead",
+                        "description": f"original lead character of the story: {short}"}}
     if two_hander:
-        characters["B"] = {"description": "original companion character who talks with the lead"}
+        characters["B"] = {"name": names[1], "role": "companion",
+                           "description": "original companion character who talks with the lead"}
     script = None
     if profile.get("vo_mode") in ("narration", "dialogue"):
         templates = [
