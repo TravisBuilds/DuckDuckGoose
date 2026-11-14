@@ -23,7 +23,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from hfvg import aspect, audio_mix
+from hfvg import aspect, audio_mix, subproc
 from hfvg.audio_mix import AudioInputError
 
 DEFAULT_VO_MODEL = "eleven_v3"
@@ -193,7 +193,9 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
     if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):
         await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
     try:
-        result = await call()
+        # A provider call longer than the heartbeat timeout must not time the attempt out: the retry
+        # would pay for the same asset again while this call is still running.
+        result = await subproc.keep_alive(call(), f"{kind} {asset_id} provider call")
     except BaseException as e:
         await ledger.release(episode_id, line, usd_micros, f"{kind} {asset_id} failed", job_id=job_id)
         from hfvg.providers.elevenlabs import ElevenLabsError

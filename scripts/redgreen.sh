@@ -72,8 +72,11 @@ get_skip_reason() {
 MUTATION_WORKTREE="/tmp/redgreen-worktree-$$"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 CURRENT_COMMIT="$(git rev-parse HEAD)"
+# pytest output of the latest run_test (run_test runs in a subshell: $$ stays this shell's pid)
+LAST_RUN_OUTPUT="/tmp/redgreen_last_run_$$.txt"
 
 cleanup_worktree() {
+    rm -f "$LAST_RUN_OUTPUT"
     if [ -d "$MUTATION_WORKTREE" ]; then
         echo "Cleaning up worktree at $MUTATION_WORKTREE"
         git worktree remove --force "$MUTATION_WORKTREE" 2>/dev/null || true
@@ -138,12 +141,14 @@ run_test() {
     local test_name=$1
     local junit_xml="/tmp/redgreen_junit_$$_$(date +%s).xml"
     local tmp_output="/tmp/redgreen_output_$$_$(date +%s).txt"
+    rm -f "$LAST_RUN_OUTPUT"
     
     # Run pytest with JUnit XML output
     # 180s timeout with signal method (kills cleanly, writes junit)
     # faulthandler_timeout (160s) dumps stacks 20s before kill for diagnostics
     python3 -m pytest "$test_name" -p no:cacheprovider -q --junitxml="$junit_xml" --timeout=180 --timeout-method=signal -o faulthandler_timeout=160 -o addopts="--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1,localhost -p no:warnings" > "$tmp_output" 2>&1
     local exit_code=$?
+    cp "$tmp_output" "$LAST_RUN_OUTPUT" 2>/dev/null || true
     
     # Check for timeout: junit "Failed: Timeout" or missing junit with timeout banner
     local is_timeout=false
@@ -223,6 +228,22 @@ run_test() {
     return 0
 }
 
+# Why a run did not end as expected: the tail of its pytest output goes to the log, the whole output
+# to REDGREEN_ARTIFACTS_DIR (CI uploads it when the job fails). Call right after that run_test.
+report_last_run() {
+    local phase=$1
+    local test_name=$2
+    [ -s "$LAST_RUN_OUTPUT" ] || return 0
+    echo "----- pytest output of the $phase run (last 80 lines) -----"
+    tail -n 80 "$LAST_RUN_OUTPUT" || true
+    echo "----- end of pytest output -----"
+    if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
+        mkdir -p "$REDGREEN_ARTIFACTS_DIR"
+        local safe_name=$(echo "$test_name" | sed 's|/|_|g' | sed 's|::|__|g')
+        cp "$LAST_RUN_OUTPUT" "$REDGREEN_ARTIFACTS_DIR/${phase}_run_${safe_name}_$(date +%s).txt" 2>/dev/null || true
+    fi
+}
+
 # Test one probe (classifier verification)
 test_probe() {
     local num=$1
@@ -241,7 +262,8 @@ test_probe() {
     baseline_result=$(run_test "$test")
     
     if [ "$baseline_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Baseline test does not pass ($baseline_result)${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -277,6 +299,7 @@ test_probe() {
     
     if [ "$mutated_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Mutation caused syntax error${NC}"
+        report_last_run probe "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -298,6 +321,7 @@ test_probe() {
     # Check if classification matches expected
     if [ "$mutated_result" != "$expected_class" ]; then
         echo -e "${RED}✗ FAIL: Expected $expected_class but got $mutated_result${NC}"
+        report_last_run probe "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -347,6 +371,7 @@ test_mutation() {
     
     if [ "$baseline_result" = "INVALID" ]; then
         echo -e "${RED}✗ INVALID: Baseline test has errors (syntax/import/SQL)${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("INVALID")
@@ -357,6 +382,7 @@ test_mutation() {
     
     if [ "$baseline_result" = "TIMEOUT" ]; then
         echo -e "${RED}✗ TIMEOUT: Baseline test timed out${NC}"
+        report_last_run baseline "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -366,7 +392,8 @@ test_mutation() {
     fi
     
     if [ "$baseline_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Baseline test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Baseline test does not pass ($baseline_result)${NC}"
+        report_last_run baseline "$test"
         # Save artifact for baseline failure
         if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
             mkdir -p "$REDGREEN_ARTIFACTS_DIR"
@@ -407,6 +434,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "INVALID" ]; then
         echo -e "${RED}✗ INVALID: Mutation caused syntax error${NC}"
+        report_last_run mutant "$test"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -418,6 +446,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "TIMEOUT" ]; then
         echo -e "${RED}✗ TIMEOUT: Mutated test timed out${NC}"
+        report_last_run mutant "$test"
         git checkout -- "$file" 2>/dev/null
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
@@ -429,6 +458,7 @@ test_mutation() {
     
     if [ "$mutated_result" = "FAIL_OTHER" ]; then
         echo -e "${RED}✗ FAIL: Test failed with non-AssertionError (${mutated_result})${NC}"
+        report_last_run mutant "$test"
         # Save artifact for non-AssertionError mutant failure
         if [ -n "${REDGREEN_ARTIFACTS_DIR:-}" ]; then
             mkdir -p "$REDGREEN_ARTIFACTS_DIR"
@@ -482,6 +512,7 @@ test_mutation() {
     
     if [ "$restored_result" = "INVALID" ]; then
         echo -e "${RED}✗ FAIL: Restored test has errors${NC}"
+        report_last_run restored "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -491,7 +522,8 @@ test_mutation() {
     fi
     
     if [ "$restored_result" != "PASS" ]; then
-        echo -e "${RED}✗ FAIL: Restored test does not pass${NC}"
+        echo -e "${RED}✗ FAIL: Restored test does not pass ($restored_result)${NC}"
+        report_last_run restored "$test"
         MUTATION_NAMES+=("$num. $name")
         MUTATION_IDS+=("$num")
         MUTATION_RESULTS+=("FAIL")
@@ -2186,7 +2218,7 @@ test_mutation 261 "Up-to-date mute edit is reused (idempotency)" \
 test_mutation 262 "Assembly QC runs the stillgate on the mute edit" \
     "hfvg/activities/qc.py" \
     "tests/test_picture_assembly_round3.py::TestAssemblyQC::test_still_only_shot_fails" \
-    sed -i 's/^        rows = await asyncio\.to_thread(check_motion, assembly_path, manifest)$/        rows = []  # MUTATED/'
+    sed -i 's/^        rows = await check_motion_async(assembly_path, manifest)$/        rows = []  # MUTATED/'
 
 # 263: G-QC-2b: Stillgate decodes at its analysis fps (30 fps edit windows)
 test_mutation 263 "Stillgate resamples to its analysis fps before windowing" \
@@ -3257,6 +3289,73 @@ test_mutation 440 "draft-from-idea prompt kit names the default lint profile" \
     "api/main.py" \
     "tests/test_default_prompt_lint.py::test_drafts_name_the_default_profile_and_pass_every_gate[writer]" \
     sed -i 's/^    prompt_kit_data = {\*\*prompt_kit_data, "aspect_ratio": shot_aspect, "lint": DEFAULT_LINT_PROFILE}$/    prompt_kit_data = {**prompt_kit_data, "aspect_ratio": shot_aspect}  # MUTATED/'
+
+# 441: an activity heartbeats while its ffmpeg child runs (an encode longer than the heartbeat timeout)
+test_mutation 441 "mix_and_deliver heartbeats through an encode longer than the heartbeat timeout" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_mix_and_deliver_heartbeats_through_an_encode_longer_than_the_heartbeat_timeout" \
+    sed -i 's/^        out, err = await keep_alive(comm, what)$/        out, err = await comm  # MUTATED/'
+
+# 442: the keep-alive beats at least 4x per heartbeat timeout (the 20 s default outlasts a short one)
+test_mutation 442 "keep-alive interval follows the attempt's heartbeat timeout" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_run_heartbeats_while_the_child_runs" \
+    sed -i 's/^        every = min(every, timeout\.total_seconds() \/ 4)$/        pass  # MUTATED/'
+
+# 443: a cancelled delivery (cancel delivered in a heartbeat response) kills its encode
+test_mutation 443 "cancelled delivery kills its encode (real Temporal server)" \
+    "hfvg/subproc.py" \
+    "tests/test_temporal_heartbeat_timeout.py::test_cancelling_a_delivery_kills_its_encode" \
+    sed -i 's/^        await _kill(proc)$/        pass  # MUTATED/'
+
+# 444: ...and the child's own children (process group)
+test_mutation 444 "cancelled child is killed with its process group" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancel_kills_the_child_and_its_process_group" \
+    sed -i 's/^            os\.killpg(proc\.pid, signal\.SIGKILL)$/            pass  # MUTATED/'
+
+# 445: a provider call longer than the heartbeat timeout keeps its attempt (the retry would pay again)
+test_mutation 445 "slow TTS call is paid for once (real Temporal server)" \
+    "hfvg/activities/audio.py" \
+    "tests/test_temporal_heartbeat_timeout.py::test_a_tts_call_longer_than_the_heartbeat_timeout_is_paid_for_once" \
+    sed -i 's/^        result = await subproc\.keep_alive(call(), f"{kind} {asset_id} provider call")$/        result = await call()  # MUTATED/'
+
+# 446: a cancelled attempt cancels its RIFE render (so media._run kills the child)
+test_mutation 446 "cancelled attempt stops its RIFE render" \
+    "hfvg/interp_rife.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancelled_rife_render_does_not_outlive_the_attempt" \
+    sed -i 's/^        if not task\.done():$/        if False:  # MUTATED/'
+
+# 447: clip motion QC runs ffmpeg off the worker's event loop
+test_mutation 447 "clip motion QC keeps the worker's event loop free" \
+    "hfvg/activities/qc.py" \
+    "tests/test_subprocess_heartbeat.py::test_clip_motion_qc_heartbeats_and_keeps_the_event_loop_free" \
+    sed -i 's/^        result = await _run_text(blackdetect_cmd, timeout=60)$/        result = subprocess.run(blackdetect_cmd, capture_output=True, text=True, timeout=60)  # MUTATED/'
+
+# 448: the RIFE frame check (worker thread, hundreds of full-size PNGs) heartbeats while it runs
+test_mutation 448 "RIFE frame check heartbeats while it runs" \
+    "hfvg/interp_rife.py" \
+    "tests/test_subprocess_heartbeat.py::test_rife_retime_heartbeats_through_a_slow_frame_check" \
+    sed -i 's/^            await subproc\.keep_alive(asyncio\.to_thread(check_interp_frames, /            await (lambda aw, what: aw)(asyncio.to_thread(check_interp_frames, /'
+
+# 449: a cancel that lands while the child is starting still kills the child and its process group
+test_mutation 449 "child cancelled while starting is killed with its process group" \
+    "hfvg/subproc.py" \
+    "tests/test_subprocess_heartbeat.py::test_cancel_while_the_child_starts_kills_it_and_its_group" \
+    sed -i 's/^        return await asyncio\.shield(start)$/        return await start  # MUTATED/'
+
+# 450: the process checks' alive() treats a pid reaped between its open() and read() of
+#      /proc/<pid>/stat (ESRCH) as gone instead of raising (444's restored run failed on this in CI)
+test_mutation 450 "alive() survives a reap between open and read" \
+    "tests/slow_bin.py" \
+    "tests/test_slow_bin.py::test_alive_is_false_for_a_process_reaped_between_open_and_read" \
+    sed -i 's/^    except (FileNotFoundError, ProcessLookupError, IndexError):$/    except (FileNotFoundError, IndexError):  # MUTATED/'
+
+# 451: alive() treats a pid that is being reaped (state X) as gone, like a zombie
+test_mutation 451 "alive() counts a process being reaped as gone" \
+    "tests/slow_bin.py" \
+    "tests/test_slow_bin.py::test_alive_is_false_for_a_process_being_reaped" \
+    sed -i 's/^    return _state(pid) not in (None, "Z", "X")$/    return _state(pid) not in (None, "Z")  # MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
