@@ -134,6 +134,16 @@ async def _refused(job: dict, kind: str | None = None) -> ApplicationError:
     return err.value
 
 
+async def _attempt(job: dict) -> Exception | None:
+    """What the activity stopped with (None when it finished). The spend checks come before the
+    error type, so a skipped guard fails on the spend it lets through, whatever breaks after it."""
+    try:
+        await _run(job)
+    except Exception as e:
+        return e
+    return None
+
+
 def _sheet_status(job_id: str) -> str:
     with cast_store.connect() as conn:
         return conn.execute("SELECT status FROM cast_sheet_jobs WHERE job_id = ?", (job_id,)).fetchone()[0]
@@ -249,10 +259,11 @@ async def test_live_estimate_above_the_approval_spends_nothing(tmp_path, monkeyp
     FakeProvider.estimate = (500_000, 8.0)
     job = _job(new_character(("episode", EP)), source="text", approved=400_000)
     before = await _line(db_path)
-    await _refused(job, "EstimateAboveApproved")
+    err = await _attempt(job)
     assert _calls("estimate") and _calls("submit") == []
     assert await _credit_txns(db_path, job["job_id"]) == []
     assert await _line(db_path) == before
+    assert isinstance(err, ApplicationError) and err.non_retryable and err.type == "EstimateAboveApproved", err
     assert _sheet_status(job["job_id"]) == "failed"
 
 
@@ -273,10 +284,11 @@ async def test_live_balance_gate_spends_nothing(tmp_path, monkeypatch, provider,
     db_path = await _live_db(tmp_path, monkeypatch, balance="0.10")
     job = _job(new_character(("episode", EP)), source="text")
     before = await _line(db_path)
-    err = await _refused(job, "InsufficientBalance")
-    assert "balance insufficient" in str(err)
+    err = await _attempt(job)
     assert _calls("submit") == [] and await _credit_txns(db_path, job["job_id"]) == []
     assert await _line(db_path) == before
+    assert isinstance(err, ApplicationError) and err.non_retryable and err.type == "InsufficientBalance", err
+    assert "balance insufficient" in str(err)
 
 
 async def test_live_without_a_manual_balance_the_usd_reserve_refuses(tmp_path, monkeypatch, provider, http):
