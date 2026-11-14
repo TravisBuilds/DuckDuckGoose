@@ -439,6 +439,20 @@ async def create_series(request: SeriesCreateRequest, authorization: str | None 
 create_series.allow_members = True
 
 
+@router.get("/api/series/{series_id}")
+async def get_series_cast(series_id: str, authorization: str | None = Header(None),
+                          studio_admin_token: str | None = Cookie(None)):
+    """A series with its characters (the create wizard maps drafted characters to them)."""
+    _, user_id, is_admin = await _actor(authorization, studio_admin_token)
+    series = await _call(cast_store.get_series, series_id)
+    owner = _series_owner(series)
+    characters = await _call(cast_store.list_characters, ("series", series_id))
+    return {"series": series, "characters": [_character_out(c) for c in characters],
+            "can_edit": is_admin or owner is None or owner == user_id}
+
+get_series_cast.allow_members = True
+
+
 @router.post("/api/episodes/{episode_id}/series")
 async def set_episode_series(episode_id: str, request: EpisodeSeriesRequest,
                              authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):

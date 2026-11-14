@@ -195,6 +195,13 @@ async def test_a_series_cast_needs_the_series_owner(studio):
     assert _upload(owner, pip).status_code == 200
     listed = {s["series_id"]: s for s in other.get("/api/series").json()["series"]}
     assert listed[series["series_id"]]["can_edit"] is False
+    # the series' characters (what the create wizard maps drafted characters to)
+    seen = other.get(f"/api/series/{series['series_id']}").json()
+    assert [c["slug"] for c in seen["characters"]] == ["pip"] and seen["can_edit"] is False
+    assert seen["series"]["episodes"] == sorted([EP, OTHER_EP])
+    assert owner.get(f"/api/series/{series['series_id']}").json()["can_edit"] is True
+    assert other.get("/api/series/sr_000000000000").status_code == 404
+    assert _client(studio, None).get(f"/api/series/{series['series_id']}").status_code == 401
 
 
 # ------------------------------------------------------------------------------------- upload validation
