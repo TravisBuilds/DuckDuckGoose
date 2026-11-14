@@ -604,6 +604,8 @@ def _write_once(path: Path, data: bytes) -> None:
         os.link(tmp, path)  # fails if another writer won the race; the content is identical
     except FileExistsError:
         pass
+    except OSError:  # a filesystem without hard links: an atomic rename (identical content if raced)
+        os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
