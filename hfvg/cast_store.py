@@ -439,10 +439,11 @@ def _image_view(row: dict) -> dict:
 
 
 def default_version_number(versions: list[dict]) -> int:
-    """The newest locked version, else the lowest version (1)."""
+    """The lowest locked version, else the lowest version (1). Locking a later outfit never changes
+    the look of shots that did not pick one."""
     locked = [v["version"] for v in versions if v.get("locked")]
     if locked:
-        return max(locked)
+        return min(locked)
     return min((v["version"] for v in versions), default=1)
 
 

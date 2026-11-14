@@ -260,14 +260,15 @@ def test_a_new_outfit_derives_only_from_a_locked_master():
     assert (v2["version"], v2["derived_from_version"], v2["locked"], v2["outfit"]) == (2, 1, False, "yellow raincoat")
     assert "yellow raincoat" in v2["clause"]
     full = cast_store.get_character(cid)
-    assert full["default_version"] == 1  # the newest LOCKED version until v2 is approved
+    assert full["default_version"] == 1
     # v2's options are made from v1's locked master, never from scene stills
     from hfvg.cast_sheets import _derived_master
     assert _derived_master(full, next(v for v in full["versions"] if v["version"] == 2))["image_id"] == \
         sheet[cast_store.MASTER_ROLE]["image_id"]
     complete_sheet(cast_store.get_character(cid), 2, seed=300)
     cast_store.approve_version(cid, 2, "t")
-    assert cast_store.get_character(cid)["default_version"] == 2
+    # locking an outfit leaves shots that did not pick one on the main look
+    assert cast_store.get_character(cid)["default_version"] == 1
 
 
 # ------------------------------------------------------------------------------------- lock

@@ -247,6 +247,24 @@ def test_a_tampered_locked_sheet_refuses_the_plan():
         load_shot_plans(EP, require=True)
 
 
+def test_a_locked_outfit_is_used_only_where_a_shot_picks_it():
+    pip = new_character(("episode", EP), name="Pip", description="a small round robot")
+    main = complete_sheet(pip)
+    cast_store.approve_version(pip["character_id"], 1, "t")
+    cast_store.create_version(pip["character_id"], label="Raincoat", outfit="a yellow raincoat",
+                              derive_from_version=1, actor="t")
+    coat = complete_sheet(cast_store.get_character(pip["character_id"]), 2, seed=300)
+    cast_store.approve_version(pip["character_id"], 2, "t")
+    _write([_shot("A01", cast=["pip"]), _shot("A02", cast=[{"character": "pip", "version": 2}])],
+           {"A01": [], "A02": []})
+    plans = load_shot_plans(EP, require=True)
+    usual, picked = plans["A01"]["shot_meta"]["cast"][0], plans["A02"]["shot_meta"]["cast"][0]
+    assert (usual["version"], picked["version"]) == (1, 2)
+    assert _cast_keys(plans["A01"])[0] == cast_plan.image_key(main["master"])
+    assert _cast_keys(plans["A02"])[0] == cast_plan.image_key(coat["master"])
+    assert "raincoat" not in usual["clause"] and "outfit: a yellow raincoat" in picked["clause"]
+
+
 def test_live_plans_never_use_placeholder_images():
     pip = new_character(("episode", EP), name="Pip")
     complete_sheet(pip, placeholder=True)

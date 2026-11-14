@@ -4,7 +4,7 @@ what the still submit injects.
 
 A shot declares who is in frame with ``"cast": ["pip", {"character": "moss", "version": 2}]``: the
 character id is the character's slug in the episode's cast library, the version defaults to the
-character's default version (its newest locked version, else version 1). Planning
+character's default version (its first locked version, else version 1). Planning
 (``hfvg.cast_plan``) turns that into identity refs plus ``shot_meta["cast"]`` (one entry per
 character with its ``clause``) and ``shot_meta["text_policy"]``. The still submit appends the clauses
 and, under the ``no_text`` policy, :data:`NO_TEXT_CLAUSE` (idempotent, like the continuity locks);
