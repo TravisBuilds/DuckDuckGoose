@@ -531,15 +531,19 @@ def inspect_image(data: bytes, *, max_bytes: int | None = None, min_px: int | No
     if len(data) > max_bytes:
         raise UploadTooLarge(f"The image is {len(data) / 1_048_576:.1f} MB; the limit is "
                              f"{max_bytes / 1_048_576:.0f} MB")
-    unreadable = "This file is not a readable PNG, JPG or WebP image"
+    damaged = "This image is damaged or incomplete and cannot be read"
     try:
-        with Image.open(io.BytesIO(data)) as probe:
-            fmt = probe.format
-            probe.verify()
+        probe = Image.open(io.BytesIO(data))
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
-        raise CastError(unreadable) from None
-    if fmt not in ALLOWED_FORMATS:
-        raise CastError(f"Only PNG, JPG and WebP images are accepted (this file is {fmt or 'another format'})")
+        raise CastError("This file is not a readable PNG, JPG or WebP image") from None
+    with probe:
+        fmt = probe.format
+        if fmt not in ALLOWED_FORMATS:
+            raise CastError(f"Only PNG, JPG and WebP images are accepted (this file is {fmt or 'another format'})")
+        try:
+            probe.verify()
+        except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+            raise CastError(damaged) from None
     try:
         with Image.open(io.BytesIO(data)) as img:
             if getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1:
@@ -551,7 +555,7 @@ def inspect_image(data: bytes, *, max_bytes: int | None = None, min_px: int | No
     except CastError:
         raise
     except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
-        raise CastError("This image is damaged or incomplete and cannot be read") from None
+        raise CastError(damaged) from None
     if min(width, height) < min_px:
         raise CastError(f"The image is {width}x{height} px; each side must be at least {min_px} px")
     ext, mime = ALLOWED_FORMATS[fmt]

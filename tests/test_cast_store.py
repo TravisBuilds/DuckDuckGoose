@@ -134,13 +134,20 @@ def test_a_renamed_file_is_judged_by_its_content():
 
 
 def test_corrupt_and_truncated_images_are_refused():
-    data = image_bytes("PNG")
-    with pytest.raises(cast_store.CastError, match="damaged or incomplete|not a readable"):
-        cast_store.inspect_image(data[: len(data) // 2])
-    broken = bytearray(image_bytes("JPEG"))
-    broken[400:900] = b"\x00" * 500
-    with pytest.raises(cast_store.CastError):
-        cast_store.inspect_image(bytes(broken[:-200]))
+    png = image_bytes("PNG")
+    for data in (png[: len(png) // 2], png[:-100]):
+        with pytest.raises(cast_store.CastError, match="damaged or incomplete"):
+            cast_store.inspect_image(data)
+    bad_crc = bytearray(png)
+    middle = len(bad_crc) // 2
+    bad_crc[middle:middle + 200] = b"\xff" * 200
+    with pytest.raises(cast_store.CastError, match="damaged or incomplete"):
+        cast_store.inspect_image(bytes(bad_crc))
+    jpeg = image_bytes("JPEG")
+    with pytest.raises(cast_store.CastError, match="damaged or incomplete"):
+        cast_store.inspect_image(jpeg[: len(jpeg) // 3])
+    with pytest.raises(cast_store.CastError, match="not a readable"):
+        cast_store.inspect_image(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
     with pytest.raises(cast_store.CastError, match="empty"):
         cast_store.inspect_image(b"")
 
