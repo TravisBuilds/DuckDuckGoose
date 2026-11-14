@@ -22,6 +22,11 @@ from hfvg.activities.run_lock import (
     release_run_lock,
 )
 from hfvg.activities.studio_generation import verify_episode_files_activity
+from hfvg.activities.cast_sheet import (
+    finish_cast_sheet_jobs_activity,
+    generate_cast_sheet_image_activity,
+    reconcile_cast_sheet_job_activity,
+)
 from hfvg.activities.ref_generation import (
     generate_ref_activity,
     generate_ref_edit_activity,
@@ -44,6 +49,7 @@ from hfvg.ledger import Ledger
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, ReconcilePendingJobsWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+from hfvg.workflows.cast_sheet import CastSheetWorkflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -113,6 +119,9 @@ PRODUCTION_ACTIVITIES = [
     activities.detect_stalled_jobs,
     activities.land_late_asset,
     activities.record_reconcile_outcome,
+    generate_cast_sheet_image_activity,
+    finish_cast_sheet_jobs_activity,
+    reconcile_cast_sheet_job_activity,
 ]
 
 
@@ -122,6 +131,7 @@ PRODUCTION_WORKFLOWS = [
     ShotWorkflow,
     PostingWorkflow,
     ReconcilePendingJobsWorkflow,
+    CastSheetWorkflow,
 ]
 
 
