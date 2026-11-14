@@ -3357,6 +3357,102 @@ test_mutation 451 "alive() counts a process being reaped as gone" \
     "tests/test_slow_bin.py::test_alive_is_false_for_a_process_being_reaped" \
     sed -i 's/^    return _state(pid) not in (None, "Z", "X")$/    return _state(pid) not in (None, "Z")  # MUTATED/'
 
+# 452: cast reference uploads under the minimum size are refused
+test_mutation 452 "cast upload refuses pictures under the minimum size" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_bad_uploads_are_refused" \
+    sed -i 's/^    if min(width, height) < min_px:$/    if False:  # MUTATED/'
+
+# 453: every cast upload needs the rights attestation (original or owned)
+test_mutation 453 "cast upload needs the rights attestation" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_an_upload_needs_the_rights_attestation" \
+    sed -i 's/^    if rights_value not in RIGHTS_VALUES:$/    if False:  # MUTATED/'
+
+# 454: a picture of a real person needs the likeness-consent attestation
+test_mutation 454 "cast upload of a real person needs likeness consent" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_an_upload_needs_the_rights_attestation" \
+    sed -i 's/^    if real and not consent:$/    if False:  # MUTATED/'
+
+# 455: a locked (approved) character sheet refuses uploads, deletes and sheet steps
+test_mutation 455 "locked character sheet cannot be changed" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_a_dry_sheet_from_the_description_to_the_lock" \
+    sed -i '/^def _require_unlocked(/,/^    return row$/ s/^    if row\["locked"\]:$/    if False:  # MUTATED/'
+
+# 456: a shot without a chosen version stays on the first locked look when an outfit is locked later
+test_mutation 456 "shot cast without a version keeps the first locked look" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_plan.py::test_a_locked_outfit_is_used_only_where_a_shot_picks_it" \
+    sed -i 's/^        return min(locked)$/        return max(locked)  # MUTATED/'
+
+# 457: a locked sheet image changed on disk is detected before the sheet is used
+test_mutation 457 "locked sheet image changed on disk is detected" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_store.py::test_tampering_with_a_locked_sheet_is_detected" \
+    sed -i 's/^        elif hashlib\.sha256(path\.read_bytes())\.hexdigest() != img\["sha256"\]:$/        elif False:  # MUTATED/'
+
+# 458: live plans never use dry-run placeholder sheet images as identity refs
+test_mutation 458 "live cast plans skip placeholder images" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_plan.py::test_live_plans_never_use_placeholder_images" \
+    sed -i 's/^    if live and any(i\.get("placeholder") for i in chosen):$/    if False:  # MUTATED/'
+
+# 459: still prompts of a no_text shot get the no-text constraint
+test_mutation 459 "cast prompt injection adds the no-text constraint" \
+    "hfvg/cast_prompt.py" \
+    "tests/test_cast_prompt.py::test_injection_adds_each_description_and_the_no_text_constraint_once" \
+    sed -i 's/^    if no_text_required(shot_meta) and _norm(NO_TEXT_CLAUSE) not in _norm(out):$/    if False:  # MUTATED/'
+
+# 460: still prompts get each in-frame character's description
+test_mutation 460 "cast prompt injection adds each character's description" \
+    "hfvg/cast_prompt.py" \
+    "tests/test_cast_prompt.py::test_injection_adds_each_description_and_the_no_text_constraint_once" \
+    sed -i 's/^    missing = \[c for c in cast_entries(shot_meta) if _norm(c\["clause"\]) not in _norm(out)\]$/    missing = []  # MUTATED/'
+
+# 461: the dry still submit injects the cast clauses before the lint, like the live one
+test_mutation 461 "dry still submit injects the cast prompt" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_cast_prompt.py::test_the_dry_still_submit_injects_before_the_lint" \
+    sed -i 's/^        prompt, _cast = inject_cast_prompt(prompt, shot_meta)$/        _cast = []  # MUTATED/'
+
+# 462: lint rule 13 (cast descriptions and the no-text constraint) is part of the still lint
+test_mutation 462 "still lint requires the cast clauses (rule 13)" \
+    "hfvg/prompt_lint.py" \
+    "tests/test_cast_prompt.py::test_rule_13_is_part_of_the_still_lint_only" \
+    sed -i 's/^        problems\.extend(cast_lint_violations(prompt, meta))$/        pass  # MUTATED/'
+
+# 463: cast refs over the still model's max refs merge into a grid sheet
+test_mutation 463 "cast refs over the model limit merge into a grid sheet" \
+    "hfvg/cast_plan.py" \
+    "tests/test_cast_plan.py::test_refs_over_the_models_limit_merge_into_a_grid_sheet" \
+    sed -i 's/^    if len(wanted) <= budget:$/    if True:  # MUTATED/'
+
+# 464: a series cast changes only with the series' owner (or an admin)
+test_mutation 464 "series cast needs the series owner" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_needs_the_series_owner" \
+    sed -i 's/^    if not is_admin and owner is not None and owner != user_id:$/    if False:  # MUTATED/'
+
+# 465: a sheet request is refused when the fresh estimate is above the approved total
+test_mutation 465 "sheet generate refuses an estimate above the approval" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_sheet_is_refused_when_the_estimate_is_above_the_approval" \
+    sed -i 's/^    if total > approved:$/    if False:  # MUTATED/'
+
+# 466: the sheet activity re-checks the provider estimate against the approval before any spend
+test_mutation 466 "sheet image estimate above the approval spends nothing" \
+    "hfvg/activities/cast_sheet.py" \
+    "tests/test_cast_sheet_activity.py::test_live_estimate_above_the_approval_spends_nothing" \
+    sed -i 's/^            if estimated_usd > job\["approved_usd_micros"\]:$/            if False:  # MUTATED/'
+
+# 467: the sheet activity runs the balance gate before any reservation or submit
+test_mutation 467 "sheet image balance gate spends nothing" \
+    "hfvg/activities/cast_sheet.py" \
+    "tests/test_cast_sheet_activity.py::test_live_balance_gate_spends_nothing" \
+    sed -i 's/^            if not passed:$/            if False:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
