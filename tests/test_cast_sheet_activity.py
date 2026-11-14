@@ -180,6 +180,30 @@ async def test_dry_run_makes_a_placeholder_without_spend(provider):
     assert _sheet_status(job["job_id"]) == "completed"
 
 
+async def test_the_store_waits_for_another_transaction_off_the_event_loop(provider):
+    """The worker runs many activities on one event loop and their aiosqlite transactions need that
+    loop to finish: the cast store waits for their locks in a thread, never blocking the loop (which
+    deadlocked until the busy timeout and failed the image with "database is locked")."""
+    pip = new_character(("episode", EP))
+    job = _job(pip, live=False, source="text")
+    db = await aiosqlite.connect(cast_store.db_path())
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute("UPDATE cast_sheet_jobs SET updated_at = updated_at WHERE job_id = ?", (job["job_id"],))
+
+        async def commit_soon():
+            await asyncio.sleep(0.2)
+            await db.commit()
+
+        holder = asyncio.create_task(commit_soon())
+        result = await asyncio.wait_for(_run(job), timeout=10)
+        await holder
+    finally:
+        await db.close()
+    assert result["status"] == "completed" and result["placeholder"] is True
+    assert _sheet_status(job["job_id"]) == "completed"
+
+
 async def test_a_locked_version_is_never_generated(provider):
     pip = new_character(("episode", EP))
     job = _job(pip, live=False, source="text")

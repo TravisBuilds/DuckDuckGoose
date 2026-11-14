@@ -16,6 +16,10 @@ Idempotent: a job whose image is already stored returns it (no spend); a job wit
 provider job id resumes polling instead of submitting again. Dry run (DRY_RUN=true): a
 deterministic placeholder image, no spend. There is no override that skips the estimate or the
 balance gate.
+
+The cast store is synchronous SQLite and file I/O: it always runs in a thread (asyncio.to_thread),
+never on the worker's event loop, where waiting for a lock held by another activity's aiosqlite
+transaction would block that transaction from finishing (a deadlock until the busy timeout).
 """
 
 from __future__ import annotations
@@ -79,6 +83,19 @@ def _stored_image(job_id: str) -> dict | None:
     return cast_store.get_image(row[0]) if row else None
 
 
+async def _set_status(job_id: str, status: str, *, image_id: str | None = None, error: str | None = None) -> None:
+    await asyncio.to_thread(cast_store.update_sheet_job, job_id, status=status, image_id=image_id, error=error)
+
+
+async def _store(job: dict, data: bytes, *, placeholder: bool, actor: str) -> dict:
+    """Store the image in the cast library and complete the job (refused if the version was locked)."""
+    image = await asyncio.to_thread(
+        cast_store.add_generated_image, job["character_id"], int(job["version"]), data, role=job["view"],
+        job_id=job["job_id"], placeholder=placeholder, actor=actor, episode_id=job["episode_id"])
+    await _set_status(job["job_id"], "completed", image_id=image["image_id"])
+    return image
+
+
 def _heartbeat(detail: str) -> None:
     if activity.in_activity():
         activity.heartbeat(detail)
@@ -120,16 +137,16 @@ async def generate_cast_sheet_image_activity(job: dict) -> dict:
         job_id = job.get("job_id") if isinstance(job, dict) else None
         if isinstance(job_id, str):
             try:
-                _mark_stopped(job_id, e)
+                await asyncio.to_thread(_mark_stopped, job_id, e)
             except Exception as mark_error:  # the original error is the one to report
                 activity.logger.error(f"cast sheet {job_id}: could not record the stop ({mark_error})")
         raise
 
 
-async def _generate(job: dict) -> dict:
-    _validate(job)
+def _admit(job: dict) -> dict | None:
+    """The checks before any work: the version exists and is not locked, the model takes the refs,
+    the prompt passes the content policy. Returns the job's already stored image, if any."""
     job_id = job["job_id"]
-    episode_id = job["episode_id"]
     try:
         version = cast_store.get_version(job["character_id"], int(job["version"]))
         caps = check_sheet_model(job["model_path"], len(job["refs"]))
@@ -144,19 +161,25 @@ async def _generate(job: dict) -> dict:
     if problems:
         cast_store.update_sheet_job(job_id, status="refused", error="; ".join(problems))
         raise _refuse("sheet prompt refused by the content policy: " + ", ".join(problems))
+    return _stored_image(job_id)
 
-    stored = _stored_image(job_id)
+
+def _placeholder(job: dict) -> bytes:
+    _check_refs(job)
+    return placeholder_image(job)
+
+
+async def _generate(job: dict) -> dict:
+    _validate(job)
+    job_id = job["job_id"]
+    stored = await asyncio.to_thread(_admit, job)
     if stored:
-        cast_store.update_sheet_job(job_id, status="completed", image_id=stored["image_id"])
+        await _set_status(job_id, "completed", image_id=stored["image_id"])
         return {"job_id": job_id, "status": "reused", "image_id": stored["image_id"], "usd_micros": 0}
 
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     if dry_run:
-        _check_refs(job)
-        image = cast_store.add_generated_image(job["character_id"], int(job["version"]), placeholder_image(job),
-                                               role=job["view"], job_id=job_id, placeholder=True,
-                                               actor="worker", episode_id=episode_id)
-        cast_store.update_sheet_job(job_id, status="completed", image_id=image["image_id"])
+        image = await _store(job, await asyncio.to_thread(_placeholder, job), placeholder=True, actor="worker")
         activity.logger.info(f"[DRY-RUN] cast sheet {job_id}: placeholder {image['image_id']}")
         return {"job_id": job_id, "status": "completed", "image_id": image["image_id"], "usd_micros": 0,
                 "placeholder": True}
@@ -181,9 +204,9 @@ async def _generate_live(job: dict) -> dict:
     await enforce_smoke_test_gate(db_path, episode_id, "generate_cast_sheet_image_activity")
     live_mode, _g108 = await check_live_mode_and_g108(episode_id)
     if not live_mode:
-        cast_store.update_sheet_job(job_id, status="refused", error="episode not in live mode")
+        await _set_status(job_id, "refused", error="episode not in live mode")
         raise _refuse(f"Episode {episode_id} is not in live mode; switch it to live mode before paid generation")
-    _check_refs(job)
+    await asyncio.to_thread(_check_refs, job)
     await _ensure_budget_lines(db_path, episode_id)
     credit_ledger = CreditLedger(db_path)
     await credit_ledger.init_db()
@@ -193,7 +216,7 @@ async def _generate_live(job: dict) -> dict:
     provider = HiggsfieldStillProvider(model_path=job["model_path"])
     credits_reserved = usd_reserved = False
     estimated_usd, estimated_credits = 0, 0.0
-    cast_store.update_sheet_job(job_id, status="running")
+    await _set_status(job_id, "running")
     try:
         params = {"prompt": job["prompt"], "resolution": job["resolution"], "quality": job["quality"],
                   "aspect_ratio": job["aspect_ratio"]}
@@ -272,17 +295,14 @@ async def _generate_live(job: dict) -> dict:
             resp.raise_for_status()
             data = resp.content
         _heartbeat(f"{job_id} downloaded")
-        image = cast_store.add_generated_image(job["character_id"], int(job["version"]), data, role=job["view"],
-                                               job_id=job_id, placeholder=False, actor="worker",
-                                               episode_id=episode_id)
-        cast_store.update_sheet_job(job_id, status="completed", image_id=image["image_id"])
+        image = await _store(job, data, placeholder=False, actor="worker")
         return {"job_id": job_id, "status": "completed", "image_id": image["image_id"],
                 "provider_job_id": provider_job_id, "usd_micros": estimated_usd}
     except _PollExhausted as e:
         # The provider may still finish and charge: keep both holds; the reconciler settles the job
         # (commit + store the image, or release) on its next pass.
         await usd_ledger.mark_job_status(job_id, "pending_reconcile")
-        cast_store.update_sheet_job(job_id, status="pending_reconcile", error=str(e))
+        await _set_status(job_id, "pending_reconcile", error=str(e))
         raise _refuse(f"{e}; the holds are kept and the reconciler settles it", "CastSheetPending") from None
     except Exception as e:
         committed = await _committed(db_path, job_id)
@@ -292,7 +312,7 @@ async def _generate_live(job: dict) -> dict:
             if usd_reserved:
                 await usd_ledger.release(episode_id=episode_id, line_name=LINE, amount_usd_micros=estimated_usd,
                                          reason=f"Cast sheet {job_id} failed: {str(e)[:100]}", job_id=job_id)
-        cast_store.update_sheet_job(job_id, status="failed", error=str(e))
+        await _set_status(job_id, "failed", error=str(e))
         raise
     finally:
         await provider.close()
@@ -344,7 +364,7 @@ async def reconcile_cast_sheet_job_activity(job: dict) -> str:
         await usd_ledger.release(episode_id=episode_id, line_name=job["line_name"],
                                  amount_usd_micros=job["usd_micros"], reason=reason, job_id=job_id)
         await credit_ledger.release_credits(episode_id, job_id, notes=reason[:200])
-        cast_store.update_sheet_job(job_id, status="failed", error=reason)
+        await _set_status(job_id, "failed", error=reason)
         return "released"
     if status.status != ProviderJobStatus.COMPLETED:
         return "still_pending"
@@ -357,20 +377,28 @@ async def reconcile_cast_sheet_job_activity(job: dict) -> str:
     await usd_ledger.commit(episode_id=episode_id, line_name=job["line_name"], reserved_usd_micros=job["usd_micros"],
                             actual_usd_micros=job["usd_micros"], job_id=job_id,
                             reason="Cast sheet reconciled: completed")
-    with cast_store.connect() as conn:
-        sheet = conn.execute("SELECT * FROM cast_sheet_jobs WHERE job_id = ?", (job_id,)).fetchone()
-    if sheet and status.output_url and not _stored_image(job_id):
+    sheet = await asyncio.to_thread(_unstored_sheet_job, job_id)
+    if sheet and status.output_url:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(status.output_url)
                 resp.raise_for_status()
-            image = cast_store.add_generated_image(sheet["character_id"], sheet["version"], resp.content,
-                                                   role=sheet["view"], job_id=job_id, placeholder=False,
-                                                   actor="reconciler", episode_id=episode_id)
-            cast_store.update_sheet_job(job_id, status="completed", image_id=image["image_id"])
+            await _store({**sheet, "episode_id": episode_id}, resp.content, placeholder=False, actor="reconciler")
         except (cast_store.CastError, httpx.HTTPError) as e:  # paid and settled; the image is just not kept
-            cast_store.update_sheet_job(job_id, status="failed", error=f"completed but not stored: {e}")
+            await _set_status(job_id, "failed", error=f"completed but not stored: {e}")
     return "committed"
+
+
+def _unstored_sheet_job(job_id: str) -> dict | None:
+    """The sheet job row, when its image is not stored yet."""
+    with cast_store.connect() as conn:
+        row = conn.execute("SELECT * FROM cast_sheet_jobs WHERE job_id = ?", (job_id,)).fetchone()
+    return dict(row) if row and not _stored_image(job_id) else None
+
+
+def _finish(job_ids: list[str], status: str, reason: str) -> None:
+    for job_id in job_ids:
+        cast_store.update_sheet_job(job_id, status=status, error=reason)
 
 
 @activity.defn
@@ -378,6 +406,5 @@ async def finish_cast_sheet_jobs_activity(job_ids: list[str], status: str, reaso
     """Mark the jobs a sheet run did not get to (after a failure or refusal) so the UI stops waiting."""
     if status not in ("skipped", "failed"):
         raise _refuse(f"unknown sheet job status {status!r}")
-    for job_id in job_ids:
-        cast_store.update_sheet_job(job_id, status=status, error=reason)
+    await asyncio.to_thread(_finish, job_ids, status, reason)
     return len(job_ids)

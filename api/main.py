@@ -1598,13 +1598,14 @@ async def upload_shots(
     # a cast that names characters the episode's cast lacks is reported now and refused at the start
     from hfvg.cast_plan import cast_problems
     has_cast = any(p.get("cast") for p in (plans.values() if isinstance(plans, dict) else plans))
+    problems = await asyncio.to_thread(cast_problems, episode_id, json.loads(shots_bytes)) if has_cast else []
     
     return {
         "success": True,
         "episode_id": episode_id,
         "shots_count": shots_count,
         "refs_uploaded": refs_bytes is not None,
-        "cast_problems": cast_problems(episode_id, json.loads(shots_bytes)) if has_cast else [],
+        "cast_problems": problems,
     }
 
 upload_shots.allow_members = True
@@ -6622,7 +6623,7 @@ async def preflight_episode(
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
     # who is in frame (shots' cast): what the run's planning would refuse, from the episode's cast
     from hfvg.cast_plan import cast_problems
-    cast_errors = (cast_problems(episode_id, {"shots": shots})
+    cast_errors = (await asyncio.to_thread(cast_problems, episode_id, {"shots": shots})
                    if any(isinstance(s, dict) and s.get("cast") for s in shots) else [])
     return {
         "episode_id": episode_id,
