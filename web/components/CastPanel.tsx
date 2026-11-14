@@ -198,7 +198,7 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
   const sheetBlock = view.sheet.model_error
     ? `Character sheets cannot be made on this server right now: ${view.sheet.model_error}`
     : !view.sheet.dry_run && !view.sheet.live_mode
-      ? 'Sheet pictures are paid and charged to this video, so switch it to live mode first.'
+      ? 'Sheet pictures are paid and charged to this video, so switch it to live mode first (Enable Live Mode on this page).'
       : null;
 
   useEffect(() => {

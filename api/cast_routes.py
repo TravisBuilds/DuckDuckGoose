@@ -767,8 +767,8 @@ async def _plan_sheet(episode_id: str, character: dict, version: int, request: S
     dry = _dry_run()
     if not dry and not await _live_mode(episode_id):
         raise HTTPException(status_code=409, detail=(
-            f"Paid sheet images are charged to {episode_id}, which is not in live mode yet; start it live first "
-            "(in dry-run mode the studio makes free placeholder sheets)"))
+            f"Paid sheet images are charged to {episode_id}, which is not in live mode yet; enable live mode on "
+            "the episode first (in dry-run mode the studio makes free placeholder sheets)"))
     plan = await _call(plan_jobs, character, version, request.stage, episode_id=episode_id, count=request.count,
                        source=request.source, views=request.views, live=not dry)
     return plan, dry
