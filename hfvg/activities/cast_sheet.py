@@ -101,9 +101,32 @@ async def _ensure_budget_lines(db_path: str, episode_id: str) -> None:
         await budget.init_episode_budget(episode_id)
 
 
+def _mark_stopped(job_id: str, error: Exception) -> None:
+    """A job that stopped without a final status (refused early, unexpected error) is marked so the
+    Cast panel stops waiting; refused / failed / pending_reconcile set on purpose are kept."""
+    with cast_store.connect() as conn:
+        row = conn.execute("SELECT status FROM cast_sheet_jobs WHERE job_id = ?", (job_id,)).fetchone()
+    if row and row[0] in ("queued", "running"):
+        refused = isinstance(error, ApplicationError) and error.non_retryable
+        cast_store.update_sheet_job(job_id, status="refused" if refused else "failed", error=str(error))
+
+
 @activity.defn
 async def generate_cast_sheet_image_activity(job: dict) -> dict:
     """Generate one character sheet image (see the module docstring for the guard order)."""
+    try:
+        return await _generate(job)
+    except Exception as e:
+        job_id = job.get("job_id") if isinstance(job, dict) else None
+        if isinstance(job_id, str):
+            try:
+                _mark_stopped(job_id, e)
+            except Exception as mark_error:  # the original error is the one to report
+                activity.logger.error(f"cast sheet {job_id}: could not record the stop ({mark_error})")
+        raise
+
+
+async def _generate(job: dict) -> dict:
     _validate(job)
     job_id = job["job_id"]
     episode_id = job["episode_id"]
