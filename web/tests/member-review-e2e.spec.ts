@@ -42,6 +42,7 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   // the story comes first
   await expect(page.getByTestId('next-step-title')).toHaveText('Read and approve your story');
   await expect(page.getByTestId('step-story')).toHaveAttribute('data-status', 'current');
+  await expect(page.getByTestId('episode-status')).toHaveText('Story to approve');
   await page.getByTestId('story-approve').click();
   await expect(page.getByTestId('story-approved')).toBeVisible();
 
@@ -88,6 +89,7 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   await page.getByTestId('approve-final').click();
   await expect(page.getByTestId('run-message')).toHaveText('Final cut approved.');
   await expect(page.getByTestId('run-finished')).toHaveText('Finished', { timeout: 120_000 });
+  await expect(page.getByTestId('episode-status')).toHaveText('Finished');
   // the files delivery QC measured are there: the finish card plays the phone version and offers the downloads
   const files: Record<string, { available?: boolean }> =
     (await (await page.request.get(`${API}/api/episodes/${episodeId}/files`)).json()).files;

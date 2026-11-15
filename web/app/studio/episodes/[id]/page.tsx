@@ -6,7 +6,7 @@ import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 import type { ModelView } from '@/lib/model-limits.mjs';
 import type { CastView } from '@/lib/cast.mjs';
-import { nextStep, stepperSteps, storyDone, storyLocked } from '@/lib/next-step.mjs';
+import { nextStep, statusChip, stepperSteps, storyDone, storyLocked } from '@/lib/next-step.mjs';
 import { stageLabel } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
@@ -583,6 +583,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const viewer = ownerKnown && me ? { mine, canAct, ownerName: owner.name } : null;
   const next = state ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer }) : nextStep(null);
   const steps = state ? stepperSteps(state, storyShape, cast, next) : null;
+  // the run's stage stays where it was while a step waits for a decision: the chip says the step instead
+  const headerChip = next.step === 'working' ? { label: stageLabel(state?.stage), tone: 'wait' as const } : statusChip(next);
   const completed = Boolean(state?.run?.ended && state.run.outcome === 'completed');
   const storyIsDone = storyDone(state) || Boolean(storyShape?.approved);
   const storyReadOnly = storyLocked(state) || !canAct;
@@ -596,9 +598,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         <Link href="/studio" className={`${link} text-sm`}>← My videos</Link>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-bold sm:text-3xl">{episodeId}</h1>
-          {state && <span className={`${chip} ${completed ? tones.ok : state.run?.ended ? tones.bad : tones.wait}`}>
-            {completed ? 'Finished' : state.run?.ended ? 'Stopped' : stageLabel(state.stage)}
-          </span>}
+          {state && <span className={`${chip} ${tones[headerChip.tone]}`} data-testid="episode-status">{headerChip.label}</span>}
           {ownerText && <span className="text-sm text-gray-700 dark:text-gray-200" data-testid="episode-owner">{ownerText}</span>}
         </div>
         {story?.story_shape?.logline && (
