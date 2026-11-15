@@ -3453,6 +3453,90 @@ test_mutation 467 "sheet image balance gate spends nothing" \
     "tests/test_cast_sheet_activity.py::test_live_balance_gate_spends_nothing" \
     sed -i 's/^            if not passed:$/            if False:  # MUTATED/'
 
+# 468: the parse activity plans the cast (lock hashes, composite sheets, SQLite) off the worker's event loop
+test_mutation 468 "cast planning runs off the event loop" \
+    "hfvg/activities/workflow_support.py" \
+    "tests/test_cast_event_loop.py::test_the_parse_activity_plans_the_cast_off_the_event_loop" \
+    sed -i 's/^    return await asyncio\.to_thread(_parse_and_plan, beatmap_path, episode_id, require_shot_data)$/    return _parse_and_plan(beatmap_path, episode_id, require_shot_data)  # MUTATED/'
+
+# 469: the G2 reference re-check checks files off the worker's event loop
+test_mutation 469 "ref re-check runs off the event loop" \
+    "hfvg/activities/workflow_support.py" \
+    "tests/test_cast_event_loop.py::test_the_ref_recheck_runs_off_the_event_loop" \
+    sed -i 's/^    return await asyncio\.to_thread(_recheck_refs, episode_id, ref_keys_by_shot)$/    return _recheck_refs(episode_id, ref_keys_by_shot)  # MUTATED/'
+
+# 470: a reference picture is normalized (Pillow) off the event loop before its upload
+test_mutation 470 "reference normalization runs off the event loop" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_cast_event_loop.py::test_a_reference_picture_is_normalized_off_the_event_loop" \
+    sed -i 's/^        upload_path = await asyncio\.to_thread(_normalized_reference, image_path)$/        upload_path = _normalized_reference(image_path)  # MUTATED/'
+
+# 471: only whoever may change an episode (its owner, or anyone while it has none) sees its cast
+test_mutation 471 "another member does not see an episode's cast" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_another_member_cannot_see_the_cast_and_admins_can_change_it" \
+    sed -i 's/^        if owner is None or owner == user_id:$/        if True:  # MUTATED/'
+
+# 472: the episode cast view checks the viewer
+test_mutation 472 "episode cast view needs a viewer" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_another_member_cannot_see_the_cast_and_admins_can_change_it" \
+    sed -i '/^async def get_episode_cast(/,/^get_episode_cast\.allow_members/ s/^    await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)$/    pass  # MUTATED/'
+
+# 473: one character (versions, sheet jobs, audit) checks the viewer before looking the character up
+test_mutation 473 "cast character view needs a viewer" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes" \
+    sed -i '/^async def get_cast_character(/,/^get_cast_character\.allow_members/ s/^    await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)$/    pass  # MUTATED/'
+
+# 474: cast pictures and thumbnails only for whoever may see the cast
+test_mutation 474 "cast image needs a viewer" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_upload_list_view_and_delete" \
+    sed -i 's/^    if library is None or not await _may_see(library, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 475: a series (with its characters) only for whoever may see it
+test_mutation 475 "series view needs a viewer" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes" \
+    sed -i 's/^    if not await _may_see_series(series, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 476: the series list leaves out the series the caller may not see
+test_mutation 476 "series list leaves out hidden series" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes" \
+    sed -i 's/^        if not await _may_see_series(row, user_id, is_admin):$/        if False:  # MUTATED/'
+
+# 477: linking an episode to a series it may not see answers like a missing series
+test_mutation 477 "series link answers 404 for a hidden series" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_needs_the_series_owner" \
+    sed -i '/^        await _require_viewer(("series", request\.series_id), authorization, studio_admin_token,$/,+1d'
+
+# 478: the preflight checks a cast (and names its characters) only for whoever may see it
+test_mutation 478 "preflight cast check only for viewers" \
+    "api/main.py" \
+    "tests/test_cast_api.py::test_the_preflight_checks_a_cast_only_for_those_who_may_see_it" \
+    sed -i 's/^    cast_hidden = has_cast and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)$/    cast_hidden = False  # MUTATED/'
+
+# 479: a series without an owner changes only through an admin
+test_mutation 479 "ownerless series changes only through an admin" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_without_an_owner_changes_only_through_an_admin" \
+    sed -i 's/^    if not is_admin and owner is None:$/    if False:  # MUTATED/'
+
+# 480: nobody owns a series without an owner (no can_edit, not seen without one of its episodes)
+test_mutation 480 "nobody owns an ownerless series" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_without_an_owner_changes_only_through_an_admin" \
+    sed -i 's/^    return owner is not None and owner == user_id$/    return owner is None or owner == user_id  # MUTATED/'
+
+# 481: a series cast seen through an episode, character or image route needs a viewer of the series
+test_mutation 481 "series cast needs a viewer of the series" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes" \
+    sed -i 's/^        return await _may_see_series(await _call(cast_store\.get_series, library\[1\]), user_id, False)$/        return True  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
