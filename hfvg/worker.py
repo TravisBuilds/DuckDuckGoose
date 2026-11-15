@@ -22,6 +22,7 @@ from hfvg.activities.run_lock import (
     release_run_lock,
 )
 from hfvg.activities.studio_generation import verify_episode_files_activity
+from hfvg.activities.balance_check import scheduled_balance_check
 from hfvg.activities.cast_sheet import (
     finish_cast_sheet_jobs_activity,
     generate_cast_sheet_image_activity,
@@ -50,6 +51,7 @@ from hfvg.temporal_converter import temporal_data_converter
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, ReconcilePendingJobsWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 from hfvg.workflows.cast_sheet import CastSheetWorkflow
+from hfvg.workflows.balance_check import BalanceCheckWorkflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -122,6 +124,7 @@ PRODUCTION_ACTIVITIES = [
     generate_cast_sheet_image_activity,
     finish_cast_sheet_jobs_activity,
     reconcile_cast_sheet_job_activity,
+    scheduled_balance_check,
 ]
 
 
@@ -132,6 +135,7 @@ PRODUCTION_WORKFLOWS = [
     PostingWorkflow,
     ReconcilePendingJobsWorkflow,
     CastSheetWorkflow,
+    BalanceCheckWorkflow,
 ]
 
 
@@ -147,6 +151,25 @@ async def setup_schedules(client, task_queue: str) -> bool:
         return False
     await ensure_reconcile_schedule(client, task_queue)
     logger.info(f"Reconcile schedule {RECONCILE_SCHEDULE_ID} ensured")
+    return True
+
+
+async def setup_balance_check_schedule(client, task_queue: str) -> bool:
+    """Create/update the balance check schedule (balance readings, low-balance alerts, provider
+    usage sync). Disabled with BALANCE_CHECK_SCHEDULE_ENABLED=false (the dashboard then says so).
+    A failure is logged and does not stop the worker. Returns True when the schedule was ensured."""
+    from hfvg.balance_monitor import balance_check_schedule_enabled
+    from hfvg.workflows.balance_check import BALANCE_CHECK_SCHEDULE_ID, ensure_balance_check_schedule
+
+    if not balance_check_schedule_enabled():
+        logger.warning("BALANCE_CHECK_SCHEDULE_ENABLED is not true: balance check schedule NOT created")
+        return False
+    try:
+        await ensure_balance_check_schedule(client, task_queue)
+    except Exception as e:  # noqa: BLE001 - episodes keep running without the schedule
+        logger.error(f"Balance check schedule not ensured: {e}")
+        return False
+    logger.info(f"Balance check schedule {BALANCE_CHECK_SCHEDULE_ID} ensured")
     return True
 
 
@@ -173,6 +196,7 @@ async def main():
 
     # Reconciler + stall watchdog run on a Temporal Schedule (RECONCILE_INTERVAL_MINUTES)
     await setup_schedules(client, config.TASK_QUEUE)
+    await setup_balance_check_schedule(client, config.TASK_QUEUE)
 
     logger.info("Worker running. Press Ctrl+C to exit.")
     await worker.run()
