@@ -59,8 +59,8 @@ function NavLinks({ items, path, onNavigate, vertical }: {
   );
 }
 
-function RoleChip({ role }: { role: string }) {
-  return <span className={`${chip} ${role === 'admin' ? tones.todo : tones.wait}`} data-testid="me-role">{roleLabel(role)}</span>;
+function RoleChip({ role, testId }: { role: string; testId?: string }) {
+  return <span className={`${chip} ${role === 'admin' ? tones.todo : tones.wait}`} data-testid={testId}>{roleLabel(role)}</span>;
 }
 
 /**
@@ -123,7 +123,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
             </nav>
             <div className="ml-auto hidden items-center gap-3 md:flex">
               {who && <span className="text-sm text-gray-700 dark:text-gray-200" data-testid="me-name">{who}</span>}
-              {state.me && <RoleChip role={state.me.role} />}
+              {state.me && <RoleChip role={state.me.role} testId="me-role" />}
               <button type="button" onClick={logout}
                 className={`rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700 ${focusRing}`}>
                 Log out

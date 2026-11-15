@@ -112,8 +112,9 @@ export default function NewEpisodePage() {
 
   const fileInput = (label: string, testid: string, src: Source, set: (s: Source) => void, accept: string, rows: number) => (
     <div>
-      <label className="block text-sm font-semibold mb-2">{label}</label>
+      <label htmlFor={`${testid}-file-input`} className="block text-sm font-semibold mb-2">{label}</label>
       <input
+        id={`${testid}-file-input`}
         type="file"
         accept={accept}
         data-testid={`${testid}-file`}
@@ -122,6 +123,7 @@ export default function NewEpisodePage() {
       />
       <textarea
         data-testid={`${testid}-text`}
+        aria-label={`${label}: or paste the content`}
         value={src.text}
         disabled={!!src.file}
         onChange={(e) => { set({ file: null, text: e.target.value }); invalidate(); }}
@@ -134,7 +136,7 @@ export default function NewEpisodePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Link href="/studio" className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-2 inline-block">← Studio</Link>
           <h1 className="text-2xl font-bold">New Episode (Advanced)</h1>
@@ -145,9 +147,9 @@ export default function NewEpisodePage() {
             Looking for the beginner wizard? Try "Make Your Own Video" →
           </Link>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
           <div>
             <label className="block text-sm font-semibold mb-2" htmlFor="episode-id">Episode id</label>
@@ -257,7 +259,7 @@ export default function NewEpisodePage() {
           Start stays disabled until lint and preflight pass for the files just uploaded; the API refuses to start
           an episode whose uploaded shots.json fails validation or preflight in any case.
         </p>
-      </main>
+      </div>
     </div>
   );
 }
