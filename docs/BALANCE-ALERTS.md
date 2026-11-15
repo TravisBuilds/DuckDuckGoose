@@ -29,7 +29,7 @@ Balance checks run:
 ### Stored readings
 
 Every read is stored in `provider_balance_readings` with its time, source (`live`, `derived`,
-`manual`), why it was read (`preflight`, `scheduled`, `on_demand`) and any error, so a failed read
+`manual`), why it was read (`preflight`, `schedule`, `on_demand`) and any error, so a failed read
 is visible instead of looking like an unchanged balance. The master dashboard shows the latest
 readings with their age, the manual entry with the remaining figure, and when the scheduled check
 last ran (a warning when it is overdue by more than twice the interval or disabled). `DRY_RUN`
