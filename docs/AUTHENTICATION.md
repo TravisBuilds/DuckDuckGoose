@@ -105,31 +105,49 @@ episode's row (the first BEATMAP upload, the create wizard's first upload, `POST
   `require_admin_auth`) plus `POST /api/episodes/upload` and `POST /api/episodes` (checked in the
   handler, the id is in the form/body). Routes that only report (`POST /api/episodes/{id}/preflight`)
   set `read_only = True` and are not checked.
-- Reads are unchanged: every member still lists and views every episode.
+- Reads are unchanged: every member still lists and views every episode (a cast has its own read
+  rule, below).
 - A refused write answers `403` with `Episode <id> belongs to another member; only its owner or an
   admin can change it` and changes nothing.
 
 ## Cast library and series ownership
 
-The cast routes (docs/CAST.md) follow the episode rules above, plus one rule for series:
+The cast routes (docs/CAST.md) follow the episode rules above, plus rules for series and for who may
+see a cast:
 
 - Every non-GET route under `/api/episodes/{id}/cast...` is an episode write: the owner check above
   applies (member: own or ownerless episodes; admin: any). That includes the sheet estimate, which
   only the people who may make the sheet need.
 - An episode in a series edits the **series** cast, so those writes also need the series' owner
-  (`series.owner_user_id`, the member who created the series). Admins may change any series. A series
-  created with the admin Bearer token has no owner, and any member may change it. A refused series
-  write answers `403` with `Series <name> belongs to another member; only its owner or an admin can
-  change it`.
+  (`series.owner_user_id`, the member who created the series). Admins may change any series. A refused
+  series write answers `403` with `Series <name> belongs to another member; only its owner or an admin
+  can change it`.
+- A series **without an owner** (`owner_user_id` NULL, empty or `legacy/shared`: a legacy series, or
+  one created with the admin Bearer token) changes only through an admin. A member's write answers
+  `403` with `Series <name> has no owner; only an admin can change it`. Nobody claims such a series
+  by editing it first (that would hand it to whoever comes first), and nothing assigns it an owner
+  later.
 - `POST /api/episodes/{id}/series` with a `series_id` needs the episode's owner and the series'
-  owner. Taking the episode out (`series_id: null`) needs only the episode's owner.
+  owner (an admin for a series without an owner); a series the caller may not see answers `404`
+  like a missing one. Taking the episode out (`series_id: null`) needs only the episode's owner.
 - Deleting a character with a locked sheet needs an admin session (or the admin Bearer token) with
   `force` and a reason. Members get `403`, even on their own episode.
-- Reads (`GET /api/series`, `GET /api/series/{id}`, `GET /api/episodes/{id}/cast...`) are open to
-  every member, like episode reads. The responses say whether the caller may change the cast
-  (`can_edit`).
-- Cast images are only served by `GET /api/cast/images/{image_id}` and `.../thumb`, to signed-in
-  members and admins (`401` otherwise). They are never served as static files. The `UPLOAD_TOKEN`
+- Reads (`GET /api/series`, `GET /api/series/{id}`, `GET /api/episodes/{id}/cast...`, cast images)
+  follow who may see the cast, not the episode read rule. Admins (session or Bearer) see every cast.
+  An episode's own cast is seen by whoever may change the episode: its owner, or every member while it
+  has no owner. A series cast is seen by the series' owner and by whoever may change one of the
+  series' episodes.
+- Everyone else gets the `404` a missing item gets, so a refusal does not tell whether the cast,
+  series, character or image exists: `Series <id> not found`, `Image <id> not found`, or for
+  `GET /api/episodes/{id}/cast...` one message for the cast and its characters. `GET /api/series`
+  leaves out the series the caller may not see. The responses say whether the caller may change the
+  cast (`can_edit`).
+- The preflight (`POST /api/episodes/{id}/preflight`, read-only) checks the shots' cast only for a
+  caller who may see it. Anyone else gets `cast_hidden: true` and no `cast_errors`, which would name
+  the cast's characters.
+- Cast images are only served by `GET /api/cast/images/{image_id}` and `.../thumb`, under the same
+  rule as their cast (`401` without a session, `404` for a member who may not see it, checked before
+  the file is read or a preview made). They are never served as static files. The `UPLOAD_TOKEN`
   reaches no cast route.
 
 ## Route Permission Matrix
@@ -176,13 +194,13 @@ The cast routes (docs/CAST.md) follow the episode rules above, plus one rule for
 - `POST /api/episodes/upload` - Production upload (or via UPLOAD_TOKEN)
 - `POST /api/episodes/upload/validate` - Validate upload (or via UPLOAD_TOKEN)
 - `POST /api/episodes/draft-from-idea` - Generate episode files from plain-language idea (beginner wizard)
-- `GET /api/series`, `POST /api/series`, `GET /api/series/{series_id}` - List, create (owned by the caller) and view series
-- `POST /api/episodes/{id}/series` - Put the episode in a series or take it out (series owner too)
-- `GET /api/episodes/{id}/cast` - The episode's cast, shots and sheet status
+- `GET /api/series`, `POST /api/series`, `GET /api/series/{series_id}` - List the series the caller may see, create (owned by the caller) and view one (`404` when the caller may not see it)
+- `POST /api/episodes/{id}/series` - Put the episode in a series or take it out (series owner too; an admin for a series without an owner)
+- `GET /api/episodes/{id}/cast` - The episode's cast, shots and sheet status (whoever may see the cast)
 - `POST /api/episodes/{id}/cast` - Add a character
 - `POST /api/episodes/{id}/cast/import` - Add the characters a draft wrote (create wizard)
 - `POST /api/episodes/{id}/cast/shots` - Choose who is in each shot
-- `GET /api/episodes/{id}/cast/{character_id}` - One character
+- `GET /api/episodes/{id}/cast/{character_id}` - One character (whoever may see the cast)
 - `POST /api/episodes/{id}/cast/{character_id}` - Edit name, role or description
 - `POST /api/episodes/{id}/cast/{character_id}/delete` - Delete a character (locked: admin with `force`)
 - `POST /api/episodes/{id}/cast/{character_id}/versions` - Add an outfit (version)
@@ -195,7 +213,7 @@ The cast routes (docs/CAST.md) follow the episode rules above, plus one rule for
 - `POST /api/episodes/{id}/cast/{character_id}/versions/{version}/sheet/pick` - Pick the main look
 - `POST /api/episodes/{id}/cast/{character_id}/versions/{version}/sheet/reject` - Clear a step before the lock
 - `POST /api/episodes/{id}/cast/{character_id}/versions/{version}/approve` - Approve and lock the sheet
-- `GET /api/cast/images/{image_id}`, `GET /api/cast/images/{image_id}/thumb` - Cast image and preview (signed in only)
+- `GET /api/cast/images/{image_id}`, `GET /api/cast/images/{image_id}/thumb` - Cast image and preview (whoever may see its cast)
 
 ### Admin-Only Routes
 - `POST /api/episodes/{id}/raise-cap` - Raise credit cap (financial)

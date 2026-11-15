@@ -72,7 +72,7 @@ class UploadCache:
             Cached public_url if it exists and is accessible, None otherwise
         """
         # Compute SHA256 of current file
-        sha256 = self._compute_sha256(file_path)
+        sha256 = await asyncio.to_thread(self._compute_sha256, file_path)
         
         # Look up in cache by sha256+version only (dedupes across different paths)
         async with aiosqlite.connect(self.db_path) as db:
@@ -115,7 +115,7 @@ class UploadCache:
             public_url: Public CDN URL for the uploaded file
         """
         # Compute SHA256 of file
-        sha256 = self._compute_sha256(file_path)
+        sha256 = await asyncio.to_thread(self._compute_sha256, file_path)
         
         # Store in cache with current timestamp (key: sha256+version for deduplication)
         created_at = datetime.now(timezone.utc).isoformat()
@@ -138,7 +138,7 @@ class UploadCache:
         Returns:
             (claimed, sha256): If claimed=True, caller should upload. If False, wait and retry get_cached_url.
         """
-        sha256 = self._compute_sha256(file_path)
+        sha256 = await asyncio.to_thread(self._compute_sha256, file_path)
         created_at = datetime.now(timezone.utc).isoformat()
         
         # Try to insert a placeholder with special "uploading://" URL (key: sha256+version)

@@ -8,6 +8,7 @@ Implements the documented Higgsfield API:
 - Deterministic idempotency keys covering all request params
 """
 
+import asyncio
 import os
 import json
 import logging
@@ -43,6 +44,14 @@ def response_headers(response: httpx.Response) -> dict[str, str]:
     except (AttributeError, TypeError):  # test doubles without real headers
         return {}
     return {k: v for k, v in items if k.lower() not in _HIDDEN_HEADERS}
+
+
+def _normalized_reference(image_path: str | Path) -> Path:
+    """The reference image as uploaded: converted to JPEG, downscaled and compressed, regardless of
+    its source format. Blocking (Pillow and files): upload_reference runs it in a thread."""
+    from hfvg.image_normalize import normalize_reference_image
+    normalized_path, original_sha = normalize_reference_image(Path(image_path))
+    return normalized_path
 
 
 def _is_http_error(response: httpx.Response) -> bool:
@@ -145,14 +154,8 @@ class HiggsfieldStillProvider(GenerationProvider):
         """
         import mimetypes
         from hfvg.upload_cache import UploadCache
-        from hfvg.image_normalize import normalize_reference_image
-        
-        # Normalize image first (convert to JPEG, downscale, compress)
-        # This ensures we upload optimized images regardless of source format
-        normalized_path, original_sha = normalize_reference_image(Path(image_path))
-        
-        # Use normalized path for upload
-        upload_path = normalized_path
+
+        upload_path = await asyncio.to_thread(_normalized_reference, image_path)
         
         # Initialize cache
         cache = UploadCache()
@@ -198,8 +201,7 @@ class HiggsfieldStillProvider(GenerationProvider):
         upload_headers = data["upload_headers"]
         
         # Upload normalized file with exact headers from API (includes x-amz-tagging)
-        with open(upload_path, "rb") as f:
-            image_bytes = f.read()
+        image_bytes = await asyncio.to_thread(Path(upload_path).read_bytes)
         
         # Use a plain httpx client for the PUT (no auth, just upload_headers)
         async with httpx.AsyncClient() as plain_client:
