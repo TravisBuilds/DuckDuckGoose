@@ -1,220 +1,233 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMe } from '@/components/StudioShell';
+import { getPresetById } from '@/lib/presets';
+import { ApiError, API_URL, apiFetch } from '@/lib/studio-api';
+import { formatLocalDate } from '@/lib/time';
+import { ownerLabel } from '@/lib/labels';
+import { nextStep, statusChip } from '@/lib/next-step.mjs';
+import type { RunStateLike, StoryLike } from '@/lib/next-step.mjs';
+import { btnPrimary, card, chip, focusRing, link, tones, type Tone } from '@/lib/ui';
 
-export default function StudioHomePage() {
-  const [apiHealth, setApiHealth] = useState<any>(null);
-  const [episodes, setEpisodes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+interface Episode {
+  episode_id: string;
+  live_mode: boolean;
+  g108_approved: boolean;
+  created_at: string | null;
+  user_id: string | null;
+  owner_name: string | null;
+}
+
+interface Summary {
+  label: string;
+  tone: Tone;
+  logline: string | null;
+  style: string | null;
+}
+
+interface Health {
+  status?: string;
+  temporal?: boolean;
+}
+
+type EpisodeState = RunStateLike & { archetype_id?: string | null };
+type StoryShape = StoryLike & { story_shape?: { logline?: string } | null };
+
+/** Each status chip costs a run-state read, so only the first cards get one. */
+const STATUS_LIMIT = 20;
+const PARALLEL_READS = 4;
+
+async function loadSummary(id: string): Promise<Summary> {
+  let state: EpisodeState;
+  try {
+    state = await apiFetch<EpisodeState>(`/api/episodes/${id}`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { label: 'Not started', tone: 'wait', logline: null, style: null };
+    throw e;
+  }
+  // the run state carries no story outline: read it for the logline and the story step
+  const story = await apiFetch<StoryShape>(`/api/episodes/${id}/story-shape`).catch(() => null);
+  const { label, tone } = statusChip(nextStep(state, story));
+  return {
+    label,
+    tone,
+    logline: story?.story_shape?.logline || null,
+    style: state.archetype_id ? getPresetById(state.archetype_id)?.name ?? null : null,
+  };
+}
+
+function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
+  episode: Episode; summary: Summary | null | undefined; myUserId: string | null; isAdmin: boolean;
+}) {
+  const date = formatLocalDate(episode.created_at);
+  const owner = ownerLabel(episode.user_id, episode.owner_name, myUserId);
+  return (
+    <li>
+      <Link href={`/studio/episodes/${episode.episode_id}`} prefetch={false} data-testid={`episode-card-${episode.episode_id}`}
+        className={`block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-blue-400 hover:bg-blue-50/40 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 ${focusRing}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-gray-900 dark:text-white">
+            <span className="font-mono">{episode.episode_id}</span>
+            {summary?.style && <span className="font-normal text-gray-700 dark:text-gray-200"> · {summary.style}</span>}
+          </h3>
+          {summary && <span className={`${chip} ${tones[summary.tone]}`} data-testid={`episode-status-${episode.episode_id}`}>{summary.label}</span>}
+        </div>
+        {summary?.logline && <p className="mt-1 line-clamp-2 text-sm text-gray-700 dark:text-gray-200">{summary.logline}</p>}
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
+          <span data-testid={`episode-owner-${episode.episode_id}`}>{owner === 'You' ? 'By you' : `By ${owner}`}</span>
+          {date && <span>{date}</span>}
+          {episode.live_mode && <span className={`${chip} ${tones.warn}`}>Live mode</span>}
+          {isAdmin && episode.g108_approved && <span className={`${chip} ${tones.ok}`}>G1.08 approved</span>}
+        </p>
+      </Link>
+    </li>
+  );
+}
+
+function SystemDetails() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
-    checkAPIHealth();
-    fetchEpisodes();
+    apiFetch<Health>('/api/health').then(setHealth).catch((e) => setProblem(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  const checkAPIHealth = async () => {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      
-      const response = await fetch(`${apiUrl}/api/health`, {
-        credentials: 'include',
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        router.push('/login?from=/studio');
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error('API health check failed');
-      }
-
-      const data = await response.json();
-      setApiHealth(data);
-    } catch (error) {
-      console.error('API health check failed:', error);
-      setApiHealth({ status: 'error', error: String(error) });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchEpisodes = async () => {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      
-      const response = await fetch(`${apiUrl}/api/episodes`, {
-        credentials: 'include',
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        router.push('/login?from=/studio');
-        return;
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-        setEpisodes(data.episodes || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch episodes:', error);
-    }
-  };
-
-  const handleLogout = async () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    await fetch(`${apiUrl}/api/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-    router.push('/');
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black dark:border-white mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading studio...</p>
-        </div>
+  const ok = health?.status === 'ok';
+  return (
+    <details className={`${card} mt-8`} data-testid="system-details">
+      <summary className={`cursor-pointer rounded text-sm font-semibold ${focusRing}`}>System</summary>
+      <div className="mt-3 space-y-1 text-sm text-gray-700 dark:text-gray-200">
+        <p>API: {ok ? 'Connected' : problem ? `Disconnected (${problem})` : health ? 'Disconnected' : 'Checking…'}</p>
+        <p>Temporal: {health?.temporal ? 'Connected' : 'Disconnected'}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-300">API URL: {API_URL}</p>
       </div>
-    );
-  }
+      <h3 className="mt-4 text-sm font-semibold">Production safety</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-200">
+        <li>Dry-run is the default mode: no charges until an episode is switched to live mode.</li>
+        <li>Live mode requires G1.08 credit plan approval before any paid generation.</li>
+        <li>Budget stops automatically at 80% of each line&apos;s cap.</li>
+        <li>All gates are fail-closed: missing judge keys escalate to manual review.</li>
+        <li>Episode data (beatmaps, continuity) is uploaded, never committed to the public repo.</li>
+      </ul>
+    </details>
+  );
+}
+
+export default function StudioHomePage() {
+  const { me, isAdmin, loading: meLoading } = useMe();
+  const [episodes, setEpisodes] = useState<Episode[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [chosenScope, setChosenScope] = useState<'mine' | 'everyone' | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, Summary | null>>({});
+  const requested = useRef(new Set<string>());
+
+  useEffect(() => {
+    apiFetch<{ episodes: Episode[] }>('/api/episodes')
+      .then((data) => setEpisodes(data.episodes ?? []))
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 401) {
+          window.location.assign('/login?from=/studio');
+          return;
+        }
+        setError(e instanceof ApiError ? e.message : 'The studio could not be reached. Check your connection and reload.');
+      });
+  }, []);
+
+  // admins look after everyone's videos; members start with their own
+  const scope = chosenScope ?? (isAdmin ? 'everyone' : 'mine');
+  const myUserId = me?.user_id ?? null;
+  const shown = useMemo(
+    () => (episodes ?? []).filter((ep) => scope === 'everyone' || (myUserId !== null && ep.user_id === myUserId)),
+    [episodes, scope, myUserId],
+  );
+
+  useEffect(() => {
+    const todo = shown.slice(0, STATUS_LIMIT).map((ep) => ep.episode_id).filter((id) => !requested.current.has(id));
+    if (todo.length === 0) return;
+    todo.forEach((id) => requested.current.add(id));
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const id = todo[next++];
+        const summary = await loadSummary(id).catch(() => null);
+        setSummaries((prev) => ({ ...prev, [id]: summary }));
+      }
+    };
+    Array.from({ length: Math.min(PARALLEL_READS, todo.length) }, worker);
+  }, [shown]);
+
+  const loading = episodes === null && !error;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold">Studio Console</h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                DuckDuckGoose Production Pipeline
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link
-                href="/studio/users"
-                className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
-              >
-                Users
-              </Link>
-              <Link
-                href="/"
-                className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
-              >
-                Public Site
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="text-sm px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                Log out
-              </button>
-            </div>
-          </div>
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My videos</h1>
+          <p className="mt-1 text-gray-700 dark:text-gray-200">
+            Describe an idea, approve each step, then download your video.
+          </p>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-            <h2 className="text-lg font-semibold mb-2">API Status</h2>
-            {apiHealth?.status === 'ok' ? (
-              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <div className="w-2 h-2 bg-green-600 dark:bg-green-400 rounded-full"></div>
-                <span>Connected</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                <div className="w-2 h-2 bg-red-600 dark:bg-red-400 rounded-full"></div>
-                <span>Disconnected</span>
-              </div>
-            )}
-            <div className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-              <div>Temporal: {apiHealth?.temporal ? 'Connected' : 'Disconnected'}</div>
-              <div className="text-xs">
-                API URL: {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-            <h2 className="text-lg font-semibold mb-2">Quick Actions</h2>
-            <div className="space-y-2">
-              <Link
-                href="/studio/create"
-                className="block px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-center font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
-                data-testid="make-video-link"
-              >
-                Make Your Own Video
-              </Link>
-              <Link
-                href="/studio/episodes/new"
-                className="block px-4 py-2 border-2 border-gray-300 dark:border-gray-700 rounded-lg text-center font-semibold hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                Advanced Upload
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold mb-4">Recent Episodes</h2>
-          {episodes.length === 0 ? (
-            <div className="text-sm text-gray-600 dark:text-gray-400">
-              <p>No episodes found. Start a new episode to begin production.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {episodes.map((ep) => (
-                <Link
-                  key={ep.episode_id}
-                  href={`/studio/episodes/${ep.episode_id}`}
-                  className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium">{ep.episode_id}</h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(ep.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {ep.live_mode && (
-                        <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded">
-                          LIVE
-                        </span>
-                      )}
-                      {ep.g108_approved && (
-                        <span className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded">
-                          G1.08 ✓
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
+        <div className="flex flex-col items-end gap-2">
+          <Link href="/studio/create" prefetch={false} data-testid="make-video-link" className={btnPrimary}>
+            Make a new video
+          </Link>
+          {isAdmin && (
+            <Link href="/studio/episodes/new" prefetch={false} className={`text-sm ${link}`} data-testid="advanced-upload-link">
+              Advanced upload
+            </Link>
           )}
         </div>
+      </div>
 
-        <div className="mt-8 p-6 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-          <h3 className="font-semibold text-yellow-900 dark:text-yellow-200 mb-2">
-            ⚠️ Production Safety
-          </h3>
-          <ul className="text-sm text-yellow-800 dark:text-yellow-300 space-y-1">
-            <li>• Dry-run is the default mode - no charges until you switch to live mode</li>
-            <li>• Live mode requires G1.08 credit plan approval before any paid generation</li>
-            <li>• Budget stops automatically at 80% of each line's cap</li>
-            <li>• All gates are fail-closed: missing judge keys escalate to manual review</li>
-            <li>• Episode data (beatmaps, continuity) must be uploaded - never committed to public repo</li>
-          </ul>
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          {scope === 'mine' ? 'Videos you made' : 'Everyone’s videos'}
+        </h2>
+        <div role="group" aria-label="Show videos" className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-600 dark:bg-gray-800">
+          {(['mine', 'everyone'] as const).map((value) => (
+            <button key={value} type="button" aria-pressed={scope === value} onClick={() => setChosenScope(value)}
+              data-testid={`scope-${value}`}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${focusRing} ${
+                scope === value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700'
+              }`}>
+              {value === 'mine' ? 'Mine' : 'Everyone'}
+            </button>
+          ))}
         </div>
-      </main>
+      </div>
+
+      {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
+      {(loading || meLoading) && !error && <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">Loading your videos…</p>}
+
+      {!loading && !meLoading && !error && shown.length === 0 && (
+        <div className={`${card} mt-4 text-center`} data-testid="episodes-empty">
+          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+            {scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}
+          </p>
+          <p className="mt-1 text-gray-700 dark:text-gray-200">
+            Pick a style, describe your idea in a few sentences, and the studio drafts the story and the shots for you.
+          </p>
+          <Link href="/studio/create" prefetch={false} className={`${btnPrimary} mt-4`}>Make your first video</Link>
+          {scope === 'mine' && (episodes ?? []).length > 0 && (
+            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+              Other people&apos;s videos are under{' '}
+              <button type="button" className={link} onClick={() => setChosenScope('everyone')}>Everyone</button>.
+            </p>
+          )}
+        </div>
+      )}
+
+      {shown.length > 0 && (
+        <ul className="mt-4 space-y-3" data-testid="episode-list">
+          {shown.map((ep) => (
+            <EpisodeCard key={ep.episode_id} episode={ep} summary={summaries[ep.episode_id]} myUserId={myUserId} isAdmin={isAdmin} />
+          ))}
+        </ul>
+      )}
+
+      {isAdmin && <SystemDetails />}
     </div>
   );
 }
