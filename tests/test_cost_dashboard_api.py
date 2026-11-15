@@ -79,6 +79,35 @@ async def test_dashboard_carries_cost_truth_balances_and_alerts(api, people):
     assert "alerts_unconfigured" in {w["code"] for w in body["cost_warnings"]}
 
 
+async def test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a_backfill(api, people):
+    await _job("clip-1", "ep01", "L4_video", 400_000, actual=420_000, source=ac.SOURCE_HF_USAGE)
+    await _job("still-1", "ep01", "L2_drafts", 100_000)
+    await BudgetLedger(_db()).record_job("ep02", "clip-2", "A01", "model-x", "draft", "L4_video", 300_000,
+                                         user_id="admin")
+
+    def agreed():
+        body = _admin(api).get("/api/dashboard").json()
+        truth, summary = body["cost_truth"], body["spend_summary"]
+        assert (summary["headline_spend_usd_micros"], summary["headline_actual_usd_micros"],
+                summary["headline_coverage_pct"]) == (truth["totals"]["spend_usd_micros"],
+                                                      truth["totals"]["actual_usd_micros"], truth["totals"]["coverage_pct"])
+        assert {k: body["monthly_runrate"][k] for k in truth["monthly"]} == truth["monthly"]
+        return summary, truth
+
+    summary, truth = agreed()
+    assert (summary["headline_spend_usd_micros"], summary["headline_label"]) == (520_000, "actual and estimated")
+    assert truth["in_flight"] == {"jobs": 1, "held_usd_micros": 300_000}
+    assert summary["total_estimated_usd_micros"] == 800_000
+
+    async with aiosqlite.connect(_db()) as db:
+        await db.execute("UPDATE job_ledger SET actual_usd_micros = 90000, actual_source = ?, actual_backfilled = 1 "
+                         "WHERE job_id = 'still-1'", (ac.SOURCE_HF_USAGE,))
+        await db.commit()
+    summary, truth = agreed()
+    assert (summary["headline_spend_usd_micros"], summary["headline_label"]) == (510_000, "actual")
+    assert truth["monthly"]["spend_so_far_usd_micros"] == 510_000
+
+
 async def test_admins_assign_an_episodes_spend_to_a_person(api, people):
     one, _ = people
     client = _admin(api)

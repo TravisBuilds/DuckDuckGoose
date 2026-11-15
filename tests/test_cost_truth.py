@@ -162,6 +162,49 @@ async def test_runrate_counts_committed_spend_without_actuals(people):
     assert (runrate["actual_spend_usd_micros"], runrate["coverage_percent"]) == (0, 0.0)
 
 
+async def test_the_projection_and_the_ledger_run_rate_are_one_number(people):
+    """The page showed one projection and a run-rate card another: two rules. Now one, also after a backfill."""
+    from hfvg.cost_tracking import CostTracker
+    from hfvg.pricing import micros_to_usd_str
+    one, _ = people
+    # SQLite's CURRENT_TIMESTAMP format on the 1st sorts before the ISO month start as a string
+    await _job("still-1", "ep01", "L2_drafts", 16_650_000, created_at="2026-11-01 09:00:00", user_id=one)
+    await _job("clip-1", "ep01", "L4_video", 1_000_000, actual=1_200_000, source=ac.SOURCE_HF_USAGE,
+               created_at="2026-11-05T10:00:00+00:00")
+    await _job("clip-2", "ep02", "L4_video", 400_000, status="reserved", created_at="2026-11-14T10:00:00+00:00")
+    await _job("clip-3", "ep02", "L4_video", 350_000, status="reserved", actual=300_000, source=ac.SOURCE_HF_USAGE,
+               created_at="2026-11-14 11:00:00", user_id=one)
+    await _job("clip-4", "ep02", "L4_video", 500_000, status="released", actual=0, source="failed")
+    await _job("clip-0", "ep00", "L4_video", 2_000_000, created_at="2026-10-30T10:00:00+00:00")
+
+    async def both():
+        return await cr.build_cost_truth(_db(), NOW), await CostTracker(_db()).get_monthly_runrate(now=NOW)
+
+    truth, runrate = await both()
+    monthly = truth["monthly"]
+    # committed jobs at their best number plus the charge already reported for a job in flight; holds
+    # are not spend, the released job costs nothing, and October is last month
+    assert (monthly["spend_so_far_usd_micros"], monthly["actual_so_far_usd_micros"]) == (18_150_000, 1_500_000)
+    assert monthly["projected_month_end_usd_micros"] == int(18_150_000 / 14.5 * 30)
+    assert {k: runrate[k] for k in monthly} == monthly
+    assert (runrate["current_spend_usd_micros"], runrate["actual_spend_usd_micros"], runrate["coverage_percent"]) == \
+        (18_150_000, 1_500_000, monthly["coverage_pct"])
+    assert runrate["projected_month_end_usd"] == micros_to_usd_str(monthly["projected_month_end_usd_micros"])
+    assert truth["totals"]["spend_usd_micros"] == 19_850_000
+    assert truth["in_flight"] == {"jobs": 2, "held_usd_micros": 750_000}
+
+    async with aiosqlite.connect(_db()) as db:
+        await db.execute("UPDATE job_ledger SET actual_usd_micros = 15000000, actual_source = ?, actual_backfilled = 1 "
+                         "WHERE job_id = 'still-1'", (ac.SOURCE_HF_USAGE,))
+        await db.commit()
+    truth, runrate = await both()
+    assert (truth["monthly"]["spend_so_far_usd_micros"], truth["monthly"]["coverage_pct"]) == (16_500_000, 100.0)
+    assert {k: runrate[k] for k in truth["monthly"]} == truth["monthly"]
+
+    mine = await CostTracker(_db()).get_monthly_runrate(user_id=one, now=NOW)
+    assert (mine["current_spend_usd_micros"], mine["actual_spend_usd_micros"]) == (15_300_000, 15_300_000)
+
+
 # ------------------------------------------------------------------ spend by person
 
 @pytest.mark.parametrize("user_id,expected", [

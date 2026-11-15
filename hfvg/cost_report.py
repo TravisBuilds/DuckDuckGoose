@@ -3,7 +3,8 @@
 Spend of a job is its best number: the provider-reported charge where one is recorded (actual),
 else what the dollar guard committed (an estimate). Committed jobs count; jobs still holding a
 reservation are reported separately as in flight; released jobs cost nothing. Coverage is the share
-of spend dollars that are provider-reported.
+of spend dollars that are provider-reported. There is one month-end projection (month_spend,
+monthly_projection): the cost truth's and the ledger run-rate's are the same numbers.
 
 "Actual vs estimate" compares only jobs that have both numbers, so a job without an actual never
 reads as an exact estimate.
@@ -113,6 +114,29 @@ def _ts(value: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+IN_FLIGHT = ("reserved", "pending_reconcile")
+
+
+def month_spend(job: dict[str, Any]) -> tuple[int, int | None] | None:
+    """What a job adds to the month's spend so far, as (spend, actual or None); None when nothing.
+
+    A committed job adds its best number. A job still in flight adds only a charge its provider has
+    already reported: its hold is not spend until it is committed. A released job costs nothing.
+    The dashboard's projection and the ledger run-rate (CostTracker.get_monthly_runrate) both use this.
+    """
+    actual = job["actual_usd_micros"]
+    if job["status"] == "committed":
+        return (actual if actual is not None else job["usd_micros"] or 0), actual
+    if job["status"] in IN_FLIGHT and actual is not None:
+        return actual, actual
+    return None
+
+
+PROJECTION_BASIS = ("committed spend so far this month (provider-reported where recorded, the guard's "
+                    "estimates for the rest, plus charges already reported for jobs in flight; holds are "
+                    "not spend) divided by the days elapsed, times the days in the month")
+
+
 def monthly_projection(spend_by_time: list[tuple[datetime, int, int | None]], now: datetime) -> dict[str, Any]:
     """Month-end projection from this month's spend so far: (time, spend, actual or None) per job."""
     start, end = _month_bounds(now)
@@ -131,9 +155,52 @@ def monthly_projection(spend_by_time: list[tuple[datetime, int, int | None]], no
         "coverage_pct": pct(actual, spend),
         "daily_rate_usd_micros": int(daily),
         "projected_month_end_usd_micros": int(daily * days_in_month) if spend else 0,
-        "basis": "spend so far this month (provider-reported where recorded, estimates for the rest) "
-                 "divided by the days elapsed, times the days in the month",
+        "basis": PROJECTION_BASIS,
     }
+
+
+def _month_timeline(jobs: list[dict[str, Any]]) -> list[tuple[datetime, int, int | None]]:
+    timeline = []
+    for job in jobs:
+        counted, created = month_spend(job), _ts(job["created_at"])
+        if counted is not None and created is not None:
+            timeline.append((created, *counted))
+    return timeline
+
+
+async def month_projection_from_db(db_path: str, now: datetime, user_id: str | None = None) -> dict[str, Any]:
+    """monthly_projection over the job ledger (optionally one owner's jobs), by the month_spend rule."""
+    async with aiosqlite.connect(db_path, uri=True) as db:
+        if not await _table_exists(db, "job_ledger"):
+            return monthly_projection([], now)
+        query = "SELECT status, usd_micros, actual_usd_micros, created_at FROM job_ledger WHERE status != 'released'"
+        params: tuple[str, ...] = ()
+        if user_id:
+            query, params = query + " AND user_id = ?", (user_id,)
+        async with db.execute(query, params) as cur:
+            jobs = [{"status": s, "usd_micros": u, "actual_usd_micros": a, "created_at": c}
+                    async for s, u, a, c in cur]
+    return monthly_projection(_month_timeline(jobs), now)
+
+
+def spend_headline(jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    """The headline spend (dashboard card, spend_summary, CSV and JSON exports): committed jobs at their
+    best number, with how much of it is provider-reported."""
+    spend = actual = with_actual = committed = 0
+    for job in jobs:
+        if job["status"] != "committed":
+            continue
+        committed += 1
+        if job["actual_usd_micros"] is not None:
+            actual += job["actual_usd_micros"]
+            with_actual += 1
+            spend += job["actual_usd_micros"]
+        else:
+            spend += job["usd_micros"] or 0
+    label = "estimated" if not with_actual else ("actual" if with_actual == committed else "actual and estimated")
+    return {"spend_usd_micros": spend, "actual_usd_micros": actual, "coverage_pct": pct(actual, spend),
+            "label": label, "basis": "committed jobs: provider-reported charges where recorded, the guard's "
+                                     "committed estimates for the rest"}
 
 
 def episode_delivery(episode_id: str, root: Path | None = None) -> dict[str, Any]:
@@ -262,13 +329,12 @@ async def build_cost_truth(db_path: str, now: datetime | None = None,
     person_sources: dict[str, set[str]] = defaultdict(set)
     episode_people: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     by_source: dict[str, int] = defaultdict(int)
-    timeline: list[tuple[datetime, int, int | None]] = []
     daily: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     unattributed_reasons: dict[str, int] = defaultdict(int)
 
     for job in jobs:
         status = job["status"]
-        if status in ("reserved", "pending_reconcile"):
+        if status in IN_FLIGHT:
             in_flight["jobs"] += 1
             in_flight["held_usd_micros"] += job["usd_micros"] or 0
             continue
@@ -290,7 +356,6 @@ async def build_cost_truth(db_path: str, now: datetime | None = None,
         by_source[job["actual_source"] or "estimate_only"] += spend
         created = _ts(job["created_at"])
         if created is not None:
-            timeline.append((created, spend, job["actual_usd_micros"]))
             day = daily[created.date().isoformat()]
             day[0] += spend
             day[1] += job["actual_usd_micros"] or 0
@@ -360,7 +425,7 @@ async def build_cost_truth(db_path: str, now: datetime | None = None,
         "by_person": people_out,
         "unattributed_usd_micros": dict(unattributed_reasons),
         "per_finished": per_finished,
-        "monthly": monthly_projection(timeline, now),
+        "monthly": monthly_projection(_month_timeline(jobs), now),
         "daily": [{"date": d, "spend_usd_micros": daily[d][0], "actual_usd_micros": daily[d][1]} for d in days],
         "provider_reported": provider_reported,
         "rates": _rates(),

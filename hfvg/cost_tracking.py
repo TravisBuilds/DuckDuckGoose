@@ -267,63 +267,30 @@ class CostTracker:
 
     async def get_monthly_runrate(
         self,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        now: Optional[datetime] = None,
     ) -> dict:
         """
         Calculate monthly spend run-rate projection (informational only).
 
-        Spend so far is the best number each job has: the provider-reported charge where one is
-        recorded, the committed (or still held) estimate otherwise; released jobs cost nothing.
-        coverage_percent says how much of it is provider-reported.
+        The dashboard's one month-end projection (hfvg.cost_report.month_spend): committed jobs at
+        their best number plus charges already reported for jobs in flight, over the days elapsed.
+        The cost truth's ``monthly`` keys come with the legacy ones; for the same ``now`` both are the
+        cost truth's numbers.
         """
-        now = datetime.now(timezone.utc)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        days_elapsed = (now - month_start).days + 1
-        
-        # Days in current month
-        if now.month == 12:
-            month_end = now.replace(year=now.year + 1, month=1, day=1)
-        else:
-            month_end = now.replace(month=now.month + 1, day=1)
-        days_in_month = (month_end - month_start).days
-        
-        async with aiosqlite.connect(self.db_path, uri=True) as db:
-            query = """
-                SELECT COALESCE(SUM(COALESCE(actual_usd_micros, usd_micros)), 0),
-                       COALESCE(SUM(actual_usd_micros), 0)
-                FROM job_ledger
-                WHERE created_at >= ? AND created_at < ?
-                  AND status != 'released'
-            """
-            params = [month_start.isoformat(), month_end.isoformat()]
-            
-            if user_id:
-                query += " AND user_id = ?"
-                params.append(user_id)
-            
-            async with db.execute(query, tuple(params)) as cursor:
-                current_spend, actual_spend = await cursor.fetchone()
-        
-        if days_elapsed == 0:
-            daily_rate = 0
-            projected = current_spend
-        else:
-            daily_rate = current_spend / days_elapsed
-            projected = int(daily_rate * days_in_month)
-        
+        from hfvg.cost_report import month_projection_from_db
+
+        monthly = await month_projection_from_db(self.db_path, now or datetime.now(timezone.utc), user_id)
+        spend, daily, projected = (monthly["spend_so_far_usd_micros"], monthly["daily_rate_usd_micros"],
+                                   monthly["projected_month_end_usd_micros"])
         return {
-            "month": month_start.strftime("%Y-%m"),
-            "days_elapsed": days_elapsed,
-            "days_in_month": days_in_month,
-            "current_spend_usd_micros": current_spend,
-            "current_spend_usd": micros_to_usd_str(current_spend),
-            "daily_rate_usd_micros": int(daily_rate),
-            "daily_rate_usd": micros_to_usd_str(int(daily_rate)),
-            "projected_month_end_usd_micros": projected,
+            **monthly,
+            "current_spend_usd_micros": spend,
+            "current_spend_usd": micros_to_usd_str(spend),
+            "daily_rate_usd": micros_to_usd_str(daily),
             "projected_month_end_usd": micros_to_usd_str(projected),
-            "actual_spend_usd_micros": actual_spend,
-            "coverage_percent": round(actual_spend / current_spend * 100, 1) if current_spend else None,
-            "basis": "provider-reported charges where recorded, estimates for the rest",
+            "actual_spend_usd_micros": monthly["actual_so_far_usd_micros"],
+            "coverage_percent": monthly["coverage_pct"],
         }
 
     async def check_spend_milestones(

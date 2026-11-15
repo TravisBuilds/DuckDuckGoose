@@ -3074,8 +3074,8 @@ async def get_dashboard(
                 "actual_usd": micros_to_usd_str(data["actual"]),
             })
         
-        # Get monthly run-rate projections
-        org_runrate = await cost_tracker.get_monthly_runrate()
+        # The one month-end projection: the same numbers as cost_truth["monthly"] for this `now`
+        org_runrate = await cost_tracker.get_monthly_runrate(now=now)
         
         # Get recent spend milestones
         milestones = await cost_tracker.get_recent_milestones(limit=10)
@@ -3093,7 +3093,7 @@ async def get_dashboard(
         # of the dashboard readable and is shown as a warning.
         from hfvg.balance_monitor import balance_overview
         from hfvg.balance_notifier import alert_config_status, recent_alerts
-        from hfvg.cost_report import build_cost_truth, cost_warnings
+        from hfvg.cost_report import build_cost_truth, cost_warnings, spend_headline
         cost_truth = balances = None
         problems = []
         try:
@@ -3115,16 +3115,14 @@ async def get_dashboard(
                              "message": f"Alert history could not be read: {type(e).__name__}: {e}"})
         cost_warning_list = problems + cost_warnings(cost_truth, alerts_status, balances)
 
-        # When actual coverage is 0%, show estimated as headline
+        # The headline is the page's "Spend" card (and what the exports carry): committed jobs at their
+        # best number, whether or not actuals were backfilled; the totals below are the ledger's sums.
+        headline = spend_headline(jobs)
         if jobs_with_actual == 0:
-            headline_spend = total_estimated
-            headline_label = "estimated"
             display_actual = None
             display_variance = None
             display_variance_pct = None
         else:
-            headline_spend = total_actual
-            headline_label = "actual"
             display_actual = total_actual
             display_variance = total_actual - total_estimated
             display_variance_pct = (display_variance / total_estimated * 100) if total_estimated > 0 else 0
@@ -3142,9 +3140,12 @@ async def get_dashboard(
             },
             
             "spend_summary": {
-                "headline_spend_usd_micros": headline_spend,
-                "headline_spend_usd": micros_to_usd_str(headline_spend),
-                "headline_label": headline_label,
+                "headline_spend_usd_micros": headline["spend_usd_micros"],
+                "headline_spend_usd": micros_to_usd_str(headline["spend_usd_micros"]),
+                "headline_label": headline["label"],
+                "headline_actual_usd_micros": headline["actual_usd_micros"],
+                "headline_coverage_pct": headline["coverage_pct"],
+                "headline_basis": headline["basis"],
                 "total_estimated_usd_micros": total_estimated,
                 "total_actual_usd_micros": display_actual,
                 "total_estimated_usd": micros_to_usd_str(total_estimated),
