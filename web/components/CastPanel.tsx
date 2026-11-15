@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import {
   PICTURE_ACCEPT,
@@ -33,22 +33,37 @@ import type {
   SeriesInfo,
   SheetEstimate,
 } from '@/lib/cast.mjs';
+import { card, focusRing, input as field } from '@/lib/ui';
+import { ConfirmButton } from './ConfirmButton';
 
 /**
  * The episode's cast: who is in the video, their pictures and locked character sheets, and who is
  * in each shot. Every action is an API route (api/cast_routes.py), which stays the authority: a
  * refused action shows the API's reason. Paid sheet pictures show their estimate first and are made
  * only for the amount the creator approved (the worker checks the estimate, balance and caps again).
+ * The result of an action shows next to it: in the character's card (by the picture upload, the sheet
+ * or the outfit when those are on screen), by the add form, the shots or the series.
  */
 
-const card = 'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6';
-const btn = 'px-3 py-1.5 rounded text-sm font-semibold disabled:opacity-50';
+const btn = `px-3 py-1.5 rounded text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 const plainBtn = `${btn} border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700`;
 const darkBtn = `${btn} bg-black dark:bg-white text-white dark:text-black`;
-const field = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm';
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
-type Act = <T>(fn: () => Promise<T>, done?: string) => Promise<T | null>;
+/** Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series". */
+type Act = <T>(fn: () => Promise<T>, done?: string, where?: string) => Promise<T | null>;
+type CastNote = { tone: 'ok' | 'problem'; text: string; where: string };
+
+/** The one visible result line (data-testid="cast-message"); the panel's live region announces it. */
+function CastMessage({ note }: { note: CastNote | null | undefined }) {
+  if (!note) return null;
+  return (
+    <p data-testid="cast-message" data-tone={note.tone}
+      className={`my-3 p-3 rounded text-sm ${note.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+      {note.text}
+    </p>
+  );
+}
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
@@ -61,12 +76,12 @@ function megabytes(bytes: number): number {
 function Thumb({ image, label }: { image: CastImage; label?: string }) {
   const text = label ?? PICTURE_LABELS[image.role] ?? image.role;
   return (
-    <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" className="block" title="Open the full picture">
+    <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" className={`block rounded ${focusRing}`} title="Open the full picture">
       <img
         src={`${API_URL}${image.thumb_url}`}
         alt={text}
         loading="lazy"
-        className="w-28 h-28 object-cover rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900"
+        className="w-36 h-36 object-cover rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900"
       />
     </a>
   );
@@ -74,7 +89,7 @@ function Thumb({ image, label }: { image: CastImage; label?: string }) {
 
 function PictureTile({ image, label, children }: { image: CastImage; label?: string; children?: ReactNode }) {
   return (
-    <figure className="w-28" data-testid={`cast-image-${image.image_id}`}>
+    <figure className="w-36" data-testid={`cast-image-${image.image_id}`}>
       <Thumb image={image} label={label} />
       <figcaption className="mt-1 text-xs text-gray-600 dark:text-gray-400">
         {label ?? PICTURE_LABELS[image.role] ?? image.role}
@@ -85,8 +100,9 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   );
 }
 
-function PictureUpload({ episodeId, character, version, view, busy, act }: {
+function PictureUpload({ episodeId, character, version, view, busy, act, note }: {
   episodeId: string; character: CastCharacter; version: CastVersion; view: CastView; busy: boolean; act: Act;
+  note: CastNote | null;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
@@ -105,6 +121,7 @@ function PictureUpload({ episodeId, character, version, view, busy, act }: {
       () => apiFetch(`/api/episodes/${episodeId}/cast/${character.character_id}/versions/${version.version}/images`,
         { method: 'POST', body: form }),
       `Picture of ${character.name} added.`,
+      `${character.slug}:upload`,
     );
     if (done !== null) {
       setFile(null);
@@ -116,7 +133,7 @@ function PictureUpload({ episodeId, character, version, view, busy, act }: {
   return (
     <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40" data-testid={`cast-upload-${character.slug}`}>
       <p className="text-sm font-semibold">Add a picture of {character.name}</p>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2" id={`cast-upload-hint-${character.slug}`}>
         PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
         A clear full-body picture on a plain background works best.
       </p>
@@ -125,7 +142,9 @@ function PictureUpload({ episodeId, character, version, view, busy, act }: {
         type="file"
         accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="text-sm"
+        className={`text-sm rounded ${focusRing}`}
+        aria-label={`Picture of ${character.name}`}
+        aria-describedby={`cast-upload-hint-${character.slug}`}
         data-testid={`cast-upload-file-${character.slug}`}
       />
       {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
@@ -168,15 +187,18 @@ function PictureUpload({ episodeId, character, version, view, busy, act }: {
       >
         Upload picture
       </button>
+      <CastMessage note={note} />
     </div>
   );
 }
 
 type SheetRequestBody = { stage: 'options' | 'turnaround'; source?: 'upload' | 'text' | 'auto'; count?: number };
 
-function SheetSection({ episodeId, view, character, version, busy, act }: {
+function SheetSection({ episodeId, view, character, version, busy, act, note }: {
   episodeId: string; view: CastView; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
+  note: CastNote | null;
 }) {
+  const here = `${character.slug}:sheet`;
   const step = sheetStep(version);
   const pictures = versionPictures(version);
   const hasUpload = pictures.uploads.length > 0;
@@ -198,7 +220,7 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
   const sheetBlock = view.sheet.model_error
     ? `Character sheets cannot be made on this server right now: ${view.sheet.model_error}`
     : !view.sheet.dry_run && !view.sheet.live_mode
-      ? 'Sheet pictures are paid and charged to this video, so switch it to live mode first (Enable Live Mode on this page).'
+      ? 'Sheet pictures are paid and charged to this video, so switch it to live mode first (Production details, Live mode, at the bottom of this page).'
       : null;
 
   useEffect(() => {
@@ -227,25 +249,24 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
         approved_total_usd_micros: estimate.result.total_usd_micros,
       }),
       'Started. The pictures show up here when they are ready.',
+      here,
     );
     if (started !== null) setEstimate(null);
   };
 
-  const reject = (stage: 'options' | 'turnaround' | 'all', question: string) => {
-    if (!window.confirm(question)) return;
-    act(() => postJson(`${base}/sheet/reject`, { stage }), 'Cleared. You can make new pictures now.');
-  };
+  const reject = (stage: 'options' | 'turnaround' | 'all') =>
+    act(() => postJson(`${base}/sheet/reject`, { stage }), 'Cleared. You can make new pictures now.', here);
 
-  const pick = (image: CastImage) => {
-    if (pictures.sheet.length > 1 && !window.confirm('Use this look instead? The turnaround made from the old one is cleared.')) return;
-    act(() => postJson(`${base}/sheet/pick`, { image_id: image.image_id }), 'Main look picked.');
-  };
+  const pick = (image: CastImage) =>
+    act(() => postJson(`${base}/sheet/pick`, { image_id: image.image_id }), 'Main look picked.', here);
 
+  // Locking is permanent, so it keeps the browser's own confirmation dialog.
   const approve = () => {
     if (!window.confirm(`Approve and lock this look of ${character.name}? A locked look cannot be changed; a new outfit becomes a new version.`)) return;
     act(
       () => postJson(`${base}/approve`, { allow_placeholder: view.sheet.dry_run && sheetHasPlaceholders(version) }),
       `${character.name}'s look is locked.`,
+      here,
     );
   };
 
@@ -293,10 +314,11 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
             {pictures.options.map((image, i) => (
               <PictureTile key={image.image_id} image={image} label={`Option ${i + 1}`}>
                 {canEdit && (
-                  <button type="button" onClick={() => pick(image)} disabled={busy || step === 'working'}
-                    className={plainBtn} data-testid={`cast-pick-${image.image_id}`}>
+                  <ConfirmButton testId={`cast-pick-${image.image_id}`} disabled={busy || step === 'working'} className={plainBtn}
+                    question={pictures.sheet.length > 1 ? 'Use this look instead? The turnaround made from the old one is cleared.' : null}
+                    confirmLabel="Yes, use it" onConfirm={() => pick(image)}>
                     Use this look
-                  </button>
+                  </ConfirmButton>
                 )}
               </PictureTile>
             ))}
@@ -356,10 +378,10 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
       )}
 
       {canEdit && step === 'pick' && (
-        <button type="button" disabled={busy} className={plainBtn}
-          onClick={() => reject('options', 'Clear these options and make new ones?')}>
+        <ConfirmButton disabled={busy} className={plainBtn} question="Clear these options and make new ones?"
+          confirmLabel="Clear them" onConfirm={() => reject('options')}>
           None of these: make new options
-        </button>
+        </ConfirmButton>
       )}
 
       {canEdit && !sheetBlock && step === 'turnaround' && (
@@ -378,26 +400,29 @@ function SheetSection({ episodeId, view, character, version, busy, act }: {
             data-testid={`cast-approve-${character.slug}`}>
             Approve and lock this look
           </button>
-          <button type="button" disabled={busy} className={plainBtn}
-            onClick={() => reject('turnaround', 'Clear the turnaround and make it again from the same main look?')}>
+          <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Clear it"
+            question="Clear the turnaround and make it again from the same main look?" onConfirm={() => reject('turnaround')}>
             Redo the turnaround
-          </button>
+          </ConfirmButton>
         </div>
       )}
 
       {canEdit && (step === 'turnaround' || step === 'approve') && (
-        <button type="button" disabled={busy} className={`${plainBtn} mt-2`}
-          onClick={() => reject('all', 'Clear the whole sheet (options, main look and turnaround) and start over?')}>
-          Start the sheet over
-        </button>
+        <div className="mt-2">
+          <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Start over"
+            question="Clear the whole sheet (options, main look and turnaround) and start over?" onConfirm={() => reject('all')}>
+            Start the sheet over
+          </ConfirmButton>
+        </div>
       )}
+      <CastMessage note={note} />
     </div>
   );
 }
 
-function NewOutfit({ episodeId, character, version, busy, act, onCreated }: {
+function NewOutfit({ episodeId, character, version, busy, act, onCreated, note }: {
   episodeId: string; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
-  onCreated: (version: number) => void;
+  onCreated: (version: number) => void; note: CastNote | null;
 }) {
   const [label, setLabel] = useState('');
   const [outfit, setOutfit] = useState('');
@@ -407,6 +432,7 @@ function NewOutfit({ episodeId, character, version, busy, act, onCreated }: {
         label: label.trim(), outfit: outfit.trim(), derive_from_version: version.version,
       }),
       'New outfit added. Make its sheet below.',
+      `${character.slug}:outfit`,
     );
     if (made) {
       setLabel('');
@@ -417,25 +443,26 @@ function NewOutfit({ episodeId, character, version, busy, act, onCreated }: {
   return (
     <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40">
       <p className="text-sm font-semibold">New outfit</p>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
         Made from this locked look (never from scene pictures), so the face and body stay the same.
       </p>
       <div className="grid sm:grid-cols-2 gap-2">
         <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} placeholder="Name, e.g. Winter coat"
-          className={field} />
+          aria-label="Outfit name" className={field} />
         <input value={outfit} onChange={(e) => setOutfit(e.target.value)} maxLength={300}
-          placeholder="The outfit, e.g. a long green wool coat and red boots" className={field} />
+          placeholder="The outfit, e.g. a long green wool coat and red boots" aria-label="The outfit" className={field} />
       </div>
       <button type="button" onClick={create} disabled={busy || !outfit.trim()} className={`${plainBtn} mt-2`}
         data-testid={`cast-new-outfit-${character.slug}`}>
         Add the outfit
       </button>
+      <CastMessage note={note} />
     </div>
   );
 }
 
-function CharacterCard({ episodeId, view, character, busy, act }: {
-  episodeId: string; view: CastView; character: CastCharacter; busy: boolean; act: Act;
+function CharacterCard({ episodeId, view, character, busy, act, note }: {
+  episodeId: string; view: CastView; character: CastCharacter; busy: boolean; act: Act; note: CastNote | null;
 }) {
   const canEdit = view.can_edit;
   const [versionNo, setVersionNo] = useState(character.default_version);
@@ -445,27 +472,32 @@ function CharacterCard({ episodeId, view, character, busy, act }: {
   const pictures = versionPictures(version);
   const base = `/api/episodes/${episodeId}/cast/${character.character_id}`;
   const anyLocked = character.versions.some((v) => v.locked);
+  const here = character.slug;
 
   const save = async () => {
-    const saved = await act(() => postJson(base, text), 'Saved.');
+    const saved = await act(() => postJson(base, text), 'Saved.', here);
     if (saved !== null) setEditing(false);
   };
 
-  const remove = () => {
-    if (!window.confirm(`Remove ${character.name} and all their pictures from the cast?`)) return;
-    act(() => postJson(`${base}/delete`, { force: false }), `${character.name} removed.`);
-  };
+  const remove = () => act(() => postJson(`${base}/delete`, { force: false }), `${character.name} removed.`, here);
 
   if (!version) return null;
+  const uploadShown = canEdit && !version.locked && pictures.uploads.length < view.limits.max_uploads_per_version;
+  const outfitShown = canEdit && version.locked;
+  // A result shows by the part of the card it came from while that part is on screen, else at the card's foot.
+  const spot = note?.where.startsWith(`${here}:`) ? note.where.slice(here.length + 1) : null;
+  const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
+  const noteFor = (part: string) => (inPlace && spot === part ? note : null);
+  const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4" data-testid={`cast-character-${character.slug}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="font-semibold">
             {character.name}
-            {character.role && <span className="ml-2 text-sm font-normal text-gray-500">{character.role}</span>}
+            {character.role && <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-300">{character.role}</span>}
           </h3>
-          <p className="text-xs text-gray-500">Id in the shot plan: <code>{character.slug}</code></p>
+          <p className="text-xs text-gray-600 dark:text-gray-300">Id in the shot plan: <code>{character.slug}</code></p>
         </div>
         {version.locked ? (
           <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200"
@@ -488,7 +520,7 @@ function CharacterCard({ episodeId, view, character, busy, act }: {
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
           {anyLocked && (
-            <p className="text-xs text-gray-500">Locked looks keep the description they were locked with.</p>
+            <p className="text-xs text-gray-600 dark:text-gray-300">Locked looks keep the description they were locked with.</p>
           )}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy || !text.name.trim()} className={darkBtn}>Save</button>
@@ -498,12 +530,12 @@ function CharacterCard({ episodeId, view, character, busy, act }: {
       ) : (
         <p className="text-sm mt-2">
           {character.description || (
-            <span className="text-gray-500">No description yet. Say how they look so every shot gets them right.</span>
+            <span className="text-gray-600 dark:text-gray-300">No description yet. Say how they look so every shot gets them right.</span>
           )}
         </p>
       )}
       {version.locked && (
-        <p className="text-xs text-gray-500 mt-1">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
+        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
       )}
 
       {character.versions.length > 1 && (
@@ -527,19 +559,15 @@ function CharacterCard({ episodeId, view, character, busy, act }: {
               <PictureTile key={image.image_id} image={image} label={image.is_primary ? 'Main picture' : 'Picture'}>
                 {canEdit && !version.locked && !image.is_primary && (
                   <button type="button" disabled={busy} className={plainBtn}
-                    onClick={() => act(() => postJson(`${base}/versions/${version.version}/images/${image.image_id}/primary`, {}), 'Main picture changed.')}>
+                    onClick={() => act(() => postJson(`${base}/versions/${version.version}/images/${image.image_id}/primary`, {}), 'Main picture changed.', here)}>
                     Make main
                   </button>
                 )}
                 {canEdit && !version.locked && (
-                  <button type="button" disabled={busy} className={plainBtn}
-                    onClick={() => {
-                      if (window.confirm('Remove this picture?')) {
-                        act(() => postJson(`${base}/versions/${version.version}/images/${image.image_id}/delete`, {}), 'Picture removed.');
-                      }
-                    }}>
+                  <ConfirmButton disabled={busy} className={plainBtn} question="Remove this picture?" confirmLabel="Remove it"
+                    onConfirm={() => act(() => postJson(`${base}/versions/${version.version}/images/${image.image_id}/delete`, {}), 'Picture removed.', here)}>
                     Remove
-                  </button>
+                  </ConfirmButton>
                 )}
               </PictureTile>
             ))}
@@ -547,36 +575,39 @@ function CharacterCard({ episodeId, view, character, busy, act }: {
         </div>
       )}
 
-      {canEdit && !version.locked && pictures.uploads.length < view.limits.max_uploads_per_version && (
-        <PictureUpload episodeId={episodeId} character={character} version={version} view={view} busy={busy} act={act} />
+      {uploadShown && (
+        <PictureUpload episodeId={episodeId} character={character} version={version} view={view} busy={busy} act={act}
+          note={noteFor('upload')} />
       )}
 
       <SheetSection key={`${character.character_id}-${version.version}`} episodeId={episodeId} view={view}
-        character={character} version={version} busy={busy} act={act} />
+        character={character} version={version} busy={busy} act={act} note={noteFor('sheet')} />
 
-      {canEdit && version.locked && (
+      {outfitShown && (
         <NewOutfit episodeId={episodeId} character={character} version={version} busy={busy} act={act}
-          onCreated={setVersionNo} />
+          onCreated={setVersionNo} note={noteFor('outfit')} />
       )}
 
       {canEdit && !editing && (
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" onClick={() => {
             setText({ name: character.name, role: character.role, description: character.description });
             setEditing(true);
           }} disabled={busy} className={plainBtn}>
             Edit name and description
           </button>
-          <button type="button" onClick={remove} disabled={busy} className={`${plainBtn} text-red-700 dark:text-red-300`}>
+          <ConfirmButton disabled={busy} className={`${plainBtn} text-red-700 dark:text-red-300`} confirmLabel="Remove"
+            question={`Remove ${character.name} and all their pictures from the cast?`} onConfirm={remove}>
             Remove from the cast
-          </button>
+          </ConfirmButton>
         </div>
       )}
+      <CastMessage note={cardNote} />
     </div>
   );
 }
 
-function AddCharacter({ episodeId, busy, act }: { episodeId: string; busy: boolean; act: Act }) {
+function AddCharacter({ episodeId, busy, act, note }: { episodeId: string; busy: boolean; act: Act; note: CastNote | null }) {
   const empty = { name: '', role: '', description: '' };
   const [form, setForm] = useState(empty);
   const add = async () => {
@@ -586,6 +617,7 @@ function AddCharacter({ episodeId, busy, act }: { episodeId: string; busy: boole
         name, role: form.role.trim(), description: form.description.trim(),
       }),
       `${name} joined the cast.`,
+      'add',
     );
     if (added !== null) setForm(empty);
   };
@@ -606,11 +638,14 @@ function AddCharacter({ episodeId, busy, act }: { episodeId: string; busy: boole
         data-testid="cast-add-button">
         Add to the cast
       </button>
+      <CastMessage note={note} />
     </div>
   );
 }
 
-function SeriesControl({ episodeId, view, busy, act }: { episodeId: string; view: CastView; busy: boolean; act: Act }) {
+function SeriesControl({ episodeId, view, busy, act, note }: {
+  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+}) {
   const [list, setList] = useState<SeriesInfo[]>([]);
   const [choice, setChoice] = useState('');
   const [newName, setNewName] = useState('');
@@ -632,15 +667,16 @@ function SeriesControl({ episodeId, view, busy, act }: { episodeId: string; view
           {others > 0 ? ` with ${others} other video${others === 1 ? '' : 's'}` : ''}. Changes here show up in every video of the series.
         </p>
         {view.can_edit && (
-          <button type="button" disabled={busy} className={`${plainBtn} mt-2`}
-            onClick={() => {
-              if (window.confirm('Stop sharing the series cast? This video starts with an empty cast; the series keeps everyone.')) {
-                act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: null }), 'This video no longer uses the series cast.');
-              }
-            }}>
-            Stop using the series cast
-          </button>
+          <div className="mt-2">
+            <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Stop using it"
+              question="Stop sharing the series cast? This video starts with an empty cast; the series keeps everyone."
+              onConfirm={() => act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: null }),
+                'This video no longer uses the series cast.', 'series')}>
+              Stop using the series cast
+            </ConfirmButton>
+          </div>
         )}
+        <CastMessage note={note} />
       </div>
     );
   }
@@ -658,10 +694,10 @@ function SeriesControl({ episodeId, view, busy, act }: { episodeId: string; view
                 {list.map((s) => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
               </select>
               <button type="button" disabled={busy || !choice} className={plainBtn}
-                onClick={() => act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: choice }), 'This video now uses the series cast.')}>
+                onClick={() => act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: choice }), 'This video now uses the series cast.', 'series')}>
                 Use this series
               </button>
-              <span className="text-gray-500">or</span>
+              <span className="text-gray-600 dark:text-gray-300">or</span>
             </>
           )}
           <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New series name"
@@ -671,18 +707,21 @@ function SeriesControl({ episodeId, view, busy, act }: { episodeId: string; view
               const made = await act(async () => {
                 const created = await postJson<{ series: SeriesInfo }>('/api/series', { name: newName.trim() });
                 return postJson(`/api/episodes/${episodeId}/series`, { series_id: created.series.series_id });
-              }, 'Series started with this cast.');
+              }, 'Series started with this cast.', 'series');
               if (made !== null) setNewName('');
             }}>
             Start a series with this cast
           </button>
         </div>
       )}
+      <CastMessage note={note} />
     </div>
   );
 }
 
-function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: CastView; busy: boolean; act: Act }) {
+function ShotCast({ episodeId, view, busy, act, note }: {
+  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+}) {
   const [picks, setPicks] = useState<Record<string, CastPick[]>>({});
   const [allowText, setAllowText] = useState<Record<string, boolean | null>>({});
   const shots = view.shots.shots;
@@ -691,7 +730,7 @@ function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: Cas
 
   const save = async () => {
     if (!changes) return;
-    const saved = await act(() => postJson(`/api/episodes/${episodeId}/cast/shots`, changes), 'Saved who is in each shot.');
+    const saved = await act(() => postJson(`/api/episodes/${episodeId}/cast/shots`, changes), 'Saved who is in each shot.', 'shots');
     if (saved !== null) {
       setPicks({});
       setAllowText({});
@@ -706,7 +745,7 @@ function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: Cas
         pictures never get captions, speech bubbles or lettering unless you allow words for that shot.
       </p>
       {view.shots.error && <p className="text-sm text-red-700 dark:text-red-300">{view.shots.error}</p>}
-      {!view.shots.uploaded && <p className="text-sm text-gray-500">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
+      {!view.shots.uploaded && <p className="text-sm text-gray-600 dark:text-gray-300">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
       {view.shots.plan && view.shots.plan.errors.length > 0 && (
         <div className="mb-3 p-3 rounded bg-red-50 dark:bg-red-900/20 text-sm text-red-800 dark:text-red-200" role="alert"
           data-testid="cast-plan-errors">
@@ -715,7 +754,7 @@ function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: Cas
         </div>
       )}
       {shots.length > 0 && view.characters.length === 0 && (
-        <p className="text-sm text-gray-500">Add someone to the cast first.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">Add someone to the cast first.</p>
       )}
       {shots.length > 0 && view.characters.length > 0 && (
         <ul className="space-y-3">
@@ -728,7 +767,7 @@ function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: Cas
                 data-testid={`cast-shot-${shot.shot_id}`}>
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-semibold text-sm">{shot.shot_id}</span>
-                  <span className="text-xs text-gray-500 line-clamp-2">{shot.prompt}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2">{shot.prompt}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {view.characters.map((c) => {
@@ -783,19 +822,27 @@ function ShotCast({ episodeId, view, busy, act }: { episodeId: string; view: Cas
           Save who is in each shot
         </button>
       )}
+      <CastMessage note={note} />
     </div>
   );
 }
 
-export default function CastPanel({ episodeId }: { episodeId: string }) {
+/** onView: every loaded cast, for the page's Next step (characters in the shot plan without a locked look). */
+export default function CastPanel({ episodeId, onView }: { episodeId: string; onView?: (view: CastView) => void }) {
   const [view, setView] = useState<CastView | null>(null);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: 'ok' | 'problem'; text: string } | null>(null);
+  const [message, setMessage] = useState<CastNote | null>(null);
   const [busy, setBusy] = useState(false);
+  const onViewRef = useRef(onView);
+  useEffect(() => {
+    onViewRef.current = onView;
+  }, [onView]);
 
   const load = useCallback(async () => {
     try {
-      setView(await apiFetch<CastView>(`/api/episodes/${episodeId}/cast`));
+      const loaded = await apiFetch<CastView>(`/api/episodes/${episodeId}/cast`);
+      setView(loaded);
+      onViewRef.current?.(loaded);
       setLoadIssue(null);
     } catch (e) {
       setLoadIssue(e instanceof ApiError ? e.message : 'The cast could not be loaded right now.');
@@ -813,15 +860,15 @@ export default function CastPanel({ episodeId }: { episodeId: string }) {
     return () => clearInterval(timer);
   }, [working, load]);
 
-  const act: Act = async (fn, done) => {
+  const act: Act = async (fn, done, where = 'panel') => {
     setBusy(true);
     setMessage(null);
     try {
       const result = await fn();
-      if (done) setMessage({ tone: 'ok', text: done });
+      if (done) setMessage({ tone: 'ok', text: done, where });
       return result;
     } catch (e) {
-      setMessage({ tone: 'problem', text: problemText(e) });
+      setMessage({ tone: 'problem', text: problemText(e), where });
       return null;
     } finally {
       setBusy(false);
@@ -832,49 +879,55 @@ export default function CastPanel({ episodeId }: { episodeId: string }) {
   if (!view) {
     return (
       <div className={card} data-testid="cast-panel">
-        <h2 className="text-lg font-semibold mb-1">Cast</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{loadIssue ?? 'Loading the cast…'}</p>
+        <h2 className="text-xl font-semibold mb-1">Cast</h2>
+        <p className="text-sm text-gray-700 dark:text-gray-300">{loadIssue ?? 'Loading the cast…'}</p>
       </div>
     );
   }
 
+  const ofCharacter = (slug: string) =>
+    message && (message.where === slug || message.where.startsWith(`${slug}:`)) ? message : null;
+  const addShown = view.can_edit && view.characters.length < view.limits.max_characters;
+  const owner = message?.where.split(':')[0];
+  const placed = Boolean(message) && (
+    view.characters.some((c) => c.slug === owner)
+    || (message?.where === 'add' && addShown) || message?.where === 'shots' || message?.where === 'series');
   return (
     <div className={card} data-testid="cast-panel">
-      <h2 className="text-lg font-semibold mb-1">Cast</h2>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <h2 className="text-xl font-semibold mb-1">Cast</h2>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
         The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a
         character sheet so they look the same in every shot.
       </p>
-      {message && (
-        <div role="status" data-testid="cast-message"
-          className={`mb-4 p-3 rounded text-sm ${message.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
-          {message.text}
-        </div>
-      )}
+      <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
+      {!placed && <CastMessage note={message} />}
       {!view.can_edit && (
-        <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+        <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
           Only this video&apos;s owner (or an admin) can change its cast.
         </p>
       )}
-      <SeriesControl episodeId={episodeId} view={view} busy={busy} act={act} />
+      <SeriesControl episodeId={episodeId} view={view} busy={busy} act={act}
+        note={placed && message?.where === 'series' ? message : null} />
       {view.sheet.dry_run && (
-        <p className="mb-4 text-xs text-gray-500">
+        <p className="mb-4 text-xs text-gray-600 dark:text-gray-300">
           Preview mode: character sheets use free stand-in pictures, so you can try every step at no cost.
         </p>
       )}
       {view.characters.length === 0 ? (
-        <p className="text-sm text-gray-500">No one in the cast yet.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">No one in the cast yet.</p>
       ) : (
         <div className="space-y-4">
           {view.characters.map((c) => (
-            <CharacterCard key={c.character_id} episodeId={episodeId} view={view} character={c} busy={busy} act={act} />
+            <CharacterCard key={c.character_id} episodeId={episodeId} view={view} character={c} busy={busy} act={act}
+              note={ofCharacter(c.slug)} />
           ))}
         </div>
       )}
-      {view.can_edit && view.characters.length < view.limits.max_characters && (
-        <AddCharacter episodeId={episodeId} busy={busy} act={act} />
+      {addShown && (
+        <AddCharacter episodeId={episodeId} busy={busy} act={act} note={placed && message?.where === 'add' ? message : null} />
       )}
-      <ShotCast episodeId={episodeId} view={view} busy={busy} act={act} />
+      <ShotCast episodeId={episodeId} view={view} busy={busy} act={act}
+        note={placed && message?.where === 'shots' ? message : null} />
     </div>
   );
 }
