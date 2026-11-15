@@ -109,7 +109,10 @@ panel's preview. For each shot with a cast:
 
 Errors refuse the run, dry or live, like a `refs.json` mismatch: an unknown character, a missing
 version, or a locked sheet whose lock hash or files no longer match (`verify_lock`). They appear in
-preflight (`cast_errors`), in the shots upload response (`cast_problems`) and in the Cast panel.
+preflight (`cast_errors`), in the shots upload response (`cast_problems`) and in the Cast panel. The
+preflight checks the cast only for a caller who may see it ([Who may do what](#who-may-do-what)):
+for anyone else it answers `cast_hidden: true` and no `cast_errors`, and the start still refuses a
+bad cast.
 
 ## Prompts
 
@@ -178,16 +181,36 @@ for a step is refused with the reason.
   from the next run (Start again or a new episode). While the episode's run is open, the API refuses
   changes to who is in each shot. Deleting characters or pictures and changing the series are refused
   while any episode that shares the cast has an open run (**409** with the run id).
-- The cast store is synchronous SQLite and file I/O. The API calls it through a thread, and the sheet
-  activities use `asyncio.to_thread`, so no lock wait ever blocks an event loop.
+- The cast store, planning (lock hashes, lineup and grid sheets) and reference normalization are
+  synchronous SQLite, file and Pillow work. The API calls them through a thread, and the activities
+  (the parse activity's planning, the G2 re-check, sheet images, the still provider's reference
+  upload) use `asyncio.to_thread`, so neither a slow plan nor a lock wait holds up the worker's event
+  loop and the other activities on it (`tests/test_cast_event_loop.py`). The activities' names,
+  arguments and results are unchanged by this.
 
 ## Who may do what
 
 Every route requires a signed-in studio user. Episode routes follow [episode ownership](AUTHENTICATION.md#episode-ownership).
-Members read every cast. A cast write needs the episode's owner (or an admin), and for a series cast
-also the series owner (or an admin). Series without an owner (created with the admin Bearer token)
-can be changed by any member, like episodes without an owner. Responses include `can_edit` so the
-UI hides what a member cannot change.
+
+**Seeing a cast** (the cast and character views with their versions, sheet jobs and audit, pictures
+and thumbnails, the series list and series view, and the preflight's cast check):
+
+- admins (session or Bearer token) see every cast;
+- an episode's own cast is seen by whoever may change the episode: its owner, or every member while
+  the episode has no owner;
+- a series cast is seen by the series' owner and by whoever may change one of the series' episodes.
+
+Everyone else gets the answer a missing item gets, so a refusal does not tell whether a cast,
+series, character or picture exists: **404** with `Series <id> not found`, `Image <id> not found`,
+or, for an episode's cast and its characters, one message for both. The check comes before anything
+is read or made (no thumbnail is made for a refused request). `GET /api/series` leaves out the series
+the caller may not see, and linking an episode to such a series answers like a missing series.
+
+**Changing a cast** needs the episode's owner (or an admin), and for a series cast also the series'
+owner (or an admin). A series without an owner (a legacy one, or one created with the admin Bearer
+token) changes only through an admin (**403**): nobody claims it by editing it first, which would
+hand it to whoever comes first. The owners of its episodes still see it. Responses include
+`can_edit` so the UI hides what a member cannot change.
 
 ## Configuration
 

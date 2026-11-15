@@ -29,7 +29,9 @@ OWNER = ("pip.owner@cast.test", "owner-pass-123")
 OTHER = ("moss.other@cast.test", "other-pass-123")
 EP = "ep61cast"
 OTHER_EP = "ep62cast"
+SHARED_EP = "ep64cast"
 REFUSED = "belongs to another member; only its owner or an admin can change it"
+HIDDEN = "Only the people working on this episode (and admins) can see its cast"
 IDEA = "A paper kite and a small robot look for the lighthouse keeper's lost cat"
 ESTIMATE_URL = "https://api.higgsfield.ai/estimate/xai/grok-imagine-image-2.0"
 
@@ -161,17 +163,18 @@ async def test_another_member_cannot_change_the_cast(studio):
     assert [c["name"] for c in cast_store.list_characters(("episode", EP))] == ["Pip"]
 
 
-async def test_members_can_read_any_cast_and_admins_can_change_it(studio):
+async def test_another_member_cannot_see_the_cast_and_admins_can_change_it(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     pip = _create(owner)
     image = _upload(owner, pip).json()["image"]
     view = other.get(_base())
-    assert view.status_code == 200 and view.json()["can_edit"] is False
+    assert view.status_code == 404 and view.json()["detail"] == HIDDEN
     assert owner.get(_base()).json()["can_edit"] is True
-    assert other.get(image["url"]).status_code == 200
+    assert other.get(image["url"]).status_code == 404
     for who in ("admin", "bearer"):
         client = _client(studio, who)
         assert client.get(_base()).json()["can_edit"] is True
+        assert client.get(image["url"]).status_code == 200
         assert _upload(client, pip, data=image_bytes(seed=hash(who) % 100)).status_code == 200
 
 
@@ -182,14 +185,17 @@ async def test_a_series_cast_needs_the_series_owner(studio):
     pip = _create(owner)
     linked = owner.post(f"/api/episodes/{EP}/series", json={"series_id": series["series_id"]})
     assert linked.status_code == 200 and linked.json()["moved_characters"] == ["pip"]
-    # another member's own episode cannot join (and so cannot change) the owner's series
+    # another member's own episode cannot join (and so cannot change) the owner's series, which that
+    # member cannot see either: the answer a series that does not exist gets
     res = other.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": series["series_id"]})
-    assert res.status_code == 403 and res.json()["detail"] == (
-        f"Series Harbor Tales {REFUSED}")
+    assert res.status_code == 404 and res.json()["detail"] == f"Series {series['series_id']} not found"
     # an admin may put it there; the member can then read the series cast but not change it
     assert admin.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": series["series_id"]}).status_code == 200
     view = other.get(_base(OTHER_EP)).json()
     assert [c["slug"] for c in view["characters"]] == ["pip"] and view["can_edit"] is False
+    res = other.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": series["series_id"]})
+    assert res.status_code == 403 and res.json()["detail"] == (
+        f"Series Harbor Tales {REFUSED}")
     res = _upload(other, pip, ep=OTHER_EP)
     assert res.status_code == 403 and "Series Harbor Tales" in res.json()["detail"]
     assert _upload(owner, pip).status_code == 200
@@ -202,6 +208,121 @@ async def test_a_series_cast_needs_the_series_owner(studio):
     assert owner.get(f"/api/series/{series['series_id']}").json()["can_edit"] is True
     assert other.get("/api/series/sr_000000000000").status_code == 404
     assert _client(studio, None).get(f"/api/series/{series['series_id']}").status_code == 401
+
+
+@pytest.mark.parametrize("made_by", ["bearer", "legacy"])
+async def test_a_series_without_an_owner_changes_only_through_an_admin(studio, made_by):
+    """Nobody claims a series without an owner (one a Bearer request made, or a legacy one) by editing
+    it first: only an admin changes it. The owners of its episodes still see it."""
+    from hfvg.users import LEGACY_USER_ID
+    owner, admin = _client(studio, "owner"), _client(studio, "admin")
+    if made_by == "bearer":
+        series = _client(studio, "bearer").post("/api/series", json={"name": "Old Harbor"}).json()["series"]
+    else:
+        series = cast_store.create_series("Old Harbor", LEGACY_USER_ID, "t")
+    sid = series["series_id"]
+    pip = _create(owner)
+    res = owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    assert res.status_code == 404 and res.json()["detail"] == f"Series {sid} not found"
+    assert owner.get("/api/series").json()["series"] == []
+    linked = admin.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    assert linked.status_code == 200 and linked.json()["moved_characters"] == ["pip"]
+    view = owner.get(_base())
+    assert view.status_code == 200 and [c["slug"] for c in view.json()["characters"]] == ["pip"]
+    assert view.json()["can_edit"] is False
+    assert [(s["series_id"], s["can_edit"]) for s in owner.get("/api/series").json()["series"]] == [(sid, False)]
+    assert owner.get(f"/api/series/{sid}").json()["can_edit"] is False
+    refused = "Series Old Harbor has no owner; only an admin can change it"
+    for url, body in [(_base(), {"name": "Moss"}), (f"{_base()}/{pip['character_id']}", {"name": "Zed"}),
+                      (f"{_base()}/{pip['character_id']}/delete", {}),
+                      (f"{_base()}/{pip['character_id']}/versions", {"label": "Coat"}),
+                      (f"{_base()}/import", {"characters": [{"name": "Moss"}]}),
+                      (f"/api/episodes/{EP}/series", {"series_id": sid})]:
+        res = owner.post(url, json=body)
+        assert res.status_code == 403 and res.json()["detail"] == refused, (url, res.text)
+    res = _upload(owner, pip)
+    assert res.status_code == 403 and res.json()["detail"] == refused
+    assert _stored_images() == []
+    assert [c["name"] for c in cast_store.list_characters(("series", sid))] == ["Pip"]
+    assert cast_store.get_series(sid)["owner_user_id"] == series["owner_user_id"]
+    for who, seed in (("admin", 21), ("bearer", 22)):
+        client = _client(studio, who)
+        assert client.get(f"/api/series/{sid}").json()["can_edit"] is True
+        assert _upload(client, pip, data=image_bytes(seed=seed)).status_code == 200
+    assert admin.post(f"{_base()}/{pip['character_id']}", json={"name": "Pippa"}).json()["character"]["name"] == "Pippa"
+
+
+async def test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes(studio):
+    """Admins, the series' owner and the owners of the episodes that use its cast see it (lists,
+    characters, sheet jobs, pictures, thumbnails); everyone else gets what a series, character or
+    image that does not exist gets, and lists leave it out."""
+    owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
+    sid = owner.post("/api/series", json={"name": "Harbor Tales"}).json()["series"]["series_id"]
+    empty = owner.post("/api/series", json={"name": "Quiet Pier"}).json()["series"]["series_id"]
+    pip = _create(owner)
+    image = _upload(owner, pip).json()["image"]
+    assert owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid}).status_code == 200
+    character = f"{_base()}/{pip['character_id']}"
+    visible = (f"/api/series/{sid}", _base(), character, image["url"], image["thumb_url"])
+
+    def hidden_from_other():
+        assert other.get("/api/series").json()["series"] == []
+        for url, detail in [(f"/api/series/{sid}", f"Series {sid} not found"),
+                            (f"/api/series/{empty}", f"Series {empty} not found"),
+                            ("/api/series/sr_000000000000", "Series sr_000000000000 not found"),
+                            (_base(), HIDDEN), (character, HIDDEN), (f"{_base()}/chr_000000000000", HIDDEN),
+                            (image["url"], f"Image {image['image_id']} not found"),
+                            (image["thumb_url"], f"Image {image['image_id']} not found")]:
+            res = other.get(url)
+            assert res.status_code == 404 and res.json() == {"detail": detail}, (url, res.text)
+
+    hidden_from_other()
+    # its owner sees both series (the one without episodes too)
+    assert {s["series_id"] for s in owner.get("/api/series").json()["series"]} == {sid, empty}
+    for url in (*visible, f"/api/series/{empty}"):
+        assert owner.get(url).status_code == 200, url
+    # the owner of an episode that uses the series' cast sees it, through every episode of the series
+    assert admin.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": sid}).status_code == 200
+    assert [s["series_id"] for s in other.get("/api/series").json()["series"]] == [sid]
+    for url in (*visible, _base(OTHER_EP)):
+        assert other.get(url).status_code == 200, url
+    assert other.get(f"/api/series/{empty}").status_code == 404
+    # and no longer once that episode leaves the series
+    assert other.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": None}).status_code == 200
+    hidden_from_other()
+    for who in ("admin", "bearer"):
+        client = _client(studio, who)
+        assert {s["series_id"] for s in client.get("/api/series").json()["series"]} == {sid, empty}
+        for url in visible:
+            assert client.get(url).status_code == 200, (who, url)
+
+
+async def test_a_refused_thumbnail_request_makes_no_file(studio):
+    owner, other = _client(studio, "owner"), _client(studio, "other")
+    image = _upload(owner, _create(owner)).json()["image"]
+    thumb = cast_store.thumb_file(image["sha256"])
+    thumb.unlink()
+    assert other.get(image["thumb_url"]).status_code == 404
+    assert not thumb.exists()
+    assert owner.get(image["thumb_url"]).status_code == 200 and thumb.is_file()
+
+
+async def test_an_episode_without_an_owner_shares_its_cast_with_every_member(studio):
+    """Every member may change an episode without an owner (docs/AUTHENTICATION.md), so every member
+    sees its cast, and the cast of a series it is in (only the series' owner or an admin puts it there)."""
+    from hfvg.studio_db import create_episode
+    await create_episode(os.environ["DATABASE_PATH"], SHARED_EP)
+    owner, other = _client(studio, "owner"), _client(studio, "other")
+    moss = _create(other, "Moss", ep=SHARED_EP)
+    image = _upload(other, moss, ep=SHARED_EP).json()["image"]
+    for url in (_base(SHARED_EP), image["url"], image["thumb_url"]):
+        assert owner.get(url).status_code == 200, url
+    sid = owner.post("/api/series", json={"name": "Harbor Tales"}).json()["series"]["series_id"]
+    assert other.get(f"/api/series/{sid}").status_code == 404
+    assert owner.post(f"/api/episodes/{SHARED_EP}/series", json={"series_id": sid}).status_code == 200
+    seen = other.get(f"/api/series/{sid}")
+    assert seen.status_code == 200 and [c["slug"] for c in seen.json()["characters"]] == ["moss"]
+    assert seen.json()["can_edit"] is False
 
 
 # ------------------------------------------------------------------------------------- upload validation
@@ -311,19 +432,25 @@ async def test_upload_list_view_and_delete(studio):
     images = view["characters"][0]["versions"][0]["images"]
     assert [i["image_id"] for i in images] == [image["image_id"]]
     assert view["limits"]["min_image_px"] == 512 and view["attestation"]["likeness_gate"] == "likeness_consent"
-    full = other.get(image["url"])
+    full = owner.get(image["url"])
     assert full.status_code == 200 and full.content == data
     assert full.headers["cache-control"] == "private, max-age=3600"
     assert full.headers["x-content-type-options"] == "nosniff"
-    thumb = other.get(image["thumb_url"])
+    thumb = owner.get(image["thumb_url"])
     assert thumb.status_code == 200 and thumb.headers["content-type"] == "image/jpeg"
+    # another member gets exactly what an image that does not exist gets
+    for url in (image["url"], image["thumb_url"]):
+        res = other.get(url)
+        assert res.status_code == 404 and res.json() == {"detail": f"Image {image['image_id']} not found"}, url
+    assert other.get("/api/cast/images/ci_ffffffffffff").json() == {"detail": "Image ci_ffffffffffff not found"}
     assert other.get("/api/cast/images/ci_ffffffffffff").status_code == 404
     assert other.get("/api/cast/images/..%2F..%2Fstudio.db").status_code == 404
     audit = owner.get(f"{_base()}/{pip['character_id']}").json()["audit"]
     assert {"image_upload", "image_upload_duplicate"} <= {a["action"] for a in audit}
     res = owner.post(f"{_base()}/{pip['character_id']}/versions/1/images/{image['image_id']}/delete")
     assert res.status_code == 200, res.text
-    assert other.get(image["url"]).status_code == 404 and _stored_images() == []
+    assert owner.get(image["url"]).status_code == 404 and _stored_images() == []
+    assert other.get(image["url"]).status_code == 404
 
 
 async def test_cast_changes_are_refused_while_a_run_is_in_progress(studio):
@@ -407,6 +534,25 @@ async def test_an_unknown_cast_is_reported_at_upload_and_refused_at_the_start(st
     legacy = _upload_shots(owner, _shots(("A01", {})))
     assert legacy.json()["cast_problems"] == []
     assert "cast_errors" in owner.post(f"/api/episodes/{EP}/preflight").json()
+
+
+async def test_the_preflight_checks_a_cast_only_for_those_who_may_see_it(studio):
+    """The cast check's answers name the cast's characters: another member's preflight of the episode
+    leaves the cast out (cast_hidden) instead of telling which characters and versions it has."""
+    owner, other = _client(studio, "owner"), _client(studio, "other")
+    _create(owner, "Pip")
+    body = {"shots": _shots(("A01", {"cast": ["pip"]}), ("A02", {"cast": [{"character": "pip", "version": 4}]}),
+                            ("A03", {"cast": ["zed"]}))["shots"]}
+    mine = owner.post(f"/api/episodes/{EP}/preflight", json=body).json()
+    assert mine["cast_hidden"] is False and mine["has_errors"] is True
+    assert any("Pip has no version 4" in e for e in mine["cast_errors"])
+    assert any("'zed' is not in the cast" in e for e in mine["cast_errors"])
+    theirs = other.post(f"/api/episodes/{EP}/preflight", json=body)
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["cast_hidden"] is True and theirs.json()["cast_errors"] == []
+    assert "Pip" not in theirs.text
+    assert owner.post(f"/api/episodes/{EP}/preflight", json={"shots": _shots(("A01", {}))["shots"]}).json()[
+        "cast_hidden"] is False
 
 
 async def test_a_kit_text_policy_is_validated(studio):

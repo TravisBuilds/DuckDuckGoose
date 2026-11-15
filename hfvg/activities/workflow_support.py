@@ -5,6 +5,7 @@ These activities handle non-deterministic I/O operations
 that workflows cannot perform directly.
 """
 
+import asyncio
 import os
 from pathlib import Path
 from temporalio import activity
@@ -79,7 +80,15 @@ async def parse_beatmap_activity(
 
     Returns:
         Parsed beatmap dict with shots list (wraps parse_beatmap result)
+
+    Parsing and cast planning are blocking (files, SQLite that may wait for another transaction's
+    lock, composite sheets and lock hashes): they run in a thread, so the worker's event loop keeps
+    running every other activity meanwhile.
     """
+    return await asyncio.to_thread(_parse_and_plan, beatmap_path, episode_id, require_shot_data)
+
+
+def _parse_and_plan(beatmap_path: str | None, episode_id: str | None, require_shot_data: bool) -> dict:
     if beatmap_path:
         shots = _parse_beatmap(beatmap_path)
     else:
@@ -100,7 +109,12 @@ async def parse_beatmap_activity(
 
 @activity.defn
 async def recheck_refs_activity(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dict:
-    """G2.01 re-check: which refs exist on disk NOW (files may have been produced since planning)."""
+    """G2.01 re-check: which refs exist on disk NOW (files may have been produced since planning).
+    The file checks run in a thread, off the worker's event loop."""
+    return await asyncio.to_thread(_recheck_refs, episode_id, ref_keys_by_shot)
+
+
+def _recheck_refs(episode_id: str, ref_keys_by_shot: dict[str, list[str]]) -> dict:
     pre_paths: dict[str, str] = {}
     path = shots_json_path(episode_id)
     if path.is_file():  # refs.json may point at a shot's pre-approved still (pre_approved_still_of)
