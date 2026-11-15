@@ -3762,6 +3762,12 @@ test_mutation 536 "stale balance reading shows its age" \
     "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
     sed -i 's#^  const minutes = Math.floor(Math.max(0, now - t) / 60_000);$#  const minutes = 0;  // MUTATED#'
 
+# 537: a run its worker dropped schedules nothing when the garbage collector closes it
+test_mutation 537 "dropped run schedules nothing when closed" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_dropped_run_close.py::test_closing_a_dropped_run_schedules_nothing" \
+    sed -i 's/^            if not dropped_by_worker:$/            if True:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
