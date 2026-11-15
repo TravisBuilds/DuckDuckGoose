@@ -3834,6 +3834,84 @@ test_mutation 548 "studio episode can be assigned before spend" \
     "tests/test_cost_dashboard_api.py::test_spend_is_only_assigned_to_an_episode_that_exists" \
     sed -i 's/^        for table in ("episodes", "job_ledger"):$/        for table in ("job_ledger",):  # MUTATED/'
 
+# 549: a charge a provider already reported for a job in flight is part of the month's spend
+test_mutation 549 "reported in-flight charge counts in the projection" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/^    if job\["status"\] in IN_FLIGHT and actual is not None:$/    if False:  # MUTATED/'
+
+# 550: a hold of a job in flight is not spend in the projection
+test_mutation 550 "hold is not spend in the projection" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/^    if job\["status"\] == "committed":$/    if job["status"] in ("committed", *IN_FLIGHT):  # MUTATED/'
+
+# 551: a committed job adds its provider-reported charge where one is recorded
+test_mutation 551 "committed job adds its charge to the projection" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/^        return (actual if actual is not None else job\["usd_micros"\] or 0), actual$/        return (job["usd_micros"] or 0), actual  # MUTATED/'
+
+# 552: the cost truth's projection is built by the same rule as the ledger run-rate
+test_mutation 552 "cost truth projection uses the shared rule" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/^        "monthly": monthly_projection(_month_timeline(jobs), now),$/        "monthly": monthly_projection(_month_timeline([j for j in jobs if j["status"] == "committed"]), now),  # MUTATED/'
+
+# 553: one person's run-rate counts only that person's jobs
+test_mutation 553 "per-person run-rate counts only their jobs" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/^        if user_id:$/        if False:  # MUTATED/'
+
+# 554: the run-rate projects at the moment it is given (the dashboard's), not its own clock
+test_mutation 554 "run-rate projects at the given moment" \
+    "hfvg/cost_tracking.py" \
+    "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
+    sed -i 's/now or datetime\.now(timezone\.utc)/datetime.now(timezone.utc)/'
+
+# 555: the headline counts committed jobs only (a hold is not spend)
+test_mutation 555 "headline counts committed jobs only" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_dashboard_api.py::test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a_backfill" \
+    sed -i 's/^        if job\["status"\] != "committed":$/        if False:  # MUTATED/'
+
+# 556: the headline says when it mixes provider charges and estimates
+test_mutation 556 "headline says when it mixes actuals and estimates" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_dashboard_api.py::test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a_backfill" \
+    sed -i 's/^    label = "estimated" if not with_actual else .*$/    label = "estimated" if not with_actual else "actual"  # MUTATED/'
+
+# 557: spend_summary's headline is the Spend card's figure, not the sum of actuals
+test_mutation 557 "dashboard headline is the cost truth spend" \
+    "api/main.py" \
+    "tests/test_cost_dashboard_api.py::test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a_backfill" \
+    sed -i 's/^                "headline_spend_usd_micros": headline\["spend_usd_micros"\],$/                "headline_spend_usd_micros": total_actual,  # MUTATED/'
+
+# 558: the exports carry the page's spend, not the provider-reported part of it
+test_mutation 558 "exports carry the page's spend headline" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's/^    spend_usd_micros: totals\.spend_usd_micros,$/    spend_usd_micros: totals.actual_usd_micros,  \/\/ MUTATED/'
+
+# 559: the JSON export leads with the same headline as the page and the CSV
+test_mutation 559 "JSON export leads with the headline" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's/^  return JSON\.stringify({ headline: exportHeadline(data && data\.cost_truth), \.\.\.data }, null, 2);$/  return JSON.stringify({ ...data }, null, 2);  \/\/ MUTATED/'
+
+# 560: CSV cells with commas or quotes are quoted
+test_mutation 560 "CSV export quotes cells with commas" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's|^    return /\[",\\n]/\.test(s) ? .*$|    return s;  // MUTATED|'
+
+# 561: the CSV's month-end row is the page's projection
+test_mutation 561 "CSV month-end row is the projection" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i "s/^      csvRow(\['Month-end projection', usdCell(h\.projected_month_end_usd_micros)/      csvRow(['Month-end projection', usdCell(h.month_spend_so_far_usd_micros)/"
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
