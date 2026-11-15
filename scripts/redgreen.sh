@@ -3642,6 +3642,42 @@ test_mutation 530 "balance check schedule can be disabled" \
     "tests/test_balance_readings.py::test_worker_creates_the_balance_check_schedule_idempotently" \
     sed -i 's/^    if not balance_check_schedule_enabled():$/    if False:  # MUTATED/'
 
+# 531: the page never words the guard's estimates as provider-reported
+test_mutation 531 "estimates are not shown as provider-reported" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  const actual = totals.actual_usd_micros || 0;$#  const actual = totals.actual_usd_micros || totals.spend_usd_micros;  // MUTATED#'
+
+# 532: coverage that rounds to 100% is not full coverage
+test_mutation 532 "rounded 100% coverage is not full coverage" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  if (actual >= totals.spend_usd_micros) return#  if (totals.coverage_pct >= 100) return#'
+
+# 533: a missing alert destination is said on the page, not left blank
+test_mutation 533 "missing alert destination is shown" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  if (!status || !status.configured) return .No destination configured: alerts are only recorded on this page.;$#  if (!status || !status.configured) return "";  // MUTATED#'
+
+# 534: a test alert without a destination answers "not sent"
+test_mutation 534 "test alert without destination says not sent" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  if (!result.channels || !result.channels.length) {$#  if (false) {  // MUTATED#'
+
+# 535: a reading without a balance shows why, never an amount
+test_mutation 535 "unknown balance is not shown as an amount" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  if (typeof reading.balance_usd_micros !== .number.) {$#  if (reading.balance_usd_micros === undefined) {  // MUTATED#'
+
+# 536: an old balance reading shows its age (a stale reading never reads as just now)
+test_mutation 536 "stale balance reading shows its age" \
+    "web/lib/cost-dashboard.mjs" \
+    "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
+    sed -i 's#^  const minutes = Math.floor(Math.max(0, now - t) / 60_000);$#  const minutes = 0;  // MUTATED#'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

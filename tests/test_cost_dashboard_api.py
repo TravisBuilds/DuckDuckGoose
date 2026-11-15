@@ -1,11 +1,14 @@
 """Admin routes behind the cost dashboard (docs/ACTUAL-COSTS.md, docs/BALANCE-ALERTS.md): the
 dashboard's cost truth, balances and alerts; assigning an episode's spend to a person; "check
-balances now", "sync usage now" and the test alert; and recording who started each run. Provider
-calls are skipped (DRY_RUN) or respx fakes; people are made up."""
+balances now", "sync usage now" and the test alert; and recording who started each run; and the
+page's display helpers. Provider calls are skipped (DRY_RUN) or respx fakes; people are made up."""
 
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import aiosqlite
@@ -18,6 +21,7 @@ from hfvg.budget import BudgetLedger
 from hfvg.studio_db import create_episode, init_studio_db
 from hfvg.users import UserManager
 
+REPO = Path(__file__).resolve().parents[1]
 WEBHOOK = "https://hooks.example.test/services/T000/B000/not-a-real-token"
 
 
@@ -165,3 +169,12 @@ async def test_starting_an_episode_again_records_who_did(api, people):
     with sqlite3.connect(_db()) as c:
         rows = c.execute("SELECT run_id, started_by, via FROM episode_runs WHERE episode_id = 'ep05'").fetchall()
     assert rows == [("run-1", one, "start_again")]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_dashboard_display_helpers_unit_tests():
+    """Runs web/lib/cost-dashboard.test.mjs (how the page words coverage, balance readings and alert
+    destinations) under pytest so red-green mutations of web/lib/cost-dashboard.mjs are caught too."""
+    proc = subprocess.run(["node", "--test", "lib/cost-dashboard.test.mjs"], cwd=REPO / "web",
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-2000:]
