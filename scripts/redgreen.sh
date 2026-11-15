@@ -3594,6 +3594,12 @@ test_mutation 494 "shots ask who may see the cast" \
     "tests/test_member_studio_reads.py::test_shots_leave_the_prompt_out_for_who_may_not_see_the_cast" \
     sed -i '/^async def get_shots(/,/^get_shots\.allow_members = True$/ s/^    cast_hidden = not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)$/    cast_hidden = False  # MUTATED/'
 
+# 495: GET /story-shape reads the approval the workflow reports (approvals.story_shape)
+test_mutation 495 "story-shape approval from the workflow's approvals" \
+    "api/main.py" \
+    "tests/test_story_shaping_api.py::test_get_story_shape_says_approved_once_the_story_is_approved" \
+    sed -i 's/^                "approved": bool((state\.get("approvals") or {})\.get("story_shape")),$/                "approved": state.get("approved_story_shape", False),  # MUTATED/'
+
 # 479: a series without an owner changes only through an admin
 test_mutation 479 "ownerless series changes only through an admin" \
     "api/cast_routes.py" \

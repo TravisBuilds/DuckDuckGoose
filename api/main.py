@@ -2442,7 +2442,7 @@ async def get_story_shape(
                 "critique": state.get("story_shape_critique"),
                 "revision": state.get("story_shape_revision"),
                 "log": state.get("story_shape_log"),
-                "approved": state.get("approved_story_shape", False),
+                "approved": bool((state.get("approvals") or {}).get("story_shape")),
             }
         
         raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
