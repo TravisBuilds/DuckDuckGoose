@@ -11,11 +11,10 @@ response along with other commands"); the query hung until the test timed out.
 """
 import asyncio
 import gc
-import inspect
 import logging
 import uuid
 import weakref
-from types import SimpleNamespace
+from types import CoroutineType, SimpleNamespace
 
 import pytest
 from temporalio import workflow
@@ -107,10 +106,11 @@ class Collector:
         return self.collected is not None
 
 
-def _suspended_episode_runs() -> list[weakref.ref]:
-    # by name: the sandbox runs its own import of the workflow module, so the code object differs
-    return [weakref.ref(o) for o in gc.get_objects()
-            if inspect.iscoroutine(o) and o.cr_frame is not None
+def _suspended_episode_runs() -> list:
+    # by name: the sandbox runs its own import of the workflow module, so the code object differs.
+    # type(), not isinstance(): sandbox restriction proxies other tests leave behind raise on __class__
+    return [o for o in gc.get_objects()
+            if type(o) is CoroutineType and o.cr_frame is not None
             and o.cr_code.co_qualname == "EpisodeWorkflowV2.run"
             and o.cr_code.co_filename.endswith("episode_v2.py")]
 
@@ -124,6 +124,8 @@ async def test_a_dropped_run_closed_during_another_runs_activation_leaves_that_r
         gc.collect()
         gc.disable()
         try:
+            # runs that other tests' workers still hold; kept referenced so the scan below sees only ours
+            earlier = _suspended_episode_runs()
             tq = f"dropped-{uuid.uuid4().hex[:6]}"
             async with Worker(env.client, task_queue=tq, workflows=[EpisodeWorkflowV2, FakeShot],
                               activities=_acts(set())):
@@ -131,7 +133,7 @@ async def test_a_dropped_run_closed_during_another_runs_activation_leaves_that_r
                     EpisodeWorkflowV2.run, args=["ep05", None, True, ["A01", "A02"], 40],
                     id=f"ep05-{uuid.uuid4().hex[:6]}", task_queue=tq)
                 await _wait_for(h, lambda s: s["current_gate"] == "G1_SHOT_PLAN")
-            dropped = _suspended_episode_runs()
+            dropped = [weakref.ref(o) for o in _suspended_episode_runs() if not any(o is e for e in earlier)]
             assert len(dropped) == 1, "the stopped worker's run should be left for the garbage collector"
 
             ctq = f"collector-{uuid.uuid4().hex[:6]}"
