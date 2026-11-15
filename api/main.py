@@ -6622,10 +6622,13 @@ async def preflight_episode(
     report = preflight_plans(shots)
     errors = [v for v in report["violations"] if v["severity"] == "error"]
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
-    # who is in frame (shots' cast): what the run's planning would refuse, from the episode's cast
+    # who is in frame (shots' cast): what the run's planning would refuse, from the episode's cast.
+    # Its answers name the cast's characters, so only for a caller who may see that cast.
     from hfvg.cast_plan import cast_problems
+    has_cast = any(isinstance(s, dict) and s.get("cast") for s in shots)
+    cast_hidden = has_cast and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     cast_errors = (await asyncio.to_thread(cast_problems, episode_id, {"shots": shots})
-                   if any(isinstance(s, dict) and s.get("cast") for s in shots) else [])
+                   if has_cast and not cast_hidden else [])
     return {
         "episode_id": episode_id,
         "shots": report["shots"],
@@ -6634,6 +6637,7 @@ async def preflight_episode(
         "warnings": warnings,
         "has_errors": bool(errors) or bool(cast_errors),
         "cast_errors": cast_errors,
+        "cast_hidden": cast_hidden,
         "cost_estimate": offline_cost_estimate(shots),
     }
 

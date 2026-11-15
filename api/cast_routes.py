@@ -5,7 +5,9 @@ and who is in frame in each shot. Mounted by api/main.py under the same app-wide
 Who may change what (docs/AUTHENTICATION.md): a member's POST under ``/api/episodes/{episode_id}/``
 is checked against the episode's owner before the handler runs (the app-wide guard); a change to a
 series' cast also needs the series' owner or an admin (only an admin while the series has no owner).
-Members can read every cast, as they read every episode. Images are served only through the
+Who may see a cast: admins, whoever may change an episode that uses it (its owner, or every member
+while it has no owner) and the series' owner. Everyone else gets the 404 a missing cast, series or
+image gets, so a refusal does not tell whether it exists. Images are served only through the
 authenticated image routes below, never as static files.
 
 Paid sheet images go through ``CastSheetWorkflow``: the creator sees the estimate and approves it,
@@ -35,6 +37,7 @@ IMAGE_ID_RE = re.compile(r"^ci_[0-9a-f]{12}$")
 UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/cast/[^/]+/versions/[^/]+/images/?$")
 FORM_OVERHEAD_BYTES = 64 * 1024
 TRUE_VALUES = ("1", "true", "yes", "on")
+CAST_HIDDEN = "Only the people working on this episode (and admins) can see its cast"
 
 
 _main = None
@@ -132,6 +135,44 @@ async def _can_edit(episode_id: str, library: tuple[str, str], authorization: st
     if library[0] == "series":
         return _owns_series(await _call(cast_store.get_series, library[1]), user_id)
     return True
+
+
+async def _may_change_one_of(episodes: list[str], user_id: str | None) -> bool:
+    """Whether the user may change one of these episodes: owns it, or it has no owner."""
+    api = _api()
+    for episode_id in episodes:
+        owner = await api.episode_owner(episode_id)
+        if owner is None or owner == user_id:
+            return True
+    return False
+
+
+async def _may_see_series(series: dict, user_id: str | None, is_admin: bool) -> bool:
+    return is_admin or _owns_series(series, user_id) or await _may_change_one_of(series["episodes"], user_id)
+
+
+async def _may_see(library: tuple[str, str], user_id: str | None, is_admin: bool) -> bool:
+    """Who may see a cast: an admin, whoever may change an episode that uses it and, for a series
+    cast, the series' owner."""
+    if is_admin:
+        return True
+    if library[0] == "series":
+        return await _may_see_series(await _call(cast_store.get_series, library[1]), user_id, False)
+    return await _may_change_one_of([library[1]], user_id)
+
+
+async def _require_viewer(library: tuple[str, str], authorization: str | None, cookie: str | None,
+                          hidden: str) -> None:
+    """404 unless the caller may see the cast, with the answer a missing item gets (``hidden``)."""
+    _, user_id, is_admin = await _actor(authorization, cookie)
+    if not await _may_see(library, user_id, is_admin):
+        raise HTTPException(status_code=404, detail=hidden)
+
+
+async def may_see_episode_cast(episode_id: str, authorization: str | None, cookie: str | None) -> bool:
+    """For other routes that report on an episode's cast (the preflight's cast check)."""
+    _, user_id, is_admin = await _actor(authorization, cookie)
+    return await _may_see(await _library(_episode_id(episode_id)), user_id, is_admin)
 
 
 # ------------------------------------------------------------------------------------- helpers
@@ -435,11 +476,14 @@ class ShotCastRequest(BaseModel):
 
 @router.get("/api/series")
 async def list_series(authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):
-    """Every series (members can read all of them) and whether the caller may change each one."""
+    """The series the caller may see and whether the caller may change each one."""
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
-    rows = await _call(cast_store.list_series)
-    for row in rows:
+    rows = []
+    for row in await _call(cast_store.list_series):
+        if not await _may_see_series(row, user_id, is_admin):
+            continue
         row["can_edit"] = is_admin or _owns_series(row, user_id)
+        rows.append(row)
     return {"series": rows}
 
 list_series.allow_members = True
@@ -462,6 +506,8 @@ async def get_series_cast(series_id: str, authorization: str | None = Header(Non
     """A series with its characters (the create wizard maps drafted characters to them)."""
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     series = await _call(cast_store.get_series, series_id)
+    if not await _may_see_series(series, user_id, is_admin):
+        raise HTTPException(status_code=404, detail=f"Series {series_id} not found")
     characters = await _call(cast_store.list_characters, ("series", series_id))
     return {"series": series, "characters": [_character_out(c) for c in characters],
             "can_edit": is_admin or _owns_series(series, user_id)}
@@ -477,6 +523,8 @@ async def set_episode_series(episode_id: str, request: EpisodeSeriesRequest,
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     if request.series_id:
+        await _require_viewer(("series", request.series_id), authorization, studio_admin_token,
+                              f"Series {request.series_id} not found")
         await _require_series_owner(request.series_id, authorization, studio_admin_token)
     current = await _library(episode_id)
     await _refuse_during_runs(current, episode_id, "its series can change")
@@ -496,6 +544,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
     cast plans to, the still model's reference limit and the sheet options."""
     episode_id = _episode_id(episode_id)
     library = await _library(episode_id)
+    await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)
     characters = await _call(cast_store.list_characters, library)
     await _refresh_sheet_jobs(characters)
     characters = await _call(cast_store.list_characters, library)
@@ -613,7 +662,9 @@ async def get_cast_character(episode_id: str, character_id: str, authorization: 
                              studio_admin_token: str | None = Cookie(None)):
     """One character with its versions, images, sheet jobs and audit trail."""
     episode_id = _episode_id(episode_id)
-    character = await _character_in(await _library(episode_id), character_id)
+    library = await _library(episode_id)
+    await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)
+    character = await _character_in(library, character_id)
     audit = await _call(cast_store.list_audit, character_id=character_id, limit=200)
     return {"character": _character_out(character), "audit": audit}
 
@@ -952,10 +1003,17 @@ approve_sheet.allow_members = True
 # ------------------------------------------------------------------------------------- images
 
 
-async def _image_for(image_id: str) -> dict:
+async def _image_for(image_id: str, authorization: str | None, cookie: str | None) -> dict:
+    """The image when the caller may see its character's cast; otherwise the 404 a missing image gets
+    (checked before its file, so nothing is read or made for a caller who may not see it)."""
     if not IMAGE_ID_RE.match(image_id):
         raise HTTPException(status_code=404, detail="Image not found")
-    return await _call(cast_store.get_image, image_id)
+    image = await _call(cast_store.get_image, image_id)
+    _, user_id, is_admin = await _actor(authorization, cookie)
+    library = await _call(cast_store.image_library, image_id)
+    if library is None or not await _may_see(library, user_id, is_admin):
+        raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
+    return image
 
 
 PRIVATE_HEADERS = {"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"}
@@ -964,8 +1022,8 @@ PRIVATE_HEADERS = {"Cache-Control": "private, max-age=3600", "X-Content-Type-Opt
 @router.get("/api/cast/images/{image_id}")
 async def get_cast_image(image_id: str, authorization: str | None = Header(None),
                          studio_admin_token: str | None = Cookie(None)):
-    """A cast image (members and admins only; never served as a static file)."""
-    image = await _image_for(image_id)
+    """A cast image, for whoever may see its cast (never served as a static file)."""
+    image = await _image_for(image_id, authorization, studio_admin_token)
     path = cast_store.image_path(image)
     if not await asyncio.to_thread(path.is_file):
         raise HTTPException(status_code=404, detail="Image file not found")
@@ -977,8 +1035,8 @@ get_cast_image.allow_members = True
 @router.get("/api/cast/images/{image_id}/thumb")
 async def get_cast_image_thumb(image_id: str, authorization: str | None = Header(None),
                                studio_admin_token: str | None = Cookie(None)):
-    """A small JPEG of a cast image for the Cast panel."""
-    image = await _image_for(image_id)
+    """A small JPEG of a cast image for the Cast panel (same rule as the image)."""
+    image = await _image_for(image_id, authorization, studio_admin_token)
     if not await asyncio.to_thread(cast_store.image_path(image).is_file):
         raise HTTPException(status_code=404, detail="Image file not found")
     thumb = await _call(cast_store.ensure_thumb, image["sha256"], image["ext"])

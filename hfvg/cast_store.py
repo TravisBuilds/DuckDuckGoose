@@ -223,7 +223,11 @@ def list_series() -> list[dict]:
     with connect() as conn:
         rows = conn.execute("SELECT s.*, (SELECT COUNT(*) FROM episode_series e WHERE e.series_id = s.series_id) "
                             "AS episode_count FROM series s ORDER BY s.name COLLATE NOCASE").fetchall()
-    return [dict(r) for r in rows]
+        links = conn.execute("SELECT series_id, episode_id FROM episode_series ORDER BY episode_id").fetchall()
+    episodes: dict[str, list[str]] = {}
+    for series_id, episode_id in links:
+        episodes.setdefault(series_id, []).append(episode_id)
+    return [{**dict(r), "episodes": episodes.get(r["series_id"], [])} for r in rows]
 
 
 def episode_series_id(episode_id: str) -> str | None:
@@ -718,6 +722,14 @@ def get_image(image_id: str) -> dict:
     if not row:
         raise CastNotFound(f"Image {image_id} not found")
     return _image_view(dict(row))
+
+
+def image_library(image_id: str) -> tuple[str, str] | None:
+    """The cast library ((kind, id)) of the image's character; None when there is no such image."""
+    with connect() as conn:
+        row = conn.execute("SELECT c.library_kind, c.library_id FROM cast_images i JOIN cast_characters c "
+                           "ON c.character_id = i.character_id WHERE i.image_id = ?", (image_id,)).fetchone()
+    return (row[0], row[1]) if row else None
 
 
 def image_path(image: dict) -> Path:
