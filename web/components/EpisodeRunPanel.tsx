@@ -416,7 +416,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const decision = state?.shot_decisions[sid];
             const retrying = Boolean(state?.pending_retries.includes(sid));
             const status = ss?.still_status ?? state?.shot_outcomes[sid]?.status ?? null;
-            const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation) });
+            const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation), allApproved: approvedAll });
             const description = row?.beat_purpose || (castHidden ? '' : row?.prompt ?? '');
             const reason = reasons[sid] ?? '';
             const canDecide = atG2 && !ended && canAct;

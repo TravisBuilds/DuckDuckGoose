@@ -64,6 +64,13 @@ test('a scene picture chip puts the decision first, then the picture state', () 
   assert.equal(stillChip({ stillStatus: 'failed', held: true }).label, 'Held for an admin to check');
 });
 
+test('once every scene picture is approved, a picture without its own decision is not still "to review"', () => {
+  assert.deepEqual(stillChip({ stillStatus: 'done', allApproved: true }), { label: 'Approved', tone: 'ok' });
+  assert.deepEqual(stillChip({ stillStatus: 'done', decision: 'rejected', allApproved: true }), { label: 'Redo requested', tone: 'warn' });
+  assert.deepEqual(stillChip({ stillStatus: 'failed', allApproved: true }), { label: "Couldn't be made", tone: 'bad' });
+  assert.deepEqual(stillChip({ stillStatus: 'pending', allApproved: true }), { label: 'Being made', tone: 'wait' });
+});
+
 test('gate names cover the three review gates the workflow parks at', () => {
   assert.deepEqual(Object.keys(GATE_LABELS).sort(), ['G1_SHOT_PLAN', 'G2_SCENE_STILLS', 'G_FINAL_CUT', 'STORY_SHAPE']);
 });

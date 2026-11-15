@@ -77,12 +77,16 @@ export function shotStatusLabel(status: string | null | undefined): string {
   return SHOT_STATUS_LABELS[status.trim().toLowerCase()] ?? 'Waiting';
 }
 
-/** The chip on a scene picture: your decision first, then where the picture is. */
+/**
+ * The chip on a scene picture: your decision first, then where the picture is. allApproved: the scene
+ * pictures step has passed, so a finished picture without a decision of its own went ahead with the rest.
+ */
 export function stillChip(shot: {
   stillStatus?: string | null;
   decision?: string | null;
   retrying?: boolean;
   held?: boolean;
+  allApproved?: boolean;
 }): { label: string; tone: LabelTone } {
   if (shot.held) return { label: 'Held for an admin to check', tone: 'warn' };
   if (shot.retrying) return { label: 'Being made again', tone: 'wait' };
@@ -90,7 +94,9 @@ export function stillChip(shot: {
   if (shot.decision === 'rejected') return { label: 'Redo requested', tone: 'warn' };
   const status = (shot.stillStatus ?? '').toLowerCase();
   if (status === 'failed') return { label: "Couldn't be made", tone: 'bad' };
-  if (status === 'done' || status === 'completed') return { label: 'Ready to review', tone: 'todo' };
+  if (status === 'done' || status === 'completed') {
+    return shot.allApproved ? { label: 'Approved', tone: 'ok' } : { label: 'Ready to review', tone: 'todo' };
+  }
   if (status === 'skipped') return { label: 'Skipped', tone: 'wait' };
   return { label: 'Being made', tone: 'wait' };
 }
