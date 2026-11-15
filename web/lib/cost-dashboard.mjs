@@ -144,6 +144,69 @@ export function projectionText(monthly) {
   };
 }
 
+/** The page's headline numbers. The CSV and JSON exports carry these, not the ledger's raw sums. */
+export function exportHeadline(truth) {
+  if (!truth) return null;
+  const { totals, in_flight: inFlight, monthly } = truth;
+  return {
+    as_of: truth.generated_at,
+    spend_usd_micros: totals.spend_usd_micros,
+    provider_reported_usd_micros: totals.actual_usd_micros || 0,
+    coverage_pct: totals.coverage_pct,
+    in_flight_jobs: inFlight.jobs,
+    in_flight_held_usd_micros: inFlight.held_usd_micros,
+    month: monthly.month,
+    month_spend_so_far_usd_micros: monthly.spend_so_far_usd_micros,
+    projected_month_end_usd_micros: monthly.projected_month_end_usd_micros,
+    projection_basis: monthly.basis,
+  };
+}
+
+/** Dollars as the page rounds them, without "$" or thousands separators. */
+function usdCell(micros) {
+  return formatUsdMicros(micros || 0).replace('$', '').replace(/,/g, '');
+}
+
+function csvRow(cells) {
+  return cells.map((cell) => {
+    const s = cell == null ? '' : String(cell);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(',');
+}
+
+/** CSV export: the page's headline, spend by person, then each user's ledger activity. */
+export function dashboardCsv(data) {
+  const truth = data && data.cost_truth;
+  const h = exportHeadline(truth);
+  const lines = [csvRow(['Headline', 'USD', 'Detail'])];
+  if (h) {
+    lines.push(
+      csvRow(['Spend (all committed jobs)', usdCell(h.spend_usd_micros), coverageSummary(truth.totals).text]),
+      csvRow(['Provider-reported', usdCell(h.provider_reported_usd_micros), `${pctText(h.coverage_pct)} of spend`]),
+      csvRow(['Month-end projection', usdCell(h.projected_month_end_usd_micros), projectionText(truth.monthly).note]),
+      csvRow(['Held by jobs in flight (not spend yet)', usdCell(h.in_flight_held_usd_micros), `${h.in_flight_jobs} job(s)`]),
+    );
+  } else {
+    lines.push(csvRow(['Spend (all committed jobs)', '', 'cost figures unavailable']));
+  }
+  lines.push('', csvRow(['Person', 'Email', 'Attribution', 'Spend (USD)', 'Provider-reported (USD)', 'Coverage', 'Episodes', 'Jobs']));
+  for (const p of (truth && truth.by_person) || []) {
+    lines.push(csvRow([p.name, p.email || '', (p.attribution || []).map(attributionText).join('; '),
+      usdCell(p.spend_usd_micros), usdCell(p.actual_usd_micros), pctText(p.coverage_pct), p.episodes, p.jobs]));
+  }
+  lines.push('', csvRow(['User ID', 'Name', 'Email', 'Episodes', 'Jobs', 'Revision %']));
+  for (const u of (data && data.users) || []) {
+    const revision = typeof u.revision_percent === 'number' ? u.revision_percent.toFixed(1) : '';
+    lines.push(csvRow([u.user_id, u.name, u.email || '', u.episode_count, u.job_count, revision]));
+  }
+  return lines.join('\n');
+}
+
+/** JSON export: everything the page loaded, led by the same headline as the page and the CSV. */
+export function dashboardJson(data) {
+  return JSON.stringify({ headline: exportHeadline(data && data.cost_truth), ...data }, null, 2);
+}
+
 const LEVEL = { error: 0, warning: 1, info: 2 };
 
 /** Errors first, then warnings, then notes. */

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import {
-  attributionText, coverageSummary, deliveryText, deltaText, destinationText, formatUsdMicros, pctText,
-  perFinishedText, projectionText, readingLine, sortedWarnings, stageLabel, testAlertText,
+  attributionText, coverageSummary, dashboardCsv, dashboardJson, deliveryText, deltaText, destinationText,
+  formatUsdMicros, pctText, perFinishedText, projectionText, readingLine, sortedWarnings, stageLabel, testAlertText,
 } from "@/lib/cost-dashboard.mjs";
 import type {
   AlertStatus, BalanceReading, CostGroup, CostWarning, MonthlyProjection, PerFinished, RecordedAlert, SendResult,
@@ -96,12 +96,6 @@ interface DashboardData {
     model: string;
     actual_usd: string;
   }>;
-  monthly_runrate: {
-    month: string;
-    current_spend_usd: string;
-    daily_rate_usd: string;
-    projected_month_end_usd: string;
-  };
   milestones: Array<{
     message: string;
     reached_at: string;
@@ -292,19 +286,7 @@ export default function Dashboard() {
   function exportToCSV() {
     if (!data) return;
 
-    // Export users data
-    const headers = ["User ID", "Name", "Email", "Actual Spend (USD)", "Episodes", "Jobs", "Revision %"];
-    const rows = data.users.map(u => [
-      u.user_id,
-      u.name,
-      u.email || "",
-      u.actual_usd,
-      u.episode_count.toString(),
-      u.job_count.toString(),
-      u.revision_percent.toFixed(1)
-    ]);
-    
-    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const csv = dashboardCsv(data);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -317,7 +299,7 @@ export default function Dashboard() {
   function exportToJSON() {
     if (!data) return;
     
-    const json = JSON.stringify(data, null, 2);
+    const json = dashboardJson(data);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -747,7 +729,7 @@ export default function Dashboard() {
         )}
 
         {/* Users */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className={card}>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Users</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
@@ -758,16 +740,6 @@ export default function Dashboard() {
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Today: {data.user_stats.active_today} | 30d: {data.user_stats.active_30d}
-            </p>
-          </div>
-          <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Ledger run-rate</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              {formatUSD(data.monthly_runrate.projected_month_end_usd)}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Current: {formatUSD(data.monthly_runrate.current_spend_usd)}, daily rate:{" "}
-              {formatUSD(data.monthly_runrate.daily_rate_usd)} (including holds of jobs in flight)
             </p>
           </div>
           <div className={card}>

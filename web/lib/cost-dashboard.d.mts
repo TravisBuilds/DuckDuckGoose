@@ -85,6 +85,39 @@ export interface CostWarning {
   message: string;
 }
 
+export interface ExportHeadline {
+  as_of: string;
+  spend_usd_micros: number;
+  provider_reported_usd_micros: number;
+  coverage_pct: number | null;
+  in_flight_jobs: number;
+  in_flight_held_usd_micros: number;
+  month: string;
+  month_spend_so_far_usd_micros: number;
+  projected_month_end_usd_micros: number;
+  projection_basis: string;
+}
+
+export interface ExportCostTruth {
+  generated_at: string;
+  totals: CostGroup;
+  in_flight: { jobs: number; held_usd_micros: number };
+  monthly: MonthlyProjection;
+  by_person: Array<CostGroup & { name: string; email: string | null; episodes: number; attribution: string[] }>;
+}
+
+export interface DashboardExport {
+  cost_truth: ExportCostTruth | null;
+  users: Array<{
+    user_id: string;
+    name: string;
+    email: string | null;
+    episode_count: number;
+    job_count: number;
+    revision_percent: number;
+  }>;
+}
+
 export declare function pctText(pct: number | null | undefined): string;
 export declare function deltaText(group: Partial<CostGroup> | null | undefined): string;
 export declare function coverageSummary(totals: Partial<CostGroup> | null | undefined): {
@@ -111,4 +144,7 @@ export declare function projectionText(monthly: MonthlyProjection | null | undef
   amount: string;
   note: string;
 };
+export declare function exportHeadline(truth: ExportCostTruth | null | undefined): ExportHeadline | null;
+export declare function dashboardCsv(data: DashboardExport | null | undefined): string;
+export declare function dashboardJson(data: DashboardExport | null | undefined): string;
 export declare function sortedWarnings(list: CostWarning[] | null | undefined): CostWarning[];
