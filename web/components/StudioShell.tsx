@@ -44,7 +44,7 @@ function NavLinks({ items, path, onNavigate, vertical }: {
       {items.map((item) => {
         const active = item.active(path);
         return (
-          <Link key={item.href} href={item.href} prefetch={false} onClick={onNavigate}
+          <Link key={item.href} href={item.href} onClick={onNavigate}
             aria-current={active ? 'page' : undefined}
             className={`rounded-md px-3 py-2 text-sm font-medium ${focusRing} ${vertical ? 'block' : ''} ${
               active
@@ -115,7 +115,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
         </a>
         <header className="border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800" data-testid="studio-shell">
           <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
-            <Link href="/studio" prefetch={false} className={`mr-2 rounded text-lg font-bold text-gray-900 dark:text-white ${focusRing}`}>
+            <Link href="/studio" className={`mr-2 rounded text-lg font-bold text-gray-900 dark:text-white ${focusRing}`}>
               DuckDuckGoose <span className="font-normal text-gray-600 dark:text-gray-300">Studio</span>
             </Link>
             <nav aria-label="Studio" className="hidden items-center gap-1 md:flex">
@@ -182,7 +182,7 @@ export function AdminOnly({ children }: { children: ReactNode }) {
       <p className="mt-2 text-gray-600 dark:text-gray-300">
         Your account can make and review videos. Ask an admin if you need something from this page.
       </p>
-      <Link href="/studio" prefetch={false} className={`${btnPrimary} mt-6`}>Back to my videos</Link>
+      <Link href="/studio" className={`${btnPrimary} mt-6`}>Back to my videos</Link>
     </div>
   );
 }

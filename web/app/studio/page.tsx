@@ -65,7 +65,7 @@ function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
   const owner = ownerLabel(episode.user_id, episode.owner_name, myUserId);
   return (
     <li>
-      <Link href={`/studio/episodes/${episode.episode_id}`} prefetch={false} data-testid={`episode-card-${episode.episode_id}`}
+      <Link href={`/studio/episodes/${episode.episode_id}`} data-testid={`episode-card-${episode.episode_id}`}
         className={`block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-blue-400 hover:bg-blue-50/40 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 ${focusRing}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-900 dark:text-white">
@@ -170,11 +170,11 @@ export default function StudioHomePage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Link href="/studio/create" prefetch={false} data-testid="make-video-link" className={btnPrimary}>
+          <Link href="/studio/create" data-testid="make-video-link" className={btnPrimary}>
             Make a new video
           </Link>
           {isAdmin && (
-            <Link href="/studio/episodes/new" prefetch={false} className={`text-sm ${link}`} data-testid="advanced-upload-link">
+            <Link href="/studio/episodes/new" className={`text-sm ${link}`} data-testid="advanced-upload-link">
               Advanced upload
             </Link>
           )}
@@ -209,7 +209,7 @@ export default function StudioHomePage() {
           <p className="mt-1 text-gray-700 dark:text-gray-200">
             Pick a style, describe your idea in a few sentences, and the studio drafts the story and the shots for you.
           </p>
-          <Link href="/studio/create" prefetch={false} className={`${btnPrimary} mt-4`}>Make your first video</Link>
+          <Link href="/studio/create" className={`${btnPrimary} mt-4`}>Make your first video</Link>
           {scope === 'mine' && (episodes ?? []).length > 0 && (
             <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
               Other people&apos;s videos are under{' '}
