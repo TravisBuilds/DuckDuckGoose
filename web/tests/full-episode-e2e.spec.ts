@@ -16,6 +16,13 @@ async function expectMessage(page: Page, re: RegExp) {
   await expect(page.getByTestId('run-message')).toHaveText(re);
 }
 
+/** Production details (raw run state, credits, moderation, QC) is collapsed by default: open it to use it. */
+async function openProductionDetails(page: Page) {
+  const details = page.getByTestId('production-details');
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await details.locator('summary').click();
+  await expect(details).toHaveAttribute('open', '');
+}
+
 test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> cap -> final cut', async ({ page }) => {
   // --- auth: the middleware refuses /studio without a valid signed session ---
   await page.goto('/studio/episodes/new');
@@ -56,24 +63,25 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   // --- G1 ---
   await expect(page.getByTestId('current-gate')).toHaveText('G1_SHOT_PLAN');
   await page.getByTestId('approve-g1').click();
-  await expectMessage(page, /Approve G1: done/);
+  await expectMessage(page, /^Shot plan approved\.$/);
 
   // --- G2: per-shot decisions on the real workflow (approve one, reject one with a reason) ---
   await expect(page.getByTestId('current-gate')).toHaveText('G2_SCENE_STILLS');
   await expect(page.getByTestId('shot-S01-still')).toHaveText('done');
   await expect(page.getByTestId('shot-S02-still')).toHaveText('done');
+  await openProductionDetails(page);
   await expect(page.getByTestId('moderation-none')).toBeVisible();
   await expect(page.getByTestId('stall-banner')).toHaveCount(0);
   await page.getByTestId('approve-shot-S01').click();
-  await expectMessage(page, /Approve S01: done/);
+  await expectMessage(page, /^Picture S01 approved\.$/);
   await expect(page.getByTestId('shot-S01-decision')).toHaveText('approved');
   await expect(page.getByTestId('reject-shot-S02')).toBeDisabled(); // a reason is required
   await page.getByTestId('reject-reason-S02').fill('framing too loose');
   await page.getByTestId('reject-shot-S02').click();
-  await expectMessage(page, /Reject S02: done/);
+  await expectMessage(page, /^Redo requested for picture S02\.$/);
   await expect(page.getByTestId('shot-S02-decision')).toHaveText('rejected');
   await page.getByTestId('approve-g2').click();
-  await expectMessage(page, /Approve G2: done/);
+  await expectMessage(page, /^Scene pictures approved\./);
 
   // --- clips -> picture assembly -> delivery -> G_FINAL_CUT, QC verdicts from the workflow ---
   await expect(page.getByTestId('current-gate')).toHaveText('G_FINAL_CUT', { timeout: 120_000 });
@@ -86,38 +94,45 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await expect(page.getByTestId('preview-phone-missing')).toBeVisible();
 
   // --- credit cap raise is applied to the ledger by the workflow ---
+  await openProductionDetails(page);
   await expect(page.getByTestId('credit-cap')).toHaveText('500');
   await page.getByTestId('new-cap').fill('650');
   await page.getByTestId('raise-cap').click();
-  await expectMessage(page, /Raise cap: done/);
+  await expectMessage(page, /^Credit cap raised\.$/);
   await expect(page.getByTestId('credit-cap')).toHaveText('650');
   await page.getByTestId('new-cap').fill('600');
   await page.getByTestId('raise-cap').click();
-  await expectMessage(page, /Raise cap refused \(409\)/);
+  await expectMessage(page, /^Couldn't raise the cap: /);
+  await expect(page.getByTestId('run-message')).toHaveAttribute('data-status', '409');
 
   // --- clip retry at the final gate, then reject the cut with a reason (gate stays held) ---
   await page.getByTestId('clip-reason-S01').fill('motion too fast');
   await page.getByTestId('retry-clip-S01').click();
-  await expectMessage(page, /Retry clip S01: done/);
+  await expectMessage(page, /^Making the clip for S01 again\.$/);
   await expect(page.getByTestId('shot-S01')).toContainText('clip retries: 1');
   await page.getByTestId('final-reject-reason').fill('pacing needs another pass');
   await page.getByTestId('reject-final').click();
-  await expectMessage(page, /Reject final cut: done/);
+  await expectMessage(page, /^Final cut sent back with your notes\.$/);
   await expect(page.getByTestId('final-rejections')).toContainText('pacing needs another pass');
   await expect(page.getByTestId('current-gate')).toHaveText('G_FINAL_CUT');
 
   // --- approve the final cut once nothing blocks ---
   await expect(page.getByTestId('final-blockers')).toHaveCount(0);
   await page.getByTestId('approve-final').click();
-  await expectMessage(page, /Approve final cut: done/);
+  await expectMessage(page, /^Final cut approved\.$/);
   await expect(page.getByTestId('final-approved')).toBeVisible();
   await expect(page.getByTestId('passed-gates')).toContainText('G_FINAL_CUT');
 
   // --- the run completes: the page says so (no Start again) and actions on it get a 409 ---
-  await expect(page.getByTestId('run-ended-title')).toHaveText('This run completed.');
+  await expect(page.getByTestId('run-ended-title')).toHaveText('Your preview is finished');
   await expect(page.getByTestId('run-ended-reason')).toHaveCount(0);
   await expect(page.getByTestId('start-again')).toHaveCount(0);
+  await expect(page.getByTestId('run-finished')).toHaveText('Finished');
+  await expect(page.getByTestId('current-gate')).toHaveCount(0);
+  await expect(page.getByTestId('approve-final')).toHaveCount(0);
+  await openProductionDetails(page);
   await page.getByTestId('new-cap').fill('700');
   await page.getByTestId('raise-cap').click();
-  await expectMessage(page, /^Raise cap refused \(409\): This run has ended \(completed\)\. Reopen the episode to change it\.$/);
+  await expectMessage(page, /^Couldn't raise the cap: This run has ended \(completed\)\. Reopen the episode to change it\.$/);
+  await expect(page.getByTestId('run-message')).toHaveAttribute('data-status', '409');
 });

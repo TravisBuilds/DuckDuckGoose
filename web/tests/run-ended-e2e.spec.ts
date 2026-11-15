@@ -58,13 +58,21 @@ test('a failed run says why, refuses actions with a 409 and can be started again
   const outline = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/story-shape`)).json()).story_shape;
   const save = await page.request.put(`${API}/api/episodes/${EPISODE}/story-shape`, { data: { ...outline, logline: 'An edit' } });
   expect([save.status(), (await save.json()).detail]).toEqual([409, refused]);
+  // the Story panel of an ended run is read-only: no Edit, no Approve
+  await expect(page.getByTestId('story-edit')).toHaveCount(0);
+  await expect(page.getByTestId('story-approve')).toHaveCount(0);
+  // the cap controls sit in the collapsed Production details
+  const details = page.getByTestId('production-details');
+  await details.locator('summary').click();
+  await expect(details).toHaveAttribute('open', '');
   await page.getByTestId('new-cap').fill('700');
   await page.getByTestId('raise-cap').click();
-  await expect(page.getByTestId('run-message')).toHaveText(`Raise cap refused (409): ${refused}`);
+  await expect(page.getByTestId('run-message')).toHaveText(`Couldn't raise the cap: ${refused}`);
+  await expect(page.getByTestId('run-message')).toHaveAttribute('data-status', '409');
 
   // Start again (a dry run: no confirmation): a new, open run with the same inputs
   await page.getByTestId('start-again').click();
-  await expect(page.getByTestId('run-message')).toHaveText('Start again: done');
+  await expect(page.getByTestId('run-message')).toHaveText('Started again.');
   await expect(page.getByTestId('run-ended')).toHaveCount(0);
   const again = await runOf(page);
   expect(again).toMatchObject({ status: 'RUNNING', ended: false });
