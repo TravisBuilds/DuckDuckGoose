@@ -13,6 +13,8 @@ Destinations come from the environment at send time (docs/BALANCE-ALERTS.md, .en
 SMTP email (BALANCE_ALERT_SMTP_*) and/or a generic JSON webhook (BALANCE_ALERT_WEBHOOK_URL). Every
 alert is recorded in balance_alerts with the channels tried and each channel's outcome, delivered or
 not, so a missing or broken destination is visible on the dashboard instead of a silent no-op.
+Delivery is tracked per channel: a channel that failed is retried at the next check, one that
+delivered is not sent the same alert again within the deduplication window.
 """
 
 from __future__ import annotations
@@ -301,9 +303,12 @@ class BalanceNotifier:
     
     async def _send_alert(self, alert: Alert, *, dedupe_window_seconds: int | None = None,
                           is_test: bool = False) -> dict:
-        """Send an alert through all configured channels (with deduplication) and record the outcome.
+        """Send an alert through the configured channels that have not delivered it within the
+        deduplication window, and record each channel's outcome.
 
-        Returns {"suppressed": bool, "delivered": bool, "channels": [...], "results": {channel: ok/error}}.
+        Returns {"suppressed": bool, "delivered": bool, "channels": [...], "results": {channel: outcome}},
+        outcome being "sent", "failed: <error>" or "already sent at <time>" (delivered earlier in the
+        window, so not sent twice). Suppressed when every configured channel already delivered it.
         """
         await init_notifier_tables(self.db_path)
         config = load_alert_config(self.env)
@@ -313,15 +318,25 @@ class BalanceNotifier:
         self._dedupe_windows[dedupe_key] = window
         if await self._is_recent_duplicate(dedupe_key):
             return {"suppressed": True, "delivered": False, "channels": config.channels, "results": {}}
+        already_sent = await self._channels_sent_within_window(dedupe_key)
+        pending = [c for c in config.channels if c not in already_sent]
+        if config.channels and not pending:
+            return {"suppressed": True, "delivered": False, "channels": config.channels, "results": {}}
         
         # Always log
         self._log_alert(alert)
 
         senders = {"email": self._send_email, "webhook": self._send_webhook}
         channels = config.channels
-        outcomes = await asyncio.gather(*(senders[c](alert, config) for c in channels), return_exceptions=True)
+        outcomes = dict(zip(pending, await asyncio.gather(*(senders[c](alert, config) for c in pending),
+                                                          return_exceptions=True)))
         results: dict[str, str] = {}
-        for channel, outcome in zip(channels, outcomes):
+        for channel in channels:
+            if channel not in outcomes:
+                sent_at = datetime.fromtimestamp(already_sent[channel], tz=timezone.utc)
+                results[channel] = f"already sent at {sent_at.isoformat(timespec='seconds')}"
+                continue
+            outcome = outcomes[channel]
             if isinstance(outcome, BaseException):
                 error = self._redact_webhook_error(outcome) if channel == "webhook" else self._redact_email_error(outcome, config)
                 self._log_alert_error(f"{channel.capitalize()} send failed: {error}")
@@ -334,24 +349,46 @@ class BalanceNotifier:
         await self._record_alert(alert, dedupe_key, channels=channels, results=results,
                                  delivered=delivered, is_test=is_test)
         return {"suppressed": False, "delivered": delivered, "channels": channels, "results": results}
+
+    def _window(self, dedupe_key: str) -> int:
+        window = self._dedupe_windows.get(dedupe_key)
+        return load_alert_config(self.env).dedupe_window_seconds if window is None else window
     
     async def _is_recent_duplicate(self, dedupe_key: str) -> bool:
-        """Check if this alert was recently recorded (within the deduplication window). A delivery
-        that failed on a configured channel does not count, so the next check retries it."""
-        window = self._dedupe_windows.get(dedupe_key)
-        if window is None:
-            window = load_alert_config(self.env).dedupe_window_seconds
-        cutoff = datetime.now(timezone.utc).timestamp() - window
+        """Whether a record within the deduplication window stands for the whole alert: one made with
+        no destination configured, or one from before outcomes were recorded per channel."""
+        cutoff = datetime.now(timezone.utc).timestamp() - self._window(dedupe_key)
         
         async with aiosqlite.connect(self.db_path) as db:
             await ensure_alert_columns(db)
             row = await (await db.execute(
                 "SELECT COUNT(*) FROM balance_alerts WHERE dedupe_key = ? AND sent_at_unix > ? "
-                "AND (delivered IS NULL OR delivered = 1 OR COALESCE(channels, '') = '')",
+                "AND (delivered IS NULL OR COALESCE(channels, '') = '')",
                 (dedupe_key, cutoff),
             )).fetchone()
         
         return row[0] > 0 if row else False
+
+    async def _channels_sent_within_window(self, dedupe_key: str) -> dict[str, float]:
+        """When each channel last delivered this alert within the deduplication window. A channel
+        that failed does not count, so the next check retries it while the others are not sent twice."""
+        cutoff = datetime.now(timezone.utc).timestamp() - self._window(dedupe_key)
+        async with aiosqlite.connect(self.db_path) as db:
+            await ensure_alert_columns(db)
+            rows = await (await db.execute(
+                "SELECT sent_at_unix, delivery FROM balance_alerts WHERE dedupe_key = ? AND sent_at_unix > ?",
+                (dedupe_key, cutoff),
+            )).fetchall()
+        sent: dict[str, float] = {}
+        for sent_at, delivery in rows:
+            try:
+                outcomes = json.loads(delivery) if delivery else {}
+            except ValueError:
+                continue
+            for channel, outcome in (outcomes.items() if isinstance(outcomes, dict) else ()):
+                if outcome == "sent":
+                    sent[channel] = max(sent_at, sent.get(channel, sent_at))
+        return sent
     
     async def _record_alert(self, alert: Alert, dedupe_key: str, *, channels: list[str] | None = None,
                             results: dict[str, str] | None = None, delivered: bool | None = None,

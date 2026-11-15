@@ -92,7 +92,8 @@ Alerts are sent through:
    reaches the logs: the API and the worker keep the HTTP client loggers (`httpx`, `httpcore`)
    at WARNING and cut any URL they still log to scheme and host (`hfvg/log_safety.py`)
 4. **Database**: Recorded in `balance_alerts` with the destinations tried and each outcome
-   (`sent`, or the redacted error) and whether it was delivered
+   (`sent`, the redacted error, or `already sent at <time>` for a destination that delivered it
+   earlier in the window) and whether this attempt delivered it
 
 The destination is read from the process environment when an alert is sent (the API and the worker
 both send alerts, so set it for both). With no destination (or only incomplete settings) the alert
@@ -106,10 +107,13 @@ host shown). The result per destination is shown next to the button and in the r
 ### Deduplication
 
 Alerts are deduplicated by alert type, subject, episode / job (for 403s) and the set of
-destinations, within a configurable window (default 1 hour). The same alert won't be sent twice
-within the window, but:
+destinations, within a configurable window (default 1 hour). Delivery is tracked per
+destination: one that delivered the alert is not sent it again within the window (counted from
+that delivery), but:
 
-- a delivery that failed on every destination does not count: the next check sends it again;
+- a destination whose delivery failed does not count: the next check retries it, and only it
+  (when email fails and the webhook delivers, or the other way round, the next check sends the
+  failed one again and records the other as `already sent at <time>`);
 - a newly configured destination is not held back by an alert recorded before it existed;
 - a test alert is held back for 30 seconds only.
 
@@ -357,7 +361,8 @@ curl -X POST http://localhost:8000/api/budget/balance \
 2. Press **Send test alert** and read the result
 3. Check logs for delivery errors: `grep "balance_notifier" <log-file>`
 4. Verify SMTP/webhook config in `.env` for both the API and the worker (restart them after a change)
-5. Check deduplication: the same delivered alert within 1 hour is suppressed
+5. Check deduplication: a destination that delivered an alert is not sent it again within the
+   window (1 hour by default); a destination that failed is retried at the next check
 6. Test SMTP manually:
    ```python
    import smtplib

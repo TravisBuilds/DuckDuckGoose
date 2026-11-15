@@ -210,6 +210,70 @@ async def test_email_failure_is_recorded_without_the_password(monkeypatch, fake_
     assert "pw-not-real-123" not in json.dumps(await _alerts(), default=str)
 
 
+# ------------------------------------------------------------------ per-channel delivery
+
+@pytest.mark.parametrize("failing", ["email", "webhook"])
+async def test_only_the_channel_that_failed_is_retried(monkeypatch, fake_smtp, failing):
+    _email_env(monkeypatch)
+    monkeypatch.setenv("BALANCE_ALERT_WEBHOOK_URL", WEBHOOK)
+    delivering = "webhook" if failing == "email" else "email"
+    notifier = bn.BalanceNotifier(_db())
+    replies = [httpx.Response(500), httpx.Response(500), httpx.Response(200)] if failing == "webhook" else \
+        [httpx.Response(200)]
+    with respx.mock() as mock:
+        route = mock.post(WEBHOOK).mock(side_effect=replies)
+        fake_smtp.fail_login = failing == "email"
+        first = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+        second = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+        fake_smtp.fail_login = False
+        third = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+        fourth = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+
+    assert [r["suppressed"] for r in (first, second, third)] == [False] * 3, "a failed channel is retried"
+    assert first["delivered"] is True and first["results"][delivering] == "sent"
+    assert first["results"][failing].startswith("failed: ")
+    assert second["delivered"] is False and second["results"][failing].startswith("failed: ")
+    assert second["results"][delivering].startswith("already sent at ")
+    assert third["delivered"] is True and third["results"][failing] == "sent"
+    assert fourth["suppressed"] is True, "every destination has it now"
+    emails_sent = sum(len(session.sent) for session in fake_smtp.sessions)
+    assert (emails_sent, route.call_count) == ((1, 1) if failing == "email" else (1, 3)), \
+        "the channel that delivered is not sent the alert again"
+
+    rows = await _alerts()
+    assert [(r["channels"], r["delivered"]) for r in rows] == [("email,webhook", 1), ("email,webhook", 0),
+                                                              ("email,webhook", 1)]
+    first_sent_at = datetime.fromtimestamp(rows[0]["sent_at_unix"], tz=timezone.utc).isoformat(timespec="seconds")
+    assert json.loads(rows[2]["delivery"]) == {failing: "sent", delivering: f"already sent at {first_sent_at}"}
+    assert "pw-not-real-123" not in json.dumps(rows, default=str) and "not-a-real-token" not in json.dumps(rows)
+
+
+async def test_a_channel_is_suppressed_for_one_window_after_it_delivered(monkeypatch, fake_smtp):
+    """An "already sent" note on a retry does not stretch the window of the channel it names."""
+    _email_env(monkeypatch)
+    monkeypatch.setenv("BALANCE_ALERT_WEBHOOK_URL", WEBHOOK)
+    window = bn.DEFAULT_DEDUPE_WINDOW_SECONDS
+    notifier = bn.BalanceNotifier(_db())
+
+    async def age(seconds):
+        async with aiosqlite.connect(_db()) as db:
+            await db.execute("UPDATE balance_alerts SET sent_at_unix = sent_at_unix - ?", (seconds,))
+            await db.commit()
+
+    fake_smtp.fail_login = True
+    with respx.mock() as mock:
+        route = mock.post(WEBHOOK).mock(return_value=httpx.Response(200))
+        await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+        await age(window - 60)
+        retry = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+        await age(120)
+        reminder = await notifier.send_low_balance_alert("higgsfield", 8.0, 10.0)
+    assert (retry["suppressed"], reminder["suppressed"]) == (False, False), "the failed email is retried"
+    assert retry["results"]["webhook"].startswith("already sent at ")
+    assert reminder["results"]["webhook"] == "sent"
+    assert route.call_count == 2, "sent at the first check, then again once that delivery left the window"
+
+
 # ------------------------------------------------------------------ test alert, history
 
 async def test_test_alert_is_marked_and_double_clicks_are_suppressed(monkeypatch):

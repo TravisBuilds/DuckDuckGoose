@@ -3544,7 +3544,7 @@ test_mutation 481 "series cast needs a viewer of the series" \
 test_mutation 500 "failed alert delivery is retried, not deduplicated" \
     "hfvg/balance_notifier.py" \
     "tests/test_balance_alert_delivery.py::test_a_failed_delivery_is_retried_at_the_next_check" \
-    sed -i 's/^                "AND (delivered IS NULL OR delivered = 1 OR COALESCE(channels, ..) = ..)",$/                "AND 1 = 1",  # MUTATED/'
+    sed -i 's/^                "AND (delivered IS NULL OR COALESCE(channels, ..) = ..)",$/                "AND 1 = 1",  # MUTATED/'
 
 # 501: an alert with no destination is recorded as not delivered (not a silent success)
 test_mutation 501 "alert without destination is recorded as not delivered" \
@@ -3797,6 +3797,24 @@ test_mutation 542 "httpcore child loggers redact URLs" \
     "hfvg/log_safety.py" \
     "tests/test_log_safety.py::test_http_client_loggers_drop_requests_and_redact_what_they_still_log" \
     sed -i 's/^            names\.extend(f"{family}\.{child}" for child in _HTTPCORE_CHILDREN)$/            pass  # MUTATED/'
+
+# 543: a destination that delivered an alert is not sent it again while another one is retried
+test_mutation 543 "delivered alert channel is not sent twice" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_only_the_channel_that_failed_is_retried" \
+    sed -i 's/^        pending = \[c for c in config\.channels if c not in already_sent\]$/        pending = list(config.channels)  # MUTATED/'
+
+# 544: only a "sent" outcome counts as delivered for a channel (a failed one is retried)
+test_mutation 544 "failed alert channel is retried" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_only_the_channel_that_failed_is_retried" \
+    sed -i 's/^                if outcome == "sent":$/                if True:  # MUTATED/'
+
+# 545: once every destination delivered the alert, the next check is suppressed
+test_mutation 545 "alert delivered everywhere is suppressed" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_only_the_channel_that_failed_is_retried" \
+    sed -i 's/^        if config\.channels and not pending:$/        if False:  # MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
