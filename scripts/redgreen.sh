@@ -3583,6 +3583,17 @@ test_mutation 492 "hidden shot states carry no lint messages" \
     "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
     sed -i 's/^            "moderation_lint": {} if cast_hidden else child\.get("moderation_lint") or {},$/            "moderation_lint": child.get("moderation_lint") or {},  # MUTATED/'
 
+# 493-494: GET /shots leaves the prompt out for a member who may not see the episode's cast
+test_mutation 493 "hidden shots carry no prompt" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shots_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^                    "prompt": None if cast_hidden else row\[6\],$/                    "prompt": row[6],  # MUTATED/'
+
+test_mutation 494 "shots ask who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shots_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i '/^async def get_shots(/,/^get_shots\.allow_members = True$/ s/^    cast_hidden = not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)$/    cast_hidden = False  # MUTATED/'
+
 # 479: a series without an owner changes only through an admin
 test_mutation 479 "ownerless series changes only through an admin" \
     "api/cast_routes.py" \

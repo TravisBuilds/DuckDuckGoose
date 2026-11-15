@@ -3409,10 +3409,12 @@ async def get_shots(
     """
     List all shots for an episode with their status.
     
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header OR session cookie. A shot's prompt names the cast, so it is left
+    out (``cast_hidden``) for a caller who may not see this episode's cast, as the shot states do.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     
     import aiosqlite
     
@@ -3433,7 +3435,7 @@ async def get_shots(
                     "clip_url": row[3],
                     "qc_results": qc_results,
                     "retries": row[5],
-                    "prompt": row[6],
+                    "prompt": None if cast_hidden else row[6],
                     "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
                 })
     
@@ -3461,6 +3463,7 @@ async def get_shots(
     return {
         "episode_id": episode_id,
         "shots": shots,
+        "cast_hidden": cast_hidden,
     }
 
 

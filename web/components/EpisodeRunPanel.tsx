@@ -69,7 +69,7 @@ export interface ShotRow {
   status: string;
   still_url: string | null;
   clip_url: string | null;
-  prompt: string;
+  prompt: string | null; // null for a member who may not see this episode's cast
   retries: number;
   pre_approved?: boolean;
   beat_id?: string;

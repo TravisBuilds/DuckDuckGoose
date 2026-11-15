@@ -4,7 +4,8 @@ The episode page shows a member the scene pictures they approve, the run's credi
 model limits, so those GET routes allow members (read only). GET /api/me tells the shell who is signed
 in, and GET /api/episodes names each episode's owner. The admin-only writes (balance, cap, G1.08,
 canary) stay admin-only, and the shot states leave the free text that can quote a prompt (and with it
-the cast) out for a member who may not see the episode's cast (docs/AUTHENTICATION.md).
+the cast) out for a member who may not see the episode's cast (docs/AUTHENTICATION.md); so do the
+shots, which leave out the prompt itself.
 """
 from __future__ import annotations
 
@@ -205,3 +206,35 @@ async def test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast(s
     for ep in (LEGACY, NO_OWNER):
         body = _client(studio, "other").get(f"/api/episodes/{ep}/shot-states").json()
         assert body["cast_hidden"] is False and body["shots"]["S01"]["still_error"] == STILL_ERROR
+
+
+PROMPT = "S01: a tall woman in a mustard raincoat waits at the bus stop"
+
+
+def _record_shots() -> None:
+    """Each episode has a recorded shot: its still and the prompt it was made from."""
+    with sqlite3.connect(os.environ["DATABASE_PATH"]) as conn:
+        for ep in (EP, LEGACY, NO_OWNER):
+            conn.execute(
+                "INSERT INTO shots (id, episode_id, shot_id, status, still_url, retries, prompt) "
+                "VALUES (?, ?, 'S01', 'still_complete', ?, 0, ?)", (f"{ep}-S01", ep, f"/stills/{ep}/S01.png", PROMPT))
+
+
+async def test_shots_leave_the_prompt_out_for_who_may_not_see_the_cast(studio):
+    _record_shots()
+    for who in ("owner", "staff", "admin", "bearer"):
+        body = _client(studio, who).get(f"/api/episodes/{EP}/shots").json()
+        assert body["cast_hidden"] is False, who
+        assert body["shots"][0]["prompt"] == PROMPT, who
+
+    hidden = _client(studio, "other").get(f"/api/episodes/{EP}/shots").json()
+    shot = hidden["shots"][0]
+    assert hidden["cast_hidden"] is True
+    assert (shot["shot_id"], shot["status"], shot["still_url"]) == ("S01", "still_complete", f"/stills/{EP}/S01.png")
+    assert shot["prompt"] is None
+    assert "raincoat" not in json.dumps(hidden)
+
+    # an episode without an owner: every member may change it, so every member sees its prompts
+    for ep in (LEGACY, NO_OWNER):
+        body = _client(studio, "other").get(f"/api/episodes/{ep}/shots").json()
+        assert body["cast_hidden"] is False and body["shots"][0]["prompt"] == PROMPT
