@@ -43,8 +43,8 @@ committed spend and the usage report's). Before this change the reading could no
 
 * the dashboard showed the manual entry itself ("Manual Balance"), not the remaining figure, so it
   only changed when someone typed a new entry;
-* the usage cross-check parsed a response shape `/models/usage` does not return
-  (`time_series[].results[].cost`), so provider-reported spend always read as nothing.
+* the usage cross-check parsed `usage[].data[].usd`, a shape `/models/usage` does not return (it
+  returns `time_series[].results[].cost`), so provider-reported spend always read as nothing.
 
 Both are fixed. The usage figure is read for the hours since the entry (`timeframe=hour`, starting
 at the entry, `bound_to_timeframe=false`) and reused for `HIGGSFIELD_USAGE_CACHE_SECONDS` (default
