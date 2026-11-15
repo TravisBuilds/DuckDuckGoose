@@ -3816,6 +3816,24 @@ test_mutation 545 "alert delivered everywhere is suppressed" \
     "tests/test_balance_alert_delivery.py::test_only_the_channel_that_failed_is_retried" \
     sed -i 's/^        if config\.channels and not pending:$/        if False:  # MUTATED/'
 
+# 546: spend is not assigned to an episode that does not exist (404)
+test_mutation 546 "spend is not assigned to an unknown episode" \
+    "api/main.py" \
+    "tests/test_cost_dashboard_api.py::test_spend_is_only_assigned_to_an_episode_that_exists" \
+    sed -i 's/^    if not await episode_known(DATABASE_PATH, episode_id):$/    if False:  # MUTATED/'
+
+# 547: an episode with recorded spend (and no studio row) can be assigned
+test_mutation 547 "episode with recorded spend can be assigned" \
+    "hfvg/spend_attribution.py" \
+    "tests/test_cost_dashboard_api.py::test_admins_assign_an_episodes_spend_to_a_person" \
+    sed -i 's/^        for table in ("episodes", "job_ledger"):$/        for table in ("episodes",):  # MUTATED/'
+
+# 548: an episode created in the studio can be assigned before anything is spent
+test_mutation 548 "studio episode can be assigned before spend" \
+    "hfvg/spend_attribution.py" \
+    "tests/test_cost_dashboard_api.py::test_spend_is_only_assigned_to_an_episode_that_exists" \
+    sed -i 's/^        for table in ("episodes", "job_ledger"):$/        for table in ("job_ledger",):  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

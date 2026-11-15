@@ -50,6 +50,20 @@ async def record_run_start(db_path: str, episode_id: str, run_id: str, started_b
         await db.commit()
 
 
+async def episode_known(db_path: str, episode_id: str) -> bool:
+    """An episode the studio created (episodes) or one with recorded spend (job_ledger): the episodes
+    the dashboard can list, so the only ones whose spend can be assigned."""
+    async with aiosqlite.connect(db_path) as db:
+        for table in ("episodes", "job_ledger"):
+            async with db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)) as cur:
+                if await cur.fetchone() is None:
+                    continue
+            async with db.execute(f"SELECT 1 FROM {table} WHERE episode_id = ? LIMIT 1", (episode_id,)) as cur:
+                if await cur.fetchone() is not None:
+                    return True
+    return False
+
+
 async def set_spend_owner(db_path: str, episode_id: str, user_id: str, set_by: str | None,
                           note: str | None = None) -> dict:
     async with aiosqlite.connect(db_path) as db:

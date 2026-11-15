@@ -82,16 +82,29 @@ async def test_dashboard_carries_cost_truth_balances_and_alerts(api, people):
 async def test_admins_assign_an_episodes_spend_to_a_person(api, people):
     one, _ = people
     client = _admin(api)
+    await _job("clip-1", "ep01", "L4_video", 400_000)
     res = client.put("/api/dashboard/episodes/ep01/attribution", json={"user_id": one, "note": "shared laptop"})
     assert res.status_code == 200, res.text
     assert (res.json()["user_id"], res.json()["name"], res.json()["set_by"]) == (one, "Producer One", "admin secret")
-    await _job("clip-1", "ep01", "L4_video", 400_000)
     truth = client.get("/api/dashboard").json()["cost_truth"]
     assert truth["by_person"][0]["name"] == "Producer One" and truth["by_episode"][0]["attribution"] == "assigned"
     assert client.delete("/api/dashboard/episodes/ep01/attribution").json() == {"episode_id": "ep01", "cleared": True}
     assert client.delete("/api/dashboard/episodes/ep01/attribution").status_code == 404
     assert client.put("/api/dashboard/episodes/ep01/attribution", json={"user_id": "usr_nobody"}).status_code == 404
     assert client.put("/api/dashboard/episodes/ep01/attribution", json={"user_id": ""}).status_code == 422
+
+
+async def test_spend_is_only_assigned_to_an_episode_that_exists(api, people):
+    one, _ = people
+    client = _admin(api)
+    res = client.put("/api/dashboard/episodes/ep77/attribution", json={"user_id": one})
+    assert res.status_code == 404 and "ep77" in res.json()["detail"], res.text
+    assert client.put("/api/dashboard/episodes/ep7/attribution", json={"user_id": one}).status_code == 400
+    from hfvg.spend_attribution import load_attribution
+    async with aiosqlite.connect(_db()) as db:
+        assert (await load_attribution(db)).assigned == {}
+    await create_episode(_db(), "ep02", user_id=one)  # created in the studio, nothing spent yet
+    assert client.put("/api/dashboard/episodes/ep02/attribution", json={"user_id": one}).status_code == 200
 
 
 async def test_balance_check_and_usage_sync_routes(api, people):

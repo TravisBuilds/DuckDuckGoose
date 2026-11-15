@@ -3261,8 +3261,10 @@ async def set_episode_spend_owner(
     set_by = await _admin_requester(authorization, studio_admin_token)
     episode_id = episode_workflow_id(episode_id)
     validate_episode_id(episode_id)
-    from hfvg.spend_attribution import set_spend_owner
+    from hfvg.spend_attribution import episode_known, set_spend_owner
     from hfvg.users import UserManager
+    if not await episode_known(DATABASE_PATH, episode_id):
+        raise HTTPException(status_code=404, detail=f"No episode {episode_id!r}: nothing to assign")
     user = await UserManager(DATABASE_PATH).get_user(request.user_id)
     if not user:
         raise HTTPException(status_code=404, detail=f"No user {request.user_id!r}")
