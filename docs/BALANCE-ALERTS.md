@@ -53,7 +53,7 @@ at the entry, `bound_to_timeframe=false`) and reused for `HIGGSFIELD_USAGE_CACHE
 A figure that still does not move after spend means the entry is copied from the wrong place. A
 balance in **credits** (such as a web app subscription's credits) is a different wallet than the
 API's USD balance and is not drawn down by API calls; a different organisation or personal account
-than the one owning `HIGGSFIELD_API_ID` has the same effect. Each scheduled check compares the last
+than the one owning `HIGGSFIELD_API_KEY` has the same effect. Each scheduled check compares the last
 two manual entries: when they are equal although at least $1.00 of Higgsfield spend was committed
 between them, it sends an **unchanged balance** alert and the dashboard warns. Enter the USD
 balance shown on the API console's billing page for the account that owns the API key.
@@ -280,8 +280,7 @@ Set these env vars to test balance checks without live provider calls:
 ```bash
 export DRY_RUN=true
 export ELEVENLABS_API_KEY=test-key-not-real
-export HIGGSFIELD_API_ID=test-id
-export HIGGSFIELD_API_SECRET=test-secret
+export HIGGSFIELD_API_KEY=test-id:test-secret  # format id:secret
 ```
 
 In dry-run mode:
