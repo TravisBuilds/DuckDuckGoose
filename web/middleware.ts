@@ -33,7 +33,8 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
       url.search = '';
-      url.searchParams.set('from', pathname);
+      // keep the query (/studio/create?archetype=...) so the page opens as asked after signing in
+      url.searchParams.set('from', pathname + request.nextUrl.search);
       if (token) url.searchParams.set('reason', verdict.reason === 'expired' ? 'expired' : 'invalid');
       if (!key) console.error('studio middleware: SESSION_SECRET / ADMIN_SECRET not configured; refusing all sessions');
       const response = NextResponse.redirect(url);

@@ -12,7 +12,9 @@ function LoginForm() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get('from') || '/studio';
+  // only a path on this site: never send someone elsewhere after signing in
+  const requested = searchParams.get('from') ?? '';
+  const from = requested.startsWith('/') && !requested.startsWith('//') && !requested.startsWith('/\\') ? requested : '/studio';
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
