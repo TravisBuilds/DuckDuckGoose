@@ -171,10 +171,10 @@ def _month_timeline(jobs: list[dict[str, Any]]) -> list[tuple[datetime, int, int
 async def month_projection_from_db(db_path: str, now: datetime, user_id: str | None = None) -> dict[str, Any]:
     """monthly_projection over the job ledger (optionally one owner's jobs), by the month_spend rule."""
     async with aiosqlite.connect(db_path, uri=True) as db:
-        query = "SELECT status, usd_micros, actual_usd_micros, created_at FROM job_ledger WHERE status != 'released'"
+        query = "SELECT status, usd_micros, actual_usd_micros, created_at FROM job_ledger"
         params: tuple[str, ...] = ()
         if user_id:
-            query, params = query + " AND user_id = ?", (user_id,)
+            query, params = query + " WHERE user_id = ?", (user_id,)
         async with db.execute(query, params) as cur:
             jobs = [{"status": s, "usd_micros": u, "actual_usd_micros": a, "created_at": c}
                     async for s, u, a, c in cur]
