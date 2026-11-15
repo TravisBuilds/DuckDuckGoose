@@ -11,7 +11,11 @@ export const btnPrimary = `${button} bg-blue-600 text-white hover:bg-blue-700`;
 export const btnSecondary = `${button} border border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`;
 export const btnDanger = `${button} bg-red-600 text-white hover:bg-red-700`;
 
-export const card = 'rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-6 dark:border-gray-700 dark:bg-gray-800';
+/** A card without padding, for cards with their own header and body sections. */
+export const panel = 'rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800';
+export const card = `${panel} p-4 sm:p-6`;
+/** The card that needs attention first (the next step, the finished video). */
+export const highlight = 'rounded-lg border-2 border-blue-300 bg-white p-4 shadow-sm sm:p-6 dark:border-blue-700 dark:bg-gray-800';
 
 export const input = `w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${focusRing}`;
 
