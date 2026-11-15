@@ -265,4 +265,5 @@ class SeedanceVideoProvider(GenerationProvider):
             output_url=output_url,
             cost=data.get("cost"),
             error=data.get("error"),
+            raw=data,
         )

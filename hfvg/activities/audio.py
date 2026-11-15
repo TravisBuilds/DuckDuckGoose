@@ -133,6 +133,17 @@ def _reservation(fn, kind: str, params: dict[str, Any]) -> int:
 AUDIO_BUDGET_LINE = {"tts": "el_vo_takes", "sfx": "el_sfx", "music": "el_music_one_take"}
 
 
+async def _record_estimate(job_id: str, usd_micros: int, estimate_micros: int | None) -> None:
+    """Store the price estimate next to the job (the commit replaces usd_micros with the actual).
+    Bookkeeping only: a failure is logged, never raised, so the hold is never left behind."""
+    from hfvg.actual_costs import ESTIMATE_EL_PRICE, ESTIMATE_RESERVATION, set_job_estimate
+    try:
+        await set_job_estimate(_db_path(), job_id, estimate_micros if estimate_micros is not None else usd_micros,
+                               ESTIMATE_EL_PRICE if estimate_micros is not None else ESTIMATE_RESERVATION)
+    except Exception as e:  # noqa: BLE001
+        activity.logger.warning(f"{job_id}: estimate not recorded ({e})")
+
+
 async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, model: str,
                          usd_micros: int, call, *, estimate_micros: int | None = None, user_id: str | None = None):
     """Ledger reservation + AUDIO round cap around one provider call; commit the actual or release.
@@ -141,6 +152,7 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
     the actual from the provider's character-cost header (credits x ELEVENLABS_USD_PER_CREDIT);
     without the header it falls back to estimate_micros (API price estimate) and the job row is
     flagged cost_source="estimate". The unused part of the hold is released by commit()."""
+    from hfvg.actual_costs import elevenlabs_charge
     from hfvg.budget import BudgetLedger, RoundBudgetError
     from hfvg.providers.elevenlabs import COST_SOURCE_HEADER, credits_to_usd_micros
     from hfvg.studio_db import enforce_smoke_test_gate
@@ -192,6 +204,7 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
     
     if not await ledger.record_job(episode_id, job_id, asset_id, model, "final", line, usd_micros, user_id=user_id):
         await ledger.reopen_released_job(job_id)  # retry of a failed attempt: track this hold too
+    await _record_estimate(job_id, usd_micros, estimate_micros)
     try:
         # A provider call longer than the heartbeat timeout must not time the attempt out: the retry
         # would pay for the same asset again while this call is still running.
@@ -207,9 +220,11 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
     if result.get("cost_source") == COST_SOURCE_HEADER and credits is not None:
         actual = credits_to_usd_micros(float(credits))
         cost_source = COST_SOURCE_HEADER
+        charge = elevenlabs_charge(float(credits))
     else:
         actual = estimate_micros if estimate_micros is not None else usd_micros
         cost_source = "estimate"
+        charge = None
         activity.logger.warning(f"{kind} {asset_id}: no character-cost header; committing the estimate "
                                 f"({actual} usd_micros), flagged cost_source=estimate")
     over = actual > usd_micros
@@ -217,7 +232,8 @@ async def _guarded_spend(episode_id: str, kind: str, asset_id: str, key: str, mo
         activity.logger.warning(f"{kind} {asset_id}: actual {actual} usd_micros exceeds the reservation "
                                 f"{usd_micros}; check ELEVENLABS_USD_PER_CREDIT / upstream pricing")
     await ledger.commit(episode_id, line, usd_micros, actual, job_id, f"{kind} {asset_id}",
-                        characters=result.get("characters"), credits=credits, cost_source=cost_source)
+                        characters=result.get("characters"), credits=credits, cost_source=cost_source,
+                        provider_charge=charge)
     return {**result, "job_id": job_id, "usd_micros": actual, "reserved_usd_micros": usd_micros,
             "budget_line": line, "cost_source": cost_source, "over_reservation": over}
 
