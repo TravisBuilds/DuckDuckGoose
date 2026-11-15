@@ -3871,11 +3871,11 @@ test_mutation 554 "run-rate projects at the given moment" \
     "tests/test_cost_truth.py::test_the_projection_and_the_ledger_run_rate_are_one_number" \
     sed -i 's/now or datetime\.now(timezone\.utc)/datetime.now(timezone.utc)/'
 
-# 555: the headline counts committed jobs only (a hold is not spend)
+# 555: the headline counts committed jobs only (not a charge already reported for a job in flight)
 test_mutation 555 "headline counts committed jobs only" \
     "hfvg/cost_report.py" \
     "tests/test_cost_dashboard_api.py::test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a_backfill" \
-    sed -i 's/^        if job\["status"\] != "committed":$/        if False:  # MUTATED/'
+    sed -i 's/^        counted = month_spend(job) if job\["status"\] == "committed" else None$/        counted = month_spend(job)  # MUTATED/'
 
 # 556: the headline says when it mixes provider charges and estimates
 test_mutation 556 "headline says when it mixes actuals and estimates" \
