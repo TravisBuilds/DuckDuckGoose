@@ -202,6 +202,17 @@ def _still_cap() -> int | None:
         return None
 
 
+def _read_shot_list(path) -> tuple[dict, dict]:
+    """shots.json and its shots by id (404 before one is uploaded, 400 when it cannot be read)."""
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="This episode has no shot list yet; upload shots.json first")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return raw, {item["id"]: item for item in raw["shots"]}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"shots.json cannot be read: {e}") from None
+
+
 def _shots_view(episode_id: str) -> dict:
     """The uploaded shots with their cast and what each shot's cast plans to (no files written)."""
     from hfvg.cast_plan import preview_episode_cast
@@ -490,8 +501,8 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
         "series": series,
         "characters": [_character_out(c) for c in characters],
         "shots": await asyncio.to_thread(_shots_view, episode_id),
-        "still_max_refs": _still_cap(),
-        "sheet": _sheet_info(await _live_mode(episode_id)),
+        "still_max_refs": await asyncio.to_thread(_still_cap),
+        "sheet": await asyncio.to_thread(_sheet_info, await _live_mode(episode_id)),
         "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), "min_image_px": cast_store.min_image_px(),
                    "formats": ["PNG", "JPEG", "WebP"], "max_uploads_per_version": cast_store.MAX_UPLOADS_PER_VERSION,
                    "max_characters": cast_store.MAX_CHARACTERS_PER_LIBRARY, "max_cast_per_shot": MAX_CAST_PER_SHOT},
@@ -556,13 +567,7 @@ async def set_shot_cast(episode_id: str, request: ShotCastRequest, authorization
     actor, _, _ = await _actor(authorization, studio_admin_token)
     await _api()._refuse_upload_during_run(episode_id)
     path = paths.episode_dir(episode_id) / "shots.json"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="This episode has no shot list yet; upload shots.json first")
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        items = {item["id"]: item for item in raw["shots"]}
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=f"shots.json cannot be read: {e}") from None
+    raw, items = await asyncio.to_thread(_read_shot_list, path)
     unknown = sorted((set(request.shots) | set(request.allow_text)) - set(items))
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown shots: {unknown}")
@@ -589,7 +594,7 @@ async def set_shot_cast(episode_id: str, request: ShotCastRequest, authorization
         parse_shots(raw)
     except (ValueError, ShotDataError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}") from None
-    path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    await asyncio.to_thread(path.write_text, json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     await _call(cast_store.log_event, actor, "shot_cast_update", episode_id=episode_id,
                 details={"shots": {sid: request.shots[sid] for sid in request.shots},
                          "allow_text": request.allow_text})
@@ -957,7 +962,7 @@ async def get_cast_image(image_id: str, authorization: str | None = Header(None)
     """A cast image (members and admins only; never served as a static file)."""
     image = await _image_for(image_id)
     path = cast_store.image_path(image)
-    if not path.is_file():
+    if not await asyncio.to_thread(path.is_file):
         raise HTTPException(status_code=404, detail="Image file not found")
     return FileResponse(path, media_type=image["mime"], headers=PRIVATE_HEADERS)
 
@@ -969,7 +974,7 @@ async def get_cast_image_thumb(image_id: str, authorization: str | None = Header
                                studio_admin_token: str | None = Cookie(None)):
     """A small JPEG of a cast image for the Cast panel."""
     image = await _image_for(image_id)
-    if not cast_store.image_path(image).is_file():
+    if not await asyncio.to_thread(cast_store.image_path(image).is_file):
         raise HTTPException(status_code=404, detail="Image file not found")
     thumb = await _call(cast_store.ensure_thumb, image["sha256"], image["ext"])
     return FileResponse(thumb, media_type="image/jpeg", headers=PRIVATE_HEADERS)
