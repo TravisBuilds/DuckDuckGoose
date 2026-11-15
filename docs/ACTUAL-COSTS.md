@@ -90,13 +90,21 @@ dashboard warning.
   final cut approved (`approve_g_final_cut`) with paid spend, unless the delivery manifest says dry
   run; minutes come from `delivery/delivery_manifest.json` (`picture_duration_s`). "All spend per
   finished episode" also carries the spend of unfinished episodes.
-* **Month-end projection** = this month's spend so far / days elapsed (at least 1) x days in the
-  month, with the share that is provider-reported. The older ledger run-rate card also counts
-  committed estimates where no actual exists (it used to sum actuals only and read $0.00 at 0%
-  coverage).
+* **Month-end projection** = this month's spend so far / days elapsed (at least 1, in fractions of a
+  day) x days in the month, with the share that is provider-reported. Spend so far is committed jobs
+  at their best number plus any charge a provider already reported for a job still in flight; a hold
+  is not spend until its job commits. There is one projection: `monthly_runrate` (the ledger
+  run-rate, also per person on `GET /api/users/{id}`) uses the same rule and, on the dashboard, the
+  same moment, so its numbers equal `cost_truth.monthly`. The page no longer shows a separate
+  run-rate card.
+* **Headline** = the "Spend (all committed jobs)" card: committed jobs at their best number.
+  `spend_summary.headline_*` carries the same figure (with coverage and whether it is actual,
+  estimated or both), and the page's CSV and JSON exports lead with that headline, the projection and
+  the in-flight holds, so they move with the page when a backfill adds actuals.
 * **Spend by person**: the person who started the run each job belongs to (`episode_runs`, recorded
   at start, start again and reopen), unless an admin assigned the episode to someone
-  (`PUT /api/dashboard/episodes/{id}/attribution`); then the episode's owner, then the owner on the
+  (`PUT /api/dashboard/episodes/{id}/attribution`; an episode id the studio has never seen is a 404);
+  then the episode's owner, then the owner on the
   job. The shared `ADMIN_SECRET` login (user id `admin`), `legacy/shared` and `system` name nobody:
   that spend is **unattributed** and the dashboard asks for an assignment. Assigning does not change
   who may edit the episode.
