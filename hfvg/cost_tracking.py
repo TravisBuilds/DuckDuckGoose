@@ -271,7 +271,10 @@ class CostTracker:
     ) -> dict:
         """
         Calculate monthly spend run-rate projection (informational only).
-        Based on actual daily spend rate in current month.
+
+        Spend so far is the best number each job has: the provider-reported charge where one is
+        recorded, the committed (or still held) estimate otherwise; released jobs cost nothing.
+        coverage_percent says how much of it is provider-reported.
         """
         now = datetime.now(timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -285,12 +288,12 @@ class CostTracker:
         days_in_month = (month_end - month_start).days
         
         async with aiosqlite.connect(self.db_path, uri=True) as db:
-            # Get actual spend this month (only where actual_usd_micros is recorded)
             query = """
-                SELECT COALESCE(SUM(actual_usd_micros), 0)
+                SELECT COALESCE(SUM(COALESCE(actual_usd_micros, usd_micros)), 0),
+                       COALESCE(SUM(actual_usd_micros), 0)
                 FROM job_ledger
                 WHERE created_at >= ? AND created_at < ?
-                  AND actual_usd_micros IS NOT NULL
+                  AND status != 'released'
             """
             params = [month_start.isoformat(), month_end.isoformat()]
             
@@ -299,7 +302,7 @@ class CostTracker:
                 params.append(user_id)
             
             async with db.execute(query, tuple(params)) as cursor:
-                current_spend = (await cursor.fetchone())[0]
+                current_spend, actual_spend = await cursor.fetchone()
         
         if days_elapsed == 0:
             daily_rate = 0
@@ -318,6 +321,9 @@ class CostTracker:
             "daily_rate_usd": micros_to_usd_str(int(daily_rate)),
             "projected_month_end_usd_micros": projected,
             "projected_month_end_usd": micros_to_usd_str(projected),
+            "actual_spend_usd_micros": actual_spend,
+            "coverage_percent": round(actual_spend / current_spend * 100, 1) if current_spend else None,
+            "basis": "provider-reported charges where recorded, estimates for the rest",
         }
 
     async def check_spend_milestones(

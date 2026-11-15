@@ -138,6 +138,12 @@ ROUTE_TEST_CASES = [
     
     # Admin-only routes (dashboard/analytics)
     ("GET", "/api/dashboard", {"none": 401, "member": 403, "admin": [200, 503]}, False, None),
+    ("PUT", "/api/dashboard/episodes/ep01/attribution", {"none": 401, "member": 403, "admin": [200, 404]}, True, {"user_id": "usr_test"}),
+    ("DELETE", "/api/dashboard/episodes/ep01/attribution", {"none": 401, "member": 403, "admin": [200, 404]}, False, None),
+    ("GET", "/api/alerts/status", {"none": 401, "member": 403, "admin": 200}, False, None),
+    ("POST", "/api/alerts/test", {"none": 401, "member": 403, "admin": 200}, False, None),
+    ("POST", "/api/balance/check", {"none": 401, "member": 403, "admin": 200}, False, None),
+    ("POST", "/api/costs/sync", {"none": 401, "member": 403, "admin": 200}, False, None),
     
     # Admin-only routes (admin operations)
     ("GET", "/api/stalls", {"none": 401, "member": 403, "admin": 200}, False, None),

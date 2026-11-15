@@ -768,6 +768,19 @@ async def record_new_episode(episode_id: str, beatmap_path: str | None, studio_a
             raise HTTPException(status_code=503, detail=f"studio database error: {e}")
 
 
+async def _record_run_start(episode_id: str, run_id: str | None, studio_admin_token: str | None, via: str) -> None:
+    """Who started this run, for spend attribution (docs/ACTUAL-COSTS.md). A Bearer-token start has
+    no session user (recorded as the shared login). Bookkeeping only: a failure is logged and never
+    refuses or undoes the start."""
+    from hfvg.spend_attribution import record_run_start
+    try:
+        user_id = await get_user_id_from_session(studio_admin_token) if studio_admin_token else None
+        role = await get_session_role(studio_admin_token) if studio_admin_token else None
+        await record_run_start(DATABASE_PATH, episode_id, run_id or "", user_id, role, via)
+    except Exception as e:  # noqa: BLE001
+        print(f"Run start of {episode_id} not recorded for spend attribution: {e}")
+
+
 # Request/Response models
 def episode_workflow_id(episode_id: str) -> str:
     """Temporal workflow id of the episode workflow: the bare episode id (``ep04``).
@@ -1825,6 +1838,7 @@ async def start_episode(
         )
     except WorkflowAlreadyStartedError as e:  # Temporal's own check: an open run the one above did not see
         raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, e.run_id)) from e
+    await _record_run_start(request.episode_id, handle.result_run_id, studio_admin_token, "start")
     
     return StartEpisodeResponse(
         workflow_id=handle.id,
@@ -2073,6 +2087,7 @@ async def start_episode_again(
         )
     except WorkflowAlreadyStartedError:
         raise HTTPException(status_code=409, detail=f"{episode_id} was started again already")
+    await _record_run_start(episode_id, new.result_run_id, studio_admin_token, "start_again")
     await _audit(episode_id, "start_again", f"run {desc.run_id} ended ({run['outcome']}: {run['reason']}); "
                  f"started run {new.result_run_id} with the same inputs (dry_run={dry_run})")
     return {"success": True, "episode_id": episode_id, "workflow_id": episode_id, "from_run_id": desc.run_id,
@@ -3071,6 +3086,33 @@ async def get_dashboard(
         total_jobs_count = len(jobs)
         coverage_pct = (jobs_with_actual / total_jobs_count * 100) if total_jobs_count > 0 else 0
         
+        # Provider-reported costs, balances and alert destinations (docs/ACTUAL-COSTS.md). Covers all
+        # jobs (the user/date filters apply to the breakdowns above); a failure here leaves the rest
+        # of the dashboard readable and is shown as a warning.
+        from hfvg.balance_monitor import balance_overview
+        from hfvg.balance_notifier import alert_config_status, recent_alerts
+        from hfvg.cost_report import build_cost_truth, cost_warnings
+        cost_truth = balances = None
+        problems = []
+        try:
+            cost_truth = await build_cost_truth(DATABASE_PATH, now)
+        except Exception as e:  # noqa: BLE001
+            problems.append({"level": "error", "code": "cost_truth_failed",
+                             "message": f"Provider-reported costs could not be computed: {type(e).__name__}: {e}"})
+        try:
+            balances = await balance_overview(DATABASE_PATH, now)
+        except Exception as e:  # noqa: BLE001
+            problems.append({"level": "error", "code": "balance_overview_failed",
+                             "message": f"Balance readings could not be read: {type(e).__name__}: {e}"})
+        alerts_status = alert_config_status()
+        try:
+            alert_history = await recent_alerts(DATABASE_PATH, 10)
+        except Exception as e:  # noqa: BLE001
+            alert_history = []
+            problems.append({"level": "error", "code": "alert_history_failed",
+                             "message": f"Alert history could not be read: {type(e).__name__}: {e}"})
+        cost_warning_list = problems + cost_warnings(cost_truth, alerts_status, balances)
+
         # When actual coverage is 0%, show estimated as headline
         if jobs_with_actual == 0:
             headline_spend = total_estimated
@@ -3130,10 +3172,116 @@ async def get_dashboard(
                     if balance_status.get("manual_balance_usd_micros") else None,
                 "set_at": balance_status.get("set_at"),
                 "set_by": balance_status.get("set_by"),
+                "spent_since_entry_usd_micros": balance_status.get("spent_since_entry_usd_micros"),
+                "reserved_usd_micros": balance_status.get("reserved_usd_micros"),
+                "balance_remaining_usd_micros": balance_status.get("balance_remaining_usd_micros"),
             },
             
             "recent_jobs": jobs[-50:],  # Last 50 jobs
+
+            "cost_truth": cost_truth,
+            "balances": balances,
+            "alerts": {"status": alerts_status, "recent": alert_history},
+            "cost_warnings": cost_warning_list,
         }
+
+
+async def _admin_requester(authorization: str | None, studio_admin_token: str | None) -> str:
+    """Admin-only check; returns who asked (the session user id, or the shared ADMIN_SECRET)."""
+    if studio_admin_token:
+        await verify_admin_cookie(studio_admin_token)
+        return await get_user_id_from_session(studio_admin_token) or "admin"
+    verify_admin_secret(authorization)
+    return "admin secret"
+
+
+@app.get("/api/alerts/status")
+async def get_alert_status(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Where low-balance alerts go (no secrets) and the latest alerts with their delivery outcome."""
+    await _admin_requester(authorization, studio_admin_token)
+    from hfvg.balance_notifier import alert_config_status, recent_alerts
+    return {"status": alert_config_status(), "recent": await recent_alerts(DATABASE_PATH, 20)}
+
+
+@app.post("/api/alerts/test")
+async def send_test_alert(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Send a test alert to every configured destination and say how each one did. With no
+    destination configured nothing is sent and the answer says so (delivered: false)."""
+    requested_by = await _admin_requester(authorization, studio_admin_token)
+    from hfvg.balance_notifier import BalanceNotifier, alert_config_status
+    result = await BalanceNotifier(DATABASE_PATH).send_test_alert(requested_by)
+    return {**result, "status": alert_config_status()}
+
+
+@app.post("/api/balance/check")
+async def check_balances_now(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Read every provider balance now (read-only provider calls) and store the readings."""
+    await _admin_requester(authorization, studio_admin_token)
+    from hfvg.balance_monitor import BalanceMonitor, balance_overview, init_balance_tables
+    await init_balance_tables(DATABASE_PATH)
+    result = await BalanceMonitor(DATABASE_PATH).check_all_balances(read_for="on_demand")
+    return {**result.to_dict(), "overview": await balance_overview(DATABASE_PATH)}
+
+
+@app.post("/api/costs/sync")
+async def sync_provider_costs(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Read the Higgsfield usage report now and match settled days to jobs (read-only provider call)."""
+    await _admin_requester(authorization, studio_admin_token)
+    from hfvg.provider_usage import sync_higgsfield_usage
+    return await sync_higgsfield_usage(DATABASE_PATH)
+
+
+class SpendOwnerRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=200)
+    note: str | None = Field(None, max_length=500)
+
+
+@app.put("/api/dashboard/episodes/{episode_id}/attribution")
+async def set_episode_spend_owner(
+    episode_id: str,
+    request: SpendOwnerRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Attribute an episode's spend to a person on the dashboard (does not change who may edit it)."""
+    set_by = await _admin_requester(authorization, studio_admin_token)
+    episode_id = episode_workflow_id(episode_id)
+    validate_episode_id(episode_id)
+    from hfvg.spend_attribution import set_spend_owner
+    from hfvg.users import UserManager
+    user = await UserManager(DATABASE_PATH).get_user(request.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"No user {request.user_id!r}")
+    saved = await set_spend_owner(DATABASE_PATH, episode_id, request.user_id, set_by, request.note)
+    return {**saved, "name": user.get("name")}
+
+
+@app.delete("/api/dashboard/episodes/{episode_id}/attribution")
+async def clear_episode_spend_owner(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Go back to automatic attribution (who started each run) for the episode."""
+    await _admin_requester(authorization, studio_admin_token)
+    episode_id = episode_workflow_id(episode_id)
+    validate_episode_id(episode_id)
+    from hfvg.spend_attribution import clear_spend_owner
+    if not await clear_spend_owner(DATABASE_PATH, episode_id):
+        raise HTTPException(status_code=404, detail=f"{episode_id} has no assigned spend owner")
+    return {"episode_id": episode_id, "cleared": True}
 
 
 @app.get("/api/users")
@@ -4283,6 +4431,7 @@ async def reopen_episode(
         task_queue="hfvg-tasks",
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
     )
+    await _record_run_start(episode_id, new.result_run_id, studio_admin_token, "reopen")
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
@@ -4456,6 +4605,7 @@ async def reopen_episode_from_saved(
         task_queue="hfvg-tasks",
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
     )
+    await _record_run_start(episode_id, new.result_run_id, studio_admin_token, "reopen_from_saved")
     import aiosqlite
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
