@@ -1,12 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './e2e-cleanup';
 
 /**
  * A MEMBER makes and reviews their own video against the REAL dry-run backend (scripts/e2e_backend.py,
  * no API mocks): the admins-only page on /dashboard, the wizard with a card that needs no voices
  * (/studio/create?archetype=..., the archetype page's link), the story, the shot plan, one scene
  * picture thumbnail per shot at G2 with the Next step card counting them, then the final cut and the
- * finished video. No admin control is rendered for a member. The run completes, so the member's run
- * lock is free again for wizard-member-e2e (files run in name order, 1 worker).
+ * finished video. No admin control is rendered for a member. The card has music, so the dry run mixes
+ * it under a black stand-in picture with ffmpeg (the e2e CI job installs it, like test-python) and
+ * delivery QC measures the files: without ffmpeg the verdict is NEEDS_REVIEW and the final cut stays
+ * blocked. If this test stops half-way, e2e-cleanup ends its run so later specs can start theirs.
  */
 
 const MEMBER = 'e2e-member@test.local';
@@ -86,21 +88,16 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   await page.getByTestId('approve-final').click();
   await expect(page.getByTestId('run-message')).toHaveText('Final cut approved.');
   await expect(page.getByTestId('run-finished')).toHaveText('Finished', { timeout: 120_000 });
-  // the dry run renders placeholder video files when ffmpeg is there (CI installs it): the finish card plays
-  // the phone version and offers the downloads; without files it says the preview is finished
+  // the files delivery QC measured are there: the finish card plays the phone version and offers the downloads
   const files: Record<string, { available?: boolean }> =
     (await (await page.request.get(`${API}/api/episodes/${episodeId}/files`)).json()).files;
   const ready = ['phone', 'master_subs', 'master_nosubs'].filter((type) => files[type]?.available);
-  if (ready.length > 0) {
-    await expect(page.getByTestId('run-ended-title')).toHaveText('Your video is ready');
-    await expect(page.getByTestId('ready-video')).toBeVisible();
-    await expect(page.getByTestId('ready-video')).toHaveAttribute('src', new RegExp(`/api/episodes/${episodeId}/files/${ready[0]}$`));
-    for (const type of ready) {
-      await expect(page.getByTestId(`download-${type}`)).toHaveAttribute('href', new RegExp(`/files/${type}\\?download=true$`));
-    }
-  } else {
-    await expect(page.getByTestId('run-ended-title')).toHaveText('Your preview is finished');
-    await expect(page.getByTestId('ready-video')).toHaveCount(0);
+  expect(ready[0]).toBe('phone');
+  await expect(page.getByTestId('run-ended-title')).toHaveText('Your video is ready');
+  await expect(page.getByTestId('ready-video')).toBeVisible();
+  await expect(page.getByTestId('ready-video')).toHaveAttribute('src', new RegExp(`/api/episodes/${episodeId}/files/phone$`));
+  for (const type of ready) {
+    await expect(page.getByTestId(`download-${type}`)).toHaveAttribute('href', new RegExp(`/files/${type}\\?download=true$`));
   }
   await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'current');
   await expect(page.getByTestId('approve-final')).toHaveCount(0);

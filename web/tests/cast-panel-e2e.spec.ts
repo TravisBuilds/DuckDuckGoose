@@ -1,4 +1,5 @@
-import { test, expect, request as apiRequest } from '@playwright/test';
+import { request as apiRequest } from '@playwright/test';
+import { test, expect } from './e2e-cleanup';
 import path from 'node:path';
 import zlib from 'node:zlib';
 

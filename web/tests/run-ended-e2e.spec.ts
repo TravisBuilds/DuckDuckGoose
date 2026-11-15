@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './e2e-cleanup';
 
 /**
  * A run that has ended, against the REAL dry-run backend (scripts/e2e_backend.py, no API mocks).

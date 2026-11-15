@@ -212,6 +212,24 @@ jobs:
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
 
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-ffmpeg-${{ hashFiles('.github/workflows/test.yml') }}
+
+    - name: Install system dependencies
+      run: |
+        # Retry apt operations to prevent 15+ minute install failures
+        for i in 1 2 3; do
+          sudo apt-get update && break || sleep 5
+        done
+        for i in 1 2 3; do
+          sudo apt-get install -y ffmpeg && break || sleep 5
+        done
+        # a dry run with music mixes and measures real files: without ffmpeg delivery QC is NEEDS_REVIEW
+        ffmpeg -version > /dev/null
+
     - name: Cache Playwright browsers
       id: playwright-cache
       uses: actions/cache@v4
