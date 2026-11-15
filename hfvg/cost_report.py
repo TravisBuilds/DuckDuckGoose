@@ -122,7 +122,8 @@ def month_spend(job: dict[str, Any]) -> tuple[int, int | None] | None:
 
     A committed job adds its best number. A job still in flight adds only a charge its provider has
     already reported: its hold is not spend until it is committed. A released job costs nothing.
-    The dashboard's projection and the ledger run-rate (CostTracker.get_monthly_runrate) both use this.
+    The dashboard's projection and the ledger run-rate (CostTracker.get_monthly_runrate) both use
+    this, and the headline (spend_headline) uses it for committed jobs.
     """
     actual = job["actual_usd_micros"]
     if job["status"] == "committed":
@@ -188,13 +189,12 @@ def spend_headline(jobs: list[dict[str, Any]]) -> dict[str, Any]:
     for job in jobs:
         if job["status"] != "committed":
             continue
+        job_spend, job_actual = month_spend(job)
         committed += 1
-        if job["actual_usd_micros"] is not None:
-            actual += job["actual_usd_micros"]
+        spend += job_spend
+        if job_actual is not None:
+            actual += job_actual
             with_actual += 1
-            spend += job["actual_usd_micros"]
-        else:
-            spend += job["usd_micros"] or 0
     label = "estimated" if not with_actual else ("actual" if with_actual == committed else "actual and estimated")
     return {"spend_usd_micros": spend, "actual_usd_micros": actual, "coverage_pct": pct(actual, spend),
             "label": label, "basis": "committed jobs: provider-reported charges where recorded, the guard's "
