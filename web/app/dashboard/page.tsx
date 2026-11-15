@@ -504,7 +504,7 @@ export default function Dashboard() {
                 {data.balance_status.set_at && ` set ${new Date(data.balance_status.set_at).toLocaleString()}`}
                 {data.balance_status.set_by && ` by ${data.balance_status.set_by}`}
                 {data.balance_status.balance_remaining_usd_micros != null && (
-                  <>; after committed and held spend since: {formatUsdMicros(data.balance_status.balance_remaining_usd_micros)}</>
+                  <>; balance gate: {formatUsdMicros(data.balance_status.balance_remaining_usd_micros)} left for new jobs after committed and in-flight spend since</>
                 )}
               </p>
             )}
@@ -714,7 +714,7 @@ export default function Dashboard() {
                   <ul className="space-y-0.5">
                     {truth.provider_reported.unmatched_buckets.map((b) => (
                       <li key={`${b.day}-${b.model}-${b.unit}`} className={muted}>
-                        {b.day} {b.model}: {b.quantity} {b.unit}, {formatUsdMicros(b.cost_usd_micros)}. {b.reason}
+                        {b.day} {b.model}: {b.quantity} × {b.unit}, {formatUsdMicros(b.cost_usd_micros)}. {b.reason}
                       </li>
                     ))}
                   </ul>
