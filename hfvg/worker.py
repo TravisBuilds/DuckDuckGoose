@@ -47,6 +47,7 @@ from hfvg.activities.story_shaping import (
 from hfvg.studio_db import approve_g2_shots, list_anchor_stills
 from hfvg.config import config
 from hfvg.ledger import Ledger
+from hfvg.log_safety import quiet_http_client_logs
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, ReconcilePendingJobsWorkflow
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
@@ -54,6 +55,7 @@ from hfvg.workflows.cast_sheet import CastSheetWorkflow
 from hfvg.workflows.balance_check import BalanceCheckWorkflow
 
 logging.basicConfig(level=logging.INFO)
+quiet_http_client_logs()
 logger = logging.getLogger(__name__)
 
 

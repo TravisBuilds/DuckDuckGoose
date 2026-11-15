@@ -57,6 +57,7 @@ from hfvg.pricing import DRY_CLIP_USD_PER_SECOND_MICROS, DRY_STILL_USD_MICROS
 from hfvg.episode_parser import parse_beatmap
 from hfvg.genre_presets import DRAFT_MAX_S, DRAFT_MIN_S
 from hfvg.credit_plan_parser import parse_credit_plan
+from hfvg.log_safety import quiet_http_client_logs
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.providers import HiggsfieldStillProvider, KlingVideoProvider
 from hfvg.voice_check import audio_plan_voice_problems, plan_voice_problems
@@ -439,6 +440,7 @@ async def require_admin_auth(
 
 
 logger = logging.getLogger(__name__)
+quiet_http_client_logs()
 
 app = FastAPI(
     dependencies=[Depends(require_admin_auth)],

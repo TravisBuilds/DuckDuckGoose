@@ -3768,6 +3768,36 @@ test_mutation 537 "dropped run schedules nothing when closed" \
     "tests/test_dropped_run_close.py::test_closing_a_dropped_run_schedules_nothing" \
     sed -i 's/^            if not dropped_by_worker:$/            if True:  # MUTATED/'
 
+# 538: the worker never logs the alert webhook URL (httpx request lines)
+test_mutation 538 "worker logs never carry the webhook URL" \
+    "hfvg/worker.py" \
+    "tests/test_log_safety.py::test_sending_an_alert_never_logs_the_webhook_url[worker]" \
+    sed -i 's/^quiet_http_client_logs()$/pass  # MUTATED/'
+
+# 539: the api never logs the alert webhook URL, even with root logging at DEBUG
+test_mutation 539 "api logs never carry the webhook URL" \
+    "api/main.py" \
+    "tests/test_log_safety.py::test_sending_an_alert_never_logs_the_webhook_url[api]" \
+    sed -i 's/^quiet_http_client_logs()$/pass  # MUTATED/'
+
+# 540: URLs in HTTP client log lines keep only scheme and host
+test_mutation 540 "logged URLs keep only scheme and host" \
+    "hfvg/log_safety.py" \
+    "tests/test_log_safety.py::test_redact_urls_keeps_only_scheme_and_host" \
+    sed -i 's/^    return _URL\.sub(host_only, text)$/    return text  # MUTATED/'
+
+# 541: HTTP client request lines are not logged at INFO
+test_mutation 541 "HTTP client request lines are quiet" \
+    "hfvg/log_safety.py" \
+    "tests/test_log_safety.py::test_http_client_loggers_drop_requests_and_redact_what_they_still_log" \
+    sed -i 's/^        logging\.getLogger(family)\.setLevel(logging\.WARNING)$/        pass  # MUTATED/'
+
+# 542: httpcore's child loggers redact too (a parent's filter does not see their records)
+test_mutation 542 "httpcore child loggers redact URLs" \
+    "hfvg/log_safety.py" \
+    "tests/test_log_safety.py::test_http_client_loggers_drop_requests_and_redact_what_they_still_log" \
+    sed -i 's/^            names\.extend(f"{family}\.{child}" for child in _HTTPCORE_CHILDREN)$/            pass  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
