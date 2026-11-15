@@ -204,6 +204,48 @@ async def test_a_series_cast_needs_the_series_owner(studio):
     assert _client(studio, None).get(f"/api/series/{series['series_id']}").status_code == 401
 
 
+@pytest.mark.parametrize("made_by", ["bearer", "legacy"])
+async def test_a_series_without_an_owner_changes_only_through_an_admin(studio, made_by):
+    """Nobody claims a series without an owner (one a Bearer request made, or a legacy one) by editing
+    it first: only an admin changes it."""
+    from hfvg.users import LEGACY_USER_ID
+    owner, admin = _client(studio, "owner"), _client(studio, "admin")
+    if made_by == "bearer":
+        series = _client(studio, "bearer").post("/api/series", json={"name": "Old Harbor"}).json()["series"]
+    else:
+        series = cast_store.create_series("Old Harbor", LEGACY_USER_ID, "t")
+    sid = series["series_id"]
+    pip = _create(owner)
+    refused = "Series Old Harbor has no owner; only an admin can change it"
+    res = owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    assert res.status_code == 403 and res.json()["detail"] == refused
+    assert [(s["series_id"], s["can_edit"]) for s in owner.get("/api/series").json()["series"]] == [(sid, False)]
+    linked = admin.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    assert linked.status_code == 200 and linked.json()["moved_characters"] == ["pip"]
+    view = owner.get(_base())
+    assert view.status_code == 200 and [c["slug"] for c in view.json()["characters"]] == ["pip"]
+    assert view.json()["can_edit"] is False
+    assert [(s["series_id"], s["can_edit"]) for s in owner.get("/api/series").json()["series"]] == [(sid, False)]
+    assert owner.get(f"/api/series/{sid}").json()["can_edit"] is False
+    for url, body in [(_base(), {"name": "Moss"}), (f"{_base()}/{pip['character_id']}", {"name": "Zed"}),
+                      (f"{_base()}/{pip['character_id']}/delete", {}),
+                      (f"{_base()}/{pip['character_id']}/versions", {"label": "Coat"}),
+                      (f"{_base()}/import", {"characters": [{"name": "Moss"}]}),
+                      (f"/api/episodes/{EP}/series", {"series_id": sid})]:
+        res = owner.post(url, json=body)
+        assert res.status_code == 403 and res.json()["detail"] == refused, (url, res.text)
+    res = _upload(owner, pip)
+    assert res.status_code == 403 and res.json()["detail"] == refused
+    assert _stored_images() == []
+    assert [c["name"] for c in cast_store.list_characters(("series", sid))] == ["Pip"]
+    assert cast_store.get_series(sid)["owner_user_id"] == series["owner_user_id"]
+    for who, seed in (("admin", 21), ("bearer", 22)):
+        client = _client(studio, who)
+        assert client.get(f"/api/series/{sid}").json()["can_edit"] is True
+        assert _upload(client, pip, data=image_bytes(seed=seed)).status_code == 200
+    assert admin.post(f"{_base()}/{pip['character_id']}", json={"name": "Pippa"}).json()["character"]["name"] == "Pippa"
+
+
 # ------------------------------------------------------------------------------------- upload validation
 
 

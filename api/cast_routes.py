@@ -4,9 +4,9 @@ and who is in frame in each shot. Mounted by api/main.py under the same app-wide
 
 Who may change what (docs/AUTHENTICATION.md): a member's POST under ``/api/episodes/{episode_id}/``
 is checked against the episode's owner before the handler runs (the app-wide guard); a change to a
-series' cast also needs the series' owner (or an admin, or a series without an owner). Members can
-read every cast, as they read every episode. Images are served only through the authenticated image
-routes below, never as static files.
+series' cast also needs the series' owner or an admin (only an admin while the series has no owner).
+Members can read every cast, as they read every episode. Images are served only through the
+authenticated image routes below, never as static files.
 
 Paid sheet images go through ``CastSheetWorkflow``: the creator sees the estimate and approves it,
 then the activity re-checks the provider estimate against the approval, the balance gate, the caps
@@ -95,11 +95,20 @@ def _series_owner(series: dict) -> str | None:
     return None if owner in (None, "", LEGACY_USER_ID) else owner
 
 
+def _owns_series(series: dict, user_id: str | None) -> bool:
+    owner = _series_owner(series)
+    return owner is not None and owner == user_id
+
+
 async def _require_series_owner(series_id: str, authorization: str | None, cookie: str | None) -> dict:
-    """403 unless the caller may change the series' cast: an admin, its owner, or anyone while it has none."""
+    """403 unless the caller may change the series' cast: an admin or its owner. A series without an
+    owner (made before series had owners, or by a Bearer request) changes only through an admin;
+    letting the first member who edits it claim it would hand it to whoever comes first."""
     series = await _call(cast_store.get_series, series_id)
     _, user_id, is_admin = await _actor(authorization, cookie)
     owner = _series_owner(series)
+    if not is_admin and owner is None:
+        raise HTTPException(status_code=403, detail=f"Series {series['name']} has no owner; only an admin can change it")
     if not is_admin and owner is not None and owner != user_id:
         raise HTTPException(status_code=403, detail=(
             f"Series {series['name']} belongs to another member; only its owner or an admin can change it"))
@@ -121,9 +130,7 @@ async def _can_edit(episode_id: str, library: tuple[str, str], authorization: st
     if owner is not None and owner != user_id:
         return False
     if library[0] == "series":
-        series = await _call(cast_store.get_series, library[1])
-        series_owner = _series_owner(series)
-        return series_owner is None or series_owner == user_id
+        return _owns_series(await _call(cast_store.get_series, library[1]), user_id)
     return True
 
 
@@ -432,8 +439,7 @@ async def list_series(authorization: str | None = Header(None), studio_admin_tok
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     rows = await _call(cast_store.list_series)
     for row in rows:
-        owner = _series_owner(row)
-        row["can_edit"] = is_admin or owner is None or owner == user_id
+        row["can_edit"] = is_admin or _owns_series(row, user_id)
     return {"series": rows}
 
 list_series.allow_members = True
@@ -456,10 +462,9 @@ async def get_series_cast(series_id: str, authorization: str | None = Header(Non
     """A series with its characters (the create wizard maps drafted characters to them)."""
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     series = await _call(cast_store.get_series, series_id)
-    owner = _series_owner(series)
     characters = await _call(cast_store.list_characters, ("series", series_id))
     return {"series": series, "characters": [_character_out(c) for c in characters],
-            "can_edit": is_admin or owner is None or owner == user_id}
+            "can_edit": is_admin or _owns_series(series, user_id)}
 
 get_series_cast.allow_members = True
 
