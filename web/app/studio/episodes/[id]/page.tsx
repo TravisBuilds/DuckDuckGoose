@@ -579,7 +579,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   }
 
   const story = storyShape?.story_shape ? storyShape : null;
-  const next = state ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates) }) : nextStep(null);
+  // until the owner and the signed-in user are known, the card speaks to the person who made the video
+  const viewer = ownerKnown && me ? { mine, canAct, ownerName: owner.name } : null;
+  const next = state ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer }) : nextStep(null);
   const steps = state ? stepperSteps(state, storyShape, cast, next) : null;
   const completed = Boolean(state?.run?.ended && state.run.outcome === 'completed');
   const storyIsDone = storyDone(state) || Boolean(storyShape?.approved);
@@ -611,7 +613,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       )}
 
       {state && completed ? (
-        <FinishLine episodeId={episodeId} state={state} files={files}>
+        <FinishLine episodeId={episodeId} state={state} files={files} mine={!viewer || viewer.mine}>
           {steps && <Stepper steps={steps} />}
         </FinishLine>
       ) : (

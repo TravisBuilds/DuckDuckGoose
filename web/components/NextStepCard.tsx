@@ -36,14 +36,14 @@ export function Stepper({ steps }: { steps: StepperStep[] }) {
 
 /**
  * The top of the episode page: what to do next, with a link to the card that does it (lib/next-step.mjs).
- * Someone who may not change this video sees the same step, with a note that it is not theirs to take.
+ * Someone who may not change this video reads who the step waits on instead (nextStep's viewer).
  */
 export default function NextStepCard({ next, steps, canAct }: {
   next: NextStep;
   steps: StepperStep[] | null;
   canAct: boolean;
 }) {
-  const waiting = ['story', 'cast', 'shot_plan', 'stills', 'final_cut'].includes(next.step);
+  const toDo = canAct && !next.waiting && ['story', 'cast', 'shot_plan', 'stills', 'final_cut'].includes(next.step);
   return (
     <section className={highlight} data-testid="next-step" data-step={next.step}
       aria-labelledby="next-step-title">
@@ -55,16 +55,11 @@ export default function NextStepCard({ next, steps, canAct }: {
         {next.title}
       </h2>
       <p className="mt-1 text-gray-700 dark:text-gray-200" data-testid="next-step-text">{next.text}</p>
-      {waiting && !canAct && (
-        <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
-          This is someone else&apos;s video: only the person who made it, or an admin, can take this step.
-        </p>
-      )}
       {(next.href || next.also) && (
         <div className="mt-4 flex flex-wrap items-center gap-4">
           {next.href && (
-            <a href={next.href} className={waiting && canAct ? btnPrimary : `${link} text-sm font-semibold`} data-testid="next-step-link">
-              {waiting && canAct ? 'Show me' : 'Go there'}
+            <a href={next.href} className={toDo ? btnPrimary : `${link} text-sm font-semibold`} data-testid="next-step-link">
+              {toDo ? 'Show me' : 'Go there'}
             </a>
           )}
           {next.also && (

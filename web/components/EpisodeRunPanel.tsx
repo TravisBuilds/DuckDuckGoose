@@ -231,10 +231,10 @@ function NotYours() {
 // ---------------------------------------------------------------- the top of the page
 
 /** A completed run: the video to watch and its downloads, in place of the next step. */
-export function FinishLine({ episodeId, state, files, children }: {
-  episodeId: string; state: RunState; files: Record<string, FileInfo> | null; children?: ReactNode;
+export function FinishLine({ episodeId, state, files, mine = true, children }: {
+  episodeId: string; state: RunState; files: Record<string, FileInfo> | null; mine?: boolean; children?: ReactNode;
 }) {
-  const finish = finishLine(state.run, files);
+  const finish = finishLine(state.run, files, mine);
   const downloads = Object.keys(FILE_LABELS).filter((type) => files?.[type]?.available);
   return (
     <section id="finished" className={highlight} data-testid="run-ended" data-tone="done" aria-labelledby="finished-title">

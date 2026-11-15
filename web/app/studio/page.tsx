@@ -21,8 +21,8 @@ interface Episode {
 }
 
 interface Summary {
-  label: string;
-  tone: Tone;
+  state: EpisodeState | null; // null: the video has not started
+  story: StoryShape | null;
   logline: string | null;
   style: string | null;
 }
@@ -44,18 +44,25 @@ async function loadSummary(id: string): Promise<Summary> {
   try {
     state = await apiFetch<EpisodeState>(`/api/episodes/${id}`);
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return { label: 'Not started', tone: 'wait', logline: null, style: null };
+    if (e instanceof ApiError && e.status === 404) return { state: null, story: null, logline: null, style: null };
     throw e;
   }
   // the run state carries no story outline: read it for the logline and the story step
   const story = await apiFetch<StoryShape>(`/api/episodes/${id}/story-shape`).catch(() => null);
-  const { label, tone } = statusChip(nextStep(state, story));
   return {
-    label,
-    tone,
+    state,
+    story,
     logline: story?.story_shape?.logline || null,
     style: state.archetype_id ? getPresetById(state.archetype_id)?.name ?? null : null,
   };
+}
+
+/** The card's status chip. A step only its owner (or an admin) can take says who it waits on. */
+function chipFor(summary: Summary, episode: Episode, myUserId: string | null, isAdmin: boolean): { label: string; tone: Tone } {
+  if (!summary.state) return { label: 'Not started', tone: 'wait' };
+  const mine = episode.user_id === null || episode.user_id === myUserId;
+  const viewer = { mine, canAct: isAdmin || mine, ownerName: episode.owner_name };
+  return statusChip(nextStep(summary.state, summary.story, null, { viewer }));
 }
 
 function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
@@ -63,6 +70,7 @@ function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
 }) {
   const date = formatLocalDate(episode.created_at);
   const owner = ownerLabel(episode.user_id, episode.owner_name, myUserId);
+  const status = summary ? chipFor(summary, episode, myUserId, isAdmin) : null;
   return (
     <li>
       <Link href={`/studio/episodes/${episode.episode_id}`} data-testid={`episode-card-${episode.episode_id}`}
@@ -72,7 +80,7 @@ function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
             <span className="font-mono">{episode.episode_id}</span>
             {summary?.style && <span className="font-normal text-gray-700 dark:text-gray-200"> · {summary.style}</span>}
           </h3>
-          {summary && <span className={`${chip} ${tones[summary.tone]}`} data-testid={`episode-status-${episode.episode_id}`}>{summary.label}</span>}
+          {status && <span className={`${chip} ${tones[status.tone]}`} data-testid={`episode-status-${episode.episode_id}`}>{status.label}</span>}
         </div>
         {summary?.logline && <p className="mt-1 line-clamp-2 text-sm text-gray-700 dark:text-gray-200">{summary.logline}</p>}
         <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-300">

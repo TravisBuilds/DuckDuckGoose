@@ -129,14 +129,17 @@ export function listNames(names) {
   return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
 }
 
-/** The finish card of a completed run: is there a video to watch, and which file plays first. */
-export function finishLine(run, files) {
+/**
+ * The finish card of a completed run: is there a video to watch, and which file plays first.
+ * mine: the viewer made it ("Your video"), else "This video".
+ */
+export function finishLine(run, files, mine = true) {
   const ready = VIDEO_FILES.filter((type) => files?.[type]?.available);
   if (ready.length > 0) {
     return {
       ready: true,
       primary: ready[0],
-      title: 'Your video is ready',
+      title: mine ? 'Your video is ready' : 'This video is ready',
       text: 'Watch it here and download the files you need.',
     };
   }
@@ -144,25 +147,41 @@ export function finishLine(run, files) {
     return {
       ready: false,
       primary: null,
-      title: 'Your preview is finished',
+      title: mine ? 'Your preview is finished' : 'This preview is finished',
       text: 'A preview run goes through every step without paying for pictures or clips, so it has no video file to download.',
     };
   }
   return {
     ready: false,
     primary: null,
-    title: 'Your video is finished',
+    title: mine ? 'Your video is finished' : 'This video is finished',
     text: 'Its files are not available right now. An admin can check the delivery under Production details.',
   };
 }
 
 /**
- * The Next step card: { step, title, text, href, count?, advisory?, also? }.
+ * Who reads the Next step. mine: they made the video, or it has no owner ("your video"). canAct: they
+ * may take its steps (whoever made it, an admin, or any member while it has no owner). ownerName:
+ * who made it. Without a viewer the card speaks to the person who made the video.
+ */
+const MAKER = { mine: true, canAct: true, ownerName: null };
+
+/** A step only the owner (or an admin) can take, as someone else sees it: who it waits on. */
+function waitingOn(who, step, task, text, href, extra = {}) {
+  return { step, title: `Waiting on ${who} to ${task}`, text, href, waiting: true, waitingOn: who, ...extra };
+}
+
+/**
+ * The Next step card: { step, title, text, href, count?, advisory?, also?, waiting?, waitingOn? }.
  * step is one of story | cast | shot_plan | stills | final_cut | done | failed | working.
- * more: { files (GET .../files), shots (GET .../shot-states shots) } when the page has them.
+ * more: { files (GET .../files), shots (GET .../shot-states shots) } when the page has them, and
+ * viewer ({ mine, canAct, ownerName }) when the reader may not be the person who made the video.
+ * waiting: the step is someone else's to take (waitingOn names them).
  */
 export function nextStep(state, story = null, cast = null, more = {}) {
-  const { files = null, shots = null } = more ?? {};
+  const { files = null, shots = null, viewer = null } = more ?? {};
+  const { mine, canAct, ownerName } = { ...MAKER, ...(viewer ?? {}) };
+  const who = ownerName || 'the owner';
   if (!state) {
     return {
       step: 'working',
@@ -174,29 +193,36 @@ export function nextStep(state, story = null, cast = null, more = {}) {
   const run = state.run ?? null;
   if (run?.ended) {
     if (run.outcome === 'completed') {
-      const finish = finishLine(run, files);
+      const finish = finishLine(run, files, mine);
       return { step: 'done', title: finish.title, text: finish.text, href: '#finished' };
     }
-    return {
-      step: 'failed',
-      title: 'This video stopped before it was finished',
-      text: run.can_start_again ? 'See what went wrong, then start it again.' : 'See what went wrong.',
-      href: '#run-ended',
-    };
+    let text = 'See what went wrong.';
+    if (run.can_start_again) {
+      text = canAct ? 'See what went wrong, then start it again.' : `See what went wrong. Only ${who} or an admin can start it again.`;
+    }
+    return { step: 'failed', title: 'This video stopped before it was finished', text, href: '#run-ended' };
   }
 
   const gate = openGate(state);
   const hasStory = Boolean(state.story_shape || story?.story_shape);
   if (!gate && hasStory && !storyDone(state) && !story?.approved) {
+    if (!canAct) {
+      return waitingOn(who, 'story', 'approve the story',
+        `You can read it below. Only ${who} or an admin can change or approve it.`, '#story');
+    }
     return {
       step: 'story',
-      title: 'Read and approve your story',
+      title: mine ? 'Read and approve your story' : 'Read and approve the story',
       text: 'Change anything that is not right, then approve it to start planning the shots.',
       href: '#story',
     };
   }
 
   if (gate === 'G1_SHOT_PLAN') {
+    if (!canAct) {
+      return waitingOn(who, 'shot_plan', 'approve the shot plan',
+        `You can look over the shots below. Only ${who} or an admin can approve them.`, '#shot-plan');
+    }
     const names = charactersToLock(cast);
     if (names.length > 0) {
       return {
@@ -218,6 +244,11 @@ export function nextStep(state, story = null, cast = null, more = {}) {
 
   if (gate === 'G2_SCENE_STILLS') {
     const { review, making, total } = stillsToReview(state, shots);
+    if (review > 0 && !canAct) {
+      return waitingOn(who, 'stills', `review ${review} scene picture${review === 1 ? '' : 's'}`,
+        `You can see them below. Only ${who} or an admin can approve them or ask for a redo.`, '#scene-pictures',
+        { count: review });
+    }
     if (review > 0) {
       return {
         step: 'stills',
@@ -232,11 +263,15 @@ export function nextStep(state, story = null, cast = null, more = {}) {
     if (making > 0) {
       return {
         step: 'stills',
-        title: 'Making your scene pictures',
+        title: mine ? 'Making your scene pictures' : 'Making the scene pictures',
         text: `${total - making} of ${total} ready. They show up below as they finish.`,
         href: '#scene-pictures',
         count: 0,
       };
+    }
+    if (!canAct) {
+      return waitingOn(who, 'stills', 'approve all scene pictures',
+        `Every picture has a decision. Only ${who} or an admin can approve them all.`, '#scene-pictures', { count: 0 });
     }
     return {
       step: 'stills',
@@ -248,6 +283,10 @@ export function nextStep(state, story = null, cast = null, more = {}) {
   }
 
   if (gate === 'G_FINAL_CUT') {
+    if (!canAct) {
+      return waitingOn(who, 'final_cut', 'approve the final cut',
+        `You can watch it below. Only ${who} or an admin can approve it or send it back.`, '#final-cut');
+    }
     return {
       step: 'final_cut',
       title: 'Watch and approve the final cut',
@@ -267,8 +306,8 @@ export function nextStep(state, story = null, cast = null, more = {}) {
 
   return {
     step: 'working',
-    title: 'Working on your video',
-    text: "Nothing to do right now. Your next step shows up here when it's ready.",
+    title: mine ? 'Working on your video' : 'Working on this video',
+    text: `Nothing to do right now. ${mine ? 'Your' : 'The'} next step shows up here when it's ready.`,
     href: null,
   };
 }
@@ -308,6 +347,7 @@ export function stepperSteps(state, story, cast, next) {
 
 /** The status chip on a studio home card. */
 export function statusChip(next) {
+  if (next?.waiting) return { label: `Waiting on ${next.waitingOn}`, tone: 'wait' };
   switch (next?.step) {
     case 'story':
       return { label: 'Story to approve', tone: 'todo' };

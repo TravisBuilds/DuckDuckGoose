@@ -52,6 +52,15 @@ export interface NextStep {
   count?: number;
   advisory?: boolean;
   also?: { text: string; href: string };
+  waiting?: boolean;
+  waitingOn?: string;
+}
+
+/** Who reads the Next step (lib/next-step.mjs): the person who made the video when left out. */
+export interface Viewer {
+  mine?: boolean;
+  canAct?: boolean;
+  ownerName?: string | null;
 }
 
 export interface FinishLine {
@@ -80,12 +89,12 @@ export function stillsToReview(
 ): { review: number; making: number; total: number };
 export function charactersToLock(cast: CastLike | null | undefined): string[];
 export function listNames(names: string[]): string;
-export function finishLine(run: RunStateLike['run'], files: FilesLike): FinishLine;
+export function finishLine(run: RunStateLike['run'], files: FilesLike, mine?: boolean): FinishLine;
 export function nextStep(
   state: RunStateLike | null | undefined,
   story?: StoryLike | null,
   cast?: CastLike | null,
-  more?: { files?: FilesLike; shots?: ShotStateLike[] | null } | null,
+  more?: { files?: FilesLike; shots?: ShotStateLike[] | null; viewer?: Viewer | null } | null,
 ): NextStep;
 export function stepperSteps(
   state: RunStateLike | null | undefined,

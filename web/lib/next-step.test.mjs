@@ -258,6 +258,68 @@ test('studio home chips', () => {
   assert.deepEqual(statusChip(null), { label: 'In progress', tone: 'wait' });
 });
 
+test("someone else's video: each step says who it waits on, never an instruction they cannot follow", () => {
+  const other = { viewer: { mine: false, canAct: false, ownerName: 'Robin' } };
+  const story = nextStep(runState({ story_shape: STORY }), { story_shape: STORY, approved: false }, null, other);
+  assert.deepEqual([story.step, story.title, story.href, story.waiting, story.waitingOn],
+    ['story', 'Waiting on Robin to approve the story', '#story', true, 'Robin']);
+  assert.match(story.text, /Only Robin or an admin can change or approve it/);
+
+  // the cast advice is for the owner: someone else waits on the shot plan
+  const cast = castView({ picks: { S01: ['mara'] } });
+  const g1 = nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, cast, other);
+  assert.deepEqual([g1.step, g1.title, g1.href, g1.advisory], ['shot_plan', 'Waiting on Robin to approve the shot plan', '#shot-plan', undefined]);
+  assert.doesNotMatch(g1.text, /^Look over the shots, then approve/);
+
+  const g2 = runState({ current_gate: 'G2_SCENE_STILLS', shot_decisions: { S01: 'approved' } });
+  const shots = ['S01', 'S02', 'S03'].map((shot_id) => ({ shot_id, still_status: 'done' }));
+  const review = nextStep(g2, null, null, { ...other, shots });
+  assert.deepEqual([review.step, review.title, review.count], ['stills', 'Waiting on Robin to review 2 scene pictures', 2]);
+  const allDecided = nextStep({ ...g2, shot_decisions: { S01: 'approved', S02: 'approved', S03: 'rejected' } }, null, null, { ...other, shots });
+  assert.equal(allDecided.title, 'Waiting on Robin to approve all scene pictures');
+  // pictures still being made are progress, not a step: no one is waited on, and it is not "your" video
+  const making = nextStep(g2, null, null, { ...other, shots: shots.map((s) => ({ ...s, still_status: 'pending' })) });
+  assert.deepEqual([making.title, making.waiting], ['Making the scene pictures', undefined]);
+
+  const cut = nextStep(runState({ current_gate: 'G_FINAL_CUT' }), null, null, other);
+  assert.deepEqual([cut.step, cut.title, cut.href], ['final_cut', 'Waiting on Robin to approve the final cut', '#final-cut']);
+
+  const stopped = nextStep(runState({ run: { ended: true, outcome: 'failed', can_start_again: true } }), null, null, other);
+  assert.equal(stopped.text, 'See what went wrong. Only Robin or an admin can start it again.');
+  const done = nextStep(runState({ run: { ended: true, outcome: 'completed', dry_run: false } }), null, null,
+    { ...other, files: { phone: { available: true } } });
+  assert.equal(done.title, 'This video is ready');
+  assert.equal(finishLine({ ended: true, dry_run: true }, null, false).title, 'This preview is finished');
+  assert.equal(nextStep(runState({ stage: 'clip_generation', passed_gates: ['G1_SHOT_PLAN'] }), null, null, other).title,
+    'Working on this video');
+
+  // without the owner's name
+  const unnamed = nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, null, { viewer: { mine: false, canAct: false } });
+  assert.equal(unnamed.title, 'Waiting on the owner to approve the shot plan');
+});
+
+test('an admin on someone else\'s video, or anyone on a video without an owner, takes the step', () => {
+  const admin = { viewer: { mine: false, canAct: true, ownerName: 'Robin' } };
+  const story = nextStep(runState({ story_shape: STORY }), { story_shape: STORY, approved: false }, null, admin);
+  assert.deepEqual([story.title, story.waiting], ['Read and approve the story', undefined]);
+  assert.equal(nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, null, admin).title, 'Approve the shot plan');
+  assert.match(nextStep(runState({ run: { ended: true, outcome: 'failed', can_start_again: true } }), null, null, admin).text,
+    /then start it again/);
+  // a video without an owner is everyone's: it reads as the viewer's own
+  const shared = { viewer: { mine: true, canAct: true, ownerName: null } };
+  assert.equal(nextStep(runState({ story_shape: STORY }), { story_shape: STORY }, null, shared).title, 'Read and approve your story');
+});
+
+test('home chips say who someone else\'s video waits on', () => {
+  const other = { viewer: { mine: false, canAct: false, ownerName: 'Robin' } };
+  assert.deepEqual(statusChip(nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, null, other)),
+    { label: 'Waiting on Robin', tone: 'wait' });
+  assert.deepEqual(statusChip(nextStep(runState({ run: { ended: true, outcome: 'completed' } }), null, null, other)),
+    { label: 'Finished', tone: 'ok' });
+  assert.deepEqual(statusChip(nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, null,
+    { viewer: { mine: false, canAct: true, ownerName: 'Robin' } })), { label: 'Shot plan to approve', tone: 'todo' });
+});
+
 test('names read as a sentence', () => {
   assert.equal(listNames([]), '');
   assert.equal(listNames(['Mara']), 'Mara');
