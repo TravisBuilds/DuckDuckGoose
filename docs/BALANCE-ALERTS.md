@@ -88,7 +88,9 @@ Alerts are sent through:
 1. **Email**: SMTP (configured via env vars)
 2. **Webhook**: HTTP POST of JSON (`text` and `attachments` for Slack, plus an `alert` object for
    any other receiver)
-3. **Logs**: Always logged to `hfvg.balance_notifier`
+3. **Logs**: Always logged to `hfvg.balance_notifier`. The webhook URL is a secret and never
+   reaches the logs: the API and the worker keep the HTTP client loggers (`httpx`, `httpcore`)
+   at WARNING and cut any URL they still log to scheme and host (`hfvg/log_safety.py`)
 4. **Database**: Recorded in `balance_alerts` with the destinations tried and each outcome
    (`sent`, or the redacted error) and whether it was delivered
 
