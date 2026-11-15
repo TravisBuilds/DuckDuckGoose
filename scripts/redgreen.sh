@@ -3453,6 +3453,195 @@ test_mutation 467 "sheet image balance gate spends nothing" \
     "tests/test_cast_sheet_activity.py::test_live_balance_gate_spends_nothing" \
     sed -i 's/^            if not passed:$/            if False:  # MUTATED/'
 
+# ---- Provider-reported costs, balance readings and alert delivery (docs/ACTUAL-COSTS.md,
+# docs/BALANCE-ALERTS.md). Ids start at 500: 468+ are taken by the cast follow-up branch.
+
+# 500: an alert whose delivery failed is not a duplicate: the next check sends it again
+test_mutation 500 "failed alert delivery is retried, not deduplicated" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_a_failed_delivery_is_retried_at_the_next_check" \
+    sed -i 's/^                "AND (delivered IS NULL OR delivered = 1 OR COALESCE(channels, ..) = ..)",$/                "AND 1 = 1",  # MUTATED/'
+
+# 501: an alert with no destination is recorded as not delivered (not a silent success)
+test_mutation 501 "alert without destination is recorded as not delivered" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_no_destination_is_recorded_as_not_sent_and_shown" \
+    sed -i 's/^        delivered = any(v == "sent" for v in results.values())$/        delivered = True  # MUTATED/'
+
+# 502: the test alert uses its own short dedupe window
+test_mutation 502 "test alert dedupe window is 30 seconds" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_test_alert_is_marked_and_double_clicks_are_suppressed" \
+    sed -i 's/^        self\._dedupe_windows\[dedupe_key\] = window$/        pass  # MUTATED/'
+
+# 503: an incomplete webhook setting is not used as a destination
+test_mutation 503 "incomplete webhook setting is not a destination" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_incomplete_destinations_are_reported_and_not_used" \
+    sed -i 's/^        return bool(self\.webhook_url) and not any(p\.startswith("webhook:") for p in self\.problems)$/        return bool(self.webhook_url)  # MUTATED/'
+
+# 504: alerts recorded without a destination do not suppress a newly configured one
+test_mutation 504 "new alert destination is not suppressed by unsent alerts" \
+    "hfvg/balance_notifier.py" \
+    "tests/test_balance_alert_delivery.py::test_a_new_destination_is_not_suppressed_by_unsent_alerts" \
+    sed -i 's/^        return "|"\.join(parts) or "none"$/        return "none"  # MUTATED/'
+
+# 505: balance reads reuse the usage figure of the same manual entry for a few minutes
+test_mutation 505 "usage figure is cached per manual entry" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_readings.py::test_the_usage_figure_is_reused_for_a_few_minutes_per_entry" \
+    sed -i 's/^        if ttl <= 0:$/        if True:  # MUTATED/'
+
+# 506: two equal Higgsfield entries are only flagged when Higgsfield spend happened in between
+test_mutation 506 "unchanged balance entry needs spend in between" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_readings.py::test_an_entry_that_did_not_move_despite_spend_is_flagged" \
+    sed -i 's/^    unchanged = latest_bal == prev_bal and spent >= UNCHANGED_ENTRY_MIN_SPEND_MICROS$/    unchanged = latest_bal == prev_bal  # MUTATED/'
+
+# 507: the balance read before a paid step is stored as a preflight reading
+test_mutation 507 "preflight balance reading is stored as preflight" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_readings.py::test_the_preflight_reading_is_stored_and_the_gate_decides_as_before" \
+    sed -i 's/^        await record_balance_reading(self\.db_path, provider, balance, "preflight",$/        await record_balance_reading(self.db_path, provider, balance, "on_demand",  # MUTATED/'
+
+# 508: the derived Higgsfield figure subtracts the usage report's spend since the entry
+test_mutation 508 "usage report lowers the derived Higgsfield balance" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_readings.py::test_the_usage_report_brings_the_figure_down_after_an_episode" \
+    sed -i 's/^        return await usage_spend_since(datetime\.fromtimestamp(since_unix, tz=timezone\.utc))$/        return None  # MUTATED/'
+
+# 509: the dashboard says when the scheduled balance check is overdue
+test_mutation 509 "scheduled balance check overdue is reported" \
+    "hfvg/balance_monitor.py" \
+    "tests/test_balance_readings.py::test_overview_says_when_the_scheduled_check_is_overdue" \
+    sed -i 's/^        overdue = last is None or .*$/        overdue = False  # MUTATED/'
+
+# 510: the shared ADMIN_SECRET login names nobody
+test_mutation 510 "shared admin login is not a person" \
+    "hfvg/spend_attribution.py" \
+    "tests/test_cost_truth.py::test_the_shared_login_and_system_ids_name_nobody" \
+    sed -i 's/^    return frozenset({SHARED_ADMIN_USER_ID, LEGACY_USER_ID, SYSTEM_USER_ID, ""})$/    return frozenset({LEGACY_USER_ID, SYSTEM_USER_ID, ""})  # MUTATED/'
+
+# 511: an admin's assignment takes precedence over who started the run
+test_mutation 511 "assigned person comes first in spend attribution" \
+    "hfvg/spend_attribution.py" \
+    "tests/test_cost_truth.py::test_spend_goes_to_whoever_started_the_run_not_the_shared_login" \
+    sed -i 's/^        if is_person(assigned):$/        if False:  # MUTATED/'
+
+# 512: the monthly run-rate counts committed estimates where no actual exists
+test_mutation 512 "run-rate counts spend without actuals" \
+    "hfvg/cost_tracking.py" \
+    "tests/test_cost_truth.py::test_runrate_counts_committed_spend_without_actuals" \
+    sed -i 's/^                SELECT COALESCE(SUM(COALESCE(actual_usd_micros, usd_micros)), 0),$/                SELECT COALESCE(SUM(actual_usd_micros), 0),/'
+
+# 513: released jobs cost nothing in the run-rate
+test_mutation 513 "run-rate leaves out released jobs" \
+    "hfvg/cost_tracking.py" \
+    "tests/test_cost_truth.py::test_runrate_counts_committed_spend_without_actuals" \
+    sed -i 's/^                  AND status != .released.$/                  AND 1 = 1/'
+
+# 514: actual vs estimate is compared over jobs that have both numbers only
+test_mutation 514 "actual vs estimate compares jobs with both numbers" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_actual_next_to_estimate_by_provider_stage_and_episode" \
+    sed -i 's/^        delta = self\.compared_actual - self\.compared_estimate if self\.compared else None$/        delta = self.actual - self.estimate if self.compared else None  # MUTATED/'
+
+# 515: the month-end projection divides by at least one day
+test_mutation 515 "month projection counts at least one day" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_projection_early_in_the_month_counts_at_least_one_day" \
+    sed -i 's/^    elapsed_days = max((now - start)\.total_seconds() \/ 86400, 1\.0)$/    elapsed_days = (now - start).total_seconds() \/ 86400  # MUTATED/'
+
+# 516: a dry-run delivery is not a finished episode
+test_mutation 516 "dry-run delivery is not a finished episode" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_cost_per_finished_episode_and_minute" \
+    sed -i 's/^        is_finished = episode_id in approvals and totals\.spend > 0 and not delivery\["dry_run"\]$/        is_finished = episode_id in approvals and totals.spend > 0  # MUTATED/'
+
+# 517: spend by the shared login is a dashboard warning
+test_mutation 517 "shared login spend is warned about" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_warnings_say_what_is_missing" \
+    sed -i 's/^    if shared:$/    if False:  # MUTATED/'
+
+# 518: missing or incomplete alert destinations are a dashboard warning
+test_mutation 518 "missing alert destination is warned about" \
+    "hfvg/cost_report.py" \
+    "tests/test_cost_truth.py::test_warnings_say_what_is_missing" \
+    sed -i 's/^    if alerts is not None:$/    if False:  # MUTATED/'
+
+# 519: usage is matched to jobs only when the generation counts agree
+test_mutation 519 "usage with a different count stays unmatched" \
+    "hfvg/provider_usage.py" \
+    "tests/test_provider_usage.py::test_counts_that_differ_stay_unmatched_and_untouched" \
+    sed -i 's/^        elif quantity != len(generations):$/        elif False:  # MUTATED/'
+
+# 520: a usage day is matched only after it has settled
+test_mutation 520 "unsettled usage days wait" \
+    "hfvg/provider_usage.py" \
+    "tests/test_provider_usage.py::test_unsettled_days_wait" \
+    sed -i 's/^        if _parse_ts(bucket_start) + timedelta(days=1) + settle > now:$/        if False:  # MUTATED/'
+
+# 521: usage of other API keys is not this studio's spend
+test_mutation 521 "other API keys' usage is not matched" \
+    "hfvg/provider_usage.py" \
+    "tests/test_provider_usage.py::test_other_api_keys_are_not_this_studios_spend" \
+    sed -i 's/^        if key_mode and auth_method != key_id:$/        if False:  # MUTATED/'
+
+# 522: a usage allocation never replaces a per-request charge
+test_mutation 522 "usage allocation keeps per-request charges" \
+    "hfvg/actual_costs.py" \
+    "tests/test_provider_usage.py::test_allocation_never_replaces_a_per_request_charge" \
+    sed -i 's/^        sql = sql\.rstrip() + _ALLOCATION_GUARD$/        pass  # MUTATED/'
+
+# 523: a bare cost without a currency is not read as a charge
+test_mutation 523 "status cost without a unit is ignored" \
+    "hfvg/actual_costs.py" \
+    "tests/test_actual_costs.py::test_documented_status_body_has_no_charge" \
+    sed -i 's/^        if cost is not None and currency == "usd":$/        if cost is not None:  # MUTATED/'
+
+# 524: backfilled actuals are labelled as backfilled
+test_mutation 524 "backfilled actuals are labelled" \
+    "hfvg/actual_costs.py" \
+    "tests/test_actual_costs.py::test_backfill_labels_what_older_rows_hold" \
+    sed -i 's/^            sql, params = charge_update(charge, job_id, backfilled=True, recorded_at=updated_at)$/            sql, params = charge_update(charge, job_id, backfilled=False, recorded_at=updated_at)  # MUTATED/'
+
+# 525: the ElevenLabs header charge is stored as the job's actual at commit
+test_mutation 525 "ElevenLabs header charge stored at commit" \
+    "hfvg/activities/audio.py" \
+    "tests/test_actual_costs.py::test_voiceover_records_the_header_charge_next_to_the_estimate" \
+    sed -i 's/^                        provider_charge=charge)$/                        provider_charge=None)  # MUTATED/'
+
+# 526: a charge in a completed Higgsfield status is stored by the poll
+test_mutation 526 "poll stores a reported status charge" \
+    "hfvg/activities/studio_generation.py" \
+    "tests/test_actual_costs.py::test_poll_records_a_reported_charge_on_completion" \
+    sed -i 's/^            await record_status_charge(db_path, job_id, getattr(job_status, "raw", None))$/            pass  # MUTATED/'
+
+# 527: starting an episode again records who started the run
+test_mutation 527 "start again records who started the run" \
+    "api/main.py" \
+    "tests/test_cost_dashboard_api.py::test_starting_an_episode_again_records_who_did" \
+    sed -i 's/^    await _record_run_start(episode_id, new\.result_run_id, studio_admin_token, "start_again")$/    pass  # MUTATED/'
+
+# 528: the scheduled balance check syncs the Higgsfield usage report
+test_mutation 528 "scheduled check syncs the usage report" \
+    "hfvg/activities/balance_check.py" \
+    "tests/test_balance_readings.py::test_scheduled_check_reads_syncs_and_alerts_on_an_unchanged_entry" \
+    sed -i 's/^    usage = await sync_higgsfield_usage(db_path)$/    usage = {"ok": False}  # MUTATED/'
+
+# 529: the scheduled balance check alerts on an entry that did not move despite spend
+test_mutation 529 "scheduled check alerts on an unchanged entry" \
+    "hfvg/activities/balance_check.py" \
+    "tests/test_balance_readings.py::test_scheduled_check_reads_syncs_and_alerts_on_an_unchanged_entry" \
+    sed -i 's/^    if consistency\["unchanged_despite_spend"\]:$/    if False:  # MUTATED/'
+
+# 530: BALANCE_CHECK_SCHEDULE_ENABLED=false leaves the balance check schedule out
+test_mutation 530 "balance check schedule can be disabled" \
+    "hfvg/worker.py" \
+    "tests/test_balance_readings.py::test_worker_creates_the_balance_check_schedule_idempotently" \
+    sed -i 's/^    if not balance_check_schedule_enabled():$/    if False:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

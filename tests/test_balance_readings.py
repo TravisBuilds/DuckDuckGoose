@@ -257,7 +257,8 @@ async def test_scheduled_check_reads_syncs_and_alerts_on_an_unchanged_entry(live
     assert out["balances"]["elevenlabs"] == {"balance_usd": "12.00", "source": "live"}
     assert out["balances"]["higgsfield"]["source"] == "derived"
     assert out["usage_sync"]["ok"] is True and out["errors"] == []
-    assert out["unchanged_balance"] is True and out["unchanged_alert"]["delivered"] is True
+    assert out["unchanged_balance"] is True and out["unchanged_alert"] is not None
+    assert out["unchanged_alert"]["delivered"] is True
     assert out["alert_channels"] == ["webhook"]
     alert = json.loads(hook.calls[0].request.content)["alert"]
     assert alert["type"] == "balance_unchanged" and alert["details"]["spent_between_usd"] == "16.65"
