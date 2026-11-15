@@ -8,9 +8,11 @@ export interface RunStateLike {
   passed_gates?: string[];
   story_shape?: unknown;
   approvals?: Record<string, boolean | undefined>;
+  shots_count?: number;
   shot_workflow_ids?: Record<string, unknown>;
   shot_outcomes?: Record<string, unknown>;
   shot_decisions?: Record<string, string>;
+  failed_shots?: (string | { shot_id?: string })[];
   run?: {
     ended?: boolean;
     outcome?: string | null;
@@ -35,6 +37,12 @@ export interface CastLike {
 }
 
 export type FilesLike = Record<string, { available?: boolean } | undefined> | null | undefined;
+
+export interface ShotStateLike {
+  shot_id: string;
+  still_status?: string | null;
+  pre_approved?: boolean;
+}
 
 export interface NextStep {
   step: NextStepKind;
@@ -65,6 +73,10 @@ export const VIDEO_FILES: string[];
 export function storyDone(state: RunStateLike | null | undefined): boolean;
 export function storyLocked(state: RunStateLike | null | undefined): boolean;
 export function shotIds(state: RunStateLike | null | undefined): string[];
+export function stillsToReview(
+  state: RunStateLike | null | undefined,
+  shots?: ShotStateLike[] | null,
+): { review: number; making: number; total: number };
 export function charactersToLock(cast: CastLike | null | undefined): string[];
 export function listNames(names: string[]): string;
 export function finishLine(run: RunStateLike['run'], files: FilesLike): FinishLine;
@@ -72,10 +84,11 @@ export function nextStep(
   state: RunStateLike | null | undefined,
   story?: StoryLike | null,
   cast?: CastLike | null,
-  files?: FilesLike,
+  more?: { files?: FilesLike; shots?: ShotStateLike[] | null } | null,
 ): NextStep;
 export function stepperSteps(
   state: RunStateLike | null | undefined,
+  story: StoryLike | null | undefined,
   cast: CastLike | null | undefined,
   next: NextStep | null | undefined,
 ): StepperStep[];

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  charactersToLock, finishLine, listNames, nextStep, shotIds, statusChip, stepperSteps, storyDone, storyLocked,
+  charactersToLock, finishLine, listNames, nextStep, shotIds, statusChip, stepperSteps, stillsToReview, storyDone,
+  storyLocked,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -109,25 +110,50 @@ test('G1 without a cast (or a cast this viewer may not see) is the shot plan', (
   assert.equal(nextStep(runState({ current_gate: 'g1_shot_plan' }), null, { characters: [] }).step, 'shot_plan');
 });
 
-test('G2: review the pictures that have no decision yet', () => {
-  const state = runState({
-    current_gate: 'G2_SCENE_STILLS',
-    shot_workflow_ids: { S01: 'wf-1', S02: 'wf-2', S03: 'wf-3' },
-    shot_outcomes: { S01: { still_status: 'done' }, S02: { still_status: 'done' }, S03: { still_status: 'done' } },
-    shot_decisions: { S02: 'approved' },
-  });
-  const next = nextStep(state);
+test('G2: review the pictures that are ready and have no decision yet', () => {
+  // the run records a shot's outcome only after its clip, so at G2 the shot states are the list
+  const state = runState({ current_gate: 'G2_SCENE_STILLS', shots_count: 3, shot_decisions: { S02: 'approved' } });
+  const shots = [
+    { shot_id: 'S01', still_status: 'done' },
+    { shot_id: 'S02', still_status: 'done' },
+    { shot_id: 'S03', still_status: 'done' },
+  ];
+  const next = nextStep(state, null, null, { shots });
   assert.deepEqual([next.step, next.title, next.href, next.count], ['stills', 'Review 2 scene pictures', '#scene-pictures', 2]);
-  const one = nextStep({ ...state, shot_decisions: { S01: 'approved', S02: 'rejected' } });
+  const one = nextStep({ ...state, shot_decisions: { S01: 'approved', S02: 'rejected' } }, null, null, { shots });
   assert.equal(one.title, 'Review 1 scene picture');
-  const none = nextStep({ ...state, shot_decisions: { S01: 'approved', S02: 'approved', S03: 'approved' } });
+  const none = nextStep({ ...state, shot_decisions: { S01: 'approved', S02: 'approved', S03: 'rejected' } }, null, null, { shots });
   assert.deepEqual([none.title, none.count], ['Approve all scene pictures', 0]);
 });
 
-test('shot ids are every shot the run knows, sorted', () => {
+test('G2: pictures still being made are counted apart; a failed one needs a decision too', () => {
+  const state = runState({ current_gate: 'G2_SCENE_STILLS', shots_count: 4 });
+  const shots = [
+    { shot_id: 'S01', still_status: 'done' },
+    { shot_id: 'S02', still_status: 'pending' },
+    { shot_id: 'S03', still_status: 'failed' },
+    { shot_id: 'S04', still_status: 'pending', pre_approved: true },
+  ];
+  assert.deepEqual(stillsToReview(state, shots), { review: 3, making: 1, total: 4 });
+  const next = nextStep(state, null, null, { shots });
+  assert.equal(next.title, 'Review 3 scene pictures');
+  assert.match(next.text, /^1 more is still being made/);
+
+  const making = nextStep(state, null, null, { shots: shots.map((s) => ({ ...s, still_status: 'pending', pre_approved: false })) });
+  assert.deepEqual([making.step, making.title, making.text], ['stills', 'Making your scene pictures', '0 of 4 ready. They show up below as they finish.']);
+});
+
+test('G2 without shot states (the studio home) counts from the run state', () => {
+  const state = runState({ current_gate: 'G2_SCENE_STILLS', shots_count: 4, shot_decisions: { S01: 'approved' } });
+  assert.deepEqual(stillsToReview(state, null), { review: 3, making: 0, total: 4 });
+  assert.equal(nextStep(state).title, 'Review 3 scene pictures');
+});
+
+test('shot ids are every shot the run state names, sorted', () => {
   assert.deepEqual(shotIds(runState({
     shot_workflow_ids: { S03: 'a' }, shot_outcomes: { S01: {} }, shot_decisions: { S02: 'approved', S01: 'approved' },
-  })), ['S01', 'S02', 'S03']);
+    failed_shots: [{ shot_id: 'S05', reason: 'x' }, 'S04'],
+  })), ['S01', 'S02', 'S03', 'S04', 'S05']);
   assert.deepEqual(shotIds(null), []);
 });
 
@@ -145,7 +171,7 @@ test('an unknown gate never shows its id', () => {
 test('a completed run is done; the finish card depends on the files', () => {
   const ended = { ended: true, outcome: 'completed', dry_run: false, can_start_again: false };
   const files = { phone: { available: true }, master_subs: { available: true } };
-  const next = nextStep(runState({ current_gate: 'G_FINAL_CUT', run: ended }), null, null, files);
+  const next = nextStep(runState({ current_gate: 'G_FINAL_CUT', run: ended }), null, null, { files });
   assert.deepEqual([next.step, next.title, next.href], ['done', 'Your video is ready', '#finished']);
   assert.deepEqual(finishLine(ended, files), {
     ready: true, primary: 'phone', title: 'Your video is ready', text: 'Watch it here and download the files you need.',
@@ -166,11 +192,15 @@ test('a run that stopped points at what went wrong', () => {
 
 test('the stepper marks done, current and skipped steps', () => {
   const statuses = (state, cast, story) => Object.fromEntries(
-    stepperSteps(state, cast, nextStep(state, story, cast)).map((s) => [s.key, s.status]));
+    stepperSteps(state, story, cast, nextStep(state, story, cast)).map((s) => [s.key, s.status]));
 
   assert.deepEqual(statuses(runState({ story_shape: STORY })), {
     story: 'current', cast: 'skipped', shot_plan: 'todo', stills: 'todo', final_cut: 'todo', download: 'todo',
   });
+  // the API's run state has no outline: the one from GET /story-shape decides between done and skipped
+  const approvedNoOutline = runState({ stage: 'still_generation', approvals: { story_shape: true } });
+  assert.equal(statuses(approvedNoOutline, null, { story_shape: STORY }).story, 'done');
+  assert.equal(statuses(approvedNoOutline, null, { story_shape: null }).story, 'skipped');
 
   const cast = castView({ picks: { S01: ['mara'] } });
   assert.deepEqual(statuses(runState({ story_shape: STORY, current_gate: 'G1_SHOT_PLAN', approvals: { story_shape: true } }), cast), {

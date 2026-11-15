@@ -1,6 +1,7 @@
 /**
  * What the creator does next on the episode page, worked out from the run state
- * (GET /api/episodes/{id}), the story outline (GET .../story-shape) and the cast (GET .../cast).
+ * (GET /api/episodes/{id}, with the shot states of GET .../shot-states and the files of GET .../files
+ * when the page has them), the story outline (GET .../story-shape) and the cast (GET .../cast).
  * Pure: the Next step card, the stepper and the studio home's status chips render what this returns.
  * The cast step is advice only: the workflow never waits for it, and the shot plan can be approved
  * without it.
@@ -44,14 +45,38 @@ export function storyLocked(state) {
   return storyDone(state) || Boolean(state?.run?.ended);
 }
 
-/** Every shot the run knows about, sorted (S01, S02, ...). */
+/**
+ * Every shot the run state names, sorted (S01, S02, ...). The run records a shot's outcome only once
+ * its clip is done, so at the scene pictures the shot states (GET .../shot-states) are the full list.
+ */
 export function shotIds(state) {
+  const failed = (state?.failed_shots ?? []).map((f) => (typeof f === 'string' ? f : f?.shot_id)).filter(Boolean);
   const ids = new Set([
     ...Object.keys(state?.shot_workflow_ids ?? {}),
     ...Object.keys(state?.shot_outcomes ?? {}),
     ...Object.keys(state?.shot_decisions ?? {}),
+    ...failed,
   ]);
   return [...ids].sort();
+}
+
+const READY = new Set(['done', 'completed']);
+
+/**
+ * The scene pictures at G2: how many wait for the creator's decision (ready or failed, no decision
+ * yet) and how many are still being made. Uses the shot states when the page has them, else the
+ * run state's shot count.
+ */
+export function stillsToReview(state, shots) {
+  const decisions = state?.shot_decisions ?? {};
+  if (Array.isArray(shots) && shots.length > 0) {
+    const open = shots.filter((s) => !decisions[s.shot_id]);
+    const making = open.filter((s) => !s.pre_approved && !READY.has(s.still_status) && s.still_status !== 'failed');
+    return { review: open.length - making.length, making: making.length, total: shots.length };
+  }
+  const total = Math.max(state?.shots_count ?? 0, shotIds(state).length);
+  const decided = Object.keys(decisions).length;
+  return { review: Math.max(total - decided, 0), making: 0, total };
 }
 
 /**
@@ -119,8 +144,10 @@ export function finishLine(run, files) {
 /**
  * The Next step card: { step, title, text, href, count?, advisory?, also? }.
  * step is one of story | cast | shot_plan | stills | final_cut | done | failed | working.
+ * more: { files (GET .../files), shots (GET .../shot-states shots) } when the page has them.
  */
-export function nextStep(state, story = null, cast = null, files = null) {
+export function nextStep(state, story = null, cast = null, more = {}) {
+  const { files = null, shots = null } = more ?? {};
   if (!state) {
     return {
       step: 'working',
@@ -175,14 +202,25 @@ export function nextStep(state, story = null, cast = null, files = null) {
   }
 
   if (gate === 'G2_SCENE_STILLS') {
-    const open = shotIds(state).filter((sid) => !state.shot_decisions?.[sid]).length;
-    if (open > 0) {
+    const { review, making, total } = stillsToReview(state, shots);
+    if (review > 0) {
       return {
         step: 'stills',
-        title: `Review ${open} scene picture${open === 1 ? '' : 's'}`,
-        text: 'Approve each picture or ask for a redo, then approve them all to start making the clips.',
+        title: `Review ${review} scene picture${review === 1 ? '' : 's'}`,
+        text: making > 0
+          ? `${making} more ${making === 1 ? 'is' : 'are'} still being made. Approve each picture or ask for a redo.`
+          : 'Approve each picture or ask for a redo, then approve them all to start making the clips.',
         href: '#scene-pictures',
-        count: open,
+        count: review,
+      };
+    }
+    if (making > 0) {
+      return {
+        step: 'stills',
+        title: 'Making your scene pictures',
+        text: `${total - making} of ${total} ready. They show up below as they finish.`,
+        href: '#scene-pictures',
+        count: 0,
       };
     }
     return {
@@ -225,13 +263,14 @@ export function nextStep(state, story = null, cast = null, files = null) {
  * done | current | todo | skipped | stopped. "skipped" is a step the video went past without it
  * (no story outline, or no cast to lock).
  */
-export function stepperSteps(state, cast, next) {
+export function stepperSteps(state, story, cast, next) {
   const approvals = state?.approvals ?? {};
   const ended = Boolean(state?.run?.ended);
   const completed = ended && state?.run?.outcome === 'completed';
   const g1 = Boolean(approvals.g1_shot_plan) || passed(state, 'G1_SHOT_PLAN') || completed;
+  const hasStory = Boolean(state?.story_shape || story?.story_shape);
   const status = {
-    story: storyDone(state) ? (state?.story_shape ? 'done' : 'skipped') : 'todo',
+    story: storyDone(state) || story?.approved ? (hasStory ? 'done' : 'skipped') : 'todo',
     cast: 'todo',
     shot_plan: g1 ? 'done' : 'todo',
     stills: approvals.g2_scene_stills || passed(state, 'G2_SCENE_STILLS') || completed ? 'done' : 'todo',
