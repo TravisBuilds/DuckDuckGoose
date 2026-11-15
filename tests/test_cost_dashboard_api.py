@@ -84,6 +84,12 @@ async def test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a
     await _job("still-1", "ep01", "L2_drafts", 100_000)
     await BudgetLedger(_db()).record_job("ep02", "clip-2", "A01", "model-x", "draft", "L4_video", 300_000,
                                          user_id="admin")
+    await BudgetLedger(_db()).record_job("ep02", "clip-3", "A02", "model-x", "draft", "L4_video", 80_000,
+                                         user_id="admin")
+    async with aiosqlite.connect(_db()) as db:  # in flight, but its provider already reported the charge
+        await db.execute("UPDATE job_ledger SET actual_usd_micros = 50000, actual_source = ? WHERE job_id = 'clip-3'",
+                         (ac.SOURCE_HF_USAGE,))
+        await db.commit()
 
     def agreed():
         body = _admin(api).get("/api/dashboard").json()
@@ -96,8 +102,10 @@ async def test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a
 
     summary, truth = agreed()
     assert (summary["headline_spend_usd_micros"], summary["headline_label"]) == (520_000, "actual and estimated")
-    assert truth["in_flight"] == {"jobs": 1, "held_usd_micros": 300_000}
-    assert summary["total_estimated_usd_micros"] == 800_000
+    assert truth["in_flight"] == {"jobs": 2, "held_usd_micros": 380_000}
+    assert summary["total_estimated_usd_micros"] == 880_000
+    # the projection also counts the charge already reported for the job in flight; the headline does not
+    assert truth["monthly"]["spend_so_far_usd_micros"] == 570_000
 
     async with aiosqlite.connect(_db()) as db:
         await db.execute("UPDATE job_ledger SET actual_usd_micros = 90000, actual_source = ?, actual_backfilled = 1 "
@@ -105,7 +113,7 @@ async def test_the_headline_and_the_projection_agree_with_the_cost_truth_after_a
         await db.commit()
     summary, truth = agreed()
     assert (summary["headline_spend_usd_micros"], summary["headline_label"]) == (510_000, "actual")
-    assert truth["monthly"]["spend_so_far_usd_micros"] == 510_000
+    assert truth["monthly"]["spend_so_far_usd_micros"] == 560_000
 
 
 async def test_admins_assign_an_episodes_spend_to_a_person(api, people):

@@ -187,13 +187,13 @@ def spend_headline(jobs: list[dict[str, Any]]) -> dict[str, Any]:
     best number, with how much of it is provider-reported."""
     spend = actual = with_actual = committed = 0
     for job in jobs:
-        if job["status"] != "committed":
+        counted = month_spend(job) if job["status"] == "committed" else None
+        if counted is None:
             continue
-        job_spend, job_actual = month_spend(job)
         committed += 1
-        spend += job_spend
-        if job_actual is not None:
-            actual += job_actual
+        spend += counted[0]
+        if counted[1] is not None:
+            actual += counted[1]
             with_actual += 1
     label = "estimated" if not with_actual else ("actual" if with_actual == committed else "actual and estimated")
     return {"spend_usd_micros": spend, "actual_usd_micros": actual, "coverage_pct": pct(actual, spend),
