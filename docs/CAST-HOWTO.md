@@ -31,7 +31,8 @@ Then press **Upload picture**. What works:
 - PNG, JPG or WebP, at least 512 pixels on each side, up to 15 MB (your studio may set other limits).
 - A clear, full-body picture on a plain background works best. The first picture becomes the
   **Main picture**; **Make main** changes it.
-- Your pictures are private: only signed-in members of your studio can see them.
+- Your pictures are private: only the people working on this video (and admins) can see them. See
+  [Who can see and change a cast](#who-can-see-and-change-a-cast).
 
 ## 3. Make and lock a character sheet
 
@@ -95,6 +96,15 @@ the series cast** gives this video its own empty cast again. The series keeps ev
 | "Some pictures were not made" | The list says why (for example, the price, your balance or the budget changed). Check the price again and make them again. |
 | "is being made right now" | Wait for the current run to end, then change the cast. |
 | "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead. |
+| "Only the people working on this episode (and admins) can see its cast" | The video belongs to someone else. Ask its owner or an admin. |
 
-Only the video's owner (or an admin) can change its cast, and only a series' owner (or an admin) can
-change a series cast. Everyone else in the studio can view it.
+## Who can see and change a cast
+
+- **Seeing:** a video's cast is seen by the video's owner and admins. A series cast is seen by the
+  series' owner, the owners of the videos in the series, and admins. A video without an owner (an
+  older, shared one) can be seen and changed by everyone in the studio, and so can its cast. Anyone
+  else gets "not found", even for a picture's link, and their series list leaves out the series they
+  can't see.
+- **Changing:** only the video's owner (or an admin) can change its cast, and only a series' owner (or
+  an admin) can change a series cast. A series without an owner (an older one) can be changed only by
+  an admin.
