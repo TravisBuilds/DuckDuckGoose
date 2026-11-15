@@ -3613,16 +3613,17 @@ test_mutation 511 "assigned person comes first in spend attribution" \
     sed -i 's/^        if is_person(assigned):$/        if False:  # MUTATED/'
 
 # 512: the monthly run-rate counts committed estimates where no actual exists
+# (the run-rate computes through cost_report.month_spend, the dashboard's one projection rule)
 test_mutation 512 "run-rate counts spend without actuals" \
-    "hfvg/cost_tracking.py" \
+    "hfvg/cost_report.py" \
     "tests/test_cost_truth.py::test_runrate_counts_committed_spend_without_actuals" \
-    sed -i 's/^                SELECT COALESCE(SUM(COALESCE(actual_usd_micros, usd_micros)), 0),$/                SELECT COALESCE(SUM(actual_usd_micros), 0),/'
+    sed -i 's/^        return (actual if actual is not None else job\["usd_micros"\] or 0), actual$/        return (actual if actual is not None else 0), actual  # MUTATED/'
 
 # 513: released jobs cost nothing in the run-rate
 test_mutation 513 "run-rate leaves out released jobs" \
-    "hfvg/cost_tracking.py" \
+    "hfvg/cost_report.py" \
     "tests/test_cost_truth.py::test_runrate_counts_committed_spend_without_actuals" \
-    sed -i 's/^                  AND status != .released.$/                  AND 1 = 1/'
+    sed -i 's/^    if job\["status"\] == "committed":$/    if job["status"] in ("committed", "released"):  # MUTATED/'
 
 # 514: actual vs estimate is compared over jobs that have both numbers only
 test_mutation 514 "actual vs estimate compares jobs with both numbers" \
