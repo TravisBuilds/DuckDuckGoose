@@ -98,10 +98,17 @@ def test_redact_urls_keeps_only_scheme_and_host():
 
 @pytest.fixture
 def http_client_loggers():
+    """The HTTP client loggers restored afterwards, with the root logger at DEBUG meanwhile (a
+    process that logs everything, so only the client loggers' own level can keep them quiet)."""
     names = [n for n in logging.Logger.manager.loggerDict if n.split(".")[0] in HTTP_CLIENT_LOGGERS]
     names += list(HTTP_CLIENT_LOGGERS)
     saved = {n: (logging.getLogger(n).level, list(logging.getLogger(n).filters)) for n in names}
+    root_level = logging.getLogger().level
+    for name in HTTP_CLIENT_LOGGERS:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    logging.getLogger().setLevel(logging.DEBUG)
     yield
+    logging.getLogger().setLevel(root_level)
     for name, (level, filters) in saved.items():
         lg = logging.getLogger(name)
         lg.setLevel(level)
@@ -109,6 +116,7 @@ def http_client_loggers():
 
 
 def test_http_client_loggers_drop_requests_and_redact_what_they_still_log(http_client_loggers):
+    assert logging.getLogger("httpx").isEnabledFor(logging.INFO)
     quiet_http_client_logs()
     quiet_http_client_logs()
     for name in ("httpx", "httpx2"):
