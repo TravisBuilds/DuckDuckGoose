@@ -1,3 +1,5 @@
+import MarketingOnly from "@/components/MarketingOnly";
+
 export default function Footer() {
   return (
     <footer className="border-t border-gray-200 dark:border-gray-800 mt-auto">
@@ -6,11 +8,13 @@ export default function Footer() {
           <p className="text-sm text-gray-600 dark:text-gray-400">
             © 2026 DuckDuckGoose. All rights reserved.
           </p>
-          <div className="flex gap-6 text-sm text-gray-600 dark:text-gray-400">
-            <span>Terms (coming soon)</span>
-            <span>Privacy (coming soon)</span>
-            <span>Contact (coming soon)</span>
-          </div>
+          <MarketingOnly>
+            <div className="flex gap-6 text-sm text-gray-600 dark:text-gray-400" data-testid="footer-coming-soon">
+              <span>Terms (coming soon)</span>
+              <span>Privacy (coming soon)</span>
+              <span>Contact (coming soon)</span>
+            </div>
+          </MarketingOnly>
         </div>
       </div>
     </footer>

@@ -111,4 +111,9 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   await page.goto('/studio');
   await expect(page.getByTestId(`episode-owner-${episodeId}`)).toHaveText('By you');
   await expect(page.getByTestId(`episode-status-${episodeId}`)).toHaveText('Finished');
+
+  // the footer's coming-soon links are for the marketing pages, not the studio
+  await expect(page.getByTestId('footer-coming-soon')).toHaveCount(0);
+  await page.goto('/');
+  await expect(page.getByTestId('footer-coming-soon')).toBeVisible();
 });

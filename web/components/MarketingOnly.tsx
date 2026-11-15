@@ -3,7 +3,10 @@
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
-/** The studio, the cost dashboard and the login page have their own header (or none). */
+/**
+ * Parts of the site shell for the marketing pages only: the header, and the footer's coming-soon links.
+ * The studio, the cost dashboard and the login page have their own header (or none).
+ */
 const APP_PAGES = /^\/(studio|dashboard|login)(\/|$)/;
 
 export default function MarketingOnly({ children }: { children: ReactNode }) {
