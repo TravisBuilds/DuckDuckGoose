@@ -3519,6 +3519,70 @@ test_mutation 478 "preflight cast check only for viewers" \
     "tests/test_cast_api.py::test_the_preflight_checks_a_cast_only_for_those_who_may_see_it" \
     sed -i 's/^    cast_hidden = has_cast and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)$/    cast_hidden = False  # MUTATED/'
 
+# ---- Creator-first episode page: member reads and who-am-I (docs/AUTHENTICATION.md). Ids 482-499
+# sit here, before 479, so they stay clear of the cost dashboard's 500+ after 481.
+
+# 482-485: a member reads the scene pictures' states, the credit line, the episode's stall alerts and
+# the model limits that the episode page shows (the app-wide guard refuses them without the flag)
+test_mutation 482 "members read shot states" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_members_read_the_episode_page_routes" \
+    sed -i 's/^get_shot_states\.allow_members = True$/get_shot_states.allow_members = False  # MUTATED/'
+
+test_mutation 483 "members read the credit line" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_members_read_the_episode_page_routes" \
+    sed -i 's/^get_credit_status\.allow_members = True$/get_credit_status.allow_members = False  # MUTATED/'
+
+test_mutation 484 "members read one episode's stall alerts" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_members_read_the_episode_page_routes" \
+    sed -i 's/^get_episode_stall_alerts\.allow_members = True$/get_episode_stall_alerts.allow_members = False  # MUTATED/'
+
+test_mutation 485 "members read model limits" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_members_read_the_episode_page_routes" \
+    sed -i 's/^get_models\.allow_members = True$/get_models.allow_members = False  # MUTATED/'
+
+# 486: GET /api/me answers the session's role (the shell shows admin links only for admins)
+test_mutation 486 "who-am-I reports the session role" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_me_says_who_is_signed_in" \
+    sed -i 's/^    role = await get_session_role(studio_admin_token) if studio_admin_token else None$/    role = "admin" if studio_admin_token else None  # MUTATED/'
+
+# 487: an episode without an owner (legacy/shared) lists no owner
+test_mutation 487 "episode list names no owner for legacy episodes" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_episode_list_names_each_owner" \
+    sed -i 's/^                owned = row\["user_id"\] not in (None, "", LEGACY_USER_ID)$/                owned = True  # MUTATED/'
+
+# 488-492: the shot states leave the free text that can quote the cast out for a member who may not
+# see the episode's cast
+test_mutation 488 "shot-state details only for cast viewers" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^    cast_hidden = not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)$/    cast_hidden = False  # MUTATED/'
+
+test_mutation 489 "hidden shot states carry no still error" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^            "still_error": None if cast_hidden else child\.get("still_error"),$/            "still_error": child.get("still_error"),  # MUTATED/'
+
+test_mutation 490 "hidden shot states carry no clip error" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^            "clip_error": None if cast_hidden else child\.get("clip_error"),$/            "clip_error": child.get("clip_error"),  # MUTATED/'
+
+test_mutation 491 "hidden escalation keeps no provider text" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^            escalation = {k: escalation\.get(k) for k in ("kind", "steps", "blocked_job_id")}$/            pass  # MUTATED/'
+
+test_mutation 492 "hidden shot states carry no lint messages" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shot_states_leave_cast_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^            "moderation_lint": {} if cast_hidden else child\.get("moderation_lint") or {},$/            "moderation_lint": child.get("moderation_lint") or {},  # MUTATED/'
+
 # 479: a series without an owner changes only through an admin
 test_mutation 479 "ownerless series changes only through an admin" \
     "api/cast_routes.py" \

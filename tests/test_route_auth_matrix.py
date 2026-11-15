@@ -111,6 +111,11 @@ ROUTE_TEST_CASES = [
     ("GET", "/api/episodes/ep01/gates", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),
     ("GET", "/api/episodes/ep01/audit", {"none": 401, "member": 200, "admin": 200}, False, None),
     ("GET", "/api/episodes/ep01/files", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/me", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/models", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/episodes/ep01/credits", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/episodes/ep01/stalls", {"none": 401, "member": 200, "admin": 200}, False, None),
+    ("GET", "/api/episodes/ep01/shot-states", {"none": 401, "member": [200, 503], "admin": [200, 503]}, False, None),  # 503 if Temporal unavailable
     ("POST", "/api/episodes/ep01/reopen", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {"reason": "Test reopen"}),  # 409 if not completed
     ("POST", "/api/episodes/ep01/shots/shot001/retry", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {}),  # 409 if not at valid gate
     ("POST", "/api/episodes/ep01/shots/shot001/approve", {"none": 401, "member": [200, 503, 409], "admin": [200, 503, 409]}, True, {}),  # 409 if not at G2
