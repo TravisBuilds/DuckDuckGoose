@@ -14,10 +14,10 @@ export interface RunStateLike {
   shot_decisions?: Record<string, string>;
   failed_shots?: (string | { shot_id?: string })[];
   run?: {
-    ended?: boolean;
+    ended?: boolean | null;
     outcome?: string | null;
-    dry_run?: boolean;
-    can_start_again?: boolean;
+    dry_run?: boolean | null;
+    can_start_again?: boolean | null;
   } | null;
 }
 
@@ -70,6 +70,7 @@ export interface StepperStep {
 export const STEPS: StepKey[];
 export const STEP_LABELS: Record<StepKey, string>;
 export const VIDEO_FILES: string[];
+export function openGate(state: RunStateLike | null | undefined): string | null;
 export function storyDone(state: RunStateLike | null | undefined): boolean;
 export function storyLocked(state: RunStateLike | null | undefined): boolean;
 export function shotIds(state: RunStateLike | null | undefined): string[];

@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  charactersToLock, finishLine, listNames, nextStep, shotIds, statusChip, stepperSteps, stillsToReview, storyDone,
-  storyLocked,
+  charactersToLock, finishLine, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps, stillsToReview,
+  storyDone, storyLocked,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -160,6 +160,22 @@ test('shot ids are every shot the run state names, sorted', () => {
 test('final cut gate', () => {
   const next = nextStep(runState({ current_gate: 'G_FINAL_CUT' }));
   assert.deepEqual([next.step, next.href], ['final_cut', '#final-cut']);
+});
+
+test('a passed or approved gate is not open, though the run keeps it as current_gate', () => {
+  const approvals = { story_shape: true, g1_shot_plan: true, g2_scene_stills: false, g_final_cut: false };
+  // G2 stays current_gate while the clips are made
+  const clips = runState({ stage: 'clip_generation', current_gate: 'G2_SCENE_STILLS', passed_gates: ['G1_SHOT_PLAN', 'G2_SCENE_STILLS'],
+    approvals: { ...approvals, g2_scene_stills: true } });
+  assert.equal(openGate(clips), null);
+  assert.deepEqual([nextStep(clips).step, nextStep(clips).title], ['working', 'Working on your video']);
+  // approved, not yet recorded as passed
+  const g1 = runState({ stage: 'g1_shot_plan', current_gate: 'G1_SHOT_PLAN', approvals });
+  assert.equal(openGate(g1), null);
+  assert.equal(nextStep(g1).step, 'working');
+  assert.equal(openGate(runState({ current_gate: 'g2_scene_stills' })), 'G2_SCENE_STILLS');
+  assert.equal(openGate(runState({ current_gate: 'G_FINAL_CUT', approvals: { g_final_cut: true } })), null);
+  assert.equal(openGate(null), null);
 });
 
 test('an unknown gate never shows its id', () => {

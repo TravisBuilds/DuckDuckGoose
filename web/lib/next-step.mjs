@@ -32,6 +32,21 @@ function passed(state, gate) {
   return (state?.passed_gates ?? []).some((g) => upper(g) === gate);
 }
 
+const APPROVAL_KEYS = { G1_SHOT_PLAN: 'g1_shot_plan', G2_SCENE_STILLS: 'g2_scene_stills', G_FINAL_CUT: 'g_final_cut' };
+
+/**
+ * The gate waiting for a decision, or null. The run keeps current_gate set after a gate passes (G2
+ * stays current while the clips are made), so a passed or approved gate is not open. The workflow
+ * withdraws an approval that stops counting (a blocking final-cut QC), which reopens the gate.
+ */
+export function openGate(state) {
+  const gate = upper(state?.current_gate);
+  if (!gate || passed(state, gate)) return null;
+  const key = APPROVAL_KEYS[gate];
+  if (key && state?.approvals?.[key]) return null;
+  return gate;
+}
+
 /** The story was approved, or the run has moved on past it (story shaping off, or approved earlier). */
 export function storyDone(state) {
   if (!state) return false;
@@ -170,7 +185,7 @@ export function nextStep(state, story = null, cast = null, more = {}) {
     };
   }
 
-  const gate = upper(state.current_gate);
+  const gate = openGate(state);
   const hasStory = Boolean(state.story_shape || story?.story_shape);
   if (!gate && hasStory && !storyDone(state) && !story?.approved) {
     return {
