@@ -10,8 +10,15 @@ character with its ``clause``) and ``shot_meta["text_policy"]``. The still submi
 and, under the ``no_text`` policy, :data:`NO_TEXT_CLAUSE` (idempotent, like the continuity locks);
 the prompt lint then requires them, so a skipped injection refuses live instead of drifting.
 
-Shots without a cast and kits without a ``text_policy`` carry neither key: their prompts and lint
-are exactly as before.
+Props and places work the same way: ``"props": ["red-umbrella"]`` and ``"place": "harbour-cabin"``
+(slugs in the props and places library, hfvg.prop_store) become reference photos plus
+``shot_meta["props"]`` (the place first, each with its ``clause``). The still submit appends their
+clauses after the characters' and the lint requires them; clip prompts get one short "keep" line
+naming them (a continuity lock, :func:`props_clip_lock`), since the clip starts from the still that
+already shows them.
+
+Shots without a cast or props and kits without a ``text_policy`` carry none of these keys: their
+prompts and lint are exactly as before.
 """
 
 import re
@@ -19,9 +26,13 @@ from typing import Any
 
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$")
 MAX_CAST_PER_SHOT = 6
+MAX_PROPS_PER_SHOT = 4
 TEXT_POLICIES = ("no_text", "allow_text")
 NO_TEXT_CLAUSE = "No text, no captions, no speech bubbles, no lettering."
 CAST_LEAD_IN = "Characters in frame, each exactly as described and as in the reference images:"
+PROPS_LEAD_IN = "Also in this shot, each exactly as described and as in the reference photos:"
+PROPS_KEEP_LEAD_IN = "Keep these exactly as they look in the first frame:"
+PROPS_LOCK_ID = "shot-props"
 CAST_KEY_PREFIX = "cast:"
 
 # Phrases that ask for words drawn into the image. Under the no_text policy a prompt that asks for
@@ -89,6 +100,34 @@ def parse_cast_request(raw: Any, sid: str) -> list[dict]:
     return out
 
 
+def parse_props_request(props_raw: Any, place_raw: Any, sid: str) -> tuple[list[str], str | None]:
+    """shots.json ``props`` (prop ids) and ``place`` (one place id) -> (prop slugs, place slug or
+    None) (raises ValueError)."""
+    props: list[str] = []
+    if props_raw is not None:
+        if not isinstance(props_raw, list):
+            raise ValueError(f"shot {sid}: props must be a list of prop ids")
+        if len(props_raw) > MAX_PROPS_PER_SHOT:
+            raise ValueError(f"shot {sid}: props lists {len(props_raw)} props; at most {MAX_PROPS_PER_SHOT} per shot")
+        for i, entry in enumerate(props_raw):
+            slug = entry.strip() if isinstance(entry, str) else ""
+            if not SLUG_RE.match(slug):
+                raise ValueError(f"shot {sid}: props[{i}] {entry!r} is not a prop id "
+                                 "(lower-case letters, digits and dashes)")
+            if slug in props:
+                raise ValueError(f"shot {sid}: prop {slug!r} is listed twice in props")
+            props.append(slug)
+    place = None
+    if place_raw is not None:
+        place = place_raw.strip() if isinstance(place_raw, str) else ""
+        if not SLUG_RE.match(place):
+            raise ValueError(f"shot {sid}: place {place_raw!r} is not a place id "
+                             "(lower-case letters, digits and dashes)")
+        if place in props:
+            raise ValueError(f"shot {sid}: {place!r} is both the shot's place and one of its props")
+    return props, place
+
+
 def parse_text_policy(raw: Any, where: str) -> str | None:
     """A kit's ``text_policy``: None (absent), "no_text" or "allow_text" (raises ValueError)."""
     if raw is None:
@@ -113,6 +152,14 @@ def character_clause(name: str, description: str, outfit: str = "") -> str:
     return text + "."
 
 
+def prop_clause(name: str, description: str, kind: str) -> str:
+    """The sentence a still prompt carries for a prop or the place of the shot."""
+    name = _one_line(name)
+    label = f"{name} (the setting)" if kind == "place" else name
+    description = _one_line(description).rstrip(".")
+    return (f"{label}: {description}" if description else label) + "."
+
+
 def _norm(text: str) -> str:
     return " ".join(str(text or "").split()).lower()
 
@@ -123,14 +170,32 @@ def cast_entries(shot_meta: dict[str, Any] | None) -> list[dict]:
             if isinstance(c, dict) and _one_line(c.get("clause"))]
 
 
+def prop_entries(shot_meta: dict[str, Any] | None) -> list[dict]:
+    """The planned place and props of a shot that carry a clause (shot_meta["props"], place first)."""
+    return [p for p in ((shot_meta or {}).get("props") or [])
+            if isinstance(p, dict) and _one_line(p.get("clause"))]
+
+
+def props_clip_lock(shot_meta: dict[str, Any] | None) -> dict | None:
+    """The clip continuity lock of a shot with props or a place: their names only. The clip starts
+    from the still, which already shows them as described, and clip prompts are short (Kling 3.0
+    Pro: 2,500 characters)."""
+    names = [_one_line(p.get("name")) for p in prop_entries(shot_meta) if _one_line(p.get("name"))]
+    if not names:
+        return None
+    return {"id": PROPS_LOCK_ID, "when": "always", "kinds": ("clip",),
+            "text": f"{PROPS_KEEP_LEAD_IN} {', '.join(names)}."}
+
+
 def no_text_required(shot_meta: dict[str, Any] | None) -> bool:
     return (shot_meta or {}).get("text_policy") == "no_text"
 
 
 def inject_cast_prompt(prompt: str, shot_meta: dict[str, Any] | None) -> tuple[str, list[str]]:
-    """(prompt with each in-frame character's clause and, under no_text, the no-text clause appended
-    once; what was added). Idempotent: text already in the prompt (whitespace/case-insensitive) is
-    not added again. No cast and no text policy: the prompt is returned unchanged."""
+    """(prompt with each in-frame character's clause, then the place's and each prop's clause, and,
+    under no_text, the no-text clause appended once; what was added). Idempotent: text already in
+    the prompt (whitespace/case-insensitive) is not added again. No cast, no props and no text
+    policy: the prompt is returned unchanged."""
     out = (prompt or "").rstrip()
     added: list[str] = []
     missing = [c for c in cast_entries(shot_meta) if _norm(c["clause"]) not in _norm(out)]
@@ -139,6 +204,12 @@ def inject_cast_prompt(prompt: str, shot_meta: dict[str, Any] | None) -> tuple[s
             out = f"{out} {CAST_LEAD_IN}"
         out = f"{out} " + " ".join(_one_line(c["clause"]) for c in missing)
         added += [f"cast:{c.get('character')}" for c in missing]
+    missing_props = [p for p in prop_entries(shot_meta) if _norm(p["clause"]) not in _norm(out)]
+    if missing_props:
+        if _norm(PROPS_LEAD_IN) not in _norm(out):
+            out = f"{out} {PROPS_LEAD_IN}"
+        out = f"{out} " + " ".join(_one_line(p["clause"]) for p in missing_props)
+        added += [f"{p.get('kind') or 'prop'}:{p.get('slug')}" for p in missing_props]
     if no_text_required(shot_meta) and _norm(NO_TEXT_CLAUSE) not in _norm(out):
         out = f"{out} {NO_TEXT_CLAUSE}"
         added.append("no_text")
@@ -163,12 +234,17 @@ def text_requests(prompt: str) -> list[str]:
 
 
 def cast_lint_violations(prompt: str, shot_meta: dict[str, Any] | None) -> list[str]:
-    """Lint rule (still prompts): every in-frame character's clause is present; under no_text the
-    no-text clause is present and the prompt asks for no on-image words. [] for legacy shots."""
+    """Lint rule (still prompts): every in-frame character's clause and every picked prop's and
+    place's clause is present; under no_text the no-text clause is present and the prompt asks for
+    no on-image words. [] for legacy shots."""
     problems: list[str] = []
     for c in cast_entries(shot_meta):
         if _norm(c["clause"]) not in _norm(prompt):
             problems.append(f"missing the locked description of cast character {c.get('character')!r} "
+                            "(the still submit injects it)")
+    for p in prop_entries(shot_meta):
+        if _norm(p["clause"]) not in _norm(prompt):
+            problems.append(f"missing the description of {p.get('kind') or 'prop'} {p.get('slug')!r} "
                             "(the still submit injects it)")
     if no_text_required(shot_meta):
         if _norm(NO_TEXT_CLAUSE) not in _norm(prompt):
@@ -217,11 +293,11 @@ def _clip(text: str, limit: int) -> str:
 
 def with_cast_prompts(shots: list[dict]) -> list[dict]:
     """Copies of the planned shots with the still (and end-frame) prompts as the submit sends them,
-    for the G1 preview. Shots without a cast or text policy are returned as they are."""
+    for the G1 preview. Shots without a cast, props or text policy are returned as they are."""
     out = []
     for shot in shots:
         meta = shot.get("shot_meta") or {}
-        if not cast_entries(meta) and not no_text_required(meta):
+        if not cast_entries(meta) and not prop_entries(meta) and not no_text_required(meta):
             out.append(shot)
             continue
         new = dict(shot)

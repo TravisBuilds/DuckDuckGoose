@@ -13,6 +13,12 @@ and the Cast panel's preview. Per shot with a cast:
 - ``shot_meta["cast"]``: per character its id, version and locked description clause (the still
   submit injects it, the lint requires it), and ``shot_meta["text_policy"]``.
 
+A shot's ``props`` and ``place`` (hfvg.prop_store) are planned with it: their photos share the same
+room (after the first picture of each character, each place and prop gets its main photo before
+anyone's second picture; whatever does not fit goes into the grid sheet), and
+``shot_meta["props"]`` holds the place, then the props, each with its clause. Shots without props
+or a place get no ``props`` key, so cast-only shots plan exactly as before.
+
 Composite images (lineup, grid) are built locally with Pillow (no text, no spend), content-addressed
 under ``<cast root>/composites`` so the same inputs always give the same key and file.
 
@@ -31,8 +37,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from hfvg import cast_store, model_caps
-from hfvg.cast_prompt import CAST_KEY_PREFIX, is_cast_key, parse_text_policy
+from hfvg import cast_store, model_caps, prop_store
+from hfvg.cast_prompt import CAST_KEY_PREFIX, is_cast_key, parse_text_policy, prop_clause
 
 logger = logging.getLogger(__name__)
 
@@ -196,24 +202,35 @@ def still_ref_cap() -> int:
     return max_refs_for(still_model_path())
 
 
-def _choose_refs(chars: list[dict], budget: int, materialize: bool) -> tuple[list[tuple[str, Path, str]], list[str]]:
-    """[(key, path, label)] within ``budget`` slots, plus notes. chars: [{"name", "images"}]."""
+def _choose_refs(chars: list[dict], budget: int, materialize: bool,
+                 things: list[dict] | None = None) -> tuple[list[tuple[str, Path, str]], list[str]]:
+    """[(key, path, label)] within ``budget`` slots, plus notes. chars and things (the shot's place,
+    then its props): [{"name", "images"}]. Order: the lineup (two or more characters), each
+    character's first picture, each place's and prop's first photo, then the characters' further
+    pictures, then the further photos."""
     notes: list[str] = []
     with_images = [c for c in chars if c["images"]]
+    shown = [t for t in things or [] if t["images"]]
+    what = "reference images" if shown else "cast reference images"
     wanted: list[tuple[str, Any, str]] = []  # (kind, payload, label)
     if len(with_images) >= 2:
         firsts = [c["images"][0] for c in with_images]
         wanted.append(("lineup", firsts, "lineup: " + " + ".join(c["name"] for c in with_images)))
-    depth = max((len(c["images"]) for c in with_images), default=0)
-    for rank in range(depth):
-        for c in with_images:
-            if rank < len(c["images"]):
-                img = c["images"][rank]
-                wanted.append(("image", img, f"{c['name']} {_role_name(img)}"))
+
+    def rank(group: list[dict], n: int) -> list[tuple[str, Any, str]]:
+        return [("image", g["images"][n], f"{g['name']} {_role_name(g['images'][n])}")
+                for g in group if n < len(g["images"])]
+
+    depth = max((len(g["images"]) for g in with_images + shown), default=0)
+    wanted += rank(with_images, 0) + rank(shown, 0)
+    for n in range(1, depth):
+        wanted += rank(with_images, n)
+    for n in range(1, depth):
+        wanted += rank(shown, n)
     if not wanted:
         return [], notes
     if budget <= 0:
-        notes.append("no room for cast reference images (the shot's own refs fill the still model's limit); "
+        notes.append(f"no room for {what} (the shot's own refs fill the still model's limit); "
                      "only the descriptions are used")
         return [], notes
     if len(wanted) <= budget:
@@ -225,8 +242,8 @@ def _choose_refs(chars: list[dict], budget: int, materialize: bool) -> tuple[lis
             keep, rest = [], [w for w in wanted if w[0] == "image"]
         tiles = rest[:GRID_MAX_TILES]
         if len(rest) > GRID_MAX_TILES:
-            notes.append(f"{len(rest) - GRID_MAX_TILES} cast reference images did not fit the grid sheet")
-        notes.append(f"{len(rest)} cast reference images were merged into one grid sheet to stay within "
+            notes.append(f"{len(rest) - GRID_MAX_TILES} {what} did not fit the grid sheet")
+        notes.append(f"{len(rest)} {what} were merged into one grid sheet to stay within "
                      f"the still model's limit")
         chosen = keep + [("grid", [w[1] for w in tiles], "grid sheet: " + ", ".join(w[2] for w in tiles))]
     out = []
@@ -240,18 +257,51 @@ def _choose_refs(chars: list[dict], budget: int, materialize: bool) -> tuple[lis
 
 
 def _role_name(image: dict) -> str:
+    role = image.get("role") or "photo"
     return {"upload": "reference", "master": "master", "head_sheet": "head sheet",
             "turnaround_three_quarter": "3/4 view", "turnaround_side": "side view",
-            "turnaround_back": "back view", "turnaround_front": "front view"}.get(image["role"], image["role"])
+            "turnaround_back": "back view", "turnaround_front": "front view"}.get(role, role)
+
+
+def _plan_props(sid: str, plan: dict, items: dict[str, dict], where: str, errors: list[str],
+                shot_report: dict) -> tuple[list[dict], list[dict]]:
+    """The shot's place and props: (``shot_meta["props"]`` entries, [{"name", "images"}] for the
+    refs), the place first. An unknown id, or a prop picked as the place (or the other way round),
+    is an error."""
+    wanted = ([(plan["place"], "place")] if plan.get("place") else []) + [(s, "prop") for s in plan.get("props") or []]
+    if not wanted:
+        return [], []
+    picked, things = [], []
+    shot_report["props"] = []
+    for slug, kind in wanted:
+        item = items.get(slug)
+        if item is None:
+            errors.append(f"shot {sid}: {kind} {slug!r} is not in the props and places of {where} "
+                          "(add it in Props & places)")
+            continue
+        if item["kind"] != kind:
+            fix = "the shot's place" if item["kind"] == "place" else "one of the shot's props"
+            errors.append(f"shot {sid}: {item['name']} is a {item['kind']}, not a {kind}; pick it as {fix}")
+            continue
+        photos = prop_store.reference_photos(item)
+        if not photos:
+            shot_report["notes"].append(f"{item['name']} has no photo yet: only the description is used")
+        picked.append({"slug": slug, "kind": kind, "name": item["name"],
+                       "clause": prop_clause(item["name"], item["description"], kind)})
+        things.append({"name": item["name"], "images": photos})
+        shot_report["props"].append({"slug": slug, "kind": kind, "name": item["name"],
+                                     "images": [p["image_id"] for p in photos]})
+    return picked, things
 
 
 def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
               materialize: bool = True) -> dict[str, Any]:
-    """Apply the cast and the text policy to parsed shot plans (in place). Returns the report
-    ``{"library": {...} | None, "text_policy", "shots": {sid: {...}}, "errors": [...], "notes": [...]}``.
+    """Apply the cast, the props and places and the text policy to parsed shot plans (in place).
+    Returns the report ``{"library": {...} | None, "text_policy", "shots": {sid: {...}}, "errors":
+    [...], "notes": [...]}``.
 
-    Shots without a cast keep their refs and ref keys; a kit without a text_policy changes nothing
-    for them. The library is read only when some shot has a cast."""
+    Shots without a cast, props or a place keep their refs and ref keys; a kit without a
+    text_policy changes nothing for them. The library is read only when some shot picks from it."""
     report: dict[str, Any] = {"library": None, "text_policy": None, "shots": {}, "errors": [], "notes": []}
     try:
         kit_policy = kit_text_policy(episode_id)
@@ -259,7 +309,7 @@ def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
         report["errors"].append(str(e))
         return report
     report["text_policy"] = kit_policy
-    cast_shots = [sid for sid, p in plans.items() if p.get("cast")]
+    cast_shots = [sid for sid, p in plans.items() if p.get("cast") or p.get("props") or p.get("place")]
     for sid, plan in plans.items():
         policy = shot_text_policy(plan, kit_policy)
         if policy:
@@ -269,7 +319,10 @@ def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
 
     library = cast_store.library_for_episode(episode_id)
     report["library"] = {"kind": library[0], "id": library[1]}
+    where = f"series {library[1]}" if library[0] == "series" else "this episode"
     characters = {c["slug"]: c for c in cast_store.list_characters(library)}
+    items = ({i["slug"]: i for i in prop_store.list_items(library)}
+             if any(plans[sid].get("props") or plans[sid].get("place") for sid in cast_shots) else {})
     try:
         cap = still_ref_cap()
     except (model_caps.UnknownModelError, ValueError) as e:
@@ -280,10 +333,9 @@ def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
         plan = plans[sid]
         shot_report: dict[str, Any] = {"characters": [], "refs": [], "notes": []}
         entries, chars = [], []
-        for req in plan["cast"]:
+        for req in plan.get("cast") or []:
             character = characters.get(req["character"])
             if character is None:
-                where = f"series {library[1]}" if library[0] == "series" else "this episode"
                 report["errors"].append(f"shot {sid}: cast character {req['character']!r} is not in the cast of "
                                         f"{where} (add it in the Cast panel)")
                 continue
@@ -311,9 +363,10 @@ def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
             shot_report["characters"].append({"character": character["slug"], "version": number,
                                               "name": character["name"], "locked": bool(version["locked"]),
                                               "images": [i["image_id"] for i in images]})
+        picked, things = _plan_props(sid, plan, items, where, report["errors"], shot_report)
         explicit = len(plan.get("ref_keys") or [])
         budget = cap - RESERVED_SLOTS - explicit
-        chosen, notes = _choose_refs(chars, budget, materialize)
+        chosen, notes = _choose_refs(chars, budget, materialize, things)
         shot_report["notes"].extend(notes)
         shot_report["refs"] = [{"key": k, "label": label} for k, _p, label in chosen]
         shot_report["cap"] = cap
@@ -322,7 +375,12 @@ def plan_cast(episode_id: str, plans: dict[str, dict[str, Any]], *, live: bool,
         absent = [k for k, p, _l in chosen if materialize and not p.is_file()]
         plan["refs"] = list(plan.get("refs") or []) + present
         plan["missing_refs"] = list(plan.get("missing_refs") or []) + absent
-        plan["shot_meta"] = {**plan["shot_meta"], "cast": entries}
+        meta = dict(plan["shot_meta"])
+        if plan.get("cast"):
+            meta["cast"] = entries
+        if plan.get("props") or plan.get("place"):
+            meta["props"] = picked
+        plan["shot_meta"] = meta
         report["shots"][sid] = shot_report
         for note in shot_report["notes"]:
             logger.info("cast plan %s/%s: %s", episode_id, sid, note)
@@ -335,8 +393,9 @@ def split_keys(keys: list[str]) -> tuple[list[str], list[str]]:
 
 
 def cast_problems(episode_id: str, shots_raw: Any) -> list[str]:
-    """The cast errors of a shots.json: what the run's planning would refuse (unknown characters or
-    versions, a broken lock, an invalid kit text_policy). None for shots without a cast."""
+    """The cast errors of a shots.json: what the run's planning would refuse (unknown characters,
+    versions, props or places, a broken lock, an invalid kit text_policy). None for shots without
+    a cast, props or a place."""
     try:
         return list(preview_episode_cast(episode_id, shots_raw, live=False)["errors"])
     except ValueError as e:
@@ -357,4 +416,6 @@ def preview_episode_cast(episode_id: str, shots_raw: Any, *, live: bool) -> dict
         row = report["shots"].setdefault(sid, {"characters": [], "refs": [], "notes": []})
         row["text_policy"] = meta.get("text_policy")
         row["cast"] = plan.get("cast") or []
+        row["prop_ids"] = plan.get("props") or []
+        row["place"] = plan.get("place")
     return report

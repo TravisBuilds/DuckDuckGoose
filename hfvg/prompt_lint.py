@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from hfvg.cast_prompt import cast_lint_violations, inject_cast_prompt
+from hfvg.cast_prompt import cast_lint_violations, inject_cast_prompt, props_clip_lock
 from hfvg.content_policy import hard_stop_terms, precheck_banned_words
 from hfvg.paths import episode_dir
 
@@ -195,7 +195,8 @@ def animals_present(shot_meta: dict[str, Any] | None, kit: "LintKit") -> bool:
 
 
 def applicable_locks(shot_meta: dict[str, Any] | None, kit: "LintKit", kind: str) -> list[dict]:
-    """The continuity locks that apply to this shot and prompt kind, in kit order."""
+    """The continuity locks that apply to this shot and prompt kind, in kit order; then, for the clip
+    of a shot with props or a place, the shot's own lock naming them (hfvg.cast_prompt.props_clip_lock)."""
     out = []
     for item in kit.continuity_locks:
         lock = _lock(item)
@@ -205,6 +206,9 @@ def applicable_locks(shot_meta: dict[str, Any] | None, kit: "LintKit", kind: str
         if when == "always" or (when == "duck" and duck_present(shot_meta, kit)) or (
                 when == "animals" and animals_present(shot_meta, kit)):
             out.append(lock)
+    shot_lock = props_clip_lock(shot_meta)
+    if shot_lock and kind in shot_lock["kinds"]:
+        out.append(shot_lock)
     return out
 
 
@@ -349,9 +353,10 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
             problems.append(f"missing continuity lock {lock['id']!r} ({kind})")
     # 12. GAP-40: no realism word attached to the duck
     problems.extend(duck_realism_violations(prompt, meta, kit))
-    # 13. Cast (still prompts): each character in frame carries its locked description and, under the
-    # no_text policy, the no-text constraint with no request for on-image words (the submit injects
-    # both; hfvg.cast_prompt). Shots without shot_meta cast / text_policy: no-op.
+    # 13. Cast (still prompts): each character in frame carries its locked description, each picked
+    # prop and place its description and, under the no_text policy, the no-text constraint with no
+    # request for on-image words (the submit injects them; hfvg.cast_prompt). Shots without
+    # shot_meta cast / props / text_policy: no-op.
     if kind == "still":
         problems.extend(cast_lint_violations(prompt, meta))
     return problems

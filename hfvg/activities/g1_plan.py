@@ -123,19 +123,24 @@ def _prompt_lint_preview(episode_id: str, shots: list[dict], pre_approved: set[s
 
 
 def _cast_preview(shots: list[dict]) -> dict:
-    """Who is in frame per shot and how many of the shot's refs come from the cast library ({} when
-    no shot has a cast, so the plan of an episode without a cast is unchanged)."""
-    from hfvg.cast_prompt import cast_entries, is_cast_key
+    """Who is in frame per shot, the shot's place and props, and how many of the shot's refs come
+    from the cast and props library ({} when no shot has a cast, props or a place, so the plan of
+    an episode without them is unchanged)."""
+    from hfvg.cast_prompt import cast_entries, is_cast_key, prop_entries
     out: dict[str, dict] = {}
     for shot in shots:
         entries = cast_entries(shot.get("shot_meta"))
-        if not entries:
+        things = prop_entries(shot.get("shot_meta"))
+        if not entries and not things:
             continue
-        out[shot["shot_id"]] = {
+        row = {
             "characters": [{"character": c.get("character"), "version": c.get("version"),
                             "name": c.get("name"), "locked": bool(c.get("locked"))} for c in entries],
             "cast_refs": sum(1 for k in shot.get("ref_keys") or [] if is_cast_key(k)),
         }
+        if things:
+            row["props"] = [{"slug": p.get("slug"), "kind": p.get("kind"), "name": p.get("name")} for p in things]
+        out[shot["shot_id"]] = row
     return out
 
 
