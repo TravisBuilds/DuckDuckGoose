@@ -126,6 +126,22 @@ async def test_the_owner_picks_props_and_edits_a_prompt_before_a_run(studio):  #
         ("place", "no umbrella here"), ("props", "no umbrella here")]
 
 
+async def test_the_owner_of_another_episode_of_the_series_sees_the_plan_but_cannot_change_it(studio):  # noqa: F811
+    before = _write_shots()
+    owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
+    sid = owner.post("/api/series", json={"name": "Harbour tales"}).json()["series"]["series_id"]
+    assert owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid}).status_code == 200
+    assert admin.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": sid}).status_code == 200
+    view = other.get(BASE)
+    assert view.status_code == 200, view.text
+    assert view.json()["may_change"] is False and view.json()["can_edit"] is False
+    assert [s["shot_id"] for s in view.json()["shots"]] == ["A01", "A02"]
+    res = other.post(BASE, json={"shots": {"A01": {"prompt": NEW}}})
+    assert res.status_code == 403 and res.json()["detail"] == f"Episode {EP} {REFUSED}"
+    assert _shots_text() == before and shot_plan_edits.list_edits(EP) == []
+    assert owner.get(BASE).json()["can_edit"] is True
+
+
 async def test_admins_change_any_shot_plan_and_an_episode_without_an_owner_any_member(studio):  # noqa: F811
     from hfvg.studio_db import create_episode
     _write_shots()

@@ -80,17 +80,24 @@ def test_a_different_shot_list_is_refused():
     assert plan_replan([_shot(), _shot(shot_id="A02")], [_shot()])["problems"]
 
 
+def _refusal(validate, *args) -> str:
+    """The ApplicationError text a validator refuses with ("" when it accepts)."""
+    try:
+        validate(*args)
+    except ApplicationError as e:
+        return str(e)
+    return ""
+
+
 def test_approval_waits_while_a_replan_is_checked():
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     wf = EpisodeWorkflowV2()
     wf.state.current_gate = "G1_SHOT_PLAN"
-    wf.validate_g1_approval()
-    wf.validate_replan_shots("new props")
+    assert _refusal(wf.validate_g1_approval) == ""
+    assert _refusal(wf.validate_replan_shots, "new props") == ""
     wf._replanning = True
-    with pytest.raises(ApplicationError, match="being checked"):
-        wf.validate_g1_approval()
-    with pytest.raises(ApplicationError, match="another shot plan change"):
-        wf.validate_replan_shots("again")
+    assert "being checked" in _refusal(wf.validate_g1_approval)
+    assert "another shot plan change" in _refusal(wf.validate_replan_shots, "again")
     assert wf._replan_problem("again", running=True) is None
 
 
@@ -104,8 +111,7 @@ def test_a_replan_outside_the_open_g1_gate_is_refused(setup, word):
     wf = EpisodeWorkflowV2()
     wf.state.current_gate = "G1_SHOT_PLAN"
     setup(wf)
-    with pytest.raises(ApplicationError, match=word):
-        wf.validate_replan_shots("new props")
+    assert word in _refusal(wf.validate_replan_shots, "new props")
     assert "_replanning" in EpisodeWorkflowV2.REOPEN_SKIP_ATTRS
 
 
