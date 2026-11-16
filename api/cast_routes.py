@@ -35,6 +35,7 @@ router = APIRouter()
 
 IMAGE_ID_RE = re.compile(r"^ci_[0-9a-f]{12}$")
 UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/cast/(?:[^/]+/versions/[^/]+/images|with-picture)/?$")
+PROP_UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/props/(?:[^/]+/photos|with-photo)/?$")  # api/prop_routes.py
 FORM_OVERHEAD_BYTES = 64 * 1024
 TRUE_VALUES = ("1", "true", "yes", "on")
 CAST_HIDDEN = "Only the people working on this episode (and admins) can see its cast"
@@ -347,16 +348,21 @@ async def _send_too_large(send, limit: int) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _is_upload(path: str) -> bool:
+    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path))
+
+
 class CastUploadLimit:
-    """413 for a cast image upload whose body is larger than CAST_UPLOAD_MAX_BYTES (plus the form's
-    own overhead) before the multipart form is parsed or written anywhere: the declared length is
-    checked first, then the body is counted as it arrives (chunked uploads have no length)."""
+    """413 for a cast picture or prop photo upload whose body is larger than CAST_UPLOAD_MAX_BYTES
+    (plus the form's own overhead) before the multipart form is parsed or written anywhere: the
+    declared length is checked first, then the body is counted as it arrives (chunked uploads have
+    no length)."""
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] != "POST" or not UPLOAD_PATH_RE.match(scope["path"]):
+        if scope["type"] != "http" or scope["method"] != "POST" or not _is_upload(scope["path"]):
             await self.app(scope, receive, send)
             return
         try:

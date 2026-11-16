@@ -7367,6 +7367,12 @@ get_shot_states.read_only = True
 # Cast library (series, characters, reference uploads, character sheets): api/cast_routes.py
 cast_routes.bind(sys.modules[__name__])
 cast_routes.register(app)
+# Props and places library (reference photos of things and settings): api/prop_routes.py
+try:
+    from api import prop_routes
+except ImportError:
+    import prop_routes
+prop_routes.register(app)
 
 
 if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app

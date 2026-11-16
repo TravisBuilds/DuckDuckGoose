@@ -65,6 +65,14 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/pick"),
     ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/sheet/reject"),
     ("POST", "/api/episodes/{ep}/cast/{character_id}/versions/{version}/approve"),
+    # props and places library (api/prop_routes.py): a series library also needs the series' owner
+    ("POST", "/api/episodes/{ep}/props"),
+    ("POST", "/api/episodes/{ep}/props/with-photo"),
+    ("POST", "/api/episodes/{ep}/props/{prop_id}"),
+    ("POST", "/api/episodes/{ep}/props/{prop_id}/delete"),
+    ("POST", "/api/episodes/{ep}/props/{prop_id}/photos"),
+    ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/primary"),
+    ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/delete"),
 ]
 # The writes whose episode id is in the form / body check ownership in the handler.
 BODY_WRITES = [("POST", "/api/episodes/upload"), ("POST", "/api/episodes")]
@@ -178,7 +186,8 @@ def _draft(api_main) -> dict:
 
 def _write(client, method: str, path: str, ep: str, draft: dict | None = None):
     """A request to a write route with a body good enough to get past validation."""
-    url = path.format(ep=ep, shot_id="A01", character_id="ch_000000000000", version=1, image_id="ci_000000000000")
+    url = path.format(ep=ep, shot_id="A01", character_id="ch_000000000000", version=1, image_id="ci_000000000000",
+                      prop_id="pr_000000000000")
     if path == "/api/episodes/upload":
         return client.post(url, data={"episode_id": ep}, files={
             "beatmap_file": ("BEATMAP.md", io.BytesIO(draft["beatmap"].encode()), "text/markdown")})
