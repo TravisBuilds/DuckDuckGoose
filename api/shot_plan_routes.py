@@ -141,10 +141,12 @@ def _read_raw(episode_id: str) -> tuple[dict, dict] | None:
 
 
 def _picks(item: dict) -> dict:
-    """The shot's cast, props and place as the editor shows them (None when they cannot be read)."""
+    """The shot's cast (the shots.json entries as written, so an outfit pick survives a save), props
+    and place; None for a list that cannot be read."""
     sid = item.get("id")
     try:
-        cast = [c["character"] for c in parse_cast_request(item.get("cast"), sid)]
+        parse_cast_request(item.get("cast"), sid)
+        cast = list(item.get("cast") or [])
     except ValueError:
         cast = None
     try:

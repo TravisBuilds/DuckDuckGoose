@@ -143,6 +143,25 @@ async def test_admins_change_any_shot_plan_and_an_episode_without_an_owner_any_m
     assert res.status_code == 200 and _shots_json(SHARED_EP)["A01"]["prompt"] == NEW
 
 
+async def test_a_shots_cast_comes_back_as_written_and_a_save_keeps_its_outfit_pick(studio):  # noqa: F811
+    folder = episode_dir(EP)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "refs.json").write_text(json.dumps({"episode_id": EP, "per_shot": {}}))
+    a01 = {**_shot("A01", PIER), "cast": [{"character": "mara", "version": 1}]}
+    a02 = {**_shot("A02", lint_ok("A duck naps")), "cast": ["mara"]}
+    (folder / "shots.json").write_text(json.dumps({"episode_id": EP, "shots": [a01, a02]}))
+    owner = _client(studio, "owner")
+    res = owner.post(f"/api/episodes/{EP}/cast", json={"name": "Mara", "description": "a tall heron in a yellow coat"})
+    assert res.status_code == 200, res.text
+
+    shots = owner.get(BASE).json()["shots"]
+    assert shots[0]["cast"] == [{"character": "mara", "version": 1}] and shots[1]["cast"] == ["mara"]
+    res = owner.post(BASE, json={"shots": {"A02": {"prompt": NEW}}})
+    assert res.status_code == 200, res.text
+    assert _shots_json()["A01"]["cast"] == [{"character": "mara", "version": 1}]
+    assert _shots_json()["A02"]["cast"] == ["mara"] and _shots_json()["A02"]["prompt"] == NEW
+
+
 @pytest.mark.parametrize("change, status, word", [
     ({"A09": {"prompt": NEW}}, 400, "Unknown shots"),
     ({"A01": {"props": ["blue-oar"]}}, 400, "is not in the props and places of this episode"),
