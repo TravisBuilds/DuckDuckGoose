@@ -304,41 +304,73 @@ def _unique_slug(conn, kind: str, library_id: str, wanted: str) -> str:
     raise CastConflict("Too many characters with this name")
 
 
+def _character_fields(name: str, role: str, description: str, outfit: str, slug: str | None) -> dict:
+    fields = {"name": _clean(name, "Name", NAME_MAX, required=True), "role": _clean(role, "Role", ROLE_MAX),
+              "description": _clean(description, "Description", DESCRIPTION_MAX),
+              "outfit": _clean(outfit, "Outfit", OUTFIT_MAX), "slug": None}
+    if slug is not None:
+        fields["slug"] = str(slug).strip().lower()
+        if not SLUG_RE.match(fields["slug"]):
+            raise CastError(f"Character id {fields['slug']!r} must be lower-case letters, digits and dashes (max 32)")
+    return fields
+
+
+def _insert_character(conn, library: tuple[str, str], fields: dict, actor: str | None,
+                      episode_id: str | None) -> str:
+    """The character row and its version 1, inside the caller's transaction. Returns the character id."""
+    kind, library_id = library
+    cid = _new_id("ch")
+    now = _now()
+    count = conn.execute("SELECT COUNT(*) FROM cast_characters WHERE library_kind = ? AND library_id = ?",
+                         (kind, library_id)).fetchone()[0]
+    if count >= MAX_CHARACTERS_PER_LIBRARY:
+        raise CastConflict(f"This cast already has {count} characters (the limit is {MAX_CHARACTERS_PER_LIBRARY})")
+    slug = fields["slug"]
+    if slug is not None:
+        if conn.execute("SELECT 1 FROM cast_characters WHERE library_kind = ? AND library_id = ? AND slug = ?",
+                        (kind, library_id, slug)).fetchone():
+            raise CastConflict(f"A character with the id {slug!r} already exists in this cast")
+    else:
+        slug = _unique_slug(conn, kind, library_id, slugify(fields["name"]))
+    conn.execute("INSERT INTO cast_characters (character_id, library_kind, library_id, slug, name, role, "
+                 "description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 (cid, kind, library_id, slug, fields["name"], fields["role"], fields["description"], actor, now, now))
+    conn.execute("INSERT INTO cast_versions (character_id, version, label, outfit, created_by, created_at, "
+                 "updated_at) VALUES (?, 1, 'Default', ?, ?, ?, ?)", (cid, fields["outfit"], actor, now, now))
+    audit(conn, actor, "character_create", episode_id=episode_id, character_id=cid,
+          series_id=library_id if kind == "series" else None,
+          details={"slug": slug, "name": fields["name"], "role": fields["role"]})
+    return cid
+
+
 def create_character(library: tuple[str, str], name: str, role: str = "", description: str = "",
                      slug: str | None = None, actor: str | None = None, *, episode_id: str | None = None,
                      outfit: str = "") -> dict:
     """A new character (with version 1) in the library. An explicit slug that is taken is refused;
     a slug made from the name gets a number when taken."""
-    kind, library_id = library
-    name = _clean(name, "Name", NAME_MAX, required=True)
-    role = _clean(role, "Role", ROLE_MAX)
-    description = _clean(description, "Description", DESCRIPTION_MAX)
-    outfit = _clean(outfit, "Outfit", OUTFIT_MAX)
-    if slug is not None:
-        slug = str(slug).strip().lower()
-        if not SLUG_RE.match(slug):
-            raise CastError(f"Character id {slug!r} must be lower-case letters, digits and dashes (max 32)")
-    cid = _new_id("ch")
-    now = _now()
+    fields = _character_fields(name, role, description, outfit, slug)
     with connect() as conn, _tx(conn):
-        count = conn.execute("SELECT COUNT(*) FROM cast_characters WHERE library_kind = ? AND library_id = ?",
-                             (kind, library_id)).fetchone()[0]
-        if count >= MAX_CHARACTERS_PER_LIBRARY:
-            raise CastConflict(f"This cast already has {count} characters (the limit is {MAX_CHARACTERS_PER_LIBRARY})")
-        if slug is not None:
-            if conn.execute("SELECT 1 FROM cast_characters WHERE library_kind = ? AND library_id = ? AND slug = ?",
-                            (kind, library_id, slug)).fetchone():
-                raise CastConflict(f"A character with the id {slug!r} already exists in this cast")
-        else:
-            slug = _unique_slug(conn, kind, library_id, slugify(name))
-        conn.execute("INSERT INTO cast_characters (character_id, library_kind, library_id, slug, name, role, "
-                     "description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (cid, kind, library_id, slug, name, role, description, actor, now, now))
-        conn.execute("INSERT INTO cast_versions (character_id, version, label, outfit, created_by, created_at, "
-                     "updated_at) VALUES (?, 1, 'Default', ?, ?, ?, ?)", (cid, outfit, actor, now, now))
-        audit(conn, actor, "character_create", episode_id=episode_id, character_id=cid,
-              series_id=library_id if kind == "series" else None,
-              details={"slug": slug, "name": name, "role": role})
+        cid = _insert_character(conn, library, fields, actor, episode_id)
+    return get_character(cid)
+
+
+def create_character_with_upload(library: tuple[str, str], name: str, role: str, description: str, data: bytes, *,
+                                 filename: str | None, attestation: dict, actor: str | None,
+                                 episode_id: str | None = None) -> dict:
+    """A new character whose version 1 starts from a reference picture, in one step. The picture gets
+    the checks of add_upload first; the character, its version and the picture (primary) are then
+    recorded in one transaction, so a refused picture leaves no character and a refused character
+    no picture record."""
+    fields = _character_fields(name, role, description, "", None)
+    info = inspect_image(data)
+    with connect() as conn:
+        with _tx(conn):
+            cid = _insert_character(conn, library, fields, actor, episode_id)
+            image_id, _ = _store_image(conn, cid, 1, data, info, role=UPLOAD_ROLE, source="upload", actor=actor,
+                                       filename=filename, attestation=attestation, primary=True)
+            audit(conn, actor, "image_upload", episode_id=episode_id, character_id=cid, image_id=image_id,
+                  details=_upload_details(1, info, filename, attestation))
+    ensure_thumb(info["sha256"], info["ext"])
     return get_character(cid)
 
 
@@ -684,11 +716,15 @@ def add_upload(character_id: str, version: int, data: bytes, *, filename: str | 
                              "version = ? AND role = ?", (image_id, character_id, version, UPLOAD_ROLE))
             audit(conn, actor, "image_upload" if created else "image_upload_duplicate", episode_id=episode_id,
                   character_id=character_id, image_id=image_id,
-                  details={"version": version, "sha256": info["sha256"], "bytes": info["bytes"],
-                           "width": info["width"], "height": info["height"], "format": info["format"],
-                           "filename": (filename or "")[:200], "attestation": attestation})
+                  details=_upload_details(version, info, filename, attestation))
     ensure_thumb(info["sha256"], info["ext"])
     return {**get_image(image_id), "duplicate": not created}
+
+
+def _upload_details(version: int, info: dict, filename: str | None, attestation: dict) -> dict:
+    return {"version": version, "sha256": info["sha256"], "bytes": info["bytes"], "width": info["width"],
+            "height": info["height"], "format": info["format"], "filename": (filename or "")[:200],
+            "attestation": attestation}
 
 
 def add_generated_image(character_id: str, version: int, data: bytes, *, role: str, job_id: str,

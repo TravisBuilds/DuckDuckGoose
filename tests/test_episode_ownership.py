@@ -49,6 +49,7 @@ PATH_WRITES = [
     # cast library (api/cast_routes.py): a series cast also needs the series' owner (test_cast_api.py)
     ("POST", "/api/episodes/{ep}/series"),
     ("POST", "/api/episodes/{ep}/cast"),
+    ("POST", "/api/episodes/{ep}/cast/with-picture"),
     ("POST", "/api/episodes/{ep}/cast/import"),
     ("POST", "/api/episodes/{ep}/cast/shots"),
     ("POST", "/api/episodes/{ep}/cast/{character_id}"),

@@ -210,6 +210,7 @@ see a cast:
 - `POST /api/episodes/{id}/series` - Put the episode in a series or take it out (series owner too; an admin for a series without an owner)
 - `GET /api/episodes/{id}/cast` - The episode's cast, shots and sheet status (whoever may see the cast)
 - `POST /api/episodes/{id}/cast` - Add a character
+- `POST /api/episodes/{id}/cast/with-picture` - Add a character with its reference picture in one step (multipart, rights attestation)
 - `POST /api/episodes/{id}/cast/import` - Add the characters a draft wrote (create wizard)
 - `POST /api/episodes/{id}/cast/shots` - Choose who is in each shot
 - `GET /api/episodes/{id}/cast/{character_id}` - One character (whoever may see the cast)
