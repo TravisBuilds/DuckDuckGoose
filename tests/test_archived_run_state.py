@@ -11,16 +11,23 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
+import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from temporalio.service import RPCError, RPCStatusCode
+from temporalio.testing import WorkflowEnvironment
 
 from hfvg.saved_state import (SNAPSHOT_REL, archived_state, changed_since, finished_problem, load_archive_rows,
-                              write_snapshot)
+                              read_saved, write_snapshot)
+from tests.lint_helpers import lint_ok
+from tests.test_audio_delivery_workflow import PROMPT, write_audio
+from tests.test_moderation_recovery import Harness, _wait, dry_env  # noqa: F401
+from tests.test_picture_assembly_round3 import MOVING, ClipFactory, _to_final_cut, _worker, needs_ffmpeg, no_counter  # noqa: F401
 from tests.test_r13_gap79_reopen_from_saved import AUDIT, EP, PARSED, _fixture
-from tests.test_story_revise_live import start, studio, wait_for
+from tests.test_story_revise_live import ADMIN_SECRET, start, studio, wait_for
 
 FINISHED_RUN = {"status": "ARCHIVED", "ended": True, "outcome": "completed", "reason": None,
                 "can_start_again": False, "archived": True}
@@ -85,6 +92,74 @@ def audit(episode_id: str, action: str, details: str, timestamp: str) -> None:
     with sqlite3.connect(os.environ["DATABASE_PATH"]) as c:
         c.execute("INSERT INTO audit_log (episode_id, action, details, user, timestamp) VALUES (?, ?, ?, 'admin', ?)",
                   (episode_id, action, details, timestamp))
+
+
+@asynccontextmanager
+async def admin_api(monkeypatch, client):
+    """The API (as an admin client) reading workflows from the given Temporal client."""
+    from httpx import ASGITransport, AsyncClient
+    monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
+    sys.modules.pop("api.main", None)
+    import api.main as api_main
+    monkeypatch.setattr(api_main, "temporal_client", client)
+    async with AsyncClient(transport=ASGITransport(app=api_main.app), base_url="http://test",
+                           headers={"Authorization": f"Bearer {ADMIN_SECRET}"}) as api:
+        yield api
+
+
+@needs_ffmpeg
+@pytest.mark.timeout(600)
+async def test_a_run_purged_after_its_final_cut_was_approved_and_delivered_reads_as_finished(
+        dry_env, tmp_path, no_counter, monkeypatch):  # noqa: F811
+    """The live case ep98cle: its final cut was approved and delivered (_subs, _nosubs, _phone), Temporal
+    purged the run a day later, and the studio home card said "Not started" and its page "This video
+    hasn't started yet". A real run to an approved final cut, saved through the snapshot saver's own
+    code path; once the history is gone the API answers with the state the closed run reported."""
+    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+    from hfvg.spend_attribution import record_run_start
+    from hfvg.studio_db import create_episode
+
+    ep, db = "ep98cle", os.environ["DATABASE_PATH"]
+    set_animal_counter(FakeAnimalCounter({"animal": 1}))
+    write_audio(tmp_path, ep)
+    h = Harness({})
+    async with await WorkflowEnvironment.start_local() as env:
+        async with _worker(env, h, ClipFactory(tmp_path, [MOVING])):
+            _, handle, _ = await _to_final_cut(env, h, tmp_path, ep, lint_ok(PROMPT))
+            run_id = (await handle.describe()).run_id
+            await create_episode(db, ep)
+            await record_run_start(db, ep, run_id, "admin", "admin", "api")
+            delivered = await _wait(handle, lambda s: (s["delivery"]["qc"] or {}).get("verdict"), timeout=180,
+                                    what="delivery QC")
+            assert (delivered["delivery"]["qc"]["verdict"], delivered["delivery"]["phase"]) == ("PASS", "done")
+            async with admin_api(monkeypatch, env.client) as api:
+                res = await api.post(f"/api/episodes/{ep}/approve", json={"gate_id": "G_FINAL_CUT", "note": "ship it"})
+                assert res.status_code == 200, res.text
+                await asyncio.wait_for(handle.result(), timeout=60)
+                closed = (await api.get(f"/api/episodes/{ep}")).json()
+                assert (closed["run"]["status"], closed["run"]["outcome"]) == ("COMPLETED", "completed")
+                assert closed["approvals"]["g_final_cut"] is True
+                files = (await api.get(f"/api/episodes/{ep}/files")).json()["files"]
+                res = await api.post(f"/api/episodes/{ep}/snapshot")   # what the periodic saver does every 5 min
+                assert res.status_code == 200, res.text
+    saved_at = read_saved(Path(os.environ["EPISODES_DIR"]) / ep)[1]
+    for name in ("master_subs", "nosubs", "phone", "srt"):
+        assert Path(closed["delivery_paths"][name]).is_file(), name
+
+    async with await WorkflowEnvironment.start_local() as env:   # a fresh server: the run's history is gone
+        async with admin_api(monkeypatch, env.client) as api:
+            with pytest.raises(RPCError) as gone:
+                await env.client.get_workflow_handle(ep).describe()
+            assert gone.value.status == RPCStatusCode.NOT_FOUND
+            res = await api.get(f"/api/episodes/{ep}")
+            assert res.status_code == 200, res.text
+            archived = res.json()
+            assert archived["run"] == {**FINISHED_RUN, "run_id": run_id, "dry_run": True, "saved_at": saved_at}
+            assert {k: v for k, v in archived.items() if k != "run"} == {k: v for k, v in closed.items() if k != "run"}
+            assert archived["delivery"]["qc"]["verdict"] == "PASS" and archived["assembly"]["qc"]["verdict"] == "PASS"
+            assert (await api.get(f"/api/episodes/{ep}/files")).json()["files"] == files
+            assert [t for t in ("master_subs", "master_nosubs", "phone", "subtitles_srt") if files[t]["available"]] == [
+                "master_subs", "master_nosubs", "phone", "subtitles_srt"]
 
 
 async def test_a_purged_run_reads_as_expired_then_as_finished_from_its_saved_state(monkeypatch):

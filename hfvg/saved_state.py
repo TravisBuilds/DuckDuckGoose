@@ -400,6 +400,24 @@ def _stage_view(qc: Any, acceptance: Any) -> tuple[dict, dict | None, bool]:
     return qc, acceptance, bool(qc.get("blocking")) and acceptance is None
 
 
+def picture_seconds(state: dict, attrs: dict) -> float:
+    """EpisodeWorkflowV2._picture_seconds on a snapshot: the rendered edit's total_duration, else the sum
+    of the manifest's trimmed segments, else the planned trim windows."""
+    manifest = state.get("assembly_manifest") or {}
+    total = float(manifest.get("total_duration") or 0.0)
+    if total > 0:
+        return round(total, 3)
+    segs = [float(c.get("seg_s") or 0.0) for c in manifest.get("clips") or []]
+    if segs and sum(segs) > 0:
+        return round(sum(segs), 3)
+    planned = 0.0
+    for shot in attrs.get("assembly_shots") or []:
+        duration = float((shot.get("params") or {}).get("duration", 5.0))
+        trim = shot.get("trim") or {}
+        planned += max(0.0, float(trim.get("out", duration)) - float(trim.get("in", 0.0)))
+    return round(planned, 3)
+
+
 def _archived_run(outcome: str, *, run_id: str | None, reason: str | None, dry_run: bool | None,
                   saved_at: str | None) -> dict:
     return {"run_id": run_id, "status": ARCHIVED_STATUS, "ended": True, "outcome": outcome, "reason": reason,
@@ -440,7 +458,7 @@ def finished_state(episode_id: str, snapshot: dict, *, saved_at: str | None, run
         "story_shape_critique": attrs.get("story_shape_critique"),
         "story_shape_revision": attrs.get("story_shape_revision"),
         "story_shape_log": list(attrs.get("story_shape_log") or []),
-        "assembly": {"path": state.get("assembly_path"), "picture_seconds": None,
+        "assembly": {"path": state.get("assembly_path"), "picture_seconds": picture_seconds(state, attrs),
                      "manifest": dict(state.get("assembly_manifest") or {}), "qc": a_qc, "acceptance": a_acc,
                      "blocking": a_blocking, "stale": False, "edit_version": attrs.get("assembly_version")},
         "delivery": {"paths": dict(state.get("delivery_paths") or {}),
