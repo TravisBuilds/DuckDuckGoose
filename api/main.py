@@ -7373,6 +7373,12 @@ try:
 except ImportError:
     import prop_routes
 prop_routes.register(app)
+# Shot plan editor (each shot's cast, props, place and prompts before G1 approval): api/shot_plan_routes.py
+try:
+    from api import shot_plan_routes
+except ImportError:
+    import shot_plan_routes
+shot_plan_routes.register(app)
 
 
 if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app

@@ -186,6 +186,7 @@ PROPS_LIBRARY_SQL = (
         actor TEXT,
         actor_name TEXT,
         run_id TEXT,
+        note TEXT,
         created_at TEXT NOT NULL
     )
     """,
