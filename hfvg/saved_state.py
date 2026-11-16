@@ -443,6 +443,7 @@ def finished_state(episode_id: str, snapshot: dict, *, saved_at: str | None, run
         "shots": len(snapshot.get("shot_workflow_ids") or {}) or len(outcomes),
         "g1_plan": {"estimates_available": (state.get("g1_plan") or {}).get("estimates_available")},
         "shot_decisions": dict(state.get("shot_decisions") or {}),
+        "rejection_reasons": dict(attrs.get("rejection_reasons") or {}),
         "pending_retries": [],
         "clip_retries": dict(attrs.get("clip_retries") or {}),
         "pending_clip_retries": [],
@@ -476,9 +477,10 @@ def expired_state(episode_id: str, *, reason: str, run_id: str | None, dry_run: 
     return {
         "episode_id": episode_id, "stage": None, "current_gate": None, "passed_gates": [],
         "approvals": {"story_shape": False, "g1_shot_plan": False, "g2_scene_stills": False, "g_final_cut": False},
-        "shots": 0, "g1_plan": {}, "shot_decisions": {}, "pending_retries": [], "clip_retries": {},
-        "pending_clip_retries": [], "final_cut_refusals": [], "final_cut_rejections": [], "failed_shots": [],
-        "shot_outcomes": {}, "archetype_id": None, "target_duration_s": None, "assembly": None, "delivery": None,
+        "shots": 0, "g1_plan": {}, "shot_decisions": {}, "rejection_reasons": {}, "pending_retries": [],
+        "clip_retries": {}, "pending_clip_retries": [], "final_cut_refusals": [], "final_cut_rejections": [],
+        "failed_shots": [], "shot_outcomes": {}, "archetype_id": None, "target_duration_s": None, "assembly": None,
+        "delivery": None,
         "run": _archived_run("expired", run_id=run_id, reason=reason, dry_run=dry_run, saved_at=None),
     }
 

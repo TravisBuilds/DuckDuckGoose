@@ -43,6 +43,7 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/reopen-from-saved"),
     ("POST", "/api/episodes/{ep}/set-live"),
     ("POST", "/api/episodes/{ep}/shots/{shot_id}/retry"),
+    ("POST", "/api/episodes/{ep}/shots/{shot_id}/retry/estimate"),
     ("POST", "/api/episodes/{ep}/set-dry"),
     ("POST", "/api/episodes/{ep}/final-cut/reject"),
     ("POST", "/api/episodes/{ep}/start-again"),

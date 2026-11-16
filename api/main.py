@@ -872,6 +872,9 @@ class EpisodeStateResponse(BaseModel):
     current_gate: str | None = None
     passed_gates: list[str] = []
     shot_decisions: dict[str, str] = {}
+    # G2: the owner's note on each scene picture they turned down (the reject reason), which "Make this
+    # picture again" sends with the redo. Empty for a viewer who may not see this episode's cast.
+    rejection_reasons: dict[str, str] = {}
     pending_retries: list[str] = []
     clip_retries: dict[str, int] = {}
     pending_clip_retries: list[str] = []
@@ -1930,6 +1933,10 @@ async def get_episode_state(
     except Exception as e:  # the workflow state stays readable even if the DB is unavailable
         print(f"Stall alerts unavailable for {state['episode_id']}: {e}")
         active_stalls = []
+    # a note may describe the cast, so it is shown to the viewers who may see the cast
+    rejection_reasons = dict(state.get("rejection_reasons") or {})
+    if rejection_reasons and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
+        rejection_reasons = {}
     return EpisodeStateResponse(
         episode_id=state["episode_id"],
         stage=state.get("stage"),
@@ -1944,6 +1951,7 @@ async def get_episode_state(
         current_gate=state.get("current_gate"),
         passed_gates=list(state.get("passed_gates") or []),
         shot_decisions=dict(state.get("shot_decisions") or {}),
+        rejection_reasons=rejection_reasons,
         pending_retries=list(state.get("pending_retries") or []),
         clip_retries=dict(state.get("clip_retries") or {}),
         pending_clip_retries=list(state.get("pending_clip_retries") or []),
@@ -5122,6 +5130,119 @@ class RetryShotRequest(BaseModel):
     prompt_append: str | None = Field(None, max_length=1000,
                                       description="Text appended to this retry's prompt only")
     reason: str | None = Field(None, max_length=500, description="Who asked for the retry and why")
+    approved_usd_micros: int | None = Field(
+        None, ge=0, description="The redo price the owner approved (POST .../retry/estimate); the redo is "
+                                "refused (409) when its estimate is now higher")
+
+
+class RetryEstimateRequest(BaseModel):
+    prompt_append: str | None = Field(None, max_length=1000, description="The text the redo would append")
+
+
+def _retry_prompt_problem(episode_id: str, shot_id: str, plan: dict) -> str | None:
+    """GAP-15: why the AMENDED re-roll prompts (still + the clip it will become, retry_prompt_plan) would
+    be refused, checked before the paid re-roll; None = they pass. The clip preflight would only refuse
+    them after G2, when the re-rolled still is already paid for."""
+    if not plan.get("found"):
+        return None
+    from hfvg import preflight as _pf
+    bad = _pf.prompt_limit_violations(
+        shot_id, still_prompt=plan["still_prompt"], clip_prompt=plan["clip_prompt"],
+        clip_model_alias=plan.get("clip_model"))
+    if bad:
+        return "Preflight refused the amended re-roll before any spend: " + "; ".join(v.message for v in bad)
+    # The amended still prompt must also pass the episode prompt lint (the child's pre-submit gate).
+    # Refusing here keeps a doomed re-roll from consuming an attempt.
+    # No kit loadable here: left to the child's fail-closed gate.
+    from hfvg.prompt_lint import PromptLintError, lint_violations, load_lint_kit
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError:
+        kit = None
+    if kit is not None and plan.get("shot_meta") is not None:
+        lint_bad = lint_violations(plan["still_prompt"], plan["shot_meta"], kit)
+        if lint_bad:
+            return "Prompt lint refused the amended re-roll before any spend: " + "; ".join(lint_bad)
+    return None
+
+
+async def _redo_estimate(shot_id: str, plan: dict) -> dict:
+    """What a G2 redo (retry_shot) of the shot would make and cost, before anything is spent: the paid
+    stills its child would submit (retry_prompt_plan "stills"), each priced like the submit prices it
+    (the provider's own estimate, fail closed: 503; the dry-run figure in a dry run)."""
+    if not plan.get("found"):
+        raise HTTPException(status_code=404, detail=f"Shot {shot_id} is not in this episode's shot plan")
+    stills = plan.get("stills")
+    if not isinstance(stills, list):
+        raise HTTPException(status_code=503, detail=(
+            "The studio could not say which pictures a redo makes, so it cannot be priced; nothing was spent"))
+    from hfvg.config import still_model_path
+    dry = cast_routes._dry_run()
+    jobs = [{**s, "model_path": still_model_path()} for s in stills]
+    prices = await cast_routes._price_jobs(jobs, dry) if jobs else []
+    total = sum(prices)
+    n = len(jobs)
+    if not n:
+        summary = "no new picture is paid for: the start picture you uploaded is used again"
+    elif dry:
+        summary = f"{n} placeholder picture{'s' if n > 1 else ''}, free in dry-run mode"
+    else:
+        summary = f"{n} new picture{'s' if n > 1 else ''}, about {cast_routes._usd(total)}, charged to this video's budget"
+    return {"shot_id": shot_id, "stills": n, "kinds": [s.get("kind") for s in stills],
+            "per_still_usd_micros": prices, "total_usd_micros": total, "dry_run": dry, "summary": summary}
+
+
+async def _refuse_unapproved_redo(shot_id: str, plan: dict, approved_usd_micros: int) -> dict:
+    """The redo the owner approved, re-priced now: refused (409) when it now costs more than they were
+    shown, or (live) when the balance gate would refuse its stills. Returns the estimate."""
+    estimate = await _redo_estimate(shot_id, plan)
+    total = estimate["total_usd_micros"]
+    if total > approved_usd_micros:
+        raise HTTPException(status_code=409, detail=(
+            f"The redo now costs {cast_routes._usd(total)} (you approved {cast_routes._usd(approved_usd_micros)}); "
+            "review the new price and approve again"))
+    if not estimate["dry_run"] and total > 0:
+        from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
+        passed, reason = await BalanceMonitor(DATABASE_PATH).check_preflight_balance(
+            provider="higgsfield", estimate_usd_micros=total, auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED)
+        if not passed:
+            raise HTTPException(status_code=409, detail=f"Balance check failed: {reason}")
+    return estimate
+
+
+@app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry/estimate")
+async def estimate_retry_shot(
+    episode_id: str,
+    shot_id: str,
+    request: RetryEstimateRequest | None = None,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """What "Make this picture again" (POST .../retry with the same prompt_append) would make and cost.
+    Nothing is generated or charged. Refused like the redo itself when the run has ended (409) or the
+    amended prompt would be refused before any spend (409); 503 when no price is available."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    await _refuse_ended_run(episode_id)
+    prompt_append = request.prompt_append if request is not None else None
+    try:
+        plan = await temporal_client.get_workflow_handle(episode_workflow_id(episode_id)).query(
+            "retry_prompt_plan", args=[shot_id, prompt_append])
+    except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+        raise HTTPException(status_code=503, detail=f"Could not read the shot's plan: {e}")
+    if prompt_append is not None:
+        problem = _retry_prompt_problem(episode_id, shot_id, plan)
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
+    return await _redo_estimate(shot_id, plan)
+
+
+estimate_retry_shot.allow_members = True
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/retry")
@@ -5138,6 +5259,10 @@ async def retry_shot(
     Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
     enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
     moves shot from failed_shots back to running then to done or failed.
+
+    ``approved_usd_micros`` (the studio page sends the price it showed, POST .../retry/estimate): the
+    redo is re-priced first and refused (409) when it now costs more, or when the live balance gate
+    would refuse it. The worker checks the provider estimate, the balance and the caps again at submit.
     
     Requires: Authorization header with admin secret OR session cookie.
     """
@@ -5147,6 +5272,7 @@ async def retry_shot(
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     await _refuse_ended_run(episode_id)
+    await _refuse_if_paid_gates_fail(episode_id, "Picture redo")  # GAP-65
     
     # Find the episode workflow
     workflow_id = episode_workflow_id(episode_id)
@@ -5157,32 +5283,17 @@ async def retry_shot(
         from temporalio.client import WorkflowUpdateFailedError
         from temporalio.exceptions import ApplicationError
         try:
+            plan = None
             if request is not None and request.prompt_append is not None:
-                # GAP-15: preflight the AMENDED prompts (still + the clip it will become) against
-                # the model limits before the paid re-roll; the clip preflight would only refuse
-                # it after G2, when the re-rolled still is already paid for.
                 plan = await handle.query("retry_prompt_plan", args=[shot_id, request.prompt_append])
-                if plan.get("found"):
-                    from hfvg import preflight as _pf
-                    bad = _pf.prompt_limit_violations(
-                        shot_id, still_prompt=plan["still_prompt"], clip_prompt=plan["clip_prompt"],
-                        clip_model_alias=plan.get("clip_model"))
-                    if bad:
-                        raise HTTPException(status_code=409, detail="Preflight refused the amended re-roll "
-                                            "before any spend: " + "; ".join(v.message for v in bad))
-                    # The amended still prompt must also pass the episode prompt lint (the child's
-                    # pre-submit gate). Refusing here keeps a doomed re-roll from consuming an attempt.
-                    # No kit loadable here: left to the child's fail-closed gate.
-                    from hfvg.prompt_lint import PromptLintError, lint_violations, load_lint_kit
-                    try:
-                        _kit = load_lint_kit(episode_id)
-                    except PromptLintError:
-                        _kit = None
-                    if _kit is not None and plan.get("shot_meta") is not None:
-                        lint_bad = lint_violations(plan["still_prompt"], plan["shot_meta"], _kit)
-                        if lint_bad:
-                            raise HTTPException(status_code=409, detail="Prompt lint refused the amended "
-                                                "re-roll before any spend: " + "; ".join(lint_bad))
+                problem = _retry_prompt_problem(episode_id, shot_id, plan)
+                if problem:
+                    raise HTTPException(status_code=409, detail=problem)
+            if request is not None and request.approved_usd_micros is not None:
+                if plan is None:
+                    plan = await handle.query("retry_prompt_plan", args=[shot_id, None])
+                await _refuse_unapproved_redo(shot_id, plan, request.approved_usd_micros)
+            if request is not None and request.prompt_append is not None:
                 result = await handle.execute_update(
                     "retry_shot", args=[shot_id, request.prompt_append])
             else:
@@ -5213,7 +5324,9 @@ async def retry_shot(
                 (episode_id, "retry_shot",
                  f"Shot {shot_id} retry requested"
                  + (f"; prompt_append={request.prompt_append!r}" if request and request.prompt_append else "")
-                 + (f"; reason={request.reason!r}" if request and request.reason else ""), "admin")
+                 + (f"; reason={request.reason!r}" if request and request.reason else "")
+                 + (f"; approved_usd_micros={request.approved_usd_micros}"
+                    if request and request.approved_usd_micros is not None else ""), "admin")
             )
             await db.commit()
         

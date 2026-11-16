@@ -172,7 +172,7 @@ see a cast:
 - `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
-- `GET /api/episodes/{id}` - Get episode details
+- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down only for whoever may see the cast)
 - `POST /api/episodes/{id}/set-live` - Set episode to live mode
 - `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
 - `GET /api/episodes/{id}/story-shape` - Get story shape
@@ -186,6 +186,7 @@ see a cast:
 - `POST /api/episodes/{id}/shots/{shot_id}/reject` - Reject still
 - `POST /api/episodes/{id}/shots/{shot_id}/accept-clip` - Accept clip
 - `POST /api/episodes/{id}/approve` - Approve gate
+- `POST /api/episodes/{id}/shots/{shot_id}/retry/estimate` - Price a redo of a scene picture (spends nothing)
 - `POST /api/episodes/{id}/shots/{shot_id}/retry` - Retry shot
 - `POST /api/episodes/{id}/shots/{shot_id}/retry-clip` - Retry clip
 - `POST /api/episodes/{id}/reopen` - Reopen episode
