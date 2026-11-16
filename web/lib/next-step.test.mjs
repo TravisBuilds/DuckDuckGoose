@@ -199,6 +199,64 @@ test('a completed run is done; the finish card depends on the files', () => {
   assert.equal(finishLine(ended, null).title, 'Your video is finished');
 });
 
+test('a purged run that finished reads as finished from its saved state', () => {
+  const archived = {
+    ended: true, outcome: 'completed', dry_run: true, can_start_again: false, archived: true, saved_at: '2026-11-14 10:40:00',
+  };
+  const files = { phone: { available: true }, master_subs: { available: true }, subtitles_srt: { available: true } };
+  const state = runState({
+    stage: 'mute_edit', story_shape: STORY, current_gate: 'G_FINAL_CUT',
+    passed_gates: ['STORY_SHAPE', 'G1_SHOT_PLAN', 'G2_SCENE_STILLS', 'G_FINAL_CUT'],
+    approvals: { story_shape: true, g1_shot_plan: true, g2_scene_stills: true, g_final_cut: true },
+    shot_outcomes: { S01: { status: 'completed' } }, shot_decisions: { S01: 'approved' }, run: archived,
+  });
+  const story = { story_shape: STORY, approved: true };
+  const next = nextStep(state, story, null, { files });
+  assert.deepEqual([next.step, next.title, next.href], ['done', 'Your video is ready', '#finished']);
+  assert.deepEqual(statusChip(next), { label: 'Finished', tone: 'ok' });
+  assert.deepEqual(Object.fromEntries(stepperSteps(state, story, null, next).map((s) => [s.key, s.status])), {
+    story: 'done', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'current',
+  });
+  assert.equal(storyLocked(state), true);
+  assert.equal(openGate(state), null);
+});
+
+test('a purged run nothing saved finishes: its history expired, and the files it left are shown', () => {
+  const expired = {
+    ended: true, outcome: 'expired', dry_run: true, can_start_again: false, archived: true, saved_at: null,
+    reason: 'How this run ended is no longer known: no finished state was saved for it.',
+  };
+  const gone = runState({ stage: null, run: expired });
+  const files = { phone: { available: false }, master_nosubs: { available: true }, subtitles_srt: { available: true } };
+  const next = nextStep(gone, null, null, { files });
+  assert.deepEqual([next.step, next.title, next.href], ['expired', "This run's history expired", '#finished']);
+  assert.match(next.text, /video it delivered is here to watch and download/);
+  assert.deepEqual(finishLine(expired, files), {
+    ready: true, primary: 'master_nosubs', title: "This run's history expired",
+    text: 'The studio no longer knows how the run ended, but the video it delivered is here to watch and download.',
+  });
+  const bare = finishLine(expired, { subtitles_srt: { available: true } });
+  assert.deepEqual([bare.ready, bare.primary], [false, null]);
+  assert.match(bare.text, /no video file is left for it/);
+  assert.match(nextStep(gone, null, null, { files: null }).text, /no video file is left for it/);
+  assert.deepEqual(statusChip(next), { label: 'History expired', tone: 'warn' });
+  // nothing shows which steps it took, so no stepper, and nothing is anyone's to do
+  assert.equal(stepperSteps(gone, null, null, next), null);
+  const theirs = nextStep(gone, null, null, { files, viewer: { mine: false, canAct: false, ownerName: 'Robin' } });
+  assert.deepEqual([theirs.step, theirs.waiting], ['expired', undefined]);
+  assert.equal(storyLocked(gone), true);
+});
+
+test('no run state at all, but delivered files: the files, never "hasn\'t started"', () => {
+  const files = { phone: { available: true } };
+  const next = nextStep(null, null, null, { files });
+  assert.deepEqual([next.step, next.title, next.href], ['expired', "This run's history could not be loaded", '#finished']);
+  assert.deepEqual(finishLine(null, files).primary, 'phone');
+  // a subtitle file alone is no video to show
+  assert.equal(nextStep(null, null, null, { files: { subtitles_srt: { available: true } } }).step, 'working');
+  assert.equal(nextStep(null, null, null, { files: { phone: { available: false } } }).step, 'working');
+});
+
 test('a run that stopped points at what went wrong', () => {
   const next = nextStep(runState({ run: { ended: true, outcome: 'failed', can_start_again: true } }));
   assert.deepEqual([next.step, next.href], ['failed', '#run-ended']);
@@ -254,6 +312,7 @@ test('studio home chips', () => {
   assert.deepEqual(statusChip({ step: 'stills' }), { label: 'Scene pictures to review', tone: 'todo' });
   assert.deepEqual(statusChip({ step: 'cast' }), { label: 'Shot plan to approve', tone: 'todo' });
   assert.deepEqual(statusChip({ step: 'done' }), { label: 'Finished', tone: 'ok' });
+  assert.deepEqual(statusChip({ step: 'expired' }), { label: 'History expired', tone: 'warn' });
   assert.deepEqual(statusChip({ step: 'failed' }), { label: 'Stopped', tone: 'bad' });
   assert.deepEqual(statusChip(null), { label: 'In progress', tone: 'wait' });
 });

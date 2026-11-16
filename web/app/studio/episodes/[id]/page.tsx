@@ -485,11 +485,15 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
   }, [episodeId]);
 
+  const { polling } = run;
   useEffect(() => {
     loadPage();
+  }, [loadPage]);
+  useEffect(() => {
+    if (!polling) return;
     const t = setInterval(loadPage, 3000);
     return () => clearInterval(t);
-  }, [loadPage]);
+  }, [loadPage, polling]);
 
   useEffect(() => {
     loadLimits();
@@ -581,16 +585,27 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const story = storyShape?.story_shape ? storyShape : null;
   // until the owner and the signed-in user are known, the card speaks to the person who made the video
   const viewer = ownerKnown && me ? { mine, canAct, ownerName: owner.name } : null;
-  const next = state ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer }) : nextStep(null);
+  const next = state
+    ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer })
+    : nextStep(null, null, null, { files, viewer });
   const steps = state ? stepperSteps(state, storyShape, cast, next) : null;
   // the run's stage stays where it was while a step waits for a decision: the chip says the step instead
   const headerChip = next.step === 'working' ? { label: stageLabel(state?.stage), tone: 'wait' as const } : statusChip(next);
   const completed = Boolean(state?.run?.ended && state.run.outcome === 'completed');
+  // the run's history is gone and nothing saved shows its steps: only the files it left are shown
+  const expired = next.step === 'expired';
   const storyIsDone = storyDone(state) || Boolean(storyShape?.approved);
   const storyReadOnly = storyLocked(state) || !canAct;
   const storyNote = !canAct
     ? 'Only the person who made this video, or an admin, can change the story.'
     : state?.run?.ended ? 'This run has ended, so the story can no longer change.' : null;
+  const storyText = expired
+    ? 'The story outline of this run is no longer available.'
+    : !state
+      ? 'The story outline shows up here once the video starts.'
+      : storyIsDone
+        ? 'This video was made from uploaded files, without a story outline to approve.'
+        : 'The studio is writing the story outline. It shows up here for you to read and approve.';
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -612,8 +627,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         </p>
       )}
 
-      {state && completed ? (
-        <FinishLine episodeId={episodeId} state={state} files={files} mine={!viewer || viewer.mine}>
+      {completed || expired ? (
+        <FinishLine episodeId={episodeId} run={state?.run ?? null} files={files} mine={!viewer || viewer.mine}>
           {steps && <Stepper steps={steps} />}
         </FinishLine>
       ) : (
@@ -629,13 +644,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         ) : (
           <div className={card}>
             <h2 className="text-xl font-semibold">Story</h2>
-            <p className="mt-1 text-gray-700 dark:text-gray-200">
-              {!state
-                ? 'The story outline shows up here once the video starts.'
-                : storyIsDone
-                  ? 'This video was made from uploaded files, without a story outline to approve.'
-                  : 'The studio is writing the story outline. It shows up here for you to read and approve.'}
-            </p>
+            <p className="mt-1 text-gray-700 dark:text-gray-200">{storyText}</p>
           </div>
         )}
       </section>
@@ -644,14 +653,14 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         <CastPanel episodeId={episodeId} onView={onCastView} />
       </section>
 
-      {state && (
+      {state && !expired && (
         <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} />
       )}
-      {state && (
+      {state && !expired && (
         <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}
           shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} />
       )}
-      {state && (
+      {state && !expired && (
         <FinalCutSection episodeId={episodeId} state={state} shotStates={shotStates} files={files} busy={busy} act={act} canAct={canAct} />
       )}
 
@@ -667,7 +676,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             <RunDetails episodeId={episodeId} state={state} shotStates={shotStates} credits={credits} stalls={stalls}
               busy={busy} act={act} isAdmin={isAdmin} />
           ) : (
-            <p className="text-sm text-gray-700 dark:text-gray-200">No run yet: this episode has not been started.</p>
+            <p className="text-sm text-gray-700 dark:text-gray-200">
+              {expired ? 'The run state could not be loaded.' : 'No run yet: this episode has not been started.'}
+            </p>
           )}
           <LiveModeCard episodeId={episodeId} gates={gates} canChange={canAct} busy={busy} act={act} />
           {isAdmin && (

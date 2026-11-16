@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { balanceDisplay, parseBalanceInput } from '@/lib/balance.mjs';
 import type { HiggsfieldBalance } from '@/lib/balance.mjs';
-import { runEndedView } from '@/lib/run-outcome.mjs';
+import { keepPolling, runEndedView } from '@/lib/run-outcome.mjs';
 import type { RunInfo } from '@/lib/run-outcome.mjs';
 import { finishLine, openGate } from '@/lib/next-step.mjs';
 import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } from '@/lib/labels';
+import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 
@@ -121,9 +122,11 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
 export type RunLoad = 'loading' | 'ok' | 'missing' | 'error';
 
 /**
- * The run behind the episode page, polled every 3 s: the workflow state (404 = no run yet), the
- * per-shot states, credits, stall alerts and delivery files. A failed shot-state read is reported
- * (shotStatesError), never shown as "no shots".
+ * The run behind the episode page, polled every 3 s until it has ended: the workflow state (404 = no
+ * run yet), the per-shot states, credits, stall alerts and delivery files. The delivery files are read
+ * whatever the run state says, a 404 or an error included. An archived run (its history purged, the
+ * state rebuilt from what was saved) has no workflow left for shot states or stalls. A failed
+ * shot-state read is reported (shotStatesError), never shown as "no shots".
  */
 export function useEpisodeRun(episodeId: string) {
   const [state, setState] = useState<RunState | null>(null);
@@ -137,9 +140,12 @@ export function useEpisodeRun(episodeId: string) {
   const [files, setFiles] = useState<Record<string, FileInfo> | null>(null);
 
   const refresh = useCallback(async () => {
-    let raw: Partial<RunState>;
+    let read: RunState | null = null;
     try {
-      raw = await apiFetch<Partial<RunState>>(`/api/episodes/${episodeId}`);
+      read = normalizeRunState(episodeId, await apiFetch<Partial<RunState>>(`/api/episodes/${episodeId}`));
+      setState(read);
+      setStatus('ok');
+      setStateError(null);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 400)) {
         setState(null);
@@ -149,20 +155,19 @@ export function useEpisodeRun(episodeId: string) {
         setStatus((prev) => (prev === 'ok' ? 'ok' : 'error'));
         setStateError(problemText(e));
       }
-      return;
     }
-    setState(normalizeRunState(episodeId, raw));
-    setStatus('ok');
-    setStateError(null);
+    const workflow = Boolean(read) && !read?.run?.archived;
     const [ss, cr, st, fl] = await Promise.allSettled([
-      apiFetch<{ shots: Record<string, ShotState>; cast_hidden?: boolean }>(`/api/episodes/${episodeId}/shot-states`),
-      apiFetch<Credits>(`/api/episodes/${episodeId}/credits`),
-      apiFetch<{ alerts: StallAlert[] }>(`/api/episodes/${episodeId}/stalls`),
+      workflow ? apiFetch<{ shots: Record<string, ShotState>; cast_hidden?: boolean }>(`/api/episodes/${episodeId}/shot-states`) : null,
+      read ? apiFetch<Credits>(`/api/episodes/${episodeId}/credits`) : null,
+      workflow ? apiFetch<{ alerts: StallAlert[] }>(`/api/episodes/${episodeId}/stalls`) : null,
       apiFetch<{ files: Record<string, FileInfo> }>(`/api/episodes/${episodeId}/files`),
     ]);
     if (ss.status === 'fulfilled') {
-      setShotStates(ss.value?.shots ?? {});
-      setCastHidden(Boolean(ss.value?.cast_hidden));
+      if (ss.value) {
+        setShotStates(ss.value.shots ?? {});
+        setCastHidden(Boolean(ss.value.cast_hidden));
+      }
       setShotStatesError(null);
     } else {
       setShotStatesError(problemText(ss.reason));
@@ -172,13 +177,17 @@ export function useEpisodeRun(episodeId: string) {
     if (fl.status === 'fulfilled' && fl.value?.files) setFiles(fl.value.files);
   }, [episodeId]);
 
+  const polling = keepPolling(state);
   useEffect(() => {
     refresh();
+  }, [refresh]);
+  useEffect(() => {
+    if (!polling) return;
     const t = setInterval(refresh, 3000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, polling]);
 
-  return { state, status, stateError, shotStates, shotStatesError, castHidden, credits, stalls, files, refresh };
+  return { state, status, stateError, shotStates, shotStatesError, castHidden, credits, stalls, files, refresh, polling };
 }
 
 export function fileUrl(episodeId: string, type: string): string {
@@ -230,20 +239,28 @@ function NotYours() {
 
 // ---------------------------------------------------------------- the top of the page
 
-/** A completed run: the video to watch and its downloads, in place of the next step. */
-export function FinishLine({ episodeId, state, files, mine = true, children }: {
-  episodeId: string; state: RunState; files: Record<string, FileInfo> | null; mine?: boolean; children?: ReactNode;
+/**
+ * The video to watch and its downloads, in place of the next step: for a completed run, and for a run
+ * whose history expired (or could not be read) with whatever files it delivered.
+ */
+export function FinishLine({ episodeId, run, files, mine = true, children }: {
+  episodeId: string; run: RunInfo | null; files: Record<string, FileInfo> | null; mine?: boolean; children?: ReactNode;
 }) {
-  const finish = finishLine(state.run, files, mine);
+  const finish = finishLine(run, files, mine);
+  const done = run?.outcome === 'completed';
   const downloads = Object.keys(FILE_LABELS).filter((type) => files?.[type]?.available);
   return (
-    <section id="finished" className={highlight} data-testid="run-ended" data-tone="done" aria-labelledby="finished-title">
+    <section id="finished" className={highlight} data-testid="run-ended" data-tone={done ? 'done' : 'expired'}
+      aria-labelledby="finished-title">
       {children}
       <h2 id="finished-title" className={`text-2xl font-bold text-gray-900 dark:text-white ${children ? 'mt-4' : ''}`}
         data-testid="run-ended-title">
         {finish.title}
       </h2>
       <p className="mt-1 text-gray-700 dark:text-gray-200">{finish.text}</p>
+      {!done && run?.reason && (
+        <p className="mt-1 break-words text-sm text-gray-700 dark:text-gray-200" data-testid="run-ended-reason">{run.reason}</p>
+      )}
       {finish.primary && (
         <video data-testid="ready-video" controls playsInline preload="metadata" src={fileUrl(episodeId, finish.primary)}
           aria-label={fileLabel(finish.primary)}
@@ -268,7 +285,7 @@ export function RunEndedCard({ episodeId, state, busy, act, canAct }: {
   episodeId: string; state: RunState; busy: boolean; act: Act; canAct: boolean;
 }) {
   const ended = runEndedView(state.run);
-  if (!ended || ended.tone === 'done') return null;
+  if (!ended || ended.tone !== 'error') return null;
   return (
     <section id="run-ended" role="alert" data-testid="run-ended" data-tone={ended.tone}
       className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900 sm:p-6 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
@@ -746,6 +763,8 @@ function CreditsCard({ episodeId, credits, busy, act, isAdmin }: {
   );
 }
 
+const ENDED_LABELS: Record<string, string> = { completed: 'Finished', expired: 'History expired' };
+
 /** Raw run state, credits, moderation, QC and per-shot workflow state, for Production details. */
 export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy, act, isAdmin }: {
   episodeId: string; state: RunState; shotStates: Record<string, ShotState> | null; credits: Credits | null;
@@ -764,7 +783,9 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
         <h3 className="mb-1 font-semibold">Run</h3>
         <p className="text-sm">Stage: <code data-testid="run-stage">{state.stage ?? '—'}</code> ({stageLabel(state.stage)})</p>
         {ended ? (
-          <p className="text-sm">Gate: <strong data-testid="run-finished">{state.run?.outcome === 'completed' ? 'Finished' : 'Stopped'}</strong> (run {state.run?.outcome})</p>
+          <p className="text-sm">
+            Gate: <strong data-testid="run-finished">{ENDED_LABELS[state.run?.outcome ?? ''] ?? 'Stopped'}</strong> (run {state.run?.outcome})
+          </p>
         ) : (
           <p className="text-sm">
             Gate: <code data-testid="current-gate">{state.current_gate ?? 'none'}</code>
@@ -775,7 +796,17 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
         {failed.length > 0 && <p className="text-sm text-red-700 dark:text-red-300">Failed shots: {failed.join(', ')}</p>}
         {state.run && (
           <p className="text-xs text-gray-700 dark:text-gray-200">
-            Run {state.run.run_id} · {state.run.status}{state.run.dry_run ? ' · dry run' : ''}
+            Run {state.run.run_id ?? 'unknown'} · {state.run.status}{state.run.dry_run ? ' · dry run' : ''}
+          </p>
+        )}
+        {state.run?.archived && (
+          <p className="mt-1 text-xs text-gray-700 dark:text-gray-200" data-testid="run-archived">
+            The workflow server no longer keeps this run&apos;s history.{' '}
+            {state.run.outcome !== 'completed'
+              ? 'Nothing saved shows how it ended.'
+              : state.run.saved_at
+                ? `This is the run as saved on ${formatLocalDateTime(state.run.saved_at) || state.run.saved_at}.`
+                : 'This is the run as rebuilt from its saved files.'}
           </p>
         )}
         {stalls.length > 0 && (

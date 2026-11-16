@@ -1,5 +1,5 @@
 export type StepKey = 'story' | 'cast' | 'shot_plan' | 'stills' | 'final_cut' | 'download';
-export type NextStepKind = 'story' | 'cast' | 'shot_plan' | 'stills' | 'final_cut' | 'done' | 'failed' | 'working';
+export type NextStepKind = 'story' | 'cast' | 'shot_plan' | 'stills' | 'final_cut' | 'done' | 'expired' | 'failed' | 'working';
 export type StepStatus = 'done' | 'current' | 'todo' | 'skipped' | 'stopped';
 
 export interface RunStateLike {
@@ -16,8 +16,10 @@ export interface RunStateLike {
   run?: {
     ended?: boolean | null;
     outcome?: string | null;
+    reason?: string | null;
     dry_run?: boolean | null;
     can_start_again?: boolean | null;
+    archived?: boolean | null;
   } | null;
 }
 
@@ -101,5 +103,5 @@ export function stepperSteps(
   story: StoryLike | null | undefined,
   cast: CastLike | null | undefined,
   next: NextStep | null | undefined,
-): StepperStep[];
+): StepperStep[] | null;
 export function statusChip(next: NextStep | null | undefined): { label: string; tone: 'ok' | 'todo' | 'wait' | 'warn' | 'bad' };
