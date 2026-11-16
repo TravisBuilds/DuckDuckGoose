@@ -8,7 +8,9 @@ import { test, expect } from './e2e-cleanup';
  * finished video. No admin control is rendered for a member. The card has music, so the dry run mixes
  * it under a black stand-in picture with ffmpeg (the e2e CI job installs it, like test-python) and
  * delivery QC measures the files: without ffmpeg the verdict is NEEDS_REVIEW and the final cut stays
- * blocked. If this test stops half-way, e2e-cleanup ends its run so later specs can start theirs.
+ * blocked. Then the workflow server purges the finished run (POST /api/e2e/purge-history, the launcher's
+ * stand-in for Temporal's 24 h retention): the page still shows the finished video from the saved state,
+ * and stops polling. If this test stops half-way, e2e-cleanup ends its run so later specs can start theirs.
  */
 
 const MEMBER = 'e2e-member@test.local';
@@ -109,7 +111,51 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   const run = (await (await page.request.get(`${API}/api/episodes/${episodeId}`)).json()).run;
   expect(run).toMatchObject({ ended: true, outcome: 'completed' });
 
-  // the studio home lists it as the member's, finished
+  // a day later the workflow server purges the finished run. The API's saver keeps each episode's
+  // state on disk every few minutes; an admin saves it now, then the run's history is deleted.
+  const admin = { Authorization: `Bearer ${test.info().config.metadata.adminSecret}` };
+  const saved = await page.request.post(`${API}/api/episodes/${episodeId}/snapshot`, { headers: admin });
+  expect(saved.status(), await saved.text()).toBe(200);
+  const purged = await page.request.post(`${API}/api/e2e/purge-history/${episodeId}`, { headers: admin });
+  expect(purged.status(), await purged.text()).toBe(200);
+  const archived = (await (await page.request.get(`${API}/api/episodes/${episodeId}`)).json()).run;
+  expect(archived).toMatchObject({
+    run_id: run.run_id, status: 'ARCHIVED', archived: true, ended: true, outcome: 'completed', can_start_again: false,
+  });
+  expect(archived.saved_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+  // the page still shows the finished video, its downloads and the steps it took
+  await page.reload();
+  await expect(page.getByTestId('run-ended-title')).toHaveText('Your video is ready');
+  await expect(page.getByText(/hasn't started/)).toHaveCount(0);
+  await expect(page.getByTestId('ready-video')).toHaveAttribute('src', new RegExp(`/api/episodes/${episodeId}/files/phone$`));
+  for (const type of ready) {
+    await expect(page.getByTestId(`download-${type}`)).toHaveAttribute('href', new RegExp(`/files/${type}\\?download=true$`));
+  }
+  await expect(page.getByTestId('episode-status')).toHaveText('Finished');
+  for (const step of ['shot_plan', 'stills', 'final_cut']) {
+    await expect(page.getByTestId(`step-${step}`)).toHaveAttribute('data-status', 'done');
+  }
+  await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'current');
+  await expect(page.getByTestId('final-approved')).toBeVisible();
+  await expect(page.getByTestId('next-step')).toHaveCount(0);
+  await expect(page.getByTestId('stills-error')).toHaveCount(0);
+  await expect(page.getByTestId('approve-final')).toHaveCount(0);
+  await expect(page.getByTestId('start-again')).toHaveCount(0);
+  // and stops asking once it has shown it: no more reads of this episode
+  await page.waitForLoadState('networkidle');
+  const reads: string[] = [];
+  page.on('request', (req) => {
+    if (['fetch', 'xhr'].includes(req.resourceType()) && req.url().startsWith(`${API}/api/episodes/${episodeId}`)) reads.push(req.url());
+  });
+  await page.waitForTimeout(7_000);
+  expect(reads).toEqual([]);
+  const details = page.getByTestId('production-details');
+  await details.locator('summary').click();
+  await expect(page.getByTestId('run-finished')).toHaveText('Finished');
+  await expect(page.getByTestId('run-archived')).toContainText('This is the run as saved on');
+
+  // the studio home lists it as the member's, finished: from the saved state, now that the run is purged
   await page.goto('/studio');
   await expect(page.getByTestId(`episode-owner-${episodeId}`)).toHaveText('By you');
   await expect(page.getByTestId(`episode-status-${episodeId}`)).toHaveText('Finished');
