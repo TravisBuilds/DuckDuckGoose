@@ -1273,7 +1273,7 @@ test_mutation 100 "M-R4F GET episode accepts the ep04-episode id style" \
 test_mutation 101 "M-R4G GET episode unknown workflow is 404" \
     "api/main.py" \
     "tests/test_round4_shot_data.py::test_get_episode_unknown_workflow_is_404_not_500" \
-    sed -i 's/^        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:$/        if False:  # MUTATED/'
+    sed -i '/^async def get_episode_state(/,/^get_episode_state\.allow_members = True$/ s/^        if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):$/        if True:  # MUTATED/'
 
 # 102. M-R4H upload-shots validates shots.json
 test_mutation 102 "M-R4H upload-shots validates shots.json" \
@@ -3598,7 +3598,7 @@ test_mutation 494 "shots ask who may see the cast" \
 test_mutation 495 "story-shape approval from the workflow's approvals" \
     "api/main.py" \
     "tests/test_story_shaping_api.py::test_get_story_shape_says_approved_once_the_story_is_approved" \
-    sed -i 's/^                "approved": bool((state\.get("approvals") or {})\.get("story_shape")),$/                "approved": state.get("approved_story_shape", False),  # MUTATED/'
+    sed -i 's/^            "approved": bool((state\.get("approvals") or {})\.get("story_shape")),$/            "approved": state.get("approved_story_shape", False),  # MUTATED/'
 
 # 479: a series without an owner changes only through an admin
 test_mutation 479 "ownerless series changes only through an admin" \
@@ -3993,6 +3993,229 @@ test_mutation 561 "CSV month-end row is the projection" \
     "web/lib/cost-dashboard.mjs" \
     "tests/test_cost_dashboard_api.py::test_dashboard_display_helpers_unit_tests" \
     sed -i "s/^      csvRow(\['Month-end projection', usdCell(h\.projected_month_end_usd_micros)/      csvRow(['Month-end projection', usdCell(h.month_spend_so_far_usd_micros)/"
+
+# 562: a purged run reads as finished only while no run change was audited after its saved state
+test_mutation 562 "archived run: a run change after the save is not finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_finished_only_while_nothing_changed_since_the_save" \
+    sed -i 's/^        if r\.get("action") in RUN_CHANGING_ACTIONS and at is not None and at > saved:$/        if False:  # MUTATED/'
+
+# 563: ... nor once another run started after it
+test_mutation 563 "archived run: a run started after the save is not finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_finished_only_while_nothing_changed_since_the_save" \
+    sed -i 's/^        if at is not None and at > saved:$/        if False:  # MUTATED/'
+
+# 564: only the saved state of an approved final cut reads as finished
+test_mutation 564 "archived run: only an approved final cut is finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_only_an_approved_final_cut_with_nothing_in_flight_is_finished" \
+    sed -i 's/^    if "G_FINAL_CUT" not in (attrs\.get("passed_gates") or \[\]) or not attrs\.get("approved_g_final_cut"):$/    if False:  # MUTATED/'
+
+# 565: a saved state with work in flight is not finished
+test_mutation 565 "archived run: work in flight is not finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_only_an_approved_final_cut_with_nothing_in_flight_is_finished" \
+    sed -i 's/^    if attrs\.get("pending_clip_retries") or attrs\.get("pending_recompose") or state\.get("pending_retries"):$/    if False:  # MUTATED/'
+
+# 566: another episode's saved state never reads as this one finished
+test_mutation 566 "archived run: another episode's saved state is not finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_a_saved_state_for_another_episode_or_an_unknown_episode_is_not_finished" \
+    sed -i 's/^        if problem is None and persisted\.get("episode_id") != episode_id:$/        if False:  # MUTATED/'
+
+# 567: an episode the studio DB does not know is not finished
+test_mutation 567 "archived run: an unknown episode is not finished" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_a_saved_state_for_another_episode_or_an_unknown_episode_is_not_finished" \
+    sed -i 's/^        problem = (None if rows\.get("known") else "the episode is not in the studio DB") or finished_problem(persisted)$/        problem = finished_problem(persisted)  # MUTATED/'
+
+# 568: an episode that never ran has no archived state (GET stays a 404)
+test_mutation 568 "archived run: an episode that never ran stays a 404" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_an_episode_that_never_ran_has_no_archived_state" \
+    sed -i 's/^    if not has_run(rows, snapshot_saved=snapshot_saved, has_files=has_files):$/    if False:  # MUTATED/'
+
+# 569: the rebuild from saved artifacts needs the final cut approval to be the last run change
+test_mutation 569 "archived run: rebuild only when the approval is the last run change" \
+    "hfvg/saved_state.py" \
+    "tests/test_archived_run_state.py::test_rebuilt_from_the_saved_artifacts_when_no_state_was_saved" \
+    sed -i 's/^    if any(r\["action"\] in RUN_CHANGING_ACTIONS for r in audit\[approvals\[-1\] + 1:\]):$/    if False:  # MUTATED/'
+
+# 570: the home card reads a purged run's archived state (ep98cle showed "Not started")
+test_mutation 570 "home card: an archived finished run is not 'Not started'" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  if (!state) return { label: 'Not started', tone: 'wait' };$/  return { label: 'Not started', tone: 'wait' };  \/\/ MUTATED/"
+
+# 571: the Next step of an expired run points at its delivered files
+test_mutation 571 "next step: an expired run points at the delivered files" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^    if (run\.outcome === 'completed' || run\.outcome === 'expired') {$/    if (run.outcome === 'completed') {  \/\/ MUTATED/"
+
+# 572: the finish card of an expired run says so and still plays the delivered video
+test_mutation 572 "finish card: an expired run still shows its video" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  if (!run || run\.outcome === 'expired') {$/  if (!run) {  \/\/ MUTATED/"
+
+# 573: delivered files show even when no run state could be read
+test_mutation 573 "next step: delivered files without a run state" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i 's/^    if (VIDEO_FILES\.some((type) => files?\.\[type\]?\.available)) {$/    if (false) {  \/\/ MUTATED/'
+
+# 574: the stepper claims no steps for a run whose history expired
+test_mutation 574 "stepper: an expired run claims no steps" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  if (next?\.step === 'expired' || state?\.run?\.outcome === 'expired') return null;$/  ;  \/\/ MUTATED/"
+
+# 575: the episode page stops polling an ended (or archived) run
+test_mutation 575 "page stops polling an ended run" \
+    "web/lib/run-outcome.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[run-outcome.test.mjs]" \
+    sed -i 's/^  return !state?\.run?\.ended;$/  return true;  \/\/ MUTATED/'
+
+# 576: a run whose history expired offers no Start again
+test_mutation 576 "an expired run offers no Start again" \
+    "web/lib/run-outcome.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[run-outcome.test.mjs]" \
+    sed -i 's/^  const canStartAgain = !done \&\& !expired \&\& run\.can_start_again === true;$/  const canStartAgain = !done \&\& run.can_start_again === true;  \/\/ MUTATED/'
+
+# 577: a series cast takes a character with a picture only from the series' owner (PR #40 rules; the
+# episode's owner check runs before the route)
+test_mutation 577 "cast with a picture: a series cast needs its owner" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_series_cast_with_a_picture_needs_the_series_owner" \
+    sed -i '/^async def create_cast_character_with_picture(/,/^create_cast_character_with_picture\.allow_members = True$/ s/^    await _require_library_writer(library, authorization, studio_admin_token)$/    pass  # MUTATED/'
+
+# 578: a character with a picture follows the content policy
+test_mutation 578 "cast with a picture: content policy" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_character_text_with_a_picture_follows_the_content_policy" \
+    sed -i 's/^    _check_text(name, role, description)$/    pass  # MUTATED/'
+
+# 579: the picture's rights questions are answered before anything is kept
+test_mutation 579 "cast with a picture: rights attestation" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_refused_character_with_a_picture_keeps_no_character_and_no_picture" \
+    sed -i '/^async def create_cast_character_with_picture(/,/^create_cast_character_with_picture\.allow_members = True$/ s/cast_store\.validate_attestation, rights,/(lambda r, d, c, n: {"rights": r, "depicts_real_person": d, "likeness_consent": c, "note": n}), rights,/'
+
+# 580: the picture size limit holds for a character with a picture
+test_mutation 580 "cast with a picture: size limit" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_an_oversize_picture_adds_no_character" \
+    sed -i '/^async def create_cast_character_with_picture(/,/^create_cast_character_with_picture\.allow_members = True$/ s/^    if len(data) > limit:$/    if False:  # MUTATED/'
+
+# 581: the upload size middleware covers the with-picture route
+test_mutation 581 "cast with a picture: upload middleware limit" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_the_size_limit_covers_a_character_with_a_picture" \
+    sed -i 's/images|with-picture)/images)/'
+
+# 582: a character and its picture are recorded in one transaction
+test_mutation 582 "cast with a picture: one transaction" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_store.py::test_a_picture_that_cannot_be_recorded_takes_its_character_with_it" \
+    sed -i '/^def create_character_with_upload(/,/^    ensure_thumb(info\["sha256"\], info\["ext"\])$/ s/^        with _tx(conn):$/        if True:  # MUTATED/'
+
+# 583: the Cast panel's add form only for those who may change the cast
+test_mutation 583 "cast panel: add form only for the cast's writers" \
+    "web/lib/cast.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[cast.test.mjs]" \
+    sed -i 's/^    shown: Boolean(view?\.can_edit) \&\& count < (view?\.limits?\.max_characters ?? 0),$/    shown: count < (view?.limits?.max_characters ?? 0),  \/\/ MUTATED/'
+
+# 584: a character with a photo needs the rights answers before it can be sent
+test_mutation 584 "cast panel: photo form needs the rights answers" \
+    "web/lib/cast.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[cast.test.mjs]" \
+    sed -i 's/^  return rightsProblem(answers);$/  return null;  \/\/ MUTATED/'
+
+# 585: the photo form sends the rights answers with the character
+test_mutation 585 "cast panel: photo form sends the rights answers" \
+    "web/lib/cast.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[cast.test.mjs]" \
+    sed -i 's/^    \.\.\.rightsFields(answers),$/    \/\/ MUTATED/'
+
+# 586: a redo is made for the price the owner approved and no more
+test_mutation 586 "redo refused when it now costs more than approved" \
+    "api/main.py" \
+    "tests/test_redo_with_feedback.py::test_a_redo_is_made_for_the_price_the_owner_approved_and_no_more" \
+    sed -i 's/^    if total > approved_usd_micros:$/    if False:  # MUTATED/'
+
+# 587: a live redo waits for the balance gate
+test_mutation 587 "live redo passes the balance gate" \
+    "api/main.py" \
+    "tests/test_redo_with_feedback.py::test_a_live_redo_waits_for_the_balance_gate" \
+    sed -i 's/^        if not passed:$/        if False:  # MUTATED/'
+
+# 588: a still redo gets the GAP-65 paid gates before it is counted
+test_mutation 588 "still redo: GAP-65 paid gates" \
+    "api/main.py" \
+    "tests/test_redo_with_feedback.py::test_a_live_redo_is_refused_before_it_is_counted_without_a_recorded_balance" \
+    sed -i 's/^    await _refuse_if_paid_gates_fail(episode_id, "Picture redo")  # GAP-65$/    pass  # MUTATED/'
+
+# 589: a redo the workflow cannot list the pictures of is not priced as free
+test_mutation 589 "redo without a picture list is not priced" \
+    "api/main.py" \
+    "tests/test_redo_with_feedback.py::test_a_redo_that_cannot_be_priced_is_not_made" \
+    sed -i 's/^    stills = plan\.get("stills")$/    stills = plan.get("stills") or []  # MUTATED/'
+
+# 590: the redo estimate refuses a note the redo itself would refuse
+test_mutation 590 "redo estimate runs the amended-prompt preflight" \
+    "api/main.py" \
+    "tests/test_redo_with_feedback.py::test_the_estimate_refuses_a_note_the_redo_would_refuse" \
+    sed -i 's/^        problem = _retry_prompt_problem(episode_id, shot_id, plan)$/        problem = None  # MUTATED/'
+
+# 591: a turned-down uploaded start picture is made (and priced) again
+test_mutation 591 "redo plan: a rejected uploaded start is paid for" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_redo_with_feedback.py::test_the_plan_of_a_redo_lists_the_paid_stills_its_child_would_submit" \
+    sed -i 's/^        if shot_id not in self\.pre_approved_stills or self\.state\.shot_decisions\.get(shot_id) == "rejected":$/        if shot_id not in self.pre_approved_stills:  # MUTATED/'
+
+# 592: an end-frame shot's redo prices its end picture too
+test_mutation 592 "redo plan: the end picture is priced" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_redo_with_feedback.py::test_the_plan_of_a_redo_lists_the_paid_stills_its_child_would_submit" \
+    sed -i 's/^        if params\.get("end_frame"):$/        if False:  # MUTATED/'
+
+# 593: the run state says why a picture was turned down
+test_mutation 593 "run state reports rejection reasons" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_redo_with_feedback.py::test_the_state_reports_why_a_picture_was_turned_down_until_it_is_redone" \
+    sed -i 's/^            "rejection_reasons": dict(self\.rejection_reasons),$/            "rejection_reasons": {},  # MUTATED/'
+
+# 594: ... only to whoever may see the episode's cast
+test_mutation 594 "rejection reasons only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_why_a_picture_was_turned_down_for_who_may_not_see_the_cast" \
+    sed -i 's/^    if rejection_reasons and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/    if False:  # MUTATED/'
+
+# 595: the redo note is framed as a change request
+test_mutation 595 "redo note framed as a change request" \
+    "web/lib/redo.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
+    sed -i "s/^export const REDO_PREFIX = 'Change requested: ';$/export const REDO_PREFIX = '';  \/\/ MUTATED/"
+
+# 596: a long note is cut to the 1000-character prompt_append limit
+test_mutation 596 "redo note fits the prompt_append limit" \
+    "web/lib/redo.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
+    sed -i 's/^  const fitted = chars\.length > REDO_NOTE_MAX ? .*$/  const fitted = text;  \/\/ MUTATED/'
+
+# 597: the redo sends the price the owner was shown
+test_mutation 597 "redo sends the approved price" \
+    "web/lib/redo.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
+    sed -i 's/^  return { \.\.\.redoEstimateRequest(note), approved_usd_micros: estimate\.total_usd_micros };$/  return { ...redoEstimateRequest(note) };  \/\/ MUTATED/'
+
+# 598: the estimate and the redo send the note
+test_mutation 598 "redo sends the note" \
+    "web/lib/redo.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
+    sed -i 's/^  return prompt_append ? { prompt_append } : {};$/  return {};  \/\/ MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
