@@ -81,6 +81,24 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   await page.getByTestId('reject-shot-S02').click();
   await expectMessage(page, /^Redo requested for picture S02\.$/);
   await expect(page.getByTestId('shot-S02-decision')).toHaveText('rejected');
+
+  // --- the redo takes that note with it, for a price shown before anything is made ---
+  await expect(page.getByTestId('reject-reason-S02')).toHaveValue('framing too loose');
+  await page.getByTestId('retry-shot-S02').click();
+  await expect(page.getByTestId('redo-price-S02')).toHaveText('1 new picture, free: preview mode makes simple stand-in pictures');
+  await expect(page.getByTestId('redo-note-S02')).toHaveText('Your note goes with it: “framing too loose”');
+  await page.getByTestId('redo-confirm-S02').click();
+  await expectMessage(page, /^Making picture S02 again with your note\.$/);
+  await expect(page.getByTestId('redo-estimate-S02')).toHaveCount(0);
+  await expect(page.getByTestId('audit-trail')).toContainText(
+    "Shot S02 retry requested; prompt_append='Change requested: framing too loose.'; approved_usd_micros=60000");
+  await expect(page.getByTestId('still-chip-S02')).toHaveText('Ready to review', { timeout: 60_000 });
+  await expect(page.getByTestId('reject-reason-S02')).toHaveValue('');
+  // turned down again, so the rest of the run goes on as before
+  await page.getByTestId('reject-reason-S02').fill('framing too loose');
+  await page.getByTestId('reject-shot-S02').click();
+  await expectMessage(page, /^Redo requested for picture S02\.$/);
+  await expect(page.getByTestId('shot-S02-decision')).toHaveText('rejected');
   await page.getByTestId('approve-g2').click();
   await expectMessage(page, /^Scene pictures approved\./);
 

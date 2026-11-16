@@ -7,6 +7,10 @@ import type { HiggsfieldBalance } from '@/lib/balance.mjs';
 import { keepPolling, runEndedView } from '@/lib/run-outcome.mjs';
 import type { RunInfo } from '@/lib/run-outcome.mjs';
 import { finishLine, openGate } from '@/lib/next-step.mjs';
+import {
+  REDO_NOTE_MAX, redoEstimateRequest, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
+} from '@/lib/redo.mjs';
+import type { RedoEstimate } from '@/lib/redo.mjs';
 import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
@@ -39,6 +43,7 @@ export interface RunState {
   approvals: Record<string, boolean>;
   shots_count: number;
   shot_decisions: Record<string, string>;
+  rejection_reasons: Record<string, string>; // empty for a viewer who may not see this episode's cast
   pending_retries: string[];
   clip_retries: Record<string, number>;
   pending_clip_retries: string[];
@@ -104,6 +109,7 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
     approvals: raw.approvals ?? {},
     shots_count: raw.shots_count ?? 0,
     shot_decisions: raw.shot_decisions ?? {},
+    rejection_reasons: raw.rejection_reasons ?? {},
     pending_retries: raw.pending_retries ?? [],
     clip_retries: raw.clip_retries ?? {},
     pending_clip_retries: raw.pending_clip_retries ?? [],
@@ -394,6 +400,9 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [pricing, setPricing] = useState<string | null>(null);
+  const [redo, setRedo] = useState<{ sid: string; note: string; estimate: RedoEstimate } | null>(null);
+  const [redoIssue, setRedoIssue] = useState<{ sid: string; text: string } | null>(null);
   const atG2 = openGate(state) === 'G2_SCENE_STILLS';
   const ended = Boolean(state?.run?.ended);
   const approvedAll = Boolean(state?.approvals.g2_scene_stills) || Boolean(state?.passed_gates.includes('G2_SCENE_STILLS'));
@@ -401,6 +410,37 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   const rows = Object.fromEntries(shots.map((s) => [s.shot_id, s]));
   const failed = state ? failedShotIds(state) : [];
   const started = atG2 || approvedAll || ids.length > 0;
+
+  // a redo is paid for: its price (and the note that goes with it) is shown before anything is made
+  const priceRedo = async (sid: string, note: string) => {
+    setRedo(null);
+    setRedoIssue(null);
+    setPricing(sid);
+    try {
+      const estimate = await postJson<RedoEstimate>(`/api/episodes/${episodeId}/shots/${sid}/retry/estimate`,
+        redoEstimateRequest(note));
+      setRedo({ sid, note, estimate });
+    } catch (e) {
+      setRedoIssue({ sid, text: problemText(e) });
+    } finally {
+      setPricing(null);
+    }
+  };
+
+  const makeRedo = async () => {
+    if (!redo) return;
+    const { sid, note, estimate } = redo;
+    const ok = await act(() => postJson(`/api/episodes/${episodeId}/shots/${sid}/retry`, redoRequest(note, estimate)),
+      redoStartedText(sid, note), `Couldn't make picture ${sid} again`);
+    setRedo(null);
+    if (ok) {
+      setReasons((prev) => {
+        const next = { ...prev };
+        delete next[sid];
+        return next;
+      });
+    }
+  };
 
   return (
     <section id="scene-pictures" className={`${card} scroll-mt-4`} data-testid="shots-review" aria-labelledby="scene-pictures-title">
@@ -435,8 +475,9 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const status = ss?.still_status ?? state?.shot_outcomes[sid]?.status ?? null;
             const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation), allApproved: approvedAll });
             const description = row?.beat_purpose || (castHidden ? '' : row?.prompt ?? '');
-            const reason = reasons[sid] ?? '';
+            const note = redoNote(reasons[sid], decision === 'rejected' ? state?.rejection_reasons[sid] : undefined);
             const canDecide = atG2 && !ended && canAct;
+            const confirming = redo?.sid === sid ? redo : null;
             return (
               <li key={sid} data-testid={`still-card-${sid}`}
                 className="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -462,26 +503,62 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       {decision === 'approved' ? 'Approved' : 'Approve'}
                     </button>
                     <label htmlFor={`reject-reason-${sid}`} className="block text-xs font-medium text-gray-700 dark:text-gray-200">
-                      What should change? (needed for a redo)
+                      What should change in this picture?
                     </label>
-                    <input id={`reject-reason-${sid}`} data-testid={`reject-reason-${sid}`} value={reason} className={input}
-                      onChange={(e) => setReasons({ ...reasons, [sid]: e.target.value })} placeholder="e.g. the framing is too loose" />
-                    <button data-testid={`reject-shot-${sid}`} disabled={busy || !reason.trim()} className={`${btnSecondary} w-full`}
-                      onClick={async () => {
+                    <input id={`reject-reason-${sid}`} data-testid={`reject-reason-${sid}`} value={note} className={input}
+                      maxLength={REDO_NOTE_MAX} aria-describedby={`reject-reason-hint-${sid}`}
+                      onChange={(e) => {
+                        setReasons({ ...reasons, [sid]: e.target.value });
+                        if (confirming) setRedo(null);
+                      }}
+                      placeholder="e.g. the framing is too loose" />
+                    <p id={`reject-reason-hint-${sid}`} className="text-xs text-gray-700 dark:text-gray-200">
+                      Your note goes with the redo when this picture is made again.
+                    </p>
+                    <button data-testid={`reject-shot-${sid}`} disabled={busy || !note.trim()} className={`${btnSecondary} w-full`}
+                      onClick={() => {
                         const form = new FormData();
-                        form.append('reason', reason.trim());
-                        const ok = await act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/reject`, { method: 'POST', body: form }),
+                        form.append('reason', note.trim());
+                        return act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/reject`, { method: 'POST', body: form }),
                           `Redo requested for picture ${sid}.`, `Couldn't ask for a redo of picture ${sid}`);
-                        if (ok) setReasons((prev) => ({ ...prev, [sid]: '' }));
                       }}>
                       Ask for a redo
                     </button>
                     {(failed.includes(sid) || decision === 'rejected') && (
-                      <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying} className={`${btnSecondary} w-full`}
-                        onClick={() => act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/retry`, { method: 'POST' }),
-                          `Making picture ${sid} again.`, `Couldn't make picture ${sid} again`)}>
-                        Make this picture again
+                      <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying || pricing !== null}
+                        className={`${btnSecondary} w-full`} onClick={() => priceRedo(sid, note)}>
+                        {pricing === sid ? 'Checking the price…' : 'Make this picture again'}
                       </button>
+                    )}
+                    {redoIssue?.sid === sid && (
+                      <p role="alert" data-testid={`redo-problem-${sid}`} className="text-sm text-red-700 dark:text-red-300">
+                        {redoIssue.text}
+                      </p>
+                    )}
+                    {confirming && (
+                      <div data-testid={`redo-estimate-${sid}`}
+                        className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+                        <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200" data-testid={`redo-price-${sid}`}>
+                          {redoPriceText(confirming.estimate)}
+                        </p>
+                        <p className="mt-1 text-xs text-yellow-900 dark:text-yellow-200" data-testid={`redo-note-${sid}`}>
+                          {redoNoteText(confirming.note)}
+                        </p>
+                        {!confirming.estimate.dry_run && (
+                          <p className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
+                            The studio checks the price, your balance and this video&apos;s budget again before the picture is made.
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button data-testid={`redo-confirm-${sid}`} disabled={busy} className={btnPrimary} onClick={makeRedo}>
+                            Make it again
+                          </button>
+                          <button data-testid={`redo-cancel-${sid}`} disabled={busy} className={btnSecondary}
+                            onClick={() => setRedo(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

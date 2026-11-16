@@ -1,8 +1,8 @@
 """The episode page's pure views (web/lib/*.mjs) under node's test runner, so red-green mutations of
 those files are caught by the Python harness too: what the Next step, the stepper, the finish card and
 the status chips say (next-step.mjs), how an ended or archived run reads and when the page stops
-polling (run-outcome.mjs), and who gets the Cast panel's add form and what a character with a photo
-needs and sends (cast.mjs)."""
+polling (run-outcome.mjs), who gets the Cast panel's add form and what a character with a photo
+needs and sends (cast.mjs), and what a picture redo sends and says it costs (redo.mjs)."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +22,6 @@ def _node_tests(name: str) -> str:
     return proc.stdout
 
 
-@pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs"])
+@pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs"])
 def test_episode_view_node_tests(name):
     _node_tests(name)
