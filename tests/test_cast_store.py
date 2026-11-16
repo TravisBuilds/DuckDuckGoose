@@ -370,9 +370,10 @@ def test_sheet_stages_follow_pick_and_reject():
                                               job_id=f"o{s}", placeholder=False) for s in (1, 2, 3)]
     assert cast_store.get_version(cid, 1)["sheet_stage"] == "options_ready"
     assert cast_store.pick_master(cid, 1, options[1]["image_id"], "t")["sheet_stage"] == "master_picked"
-    for role in (*cast_store.TURNAROUND_ROLES, cast_store.HEAD_ROLE):
-        cast_store.add_generated_image(cid, 1, image_bytes(seed=hash(role) % 1000), role=role, job_id=role,
-                                       placeholder=False)
+    # each view needs bytes of its own: a version keeps one image per sha256, so a view with the
+    # bytes of an option or of another view is stored as that image, not as the view
+    for seed, role in enumerate((*cast_store.TURNAROUND_ROLES, cast_store.HEAD_ROLE), start=10):
+        cast_store.add_generated_image(cid, 1, image_bytes(seed=seed), role=role, job_id=role, placeholder=False)
     assert cast_store.get_version(cid, 1)["sheet_stage"] == "turnaround_ready"
     # picking another master discards the turnaround built from the old one
     assert cast_store.pick_master(cid, 1, options[0]["image_id"], "t")["sheet_stage"] == "master_picked"
