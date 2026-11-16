@@ -532,7 +532,7 @@ function CreateVideoWizard() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Link href="/studio" className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-2 inline-block">
             ← Studio
@@ -542,9 +542,9 @@ function CreateVideoWizard() {
             Create an original short video in minutes. No coding required.
           </p>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {step !== 'review' && errorBox}
 
         {step === 'archetype' && (
@@ -685,8 +685,9 @@ function CreateVideoWizard() {
 
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold mb-2">Target Length</label>
+                <label htmlFor="target-length" className="block text-sm font-semibold mb-2">Target Length</label>
                 <select
+                  id="target-length"
                   value={targetDuration}
                   onChange={(e) => setTargetDuration(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
@@ -701,8 +702,9 @@ function CreateVideoWizard() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold mb-2">Style (optional)</label>
+                <label htmlFor="style-preset" className="block text-sm font-semibold mb-2">Style (optional)</label>
                 <input
+                  id="style-preset"
                   type="text"
                   value={stylePreset}
                   onChange={(e) => setStylePreset(e.target.value)}
@@ -1175,7 +1177,7 @@ function CreateVideoWizard() {
             Advanced: Upload files manually →
           </Link>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

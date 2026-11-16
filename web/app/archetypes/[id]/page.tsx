@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { presets, getPresetById, type PresetData } from '@/lib/presets';
+import { btnPrimary } from '@/lib/ui';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -164,36 +165,16 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
           <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-2">Ready to create?</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Sign up to start generating videos with this archetype. Pricing starts at 340-510 credits per video.
+              Describe your idea and the studio drafts the story and the shots in this style; you approve each
+              step before anything is made. Pricing starts at 340-510 credits per video.
             </p>
-            <div className="flex gap-4">
-              <button
-                disabled
-                className="px-6 py-3 bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 rounded-lg font-semibold cursor-not-allowed"
-              >
-                Create video (coming soon)
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-500 mt-4">
-              TODO: This button will open the brief form when the backend is ready. 
-              Waitlist field below is non-functional in this pass.
+            <Link href={`/studio/create?archetype=${preset.id}`} prefetch={false} className={btnPrimary}
+              data-testid="archetype-create-link">
+              Make a video in this style
+            </Link>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-3">
+              You sign in to the studio first if you are not signed in yet.
             </p>
-            <div className="mt-4">
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  placeholder="Join waitlist (not functional yet)"
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-sm"
-                  disabled
-                />
-                <button
-                  disabled
-                  className="px-4 py-2 bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 rounded-lg text-sm font-semibold cursor-not-allowed"
-                >
-                  Notify me
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>

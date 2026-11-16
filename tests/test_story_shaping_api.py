@@ -108,6 +108,42 @@ def test_get_story_shape(mock_temporal_client, test_story_shape, monkeypatch):
         assert data["approved"] is False
 
 
+async def test_get_story_shape_says_approved_once_the_story_is_approved(mock_temporal_client, test_story_shape, monkeypatch):
+    """GET /story-shape reads approval from the workflow's own get_state (approvals.story_shape)."""
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
+
+    admin_secret = "test-secret-32-chars-minimum-length-required"
+    monkeypatch.setenv("ADMIN_SECRET", admin_secret)
+
+    from fastapi.testclient import TestClient
+    from api.main import app
+    import api.main as api_main
+
+    wf = EpisodeWorkflowV2()
+    wf.story_shape = test_story_shape.model_dump(mode="json")
+    wf.story_shape_critique = {"score": 85, "issues": [], "passes": True}
+    handle = MagicMock()
+
+    async def query(name):
+        assert name == "get_state"
+        return wf.get_state()
+
+    handle.query = query
+    with patch.object(api_main, "temporal_client", mock_temporal_client):
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=handle)
+        client = TestClient(app)
+
+        def approved():
+            res = client.get("/api/episodes/ep99/story-shape", headers={"Authorization": f"Bearer {admin_secret}"})
+            assert res.status_code == 200, res.text
+            return res.json()["approved"]
+
+        assert approved() is False
+        wf.validate_story_shape_approval()
+        assert (await wf.approve_story_shape())["status"] == "approved"
+        assert approved() is True
+
+
 def test_approve_story_shape(mock_temporal_client, monkeypatch):
     """Test POST /api/episodes/{id}/approve with story_shape gate_id."""
     admin_secret = "test-secret-32-chars-minimum-length-required"

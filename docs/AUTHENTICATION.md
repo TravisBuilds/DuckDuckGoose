@@ -36,6 +36,9 @@ Creators who make videos end-to-end. Members can:
 - List files and view stills
 - Run preflight checks
 - View clip plans and resync
+- See the scene pictures' review state, the credit line, the episode's stall alerts and the model
+  limits that the episode page shows (read-only)
+- See who they are signed in as (`GET /api/me`, for the studio's name and role chip)
 - Change their own password
 
 The episode writes above (uploads, start, start again, approvals, retries, reopen, set-live/set-dry,
@@ -48,7 +51,7 @@ Members **cannot**:
 - Manage budget ledgers (`/api/budget/*` routes except read-only episode budget)
 - Create, edit, or delete users
 - Reset other users' passwords
-- Access stalls or lint administration
+- Access the stalls of all episodes (`GET /api/stalls`) or lint administration
 - Set reference versions
 - Approve G108
 - Run canary or smoke tests
@@ -145,6 +148,10 @@ see a cast:
 - The preflight (`POST /api/episodes/{id}/preflight`, read-only) checks the shots' cast only for a
   caller who may see it. Anyone else gets `cast_hidden: true` and no `cast_errors`, which would name
   the cast's characters.
+- The shot states (`GET /api/episodes/{id}/shot-states`, read-only) keep the statuses and the
+  moderation steps for everyone, but the free text that can quote a shot's prompt (still and clip
+  errors, the escalation's provider message and reason, the lint messages) only for a caller who may
+  see the cast. Anyone else gets `cast_hidden: true` and those fields empty.
 - Cast images are only served by `GET /api/cast/images/{image_id}` and `.../thumb`, under the same
   rule as their cast (`401` without a session, `404` for a member who may not see it, checked before
   the file is read or a preview made). They are never served as static files. The `UPLOAD_TOKEN`
@@ -161,7 +168,8 @@ see a cast:
 - `POST /api/auth/set-password` - Set password from invite token
 
 ### Member & Admin Routes
-- `GET /api/episodes` - List all episodes
+- `GET /api/me` - Who is signed in: `user_id`, `name`, `email`, `role` (the shared admin login has no user row: `name` `Admin`, `email` null; `Bearer <ADMIN_SECRET>` also `user_id` null)
+- `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
 - `GET /api/episodes/{id}` - Get episode details
@@ -170,6 +178,10 @@ see a cast:
 - `GET /api/episodes/{id}/story-shape` - Get story shape
 - `PUT /api/episodes/{id}/story-shape` - Update story shape
 - `GET /api/episodes/{id}/budget` - View episode budget estimate (read-only)
+- `GET /api/episodes/{id}/shot-states` - Scene pictures' and clips' review state (free text only for whoever may see the cast)
+- `GET /api/episodes/{id}/credits` - The run's credit line and the recorded Higgsfield balance (read-only; raising the cap stays admin-only)
+- `GET /api/episodes/{id}/stalls` - The episode's stall alerts
+- `GET /api/models` - Model limits
 - `POST /api/episodes/{id}/shots/{shot_id}/approve` - Approve still
 - `POST /api/episodes/{id}/shots/{shot_id}/reject` - Reject still
 - `POST /api/episodes/{id}/shots/{shot_id}/accept-clip` - Accept clip
@@ -229,7 +241,6 @@ see a cast:
 - `GET /api/users/{user_id}` - Get user details
 - `POST /api/users/{user_id}/reset-password` - Reset user password (admin resets others)
 - `GET /api/stalls` - View all stalls
-- `GET /api/episodes/{id}/stalls` - View episode stalls
 - `POST /api/lint` - Lint operations
 - `POST /api/episodes/{id}/lint` - Episode lint
 - `POST /api/episodes/{id}/set-ref-versions` - Set reference versions

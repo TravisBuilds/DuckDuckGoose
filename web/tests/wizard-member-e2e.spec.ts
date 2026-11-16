@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { test, expect, type Response } from '@playwright/test';
+import type { Response } from '@playwright/test';
+import { test, expect } from './e2e-cleanup';
 
 /**
  * Create wizard as a MEMBER against the REAL dry-run backend (scripts/e2e_backend.py seeds the member;

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './e2e-cleanup';
 
 /**
  * Beginner video wizard E2E tests with REAL backend (no API mocks).

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { btnPrimary } from '@/lib/ui';
 
 export default function Header() {
   return (
@@ -25,12 +26,9 @@ export default function Header() {
             </nav>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              className="text-sm px-4 py-2 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-              disabled
-            >
-              Sign in (coming soon)
-            </button>
+            <Link href="/studio" prefetch={false} className={btnPrimary}>
+              Open the studio
+            </Link>
           </div>
         </div>
       </div>

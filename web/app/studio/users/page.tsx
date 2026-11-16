@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 interface User {
   user_id: string;
@@ -147,7 +146,7 @@ export default function UsersPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="py-24 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black dark:border-white mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400">Loading users...</p>
@@ -157,27 +156,15 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold">User Management</h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Manage studio users and permissions
-              </p>
-            </div>
-            <Link
-              href="/studio"
-              className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
-            >
-              ← Back to Studio
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        <h1 className="text-2xl font-bold">Members</h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Manage studio users and permissions
+        </p>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
           <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-200">
             {error}
@@ -345,7 +332,7 @@ export default function UsersPage() {
             ))}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

@@ -1694,32 +1694,63 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     return problems + [f"cast: {e}" for e in cast_problems(episode_id, raw)]
 
 
+@app.get("/api/me")
+async def get_me(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Who is signed in, for the studio shell (name, role chip, admin-only links): user_id, name,
+    email and role of the session. A Bearer ADMIN_SECRET caller has no user: the shared admin."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    role = await get_session_role(studio_admin_token) if studio_admin_token else None
+    if role:
+        user_id = await get_user_id_from_session(studio_admin_token)
+    else:  # verify_auth_unified accepted the Bearer ADMIN_SECRET
+        user_id, role = None, "admin"
+    row = await _studio_row("SELECT name, email FROM users WHERE user_id = ?", (user_id,)) if user_id else None
+    return {
+        "user_id": user_id,
+        "name": row[0] if row else ("Admin" if role == "admin" else None),
+        "email": row[1] if row else None,
+        "role": role,
+    }
+
+
+get_me.allow_members = True
+get_me.read_only = True
+
+
 @app.get("/api/episodes")
 async def list_episodes():
     """
     List all episodes (member or admin).
     
-    Returns episodes from the database with their current status.
+    Returns episodes from the database with their current status and owner: ``user_id`` and
+    ``owner_name`` are None for an episode without an owner (as in episode_owner()).
     """
     
     import aiosqlite
-    from datetime import datetime, timezone
+    from hfvg.users import LEGACY_USER_ID
     
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT episode_id, live_mode, g108_approved, created_at
-            FROM episodes
-            ORDER BY created_at DESC
+            SELECT e.episode_id, e.live_mode, e.g108_approved, e.created_at, e.user_id,
+                   u.name AS owner_name
+            FROM episodes e LEFT JOIN users u ON u.user_id = e.user_id
+            ORDER BY e.created_at DESC
             LIMIT 100
         """) as cursor:
             episodes = []
             async for row in cursor:
+                owned = row["user_id"] not in (None, "", LEGACY_USER_ID)
                 episodes.append({
                     "episode_id": row["episode_id"],
                     "live_mode": bool(row["live_mode"]),
                     "g108_approved": bool(row["g108_approved"]),
-                    "created_at": row["created_at"]
+                    "created_at": row["created_at"],
+                    "user_id": row["user_id"] if owned else None,
+                    "owner_name": row["owner_name"] if owned else None,
                 })
     
     return {"episodes": episodes}
@@ -2428,7 +2459,7 @@ async def get_story_shape(
                 "critique": state.get("story_shape_critique"),
                 "revision": state.get("story_shape_revision"),
                 "log": state.get("story_shape_log"),
-                "approved": state.get("approved_story_shape", False),
+                "approved": bool((state.get("approvals") or {}).get("story_shape")),
             }
         
         raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
@@ -2621,13 +2652,15 @@ async def get_episode_stall_alerts(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """Stall watchdog alerts for one episode. Requires: admin secret OR session cookie."""
-    if studio_admin_token:
-        await verify_admin_cookie(studio_admin_token)
-    else:
-        verify_admin_secret(authorization)
+    """Stall watchdog alerts for one episode (member or admin: the episode page shows them).
+    Requires: admin secret OR session cookie."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     return await _stall_alerts_response(episode_id, status)
+
+
+get_episode_stall_alerts.allow_members = True
+get_episode_stall_alerts.read_only = True
 
 
 @app.post("/api/episodes/{episode_id}/jobs/{job_id}/verdict")
@@ -3529,10 +3562,12 @@ async def get_shots(
     """
     List all shots for an episode with their status.
     
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header OR session cookie. A shot's prompt names the cast, so it is left
+    out (``cast_hidden``) for a caller who may not see this episode's cast, as the shot states do.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     
     import aiosqlite
     
@@ -3553,7 +3588,7 @@ async def get_shots(
                     "clip_url": row[3],
                     "qc_results": qc_results,
                     "retries": row[5],
-                    "prompt": row[6],
+                    "prompt": None if cast_hidden else row[6],
                     "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
                 })
     
@@ -3581,6 +3616,7 @@ async def get_shots(
     return {
         "episode_id": episode_id,
         "shots": shots,
+        "cast_hidden": cast_hidden,
     }
 
 
@@ -6194,6 +6230,10 @@ async def get_models(
     return {"models": models_data, "stale": registry.stale(), "checked": registry.checked}
 
 
+get_models.allow_members = True
+get_models.read_only = True
+
+
 class PreflightRequest(BaseModel):
     """Preflight check request: optional shots (shots.json entries or G1 shot plans) to check instead
     of the episode's uploaded shots.json."""
@@ -7084,6 +7124,10 @@ async def get_credit_status(
             "higgsfield_balance": await _higgsfield_balance_view()}
 
 
+get_credit_status.allow_members = True
+get_credit_status.read_only = True
+
+
 async def _higgsfield_balance_view() -> dict:
     """The manually recorded Higgsfield balance for the credits panel (GC.01 / B8): amount, when it
     was recorded and whether it is recent enough for a live run (HFVG_BALANCE_MAX_AGE_HOURS)."""
@@ -7112,7 +7156,10 @@ async def get_shot_states(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Per-shot child workflow state for review: still / clip status and the G-REC-1 moderation ladder
-    (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable."""
+    (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable.
+    Members read it too (the episode page's scene pictures). The free text (errors, provider and lint
+    messages) can quote a shot's prompt, which names the cast, so it is left out (``cast_hidden``) for
+    a caller who may not see this episode's cast, as the preflight's cast check is."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -7124,6 +7171,7 @@ async def get_shot_states(
         if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error querying workflow: {e}")
+    cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     out: dict[str, dict] = {}
     for shot_id, wf_id in sorted((state.get("shot_workflow_ids") or {}).items()):
         try:
@@ -7132,21 +7180,28 @@ async def get_shot_states(
             out[shot_id] = {"available": False, "workflow_id": wf_id, "reason": str(e)[:200]}
             continue
         moderation = child.get("moderation") or {}
+        escalation = child.get("moderation_escalation")
+        if cast_hidden and escalation:
+            escalation = {k: escalation.get(k) for k in ("kind", "steps", "blocked_job_id")}
         out[shot_id] = {
             "available": True,
             "workflow_id": wf_id,
             "still_status": child.get("still_status"),
             "clip_status": child.get("clip_status"),
-            "still_error": child.get("still_error"),
-            "clip_error": child.get("clip_error"),
+            "still_error": None if cast_hidden else child.get("still_error"),
+            "clip_error": None if cast_hidden else child.get("clip_error"),
             "moderation": {phase: {"steps": list((m or {}).get("steps") or []),
                                    "retry": (m or {}).get("retry")}
                            for phase, m in moderation.items()},
-            "moderation_escalation": child.get("moderation_escalation"),
+            "moderation_escalation": escalation,
             "pre_approved": bool(child.get("pre_approved")),
-            "moderation_lint": child.get("moderation_lint") or {},
+            "moderation_lint": {} if cast_hidden else child.get("moderation_lint") or {},
         }
-    return {"episode_id": episode_id, "shots": out}
+    return {"episode_id": episode_id, "shots": out, "cast_hidden": cast_hidden}
+
+
+get_shot_states.allow_members = True
+get_shot_states.read_only = True
 
 
 # Cast library (series, characters, reference uploads, character sheets): api/cast_routes.py

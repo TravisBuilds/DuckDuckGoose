@@ -171,11 +171,11 @@ async def test_another_member_cannot_see_the_cast_and_admins_can_change_it(studi
     assert view.status_code == 404 and view.json()["detail"] == HIDDEN
     assert owner.get(_base()).json()["can_edit"] is True
     assert other.get(image["url"]).status_code == 404
-    for who in ("admin", "bearer"):
+    for seed, who in enumerate(("admin", "bearer"), start=1):
         client = _client(studio, who)
         assert client.get(_base()).json()["can_edit"] is True
         assert client.get(image["url"]).status_code == 200
-        assert _upload(client, pip, data=image_bytes(seed=hash(who) % 100)).status_code == 200
+        assert _upload(client, pip, data=image_bytes(seed=seed)).status_code == 200
 
 
 async def test_a_series_cast_needs_the_series_owner(studio):

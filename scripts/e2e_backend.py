@@ -12,6 +12,8 @@ so the browser drives exactly the code paths the studio uses in production, minu
 
 Usage:  ADMIN_SECRET=<32+ chars> python scripts/e2e_backend.py [--port 8000] [--workdir DIR]
 Readiness: GET http://127.0.0.1:<port>/api/health returns 200 once the worker and API are up.
+Cleanup: POST /api/e2e/end-open-runs (admin, this launcher only) ends every run still open; the
+Playwright specs call it after each test (web/tests/e2e-cleanup.ts).
 """
 from __future__ import annotations
 
@@ -38,6 +40,30 @@ def _prepare_env(workdir: Path) -> None:
         os.environ.pop(key)  # belt and braces: no provider credentials reach the dry run
     os.chdir(workdir)  # dry-run outputs and reports are written relative to the cwd
     sys.path.insert(0, str(REPO))
+
+
+def _add_cleanup_route(app, client) -> None:
+    """POST /api/e2e/end-open-runs: terminate every workflow still running and list their ids.
+
+    The e2e users share one account, and an account runs one episode at a time (run_lock). A test
+    that fails half-way would leave its run open and fail every later spec that starts one; once its
+    run is terminated, the next start reclaims the lock. Admin-only, like every route the API does
+    not open up, and registered by this launcher only: the production app has no such route.
+    """
+    from temporalio.service import RPCError
+
+    @app.post("/api/e2e/end-open-runs")
+    async def end_open_runs() -> dict:
+        running = [wf async for wf in client.list_workflows('ExecutionStatus="Running"')]
+        ended = []
+        for wf in sorted(running, key=lambda w: "-shot-" in w.id):  # episodes first: their shots end with them
+            try:
+                await client.get_workflow_handle(wf.id, run_id=wf.run_id).terminate(
+                    reason="e2e cleanup: the test ended with this run still open")
+            except RPCError:
+                continue  # it ended in the meantime
+            ended.append(wf.id)
+        return {"ended": ended}
 
 
 async def _main(port: int) -> None:
@@ -92,6 +118,7 @@ async def _main(port: int) -> None:
 
             api_main.TEMPORAL_ADDRESS = target
             api_main.TEMPORAL_NAMESPACE = env.client.namespace
+            _add_cleanup_route(api_main.app, env.client)
             print(f"[e2e-backend] temporal dev server {target}; worker on {config.TASK_QUEUE}; "
                   f"api on :{port}; workdir {os.getcwd()}", flush=True)
             server = uvicorn.Server(uvicorn.Config(api_main.app, host="127.0.0.1", port=port, log_level="info"))
