@@ -67,6 +67,15 @@ def _cabin_and_umbrella(library=LIB, photos=True):
     return cabin, umbrella, prop_photo(cabin, seed=1, color=(40, 60, 220)), prop_photo(umbrella, seed=2)
 
 
+def _parse_refusal(episode: str = EP) -> str:
+    """Why the run's parse refuses the episode's shots.json ("" when it plans)."""
+    try:
+        load_shot_plans(episode, require=True)
+    except ShotDataError as e:
+        return str(e)
+    return ""
+
+
 def _meta(**kw) -> dict:
     meta = {"count": 1, "exterior": False, "water": False, "characters": [],
             "props": [{"slug": "harbour-cabin", "kind": "place", "name": "Harbour cabin", "clause": CABIN},
@@ -212,9 +221,8 @@ def test_unknown_ids_and_the_wrong_kind_refuse_the_plan():
     ]
     for shot, problem in cases:
         _write([shot], {"A01": []})
-        with pytest.raises(ShotDataError, match="Props & places|pick it as"):
-            load_shot_plans(EP, require=True)
         assert cast_plan.cast_problems(EP, {"shots": [shot]}) == [problem]
+        assert problem in _parse_refusal()
 
 
 def test_a_series_episode_uses_the_series_props():
