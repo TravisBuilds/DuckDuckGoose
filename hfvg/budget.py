@@ -362,7 +362,15 @@ class BudgetLedger:
                 CREATE INDEX IF NOT EXISTS idx_balance_alerts_dedupe
                 ON balance_alerts(dedupe_key, sent_at_unix)
             """)
-            
+
+            # Actual provider charges next to the estimate, run attribution, balance readings and
+            # alert delivery records (docs/ACTUAL-COSTS.md); additive, then the one-off backfill.
+            from hfvg.actual_costs import backfill_job_costs, ensure_cost_schema
+            from hfvg.balance_notifier import ensure_alert_columns
+            await ensure_cost_schema(db)
+            await ensure_alert_columns(db)
+            await backfill_job_costs(db)
+
             await db.commit()
 
     # ------------------------------------------------------------------ line setup
@@ -772,7 +780,8 @@ class BudgetLedger:
     async def commit(self, episode_id: str, line_name: str, reserved_usd_micros: int,
                      actual_usd_micros: int | None = None, job_id: str | None = None,
                      reason: str = "", characters: int | None = None,
-                     credits: float | None = None, cost_source: str | None = None) -> bool:
+                     credits: float | None = None, cost_source: str | None = None,
+                     provider_charge=None) -> bool:
         """
         Commit actual spend: release the hold, add the ACTUAL cost to spent.
 
@@ -783,6 +792,8 @@ class BudgetLedger:
         Idempotent per job id: a second commit/release for a job already finalized is a no-op.
 
         characters / credits / cost_source (G-AUD-COST) are stored on the job row when given.
+        provider_charge (hfvg.actual_costs.Charge) is the provider-reported charge, stored in the
+        same transaction as the commit.
 
         Returns:
             True if applied, False if the job was already finalized (no-op).
@@ -846,6 +857,10 @@ class BudgetLedger:
                             cost_source = COALESCE(?, cost_source)
                         WHERE job_id = ?
                     """, (actual, now, characters, credits, cost_source, job_id))
+                    if provider_charge is not None:
+                        from hfvg.actual_costs import charge_update
+                        sql, params = charge_update(provider_charge, job_id, recorded_at=now)
+                        await db.execute(sql, params)
                     await self._finalize_round_hold(db, job_id, "committed", actual)
                 await db.commit()
                 return True
@@ -1096,7 +1111,10 @@ class BudgetLedger:
 
     async def record_job(self, episode_id: str, job_id: str, shot_id: str | None, model: str,
                          tier: str, line_name: str, usd_micros: int, user_id: str | None = None) -> bool:
-        """Insert the per-job ledger row once the provider returned a job id (idempotent)."""
+        """Insert the per-job ledger row once the provider returned a job id (idempotent).
+
+        The reservation is also stored as the job's estimate (estimate_source "reservation"): for
+        Higgsfield it is the provider's estimate; ElevenLabs replaces it with the price estimate."""
         if tier not in ("draft", "final", "retry", "revision"):
             raise ValueError(f"tier must be draft/final/retry/revision, got {tier!r}")
         _require_int("usd_micros", usd_micros, positive=True)
@@ -1112,9 +1130,10 @@ class BudgetLedger:
             cursor = await db.execute("""
                 INSERT OR IGNORE INTO job_ledger
                 (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, status,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
-            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, now, now))
+                 created_at, updated_at, estimate_usd_micros, estimate_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, 'reservation')
+            """, (job_id, episode_id, shot_id, model, tier, line_name, usd_micros, user_id, now, now,
+                  usd_micros))
             await db.commit()
             return cursor.rowcount == 1
 

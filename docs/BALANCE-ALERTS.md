@@ -18,8 +18,45 @@ Each balance is labeled with:
 Balance checks run:
 
 1. **Before any paid stage** (preflight gate): Blocks when `known_balance < estimate + reserve%`
-2. **Periodically** via Temporal schedule (default: hourly, when enabled)
-3. **On demand** via CLI (`hfvg balance`) or API (`GET /api/balance`)
+2. **On a schedule**: the worker keeps the Temporal schedule `hfvg-balance-check-schedule`
+   (workflow `BalanceCheckWorkflow`, default every 360 minutes, `BALANCE_CHECK_INTERVAL_MINUTES`;
+   `BALANCE_CHECK_SCHEDULE_ENABLED=false` removes it). Each run syncs the Higgsfield usage report
+   ([ACTUAL-COSTS.md](./ACTUAL-COSTS.md)), reads every balance, sends low / critical / stale alerts
+   and checks the manual Higgsfield entry (below). It spends nothing and is skipped in `DRY_RUN`.
+3. **On demand** via CLI (`hfvg balance`), API (`GET /api/budget/all-balances`,
+   `POST /api/balance/check`) or **Check now** on the master dashboard
+
+### Stored readings
+
+Every read is stored in `provider_balance_readings` with its time, source (`live`, `derived`,
+`manual`), why it was read (`preflight`, `schedule`, `on_demand`) and any error, so a failed read
+is visible instead of looking like an unchanged balance. The master dashboard shows the latest
+readings with their age, the manual entry with the remaining figure, and when the scheduled check
+last ran (a warning when it is overdue by more than twice the interval or disabled). `DRY_RUN`
+reads mock data and stores nothing.
+
+### Higgsfield: why the reading did not move
+
+Higgsfield has no balance API: the API bills a USD balance on the API console, and the studio's
+figure is the admin's manual entry minus the studio's spend since it (the larger of the ledger's
+committed spend and the usage report's). Before this change the reading could not move:
+
+* the dashboard showed the manual entry itself ("Manual Balance"), not the remaining figure, so it
+  only changed when someone typed a new entry;
+* the usage cross-check parsed `usage[].data[].usd`, a shape `/models/usage` does not return (it
+  returns `time_series[].results[].cost`), so provider-reported spend always read as nothing.
+
+Both are fixed. The usage figure is read for the hours since the entry (`timeframe=hour`, starting
+at the entry, `bound_to_timeframe=false`) and reused for `HIGGSFIELD_USAGE_CACHE_SECONDS` (default
+300) per entry; if it fails the ledger figure is used, as before.
+
+A figure that still does not move after spend means the entry is copied from the wrong place. A
+balance in **credits** (such as a web app subscription's credits) is a different wallet than the
+API's USD balance and is not drawn down by API calls; a different organisation or personal account
+than the one owning `HIGGSFIELD_API_KEY` has the same effect. Each scheduled check compares the last
+two manual entries: when they are equal although at least $1.00 of Higgsfield spend was committed
+between them, it sends an **unchanged balance** alert and the dashboard warns. Enter the USD
+balance shown on the API console's billing page for the account that owns the API key.
 
 ### Preflight Gate
 
@@ -39,6 +76,7 @@ Alerts fire on:
 - **Low balance**: Balance < threshold (default $10)
 - **Critical balance**: Balance < critical threshold (default $5)
 - **Stale manual entry**: Higgsfield manual balance > max age (default 24h)
+- **Unchanged balance entry**: two Higgsfield entries are equal although spend happened between them
 - **403 Insufficient Balance**: Provider returned 403; workflow paused
 - **Auto top-up failure**: Balance didn't recover after expected auto reload
 - **Spend summary**: Daily/monthly spend summary (optional, with configurable ceiling)
@@ -48,13 +86,36 @@ Alerts fire on:
 Alerts are sent through:
 
 1. **Email**: SMTP (configured via env vars)
-2. **Webhook**: HTTP POST (e.g., Slack incoming webhook)
-3. **Logs**: Always logged to `hfvg.balance_notifier`
-4. **Database**: Recorded in `balance_alerts` table
+2. **Webhook**: HTTP POST of JSON (`text` and `attachments` for Slack, plus an `alert` object for
+   any other receiver)
+3. **Logs**: Always logged to `hfvg.balance_notifier`. The webhook URL is a secret and never
+   reaches the logs: the API and the worker keep the HTTP client loggers (`httpx`, `httpcore`)
+   at WARNING and cut any URL they still log to scheme and host (`hfvg/log_safety.py`)
+4. **Database**: Recorded in `balance_alerts` with the destinations tried and each outcome
+   (`sent`, the redacted error, or `already sent at <time>` for a destination that delivered it
+   earlier in the window) and whether this attempt delivered it
+
+The destination is read from the process environment when an alert is sent (the API and the worker
+both send alerts, so set it for both). With no destination (or only incomplete settings) the alert
+is recorded as not delivered and the master dashboard shows a warning; incomplete settings are
+listed there too.
+
+Admins can send a **test alert** from the master dashboard (`POST /api/alerts/test`; the
+destination summary is `GET /api/alerts/status`, with the recipients masked and only the webhook's
+host shown). The result per destination is shown next to the button and in the recent alerts list.
 
 ### Deduplication
 
-Alerts are deduplicated by `(alert_type, subject)` within a configurable window (default 1 hour). The same alert won't be sent twice within the window.
+Alerts are deduplicated by alert type, subject, episode / job (for 403s) and the set of
+destinations, within a configurable window (default 1 hour). Delivery is tracked per
+destination: one that delivered the alert is not sent it again within the window (counted from
+that delivery), but:
+
+- a destination whose delivery failed does not count: the next check retries it, and only it
+  (when email fails and the webhook delivers, or the other way round, the next check sends the
+  failed one again and records the other as `already sent at <time>`);
+- a newly configured destination is not held back by an alert recorded before it existed;
+- a test alert is held back for 30 seconds only.
 
 ## Configuration
 
@@ -75,13 +136,19 @@ HFVG_BALANCE_MAX_AGE_HOURS=24                 # Max age for manual Higgsfield en
 HIGGSFIELD_AUTO_TOPUP_ENABLED=false           # Set to 'true' if Higgsfield auto top-up is ON
 ELEVENLABS_AUTO_TOPUP_ENABLED=false           # Set to 'true' if ElevenLabs auto top-up is ON
 
-# Email alerts (SMTP)
+# Scheduled balance check (Temporal schedule hfvg-balance-check-schedule, kept by the worker)
+BALANCE_CHECK_SCHEDULE_ENABLED=true           # false removes the schedule
+BALANCE_CHECK_INTERVAL_MINUTES=360            # Minutes between checks (default 360)
+
+# Email alerts (SMTP): HOST and TO required; USER and PASSWORD go together
 BALANCE_ALERT_SMTP_HOST=smtp.example.com      # SMTP server hostname
-BALANCE_ALERT_SMTP_PORT=587                   # SMTP port (default 587 for STARTTLS)
+BALANCE_ALERT_SMTP_PORT=587                   # SMTP port (default 587, or 465 with SMTP_SSL)
 BALANCE_ALERT_SMTP_USER=alerts@example.com    # SMTP username
 BALANCE_ALERT_SMTP_PASSWORD=                  # SMTP password (use secrets manager)
 BALANCE_ALERT_SMTP_FROM=alerts@example.com    # From address (default: SMTP_USER)
 BALANCE_ALERT_SMTP_TO=ops@example.com,team@example.com  # Comma-separated recipient list
+BALANCE_ALERT_SMTP_SSL=false                  # true: implicit TLS (port 465)
+BALANCE_ALERT_SMTP_STARTTLS=true              # STARTTLS on a plain connection (default true)
 
 # Webhook alerts (e.g., Slack incoming webhook)
 BALANCE_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
@@ -219,8 +286,7 @@ Set these env vars to test balance checks without live provider calls:
 ```bash
 export DRY_RUN=true
 export ELEVENLABS_API_KEY=test-key-not-real
-export HIGGSFIELD_API_ID=test-id
-export HIGGSFIELD_API_SECRET=test-secret
+export HIGGSFIELD_API_KEY=test-id:test-secret  # format id:secret
 ```
 
 In dry-run mode:
@@ -290,10 +356,14 @@ curl -X POST http://localhost:8000/api/budget/balance \
 **Symptom**: No emails or webhook notifications
 
 **Debug**:
-1. Check logs for delivery errors: `grep "balance_notifier" <log-file>`
-2. Verify SMTP/webhook config in `.env`
-3. Check deduplication: same alert within 1 hour is suppressed
-4. Test SMTP manually:
+1. Open the master dashboard: the alerts panel shows the configured destination (or a warning
+   when there is none or it is incomplete) and each recent alert's outcome per destination
+2. Press **Send test alert** and read the result
+3. Check logs for delivery errors: `grep "balance_notifier" <log-file>`
+4. Verify SMTP/webhook config in `.env` for both the API and the worker (restart them after a change)
+5. Check deduplication: a destination that delivered an alert is not sent it again within the
+   window (1 hour by default); a destination that failed is retried at the next check
+6. Test SMTP manually:
    ```python
    import smtplib
    server = smtplib.SMTP("smtp.example.com", 587)

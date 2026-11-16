@@ -405,4 +405,5 @@ class KlingVideoProvider(GenerationProvider):
             output_url=output_url,
             cost=cost,
             error=data.get("error"),
+            raw=data,
         )

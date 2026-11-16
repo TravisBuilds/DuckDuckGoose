@@ -8,13 +8,16 @@ Each provider has different APIs and monitoring strategies:
   
 - **Higgsfield**: No live balance endpoint. Estimated remaining = manual entry - max(harness
   ledger committed spend, /models/usage reported spend). Both numbers are shown; disagreement
-  is flagged.
+  is flagged. The usage figure is the whole account's spend since the entry (every API key),
+  cached for HIGGSFIELD_USAGE_CACHE_SECONDS so back-to-back preflights do not refetch it.
 
 Balance checks run:
 1. Before any paid stage (preflight gate): block when known balance < estimate + reserve
-2. On demand via CLI (`hfvg balance`) or API (GET /api/balance)
+2. On a schedule (BalanceCheckWorkflow, BALANCE_CHECK_INTERVAL_MINUTES), which also fires alerts
+3. On demand via CLI (`hfvg balance`) or API (GET /api/budget/all-balances)
 
-All balance data is labeled 'live', 'derived', or 'manual' with age in seconds.
+All balance data is labeled 'live', 'derived', or 'manual' with age in seconds, and every reading
+is stored with its timestamp in provider_balance_readings (shown on the master dashboard).
 """
 
 from __future__ import annotations
@@ -43,6 +46,14 @@ ELEVENLABS_AUTO_TOPUP_ENABLED = os.getenv("ELEVENLABS_AUTO_TOPUP_ENABLED", "fals
 # Alert thresholds
 BALANCE_LOW_THRESHOLD_USD = float(os.getenv("BALANCE_LOW_THRESHOLD_USD", "10.0"))
 BALANCE_CRITICAL_THRESHOLD_USD = float(os.getenv("BALANCE_CRITICAL_THRESHOLD_USD", "5.0"))
+
+USAGE_CACHE_SECONDS_ENV = "HIGGSFIELD_USAGE_CACHE_SECONDS"
+DEFAULT_USAGE_CACHE_SECONDS = 300
+CHECK_INTERVAL_ENV = "BALANCE_CHECK_INTERVAL_MINUTES"
+DEFAULT_CHECK_INTERVAL_MINUTES = 360
+CHECK_SCHEDULE_ENABLED_ENV = "BALANCE_CHECK_SCHEDULE_ENABLED"
+# An entry equal to the previous one after at least this much committed spend is suspicious.
+UNCHANGED_ENTRY_MIN_SPEND_MICROS = 1_000_000
 
 
 BalanceSource = Literal["live", "derived", "manual"]
@@ -90,8 +101,18 @@ class BalanceMonitor:
     def __init__(self, db_path: str):
         self.db_path = db_path
     
-    async def check_all_balances(self) -> BalanceCheckResult:
-        """Check balances for all configured providers."""
+    async def check_all_balances(self, read_for: str = "on_demand") -> BalanceCheckResult:
+        """Check balances for all configured providers (each reading is stored with read_for)."""
+        result = await self._check_all_balances()
+        if os.getenv("DRY_RUN", "true").lower() not in ("true", "1"):
+            for name, label in (("elevenlabs", "ElevenLabs"), ("higgsfield", "Higgsfield")):
+                balance = result.providers.get(name)
+                failure = next((e for e in result.errors if e.startswith(f"{label} balance check failed")), None)
+                await record_balance_reading(self.db_path, name, balance, read_for,
+                                             error=None if balance is not None else failure)
+        return result
+
+    async def _check_all_balances(self) -> BalanceCheckResult:
         timestamp = datetime.now(timezone.utc)
         providers = {}
         warnings = []
@@ -270,14 +291,14 @@ class BalanceMonitor:
         # Get manual balance entry (using existing manual_balance table from budget.py)
         async with aiosqlite.connect(self.db_path) as db:
             row = await (await db.execute(
-                "SELECT balance_usd_micros, set_at FROM manual_balance "
+                "SELECT balance_usd_micros, set_at, id FROM manual_balance "
                 "ORDER BY id DESC LIMIT 1"
             )).fetchone()
         
         if not row:
             raise ValueError("No manual Higgsfield balance entry found (set via POST /api/budget/balance)")
         
-        manual_usd_micros, set_at_iso = row
+        manual_usd_micros, set_at_iso, entry_id = row
         # Parse ISO timestamp to unix timestamp
         from datetime import datetime as dt
         set_at_dt = dt.fromisoformat(set_at_iso.replace("Z", "+00:00"))
@@ -306,20 +327,24 @@ class BalanceMonitor:
         
         ledger_spend = Decimal(ledger_spend_micros) / MICROS_PER_USD
         
-        # Try to get usage from Higgsfield API
-        usage_api_spend = None
-        try:
-            usage_api_spend = await self._check_higgsfield_usage_api(recorded_at)
-        except Exception as e:
-            # Task 8: Log errors (redacted) instead of swallowing them
-            # Redact sensitive data from error message
-            error_msg = str(e)
-            # Redact API keys and tokens
-            import re
-            error_msg = re.sub(r'Key [^:]+:[^\s,]+', 'Key [REDACTED]', error_msg)
-            error_msg = re.sub(r'Bearer [^\s,]+', 'Bearer [REDACTED]', error_msg)
-            import logging
-            logging.getLogger(__name__).warning(f"Higgsfield usage API check failed: {error_msg}")
+        # Try to get usage from Higgsfield API (a recent reading for the same entry is reused)
+        usage_api_spend, usage_checked_at = await self._cached_usage_spend(entry_id)
+        usage_error = None
+        if usage_api_spend is None:
+            try:
+                usage_api_spend = await self._check_higgsfield_usage_api(recorded_at)
+                usage_checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            except Exception as e:
+                # Task 8: Log errors (redacted) instead of swallowing them
+                # Redact sensitive data from error message
+                error_msg = str(e)
+                # Redact API keys and tokens
+                import re
+                error_msg = re.sub(r'Key [^:]+:[^\s,]+', 'Key [REDACTED]', error_msg)
+                error_msg = re.sub(r'Bearer [^\s,]+', 'Bearer [REDACTED]', error_msg)
+                import logging
+                logging.getLogger(__name__).warning(f"Higgsfield usage API check failed: {error_msg}")
+                usage_error = error_msg[:300]
         
         # Estimated remaining = manual - max(ledger, usage)
         max_spend = max(ledger_spend, usage_api_spend or Decimal("0.0"))
@@ -328,14 +353,19 @@ class BalanceMonitor:
         details = {
             "manual_entry_usd": str(manual_usd),
             "manual_entry_age_hours": age_seconds / 3600,
+            "manual_entry_id": entry_id,
+            "manual_entry_set_at": set_at_iso,
             "ledger_spend": str(ledger_spend),
         }
         
         if usage_api_spend is not None:
             details["usage_api_spend"] = str(usage_api_spend)
+            details["usage_checked_at"] = usage_checked_at
             details["max_spend"] = str(max_spend)
             if abs(ledger_spend - usage_api_spend) > Decimal("1.0"):
                 details["spend_disagreement"] = True
+        elif usage_error:
+            details["usage_api_error"] = usage_error
         
         return ProviderBalance(
             provider="higgsfield",
@@ -346,52 +376,39 @@ class BalanceMonitor:
         )
     
     async def _check_higgsfield_usage_api(self, since_unix: float) -> Decimal | None:
-        """Query Higgsfield /models/usage for spend since a timestamp."""
-        # Parse HIGGSFIELD_API_KEY (format: "id:secret")
-        api_key = os.getenv("HIGGSFIELD_API_KEY", "").strip()
-        if not api_key:
-            return None
-        
-        if ":" not in api_key:
-            return None
-        
-        api_id, api_secret = api_key.split(":", 1)
-        
-        if not api_id or not api_secret:
-            return None
-        
-        api_base = os.getenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai")
-        url = f"{api_base}/models/usage"
-        
-        # Convert unix timestamp to date range (API requires start/end dates, max 31 days)
-        from datetime import datetime as dt
-        start_date = dt.fromtimestamp(since_unix, tz=timezone.utc).strftime("%Y-%m-%d")
-        end_date = dt.now(timezone.utc).strftime("%Y-%m-%d")
-        
-        # Calculate day span (max 31)
-        days = (dt.now(timezone.utc) - dt.fromtimestamp(since_unix, tz=timezone.utc)).days
-        if days > 31:
-            # Truncate to last 31 days
-            start_date = (dt.now(timezone.utc) - __import__("datetime").timedelta(days=31)).strftime("%Y-%m-%d")
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                url,
-                params={"start": start_date, "end": end_date, "timeframe": "day"},
-                headers={"Authorization": f"Key {api_id}:{api_secret}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        
-        # Sum USD across all models and days
-        total_usd = Decimal("0.0")
-        for model_usage in data.get("usage", []):
-            for day_entry in model_usage.get("data", []):
-                usd = day_entry.get("usd")
-                if usd:
-                    total_usd += Decimal(str(usd))
-        
-        return total_usd
+        """Higgsfield-reported spend of the whole account since a timestamp (GET /models/usage,
+        documented shape time_series[].results[].cost in USD). None without an API key; raises
+        when the report cannot be read (the caller logs it and falls back to the ledger)."""
+        from hfvg.provider_usage import usage_spend_since
+        return await usage_spend_since(datetime.fromtimestamp(since_unix, tz=timezone.utc))
+
+    async def _cached_usage_spend(self, entry_id: int) -> tuple[Decimal | None, str | None]:
+        """The usage figure of a reading taken for the same manual entry within the cache window."""
+        raw = os.getenv(USAGE_CACHE_SECONDS_ENV, str(DEFAULT_USAGE_CACHE_SECONDS)).strip()
+        try:
+            ttl = int(raw)
+        except ValueError:
+            ttl = DEFAULT_USAGE_CACHE_SECONDS
+        if ttl <= 0:
+            return None, None
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                rows = await (await db.execute(
+                    "SELECT details FROM provider_balance_readings WHERE provider = 'higgsfield' "
+                    "AND source = 'derived' ORDER BY id DESC LIMIT 5")).fetchall()
+        except aiosqlite.OperationalError:
+            return None, None
+        now = datetime.now(timezone.utc)
+        for (details_json,) in rows:
+            try:
+                details = json.loads(details_json)
+                checked = datetime.fromisoformat(details["usage_checked_at"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            if details.get("manual_entry_id") == entry_id and (now - checked).total_seconds() <= ttl \
+                    and details.get("usage_api_spend") is not None:
+                return Decimal(details["usage_api_spend"]), details["usage_checked_at"]
+        return None, None
     
     async def _check_single_provider_balance(self, provider: str) -> ProviderBalance | None:
         """Check balance for a single provider (optimized for preflight gates).
@@ -430,6 +447,8 @@ class BalanceMonitor:
         """
         # Check only the provider this step spends from (not all providers)
         balance = await self._check_single_provider_balance(provider)
+        await record_balance_reading(self.db_path, provider, balance, "preflight",
+                                     error=None if balance is not None else "balance check failed or not set up")
         
         # No-op when provider not found or has no recorded balance
         if balance is None:
@@ -486,6 +505,128 @@ class BalanceMonitor:
             await db.commit()
 
 
+_READINGS_TABLE = """CREATE TABLE IF NOT EXISTS provider_balance_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    read_at TEXT NOT NULL,
+    read_for TEXT NOT NULL,
+    source TEXT NOT NULL,
+    balance_usd_micros INTEGER,
+    details TEXT NOT NULL,
+    error TEXT
+)"""
+
+
+async def record_balance_reading(db_path: str, provider: str, balance: ProviderBalance | None,
+                                 read_for: str, error: str | None = None) -> None:
+    """Store one balance reading with its timestamp. Bookkeeping only: never raises, so it can
+    never change what a balance gate decides."""
+    try:
+        if balance is not None:
+            source = balance.source
+            micros = int(balance.balance_usd * MICROS_PER_USD) if balance.balance_usd is not None else None
+            details = balance.details
+            error = error or (balance.details.get("error") if balance.balance_usd is None else None)
+        else:
+            source, micros, details = "error", None, {}
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(_READINGS_TABLE)
+            await db.execute(
+                "INSERT INTO provider_balance_readings (provider, read_at, read_for, source, balance_usd_micros, "
+                "details, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (provider, datetime.now(timezone.utc).isoformat(timespec="seconds"), read_for, source, micros,
+                 json.dumps(details, default=str), error))
+            await db.commit()
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"balance reading for {provider} not recorded: {e}")
+
+
+async def latest_balance_readings(db_path: str, per_provider: int = 5) -> dict[str, list[dict[str, Any]]]:
+    """The newest readings per provider (newest first), for the dashboard."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(_READINGS_TABLE)
+        for provider in ("higgsfield", "elevenlabs"):
+            rows = await (await db.execute(
+                "SELECT read_at, read_for, source, balance_usd_micros, details, error FROM provider_balance_readings "
+                "WHERE provider = ? ORDER BY id DESC LIMIT ?", (provider, per_provider))).fetchall()
+            readings = []
+            for read_at, read_for, source, micros, details, error in rows:
+                try:
+                    parsed = json.loads(details) if details else {}
+                except ValueError:
+                    parsed = {}
+                readings.append({"read_at": read_at, "read_for": read_for, "source": source,
+                                 "balance_usd_micros": micros,
+                                 "balance_usd": micros_to_usd_str(micros) if micros is not None else None,
+                                 "details": parsed, "error": error})
+            out[provider] = readings
+    return out
+
+
+async def manual_balance_consistency(db_path: str) -> dict[str, Any]:
+    """Whether the latest Higgsfield entry equals the previous one although the studio committed
+    Higgsfield spend in between (a number copied from another wallet or a cached page)."""
+    async with aiosqlite.connect(db_path) as db:
+        try:
+            rows = await (await db.execute(
+                "SELECT id, balance_usd_micros, set_at, after_txn_id FROM manual_balance "
+                "ORDER BY id DESC LIMIT 2")).fetchall()
+        except aiosqlite.OperationalError:
+            return {"entries": 0, "unchanged_despite_spend": False}
+        if len(rows) < 2:
+            return {"entries": len(rows), "unchanged_despite_spend": False}
+        (latest_id, latest_bal, latest_at, latest_txn), (prev_id, prev_bal, prev_at, prev_txn) = rows
+        spent = (await (await db.execute(
+            "SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt "
+            "JOIN budget_lines bl ON bt.line_id = bl.line_id "
+            "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? AND bt.txn_id <= ? AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'",
+            (prev_txn, latest_txn))).fetchone())[0]
+    unchanged = latest_bal == prev_bal and spent >= UNCHANGED_ENTRY_MIN_SPEND_MICROS
+    return {"entries": 2, "unchanged_despite_spend": unchanged, "latest_entry_id": latest_id,
+            "balance_usd": micros_to_usd_str(latest_bal), "set_at": latest_at, "previous_set_at": prev_at,
+            "spent_between_usd_micros": spent, "spent_between_usd": micros_to_usd_str(spent)}
+
+
+def balance_check_interval_minutes() -> int:
+    raw = os.getenv(CHECK_INTERVAL_ENV, str(DEFAULT_CHECK_INTERVAL_MINUTES)).strip()
+    try:
+        minutes = int(raw)
+    except ValueError:
+        raise ValueError(f"{CHECK_INTERVAL_ENV} must be a whole number of minutes, got {raw!r}") from None
+    if minutes <= 0:
+        raise ValueError(f"{CHECK_INTERVAL_ENV} must be positive, got {minutes}")
+    return minutes
+
+
+def balance_check_schedule_enabled() -> bool:
+    return os.getenv(CHECK_SCHEDULE_ENABLED_ENV, "true").strip().lower() == "true"
+
+
+async def balance_overview(db_path: str, now: datetime | None = None) -> dict[str, Any]:
+    """Latest readings with their timestamps, the unchanged-entry check, and whether the scheduled
+    check is running (overdue after two missed intervals)."""
+    now = now or datetime.now(timezone.utc)
+    readings = await latest_balance_readings(db_path)
+    consistency = await manual_balance_consistency(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        last = (await (await db.execute(
+            "SELECT MAX(read_at) FROM provider_balance_readings WHERE read_for = 'schedule'")).fetchone())[0]
+    enabled = balance_check_schedule_enabled()
+    try:
+        interval, interval_problem = balance_check_interval_minutes(), None
+    except ValueError as e:
+        interval, interval_problem = None, str(e)
+    dry_run = os.getenv("DRY_RUN", "true").lower() in ("true", "1")
+    overdue = False
+    if enabled and not dry_run and interval:
+        overdue = last is None or (now - datetime.fromisoformat(last)).total_seconds() > 2 * interval * 60
+    return {"readings": readings, "consistency": consistency,
+            "schedule": {"enabled": enabled, "interval_minutes": interval, "problem": interval_problem,
+                         "last_run_at": last, "overdue": overdue, "dry_run": dry_run}}
+
+
 async def init_balance_tables(db_path: str) -> None:
     """Initialize balance monitoring tables."""
     async with aiosqlite.connect(db_path) as db:
@@ -500,5 +641,6 @@ async def init_balance_tables(db_path: str) -> None:
                 recorded_at_unix REAL NOT NULL
             )
         """)
+        await db.execute(_READINGS_TABLE)
         
         await db.commit()

@@ -256,6 +256,7 @@ class EpisodeWorkflowV2:
                 "error": f"Run lock acquisition failed: {str(e)}",
             }
         
+        dropped_by_worker = False
         try:
             if reopen_from is not None:
                 # GAP-41: a reopened episode goes straight back to G_FINAL_CUT with the restored state
@@ -264,18 +265,26 @@ class EpisodeWorkflowV2:
                 episode_id, beatmap_path, dry_run, False, shots_subset, credit_cap, enable_story_shaping
             )
             return result
+        except GeneratorExit:
+            # A stopping worker drops its cached runs without evicting them, and the garbage collector
+            # later closes this coroutine on whatever thread it is on, possibly during another
+            # workflow's activation: a workflow call made now would land in that other workflow.
+            # The run itself releases its lock when it ends on a worker that replays it.
+            dropped_by_worker = True
+            raise
         finally:
-            # Always release lock on exit
-            workflow.logger.info(f"Releasing run lock for {episode_id}...")
-            try:
-                await workflow.execute_activity(
-                    "release_run_lock",
-                    args=[episode_id],
-                    start_to_close_timeout=timedelta(seconds=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-            except Exception as e:
-                workflow.logger.error(f"Failed to release run lock: {e}")
+            if not dropped_by_worker:
+                # Always release lock on exit
+                workflow.logger.info(f"Releasing run lock for {episode_id}...")
+                try:
+                    await workflow.execute_activity(
+                        "release_run_lock",
+                        args=[episode_id],
+                        start_to_close_timeout=timedelta(seconds=10),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception as e:
+                    workflow.logger.error(f"Failed to release run lock: {e}")
     
     async def _run_with_lock(
         self, episode_id: str, beatmap_path: str | None, dry_run: bool,

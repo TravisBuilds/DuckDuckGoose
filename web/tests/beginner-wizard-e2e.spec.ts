@@ -95,8 +95,9 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
       page.getByTestId('make-video-link').click(),
     ]);
 
-    // Verify we're on the wizard page
-    await expect(page.getByText('Make Your Own Video')).toBeVisible({ timeout: 10000 });
+    // Verify we're on the wizard page. After a client-side navigation Next's route announcer
+    // (role="alert") may repeat the page's h1 text, so match the heading itself.
+    await expect(page.getByRole('heading', { name: 'Make Your Own Video', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('live mode button visibility based on server status', async ({ page }) => {
