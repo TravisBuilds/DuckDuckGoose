@@ -183,6 +183,19 @@ export declare function pictureProblem(
 export declare function emptyRights(): RightsAnswers;
 export declare function rightsProblem(answers: RightsAnswers | null | undefined): string | null;
 export declare function rightsFields(answers: RightsAnswers): [string, string][];
+export declare function addForm(
+  view: Pick<CastView, 'can_edit' | 'characters' | 'limits'> | null | undefined,
+): { shown: boolean; first: boolean; title: string };
+export declare function addWithPhotoProblem(
+  name: string | null | undefined,
+  file: { name?: string; type?: string; size?: number } | null | undefined,
+  answers: RightsAnswers | null | undefined,
+  maxBytes?: number | null,
+): string | null;
+export declare function withPictureFields(
+  fields: { name?: string; role?: string; description?: string } | null | undefined,
+  answers: RightsAnswers,
+): [string, string][];
 export declare function versionPictures(version: CastVersion | null | undefined): {
   uploads: CastImage[];
   options: CastImage[];

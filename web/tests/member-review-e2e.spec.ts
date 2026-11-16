@@ -41,6 +41,10 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   await page.getByTestId('preview-button').click();
   await page.waitForURL(`/studio/episodes/${episodeId}`, { timeout: 60_000 });
 
+  // the member owns this video, so its cast takes a character with a photo
+  await expect(page.getByTestId('cast-add-file')).toBeVisible();
+  await expect(page.getByTestId('cast-add-with-photo')).toBeVisible();
+
   // the story comes first
   await expect(page.getByTestId('next-step-title')).toHaveText('Read and approve your story');
   await expect(page.getByTestId('step-story')).toHaveAttribute('data-status', 'current');

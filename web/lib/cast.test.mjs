@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   MAX_CAST_PER_SHOT,
   SHEET_STEP_TEXT,
+  addForm,
+  addWithPhotoProblem,
   anyActiveJobs,
   castEntries,
   castImportBody,
@@ -27,6 +29,7 @@ import {
   shotsWithCast,
   toggleCast,
   versionPictures,
+  withPictureFields,
 } from './cast.mjs';
 
 const MB = 1_048_576;
@@ -71,6 +74,53 @@ test('the rights answers become the upload form fields; consent only counts for 
   ]);
   assert.deepEqual(rightsFields({ rights: 'owned', realPerson: true, likenessConsent: true }), [
     ['rights', 'owned'], ['depicts_real_person', 'true'], ['likeness_consent', 'true'],
+  ]);
+});
+
+test('an empty cast starts from a photo; the add form is only for those who may change the cast', () => {
+  const limits = { max_characters: 2 };
+  const pip = { character_id: 'ch_1', slug: 'pip', name: 'Pip', versions: [] };
+  assert.deepEqual(addForm({ can_edit: true, characters: [], limits }), {
+    shown: true, first: true, title: 'Add a character with a photo',
+  });
+  assert.deepEqual(addForm({ can_edit: true, characters: [pip], limits }), {
+    shown: true, first: false, title: 'Add someone to the cast',
+  });
+  // someone who may only look (a series cast they do not own) gets no form, empty cast or not
+  assert.equal(addForm({ can_edit: false, characters: [], limits }).shown, false);
+  assert.equal(addForm({ can_edit: false, characters: [pip], limits }).shown, false);
+  assert.equal(addForm({ characters: [], limits }).shown, false);
+  // a full cast takes no one else
+  assert.equal(addForm({ can_edit: true, characters: [pip, { ...pip, slug: 'moss' }], limits }).shown, false);
+  assert.equal(addForm(null).shown, false);
+});
+
+test('"Add a character with a photo" needs a photo, a name and the rights answer', () => {
+  const photo = { name: 'pip.png', type: 'image/png', size: 2 * MB };
+  const answered = { rights: 'original', realPerson: false, likenessConsent: false };
+  assert.equal(addWithPhotoProblem('Pip', photo, answered, 15 * MB), null);
+  assert.equal(addWithPhotoProblem('Pip', null, answered, 15 * MB), 'Choose a photo of the character.');
+  assert.equal(addWithPhotoProblem('Pip', { ...photo, type: 'image/gif', name: 'pip.gif' }, answered, 15 * MB),
+    'Pictures must be PNG, JPG or WebP files.');
+  assert.equal(addWithPhotoProblem('Pip', { ...photo, size: 20 * MB }, answered, 15 * MB),
+    'This picture is 20 MB; pictures can be at most 15 MB.');
+  assert.equal(addWithPhotoProblem('   ', photo, answered, 15 * MB), 'Give the character a name.');
+  assert.match(addWithPhotoProblem('Pip', photo, emptyRights(), 15 * MB), /whose picture this is/);
+  assert.match(addWithPhotoProblem('Pip', photo, { ...answered, realPerson: true }, 15 * MB), /real person needs their permission/);
+  assert.equal(addWithPhotoProblem('Pip', photo, { rights: 'owned', realPerson: true, likenessConsent: true }, 15 * MB), null);
+});
+
+test('a character with a photo is sent as one form: the text, then the rights answers', () => {
+  assert.deepEqual(withPictureFields(
+    { name: '  Pip ', role: ' the lead ', description: ' a small round robot ' },
+    { rights: 'owned', realPerson: true, likenessConsent: true },
+  ), [
+    ['name', 'Pip'], ['role', 'the lead'], ['description', 'a small round robot'],
+    ['rights', 'owned'], ['depicts_real_person', 'true'], ['likeness_consent', 'true'],
+  ]);
+  assert.deepEqual(withPictureFields({ name: 'Pip' }, { rights: 'original', realPerson: false, likenessConsent: true }), [
+    ['name', 'Pip'], ['role', ''], ['description', ''],
+    ['rights', 'original'], ['depicts_real_person', 'false'], ['likeness_consent', 'false'],
   ]);
 });
 
