@@ -158,7 +158,7 @@ async def test_props_picked_at_g1_reach_the_still_submit(dry_env, tmp_path, no_c
             assert r["success"] and {"prompt", "shot_meta", "ref_keys", "refs"} <= set(r["changed"]["A01"]), r
             st = await handle.query("get_state")
             assert st["replan_log"] == [{"reason": "props picked", "changed": r["changed"], "preflight_errors": []}]
-            assert st["g1_plan"]["cast"]["A01"]["props"] == [
+            assert (st["g1_plan"].get("cast") or {}).get("A01", {}).get("props") == [
                 {"slug": cabin["slug"], "kind": "place", "name": "Harbour cabin"},
                 {"slug": umbrella["slug"], "kind": "prop", "name": "Red umbrella"}]
             assert st["replanning"] is False
