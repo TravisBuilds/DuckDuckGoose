@@ -538,10 +538,12 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                     {confirming && (
                       <div data-testid={`redo-estimate-${sid}`}
                         className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
-                        <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200" data-testid={`redo-price-${sid}`}>
+                        <p id={`redo-price-${sid}`} data-testid={`redo-price-${sid}`}
+                          className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
                           {redoPriceText(confirming.estimate)}
                         </p>
-                        <p className="mt-1 text-xs text-yellow-900 dark:text-yellow-200" data-testid={`redo-note-${sid}`}>
+                        <p id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}
+                          className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
                           {redoNoteText(confirming.note)}
                         </p>
                         {!confirming.estimate.dry_run && (
@@ -550,10 +552,11 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                           </p>
                         )}
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <button data-testid={`redo-confirm-${sid}`} disabled={busy} className={btnPrimary} onClick={makeRedo}>
+                          <button type="button" data-testid={`redo-confirm-${sid}`} disabled={busy} className={btnPrimary}
+                            aria-describedby={`redo-price-${sid} redo-note-${sid}`} onClick={makeRedo}>
                             Make it again
                           </button>
-                          <button data-testid={`redo-cancel-${sid}`} disabled={busy} className={btnSecondary}
+                          <button type="button" data-testid={`redo-cancel-${sid}`} disabled={busy} className={btnSecondary}
                             onClick={() => setRedo(null)}>
                             Cancel
                           </button>
