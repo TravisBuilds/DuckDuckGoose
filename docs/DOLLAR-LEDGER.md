@@ -38,6 +38,10 @@ refused by the ledger (`TypeError`). Credits are no longer a cap currency.
    Stills have no rate table: no USD in the estimate => refused (fail closed).
 3. Status responses carry credits, not USD, so a completed job commits the held estimate.
 
+What the providers actually charged (ElevenLabs `character-cost` header, Higgsfield usage report) is
+stored per job next to the estimate for the master dashboard; it does not change what the guard holds
+or commits. See [ACTUAL-COSTS.md](./ACTUAL-COSTS.md).
+
 ## Per-job ledger
 
 Table `job_ledger`: job id, shot id, model, tier (`draft|final|retry|revision`), `usd_micros`, status

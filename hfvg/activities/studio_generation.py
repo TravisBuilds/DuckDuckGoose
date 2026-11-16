@@ -1512,6 +1512,12 @@ async def poll_job_status(
                 "provider_message": job_status.error,
             }
         
+        if job_status.status.value == "completed":
+            # A charge in the status body is the job's actual cost (none is documented yet; the
+            # usage report fills the actual otherwise). Bookkeeping only: never fails the poll.
+            from hfvg.actual_costs import record_status_charge
+            await record_status_charge(db_path, job_id, getattr(job_status, "raw", None))
+
         # Return status without taking any budget actions for non-terminal states
         # The workflow will handle commit/release based on terminal status
         return {
@@ -1834,6 +1840,8 @@ async def await_job_enforced(
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed"
                 )
+                from hfvg.actual_costs import record_status_charge
+                await record_status_charge(db_path, job_id, getattr(job_status, "raw", None))
                 
                 # Extract actual cost from provider response and record in visibility columns only
                 from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker
@@ -1942,6 +1950,8 @@ async def await_job_enforced(
                     job_id=job_id,
                     reason=f"{job_type} {shot_id} completed (reconciled)"
                 )
+                from hfvg.actual_costs import record_status_charge
+                await record_status_charge(db_path, job_id, getattr(job_status, "raw", None))
                 
                 # Extract actual cost from provider response and record in visibility columns only
                 from hfvg.cost_tracking import extract_actual_cost_from_provider_job, CostTracker

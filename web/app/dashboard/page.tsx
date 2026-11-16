@@ -1,7 +1,13 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  attributionText, coverageSummary, dashboardCsv, dashboardJson, deliveryText, deltaText, destinationText,
+  formatUsdMicros, pctText, perFinishedText, projectionText, readingLine, sortedWarnings, stageLabel, testAlertText,
+} from "@/lib/cost-dashboard.mjs";
+import type {
+  AlertStatus, BalanceReading, CostGroup, CostWarning, MonthlyProjection, PerFinished, RecordedAlert, SendResult,
+} from "@/lib/cost-dashboard.mjs";
 
 // Format USD value as currency (e.g., "18.1034" -> "$18.10")
 function formatUSD(value: string | number): string {
@@ -14,6 +20,60 @@ function formatUSD(value: string | number): string {
   }).format(num);
 }
 
+interface PersonRef {
+  user_id: string | null;
+  name: string;
+  email: string | null;
+}
+
+interface EpisodeCost extends CostGroup {
+  episode_id: string;
+  providers: Record<string, CostGroup>;
+  person: PersonRef | null;
+  attribution: string;
+  finished: boolean;
+  final_cut_approved_at: string | null;
+  duration_s: number | null;
+}
+
+interface CostTruth {
+  generated_at: string;
+  totals: CostGroup;
+  in_flight: { jobs: number; held_usd_micros: number };
+  by_actual_source: Record<string, number>;
+  by_provider: Array<CostGroup & { provider: string }>;
+  by_stage: Array<CostGroup & { stage: string }>;
+  by_episode: EpisodeCost[];
+  by_person: Array<CostGroup & PersonRef & { episodes: number; attribution: string[] }>;
+  unattributed_usd_micros: Record<string, number>;
+  per_finished: PerFinished;
+  monthly: MonthlyProjection;
+  daily: Array<{ date: string; spend_usd_micros: number; actual_usd_micros: number }>;
+  provider_reported: {
+    month: string;
+    higgsfield_month_usd_micros: Record<"total" | "allocated" | "unmatched" | "other_api_key" | "pending", number>;
+    unmatched_buckets: Array<{ day: string; model: string; unit: string; quantity: string; cost_usd_micros: number; reason: string }>;
+    last_sync: { ran_at: string; ok: boolean; error: string | null; mode: string | null } | null;
+  };
+  rates: {
+    elevenlabs: { usd_per_credit: string; env: string; configured: boolean };
+    higgsfield: { usd_per_credit: string | null; env: string; problem: string | null; note: string };
+  };
+}
+
+interface BalanceOverview {
+  readings: Record<"higgsfield" | "elevenlabs", BalanceReading[]>;
+  consistency: { entries: number; unchanged_despite_spend: boolean };
+  schedule: {
+    enabled: boolean;
+    interval_minutes: number | null;
+    problem: string | null;
+    last_run_at: string | null;
+    overdue: boolean;
+    dry_run: boolean;
+  };
+}
+
 interface DashboardData {
   dry_run: boolean;
   timestamp: string;
@@ -22,16 +82,6 @@ interface DashboardData {
     active_today: number;
     active_7d: number;
     active_30d: number;
-  };
-  spend_summary: {
-    total_estimated_usd: string;
-    total_actual_usd: string;
-    headline_spend_usd: string;
-    headline_label: string;
-    variance_usd: string;
-    variance_percent: number;
-    failed_spend_usd: string;
-    cost_tracking_coverage_percent: number;
   };
   users: Array<{
     user_id: string;
@@ -42,35 +92,10 @@ interface DashboardData {
     job_count: number;
     revision_percent: number;
   }>;
-  episodes: Array<{
-    episode_id: string;
-    user_id: string;
-    actual_usd: string;
-    variance_percent: number;
-  }>;
-  stages: Array<{
-    stage: string;
-    actual_usd: string;
-    estimated_usd: string;
-  }>;
-  providers: Array<{
-    provider: string;
-    actual_usd: string;
-  }>;
   models: Array<{
     model: string;
     actual_usd: string;
   }>;
-  daily_series: Array<{
-    date: string;
-    actual_usd: string;
-  }>;
-  monthly_runrate: {
-    month: string;
-    current_spend_usd: string;
-    daily_rate_usd: string;
-    projected_month_end_usd: string;
-  };
   milestones: Array<{
     message: string;
     reached_at: string;
@@ -78,17 +103,113 @@ interface DashboardData {
   balance_status: {
     manual_balance_usd: string | null;
     set_at: string | null;
+    set_by: string | null;
+    spent_since_entry_usd_micros: number | null;
+    reserved_usd_micros: number | null;
+    balance_remaining_usd_micros: number | null;
   };
+  cost_truth: CostTruth | null;
+  balances: BalanceOverview | null;
+  alerts: { status: AlertStatus; recent: RecordedAlert[] };
+  cost_warnings: CostWarning[];
+}
+
+interface StudioUser {
+  user_id: string;
+  name: string;
+  email: string;
+}
+
+const card = "bg-white dark:bg-gray-800 rounded-lg shadow p-6";
+const h2 = "text-lg font-semibold text-gray-900 dark:text-white";
+const th = "px-3 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider";
+const td = "px-3 py-2 text-sm text-gray-900 dark:text-white";
+const muted = "text-xs text-gray-500 dark:text-gray-400";
+const button = "px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50";
+
+const WARNING_STYLE: Record<string, string> = {
+  error: "bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-800 dark:text-red-200",
+  warning: "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-800 text-yellow-900 dark:text-yellow-100",
+  info: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200",
+};
+
+const COVERAGE_STYLE: Record<string, string> = {
+  none: "text-red-600 dark:text-red-400",
+  partial: "text-yellow-700 dark:text-yellow-300",
+  full: "text-green-700 dark:text-green-400",
+};
+
+async function callApi(path: string, init: RequestInit = {}) {
+  const response = await fetch(path, { method: "POST", credentials: "include", ...init });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || `${path}: HTTP ${response.status}`);
+  return body;
+}
+
+function CostTable({ title, rows, label }: {
+  title: string;
+  rows: Array<CostGroup & { key: string }>;
+  label: string;
+}) {
+  return (
+    <div className={card}>
+      <h2 className={`${h2} mb-1`}>{title}</h2>
+      <p className={`${muted} mb-3`}>
+        Spend is what the provider reported where recorded, the estimate otherwise. The difference only
+        counts jobs that have both numbers.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead>
+            <tr>
+              <th className={`${th} text-left`}>{label}</th>
+              <th className={`${th} text-right`}>Jobs</th>
+              <th className={`${th} text-right`}>Spend</th>
+              <th className={`${th} text-right`}>Provider-reported</th>
+              <th className={`${th} text-right`}>Estimated</th>
+              <th className={`${th} text-right`}>Coverage</th>
+              <th className={`${th} text-right`}>Actual vs estimate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td className={td}>{row.key}</td>
+                <td className={`${td} text-right`}>{row.jobs}</td>
+                <td className={`${td} text-right font-medium`}>{formatUsdMicros(row.spend_usd_micros)}</td>
+                <td className={`${td} text-right`}>
+                  {formatUsdMicros(row.actual_usd_micros)}
+                  {row.backfilled_usd_micros > 0 && (
+                    <span className={`${muted} block`}>{formatUsdMicros(row.backfilled_usd_micros)} backfilled</span>
+                  )}
+                </td>
+                <td className={`${td} text-right`}>{formatUsdMicros(row.estimate_usd_micros)}</td>
+                <td className={`${td} text-right`}>{pctText(row.coverage_pct)}</td>
+                <td className={`${td} text-right`}>{deltaText(row)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td className={`${td} text-gray-500`} colSpan={7}>No committed spend yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<"json" | "csv">("csv");
+  const [studioUsers, setStudioUsers] = useState<StudioUser[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [testAlert, setTestAlert] = useState<SendResult | null>(null);
 
   useEffect(() => {
     fetchDashboard();
+    fetchUsers();
   }, []);
 
   async function fetchDashboard() {
@@ -108,22 +229,64 @@ export default function Dashboard() {
     }
   }
 
+  async function fetchUsers() {
+    try {
+      const response = await fetch("/api/users", { credentials: "include" });
+      if (response.ok) setStudioUsers((await response.json()).users || []);
+    } catch {
+      setStudioUsers([]);
+    }
+  }
+
+  async function runAction(name: string, action: () => Promise<string>) {
+    setBusy(name);
+    setActionMessage(null);
+    try {
+      setActionMessage(await action());
+      await fetchDashboard();
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const checkBalances = () => runAction("balances", async () => {
+    const result = await callApi("/api/balance/check");
+    const problems = [...(result.errors || []), ...(result.warnings || [])];
+    return problems.length ? `Balances read. ${problems.join(" ")}` : "Balances read.";
+  });
+
+  const syncUsage = () => runAction("sync", async () => {
+    const result = await callApi("/api/costs/sync");
+    if (result.skipped) return `Usage sync skipped: ${result.skipped}`;
+    if (!result.ok) return `Usage sync failed: ${result.error}`;
+    return `Usage report read: ${result.rows} rows, ${result.jobs_updated} jobs given provider-reported costs.`;
+  });
+
+  const sendTestAlert = () => runAction("test-alert", async () => {
+    const result: SendResult = await callApi("/api/alerts/test");
+    setTestAlert(result);
+    return testAlertText(result);
+  });
+
+  const assignSpend = (episodeId: string, userId: string) => runAction(`assign-${episodeId}`, async () => {
+    if (userId) {
+      const saved = await callApi(`/api/dashboard/episodes/${encodeURIComponent(episodeId)}/attribution`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      return `${episodeId} spend attributed to ${saved.name || userId}.`;
+    }
+    await callApi(`/api/dashboard/episodes/${encodeURIComponent(episodeId)}/attribution`, { method: "DELETE" });
+    return `${episodeId} spend goes back to automatic attribution.`;
+  });
+
   function exportToCSV() {
     if (!data) return;
 
-    // Export users data
-    const headers = ["User ID", "Name", "Email", "Actual Spend (USD)", "Episodes", "Jobs", "Revision %"];
-    const rows = data.users.map(u => [
-      u.user_id,
-      u.name,
-      u.email || "",
-      u.actual_usd,
-      u.episode_count.toString(),
-      u.job_count.toString(),
-      u.revision_percent.toFixed(1)
-    ]);
-    
-    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const csv = dashboardCsv(data);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -136,7 +299,7 @@ export default function Dashboard() {
   function exportToJSON() {
     if (!data) return;
     
-    const json = JSON.stringify(data, null, 2);
+    const json = dashboardJson(data);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -165,6 +328,14 @@ export default function Dashboard() {
   if (!data) {
     return null;
   }
+
+  const truth = data.cost_truth;
+  const coverage = coverageSummary(truth?.totals);
+  const projection = projectionText(truth?.monthly);
+  const finished = perFinishedText(truth?.per_finished);
+  const warnings = sortedWarnings(data.cost_warnings);
+  const now = Date.now();
+  const maxDaily = Math.max(0, ...(truth?.daily || []).map(d => d.spend_usd_micros));
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
@@ -199,25 +370,367 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Problems the numbers below depend on */}
+        {warnings.length > 0 && (
+          <div className="space-y-2 mb-6" data-testid="cost-warnings">
+            {warnings.map((w) => (
+              <div key={`${w.code}-${w.message}`} className={`border rounded-md px-4 py-2 text-sm ${WARNING_STYLE[w.level] || WARNING_STYLE.info}`}>
+                {w.message}
+              </div>
+            ))}
+          </div>
+        )}
+        {actionMessage && (
+          <div className="mb-6 border rounded-md px-4 py-2 text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-200">
+            {actionMessage}
+          </div>
+        )}
+
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Spend</h3>
+          <div className={card}>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Spend (all committed jobs)</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              {formatUSD(data.spend_summary.headline_spend_usd)} ({data.spend_summary.headline_label || 'estimated'})
+              {truth ? formatUsdMicros(truth.totals.spend_usd_micros) : "—"}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Estimated: {formatUSD(data.spend_summary.total_estimated_usd)}
-            </p>
-            {data.spend_summary.variance_percent !== null && data.spend_summary.variance_percent !== undefined && (
-              <p className={`text-xs mt-1 ${data.spend_summary.variance_percent > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {data.spend_summary.variance_percent > 0 ? '+' : ''}
-                {data.spend_summary.variance_percent}% variance
+            <p className={`text-xs mt-1 ${COVERAGE_STYLE[coverage.tone]}`}>{coverage.text}</p>
+            {truth && truth.in_flight.jobs > 0 && (
+              <p className={muted}>
+                {truth.in_flight.jobs} job(s) in flight holding {formatUsdMicros(truth.in_flight.held_usd_micros)}
               </p>
             )}
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <div className={card}>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Actual vs estimate</h3>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+              {truth ? pctText(truth.totals.delta_pct) : "—"}
+            </p>
+            <p className={`${muted} mt-1`}>{truth ? deltaText(truth.totals) : ""}</p>
+            {truth && (
+              <p className={muted}>
+                Provider-reported {formatUsdMicros(truth.totals.compared_actual_usd_micros)} vs estimated{" "}
+                {formatUsdMicros(truth.totals.compared_estimate_usd_micros)}
+              </p>
+            )}
+          </div>
+
+          <div className={card}>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Month-end projection</h3>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{projection.amount}</p>
+            <p className={`${muted} mt-1`}>{projection.note}</p>
+          </div>
+
+          <div className={card}>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Per finished episode</h3>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{finished.episode}</p>
+            <p className={`${muted} mt-1`}>Per finished minute: {finished.minute}</p>
+            <p className={muted}>{finished.note}</p>
+            {truth?.per_finished.all_spend_per_finished_episode_usd_micros != null && (
+              <p className={muted}>
+                All spend per finished episode:{" "}
+                {formatUsdMicros(truth.per_finished.all_spend_per_finished_episode_usd_micros)}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Balances */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div className={card} data-testid="balances">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className={h2}>Provider balances</h2>
+              <button
+                onClick={checkBalances}
+                disabled={busy !== null}
+                className={`${button} bg-blue-600 text-white hover:bg-blue-700`}
+              >
+                {busy === "balances" ? "Checking…" : "Check now"}
+              </button>
+            </div>
+            {(["higgsfield", "elevenlabs"] as const).map((provider) => {
+              const readings = data.balances?.readings[provider] || [];
+              const latest = readingLine(readings[0], now);
+              return (
+                <div key={provider} className="py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 capitalize">{provider}</span>
+                    <span className={latest.tone === "ok" ? "text-gray-900 dark:text-white" : "text-red-600 dark:text-red-400"}>
+                      {latest.text}
+                    </span>
+                  </div>
+                  <p className={muted}>
+                    {readings[0] ? `Read ${latest.when} (${new Date(readings[0].read_at).toLocaleString()})` : "Never read"}
+                  </p>
+                  {readings.length > 1 && (
+                    <details className="mt-1">
+                      <summary className={`${muted} cursor-pointer`}>Earlier readings</summary>
+                      <ul className="mt-1 space-y-0.5">
+                        {readings.slice(1).map((r) => {
+                          const line = readingLine(r, now);
+                          return (
+                            <li key={`${r.read_at}-${r.read_for}`} className={muted}>
+                              {new Date(r.read_at).toLocaleString()}: {line.text}, {line.when}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+            {data.balance_status.manual_balance_usd && (
+              <p className={`${muted} mt-3`}>
+                Higgsfield manual entry {formatUSD(data.balance_status.manual_balance_usd)}
+                {data.balance_status.set_at && ` set ${new Date(data.balance_status.set_at).toLocaleString()}`}
+                {data.balance_status.set_by && ` by ${data.balance_status.set_by}`}
+                {data.balance_status.balance_remaining_usd_micros != null && (
+                  <>; balance gate: {formatUsdMicros(data.balance_status.balance_remaining_usd_micros)} left for new jobs after committed and in-flight spend since</>
+                )}
+              </p>
+            )}
+            {data.balances && (
+              <p className={`${muted} mt-1`}>
+                Scheduled check:{" "}
+                {data.balances.schedule.enabled
+                  ? `every ${data.balances.schedule.interval_minutes ?? "?"} min, last ${
+                    data.balances.schedule.last_run_at ? new Date(data.balances.schedule.last_run_at).toLocaleString() : "never"}`
+                  : "disabled"}
+              </p>
+            )}
+          </div>
+
+          {/* Alerts */}
+          <div className={card} data-testid="alerts">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className={h2}>Low-balance alerts</h2>
+              <button
+                onClick={sendTestAlert}
+                disabled={busy !== null}
+                className={`${button} bg-gray-700 text-white hover:bg-gray-800`}
+              >
+                {busy === "test-alert" ? "Sending…" : "Send test alert"}
+              </button>
+            </div>
+            <p className={`text-sm ${data.alerts.status.configured ? "text-gray-700 dark:text-gray-300" : "text-red-600 dark:text-red-400"}`}>
+              {destinationText(data.alerts.status)}
+            </p>
+            {testAlert && <p className={`${muted} mt-1`}>Test alert: {testAlertText(testAlert)}</p>}
+            <ul className="mt-3 space-y-1">
+              {data.alerts.recent.map((a) => (
+                <li key={a.id} className="text-sm">
+                  <span className="text-gray-900 dark:text-white">{a.subject}</span>
+                  {a.is_test && <span className={`${muted} ml-1`}>(test)</span>}
+                  <span className={`${muted} block`}>
+                    {new Date(a.sent_at).toLocaleString()}: {deliveryText(a)}
+                  </span>
+                </li>
+              ))}
+              {data.alerts.recent.length === 0 && <li className={muted}>No alert has been recorded yet.</li>}
+            </ul>
+          </div>
+        </div>
+
+        {/* Actual vs estimate */}
+        {truth && (
+          <div className="space-y-8 mb-8">
+            <CostTable
+              title="Actual vs estimate by provider"
+              label="Provider"
+              rows={truth.by_provider.map((p) => ({ ...p, key: p.provider }))}
+            />
+            <CostTable
+              title="Actual vs estimate by stage"
+              label="Stage"
+              rows={truth.by_stage.map((s) => ({ ...s, key: stageLabel(s.stage) }))}
+            />
+
+            <div className={card} data-testid="episodes">
+              <h2 className={`${h2} mb-1`}>Actual vs estimate by episode</h2>
+              <p className={`${muted} mb-3`}>
+                Spend goes to whoever started the run. Runs started with the shared admin login have no person:
+                assign one here (this does not change who may edit the episode).
+              </p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead>
+                    <tr>
+                      <th className={`${th} text-left`}>Episode</th>
+                      <th className={`${th} text-right`}>Spend</th>
+                      <th className={`${th} text-right`}>Higgsfield</th>
+                      <th className={`${th} text-right`}>ElevenLabs</th>
+                      <th className={`${th} text-right`}>Coverage</th>
+                      <th className={`${th} text-right`}>Actual vs estimate</th>
+                      <th className={`${th} text-left`}>Person</th>
+                      <th className={`${th} text-left`}>Assign</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {truth.by_episode.map((ep) => (
+                      <tr key={ep.episode_id}>
+                        <td className={td}>
+                          {ep.episode_id}
+                          {ep.finished && (
+                            <span className={`${muted} block`}>
+                              finished{ep.duration_s ? `, ${(ep.duration_s / 60).toFixed(1)} min` : ""}
+                            </span>
+                          )}
+                        </td>
+                        <td className={`${td} text-right font-medium`}>{formatUsdMicros(ep.spend_usd_micros)}</td>
+                        {(["higgsfield", "elevenlabs"] as const).map((p) => (
+                          <td key={p} className={`${td} text-right`}>
+                            {ep.providers[p] ? (
+                              <>
+                                {formatUsdMicros(ep.providers[p].spend_usd_micros)}
+                                <span className={`${muted} block`}>{pctText(ep.providers[p].coverage_pct)} reported</span>
+                              </>
+                            ) : "—"}
+                          </td>
+                        ))}
+                        <td className={`${td} text-right`}>{pctText(ep.coverage_pct)}</td>
+                        <td className={`${td} text-right`}>{deltaText(ep)}</td>
+                        <td className={td}>
+                          {ep.person?.name || "—"}
+                          <span className={`${muted} block`}>{attributionText(ep.attribution)}</span>
+                        </td>
+                        <td className={td}>
+                          <select
+                            aria-label={`Attribute ${ep.episode_id} spend to`}
+                            disabled={busy !== null}
+                            value={ep.attribution === "assigned" ? ep.person?.user_id || "" : ""}
+                            onChange={(e) => assignSpend(ep.episode_id, e.target.value)}
+                            className="text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600"
+                          >
+                            <option value="">Automatic</option>
+                            {studioUsers.map((u) => (
+                              <option key={u.user_id} value={u.user_id}>{u.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {truth.by_episode.length === 0 && (
+                      <tr><td className={`${td} text-gray-500`} colSpan={8}>No committed spend yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className={card} data-testid="people">
+              <h2 className={`${h2} mb-3`}>Spend by person</h2>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead>
+                    <tr>
+                      <th className={`${th} text-left`}>Person</th>
+                      <th className={`${th} text-right`}>Spend</th>
+                      <th className={`${th} text-right`}>Provider-reported</th>
+                      <th className={`${th} text-right`}>Coverage</th>
+                      <th className={`${th} text-right`}>Episodes</th>
+                      <th className={`${th} text-left`}>Attributed by</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {truth.by_person.map((p) => (
+                      <tr key={p.user_id || "unattributed"}>
+                        <td className={td}>
+                          {p.name}
+                          {p.email && <span className={`${muted} block`}>{p.email}</span>}
+                        </td>
+                        <td className={`${td} text-right font-medium`}>{formatUsdMicros(p.spend_usd_micros)}</td>
+                        <td className={`${td} text-right`}>{formatUsdMicros(p.actual_usd_micros)}</td>
+                        <td className={`${td} text-right`}>{pctText(p.coverage_pct)}</td>
+                        <td className={`${td} text-right`}>{p.episodes}</td>
+                        <td className={`${td} text-gray-500 dark:text-gray-400`}>
+                          {p.attribution.map(attributionText).join(", ")}
+                        </td>
+                      </tr>
+                    ))}
+                    {truth.by_person.length === 0 && (
+                      <tr><td className={`${td} text-gray-500`} colSpan={6}>No committed spend yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Higgsfield usage report */}
+            <div className={card} data-testid="provider-report">
+              <div className="flex justify-between items-center mb-3">
+                <h2 className={h2}>Higgsfield usage report ({truth.provider_reported.month})</h2>
+                <button
+                  onClick={syncUsage}
+                  disabled={busy !== null}
+                  className={`${button} bg-blue-600 text-white hover:bg-blue-700`}
+                >
+                  {busy === "sync" ? "Syncing…" : "Sync now"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                {([
+                  ["Reported", "total"], ["Matched to jobs", "allocated"], ["Unmatched", "unmatched"],
+                  ["Other API keys", "other_api_key"], ["Not settled yet", "pending"],
+                ] as const).map(([label, key]) => (
+                  <div key={key}>
+                    <p className={muted}>{label}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {formatUsdMicros(truth.provider_reported.higgsfield_month_usd_micros[key])}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className={`${muted} mt-3`}>
+                {truth.provider_reported.last_sync
+                  ? `Last read ${new Date(truth.provider_reported.last_sync.ran_at).toLocaleString()}${
+                    truth.provider_reported.last_sync.ok ? "" : `: failed (${truth.provider_reported.last_sync.error})`}`
+                  : "Never read."}{" "}
+                Rates: ElevenLabs ${truth.rates.elevenlabs.usd_per_credit} per credit ({truth.rates.elevenlabs.env});
+                Higgsfield bills in USD{truth.rates.higgsfield.usd_per_credit
+                  ? `, credits at $${truth.rates.higgsfield.usd_per_credit}` : ""}.
+              </p>
+              {truth.provider_reported.unmatched_buckets.length > 0 && (
+                <div className="mt-3">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unmatched provider spend</h3>
+                  <ul className="space-y-0.5">
+                    {truth.provider_reported.unmatched_buckets.map((b) => (
+                      <li key={`${b.day}-${b.model}-${b.unit}`} className={muted}>
+                        {b.day} {b.model}: {b.quantity} × {b.unit}, {formatUsdMicros(b.cost_usd_micros)}. {b.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Daily spend */}
+            <div className={card}>
+              <h2 className={`${h2} mb-4`}>Daily spend (last 30 days with spend)</h2>
+              <div className="h-48 flex items-end gap-1">
+                {truth.daily.map((day) => {
+                  const height = maxDaily > 0 ? (day.spend_usd_micros / maxDaily) * 100 : 0;
+                  const reported = day.spend_usd_micros > 0 ? (day.actual_usd_micros / day.spend_usd_micros) * 100 : 0;
+                  return (
+                    <div
+                      key={day.date}
+                      className="flex-1 bg-blue-200 dark:bg-blue-900 rounded-t relative flex flex-col justify-end"
+                      style={{ height: `${height}%`, minHeight: height > 0 ? "2px" : "0" }}
+                      title={`${day.date}: ${formatUsdMicros(day.spend_usd_micros)} (${formatUsdMicros(day.actual_usd_micros)} provider-reported)`}
+                    >
+                      <div className="bg-blue-600 rounded-t" style={{ height: `${reported}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <p className={`${muted} mt-2`}>Dark: provider-reported. Light: estimates.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Users */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className={card}>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Users</h3>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
               {data.user_stats.active_7d}
@@ -229,186 +742,14 @@ export default function Dashboard() {
               Today: {data.user_stats.active_today} | 30d: {data.user_stats.active_30d}
             </p>
           </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Monthly Projection</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              {formatUSD(data.monthly_runrate.projected_month_end_usd)}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Current: {formatUSD(data.monthly_runrate.current_spend_usd)}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Daily rate: {formatUSD(data.monthly_runrate.daily_rate_usd)}
-            </p>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Cost Accuracy</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-              {data.spend_summary.cost_tracking_coverage_percent}%
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Tracking coverage
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Failed: {formatUSD(data.spend_summary.failed_spend_usd)}
-            </p>
-          </div>
-        </div>
-
-        {/* Daily Spend Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Daily Spend (Last 30 Days)
-          </h2>
-          <div className="h-64 flex items-end gap-1">
-            {data.daily_series.map((day, i) => {
-              const maxSpend = Math.max(...data.daily_series.map(d => parseFloat(d.actual_usd)));
-              const height = maxSpend > 0 ? (parseFloat(day.actual_usd) / maxSpend) * 100 : 0;
-              
-              return (
-                <div
-                  key={day.date}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 rounded-t transition-colors relative group"
-                  style={{ height: `${height}%`, minHeight: height > 0 ? '2px' : '0' }}
-                  title={`${day.date}: ${formatUSD(day.actual_usd)}`}
-                >
-                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                    {day.date}<br/>{formatUSD(day.actual_usd)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2">
-            <span>{data.daily_series[0]?.date}</span>
-            <span>{data.daily_series[data.daily_series.length - 1]?.date}</span>
-          </div>
-        </div>
-
-        {/* Top Spenders */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Top Spenders
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead>
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Spend
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Episodes
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Jobs
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Revision %
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {data.users.slice(0, 10).map((user) => (
-                  <tr key={user.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {user.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {user.email || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white text-right font-medium">
-                      {formatUSD(user.actual_usd)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-right">
-                      {user.episode_count}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-right">
-                      {user.job_count}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right">
-                      <span className={`inline-block px-2 py-1 rounded text-xs ${
-                        user.revision_percent > 70 ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200' :
-                        user.revision_percent > 40 ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200' :
-                        'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
-                      }`}>
-                        {user.revision_percent.toFixed(1)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Stage & Provider Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Spend by Stage
-            </h2>
-            <div className="space-y-3">
-              {data.stages.filter(s => parseFloat(s.actual_usd) > 0).map((stage) => (
-                <div key={stage.stage}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-700 dark:text-gray-300 capitalize">
-                      {stage.stage.replace(/_/g, ' ')}
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatUSD(stage.actual_usd)}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{
-                        width: `${(parseFloat(stage.actual_usd || stage.estimated_usd) / (parseFloat(data.spend_summary.headline_spend_usd) || 1) * 100).toFixed(1)}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Spend by Provider
-            </h2>
-            <div className="space-y-4">
-              {data.providers.map((provider) => (
-                <div key={provider.provider}>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-700 dark:text-gray-300 capitalize">
-                      {provider.provider}
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatUSD(provider.actual_usd)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Top Models
-                </h3>
-                {data.models.slice(0, 5).map((model) => (
-                  <div key={model.model} className="flex justify-between text-sm py-1">
-                    <span className="text-gray-600 dark:text-gray-400">{model.model}</span>
-                    <span className="text-gray-900 dark:text-white">{formatUSD(model.actual_usd)}</span>
-                  </div>
-                ))}
+          <div className={card}>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Top models (ledger)</h3>
+            {(data.models || []).slice(0, 5).map((model) => (
+              <div key={model.model} className="flex justify-between text-sm py-1">
+                <span className="text-gray-600 dark:text-gray-400 truncate mr-2">{model.model}</span>
+                <span className="text-gray-900 dark:text-white">{formatUSD(model.actual_usd)}</span>
               </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -429,29 +770,6 @@ export default function Dashboard() {
                   </span>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Balance Status */}
-        {data.balance_status.manual_balance_usd && (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-start">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                  Manual Balance: {formatUSD(data.balance_status.manual_balance_usd)}
-                </h3>
-                {data.balance_status.set_at && (
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                    Last updated: {new Date(data.balance_status.set_at).toLocaleString()}
-                  </p>
-                )}
-              </div>
             </div>
           </div>
         )}

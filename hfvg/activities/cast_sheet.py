@@ -33,6 +33,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from hfvg import cast_store
+from hfvg.actual_costs import record_status_charge
 from hfvg.cast_sheets import (
     SheetPlanError,
     check_params,
@@ -282,6 +283,7 @@ async def _generate_live(job: dict) -> dict:
         await usd_ledger.commit(episode_id=episode_id, line_name=LINE, reserved_usd_micros=estimated_usd,
                                 actual_usd_micros=estimated_usd, job_id=job_id,
                                 reason=f"Cast sheet {job['view']} completed")
+        await record_status_charge(db_path, job_id, getattr(result, "raw", None))
         actual, provider_credits, source = extract_actual_cost_from_provider_job(result.model_dump(), "still")
         if actual is not None:
             tracker = CostTracker(db_path)
@@ -377,6 +379,7 @@ async def reconcile_cast_sheet_job_activity(job: dict) -> str:
     await usd_ledger.commit(episode_id=episode_id, line_name=job["line_name"], reserved_usd_micros=job["usd_micros"],
                             actual_usd_micros=job["usd_micros"], job_id=job_id,
                             reason="Cast sheet reconciled: completed")
+    await record_status_charge(db_path, job_id, getattr(status, "raw", None))
     sheet = await asyncio.to_thread(_unstored_sheet_job, job_id)
     if sheet and status.output_url:
         try:
