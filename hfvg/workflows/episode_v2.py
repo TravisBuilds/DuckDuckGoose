@@ -9,7 +9,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from hfvg.plan_resync import clip_fields, plan_resync  # GAP-28 (pure, deterministic)
+    from hfvg.plan_resync import clip_fields, plan_replan, plan_resync  # GAP-28 (pure, deterministic)
     from hfvg.aspect import PORTRAIT, episode_aspect  # pure
     from hfvg import budget
     from hfvg.config import config  # Non-deterministic module with os.getenv
@@ -168,6 +168,11 @@ class EpisodeWorkflowV2:
         self._dry_run: bool = True
         self.clip_plan_updates: dict[str, dict] = {}  # shot_id -> {clip_prompt, qc_fail_if} now in force
         self.resync_log: list[dict] = []
+        # Shot plan edits at G1, before approval (prompts and the shots' cast, props and place; see
+        # hfvg.plan_resync.plan_replan): re-parsed, re-checked and re-priced before they are in force
+        self._shots_subset: list[str] | None = None
+        self._replanning = False
+        self.replan_log: list[dict] = []
         # GAP-41: reopen of a COMPLETED episode at G_FINAL_CUT (new run, same workflow id, state restored
         # from the closed run's reopen_snapshot query): one row per reopen
         self.reopen_log: list[dict] = []
@@ -438,6 +443,7 @@ class EpisodeWorkflowV2:
         
         self._beatmap_path = beatmap_path  # GAP-28: a G2 resync re-parses the same package
         self._dry_run = dry_run
+        self._shots_subset = list(shots_subset) if shots_subset else None
         self.parsed_beatmap = await workflow.execute_activity(
             parse_beatmap_activity,
             args=[beatmap_path, episode_id, not dry_run],
@@ -1076,6 +1082,11 @@ class EpisodeWorkflowV2:
     def validate_g1_approval(self, override_unavailable_estimates: bool = False):
         """Validator for G1 approval: refuses while preflight errors exist (no override: a shot that
         breaks a documented model limit must be fixed, not approved), then checks estimates in live mode."""
+        if self._replanning:
+            raise ApplicationError(
+                "Cannot approve G1 while a shot plan change is being checked; approve again when it is done",
+                non_retryable=True,
+            )
         preflight_errors = (self.state.g1_plan or {}).get("preflight_errors") or []
         if preflight_errors:
             raise ApplicationError(
@@ -1096,7 +1107,84 @@ class EpisodeWorkflowV2:
                     "Provider estimate requests failed. Pass override_unavailable_estimates=True to proceed anyway.",
                     non_retryable=True
                 )
-    
+
+    def _replan_problem(self, reason: str, running: bool = False) -> str | None:
+        """Why replan_shots is not allowed right now (None = allowed). No side effects. ``running``:
+        the re-check of the re-plan in progress (its own flag is set)."""
+        if self.state.current_gate != "G1_SHOT_PLAN":
+            return f"not at G1 gate (current: {self.state.current_gate})"
+        if self.approved_g1_shot_plan or "G1_SHOT_PLAN" in self.passed_gates:
+            return "G1 already approved; the shot plan is locked"
+        if self._replanning and not running:
+            return "another shot plan change is being checked; try again in a moment"
+        if not (reason or "").strip():
+            return "a reason is required"
+        return None
+
+    @workflow.update
+    async def replan_shots(self, reason: str) -> dict:
+        """Put an edited shot plan in force at G1, before approval, without spend: re-parse the
+        package (same parser and path as at start), check the difference (plan_replan: the prompts
+        and the shots' cast, props and place may change, nothing structural), run the preflight and
+        the G1 plan on the result and only then apply it, so the plan waiting for approval, its
+        estimates and its preflight errors describe the shots that will run. G1 approval is refused
+        while this runs; a refusal changes nothing."""
+        problem = self._replan_problem(reason)
+        if problem:
+            raise ApplicationError(f"Cannot change the shot plan: {problem}", non_retryable=True)
+        self._replanning = True
+        try:
+            episode_id = self.state.episode_id
+            try:
+                parsed = await workflow.execute_activity(
+                    parse_beatmap_activity,
+                    args=[self._beatmap_path, episode_id, not self._dry_run],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                res = plan_replan(self.parsed_beatmap.get("shots", []), parsed.get("shots", []))
+                if res["problems"]:
+                    raise ApplicationError("Cannot change the shot plan: " + "; ".join(res["problems"][:20]),
+                                           non_retryable=True)
+                await workflow.execute_activity(
+                    "preflight_validate_episode_activity",
+                    args=[episode_id, self._shots_subset, not self._dry_run],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                candidate = [{**s, **res["changes"].get(s["shot_id"], {})}
+                             for s in self.parsed_beatmap.get("shots", [])
+                             if not self._shots_subset or s["shot_id"] in self._shots_subset]
+                g1_plan = await workflow.execute_activity(
+                    compute_g1_plan_activity,
+                    args=[episode_id, candidate, self._dry_run],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except ActivityError as e:
+                raise ApplicationError(f"Cannot change the shot plan: {e.cause or e}", non_retryable=True) from None
+            problem = self._replan_problem(reason, running=True)
+            if problem:
+                raise ApplicationError(f"Cannot change the shot plan: {problem}", non_retryable=True)
+            for shot in self.parsed_beatmap.get("shots", []):
+                change = res["changes"].get(shot["shot_id"])
+                if change:
+                    shot.update(change)
+            self.state.g1_plan = g1_plan
+            entry = {"reason": reason, "changed": {k: sorted(v) for k, v in res["changes"].items()},
+                     "preflight_errors": list(g1_plan.get("preflight_errors") or [])}
+            self.replan_log.append(entry)
+        finally:
+            self._replanning = False
+        workflow.logger.info(f"G1 re-plan: {len(entry['changed'])} shot(s) changed ({reason})")
+        return {"success": True, "action": "replan_shots", **entry}
+
+    @replan_shots.validator
+    def validate_replan_shots(self, reason: str):
+        problem = self._replan_problem(reason)
+        if problem:
+            raise ApplicationError(f"Cannot change the shot plan: {problem}", non_retryable=True)
+
     @workflow.update
     async def approve_g2_scene_stills(self):
         """Approve scene stills (G2_SCENE_STILLS): All stills + refs."""
@@ -3362,7 +3450,7 @@ class EpisodeWorkflowV2:
     # ids continue from the restored counters, committed-job-id refusal) exactly as before.
     REOPEN_SNAPSHOT_VERSION = 1
     REOPEN_SKIP_ATTRS = ("state", "ref_jobs_running", "policy", "shot_results", "still_version_handles", "recompose_handles",
-                         "background_tasks")
+                         "background_tasks", "_replanning")
 
     @workflow.query
     def reopen_snapshot(self) -> dict:
@@ -3508,6 +3596,8 @@ class EpisodeWorkflowV2:
             "still_selections": dict(self.still_selections),
             "clip_plan_updates": {k: sorted(v) for k, v in self.clip_plan_updates.items()},
             "resync_log": [dict(r) for r in self.resync_log],
+            "replan_log": [dict(r) for r in self.replan_log],
+            "replanning": self._replanning,
             "current_still_versions": {k: self._current_still_version(k) for k in self.shot_results},
             "assembly": self._assembly_view(),
             "delivery": self._delivery_view(),
