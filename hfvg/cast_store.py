@@ -125,8 +125,8 @@ def _env_int(name: str, default: int) -> int:
 
 @contextmanager
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the cast tables present (the migration runs if this DB never had it)."""
-    from hfvg.migrations import apply_cast_library_sync
+    """A connection with the cast and props tables present (the migrations run if this DB never had them)."""
+    from hfvg.migrations import apply_cast_library_sync, apply_props_library_sync
     target = path or db_path()
     if target not in (":memory:",) and not target.startswith("file:"):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +134,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         apply_cast_library_sync(conn)
+        apply_props_library_sync(conn)
         yield conn
     finally:
         conn.close()
@@ -243,36 +244,46 @@ def library_for_episode(episode_id: str) -> tuple[str, str]:
 
 
 def link_episode(episode_id: str, series_id: str | None, actor: str | None = None) -> dict:
-    """Put the episode in a series (its own characters move into the series library) or take it out
-    (series_id None; the series keeps its characters). Refused when a moved character's id is
-    already used in the series."""
+    """Put the episode in a series (its own characters, props and places move into the series
+    library) or take it out (series_id None; the series keeps them). Refused when a moved
+    character's or prop's id is already used in the series."""
     with connect() as conn, _tx(conn):
         current = conn.execute("SELECT series_id FROM episode_series WHERE episode_id = ?", (episode_id,)).fetchone()
         if series_id is None:
             if current:
                 conn.execute("DELETE FROM episode_series WHERE episode_id = ?", (episode_id,))
                 audit(conn, actor, "series_unlink", series_id=current[0], episode_id=episode_id)
-            return {"episode_id": episode_id, "series_id": None, "moved_characters": []}
+            return {"episode_id": episode_id, "series_id": None, "moved_characters": [], "moved_props": []}
         if not conn.execute("SELECT 1 FROM series WHERE series_id = ?", (series_id,)).fetchone():
             raise CastNotFound(f"Series {series_id} not found")
         if current and current[0] == series_id:
-            return {"episode_id": episode_id, "series_id": series_id, "moved_characters": []}
-        own = conn.execute("SELECT character_id, slug FROM cast_characters WHERE library_kind = 'episode' "
-                           "AND library_id = ?", (episode_id,)).fetchall()
-        taken = {r[0] for r in conn.execute("SELECT slug FROM cast_characters WHERE library_kind = 'series' "
-                                            "AND library_id = ?", (series_id,))}
-        clash = sorted(r["slug"] for r in own if r["slug"] in taken)
-        if clash:
-            raise CastConflict(f"The series already has characters with the ids {clash}; delete this "
-                               "episode's copies (and use the series' characters) before adding it to the series")
-        moved = [r["slug"] for r in own]
-        conn.execute("UPDATE cast_characters SET library_kind = 'series', library_id = ?, updated_at = ? "
-                     "WHERE library_kind = 'episode' AND library_id = ?", (series_id, _now(), episode_id))
+            return {"episode_id": episode_id, "series_id": series_id, "moved_characters": [], "moved_props": []}
+        moved = _move_to_series(conn, "cast_characters", episode_id, series_id, (
+            "The series already has characters with the ids {clash}; delete this episode's copies (and use "
+            "the series' characters) before adding it to the series"))
+        moved_props = _move_to_series(conn, "prop_items", episode_id, series_id, (
+            "The series already has props or places with the ids {clash}; delete this episode's copies (and "
+            "use the series' ones) before adding it to the series"))
         conn.execute("INSERT OR REPLACE INTO episode_series (episode_id, series_id, linked_at, linked_by) "
                      "VALUES (?, ?, ?, ?)", (episode_id, series_id, _now(), actor))
         audit(conn, actor, "series_link", series_id=series_id, episode_id=episode_id,
-              details={"moved_characters": moved, "previous_series": current[0] if current else None})
-    return {"episode_id": episode_id, "series_id": series_id, "moved_characters": moved}
+              details={"moved_characters": moved, "moved_props": moved_props,
+                       "previous_series": current[0] if current else None})
+    return {"episode_id": episode_id, "series_id": series_id, "moved_characters": moved, "moved_props": moved_props}
+
+
+def _move_to_series(conn, table: str, episode_id: str, series_id: str, clash_message: str) -> list[str]:
+    """Move the episode library's rows of ``table`` into the series library; the slugs moved."""
+    own = [r[0] for r in conn.execute(f"SELECT slug FROM {table} WHERE library_kind = 'episode' AND library_id = ? "
+                                      "ORDER BY slug", (episode_id,))]
+    taken = {r[0] for r in conn.execute(f"SELECT slug FROM {table} WHERE library_kind = 'series' AND library_id = ?",
+                                        (series_id,))}
+    clash = sorted(slug for slug in own if slug in taken)
+    if clash:
+        raise CastConflict(clash_message.format(clash=clash))
+    conn.execute(f"UPDATE {table} SET library_kind = 'series', library_id = ?, updated_at = ? "
+                 "WHERE library_kind = 'episode' AND library_id = ?", (series_id, _now(), episode_id))
+    return own
 
 
 # ------------------------------------------------------------------------------------- characters
@@ -812,9 +823,15 @@ def delete_image(image_id: str, actor: str | None = None, *, character_id: str |
     return {"deleted": image_id, "file_removed": removed}
 
 
+def file_in_use(conn, sha256: str) -> bool:
+    """A cast picture or a prop/place photo still uses the stored file (they share the image store)."""
+    return conn.execute("SELECT 1 FROM cast_images WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM prop_images WHERE sha256 = ? LIMIT 1", (sha256, sha256)).fetchone() is not None
+
+
 def _remove_unreferenced_file(conn, sha256: str, ext: str) -> bool:
     """Remove the file, its thumbnail and every composite built from it once no row uses the image."""
-    if conn.execute("SELECT 1 FROM cast_images WHERE sha256 = ?", (sha256,)).fetchone():
+    if file_in_use(conn, sha256):
         return False
     image_file(sha256, ext).unlink(missing_ok=True)
     thumb_file(sha256).unlink(missing_ok=True)

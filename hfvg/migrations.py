@@ -4,6 +4,8 @@
 - cast library (``CAST_LIBRARY_MIGRATION``): series, episode-series links, characters, versions,
   reference images, sheet jobs and the cast audit log. New tables only; existing tables and rows are
   not touched. Recorded in ``schema_migrations`` and safe to run again.
+- props library (``PROPS_LIBRARY_MIGRATION``): props and places with their reference photos, and the
+  history of shot plan edits (prompt text and per-shot picks). New tables only, like the cast library.
 """
 
 import sqlite3
@@ -135,6 +137,61 @@ CAST_LIBRARY_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_cast_audit_character ON cast_audit_log(character_id, id)",
 )
 
+PROPS_LIBRARY_MIGRATION = "2026-11-props-library-v1"
+
+PROPS_LIBRARY_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS prop_items (
+        prop_id TEXT PRIMARY KEY,
+        library_kind TEXT NOT NULL CHECK (library_kind IN ('series', 'episode')),
+        library_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('prop', 'place')),
+        slug TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (library_kind, library_id, slug)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS prop_images (
+        image_id TEXT PRIMARY KEY,
+        prop_id TEXT NOT NULL REFERENCES prop_items(prop_id),
+        status TEXT NOT NULL DEFAULT 'active',
+        sha256 TEXT NOT NULL,
+        ext TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        bytes INTEGER NOT NULL,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        original_filename TEXT,
+        attestation TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (prop_id, sha256)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_prop_images_sha ON prop_images(sha256)",
+    """
+    CREATE TABLE IF NOT EXISTS shot_plan_edits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        episode_id TEXT NOT NULL,
+        shot_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        actor TEXT,
+        actor_name TEXT,
+        run_id TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_shot_plan_edits_episode ON shot_plan_edits(episode_id, shot_id, id)",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -213,18 +270,16 @@ async def migrate_add_user_tracking(db_path: str):
         await db.commit()
 
 
-def apply_cast_library_sync(conn: sqlite3.Connection) -> bool:
-    """Apply the cast library migration on an open sqlite3 connection; True when it ran now.
-    Used by processes that open the cast tables without the API's startup (the worker, tools)."""
+def _apply_sync(conn: sqlite3.Connection, version: str, statements: tuple[str, ...]) -> bool:
     conn.execute(SCHEMA_MIGRATIONS_SQL)
-    if conn.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (CAST_LIBRARY_MIGRATION,)).fetchone():
+    if conn.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)).fetchone():
         return False
     conn.execute("BEGIN IMMEDIATE")
     try:
-        for statement in CAST_LIBRARY_SQL:
+        for statement in statements:
             conn.execute(statement)
         conn.execute("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                     (CAST_LIBRARY_MIGRATION, _now_iso()))
+                     (version, _now_iso()))
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -232,23 +287,43 @@ def apply_cast_library_sync(conn: sqlite3.Connection) -> bool:
     return True
 
 
-async def migrate_cast_library(db_path: str) -> bool:
-    """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
+async def _apply(db_path: str, version: str, statements: tuple[str, ...]) -> bool:
     async with aiosqlite.connect(db_path, uri=True) as db:
         await db.execute(SCHEMA_MIGRATIONS_SQL)
-        async with db.execute("SELECT 1 FROM schema_migrations WHERE version = ?",
-                              (CAST_LIBRARY_MIGRATION,)) as cur:
+        async with db.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)) as cur:
             if await cur.fetchone():
                 return False
-        for statement in CAST_LIBRARY_SQL:
+        for statement in statements:
             await db.execute(statement)
         await db.execute("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                         (CAST_LIBRARY_MIGRATION, _now_iso()))
+                         (version, _now_iso()))
         await db.commit()
     return True
+
+
+def apply_cast_library_sync(conn: sqlite3.Connection) -> bool:
+    """Apply the cast library migration on an open sqlite3 connection; True when it ran now.
+    Used by processes that open the cast tables without the API's startup (the worker, tools)."""
+    return _apply_sync(conn, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
+
+
+def apply_props_library_sync(conn: sqlite3.Connection) -> bool:
+    """The props library migration on an open sqlite3 connection, as apply_cast_library_sync."""
+    return _apply_sync(conn, PROPS_LIBRARY_MIGRATION, PROPS_LIBRARY_SQL)
+
+
+async def migrate_cast_library(db_path: str) -> bool:
+    """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
+    return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
+
+
+async def migrate_props_library(db_path: str) -> bool:
+    """The props library tables (PROPS_LIBRARY_MIGRATION); True when it ran now, False when applied."""
+    return await _apply(db_path, PROPS_LIBRARY_MIGRATION, PROPS_LIBRARY_SQL)
 
 
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
     await migrate_cast_library(db_path)
+    await migrate_props_library(db_path)
