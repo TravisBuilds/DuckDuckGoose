@@ -4,10 +4,15 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { balanceDisplay, parseBalanceInput } from '@/lib/balance.mjs';
 import type { HiggsfieldBalance } from '@/lib/balance.mjs';
-import { runEndedView } from '@/lib/run-outcome.mjs';
+import { keepPolling, runEndedView } from '@/lib/run-outcome.mjs';
 import type { RunInfo } from '@/lib/run-outcome.mjs';
 import { finishLine, openGate } from '@/lib/next-step.mjs';
+import {
+  REDO_NOTE_MAX, redoEstimateRequest, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
+} from '@/lib/redo.mjs';
+import type { RedoEstimate } from '@/lib/redo.mjs';
 import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } from '@/lib/labels';
+import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 
@@ -38,6 +43,7 @@ export interface RunState {
   approvals: Record<string, boolean>;
   shots_count: number;
   shot_decisions: Record<string, string>;
+  rejection_reasons: Record<string, string>; // empty for a viewer who may not see this episode's cast
   pending_retries: string[];
   clip_retries: Record<string, number>;
   pending_clip_retries: string[];
@@ -103,6 +109,7 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
     approvals: raw.approvals ?? {},
     shots_count: raw.shots_count ?? 0,
     shot_decisions: raw.shot_decisions ?? {},
+    rejection_reasons: raw.rejection_reasons ?? {},
     pending_retries: raw.pending_retries ?? [],
     clip_retries: raw.clip_retries ?? {},
     pending_clip_retries: raw.pending_clip_retries ?? [],
@@ -121,9 +128,11 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
 export type RunLoad = 'loading' | 'ok' | 'missing' | 'error';
 
 /**
- * The run behind the episode page, polled every 3 s: the workflow state (404 = no run yet), the
- * per-shot states, credits, stall alerts and delivery files. A failed shot-state read is reported
- * (shotStatesError), never shown as "no shots".
+ * The run behind the episode page, polled every 3 s until it has ended: the workflow state (404 = no
+ * run yet), the per-shot states, credits, stall alerts and delivery files. The delivery files are read
+ * whatever the run state says, a 404 or an error included. An archived run (its history purged, the
+ * state rebuilt from what was saved) has no workflow left for shot states or stalls. A failed
+ * shot-state read is reported (shotStatesError), never shown as "no shots".
  */
 export function useEpisodeRun(episodeId: string) {
   const [state, setState] = useState<RunState | null>(null);
@@ -137,9 +146,12 @@ export function useEpisodeRun(episodeId: string) {
   const [files, setFiles] = useState<Record<string, FileInfo> | null>(null);
 
   const refresh = useCallback(async () => {
-    let raw: Partial<RunState>;
+    let read: RunState | null = null;
     try {
-      raw = await apiFetch<Partial<RunState>>(`/api/episodes/${episodeId}`);
+      read = normalizeRunState(episodeId, await apiFetch<Partial<RunState>>(`/api/episodes/${episodeId}`));
+      setState(read);
+      setStatus('ok');
+      setStateError(null);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 400)) {
         setState(null);
@@ -149,20 +161,19 @@ export function useEpisodeRun(episodeId: string) {
         setStatus((prev) => (prev === 'ok' ? 'ok' : 'error'));
         setStateError(problemText(e));
       }
-      return;
     }
-    setState(normalizeRunState(episodeId, raw));
-    setStatus('ok');
-    setStateError(null);
+    const workflow = Boolean(read) && !read?.run?.archived;
     const [ss, cr, st, fl] = await Promise.allSettled([
-      apiFetch<{ shots: Record<string, ShotState>; cast_hidden?: boolean }>(`/api/episodes/${episodeId}/shot-states`),
-      apiFetch<Credits>(`/api/episodes/${episodeId}/credits`),
-      apiFetch<{ alerts: StallAlert[] }>(`/api/episodes/${episodeId}/stalls`),
+      workflow ? apiFetch<{ shots: Record<string, ShotState>; cast_hidden?: boolean }>(`/api/episodes/${episodeId}/shot-states`) : null,
+      read ? apiFetch<Credits>(`/api/episodes/${episodeId}/credits`) : null,
+      workflow ? apiFetch<{ alerts: StallAlert[] }>(`/api/episodes/${episodeId}/stalls`) : null,
       apiFetch<{ files: Record<string, FileInfo> }>(`/api/episodes/${episodeId}/files`),
     ]);
     if (ss.status === 'fulfilled') {
-      setShotStates(ss.value?.shots ?? {});
-      setCastHidden(Boolean(ss.value?.cast_hidden));
+      if (ss.value) {
+        setShotStates(ss.value.shots ?? {});
+        setCastHidden(Boolean(ss.value.cast_hidden));
+      }
       setShotStatesError(null);
     } else {
       setShotStatesError(problemText(ss.reason));
@@ -172,13 +183,17 @@ export function useEpisodeRun(episodeId: string) {
     if (fl.status === 'fulfilled' && fl.value?.files) setFiles(fl.value.files);
   }, [episodeId]);
 
+  const polling = keepPolling(state);
   useEffect(() => {
     refresh();
+  }, [refresh]);
+  useEffect(() => {
+    if (!polling) return;
     const t = setInterval(refresh, 3000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, polling]);
 
-  return { state, status, stateError, shotStates, shotStatesError, castHidden, credits, stalls, files, refresh };
+  return { state, status, stateError, shotStates, shotStatesError, castHidden, credits, stalls, files, refresh, polling };
 }
 
 export function fileUrl(episodeId: string, type: string): string {
@@ -230,20 +245,28 @@ function NotYours() {
 
 // ---------------------------------------------------------------- the top of the page
 
-/** A completed run: the video to watch and its downloads, in place of the next step. */
-export function FinishLine({ episodeId, state, files, mine = true, children }: {
-  episodeId: string; state: RunState; files: Record<string, FileInfo> | null; mine?: boolean; children?: ReactNode;
+/**
+ * The video to watch and its downloads, in place of the next step: for a completed run, and for a run
+ * whose history expired (or could not be read) with whatever files it delivered.
+ */
+export function FinishLine({ episodeId, run, files, mine = true, children }: {
+  episodeId: string; run: RunInfo | null; files: Record<string, FileInfo> | null; mine?: boolean; children?: ReactNode;
 }) {
-  const finish = finishLine(state.run, files, mine);
+  const finish = finishLine(run, files, mine);
+  const done = run?.outcome === 'completed';
   const downloads = Object.keys(FILE_LABELS).filter((type) => files?.[type]?.available);
   return (
-    <section id="finished" className={highlight} data-testid="run-ended" data-tone="done" aria-labelledby="finished-title">
+    <section id="finished" className={highlight} data-testid="run-ended" data-tone={done ? 'done' : 'expired'}
+      aria-labelledby="finished-title">
       {children}
       <h2 id="finished-title" className={`text-2xl font-bold text-gray-900 dark:text-white ${children ? 'mt-4' : ''}`}
         data-testid="run-ended-title">
         {finish.title}
       </h2>
       <p className="mt-1 text-gray-700 dark:text-gray-200">{finish.text}</p>
+      {!done && run?.reason && (
+        <p className="mt-1 break-words text-sm text-gray-700 dark:text-gray-200" data-testid="run-ended-reason">{run.reason}</p>
+      )}
       {finish.primary && (
         <video data-testid="ready-video" controls playsInline preload="metadata" src={fileUrl(episodeId, finish.primary)}
           aria-label={fileLabel(finish.primary)}
@@ -268,7 +291,7 @@ export function RunEndedCard({ episodeId, state, busy, act, canAct }: {
   episodeId: string; state: RunState; busy: boolean; act: Act; canAct: boolean;
 }) {
   const ended = runEndedView(state.run);
-  if (!ended || ended.tone === 'done') return null;
+  if (!ended || ended.tone !== 'error') return null;
   return (
     <section id="run-ended" role="alert" data-testid="run-ended" data-tone={ended.tone}
       className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900 sm:p-6 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
@@ -377,6 +400,9 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [pricing, setPricing] = useState<string | null>(null);
+  const [redo, setRedo] = useState<{ sid: string; note: string; estimate: RedoEstimate } | null>(null);
+  const [redoIssue, setRedoIssue] = useState<{ sid: string; text: string } | null>(null);
   const atG2 = openGate(state) === 'G2_SCENE_STILLS';
   const ended = Boolean(state?.run?.ended);
   const approvedAll = Boolean(state?.approvals.g2_scene_stills) || Boolean(state?.passed_gates.includes('G2_SCENE_STILLS'));
@@ -384,6 +410,37 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   const rows = Object.fromEntries(shots.map((s) => [s.shot_id, s]));
   const failed = state ? failedShotIds(state) : [];
   const started = atG2 || approvedAll || ids.length > 0;
+
+  // a redo is paid for: its price (and the note that goes with it) is shown before anything is made
+  const priceRedo = async (sid: string, note: string) => {
+    setRedo(null);
+    setRedoIssue(null);
+    setPricing(sid);
+    try {
+      const estimate = await postJson<RedoEstimate>(`/api/episodes/${episodeId}/shots/${sid}/retry/estimate`,
+        redoEstimateRequest(note));
+      setRedo({ sid, note, estimate });
+    } catch (e) {
+      setRedoIssue({ sid, text: problemText(e) });
+    } finally {
+      setPricing(null);
+    }
+  };
+
+  const makeRedo = async () => {
+    if (!redo) return;
+    const { sid, note, estimate } = redo;
+    const ok = await act(() => postJson(`/api/episodes/${episodeId}/shots/${sid}/retry`, redoRequest(note, estimate)),
+      redoStartedText(sid, note), `Couldn't make picture ${sid} again`);
+    setRedo(null);
+    if (ok) {
+      setReasons((prev) => {
+        const next = { ...prev };
+        delete next[sid];
+        return next;
+      });
+    }
+  };
 
   return (
     <section id="scene-pictures" className={`${card} scroll-mt-4`} data-testid="shots-review" aria-labelledby="scene-pictures-title">
@@ -418,8 +475,9 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const status = ss?.still_status ?? state?.shot_outcomes[sid]?.status ?? null;
             const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation), allApproved: approvedAll });
             const description = row?.beat_purpose || (castHidden ? '' : row?.prompt ?? '');
-            const reason = reasons[sid] ?? '';
+            const note = redoNote(reasons[sid], decision === 'rejected' ? state?.rejection_reasons[sid] : undefined);
             const canDecide = atG2 && !ended && canAct;
+            const confirming = redo?.sid === sid ? redo : null;
             return (
               <li key={sid} data-testid={`still-card-${sid}`}
                 className="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -445,26 +503,65 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       {decision === 'approved' ? 'Approved' : 'Approve'}
                     </button>
                     <label htmlFor={`reject-reason-${sid}`} className="block text-xs font-medium text-gray-700 dark:text-gray-200">
-                      What should change? (needed for a redo)
+                      What should change in this picture?
                     </label>
-                    <input id={`reject-reason-${sid}`} data-testid={`reject-reason-${sid}`} value={reason} className={input}
-                      onChange={(e) => setReasons({ ...reasons, [sid]: e.target.value })} placeholder="e.g. the framing is too loose" />
-                    <button data-testid={`reject-shot-${sid}`} disabled={busy || !reason.trim()} className={`${btnSecondary} w-full`}
-                      onClick={async () => {
+                    <input id={`reject-reason-${sid}`} data-testid={`reject-reason-${sid}`} value={note} className={input}
+                      maxLength={REDO_NOTE_MAX} aria-describedby={`reject-reason-hint-${sid}`}
+                      onChange={(e) => {
+                        setReasons({ ...reasons, [sid]: e.target.value });
+                        if (confirming) setRedo(null);
+                      }}
+                      placeholder="e.g. the framing is too loose" />
+                    <p id={`reject-reason-hint-${sid}`} className="text-xs text-gray-700 dark:text-gray-200">
+                      Your note goes with the redo when this picture is made again.
+                    </p>
+                    <button data-testid={`reject-shot-${sid}`} disabled={busy || !note.trim()} className={`${btnSecondary} w-full`}
+                      onClick={() => {
                         const form = new FormData();
-                        form.append('reason', reason.trim());
-                        const ok = await act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/reject`, { method: 'POST', body: form }),
+                        form.append('reason', note.trim());
+                        return act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/reject`, { method: 'POST', body: form }),
                           `Redo requested for picture ${sid}.`, `Couldn't ask for a redo of picture ${sid}`);
-                        if (ok) setReasons((prev) => ({ ...prev, [sid]: '' }));
                       }}>
                       Ask for a redo
                     </button>
                     {(failed.includes(sid) || decision === 'rejected') && (
-                      <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying} className={`${btnSecondary} w-full`}
-                        onClick={() => act(() => apiFetch(`/api/episodes/${episodeId}/shots/${sid}/retry`, { method: 'POST' }),
-                          `Making picture ${sid} again.`, `Couldn't make picture ${sid} again`)}>
-                        Make this picture again
+                      <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying || pricing !== null}
+                        className={`${btnSecondary} w-full`} onClick={() => priceRedo(sid, note)}>
+                        {pricing === sid ? 'Checking the price…' : 'Make this picture again'}
                       </button>
+                    )}
+                    {redoIssue?.sid === sid && (
+                      <p role="alert" data-testid={`redo-problem-${sid}`} className="text-sm text-red-700 dark:text-red-300">
+                        {redoIssue.text}
+                      </p>
+                    )}
+                    {confirming && (
+                      <div data-testid={`redo-estimate-${sid}`}
+                        className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+                        <p id={`redo-price-${sid}`} data-testid={`redo-price-${sid}`}
+                          className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
+                          {redoPriceText(confirming.estimate)}
+                        </p>
+                        <p id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}
+                          className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
+                          {redoNoteText(confirming.note)}
+                        </p>
+                        {!confirming.estimate.dry_run && (
+                          <p className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
+                            The studio checks the price, your balance and this video&apos;s budget again before the picture is made.
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button type="button" data-testid={`redo-confirm-${sid}`} disabled={busy} className={btnPrimary}
+                            aria-describedby={`redo-price-${sid} redo-note-${sid}`} onClick={makeRedo}>
+                            Make it again
+                          </button>
+                          <button type="button" data-testid={`redo-cancel-${sid}`} disabled={busy} className={btnSecondary}
+                            onClick={() => setRedo(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
@@ -746,6 +843,8 @@ function CreditsCard({ episodeId, credits, busy, act, isAdmin }: {
   );
 }
 
+const ENDED_LABELS: Record<string, string> = { completed: 'Finished', expired: 'History expired' };
+
 /** Raw run state, credits, moderation, QC and per-shot workflow state, for Production details. */
 export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy, act, isAdmin }: {
   episodeId: string; state: RunState; shotStates: Record<string, ShotState> | null; credits: Credits | null;
@@ -764,7 +863,9 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
         <h3 className="mb-1 font-semibold">Run</h3>
         <p className="text-sm">Stage: <code data-testid="run-stage">{state.stage ?? '—'}</code> ({stageLabel(state.stage)})</p>
         {ended ? (
-          <p className="text-sm">Gate: <strong data-testid="run-finished">{state.run?.outcome === 'completed' ? 'Finished' : 'Stopped'}</strong> (run {state.run?.outcome})</p>
+          <p className="text-sm">
+            Gate: <strong data-testid="run-finished">{ENDED_LABELS[state.run?.outcome ?? ''] ?? 'Stopped'}</strong> (run {state.run?.outcome})
+          </p>
         ) : (
           <p className="text-sm">
             Gate: <code data-testid="current-gate">{state.current_gate ?? 'none'}</code>
@@ -775,7 +876,17 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
         {failed.length > 0 && <p className="text-sm text-red-700 dark:text-red-300">Failed shots: {failed.join(', ')}</p>}
         {state.run && (
           <p className="text-xs text-gray-700 dark:text-gray-200">
-            Run {state.run.run_id} · {state.run.status}{state.run.dry_run ? ' · dry run' : ''}
+            Run {state.run.run_id ?? 'unknown'} · {state.run.status}{state.run.dry_run ? ' · dry run' : ''}
+          </p>
+        )}
+        {state.run?.archived && (
+          <p className="mt-1 text-xs text-gray-700 dark:text-gray-200" data-testid="run-archived">
+            The workflow server no longer keeps this run&apos;s history.{' '}
+            {state.run.outcome !== 'completed'
+              ? 'Nothing saved shows how it ended.'
+              : state.run.saved_at
+                ? `This is the run as saved on ${formatLocalDateTime(state.run.saved_at) || state.run.saved_at}.`
+                : 'This is the run as rebuilt from its saved files.'}
           </p>
         )}
         {stalls.length > 0 && (

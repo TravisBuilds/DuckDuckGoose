@@ -49,6 +49,12 @@ _STILL_FILE = re.compile(r"still_v(\d+)\.(jpg|jpeg|png|webp)$")
 SHOT_CHANGING_ACTIONS = ("retry_clip", "recompose_shot", "recompose_decision", "accept_clip", "restore_outcome",
                          "adopt_reuse_slot", "grant_recompose", "grant_recompose_override", "set_shot_edit",
                          "retry_shot", "select_still_version", "resync_shot_plans", "approve_still", "reject_still")
+# After one of these a saved state no longer says how the episode's latest run ended: a shot changed,
+# the final cut was decided again, or another run started.
+RUN_CHANGING_ACTIONS = SHOT_CHANGING_ACTIONS + ("approve_g_final_cut", "reject_g_final_cut", "start_again",
+                                                "reopen_episode", "reopen_from_saved")
+# Only a run records these: an episode with one of them has run, even when nothing else is left of it.
+RUN_ACTIONS = RUN_CHANGING_ACTIONS + ("approve_shot", "g2_headcount", "g2_headcount_override", "raise_credit_cap")
 
 
 class SavedStateError(ValueError):
@@ -282,6 +288,253 @@ def reconstruct_snapshot(episode_id: str, episode_dir: str | Path, rows: dict, p
     return {"version": SNAPSHOT_VERSION, "episode_id": episode_id, "state": state, "attrs": attrs,
             "shot_workflow_ids": {}, "still_version_ids": [], "reconstructed": True,
             "recompute_signatures": True}
+
+
+# ---------------------------------------------------------------- the run state once the history is gone
+# GET /api/episodes/{id} of an episode whose workflow Temporal no longer has (the server's retention purges
+# a closed run's history, 24 h on the dev server): the episode page used to show "not started" and never
+# the delivered video. The API answers instead with the run state of the approved final cut from the saved
+# state (outcome "completed"), or says the history expired (outcome "expired") when the episode ran but
+# no current saved state shows how; an episode that never ran stays a 404.
+
+ARCHIVED_STATUS = "ARCHIVED"
+
+
+def _utc(ts: Any):
+    """A DB or snapshot timestamp ("2026-11-14 10:40:00" UTC, or ISO 8601) as an aware datetime."""
+    from datetime import datetime, timezone
+    text = str(ts or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def load_archive_rows(db_path: str | Path, episode_id: str) -> dict:
+    """The studio DB rows the archived run state reads (read-only). Tables an older DB does not have
+    yet count as empty; known is False when the episode has no row."""
+    out: dict[str, Any] = {"known": False, "audit": [], "jobs": [], "run_starts": [], "beatmap_path": None,
+                           "live_mode": False}
+    path = Path(db_path)
+    if not path.is_file():
+        return out
+    with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as c:
+        def rows(sql: str) -> list:
+            try:
+                return c.execute(sql, (episode_id,)).fetchall()
+            except sqlite3.OperationalError:
+                return []
+        ep = rows("SELECT beatmap_path, live_mode FROM episodes WHERE episode_id=?")
+        if ep:
+            out.update(known=True, beatmap_path=ep[0][0], live_mode=bool(ep[0][1]))
+        out["audit"] = [{"id": r[0], "action": r[1], "details": r[2] or "", "timestamp": r[3]} for r in rows(
+            "SELECT id, action, details, timestamp FROM audit_log WHERE episode_id=? ORDER BY id")]
+        out["jobs"] = [{"job_id": r[0], "shot_id": r[1], "status": r[2]} for r in rows(
+            "SELECT job_id, shot_id, status FROM job_ledger WHERE episode_id=?")]
+        out["run_starts"] = [{"run_id": r[0], "started_at": r[1], "via": r[2]} for r in rows(
+            "SELECT run_id, started_at, via FROM episode_runs WHERE episode_id=? ORDER BY started_at")]
+    return out
+
+
+def read_saved(episode_dir: str | Path) -> tuple[dict | None, str | None]:
+    """(snapshot, saved_at) of the persisted snapshot; (None, None) without one. Raises SavedStateError
+    when the file is there but cannot be read."""
+    p = snapshot_path(episode_dir)
+    if not p.exists():
+        return None, None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SavedStateError(f"{p} cannot be read: {e}") from None
+    snap = data.get("snapshot") if isinstance(data, dict) else None
+    if not isinstance(snap, dict):
+        raise SavedStateError(f"{p} has no snapshot")
+    return snap, str(data.get("saved_at") or "") or None
+
+
+def changed_since(saved_at: str | None, rows: dict) -> str | None:
+    """Why a state saved at saved_at no longer describes the episode (None while it still does): a
+    change the audit log recorded after it, or a run started after it."""
+    saved = _utc(saved_at)
+    if saved is None:
+        return "the saved state has no time"
+    for r in rows.get("audit") or []:
+        at = _utc(r.get("timestamp"))
+        if r.get("action") in RUN_CHANGING_ACTIONS and at is not None and at > saved:
+            return f"the run changed after it was saved ({r['action']} at {r['timestamp']} UTC)"
+    for r in rows.get("run_starts") or []:
+        at = _utc(r.get("started_at"))
+        if at is not None and at > saved:
+            return f"another run started after it was saved ({r.get('via') or 'start'} at {r['started_at']})"
+    return None
+
+
+def finished_problem(snapshot: dict) -> str | None:
+    """Why a snapshot is not the finished state of a run (None when it is): the final cut was approved
+    and nothing was left in flight (the reopen rule)."""
+    if snapshot.get("version") != SNAPSHOT_VERSION:
+        return f"unsupported snapshot version {snapshot.get('version')!r}"
+    attrs, state = snapshot.get("attrs"), snapshot.get("state")
+    if not isinstance(attrs, dict) or not isinstance(state, dict):
+        return "the snapshot has no attrs/state"
+    if "G_FINAL_CUT" not in (attrs.get("passed_gates") or []) or not attrs.get("approved_g_final_cut"):
+        return "the saved state is not an approved final cut"
+    if attrs.get("pending_clip_retries") or attrs.get("pending_recompose") or state.get("pending_retries"):
+        return "the saved state has work in flight"
+    return None
+
+
+def has_run(rows: dict, *, snapshot_saved: bool, has_files: bool) -> bool:
+    """The episode ran at some point: a recorded start, spend, an action only a run records, a saved
+    state or a rendered file."""
+    return bool(snapshot_saved or has_files or rows.get("run_starts") or rows.get("jobs")
+                or any(r.get("action") in RUN_ACTIONS for r in rows.get("audit") or []))
+
+
+def _stage_view(qc: Any, acceptance: Any) -> tuple[dict, dict | None, bool]:
+    qc = dict(qc or {})
+    acceptance = dict(acceptance) if acceptance else None
+    return qc, acceptance, bool(qc.get("blocking")) and acceptance is None
+
+
+def picture_seconds(state: dict, attrs: dict) -> float:
+    """EpisodeWorkflowV2._picture_seconds on a snapshot: the rendered edit's total_duration, else the sum
+    of the manifest's trimmed segments, else the planned trim windows."""
+    manifest = state.get("assembly_manifest") or {}
+    total = float(manifest.get("total_duration") or 0.0)
+    if total > 0:
+        return round(total, 3)
+    segs = [float(c.get("seg_s") or 0.0) for c in manifest.get("clips") or []]
+    if segs and sum(segs) > 0:
+        return round(sum(segs), 3)
+    planned = 0.0
+    for shot in attrs.get("assembly_shots") or []:
+        duration = float((shot.get("params") or {}).get("duration", 5.0))
+        trim = shot.get("trim") or {}
+        planned += max(0.0, float(trim.get("out", duration)) - float(trim.get("in", 0.0)))
+    return round(planned, 3)
+
+
+def _archived_run(outcome: str, *, run_id: str | None, reason: str | None, dry_run: bool | None,
+                  saved_at: str | None) -> dict:
+    return {"run_id": run_id, "status": ARCHIVED_STATUS, "ended": True, "outcome": outcome, "reason": reason,
+            "dry_run": dry_run, "can_start_again": False, "archived": True, "saved_at": saved_at}
+
+
+def finished_state(episode_id: str, snapshot: dict, *, saved_at: str | None, run_id: str | None) -> dict:
+    """The workflow's get_state() fields the API reports, from the snapshot of an approved final cut,
+    with run = the archived run (outcome "completed")."""
+    state, attrs = snapshot["state"], snapshot["attrs"]
+    outcomes = attrs.get("shot_outcomes") or {}
+    a_qc, a_acc, a_blocking = _stage_view(state.get("assembly_qc"), state.get("assembly_acceptance"))
+    d_qc, d_acc, d_blocking = _stage_view(state.get("delivery_qc"), state.get("delivery_acceptance"))
+    return {
+        "episode_id": episode_id,
+        "stage": state.get("stage"),
+        "current_gate": state.get("current_gate"),
+        "passed_gates": list(attrs.get("passed_gates") or []),
+        "approvals": {"story_shape": bool(attrs.get("approved_story_shape")),
+                      "g1_shot_plan": bool(attrs.get("approved_g1_shot_plan")),
+                      "g2_scene_stills": bool(attrs.get("approved_g2_scene_stills")),
+                      "g_final_cut": bool(attrs.get("approved_g_final_cut"))},
+        "shots": len(snapshot.get("shot_workflow_ids") or {}) or len(outcomes),
+        "g1_plan": {"estimates_available": (state.get("g1_plan") or {}).get("estimates_available")},
+        "shot_decisions": dict(state.get("shot_decisions") or {}),
+        "rejection_reasons": dict(attrs.get("rejection_reasons") or {}),
+        "pending_retries": [],
+        "clip_retries": dict(attrs.get("clip_retries") or {}),
+        "pending_clip_retries": [],
+        "final_cut_refusals": list(attrs.get("final_cut_refusals") or []),
+        "final_cut_rejections": [dict(r) for r in attrs.get("final_cut_rejections") or []],
+        "failed_shots": list(state.get("failed_shots") or []),
+        "shot_outcomes": {k: {"status": v.get("status"), "still_url": v.get("still_url"), "clip_url": v.get("clip_url"),
+                              "pre_approved": bool(v.get("pre_approved")), "qc_constraints": v.get("qc_constraints")}
+                          for k, v in outcomes.items()},
+        "archetype_id": state.get("archetype_id"),
+        "target_duration_s": state.get("target_duration_s"),
+        "story_shape": attrs.get("story_shape"),
+        "story_shape_critique": attrs.get("story_shape_critique"),
+        "story_shape_revision": attrs.get("story_shape_revision"),
+        "story_shape_log": list(attrs.get("story_shape_log") or []),
+        "assembly": {"path": state.get("assembly_path"), "picture_seconds": picture_seconds(state, attrs),
+                     "manifest": dict(state.get("assembly_manifest") or {}), "qc": a_qc, "acceptance": a_acc,
+                     "blocking": a_blocking, "stale": False, "edit_version": attrs.get("assembly_version")},
+        "delivery": {"paths": dict(state.get("delivery_paths") or {}),
+                     "manifest": dict(state.get("delivery_manifest") or {}), "qc": d_qc, "acceptance": d_acc,
+                     "blocking": d_blocking, "due": False, "delivery_version": attrs.get("delivery_version"),
+                     "phase": attrs.get("delivery_phase")},
+        "run": _archived_run("completed", run_id=run_id, reason=None, dry_run=bool(attrs.get("_dry_run", True)),
+                             saved_at=saved_at),
+    }
+
+
+def expired_state(episode_id: str, *, reason: str, run_id: str | None, dry_run: bool | None) -> dict:
+    """The get_state() fields for a run that is gone without a current saved state: nothing is known
+    about its gates, so nothing is claimed (run outcome "expired")."""
+    return {
+        "episode_id": episode_id, "stage": None, "current_gate": None, "passed_gates": [],
+        "approvals": {"story_shape": False, "g1_shot_plan": False, "g2_scene_stills": False, "g_final_cut": False},
+        "shots": 0, "g1_plan": {}, "shot_decisions": {}, "rejection_reasons": {}, "pending_retries": [],
+        "clip_retries": {}, "pending_clip_retries": [], "final_cut_refusals": [], "final_cut_rejections": [],
+        "failed_shots": [], "shot_outcomes": {}, "archetype_id": None, "target_duration_s": None, "assembly": None,
+        "delivery": None,
+        "run": _archived_run("expired", run_id=run_id, reason=reason, dry_run=dry_run, saved_at=None),
+    }
+
+
+def archived_state(episode_id: str, episode_dir: str | Path, rows: dict, *, has_files: bool,
+                   parsed_beatmap_fn=None) -> dict | None:
+    """The run state of an episode whose workflow history is gone (see above), or None when it never
+    ran. Finished needs the snapshot of an approved final cut that nothing changed since: the persisted
+    one, else (parsed_beatmap_fn given) one rebuilt from the saved artifacts like reopen-from-saved does.
+    Fails closed: when neither is current the run is reported as expired, never as finished."""
+    run_id = (rows.get("run_starts") or [{}])[-1].get("run_id") or None
+    why = "no finished state was saved for it"
+    try:
+        persisted, saved_at = read_saved(episode_dir)
+    except SavedStateError as e:
+        persisted, saved_at, why = None, None, str(e)
+        snapshot_saved = True
+    else:
+        snapshot_saved = persisted is not None
+    if persisted is not None:
+        problem = (None if rows.get("known") else "the episode is not in the studio DB") or finished_problem(persisted)
+        if problem is None and persisted.get("episode_id") != episode_id:
+            problem = f"the saved state is for {persisted.get('episode_id')!r}"
+        problem = problem or changed_since(saved_at, rows)
+        if problem is None:
+            return finished_state(episode_id, persisted, saved_at=saved_at, run_id=run_id)
+        why = f"its saved state ({saved_at or 'no time'} UTC) does not show how it ended: {problem}"
+    if parsed_beatmap_fn is not None and rows.get("known") and rows.get("beatmap_path"):
+        rebuilt = _rebuilt_finished(episode_id, episode_dir, rows, parsed_beatmap_fn)
+        if rebuilt is not None:
+            return finished_state(episode_id, rebuilt, saved_at=None, run_id=run_id)
+    if not has_run(rows, snapshot_saved=snapshot_saved, has_files=has_files):
+        return None
+    return expired_state(episode_id, reason=f"How this run ended is no longer known: {why}.", run_id=run_id,
+                         dry_run=(not rows["live_mode"]) if rows.get("known") else None)
+
+
+def _rebuilt_finished(episode_id: str, episode_dir: str | Path, rows: dict, parsed_beatmap_fn) -> dict | None:
+    """A snapshot rebuilt from the saved artifacts when the final cut approval is the episode's last
+    run change (no shot change, decision or new run after it), else None."""
+    audit = list(rows.get("audit") or [])
+    approvals = [i for i, r in enumerate(audit) if r["action"] == "approve_g_final_cut"]
+    if not approvals:
+        return None
+    if any(r["action"] in RUN_CHANGING_ACTIONS for r in audit[approvals[-1] + 1:]):
+        return None
+    if changed_since(audit[approvals[-1]]["timestamp"], {"run_starts": rows.get("run_starts")}):
+        return None
+    try:
+        parsed = parsed_beatmap_fn(rows["beatmap_path"])
+        snapshot = reconstruct_snapshot(episode_id, episode_dir, rows, parsed)
+    except Exception:  # noqa: BLE001 - whatever is missing or unreadable, the run is not shown as finished
+        return None
+    return None if finished_problem(snapshot) else snapshot
 
 
 def saved_snapshot(episode_id: str, episode_dir: str | Path, db_path: str | Path,

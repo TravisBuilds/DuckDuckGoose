@@ -81,12 +81,23 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   const message = page.getByTestId('cast-message');
   await expect(panel).toContainText('No one in the cast yet.');
 
-  // --- add a character ---
+  // --- an empty cast starts from a photo ---
+  await expect(page.getByTestId('cast-add')).toHaveAttribute('data-first', 'true');
+  await expect(page.getByTestId('cast-add-title')).toHaveText('Add a character with a photo');
+  const addFile = page.getByTestId('cast-add-file');
+  await expect(addFile).toBeVisible();
+  await expect(addFile).toHaveAttribute('type', 'file');
+  await expect(addFile).toHaveAttribute('accept', /image\/png/);
+  await expect(page.getByTestId('cast-add-with-photo')).toBeDisabled();
+
+  // --- add a character (without a photo) ---
   await page.getByTestId('cast-add-name').fill('Mara');
   await page.getByTestId('cast-add-description').fill(
     'a tall woman in her thirties with short silver hair, a round face, a mustard raincoat and green boots');
   await page.getByTestId('cast-add-button').click();
   await expect(message).toHaveText('Mara joined the cast.');
+  await expect(page.getByTestId('cast-add-title')).toHaveText('Add someone to the cast');
+  await expect(page.getByTestId('cast-add')).toHaveAttribute('data-first', 'false');
   const mara = page.getByTestId('cast-character-mara');
   await expect(mara).toContainText('Look not locked yet');
   await expect(page.getByTestId('cast-source-text-mara')).toBeChecked();
@@ -183,4 +194,34 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await expect(mara.getByRole('button', { name: 'Winter coat' })).toHaveAttribute('aria-pressed', 'true');
   await expect(sheet).toHaveAttribute('data-step', 'start');
   await expect(sheet).toContainText('keep the locked look of version 1');
+
+  // --- a character with a photo, in one step: the photo's checks and rights questions come first ---
+  await page.getByTestId('cast-add-file').setInputFiles({
+    name: 'small.png', mimeType: 'image/png', buffer: testPicture(200, 200) });
+  await page.getByTestId('cast-add-name').fill('Theo');
+  await page.getByTestId('cast-add-role').fill('the lead');
+  await page.getByTestId('cast-add-description').fill(
+    'a small boy with curly red hair, a striped blue jumper, grey shorts and yellow wellies');
+  await expect(page.getByTestId('cast-add-photo-problem')).toContainText('whose picture this is');
+  await expect(page.getByTestId('cast-add-with-photo')).toBeDisabled();
+  await page.getByTestId('cast-add-rights-original').check();
+  await page.getByTestId('cast-add-with-photo').click();
+  await expect(message).toContainText('at least 512 px');
+  await expect(page.getByTestId('cast-character-theo')).toHaveCount(0);
+
+  await page.getByTestId('cast-add-file').setInputFiles({
+    name: 'theo.png', mimeType: 'image/png', buffer: testPicture(640, 800) });
+  await page.getByTestId('cast-add-with-photo').click();
+  await expect(message).toHaveText('Theo joined the cast with their photo.');
+  const theo = page.getByTestId('cast-character-theo');
+  const theoPicture = theo.getByRole('img', { name: 'Main picture' });
+  await expect(theoPicture).toBeVisible();
+  await expect.poll(() => theoPicture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByTestId('cast-source-upload-theo')).toBeChecked();
+  const theoView = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/cast`)).json())
+    .characters.find((c: { slug: string }) => c.slug === 'theo');
+  expect(theoView.role).toBe('the lead');
+  expect(theoView.versions[0].images.map((i: { role: string; is_primary: boolean; attestation: { rights: string } }) =>
+    [i.role, i.is_primary, i.attestation.rights])).toEqual([['upload', true, 'original']]);
+  await expect(page.getByTestId('cast-add-name')).toHaveValue('');
 });

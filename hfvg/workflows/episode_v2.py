@@ -3303,7 +3303,9 @@ class EpisodeWorkflowV2:
     def retry_prompt_plan(self, shot_id: str, prompt_append: str | None = None) -> dict:
         """GAP-15: the prompts a retry_shot(shot_id, prompt_append) child WOULD submit (still, and
         clip: the shot's clip_prompt if it has one, else the amended still prompt) so the API can
-        preflight them against the model limits BEFORE a paid still is re-rolled. No side effects."""
+        preflight them against the model limits BEFORE a paid still is re-rolled. ``stills``: the paid
+        still submits that child would make, with the parameters each is priced with, so the API can
+        show the redo's estimate before anything is spent. No side effects."""
         for shot in self.parsed_beatmap.get("shots", []):
             if shot["shot_id"] == shot_id:
                 base = shot.get("prompt") or ""
@@ -3312,7 +3314,8 @@ class EpisodeWorkflowV2:
                 return {"found": True, "still_prompt": prompt,
                         "clip_prompt": shot.get("clip_prompt") or prompt,
                         "clip_model": params.get("model", "kling"),
-                        "shot_meta": shot.get("shot_meta") or {}}
+                        "shot_meta": shot.get("shot_meta") or {},
+                        "stills": self._retry_stills(shot_id, shot, prompt)}
         adopted = self.launched_shot_plans.get(shot_id) or {}
         if adopted.get("adopted_reuse"):  # GAP-44: an adopted reuse slot is not in the beatmap
             base = adopted.get("prompt") or ""
@@ -3320,8 +3323,23 @@ class EpisodeWorkflowV2:
             return {"found": True, "still_prompt": prompt,
                     "clip_prompt": adopted.get("clip_prompt") or prompt,
                     "clip_model": (adopted.get("params") or {}).get("model", "kling"),
-                    "shot_meta": adopted.get("shot_meta") or {}}
+                    "shot_meta": adopted.get("shot_meta") or {},
+                    "stills": self._retry_stills(shot_id, adopted, prompt)}
         return {"found": False}
+
+    def _retry_stills(self, shot_id: str, shot: dict, prompt: str) -> list[dict]:
+        """The paid still submits of a retry_shot child: the start still, unless retry_shot hands the
+        child the pre-approved start still again (it does unless the owner rejected that still at G2),
+        and the end still of an end-frame shot, priced like the child's submits (ShotWorkflow defaults)."""
+        params = shot.get("params") or {}
+        priced = {"resolution": params.get("resolution", "1k"), "quality": params.get("quality", "medium"),
+                  "aspect_ratio": params.get("aspect_ratio", "9:16")}
+        stills = []
+        if shot_id not in self.pre_approved_stills or self.state.shot_decisions.get(shot_id) == "rejected":
+            stills.append({"kind": "start", "prompt": prompt, **priced})
+        if params.get("end_frame"):
+            stills.append({"kind": "end", "prompt": shot.get("end_prompt") or prompt, **priced})
+        return stills
 
     def _merge_rechecked_refs(self, shots: list[dict], rechecked: dict) -> list[dict]:
         """Merge the G2.01 recheck (refs now on disk, e.g. made after G1) into the launched shots AND
@@ -3480,6 +3498,7 @@ class EpisodeWorkflowV2:
             },
             "shots": len(self.shot_results),
             "shot_decisions": dict(self.state.shot_decisions),
+            "rejection_reasons": dict(self.rejection_reasons),
             "clip_retries": dict(self.clip_retries),
             "pending_clip_retries": list(self.pending_clip_retries),
             "clip_retry_log": [dict(r) for r in self.clip_retry_log],

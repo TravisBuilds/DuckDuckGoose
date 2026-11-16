@@ -249,6 +249,82 @@ def test_characters_get_unique_ids_and_text_limits():
         new_character(name="Bad", slug="Bad Id!")
 
 
+def _row_counts() -> dict:
+    with cast_store.connect() as conn:
+        return {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                for t in ("cast_characters", "cast_versions", "cast_images", "cast_audit_log")}
+
+
+def _stored_files(cast_dir) -> list:
+    return sorted(p for p in (cast_dir / "images").rglob("*") if p.is_file()) if (cast_dir / "images").exists() else []
+
+
+def test_a_character_starts_from_a_reference_picture_in_one_step(cast_dir):
+    data = image_bytes("JPEG", seed=5)
+    attested = attestation(note="drawn by me")
+    character = cast_store.create_character_with_upload(
+        ("episode", "ep41cast"), "Moss Fern", "lead", "a small round robot with a teal shell", data,
+        filename="moss-front.jpg", attestation=attested, actor="user-1", episode_id="ep41cast")
+    assert (character["name"], character["slug"], character["role"], character["library_id"]) == (
+        "Moss Fern", "moss-fern", "lead", "ep41cast")
+    [version] = character["versions"]
+    [image] = version["images"]
+    sha = hashlib.sha256(data).hexdigest()
+    assert (version["version"], version["locked"], image["version"], image["role"], image["source"]) == (
+        1, False, 1, cast_store.UPLOAD_ROLE, "upload")
+    assert (image["is_primary"], image["sha256"], image["original_filename"]) == (True, sha, "moss-front.jpg")
+    assert image["attestation"] == attested
+    assert cast_store.image_path(image).read_bytes() == data and cast_store.thumb_file(sha).is_file()
+    assert _audit_actions(character["character_id"]) == ["character_create", "image_upload"]
+    upload_row = cast_store.list_audit(character_id=character["character_id"])[0]
+    assert (upload_row["actor"], upload_row["episode_id"], upload_row["image_id"]) == ("user-1", "ep41cast", image["image_id"])
+    assert json.loads(upload_row["details"]) == {
+        "version": 1, "sha256": sha, "bytes": len(data), "width": 640, "height": 960, "format": "JPEG",
+        "filename": "moss-front.jpg", "attestation": attested}
+    # the same name again gets its own id, as without a picture
+    again = cast_store.create_character_with_upload(("episode", "ep41cast"), "Moss Fern", "", "", image_bytes(seed=6),
+                                                    filename=None, attestation=attestation(), actor="user-1")
+    assert again["slug"] == "moss-fern-2"
+
+
+@pytest.mark.parametrize("name,description,data,error", [
+    ("   ", "", image_bytes(), "Name is required"),
+    ("Pip", "x" * (cast_store.DESCRIPTION_MAX + 1), image_bytes(), "Description"),
+    ("Pip", "", image_bytes(size=(400, 900)), "each side must be at least 512 px"),
+    ("Pip", "", b"just some notes, not a picture", "not a readable PNG, JPG or WebP image"),
+])
+def test_a_refused_character_from_a_picture_leaves_nothing(cast_dir, name, description, data, error):
+    before = _row_counts()
+    with pytest.raises(cast_store.CastError, match=error):
+        cast_store.create_character_with_upload(("episode", "ep41cast"), name, "", description, data,
+                                                filename="pip.png", attestation=attestation(), actor="t")
+    assert _row_counts() == before and _stored_files(cast_dir) == []
+
+
+def test_a_full_cast_refuses_a_character_from_a_picture_and_stores_no_picture(cast_dir, monkeypatch):
+    monkeypatch.setattr(cast_store, "MAX_CHARACTERS_PER_LIBRARY", 1)
+    new_character()
+    before = _row_counts()
+    with pytest.raises(cast_store.CastConflict, match="the limit is 1"):
+        cast_store.create_character_with_upload(("episode", "ep41cast"), "Moss", "", "", image_bytes(seed=2),
+                                                filename="moss.png", attestation=attestation(), actor="t")
+    assert _row_counts() == before and _stored_files(cast_dir) == []
+
+
+def test_a_picture_that_cannot_be_recorded_takes_its_character_with_it(cast_dir, monkeypatch):
+    """One transaction: when recording the picture fails, the character and its version are not kept."""
+    def broken(*_a, **_k):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(cast_store, "_store_image", broken)
+    before = _row_counts()
+    with pytest.raises(sqlite3.OperationalError):
+        cast_store.create_character_with_upload(("episode", "ep41cast"), "Pip", "", "", image_bytes(seed=3),
+                                                filename="pip.png", attestation=attestation(), actor="t")
+    assert _row_counts() == before
+    assert cast_store.list_characters(("episode", "ep41cast")) == []
+
+
 def test_a_new_outfit_derives_only_from_a_locked_master():
     character = new_character()
     cid = character["character_id"]

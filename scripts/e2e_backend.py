@@ -14,6 +14,8 @@ Usage:  ADMIN_SECRET=<32+ chars> python scripts/e2e_backend.py [--port 8000] [--
 Readiness: GET http://127.0.0.1:<port>/api/health returns 200 once the worker and API are up.
 Cleanup: POST /api/e2e/end-open-runs (admin, this launcher only) ends every run still open; the
 Playwright specs call it after each test (web/tests/e2e-cleanup.ts).
+Purge: POST /api/e2e/purge-history/{episode_id} (admin, this launcher only) deletes an episode's runs
+from the dev server, as Temporal's retention does a day after a run closes.
 """
 from __future__ import annotations
 
@@ -66,6 +68,61 @@ def _add_cleanup_route(app, client) -> None:
         return {"ended": ended}
 
 
+def _add_purge_route(app, client) -> None:
+    """POST /api/e2e/purge-history/{episode_id}: delete the episode's runs (its own and its shots') from
+    the dev server, as Temporal's retention does a day after a run closes, and wait until they are gone.
+
+    The retention only deletes closed runs, so a run still open is terminated first. The API then has
+    only what the studio saved (state/reopen_snapshot.json, the files, the database), which is what the
+    purged-run specs check. The run lock a terminated run leaves is released: a day after the run closed
+    it would be stale (RUN_LOCK_STALE_TIMEOUT_SECONDS) and the next start would reclaim it. Admin-only,
+    like every route the API does not open up, and registered by this launcher only.
+    """
+    from fastapi import HTTPException
+    from temporalio.api.common.v1 import WorkflowExecution
+    from temporalio.api.workflowservice.v1 import DeleteWorkflowExecutionRequest
+    from temporalio.service import RPCError, RPCStatusCode
+
+    from api.main import DATABASE_PATH, validate_episode_id
+    from hfvg.credit_ledger import CreditLedger
+
+    async def known(workflow_id: str) -> bool:
+        try:
+            await client.get_workflow_handle(workflow_id).describe()
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return False
+            raise
+        return True
+
+    @app.post("/api/e2e/purge-history/{episode_id}")
+    async def purge_history(episode_id: str) -> dict:
+        validate_episode_id(episode_id)
+        ids = [episode_id] + sorted({wf.id async for wf in client.list_workflows(f'WorkflowId STARTS_WITH "{episode_id}-"')})
+        ids = [wid for wid in ids if await known(wid)]
+        for wid in ids:
+            try:
+                await client.get_workflow_handle(wid).terminate(reason="e2e purge: the retention deletes closed runs")
+            except RPCError:
+                pass  # closed already
+            await client.workflow_service.delete_workflow_execution(DeleteWorkflowExecutionRequest(
+                namespace=client.namespace, workflow_execution=WorkflowExecution(workflow_id=wid)))
+        for _ in range(600):
+            left = [wid for wid in ids if await known(wid)]
+            if not left:
+                await CreditLedger(DATABASE_PATH).release_run_lock(episode_id)
+                return {"purged": ids}
+            await asyncio.sleep(0.1)
+        raise HTTPException(status_code=504, detail=f"the dev server still has {left}")
+
+
+# A closed run's deletion waits for these acks (30 s by default); a purge then takes seconds.
+DEV_SERVER_ARGS = [arg for key in ("history.transferProcessorUpdateAckInterval",
+                                   "history.visibilityProcessorUpdateAckInterval",
+                                   "history.timerProcessorUpdateAckInterval")
+                   for arg in ("--dynamic-config-value", f'{key}="1s"')]
+
+
 async def _main(port: int) -> None:
     import uvicorn
     from temporalio.testing import WorkflowEnvironment
@@ -108,7 +165,8 @@ async def _main(port: int) -> None:
     except ValueError:
         pass  # User already exists (reused server)
 
-    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter) as env:
+    async with await WorkflowEnvironment.start_local(data_converter=temporal_data_converter,
+                                                     dev_server_extra_args=DEV_SERVER_ARGS) as env:
         target = env.client.service_client.config.target_host
         os.environ["TEMPORAL_ADDRESS"] = target
         os.environ["TEMPORAL_NAMESPACE"] = env.client.namespace
@@ -119,6 +177,7 @@ async def _main(port: int) -> None:
             api_main.TEMPORAL_ADDRESS = target
             api_main.TEMPORAL_NAMESPACE = env.client.namespace
             _add_cleanup_route(api_main.app, env.client)
+            _add_purge_route(api_main.app, env.client)
             print(f"[e2e-backend] temporal dev server {target}; worker on {config.TASK_QUEUE}; "
                   f"api on :{port}; workdir {os.getcwd()}", flush=True)
             server = uvicorn.Server(uvicorn.Config(api_main.app, host="127.0.0.1", port=port, log_level="info"))

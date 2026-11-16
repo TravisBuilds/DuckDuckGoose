@@ -6,6 +6,8 @@ import {
   PICTURE_ACCEPT,
   PICTURE_LABELS,
   SHEET_STEP_TEXT,
+  addForm,
+  addWithPhotoProblem,
   anyActiveJobs,
   castPicks,
   defaultOptionCount,
@@ -22,6 +24,7 @@ import {
   shotCastChanges,
   toggleCast,
   versionPictures,
+  withPictureFields,
 } from '@/lib/cast.mjs';
 import type {
   CastCharacter,
@@ -100,6 +103,41 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   );
 }
 
+/** The rights questions every picture upload needs (lib/cast.mjs rightsProblem / rightsFields). */
+function RightsQuestions({ rights, onChange, group, testId }: {
+  rights: RightsAnswers; onChange: (rights: RightsAnswers) => void; group: string; testId: (what: string) => string;
+}) {
+  return (
+    <fieldset className="mt-3 text-sm space-y-1">
+      <legend className="text-xs font-semibold mb-1">Whose picture is this?</legend>
+      <label className="flex items-center gap-2">
+        <input type="radio" name={group} checked={rights.rights === 'original'}
+          onChange={() => onChange({ ...rights, rights: 'original' })} data-testid={testId('rights-original')} />
+        I made it myself (my own original work)
+      </label>
+      <label className="flex items-center gap-2">
+        <input type="radio" name={group} checked={rights.rights === 'owned'}
+          onChange={() => onChange({ ...rights, rights: 'owned' })} data-testid={testId('rights-owned')} />
+        I own the rights to use it
+      </label>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={rights.realPerson}
+          onChange={(e) => onChange({ ...rights, realPerson: e.target.checked, likenessConsent: false })}
+          data-testid={testId('real-person')} />
+        It shows a real person
+      </label>
+      {rights.realPerson && (
+        <label className="flex items-center gap-2 ml-6">
+          <input type="checkbox" checked={rights.likenessConsent}
+            onChange={(e) => onChange({ ...rights, likenessConsent: e.target.checked })}
+            data-testid={testId('likeness-consent')} />
+          That person agreed to their likeness being used in this video
+        </label>
+      )}
+    </fieldset>
+  );
+}
+
 function PictureUpload({ episodeId, character, version, view, busy, act, note }: {
   episodeId: string; character: CastCharacter; version: CastVersion; view: CastView; busy: boolean; act: Act;
   note: CastNote | null;
@@ -148,33 +186,7 @@ function PictureUpload({ episodeId, character, version, view, busy, act, note }:
         data-testid={`cast-upload-file-${character.slug}`}
       />
       {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
-      <fieldset className="mt-3 text-sm space-y-1">
-        <legend className="text-xs font-semibold mb-1">Whose picture is this?</legend>
-        <label className="flex items-center gap-2">
-          <input type="radio" name={group} checked={rights.rights === 'original'}
-            onChange={() => setRights({ ...rights, rights: 'original' })} data-testid={`cast-rights-original-${character.slug}`} />
-          I made it myself (my own original work)
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name={group} checked={rights.rights === 'owned'}
-            onChange={() => setRights({ ...rights, rights: 'owned' })} data-testid={`cast-rights-owned-${character.slug}`} />
-          I own the rights to use it
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={rights.realPerson}
-            onChange={(e) => setRights({ ...rights, realPerson: e.target.checked, likenessConsent: false })}
-            data-testid={`cast-real-person-${character.slug}`} />
-          It shows a real person
-        </label>
-        {rights.realPerson && (
-          <label className="flex items-center gap-2 ml-6">
-            <input type="checkbox" checked={rights.likenessConsent}
-              onChange={(e) => setRights({ ...rights, likenessConsent: e.target.checked })}
-              data-testid={`cast-likeness-consent-${character.slug}`} />
-            That person agreed to their likeness being used in this video
-          </label>
-        )}
-      </fieldset>
+      <RightsQuestions rights={rights} onChange={setRights} group={group} testId={(what) => `cast-${what}-${character.slug}`} />
       {file && !fileIssue && rightsIssue && (
         <p className="text-xs text-amber-800 dark:text-amber-300 mt-2">{rightsIssue}</p>
       )}
@@ -607,37 +619,91 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
   );
 }
 
-function AddCharacter({ episodeId, busy, act, note }: { episodeId: string; busy: boolean; act: Act; note: CastNote | null }) {
+/**
+ * Add someone to the cast: name, part, description and a photo in one step (the photo with the same
+ * checks and rights questions as a picture upload), or without a photo. With no one in the cast yet
+ * the photo comes first and "Add a character with a photo" is the main action.
+ */
+function AddCharacter({ episodeId, view, busy, act, note }: {
+  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+}) {
   const empty = { name: '', role: '', description: '' };
   const [form, setForm] = useState(empty);
-  const add = async () => {
-    const name = form.name.trim();
-    const added = await act(
-      () => postJson(`/api/episodes/${episodeId}/cast`, {
-        name, role: form.role.trim(), description: form.description.trim(),
-      }),
-      `${name} joined the cast.`,
-      'add',
-    );
-    if (added !== null) setForm(empty);
+  const [file, setFile] = useState<File | null>(null);
+  const [rights, setRights] = useState<RightsAnswers>(emptyRights());
+  const [inputKey, setInputKey] = useState(0);
+  const { first, title } = addForm(view);
+  const limits = view.limits;
+  const name = form.name.trim();
+  const fileIssue = file ? pictureProblem(file, limits.max_upload_bytes) : null;
+  const photoIssue = addWithPhotoProblem(name, file, rights, limits.max_upload_bytes);
+
+  const added = (result: unknown) => {
+    if (result === null) return;
+    setForm(empty);
+    setFile(null);
+    setRights(emptyRights());
+    setInputKey((k) => k + 1);
+  };
+  const addWithPhoto = async () => {
+    if (!file || photoIssue) return;
+    const body = new FormData();
+    body.append('image_file', file);
+    for (const [key, value] of withPictureFields(form, rights)) body.append(key, value);
+    added(await act(() => apiFetch(`/api/episodes/${episodeId}/cast/with-picture`, { method: 'POST', body }),
+      `${name} joined the cast with their photo.`, 'add'));
+  };
+  const addWithoutPhoto = async () => {
+    added(await act(() => postJson(`/api/episodes/${episodeId}/cast`, {
+      name, role: form.role.trim(), description: form.description.trim(),
+    }), `${name} joined the cast.`, 'add'));
   };
   return (
-    <div className="mt-4 p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600" data-testid="cast-add">
-      <h3 className="text-sm font-semibold mb-2">Add someone to the cast</h3>
-      <div className="grid sm:grid-cols-2 gap-2">
+    <div data-testid="cast-add" data-first={first ? 'true' : 'false'}
+      className={`mt-4 p-4 rounded-lg border ${first ? 'border-blue-300 bg-blue-50/40 dark:border-blue-700 dark:bg-blue-900/10' : 'border-dashed border-gray-300 dark:border-gray-600'}`}>
+      <h3 className="text-sm font-semibold mb-1" data-testid="cast-add-title">{title}</h3>
+      {first && (
+        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+          Start with a photo or drawing of each character: the studio makes their character sheet from it, so they
+          look the same in every shot.
+        </p>
+      )}
+      <label htmlFor="cast-add-file" className="block text-sm font-medium">{first ? 'Photo' : 'Photo (optional)'}</label>
+      <p id="cast-add-file-hint" className="text-xs text-gray-600 dark:text-gray-300 mb-1">
+        PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
+        A clear full-body picture on a plain background works best.
+      </p>
+      <input id="cast-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="cast-add-file-hint"
+        className={`text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
+      {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
+      <div className="grid sm:grid-cols-2 gap-2 mt-3">
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={60}
           placeholder="Name, e.g. Mara" aria-label="Name" className={field} data-testid="cast-add-name" />
         <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} maxLength={80}
-          placeholder="Part they play, e.g. the lead" aria-label="Part they play" className={field} />
+          placeholder="Part they play, e.g. the lead" aria-label="Part they play" className={field}
+          data-testid="cast-add-role" />
       </div>
       <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
         maxLength={600} rows={3} aria-label="What they look like" data-testid="cast-add-description"
         placeholder="What they look like, the same in every shot: age, build, face, hair, colours, clothing"
         className={`${field} mt-2`} />
-      <button type="button" onClick={add} disabled={busy || !form.name.trim()} className={`${darkBtn} mt-2`}
-        data-testid="cast-add-button">
-        Add to the cast
-      </button>
+      {file && (
+        <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
+      )}
+      {file && !fileIssue && photoIssue && (
+        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2" data-testid="cast-add-photo-problem">{photoIssue}</p>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={addWithPhoto} disabled={busy || !!photoIssue} className={darkBtn}
+          data-testid="cast-add-with-photo">
+          Add a character with a photo
+        </button>
+        <button type="button" onClick={addWithoutPhoto} disabled={busy || !name} className={plainBtn}
+          data-testid="cast-add-button">
+          Add without a photo
+        </button>
+      </div>
       <CastMessage note={note} />
     </div>
   );
@@ -887,7 +953,7 @@ export default function CastPanel({ episodeId, onView }: { episodeId: string; on
 
   const ofCharacter = (slug: string) =>
     message && (message.where === slug || message.where.startsWith(`${slug}:`)) ? message : null;
-  const addShown = view.can_edit && view.characters.length < view.limits.max_characters;
+  const addShown = addForm(view).shown;
   const owner = message?.where.split(':')[0];
   const placed = Boolean(message) && (
     view.characters.some((c) => c.slug === owner)
@@ -924,7 +990,8 @@ export default function CastPanel({ episodeId, onView }: { episodeId: string; on
         </div>
       )}
       {addShown && (
-        <AddCharacter episodeId={episodeId} busy={busy} act={act} note={placed && message?.where === 'add' ? message : null} />
+        <AddCharacter episodeId={episodeId} view={view} busy={busy} act={act}
+          note={placed && message?.where === 'add' ? message : null} />
       )}
       <ShotCast episodeId={episodeId} view={view} busy={busy} act={act}
         note={placed && message?.where === 'shots' ? message : null} />

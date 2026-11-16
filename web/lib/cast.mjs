@@ -82,6 +82,40 @@ export function rightsFields(answers) {
   ];
 }
 
+/**
+ * The panel's add form. Only for those who may change the cast (the API's can_edit: the episode's
+ * owner or an admin, and the series' owner for a series cast) while there is room. With no one in
+ * the cast yet it starts from a photo: "Add a character with a photo" is the main action.
+ */
+export function addForm(view) {
+  const count = view?.characters?.length ?? 0;
+  const first = count === 0;
+  return {
+    shown: Boolean(view?.can_edit) && count < (view?.limits?.max_characters ?? 0),
+    first,
+    title: first ? 'Add a character with a photo' : 'Add someone to the cast',
+  };
+}
+
+/** Why "Add a character with a photo" cannot be pressed yet (null when it can). */
+export function addWithPhotoProblem(name, file, answers, maxBytes) {
+  if (!file) return 'Choose a photo of the character.';
+  const picture = pictureProblem(file, maxBytes);
+  if (picture) return picture;
+  if (!String(name ?? '').trim()) return 'Give the character a name.';
+  return rightsProblem(answers);
+}
+
+/** The form fields, besides the picture, of POST /api/episodes/{id}/cast/with-picture. */
+export function withPictureFields(fields, answers) {
+  return [
+    ['name', String(fields?.name ?? '').trim()],
+    ['role', String(fields?.role ?? '').trim()],
+    ['description', String(fields?.description ?? '').trim()],
+    ...rightsFields(answers),
+  ];
+}
+
 /** A version's pictures: the creator's uploads (main one first), the look options, and the sheet. */
 export function versionPictures(version) {
   const images = (version?.images ?? []).filter(i => i.status === 'active');

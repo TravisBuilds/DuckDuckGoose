@@ -40,6 +40,7 @@ ACTION_ROUTES = [
     ("POST", "/shots/S01/approve", {}),
     ("POST", "/shots/S01/reject", {"data": {"reason": "framing"}}),
     ("POST", "/shots/S01/retry", {}),
+    ("POST", "/shots/S01/retry/estimate", {"json": {"prompt_append": "Change requested: tighter framing."}}),
     ("POST", "/shots/S01/accept-clip", {"json": {"reason": "reviewed"}}),
     ("POST", "/shots/S01/select-still", {"json": {"version": 1, "reason": "better"}}),
     ("POST", "/shots/S01/retry-clip", {"json": {"reason": "motion"}}),

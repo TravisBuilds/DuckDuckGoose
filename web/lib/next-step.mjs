@@ -130,11 +130,23 @@ export function listNames(names) {
 }
 
 /**
- * The finish card of a completed run: is there a video to watch, and which file plays first.
+ * The finish card: is there a video to watch, and which file plays first. For a completed run, and for
+ * a run whose history expired (run.outcome "expired") or could not be loaded (no run): the delivered
+ * files are on disk whatever happened to the run, so they are shown either way.
  * mine: the viewer made it ("Your video"), else "This video".
  */
 export function finishLine(run, files, mine = true) {
   const ready = VIDEO_FILES.filter((type) => files?.[type]?.available);
+  if (!run || run.outcome === 'expired') {
+    return {
+      ready: ready.length > 0,
+      primary: ready[0] ?? null,
+      title: run ? "This run's history expired" : "This run's history could not be loaded",
+      text: ready.length > 0
+        ? 'The studio no longer knows how the run ended, but the video it delivered is here to watch and download.'
+        : 'The studio no longer knows how the run ended, and no video file is left for it.',
+    };
+  }
   if (ready.length > 0) {
     return {
       ready: true,
@@ -173,7 +185,9 @@ function waitingOn(who, step, task, text, href, extra = {}) {
 
 /**
  * The Next step card: { step, title, text, href, count?, advisory?, also?, waiting?, waitingOn? }.
- * step is one of story | cast | shot_plan | stills | final_cut | done | failed | working.
+ * step is one of story | cast | shot_plan | stills | final_cut | done | expired | failed | working.
+ * expired: the run's history is gone and nothing saved shows how it ended (or no run state could be
+ * read while delivered files exist); the finish card shows what files there are.
  * more: { files (GET .../files), shots (GET .../shot-states shots) } when the page has them, and
  * viewer ({ mine, canAct, ownerName }) when the reader may not be the person who made the video.
  * waiting: the step is someone else's to take (waitingOn names them).
@@ -183,6 +197,10 @@ export function nextStep(state, story = null, cast = null, more = {}) {
   const { mine, canAct, ownerName } = { ...MAKER, ...(viewer ?? {}) };
   const who = ownerName || 'the owner';
   if (!state) {
+    if (VIDEO_FILES.some((type) => files?.[type]?.available)) {
+      const finish = finishLine(null, files, mine);
+      return { step: 'expired', title: finish.title, text: finish.text, href: '#finished' };
+    }
     return {
       step: 'working',
       title: "This video hasn't started yet",
@@ -192,9 +210,9 @@ export function nextStep(state, story = null, cast = null, more = {}) {
   }
   const run = state.run ?? null;
   if (run?.ended) {
-    if (run.outcome === 'completed') {
+    if (run.outcome === 'completed' || run.outcome === 'expired') {
       const finish = finishLine(run, files, mine);
-      return { step: 'done', title: finish.title, text: finish.text, href: '#finished' };
+      return { step: run.outcome === 'completed' ? 'done' : 'expired', title: finish.title, text: finish.text, href: '#finished' };
     }
     let text = 'See what went wrong.';
     if (run.can_start_again) {
@@ -315,9 +333,11 @@ export function nextStep(state, story = null, cast = null, more = {}) {
 /**
  * The stepper: Story, Cast, Shot plan, Scene pictures, Final cut, Download, each
  * done | current | todo | skipped | stopped. "skipped" is a step the video went past without it
- * (no story outline, or no cast to lock).
+ * (no story outline, or no cast to lock). Null when the run's history expired: nothing shows which
+ * steps it took.
  */
 export function stepperSteps(state, story, cast, next) {
+  if (next?.step === 'expired' || state?.run?.outcome === 'expired') return null;
   const approvals = state?.approvals ?? {};
   const ended = Boolean(state?.run?.ended);
   const completed = ended && state?.run?.outcome === 'completed';
@@ -360,9 +380,21 @@ export function statusChip(next) {
       return { label: 'Final cut to approve', tone: 'todo' };
     case 'done':
       return { label: 'Finished', tone: 'ok' };
+    case 'expired':
+      return { label: 'History expired', tone: 'warn' };
     case 'failed':
       return { label: 'Stopped', tone: 'bad' };
     default:
       return { label: 'In progress', tone: 'wait' };
   }
+}
+
+/**
+ * The studio home card's chip from GET /api/episodes/{id}. Without a run state (a 404: the API knows
+ * no run, saved state or file of the episode) it has not started; a run Temporal has purged comes back
+ * as the API's archived state and reads like any other run, e.g. "Finished".
+ */
+export function cardStatus(state, story = null, viewer = null) {
+  if (!state) return { label: 'Not started', tone: 'wait' };
+  return statusChip(nextStep(state, story, null, { viewer }));
 }

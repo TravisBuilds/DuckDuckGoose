@@ -414,6 +414,177 @@ async def test_the_size_limit_counts_a_body_without_a_declared_length(monkeypatc
     assert called == [{"type": "http.request", "body": b"abc", "more_body": False}]
 
 
+# ------------------------------------------------------------------------------------- a character with a picture
+
+
+def _create_with_picture(client, name="Pip", data=None, filename="pip.png", mime="image/png", ep=EP, **form):
+    fields = {"name": name, "role": "lead", "description": f"{name}, a small round robot with one green eye",
+              "rights": "original", **form}
+    body = io.BytesIO(image_bytes() if data is None else data)
+    return client.post(f"{_base(ep)}/with-picture", data=fields, files={"image_file": (filename, body, mime)})
+
+
+def _cast_rows() -> tuple[int, int]:
+    with cast_store.connect() as conn:
+        return tuple(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("cast_characters", "cast_images"))
+
+
+async def test_a_character_joins_the_cast_with_its_picture_in_one_step(studio):
+    owner = _client(studio, "owner")
+    assert owner.get(_base()).json()["characters"] == []
+    data = image_bytes("JPEG", seed=12)
+    res = _create_with_picture(owner, data=data, filename="pip-front.jpg", mime="image/jpeg", note="drawn by me")
+    assert res.status_code == 200, res.text
+    pip = res.json()["character"]
+    assert (pip["name"], pip["role"], pip["slug"], pip["library_kind"], pip["library_id"]) == (
+        "Pip", "lead", "pip", "episode", EP)
+    assert pip["description"] == "Pip, a small round robot with one green eye"
+    [image] = pip["versions"][0]["images"]
+    assert (image["version"], image["is_primary"], image["mime"], image["source"], image["original_filename"]) == (
+        1, True, "image/jpeg", "upload", "pip-front.jpg")
+    assert image["attestation"]["rights"] == "original" and image["attestation"]["note"] == "drawn by me"
+    assert image["created_by"] == studio.owner_id
+    assert owner.get(image["url"]).content == data and owner.get(image["thumb_url"]).status_code == 200
+    audit = owner.get(f"{_base()}/{pip['character_id']}").json()["audit"]
+    assert sorted(a["action"] for a in audit) == ["character_create", "image_upload"]
+    view = owner.get(_base()).json()
+    assert [(c["character_id"], len(c["versions"][0]["images"])) for c in view["characters"]] == [(pip["character_id"], 1)]
+    # the picture is the version's reference like any upload: the sheet starts from it
+    assert view["characters"][0]["versions"][0]["images"][0]["image_id"] == image["image_id"]
+    again = _create_with_picture(owner, data=image_bytes(seed=13), filename="pip-2.png")
+    assert again.status_code == 200 and again.json()["character"]["slug"] == "pip-2"
+    assert _cast_rows() == (2, 2)
+
+
+async def test_character_text_with_a_picture_follows_the_content_policy(studio):
+    from hfvg.content_policy import hard_stop_terms
+    bad = next(t for t in ("gore", "nude", "blood") if hard_stop_terms(t))
+    res = _create_with_picture(_client(studio, "owner"), description=f"covered in {bad}")
+    assert res.status_code == 400 and res.json()["detail"].startswith("Please reword"), res.text
+    assert _cast_rows() == (0, 0) and _stored_images() == []
+
+
+@pytest.mark.parametrize("form,data,status,detail", [
+    ({"rights": ""}, None, 400, "Confirm the image is yours"),
+    ({"rights": "found online"}, None, 400, "Confirm the image is yours"),
+    ({"depicts_real_person": "true"}, None, 400, "consent"),
+    ({"rights": "owned", "depicts_real_person": "true", "likeness_consent": "false"}, None, 400, "consent"),
+    ({}, _gif(), 400, "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
+    ({}, image_bytes(size=(400, 900)), 400, "The image is 400x900 px; each side must be at least 512 px"),
+    ({}, b"just some notes, not a picture", 400, "This file is not a readable PNG, JPG or WebP image"),
+    ({}, b"", 400, "The file is empty"),
+    ({"name": ""}, None, 422, None),
+    ({"name": "   "}, None, 400, "Name is required"),
+])
+async def test_a_refused_character_with_a_picture_keeps_no_character_and_no_picture(studio, form, data, status, detail):
+    res = _create_with_picture(_client(studio, "owner"), data=data, **form)
+    assert res.status_code == status, res.text
+    if detail:
+        assert detail in res.json()["detail"], res.text
+    assert _cast_rows() == (0, 0) and _stored_images() == []
+
+
+async def test_a_real_person_with_their_consent_joins_the_cast_with_a_picture(studio):
+    res = _create_with_picture(_client(studio, "owner"), rights="owned", depicts_real_person="true",
+                               likeness_consent="true", note="signed release from the actor")
+    assert res.status_code == 200, res.text
+    attestation = res.json()["character"]["versions"][0]["images"][0]["attestation"]
+    assert attestation["depicts_real_person"] is True and attestation[cast_store.LIKENESS_CONSENT] is True
+
+
+async def test_an_oversize_picture_adds_no_character(studio, monkeypatch):
+    owner = _client(studio, "owner")
+    from PIL import Image
+    noise = io.BytesIO()
+    Image.frombytes("RGB", (640, 960), os.urandom(640 * 960 * 3)).save(noise, "PNG")
+    data = noise.getvalue()
+    monkeypatch.setenv("CAST_UPLOAD_MAX_BYTES", str(len(data) // 2))
+    res = _create_with_picture(owner, data=data)  # far over: refused by the declared length, body never parsed
+    assert res.status_code == 413 and res.json()["detail"].startswith("That file is too large")
+    monkeypatch.setenv("CAST_UPLOAD_MAX_BYTES", str(len(data) - 10))
+    res = _create_with_picture(owner, data=data)  # just over: inside the form allowance, refused by the handler
+    assert res.status_code == 413 and "too large" in res.json()["detail"]
+    assert _cast_rows() == (0, 0) and _stored_images() == []
+    monkeypatch.setenv("CAST_UPLOAD_MAX_BYTES", str(len(data)))
+    assert _create_with_picture(owner, data=data).status_code == 200
+
+
+async def test_a_full_cast_refuses_a_character_with_a_picture(studio, monkeypatch):
+    owner = _client(studio, "owner")
+    monkeypatch.setattr(cast_store, "MAX_CHARACTERS_PER_LIBRARY", 1)
+    _create(owner)
+    res = _create_with_picture(owner, "Moss", data=image_bytes(seed=3))
+    assert res.status_code == 409 and "the limit is 1" in res.json()["detail"], res.text
+    assert _cast_rows() == (1, 0) and _stored_images() == []
+
+
+async def test_only_those_who_may_change_the_cast_add_a_character_with_a_picture(studio):
+    """The episode's owner and admins (session or Bearer); another member gets the owner refusal and an
+    anonymous caller a 401, with nothing stored."""
+    res = _create_with_picture(_client(studio, None))
+    assert res.status_code == 401
+    res = _create_with_picture(_client(studio, "other"))
+    assert res.status_code == 403 and res.json()["detail"] == f"Episode {EP} {REFUSED}"
+    assert _cast_rows() == (0, 0) and _stored_images() == []
+    for seed, who in enumerate(("owner", "admin", "bearer"), start=1):
+        res = _create_with_picture(_client(studio, who), name=f"Pip {who}", data=image_bytes(seed=seed))
+        assert res.status_code == 200, (who, res.text)
+    assert [c["name"] for c in _client(studio, "owner").get(_base()).json()["characters"]] == [
+        "Pip owner", "Pip admin", "Pip bearer"]
+    # on an episode without an owner every member may (docs/AUTHENTICATION.md)
+    from hfvg.studio_db import create_episode
+    await create_episode(os.environ["DATABASE_PATH"], SHARED_EP)
+    assert _create_with_picture(_client(studio, "other"), "Moss", data=image_bytes(seed=9), ep=SHARED_EP).status_code == 200
+
+
+async def test_a_series_cast_with_a_picture_needs_the_series_owner(studio):
+    from hfvg.users import LEGACY_USER_ID
+    owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
+    sid = owner.post("/api/series", json={"name": "Harbor Tales"}).json()["series"]["series_id"]
+    assert owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid}).status_code == 200
+    assert admin.post(f"/api/episodes/{OTHER_EP}/series", json={"series_id": sid}).status_code == 200
+    # the owner of another episode in the series can see its cast but not add to it
+    res = _create_with_picture(other, "Moss", ep=OTHER_EP)
+    assert res.status_code == 403 and res.json()["detail"] == f"Series Harbor Tales {REFUSED}"
+    assert _cast_rows() == (0, 0) and _stored_images() == []
+    res = _create_with_picture(owner)
+    assert res.status_code == 200 and res.json()["character"]["library_kind"] == "series"
+    assert [c["slug"] for c in other.get(_base(OTHER_EP)).json()["characters"]] == ["pip"]
+    # a series without an owner changes only through an admin
+    legacy = cast_store.create_series("Old Harbor", LEGACY_USER_ID, "t")["series_id"]
+    assert admin.post(f"/api/episodes/{EP}/series", json={"series_id": legacy}).status_code == 200
+    res = _create_with_picture(owner, "Moss", data=image_bytes(seed=4))
+    assert res.status_code == 403 and res.json()["detail"] == "Series Old Harbor has no owner; only an admin can change it"
+    assert _create_with_picture(admin, "Moss", data=image_bytes(seed=5)).status_code == 200
+
+
+async def test_the_size_limit_covers_a_character_with_a_picture(monkeypatch):
+    from api.cast_routes import UPLOAD_PATH_RE, CastUploadLimit
+
+    for path, limited in [("/api/episodes/ep61cast/cast/with-picture", True),
+                          ("/api/episodes/ep61cast/cast/ch_000000000000/versions/1/images", True),
+                          ("/api/episodes/ep61cast/cast", False),
+                          ("/api/episodes/ep61cast/cast/import", False)]:
+        assert bool(UPLOAD_PATH_RE.match(path)) is limited, path
+    monkeypatch.setenv("CAST_UPLOAD_MAX_BYTES", "1000")
+    called, sent = [], []
+
+    async def app(scope, receive, send):
+        called.append(await receive())
+
+    chunks = [{"type": "http.request", "body": b"x" * 40_000, "more_body": True} for _ in range(3)]
+
+    async def receive():
+        return chunks.pop(0)
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "POST", "headers": [], "path": "/api/episodes/ep61cast/cast/with-picture"}
+    await CastUploadLimit(app)(scope, receive, send)
+    assert called == [] and sent[0]["status"] == 413
+
+
 # ------------------------------------------------------------------------------------- upload, view, delete
 
 

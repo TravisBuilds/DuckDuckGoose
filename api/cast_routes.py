@@ -34,7 +34,7 @@ from hfvg.cast_prompt import MAX_CAST_PER_SHOT, parse_cast_request
 router = APIRouter()
 
 IMAGE_ID_RE = re.compile(r"^ci_[0-9a-f]{12}$")
-UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/cast/[^/]+/versions/[^/]+/images/?$")
+UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/cast/(?:[^/]+/versions/[^/]+/images|with-picture)/?$")
 FORM_OVERHEAD_BYTES = 64 * 1024
 TRUE_VALUES = ("1", "true", "yes", "on")
 CAST_HIDDEN = "Only the people working on this episode (and admins) can see its cast"
@@ -582,6 +582,43 @@ async def create_cast_character(episode_id: str, request: CharacterCreateRequest
     return {"character": _character_out(character)}
 
 create_cast_character.allow_members = True
+
+
+@router.post("/api/episodes/{episode_id}/cast/with-picture")
+async def create_cast_character_with_picture(
+    episode_id: str,
+    image_file: UploadFile = File(...),
+    name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
+    role: str = Form("", max_length=cast_store.ROLE_MAX),
+    description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
+    rights: str = Form(""),
+    depicts_real_person: str = Form("false"),
+    likeness_consent: str = Form("false"),
+    note: str = Form(""),
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Add a character to the episode's cast from a reference picture, in one step: the name, part
+    and description with the picture and its rights attestation. The picture gets the checks, limits
+    and private storage of a version's picture upload; nothing is kept when any of it is refused."""
+    episode_id = _episode_id(episode_id)
+    actor, _, _ = await _actor(authorization, studio_admin_token)
+    library = await _library(episode_id)
+    await _require_library_writer(library, authorization, studio_admin_token)
+    _check_text(name, role, description)
+    attestation = await _call(cast_store.validate_attestation, rights, _flag(depicts_real_person),
+                              _flag(likeness_consent), note)
+    limit = cast_store.max_upload_bytes()
+    data = await image_file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"That file is too large: pictures can be at most "
+                                                    f"{limit // (1024 * 1024)} MB")
+    character = await _call(cast_store.create_character_with_upload, library, name, role, description, data,
+                            filename=image_file.filename, attestation=attestation, actor=actor,
+                            episode_id=episode_id)
+    return {"character": _character_out(character)}
+
+create_cast_character_with_picture.allow_members = True
 
 
 @router.post("/api/episodes/{episode_id}/cast/import")

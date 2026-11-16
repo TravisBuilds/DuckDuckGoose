@@ -238,3 +238,37 @@ async def test_shots_leave_the_prompt_out_for_who_may_not_see_the_cast(studio):
     for ep in (LEGACY, NO_OWNER):
         body = _client(studio, "other").get(f"/api/episodes/{ep}/shots").json()
         assert body["cast_hidden"] is False and body["shots"][0]["prompt"] == PROMPT
+
+
+REJECTED_FOR = "the woman in the mustard raincoat should face the bus"
+
+
+def _run_at_g2():
+    """Each episode run is parked at G2 with S01 turned down, for a reason that names the cast."""
+    def handle_for(workflow_id, *_a, **_k):
+        handle = MagicMock()
+        handle.query = AsyncMock(return_value={
+            "episode_id": workflow_id, "stage": "stills", "current_gate": "G2_SCENE_STILLS",
+            "approvals": {"g1_shot_plan": True}, "shots": 2, "shot_decisions": {"S01": "rejected"},
+            "rejection_reasons": {"S01": REJECTED_FOR}})
+        handle.describe = AsyncMock(side_effect=RuntimeError("not described in this test"))
+        return handle
+
+    client = MagicMock()
+    client.get_workflow_handle = MagicMock(side_effect=handle_for)
+    return client
+
+
+async def test_the_run_state_leaves_out_why_a_picture_was_turned_down_for_who_may_not_see_the_cast(studio):
+    studio.temporal_client = _run_at_g2()
+    for who in ("owner", "staff", "admin", "bearer"):
+        body = _client(studio, who).get(f"/api/episodes/{EP}").json()
+        assert (body["shot_decisions"], body["rejection_reasons"]) == ({"S01": "rejected"}, {"S01": REJECTED_FOR}), who
+
+    hidden = _client(studio, "other").get(f"/api/episodes/{EP}").json()
+    assert (hidden["shot_decisions"], hidden["rejection_reasons"]) == ({"S01": "rejected"}, {})
+    assert "raincoat" not in json.dumps(hidden)
+
+    for ep in (LEGACY, NO_OWNER):
+        body = _client(studio, "other").get(f"/api/episodes/{ep}").json()
+        assert body["rejection_reasons"] == {"S01": REJECTED_FOR}, ep

@@ -7,7 +7,7 @@ import { getPresetById } from '@/lib/presets';
 import { ApiError, API_URL, apiFetch } from '@/lib/studio-api';
 import { formatLocalDate } from '@/lib/time';
 import { ownerLabel } from '@/lib/labels';
-import { nextStep, statusChip } from '@/lib/next-step.mjs';
+import { cardStatus } from '@/lib/next-step.mjs';
 import type { RunStateLike, StoryLike } from '@/lib/next-step.mjs';
 import { btnPrimary, card, chip, focusRing, link, tones, type Tone } from '@/lib/ui';
 
@@ -59,10 +59,8 @@ async function loadSummary(id: string): Promise<Summary> {
 
 /** The card's status chip. A step only its owner (or an admin) can take says who it waits on. */
 function chipFor(summary: Summary, episode: Episode, myUserId: string | null, isAdmin: boolean): { label: string; tone: Tone } {
-  if (!summary.state) return { label: 'Not started', tone: 'wait' };
   const mine = episode.user_id === null || episode.user_id === myUserId;
-  const viewer = { mine, canAct: isAdmin || mine, ownerName: episode.owner_name };
-  return statusChip(nextStep(summary.state, summary.story, null, { viewer }));
+  return cardStatus(summary.state, summary.story, { mine, canAct: isAdmin || mine, ownerName: episode.owner_name });
 }
 
 function EpisodeCard({ episode, summary, myUserId, isAdmin }: {
