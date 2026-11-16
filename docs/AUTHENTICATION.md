@@ -152,6 +152,19 @@ see a cast:
   moderation steps for everyone, but the free text that can quote a shot's prompt (still and clip
   errors, the escalation's provider message and reason, the lint messages) only for a caller who may
   see the cast. Anyone else gets `cast_hidden: true` and those fields empty.
+- The other episode reads that can quote a prompt follow the same rule. Whoever may not see the cast
+  gets:
+  - the shots (`GET /api/episodes/{id}/shots`, `cast_hidden: true`) without each shot's prompt and
+    QC results (the QC verdicts, the clip's fail-if lines, the moderation record); `pre_approved`
+    stays;
+  - the clip plans (`GET /api/episodes/{id}/clip-plans`) with only each shot's `version` and
+    `resynced`, and `cast_hidden: true`: no clip prompt, fail-if lines, lint result or
+    `clip_prompt_is_still_prompt`. An episode without a run answers `404`;
+  - the audit trail (`GET /api/episodes/{id}/audit`, `cast_hidden: true`) with each entry's action,
+    user and time, but no details;
+  - the run state (`GET /api/episodes/{id}`) without the reasons scene pictures were turned down or
+    the failed shots' errors, and with each shot's outcome cut to its status, picture, clip and
+    `pre_approved`.
 - Cast images are only served by `GET /api/cast/images/{image_id}` and `.../thumb`, under the same
   rule as their cast (`401` without a session, `404` for a member who may not see it, checked before
   the file is read or a preview made). They are never served as static files. The `UPLOAD_TOKEN`
@@ -183,7 +196,7 @@ see a cast:
 - `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
-- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down only for whoever may see the cast)
+- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down, the failed shots' errors and the shots' full outcomes only for whoever may see the cast)
 - `POST /api/episodes/{id}/set-live` - Set episode to live mode
 - `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
 - `GET /api/episodes/{id}/story-shape` - Get story shape
@@ -202,14 +215,14 @@ see a cast:
 - `POST /api/episodes/{id}/shots/{shot_id}/retry-clip` - Retry clip
 - `POST /api/episodes/{id}/reopen` - Reopen episode
 - `POST /api/episodes/{id}/reopen-from-saved` - Reopen from snapshot
-- `GET /api/episodes/{id}/audit` - View audit trail
-- `GET /api/episodes/{id}/shots` - List shots
+- `GET /api/episodes/{id}/audit` - View audit trail (the details only for whoever may see the cast)
+- `GET /api/episodes/{id}/shots` - List shots (prompts and QC results only for whoever may see the cast)
 - `GET /api/episodes/{id}/gates` - List gates
 - `GET /api/episodes/{id}/files` - List review files
 - `GET /api/episodes/{id}/files/{type}` - Get specific review file
 - `GET /api/episodes/{id}/shots/{shot_id}/still` - Get still image
 - `POST /api/episodes/{id}/preflight` - Run preflight checks
-- `GET /api/episodes/{id}/clip-plans` - Get clip plans
+- `GET /api/episodes/{id}/clip-plans` - Get clip plans (clip prompts, fail-if lines and lint results only for whoever may see the cast)
 - `POST /api/episodes/{id}/resync-plans` - Resync plans
 - `POST /api/episodes/{id}/shots/{shot_id}/select-still` - Select still version
 - `GET /api/episodes/{id}/still-versions` - List still versions

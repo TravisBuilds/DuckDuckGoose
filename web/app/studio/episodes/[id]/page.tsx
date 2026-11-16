@@ -71,7 +71,7 @@ interface Gates {
 interface AuditEntry {
   id: number;
   action: string;
-  details: string;
+  details: string | null;
   user: string;
   timestamp: string;
 }
@@ -343,10 +343,15 @@ function ModelLimitsCard({ models, capsStale, capsChecked, preflight, preflightE
   );
 }
 
-function AuditTrail({ audit }: { audit: AuditEntry[] }) {
+function AuditTrail({ audit, hidden }: { audit: AuditEntry[]; hidden: boolean }) {
   return (
     <div className={sub} data-testid="audit-trail">
       <h3 className="mb-2 font-semibold">Audit trail</h3>
+      {hidden && audit.length > 0 && (
+        <p className="mb-2 text-sm text-gray-700 dark:text-gray-200" data-testid="audit-details-hidden">
+          Only the people working on this video (and admins) see the details of each change.
+        </p>
+      )}
       {audit.length === 0 ? (
         <p className="text-sm text-gray-700 dark:text-gray-200">No audit entries yet.</p>
       ) : (
@@ -359,7 +364,7 @@ function AuditTrail({ audit }: { audit: AuditEntry[] }) {
                   {formatLocalDateTime(entry.timestamp) || entry.timestamp}
                 </time>
               </div>
-              <p className="text-gray-700 dark:text-gray-200">{entry.details}</p>
+              {entry.details && <p className="text-gray-700 dark:text-gray-200">{entry.details}</p>}
               <p className="mt-1 text-xs text-gray-700 dark:text-gray-200">User: {entry.user}</p>
             </li>
           ))}
@@ -434,6 +439,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [shots, setShots] = useState<ShotRow[]>([]);
   const [storyShape, setStoryShape] = useState<StoryShapeData | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditHidden, setAuditHidden] = useState(false);
   const [owner, setOwner] = useState<Owner | 'loading'>('loading');
   const [cast, setCast] = useState<CastView | null>(null);
   const [propsChanges, setPropsChanges] = useState(0);
@@ -450,7 +456,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       apiFetch<Gates>(`/api/episodes/${episodeId}/gates`),
       apiFetch<BudgetStatus>(`/api/episodes/${episodeId}/budget`),
       apiFetch<{ shots: ShotRow[] }>(`/api/episodes/${episodeId}/shots`),
-      apiFetch<{ entries: AuditEntry[] }>(`/api/episodes/${episodeId}/audit`),
+      apiFetch<{ entries: AuditEntry[]; cast_hidden?: boolean }>(`/api/episodes/${episodeId}/audit`),
       apiFetch<StoryShapeData>(`/api/episodes/${episodeId}/story-shape`),
     ]);
     if (g.status === 'fulfilled') {
@@ -462,7 +468,10 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     }
     if (b.status === 'fulfilled') setBudget(b.value);
     if (s.status === 'fulfilled') setShots(s.value?.shots ?? []);
-    if (a.status === 'fulfilled') setAudit(a.value?.entries ?? []);
+    if (a.status === 'fulfilled') {
+      setAudit(a.value?.entries ?? []);
+      setAuditHidden(Boolean(a.value?.cast_hidden));
+    }
     if (st.status === 'fulfilled') setStoryShape(st.value);
   }, [episodeId]);
 
@@ -704,7 +713,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             preflightError={preflightError} />
           <ShotListDetails episodeId={episodeId} state={state} shotStates={shotStates} shots={shots} castHidden={castHidden}
             preflight={preflight} />
-          <AuditTrail audit={audit} />
+          <AuditTrail audit={audit} hidden={auditHidden} />
           {canAct && (
             <UploadFiles episodeId={episodeId} onUploaded={async () => { await loadLimits(); await loadPage(); }} />
           )}
