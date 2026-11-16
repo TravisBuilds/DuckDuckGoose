@@ -11,6 +11,7 @@ import os
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio import workflow
 from temporalio.client import WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
 
@@ -18,7 +19,7 @@ from hfvg import shot_plan_edits
 from hfvg.paths import episode_dir
 from tests.cast_helpers import image_bytes
 from tests.lint_helpers import lint_ok
-from tests.test_props_api import (EP, OTHER_EP, REFUSED, SHARED_EP, _added, _client, _running,  # noqa: F401
+from tests.test_props_api import (EP, OTHER_EP, OWNER, REFUSED, SHARED_EP, _added, _client, _running,  # noqa: F401
                                   studio)
 
 BASE = f"/api/episodes/{EP}/shot-plan"
@@ -244,6 +245,62 @@ async def test_a_refused_replan_puts_the_old_shot_plan_back(studio):  # noqa: F8
         side_effect=WorkflowUpdateFailedError(ApplicationError(refusal, non_retryable=True)))
     res = owner.post(BASE, json={"shots": {"A01": {"prompt": NEW}}})
     assert res.status_code == 409 and res.json()["detail"] == refusal
+    assert _shots_text() == before and shot_plan_edits.list_edits(EP) == []
+
+
+UPDATING = "The studio is updating. Try again in a minute."
+
+
+async def test_a_worker_without_replan_shots_answers_a_plain_409(studio):  # noqa: F811
+    before = _write_shots()
+    owner = _client(studio, "owner")
+    _at_gate(studio, G1)
+    unknown = ("Update handler for 'replan_shots' expected but not found, and there is no dynamic handler. "
+               "known updates: [approve_g1_shot_plan approve_story_shape]")
+    studio.temporal_client.handle.execute_update = AsyncMock(
+        side_effect=WorkflowUpdateFailedError(ApplicationError(unknown, type="RuntimeError")))
+    res = owner.post(BASE, json={"shots": {"A01": {"prompt": NEW}}})
+    assert (res.status_code, res.json()["detail"]) == (409, UPDATING)
+    assert _shots_text() == before and shot_plan_edits.list_edits(EP) == []
+
+
+@workflow.defn(name="EpisodeWorkflowV2", sandboxed=False)
+class OlderEpisodeWorkflow:
+    """An episode run on a worker that predates shot plan edits: it waits at G1 without replan_shots."""
+
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.wait_condition(lambda: False)
+
+    @workflow.query
+    def get_state(self) -> dict:
+        return dict(G1)
+
+    @workflow.query
+    def reopen_snapshot(self) -> dict:
+        return {"attrs": {"reopen_log": [], "_dry_run": True}}
+
+
+@pytest.mark.timeout(120)
+async def test_an_older_worker_turns_the_change_down_with_a_plain_409(studio, monkeypatch):  # noqa: F811
+    from httpx import ASGITransport, AsyncClient
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    before = _write_shots()
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(env.client, task_queue="older-worker", workflows=[OlderEpisodeWorkflow]):
+            handle = await env.client.start_workflow(OlderEpisodeWorkflow.run, id=studio.episode_workflow_id(EP),
+                                                     task_queue="older-worker")
+            monkeypatch.setattr(studio, "temporal_client", env.client)
+            async with AsyncClient(transport=ASGITransport(app=studio.app), base_url="http://test") as api:
+                login = await api.post("/api/login", json={"email": OWNER[0], "password": OWNER[1]})
+                api.cookies.set("studio_admin_token", login.cookies.get("studio_admin_token"))
+                view = (await api.get(BASE)).json()
+                assert view["phase"]["state"] == "g1" and view["can_edit"] is True, view
+                res = await api.post(BASE, json={"shots": {"A01": {"prompt": NEW}}})
+            await handle.terminate("test done")
+    assert (res.status_code, res.json()["detail"]) == (409, UPDATING)
     assert _shots_text() == before and shot_plan_edits.list_edits(EP) == []
 
 

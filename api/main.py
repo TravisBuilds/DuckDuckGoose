@@ -3835,6 +3835,20 @@ async def approve_still(
 # Mark approve_still to allow members
 approve_still.allow_members = True
 
+STUDIO_UPDATING = "The studio is updating. Try again in a minute."
+
+
+def _update_refusal(update: str, cause: BaseException) -> str:
+    """What a refused update tells whoever sent it. A worker still on older code (mid deploy) has no
+    handler for a new update and rejects it with the SDK's "Update handler for '<name>' expected but
+    not found" error, which means nothing to them."""
+    text = str(cause)
+    if str(getattr(cause, "message", text)).startswith(f"Update handler for '{update}' expected but not found"):
+        logger.warning("The worker has no %s update handler yet: %s", update, text)
+        return STUDIO_UPDATING
+    return text
+
+
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
     """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
     if not temporal_client:
@@ -3846,7 +3860,7 @@ async def _execute_episode_update(episode_id: str, update: str, args: list, acti
         return await handle.execute_update(update, args=args)
     except WorkflowUpdateFailedError as e:
         if e.cause and isinstance(e.cause, ApplicationError):
-            raise HTTPException(status_code=409, detail=str(e.cause))
+            raise HTTPException(status_code=409, detail=_update_refusal(update, e.cause))
         raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
     except ApplicationError as e:
         raise HTTPException(status_code=409, detail=str(e))

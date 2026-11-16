@@ -223,7 +223,8 @@ balance gate as before. No route uses `override_unavailable_estimates`, and no c
 - **Rebuild** the `worker`, `api` and `web` images.
 - **Deploy the worker before or with the API.** A shot plan change at G1 calls the workflow's
   `replan_shots` update. With an old worker the update is unknown, so the API puts the previous
-  `shots.json` back and answers 409. Changes before a run do not need the worker.
+  `shots.json` back and answers 409 with "The studio is updating. Try again in a minute." (any
+  update a worker does not know yet reads that way). Changes before a run do not need the worker.
 - **Storage:** no new volume and no new settings. Photos go into `CAST_STORAGE_DIR` with the cast
   images. The cast limits apply (`CAST_UPLOAD_MAX_BYTES`, `CAST_MIN_IMAGE_PX`).
 
