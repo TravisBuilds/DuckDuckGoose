@@ -58,24 +58,26 @@ function PickRow({ label, note, children }: { label: string; note?: string; chil
   );
 }
 
-function PromptField({ id, label, help, value, onChange, max, testId, rows = 4 }: {
+function PromptField({ id, label, help, value, onChange, max, testId, rows = 4, disabled = false }: {
   id: string; label: string; help?: string; value: string; onChange: (v: string) => void; max: number; testId: string;
-  rows?: number;
+  rows?: number; disabled?: boolean;
 }) {
   return (
     <div className="mt-3">
       <label htmlFor={id} className="block text-sm font-medium">{label}</label>
       {help && <p id={`${id}-help`} className={hint}>{help}</p>}
       <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} maxLength={max} rows={rows}
-        aria-describedby={help ? `${id}-help` : undefined} className={`${field} mt-1`} data-testid={testId} />
+        disabled={disabled} aria-describedby={help ? `${id}-help` : undefined} className={`${field} mt-1`}
+        data-testid={testId} />
       <p className={`${hint} text-right`}>{value.length} / {max}</p>
     </div>
   );
 }
 
-function ShotCard({ view, shot, draft, canEdit, editing, onEditing, onChange }: {
-  view: ShotPlanView; shot: ShotPlanShot; draft: Partial<ShotDraft> | undefined; canEdit: boolean; editing: boolean;
-  onEditing: (open: boolean) => void; onChange: (change: Partial<ShotDraft>) => void;
+/** saving: a save is on its way; the save clears the drafts it sent, so nothing can change until it is back. */
+function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onChange }: {
+  view: ShotPlanView; shot: ShotPlanShot; draft: Partial<ShotDraft> | undefined; canEdit: boolean; saving: boolean;
+  editing: boolean; onEditing: (open: boolean) => void; onChange: (change: Partial<ShotDraft>) => void;
 }) {
   const sid = shot.shot_id;
   const place = draftValue(shot, draft, 'place');
@@ -91,7 +93,7 @@ function ShotCard({ view, shot, draft, canEdit, editing, onEditing, onChange }: 
   const maxProps = view.limits.max_props_per_shot;
   const maxCast = view.limits.max_cast_per_shot;
   const unreadable = shot.cast === null || shot.props === null;
-  const disabled = !canEdit || unreadable;
+  const disabled = !canEdit || unreadable || saving;
   const facts = [shot.duration ? `${shot.duration} s` : null, shot.model].filter(Boolean).join(' · ');
   return (
     <li className="rounded-lg border border-gray-200 p-3 sm:p-4 dark:border-gray-700" data-testid={`plan-shot-${sid}`}>
@@ -105,15 +107,15 @@ function ShotCard({ view, shot, draft, canEdit, editing, onEditing, onChange }: 
         <div>
           <PromptField id={`plan-prompt-${sid}`} label="Picture prompt" value={prompt} max={view.limits.prompt_max}
             help="What the scene picture shows. The picked place, props and cast are added to it when it is made."
-            onChange={(v) => onChange({ prompt: v })} testId={`plan-prompt-${sid}`} />
+            onChange={(v) => onChange({ prompt: v })} testId={`plan-prompt-${sid}`} disabled={saving} />
           {shot.end_frame && (
             <PromptField id={`plan-end-prompt-${sid}`} label="End picture prompt" value={draftValue(shot, draft, 'end_prompt')}
               max={view.limits.prompt_max} help="What the last frame of the clip shows."
-              onChange={(v) => onChange({ end_prompt: v })} testId={`plan-end-prompt-${sid}`} rows={3} />
+              onChange={(v) => onChange({ end_prompt: v })} testId={`plan-end-prompt-${sid}`} rows={3} disabled={saving} />
           )}
           <PromptField id={`plan-clip-prompt-${sid}`} label="Motion prompt (optional)" value={draftValue(shot, draft, 'clip_prompt')}
             max={view.limits.prompt_max} help="How the clip moves. Leave it empty to use the picture prompt."
-            onChange={(v) => onChange({ clip_prompt: v })} testId={`plan-clip-prompt-${sid}`} rows={2} />
+            onChange={(v) => onChange({ clip_prompt: v })} testId={`plan-clip-prompt-${sid}`} rows={2} disabled={saving} />
           <button type="button" className={`${btnSecondary} mt-2`} onClick={() => onEditing(false)}
             data-testid={`plan-edit-done-${sid}`}>
             Done editing
@@ -300,7 +302,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
       {view.shots.length > 0 && (
         <ol className="mt-3 space-y-3">
           {view.shots.map((shot) => (
-            <ShotCard key={shot.shot_id} view={view} shot={shot} draft={drafts[shot.shot_id]} canEdit={canEdit}
+            <ShotCard key={shot.shot_id} view={view} shot={shot} draft={drafts[shot.shot_id]} canEdit={canEdit} saving={busy}
               editing={Boolean(editing[shot.shot_id])} onEditing={(open) => setEditing((e) => ({ ...e, [shot.shot_id]: open }))}
               onChange={(edit) => change(shot.shot_id, edit)} />
           ))}
@@ -311,7 +313,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
         <div className={`mt-4 rounded-lg border p-3 ${dirty ? 'sticky bottom-2 z-10 border-blue-300 bg-white shadow-lg dark:border-blue-700 dark:bg-gray-800' : 'border-gray-200 dark:border-gray-700'}`}
           data-testid="plan-save-bar">
           <label htmlFor="plan-note" className="block text-sm font-medium">Why the change (optional)</label>
-          <input id="plan-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={view.limits.note_max}
+          <input id="plan-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={view.limits.note_max} disabled={busy}
             placeholder="e.g. the umbrella looked wrong" className={`${field} mt-1`} data-testid="plan-note" />
           {problem && <p className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid="plan-problem">{problem}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">

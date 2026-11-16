@@ -18,7 +18,9 @@ import { RightsQuestions } from './RightsQuestions';
  */
 
 type Note = { tone: 'ok' | 'problem'; text: string; where: string };
-type Act = <T>(fn: () => Promise<T>, done: string, where: string) => Promise<T | null>;
+/** Runs a change, then shows `done` and reloads the panel. `onDone` runs with the result as soon as the change
+ * succeeds, in the same render as the message, so a form reset never lands on what was typed during the reload. */
+type Act = <T>(fn: () => Promise<T>, done: string, where: string, onDone?: (result: T) => void) => Promise<T | null>;
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 const hint = 'text-xs text-gray-600 dark:text-gray-300';
@@ -70,13 +72,12 @@ function AddPhoto({ episodeId, view, item, busy, act }: {
     const form = new FormData();
     form.append('image_file', file);
     for (const [key, value] of rightsFields(rights)) form.append(key, value);
-    const done = await act(() => apiFetch(`/api/episodes/${episodeId}/props/${item.prop_id}/photos`, { method: 'POST', body: form }),
-      `Photo of ${item.name} added.`, item.slug);
-    if (done !== null) {
-      setFile(null);
-      setRights(emptyRights());
-      setInputKey((k) => k + 1);
-    }
+    await act(() => apiFetch(`/api/episodes/${episodeId}/props/${item.prop_id}/photos`, { method: 'POST', body: form }),
+      `Photo of ${item.name} added.`, item.slug, () => {
+        setFile(null);
+        setRights(emptyRights());
+        setInputKey((k) => k + 1);
+      });
   };
   const first = itemPhotos(item).length === 0;
   return (
@@ -112,9 +113,8 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
   const kind = KIND_TEXT[item.kind] ?? KIND_TEXT.prop;
   const save = async () => {
     const name = form.name.trim();
-    const done = await act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}`,
-      { name, description: form.description.trim() }), `${name} saved.`, item.slug);
-    if (done !== null) setEditing(false);
+    await act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}`,
+      { name, description: form.description.trim() }), `${name} saved.`, item.slug, () => setEditing(false));
   };
   const edit = () => {
     setForm({ name: item.name, description: item.description });
@@ -236,8 +236,7 @@ function AddItem({ episodeId, view, busy, act, note }: {
   const photoIssue = addPropProblem(kind, name, file, rights, view.limits.max_upload_bytes);
   const what = kind || 'prop or place';
 
-  const added = (result: unknown) => {
-    if (result === null) return;
+  const added = () => {
     setKind('');
     setForm(empty);
     setFile(null);
@@ -249,13 +248,13 @@ function AddItem({ episodeId, view, busy, act, note }: {
     const body = new FormData();
     body.append('image_file', file);
     for (const [key, value] of withPhotoFields({ kind, ...form }, rights)) body.append(key, value);
-    added(await act(() => apiFetch(`/api/episodes/${episodeId}/props/with-photo`, { method: 'POST', body }),
-      `${name} added with its photo. Pick it on a shot in the shot plan.`, 'add'));
+    await act(() => apiFetch(`/api/episodes/${episodeId}/props/with-photo`, { method: 'POST', body }),
+      `${name} added with its photo. Pick it on a shot in the shot plan.`, 'add', added);
   };
   const addWithoutPhoto = async () => {
     if (!kind) return;
-    added(await act(() => postJson(`/api/episodes/${episodeId}/props`, { kind, name, description: form.description.trim() }),
-      `${name} added. Add a photo so the studio knows what it looks like.`, 'add'));
+    await act(() => postJson(`/api/episodes/${episodeId}/props`, { kind, name, description: form.description.trim() }),
+      `${name} added. Add a photo so the studio knows what it looks like.`, 'add', added);
   };
   return (
     <div data-testid="props-add" data-first={first ? 'true' : 'false'}
@@ -334,11 +333,12 @@ export default function PropsPanel({ episodeId, onChange }: { episodeId: string;
     load();
   }, [load]);
 
-  const act: Act = async (fn, done, where) => {
+  const act: Act = async (fn, done, where, onDone) => {
     setBusy(true);
     setMessage(null);
     try {
       const result = await fn();
+      onDone?.(result);
       setMessage({ tone: 'ok', text: done, where });
       onChange?.();
       return result;

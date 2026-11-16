@@ -1,4 +1,4 @@
-import { request as apiRequest } from '@playwright/test';
+import { request as apiRequest, type Route } from '@playwright/test';
 import { test, expect } from './e2e-cleanup';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -117,12 +117,26 @@ test('props and places: a place with a photo and a prop picked on a shot, a prom
   await anonymous.dispose();
 
   // --- a prop without a photo, then its photo ---
+  // The panel's reload after the add is slow here (the real answer, held back): what is typed into the
+  // add form meanwhile stays, because the form is cleared with the message, not when the reload lands.
+  const slowReload = async (route: Route) => {
+    if (route.request().method() === 'GET') await new Promise((done) => setTimeout(done, 1500));
+    await route.continue();
+  };
+  await page.route(`**/api/episodes/${EPISODE}/props`, slowReload);
   await page.getByTestId('props-add-kind-prop').check();
   await page.getByTestId('props-add-name').fill('Red umbrella');
   await page.getByTestId('props-add-description').fill('a bright red umbrella with a curved wooden handle');
   await page.getByTestId('props-add-button').click();
   await expect(message).toHaveText('Red umbrella added. Add a photo so the studio knows what it looks like.');
+  await page.getByTestId('props-add-kind-place').check();
+  await page.getByTestId('props-add-name').fill('Lighthouse');
   const umbrella = page.getByTestId('prop-red-umbrella');
+  await expect(umbrella).toBeVisible();
+  await expect(page.getByTestId('props-add-name')).toHaveValue('Lighthouse');
+  await expect(page.getByTestId('props-add-kind-place')).toBeChecked();
+  await page.unroute(`**/api/episodes/${EPISODE}/props`, slowReload);
+  await page.getByTestId('props-add-name').fill('');
   await expect(umbrella).toContainText('No photo yet');
   await page.getByTestId('prop-photo-file-red-umbrella').setInputFiles({
     name: 'small.png', mimeType: 'image/png', buffer: testPhoto(200, 200, [220, 30, 30]) });
@@ -153,9 +167,21 @@ test('props and places: a place with a photo and a prop picked on a shot, a prom
   await page.getByTestId('plan-edit-done-S02').click();
   await page.getByTestId('plan-note').fill('warmer light on the last shot');
   await expect(page.getByTestId('plan-save')).toHaveText('Save 2 shots');
+  // While the save is on its way (held back here), nothing can change: the save clears what it sent.
+  const slowSave = async (route: Route) => {
+    if (route.request().method() === 'POST') await new Promise((done) => setTimeout(done, 1500));
+    await route.continue();
+  };
+  await page.route(`**/api/episodes/${EPISODE}/shot-plan`, slowSave);
   await page.getByTestId('plan-save').click();
+  await expect(page.getByTestId('plan-save')).toHaveText('Saving…');
+  await expect(page.getByTestId('plan-prop-S01-red-umbrella')).toBeDisabled();
+  await expect(page.getByTestId('plan-place-S01-harbour-cabin')).toBeDisabled();
+  await expect(page.getByTestId('plan-note')).toBeDisabled();
   await expect(page.getByTestId('plan-message')).toHaveText(
     'Saved 2 shots and checked the plan again. Approve it when you are ready.');
+  await page.unroute(`**/api/episodes/${EPISODE}/shot-plan`, slowSave);
+  await expect(page.getByTestId('plan-prop-S01-red-umbrella')).toBeEnabled();
   await expect(page.getByTestId('plan-refs-S01')).toHaveText('Made with: Harbour cabin photo · Red umbrella photo');
   await expect(page.getByTestId('plan-refs-S02')).toHaveText('No reference photos for this shot.');
   await expect(page.getByTestId('plan-prompt-text-S02')).toHaveText(NEW_PROMPT);
