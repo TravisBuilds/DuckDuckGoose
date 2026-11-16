@@ -388,3 +388,13 @@ export function statusChip(next) {
       return { label: 'In progress', tone: 'wait' };
   }
 }
+
+/**
+ * The studio home card's chip from GET /api/episodes/{id}. Without a run state (a 404: the API knows
+ * no run, saved state or file of the episode) it has not started; a run Temporal has purged comes back
+ * as the API's archived state and reads like any other run, e.g. "Finished".
+ */
+export function cardStatus(state, story = null, viewer = null) {
+  if (!state) return { label: 'Not started', tone: 'wait' };
+  return statusChip(nextStep(state, story, null, { viewer }));
+}

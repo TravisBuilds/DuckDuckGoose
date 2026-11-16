@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  charactersToLock, finishLine, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps, stillsToReview,
-  storyDone, storyLocked,
+  cardStatus, charactersToLock, finishLine, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps,
+  stillsToReview, storyDone, storyLocked,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -255,6 +255,56 @@ test('no run state at all, but delivered files: the files, never "hasn\'t starte
   // a subtitle file alone is no video to show
   assert.equal(nextStep(null, null, null, { files: { subtitles_srt: { available: true } } }).step, 'working');
   assert.equal(nextStep(null, null, null, { files: { phone: { available: false } } }).step, 'working');
+});
+
+// GET /api/episodes/{id} for a delivered run whose final cut was approved a day before Temporal purged
+// it (the ep98cle case): the state the closed run reported, from its saved snapshot, run archived.
+const PURGED_DELIVERED = {
+  episode_id: 'ep98cle', stage: 'picture_lock', current_gate: 'G_FINAL_CUT',
+  passed_gates: ['G1_SHOT_PLAN', 'G2_SCENE_STILLS', 'G_FINAL_CUT'],
+  approvals: { story_shape: true, g1_shot_plan: true, g2_scene_stills: true, g_final_cut: true },
+  shots_count: 1, shot_decisions: {}, pending_retries: [], pending_clip_retries: [], failed_shots: [],
+  shot_outcomes: { A01: { status: 'completed', still_url: 'still.jpg', clip_url: 'clip.mp4', pre_approved: false } },
+  run: {
+    run_id: 'run-1', status: 'ARCHIVED', ended: true, outcome: 'completed', reason: null, dry_run: false,
+    can_start_again: false, archived: true, saved_at: '2026-11-15 16:15:00',
+  },
+};
+const DELIVERED = {
+  master_subs: { available: true }, master_nosubs: { available: true }, phone: { available: true },
+  subtitles_srt: { available: true }, mute_edit: { available: true },
+};
+
+test('episode page of a delivered run Temporal purged: finished, with its video, never "hasn\'t started"', () => {
+  const next = nextStep(PURGED_DELIVERED, null, null, { files: DELIVERED });
+  assert.deepEqual([next.step, next.title, next.href], ['done', 'Your video is ready', '#finished']);
+  assert.doesNotMatch(`${next.title} ${next.text}`, /hasn't started/);
+  assert.deepEqual(finishLine(PURGED_DELIVERED.run, DELIVERED), {
+    ready: true, primary: 'phone', title: 'Your video is ready', text: 'Watch it here and download the files you need.',
+  });
+  assert.deepEqual(Object.fromEntries(stepperSteps(PURGED_DELIVERED, null, null, next).map((s) => [s.key, s.status])), {
+    story: 'skipped', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'current',
+  });
+  assert.equal(openGate(PURGED_DELIVERED), null);
+  // someone else's finished video waits on no one either
+  const theirs = nextStep(PURGED_DELIVERED, null, null, { files: DELIVERED, viewer: { mine: false, canAct: false, ownerName: 'Robin' } });
+  assert.deepEqual([theirs.step, theirs.waiting], ['done', undefined]);
+});
+
+test('studio home card: "Finished" for a delivered run Temporal purged, "Not started" only without a run', () => {
+  const mine = { mine: true, canAct: true, ownerName: null };
+  const theirs = { mine: false, canAct: false, ownerName: 'Robin' };
+  assert.deepEqual(cardStatus(PURGED_DELIVERED, null, mine), { label: 'Finished', tone: 'ok' });
+  assert.deepEqual(cardStatus(PURGED_DELIVERED, null, theirs), { label: 'Finished', tone: 'ok' });
+  assert.deepEqual(cardStatus(PURGED_DELIVERED, { story_shape: STORY, approved: true }, theirs), { label: 'Finished', tone: 'ok' });
+  const expired = { ...PURGED_DELIVERED, run: { ...PURGED_DELIVERED.run, outcome: 'expired', saved_at: null } };
+  assert.deepEqual(cardStatus(expired, null, mine), { label: 'History expired', tone: 'warn' });
+  assert.deepEqual(cardStatus(null, null, mine), { label: 'Not started', tone: 'wait' });
+  assert.deepEqual(cardStatus(undefined), { label: 'Not started', tone: 'wait' });
+  // a run still going is not finished just because files exist
+  const open = { ...PURGED_DELIVERED, passed_gates: ['G1_SHOT_PLAN', 'G2_SCENE_STILLS'],
+    approvals: { ...PURGED_DELIVERED.approvals, g_final_cut: false }, run: OPEN_RUN };
+  assert.deepEqual(cardStatus(open, null, mine), { label: 'Final cut to approve', tone: 'todo' });
 });
 
 test('a run that stopped points at what went wrong', () => {

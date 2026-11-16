@@ -104,4 +104,10 @@ export function stepperSteps(
   cast: CastLike | null | undefined,
   next: NextStep | null | undefined,
 ): StepperStep[] | null;
-export function statusChip(next: NextStep | null | undefined): { label: string; tone: 'ok' | 'todo' | 'wait' | 'warn' | 'bad' };
+export type ChipTone = 'ok' | 'todo' | 'wait' | 'warn' | 'bad';
+export function statusChip(next: NextStep | null | undefined): { label: string; tone: ChipTone };
+export function cardStatus(
+  state: RunStateLike | null | undefined,
+  story?: StoryLike | null,
+  viewer?: Viewer | null,
+): { label: string; tone: ChipTone };
