@@ -2,7 +2,8 @@
 those files are caught by the Python harness too: what the Next step, the stepper, the finish card and
 the status chips say (next-step.mjs), how an ended or archived run reads and when the page stops
 polling (run-outcome.mjs), who gets the Cast panel's add form and what a character with a photo
-needs and sends (cast.mjs), and what a picture redo sends and says it costs (redo.mjs)."""
+needs and sends (cast.mjs), what a picture redo sends and says it costs (redo.mjs), and what a prop or
+place with a photo needs and what a shot plan save sends (props.mjs)."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +23,7 @@ def _node_tests(name: str) -> str:
     return proc.stdout
 
 
-@pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs"])
+@pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs",
+                                  "props.test.mjs"])
 def test_episode_view_node_tests(name):
     _node_tests(name)
