@@ -4191,7 +4191,7 @@ test_mutation 593 "run state reports rejection reasons" \
 test_mutation 594 "rejection reasons only for who may see the cast" \
     "api/main.py" \
     "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_why_a_picture_was_turned_down_for_who_may_not_see_the_cast" \
-    sed -i 's/^    if rejection_reasons and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/    if False:  # MUTATED/'
+    sed -i '/^async def get_episode_state(/,/^get_episode_state\.allow_members = True$/ s/^            and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)):$/            and False):  # MUTATED/'
 
 # 595: the redo note is framed as a change request
 test_mutation 595 "redo note framed as a change request" \
@@ -4386,6 +4386,78 @@ test_mutation 626 "shot plan save needs a picture prompt" \
     "web/lib/props.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
     sed -i "s/^    if (draft && 'prompt' in draft && !String(draft\.prompt ?? '')\.trim()) return/    if (false) return/"
+
+# 627: the clip plans leave the prompt out for whoever may not see the episode's cast
+test_mutation 627 "clip plans: prompts only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i '/^async def get_clip_plans(/,/^get_clip_plans\.allow_members = True$/ s/^    if not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/    if False:  # MUTATED/'
+
+# 628: ... and the fail-if lines read from it
+test_mutation 628 "clip plans: fail-if lines only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^\(                      "clip_prompt": None, "clip_prompt_is_still_prompt": None, \)"qc_fail_if": \[\],$/\1"qc_fail_if": list(row.get("qc_fail_if") or []),  # MUTATED/'
+
+# 629: the clip plans of an episode without a run answer 404
+test_mutation 629 "clip plans: 404 without a run" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_of_an_episode_without_a_run_answer_404" \
+    sed -i '/^async def get_clip_plans(/,/^get_clip_plans\.allow_members = True$/ s/^        if isinstance(e, RPCError) and e\.status == RPCStatusCode\.NOT_FOUND:$/        if False:  # MUTATED/'
+
+# 630: the audit trail's details only for whoever may see the episode's cast
+test_mutation 630 "audit details only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_audit_trail_leaves_the_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^                    "details": None if cast_hidden else row\[3\],$/                    "details": row[3],  # MUTATED/'
+
+# 631: the shots' QC results only for whoever may see the episode's cast
+test_mutation 631 "shots: QC results only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shots_leave_the_qc_results_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^                    "qc_results": {} if cast_hidden else qc_results,$/                    "qc_results": qc_results,  # MUTATED/'
+
+# 632: the run state's failed shot errors only for whoever may see the episode's cast
+test_mutation 632 "run state: failed shot errors only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^_FAILED_SHOT_FIELDS = ("shot_id", "status")$/_FAILED_SHOT_FIELDS = ("shot_id", "status", "reason")  # MUTATED/'
+
+# 633: ... and of each shot's outcome only its status, picture and clip
+test_mutation 633 "run state: shot outcomes cut for who may not see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^            {sid: {k: o\[k\] for k in _OUTCOME_FIELDS if k in o} if isinstance(o, dict) else {}$/            {sid: o if isinstance(o, dict) else {}  # MUTATED/'
+
+# 634: ... checked even when no picture was turned down
+test_mutation 634 "run state: the cast check runs for failed shots and outcomes too" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^    if ((rejection_reasons or blank != (failed_shots, shot_outcomes))$/    if ((rejection_reasons)  # MUTATED/'
+
+# 635: an update the worker does not know yet answers a plain 409
+test_mutation 635 "unknown update: plain 409" \
+    "api/main.py" \
+    "tests/test_shot_plan_api.py::test_a_worker_without_replan_shots_answers_a_plain_409" \
+    sed -i "s/^    if str(getattr(cause, \"message\", text))\.startswith(f\"Update handler for '{update}' expected but not found\"):\$/    if False:  # MUTATED/"
+
+# 636: ... read from the error's message, as a real older worker sends it (str() starts with its type)
+test_mutation 636 "unknown update: matched on the SDK's message" \
+    "api/main.py" \
+    "tests/test_shot_plan_api.py::test_an_older_worker_turns_the_change_down_with_a_plain_409" \
+    sed -i "s/^    if str(getattr(cause, \"message\", text))\.startswith(\(.*\)\$/    if text.startswith(\1  # MUTATED/"
+
+# 637: a decision's chip says who it waits on to whoever may not take it
+test_mutation 637 "gate chip: neutral for who may not decide" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  return waitingOn ? .*/  return { label: 'Waiting for you', tone: 'todo' };  \/\/ MUTATED/"
+
+# 638: ... that is, whoever may not take the step
+test_mutation 638 "gate chip: who waits on the owner" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  return canAct ? null : ownerName || 'the owner';\$/  return null;  \/\/ MUTATED/"
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
