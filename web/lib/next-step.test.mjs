@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  cardStatus, charactersToLock, finishLine, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps,
-  stillsToReview, storyDone, storyLocked,
+  cardStatus, charactersToLock, finishLine, gateChip, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps,
+  stillsToReview, storyDone, storyLocked, waitsOn,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -427,6 +427,26 @@ test('home chips say who someone else\'s video waits on', () => {
     { label: 'Finished', tone: 'ok' });
   assert.deepEqual(statusChip(nextStep(runState({ current_gate: 'G1_SHOT_PLAN' }), null, null,
     { viewer: { mine: false, canAct: true, ownerName: 'Robin' } })), { label: 'Shot plan to approve', tone: 'todo' });
+});
+
+test('a decision\'s section says who it waits on to someone who may not take it', () => {
+  // the owner, an admin, anyone on a video without an owner, and a reader not known yet take it
+  for (const viewer of [{ mine: true, canAct: true, ownerName: 'Robin' }, { mine: false, canAct: true, ownerName: 'Robin' },
+    { mine: true, canAct: true, ownerName: null }, null]) {
+    assert.equal(waitsOn(viewer), null);
+    assert.deepEqual(gateChip(false, true, waitsOn(viewer)), { label: 'Waiting for you', tone: 'todo' });
+  }
+  // another member: neutral, naming the owner when known
+  const other = waitsOn({ mine: false, canAct: false, ownerName: 'Robin' });
+  assert.equal(other, 'Robin');
+  assert.deepEqual(gateChip(false, true, other), { label: 'Waiting on Robin', tone: 'wait' });
+  assert.deepEqual(gateChip(false, true, waitsOn({ mine: false, canAct: false })), { label: 'Waiting on the owner', tone: 'wait' });
+  // approved, or nothing to decide, reads the same to everyone
+  for (const who of [null, other]) {
+    assert.deepEqual(gateChip(true, false, who), { label: 'Approved', tone: 'ok' });
+    assert.deepEqual(gateChip(true, true, who), { label: 'Approved', tone: 'ok' });
+    assert.equal(gateChip(false, false, who), null);
+  }
 });
 
 test('names read as a sentence', () => {

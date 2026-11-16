@@ -6,7 +6,7 @@ import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 import type { ModelView } from '@/lib/model-limits.mjs';
 import type { CastView } from '@/lib/cast.mjs';
-import { nextStep, statusChip, stepperSteps, storyDone, storyLocked } from '@/lib/next-step.mjs';
+import { nextStep, statusChip, stepperSteps, storyDone, storyLocked, waitsOn } from '@/lib/next-step.mjs';
 import { stageLabel } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
@@ -603,6 +603,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const story = storyShape?.story_shape ? storyShape : null;
   // until the owner and the signed-in user are known, the card speaks to the person who made the video
   const viewer = ownerKnown && me ? { mine, canAct, ownerName: owner.name } : null;
+  const waitingOn = waitsOn(viewer);
   const next = state
     ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer })
     : nextStep(null, null, null, { files, viewer });
@@ -678,14 +679,15 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       {(state || notStarted) && !expired && (
         <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
-          canAct={canAct} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
+          canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
       )}
       {state && !expired && (
         <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}
-          shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} />
+          shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} waitingOn={waitingOn} />
       )}
       {state && !expired && (
-        <FinalCutSection episodeId={episodeId} state={state} shotStates={shotStates} files={files} busy={busy} act={act} canAct={canAct} />
+        <FinalCutSection episodeId={episodeId} state={state} shotStates={shotStates} files={files} busy={busy} act={act}
+          canAct={canAct} waitingOn={waitingOn} />
       )}
 
       <details id="production-details" data-testid="production-details" className={`${panel} scroll-mt-4`}>
