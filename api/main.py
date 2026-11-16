@@ -886,6 +886,9 @@ class EpisodeStateResponse(BaseModel):
     # TERMINATED, COMPLETED ...), "ended", "outcome" (failed / terminated / canceled / timed out /
     # completed), "reason" (short, why it did not complete), "dry_run", "can_start_again"}. An ended
     # run refuses every action with a 409. None when Temporal cannot describe the run.
+    # Once Temporal has purged the run's history: status "ARCHIVED", "archived": true, "saved_at", and
+    # outcome "completed" (the approved final cut, from the saved state) or "expired" (no current saved
+    # state says how the run ended; the rest of the state is then empty) (hfvg.saved_state.archived_state).
     run: dict | None = None
 
 
@@ -1907,15 +1910,19 @@ async def get_episode_state(
     # The episode workflow id is the episode id itself (same as start_episode); do NOT prefix-match,
     # that would only ever find child shot workflows ("ep04-shot-A01").
     workflow_id = episode_workflow_id(episode_id)
+    handle = None
     try:
         handle = temporal_client.get_workflow_handle(workflow_id)
         state = await handle.query("get_state")
     except Exception as e:
         from temporalio.service import RPCError, RPCStatusCode
-        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+        if not (isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND):
+            raise HTTPException(status_code=500, detail=f"Error querying workflow: {str(e)}")
+        handle = None
+        state = await _archived_run_state(episode_id)
+        if state is None:
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
-        raise HTTPException(status_code=500, detail=f"Error querying workflow: {str(e)}")
-    
+
     from hfvg.activities.reconcile import list_stall_alerts
     try:
         active_stalls = [a for a in await list_stall_alerts(DATABASE_PATH, state["episode_id"])
@@ -1946,12 +1953,39 @@ async def get_episode_state(
         shot_outcomes=dict(state.get("shot_outcomes") or {}),
         archetype_id=state.get("archetype_id"),
         target_duration_s=state.get("target_duration_s"),
-        run=await _episode_run(handle),
+        run=state["run"] if handle is None else await _episode_run(handle),
     )
 
 
 # Mark get_episode_state to allow members
 get_episode_state.allow_members = True
+
+
+def _has_review_files(episode_id: str) -> bool:
+    for file_type in REVIEW_FILE_TYPES:
+        try:
+            review_file_path(episode_id, file_type)
+            return True
+        except HTTPException:
+            continue
+    return False
+
+
+async def _archived_run_state(episode_id: str) -> dict | None:
+    """The run state of an episode whose workflow Temporal no longer has (hfvg.saved_state.archived_state):
+    the approved final cut from the saved state, or the history expired; None when it never ran."""
+    from hfvg.episode_parser import parse_beatmap
+    from hfvg.saved_state import archived_state, load_archive_rows
+
+    def read() -> dict | None:
+        rows = load_archive_rows(DATABASE_PATH, episode_id)
+        return archived_state(episode_id, _episodes_root() / episode_id, rows,
+                              has_files=_has_review_files(episode_id),
+                              parsed_beatmap_fn=lambda path: {"shots": parse_beatmap(path)})
+    try:
+        return await asyncio.to_thread(read)
+    except Exception as e:  # noqa: BLE001 - a broken DB or saved file is reported, never shown as "not started"
+        raise HTTPException(status_code=500, detail=f"The saved state of {episode_id} could not be read: {e}")
 
 
 # ---------------------------------------------------------------- runs that have ended
@@ -2441,6 +2475,18 @@ async def get_story_shape(
     if not temporal_client:
         raise HTTPException(status_code=503, detail="Temporal client not initialized")
     
+    from temporalio.service import RPCError, RPCStatusCode
+
+    def story_of(state: dict) -> dict:
+        return {
+            "episode_id": episode_id,
+            "story_shape": state.get("story_shape"),
+            "critique": state.get("story_shape_critique"),
+            "revision": state.get("story_shape_revision"),
+            "log": state.get("story_shape_log"),
+            "approved": bool((state.get("approvals") or {}).get("story_shape")),
+        }
+
     try:
         workflows = temporal_client.list_workflows(
             f'(WorkflowId = "{episode_id}" OR WorkflowId STARTS_WITH "{episode_id}-") AND WorkflowType = "EpisodeWorkflowV2"'
@@ -2451,17 +2497,18 @@ async def get_story_shape(
                 continue
             
             handle = temporal_client.get_workflow_handle(workflow_info.id)
-            state = await handle.query("get_state")
-            
-            return {
-                "episode_id": episode_id,
-                "story_shape": state.get("story_shape"),
-                "critique": state.get("story_shape_critique"),
-                "revision": state.get("story_shape_revision"),
-                "log": state.get("story_shape_log"),
-                "approved": bool((state.get("approvals") or {}).get("story_shape")),
-            }
-        
+            try:
+                state = await handle.query("get_state")
+            except RPCError as e:
+                if e.status != RPCStatusCode.NOT_FOUND:
+                    raise
+                break  # listed, but its history is already gone
+            return story_of(state)
+
+        # a run whose history Temporal purged: the outline of its approved final cut, from the saved state
+        archived = await _archived_run_state(episode_id)
+        if archived is not None and archived["run"]["outcome"] == "completed" and archived.get("story_shape"):
+            return story_of(archived)
         raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
     
     except HTTPException:
