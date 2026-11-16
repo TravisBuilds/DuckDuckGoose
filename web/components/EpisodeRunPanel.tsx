@@ -15,6 +15,7 @@ import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } fro
 import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import ShotPlanEditor from './ShotPlanEditor';
 
 /**
  * The episode run, section by section (G-UI-1): the shot plan (G1), the scene pictures (G2, per-picture
@@ -327,12 +328,21 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
 
 // ---------------------------------------------------------------- G1: the shot plan
 
-export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct }: {
+/**
+ * The shot plan: before the run starts (notStarted) and while the run waits for its approval, the
+ * owner or an admin picks each shot's place, props and cast and edits its prompts (ShotPlanEditor);
+ * the approval waits for unsaved edits. Otherwise the shots are listed.
+ */
+export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct, notStarted = false, planKey,
+  onPlanSaved }: {
   episodeId: string; state: RunState | null; shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
+  notStarted?: boolean; planKey?: string; onPlanSaved?: () => void;
 }) {
+  const [unsaved, setUnsaved] = useState(false);
   const atG1 = openGate(state) === 'G1_SHOT_PLAN';
   const approved = Boolean(state?.approvals.g1_shot_plan) || Boolean(state?.passed_gates.includes('G1_SHOT_PLAN'));
   const ended = Boolean(state?.run?.ended);
+  const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan"
@@ -342,17 +352,29 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
         {approved
           ? 'You approved the shot plan.'
           : atG1
-            ? 'These are the shots the studio plans to make. Approve them to start making the scene pictures.'
-            : 'The shot plan is ready to review once your story is approved.'}
+            ? editable
+              ? 'These are the shots the studio plans to make. Pick the place, props and cast of each shot and fix any prompt, then approve them to start making the scene pictures.'
+              : 'These are the shots the studio plans to make. Approve them to start making the scene pictures.'
+            : notStarted
+              ? 'The shots of this video. Pick the place, props and cast of each shot and fix any prompt before it starts.'
+              : 'The shot plan is ready to review once your story is approved.'}
       </p>
       {atG1 && !ended && (canAct ? (
-        <button data-testid="approve-g1" disabled={busy} className={`${btnPrimary} mt-4`}
-          onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
-            'Shot plan approved.', "Couldn't approve the shot plan")}>
-          Approve the shot plan
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button data-testid="approve-g1" disabled={busy || unsaved} className={btnPrimary}
+            onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
+              'Shot plan approved.', "Couldn't approve the shot plan")}>
+            Approve the shot plan
+          </button>
+          {unsaved && (
+            <span className="text-sm text-amber-800 dark:text-amber-300" data-testid="approve-g1-unsaved">
+              Save or undo your shot changes first.
+            </span>
+          )}
+        </div>
       ) : <div className="mt-3"><NotYours /></div>)}
-      {shots.length > 0 && (
+      {editable && <ShotPlanEditor episodeId={episodeId} refreshKey={planKey} onDirty={setUnsaved} onSaved={onPlanSaved} />}
+      {!editable && shots.length > 0 && (
         <details className="mt-4" open={atG1}>
           <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 dark:text-gray-100 ${focusRing}`}>
             The {shots.length} shots

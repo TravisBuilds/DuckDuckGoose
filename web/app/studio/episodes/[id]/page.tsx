@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useState, type ComponentProps, type FormEvent } from 'react';
+import { use, useCallback, useEffect, useMemo, useState, type ComponentProps, type FormEvent } from 'react';
 import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
@@ -12,6 +12,7 @@ import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, input, link, panel, tones } from '@/lib/ui';
 import CastPanel from '@/components/CastPanel';
+import PropsPanel from '@/components/PropsPanel';
 import { ConfirmButton } from '@/components/ConfirmButton';
 import {
   FinalCutSection, FinishLine, RunDetails, RunEndedCard, SceneStillsSection, ShotListDetails, ShotPlanSection,
@@ -435,6 +436,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [owner, setOwner] = useState<Owner | 'loading'>('loading');
   const [cast, setCast] = useState<CastView | null>(null);
+  const [propsChanges, setPropsChanges] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelView[]>([]);
@@ -514,6 +516,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const dismiss = useCallback(() => setNotice(null), []);
   const onCastView = useCallback((view: CastView) => setCast(view), []);
+  const onPropsChange = useCallback(() => setPropsChanges((n) => n + 1), []);
+  // the shot plan picker reloads when the cast it picks from (or its shots' cast) or the props change
+  const castKey = useMemo(() => (cast ? JSON.stringify([
+    cast.characters.map((c) => [c.slug, c.name, c.default_version]),
+    cast.shots?.shots?.map((s) => [s.shot_id, s.cast]),
+  ]) : ''), [cast]);
+  const planKey = `${castKey}|${propsChanges}`;
 
   const act: Act = useCallback(async (fn, done, failed) => {
     setBusy(true);
@@ -594,6 +603,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const completed = Boolean(state?.run?.ended && state.run.outcome === 'completed');
   // the run's history is gone and nothing saved shows its steps: only the files it left are shown
   const expired = next.step === 'expired';
+  const notStarted = status === 'missing';
   const storyIsDone = storyDone(state) || Boolean(storyShape?.approved);
   const storyReadOnly = storyLocked(state) || !canAct;
   const storyNote = !canAct
@@ -653,8 +663,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         <CastPanel episodeId={episodeId} onView={onCastView} />
       </section>
 
-      {state && !expired && (
-        <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} />
+      <section id="props" className="scroll-mt-4" aria-label="Props and places">
+        <PropsPanel episodeId={episodeId} onChange={onPropsChange} />
+      </section>
+
+      {(state || notStarted) && !expired && (
+        <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
+          canAct={canAct} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
       )}
       {state && !expired && (
         <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}
