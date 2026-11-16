@@ -3,9 +3,11 @@
 Recurring characters need references, or every picture is a fresh guess and your hero looks like a
 different person from shot to shot. The **Cast** panel on your video's page fixes that. Describe each
 character once, add a picture, lock their look with a character sheet, then tick who is in each shot.
-The studio adds the right pictures and description to every shot with that character.
+The studio adds the right pictures and description to every shot with that character. Things and
+settings that must look the same every time (a red umbrella, the harbour cabin) work the same way:
+see [Props and places](#7-props-and-places).
 
-Technical details are in [CAST.md](CAST.md).
+Technical details are in [CAST.md](CAST.md) and [PROPS.md](PROPS.md).
 
 ## 1. Add your characters
 
@@ -84,6 +86,53 @@ Press **Start a series with this cast**. In your next video, pick the series und
 locked looks come along. Changes to a series cast show up in every video of the series. **Stop using
 the series cast** gives this video its own empty cast again. The series keeps everyone.
 
+## 7. Props and places
+
+Open **Props & places** on your video's page, just below the cast.
+
+1. Under **What is it?**, choose **A prop** (a thing in the shot, like a red umbrella) or **A place**
+   (where the shot happens, like a harbour cabin).
+2. Choose a photo, give it a name, and describe it under **What it looks like**. Describe it the way
+   it should look in every shot: shape, size, colours, materials, or for a place the room, light and
+   what is always there.
+3. Answer **Whose picture is this?**, as for a cast picture.
+4. Press **Add with this photo**. No photo yet? **Add without a photo** works too: the studio uses
+   the description until you add one.
+
+More about photos:
+
+- **Add another photo** adds another angle or a close-up. **Use as main** picks the photo the studio
+  uses first.
+- Photos follow the rules for cast pictures: PNG, JPG or WebP, at least 512 pixels on each side, up
+  to 15 MB. Real people need their permission.
+- Photos are private (see [Who can see and change a cast](#who-can-see-and-change-a-cast)).
+- In a series, every video of the series shares its props and places.
+- While the video is being made, props, places and their photos can't be removed. Wait for the run
+  to end.
+
+## 8. Pick them on each shot, and fix a prompt
+
+Under **Shot plan**, you can change each shot before the video starts, and again while it waits for
+**Approve the shot plan**:
+
+- **Pick what is in each shot.** Tap the shot's **Place** (one), its **Props** (up to 4) and its
+  **Cast**. Tap again to remove a pick.
+- **Fix a prompt.** **Edit the prompt** changes what the scene picture shows, and the end picture and
+  motion prompts when the shot has them.
+- **Save.** Changed shots say **Not saved yet**. Add a reason under **Why the change (optional)** if
+  you like, then press **Save 1 shot** (or **Save 2 shots**, and so on). **Approve the shot plan**
+  waits until you save or undo.
+- **Check the result.** While the video waits for your approval, the studio checks the plan again
+  (model limits and prices) before you approve it. Each saved shot then lists **Made with:** the
+  photos it will be made with. **History** shows who changed what, with the before and after.
+
+The studio sends the picked photos with the shot's scene picture and adds your descriptions to its
+prompt. The clip starts from that picture and is told to keep them as they look. Shots you pick
+nothing for are made just as before.
+
+Once you approve the shot plan, it stays as it is for this video's run. Only the video's owner (or an
+admin) can change it.
+
 ## If something goes wrong
 
 | You see | What to do |
@@ -97,6 +146,11 @@ the series cast** gives this video its own empty cast again. The series keeps ev
 | "is being made right now" | Wait for the current run to end, then change the cast. |
 | "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead. |
 | "Only the people working on this episode (and admins) can see its cast" | The video belongs to someone else. Ask its owner or an admin. |
+| "is a place, not a prop" (or "a prop, not a place") | Pick it under **Place** instead, or under **Props**. |
+| "needs a picture prompt" | A shot's picture prompt can't be empty. Write one, or **Undo**. |
+| "Save or undo your shot changes first." | Press **Save** (or **Undo**) under the shots, then approve. |
+| "Saved …, but the plan breaks a model limit" | Fix what the message names (for example, shorten the prompt), save again, then approve. |
+| "The shot plan … cannot change now" | The shot plan is approved for this run. Change it after the run ends, for the next one. |
 
 ## Who can see and change a cast
 
@@ -108,3 +162,5 @@ the series cast** gives this video its own empty cast again. The series keeps ev
 - **Changing:** only the video's owner (or an admin) can change its cast, and only a series' owner (or
   an admin) can change a series cast. A series without an owner (an older one) can be changed only by
   an admin.
+- **Props and places** follow the same rules as the cast, photos included. A video's shot plan is
+  seen by whoever can see its cast and changed by the video's owner (or an admin).
