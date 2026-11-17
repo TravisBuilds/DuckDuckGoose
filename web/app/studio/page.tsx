@@ -437,7 +437,7 @@ export default function StudioHomePage() {
 
       {ready && (
         <section className="mt-8" data-testid="universes-section" aria-labelledby="universes-title">
-          <h2 id="universes-title" className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">Your universes</h2>
+          <h2 id="universes-title" className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">Your Universes</h2>
           {worldsIssue && (
             <p role="alert" className="text-sm text-red-700 dark:text-red-300" data-testid="universes-problem">
               The Universes could not be loaded: {worldsIssue}
