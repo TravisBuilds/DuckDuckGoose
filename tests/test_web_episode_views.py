@@ -24,6 +24,6 @@ def _node_tests(name: str) -> str:
 
 
 @pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs",
-                                  "props.test.mjs"])
+                                  "props.test.mjs", "consistency.test.mjs", "world.test.mjs"])
 def test_episode_view_node_tests(name):
     _node_tests(name)

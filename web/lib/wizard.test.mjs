@@ -18,6 +18,7 @@ import {
   missingVoiceSlots,
   onScreenTextDefaults,
   onScreenTextProblem,
+  savedVoiceChoices,
   slotToken,
   soundLabel,
   voiceBlockMessage,
@@ -127,6 +128,53 @@ test('plans without voice-over come back unchanged', () => {
   const plan = { music: { prompt: 'calm piano', loop: true, level_db: -18 } };
   assert.deepEqual(applyVoiceChoices(plan, [], {}), plan);
   assert.deepEqual(applyVoiceChoices(null, [NARRATOR], { narrator: { voice_id: 'v' } }), {});
+});
+
+const saved = (voice_id, name) => ({ voice_id, name, description: `${name} described`, preview_url: `https://voices.example/${voice_id}.mp3` });
+const UNIVERSE = {
+  world: { profile: { narrator_voice: saved('v-narrator', 'Tidewater') } },
+  characters: [
+    { name: 'Lead', voice: saved('v-lead', 'Brisk') },
+    { name: ' friend ', voice: saved('v-friend', 'Warm') },
+    { name: 'Keeper', voice: null },
+  ],
+};
+
+test('in a Universe, the narrator and each speaker named like a Universe character start with the saved voice', () => {
+  const KEEPER = { key: 'speaker:Keeper', role: 'speaker', label: 'Keeper', speaker: 'Keeper', lines: 1, suggestion: 'gruff' };
+  const STRANGER = { key: 'speaker:Stranger', role: 'speaker', label: 'Stranger', speaker: 'Stranger', lines: 1, suggestion: 'odd' };
+  const LEAD_LOWER = { ...LEAD, key: 'speaker:LEAD ', speaker: 'LEAD ' };
+  assert.deepEqual(savedVoiceChoices([NARRATOR, LEAD_LOWER, FRIEND, KEEPER, STRANGER], UNIVERSE), {
+    narrator: { ...saved('v-narrator', 'Tidewater'), saved: true },
+    'speaker:LEAD ': { ...saved('v-lead', 'Brisk'), saved: true },
+    'speaker:Friend': { ...saved('v-friend', 'Warm'), saved: true },
+  });
+  // no saved narrator voice: the narrator slot is the creator's to pick
+  assert.deepEqual(savedVoiceChoices([NARRATOR], { ...UNIVERSE, world: { profile: { narrator_voice: null } } }), {});
+  // two Universe characters with the same name: neither voice is guessed
+  const twins = { characters: [{ name: 'Lead', voice: saved('v-1', 'One') }, { name: 'lead', voice: saved('v-2', 'Two') }] };
+  assert.deepEqual(savedVoiceChoices([LEAD], twins), {});
+  // a prefilled voice is written into the plan like a voice the creator picked
+  const plan = { vo: { voice_id: null, speakers: { Lead: '', Friend: '' }, lines: [{ id: 'L01', speaker: 'Lead', text: 'Hi' }] } };
+  const out = applyVoiceChoices(plan, [LEAD, FRIEND], savedVoiceChoices([LEAD, FRIEND], UNIVERSE));
+  assert.deepEqual(out.vo.speakers, { Lead: 'v-lead', Friend: 'v-friend' });
+});
+
+test('without a Universe nothing is prefilled and the plan is written byte for byte as before', () => {
+  assert.deepEqual(savedVoiceChoices([NARRATOR, LEAD, FRIEND], null), {});
+  assert.deepEqual(savedVoiceChoices([NARRATOR, LEAD, FRIEND], undefined), {});
+  const plans = [
+    { vo: { voice_id: null, model: 'eleven_v3', lines: [{ id: 'L01', at: 0.3, text: 'Hi' }] }, music: { prompt: 'x' } },
+    { vo: { voice_id: null, speakers: { Lead: '', Friend: '' }, lines: [{ id: 'L01', speaker: 'Lead', text: 'Hi' }] } },
+    { music: { prompt: 'calm piano', loop: true, level_db: -18 } },
+  ];
+  const picks = { narrator: { voice_id: 'voice-n' }, 'speaker:Lead': { voice_id: 'v-lead' } };
+  for (const plan of plans) {
+    const before = JSON.stringify(applyVoiceChoices(plan, [NARRATOR, LEAD, FRIEND], picks));
+    const after = JSON.stringify(applyVoiceChoices(plan, [NARRATOR, LEAD, FRIEND],
+      { ...savedVoiceChoices([NARRATOR, LEAD, FRIEND], null), ...picks }));
+    assert.equal(after, before);
+  }
 });
 
 const VOICED_PLAN = {

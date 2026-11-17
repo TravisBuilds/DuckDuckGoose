@@ -106,6 +106,10 @@ export function stepperSteps(
 ): StepperStep[] | null;
 export type ChipTone = 'ok' | 'todo' | 'wait' | 'warn' | 'bad';
 export function statusChip(next: NextStep | null | undefined): { label: string; tone: ChipTone };
+export function episodeViewer(
+  info: { owner?: { user_id: string | null; name?: string | null } | null; can_act?: boolean } | null | undefined,
+  me: { user_id: string | null } | null | undefined,
+): Viewer | null;
 export function waitsOn(viewer: Viewer | null | undefined): string | null;
 export function gateChip(
   approved: boolean,
