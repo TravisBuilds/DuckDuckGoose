@@ -456,7 +456,8 @@ async def submit_still_job_enforced(
     prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=True, kind="still")
     if locks_added:
         activity.logger.info(f"{episode_id}/{shot_id} still: continuity locks injected {locks_added}")
-    # Cast: each in-frame character's locked description and the no-text constraint (rule 13 requires them)
+    # Cast: each in-frame character's locked description, each picked prop's and place's description and
+    # the no-text constraint (rule 13 requires them)
     prompt, cast_added = inject_cast_prompt(prompt, shot_meta)
     if cast_added:
         activity.logger.info(f"{episode_id}/{shot_id} still: cast prompt injected {cast_added}")

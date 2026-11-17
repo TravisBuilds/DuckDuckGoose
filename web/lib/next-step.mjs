@@ -389,6 +389,23 @@ export function statusChip(next) {
   }
 }
 
+/** Who a step waits on when this reader may not take it (see MAKER), else null. */
+export function waitsOn(viewer) {
+  const { canAct, ownerName } = { ...MAKER, ...(viewer ?? {}) };
+  return canAct ? null : ownerName || 'the owner';
+}
+
+/**
+ * The chip of a decision's section on the episode page (the shot plan, the scene pictures, the final
+ * cut), or null: approved, or waiting for the decision. waitingOn (waitsOn) names who takes it when
+ * the reader may not, as the Next step card does; without it the decision is the reader's.
+ */
+export function gateChip(approved, waiting, waitingOn = null) {
+  if (approved) return { label: 'Approved', tone: 'ok' };
+  if (!waiting) return null;
+  return waitingOn ? { label: `Waiting on ${waitingOn}`, tone: 'wait' } : { label: 'Waiting for you', tone: 'todo' };
+}
+
 /**
  * The studio home card's chip from GET /api/episodes/{id}. Without a run state (a 404: the API knows
  * no run, saved state or file of the episode) it has not started; a run Temporal has purged comes back

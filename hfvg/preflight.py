@@ -17,6 +17,7 @@ from typing import Any
 from temporalio.exceptions import ApplicationError
 
 from hfvg import model_caps
+from hfvg.cast_prompt import props_clip_lock
 from hfvg.config import max_refs_for, still_model_path
 from hfvg.still_refs import assemble_still_refs
 
@@ -95,6 +96,15 @@ def _present(value: Any) -> bool:
     return value not in (None, False, "", 0)
 
 
+def _with_props_lock(clip_prompt: str, shot_meta: dict[str, Any] | None) -> str:
+    """The clip prompt with the shot's props and place "keep" line, which the clip submit appends,
+    so the clip model's prompt limit is checked on the text it will receive."""
+    lock = props_clip_lock(shot_meta)
+    if not lock or " ".join(lock["text"].split()).lower() in " ".join(clip_prompt.split()).lower():
+        return clip_prompt
+    return f"{clip_prompt.rstrip()} {lock['text']}"
+
+
 def shot_inputs(shot: dict[str, Any]) -> dict[str, Any]:
     """Normalize a G1 shot plan ({shot_id, prompt, end_prompt, params, refs}) or a shots.json entry
     ({id, prompt, end_prompt, model, duration, end_frame, ref_keys}) into preflight inputs.
@@ -109,7 +119,7 @@ def shot_inputs(shot: dict[str, Any]) -> dict[str, Any]:
         "id": shot.get("shot_id") or shot.get("id"),
         "start_prompt": shot.get("prompt") or "",
         "end_prompt": shot.get("end_prompt") or None,
-        "clip_prompt": shot.get("clip_prompt") or shot.get("prompt") or "",
+        "clip_prompt": _with_props_lock(shot.get("clip_prompt") or shot.get("prompt") or "", shot.get("shot_meta")),
         "ref_keys": list(shot.get("refs") if shot.get("refs") is not None else shot.get("ref_keys") or []),
         "aspect_ratio": pick("aspect_ratio"),
         "resolution": pick("resolution"),

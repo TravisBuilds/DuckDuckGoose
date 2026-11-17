@@ -38,6 +38,7 @@ import type {
 } from '@/lib/cast.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import { RightsQuestions } from './RightsQuestions';
 
 /**
  * The episode's cast: who is in the video, their pictures and locked character sheets, and who is
@@ -100,41 +101,6 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
       </figcaption>
       {children && <div className="mt-1 flex flex-col gap-1">{children}</div>}
     </figure>
-  );
-}
-
-/** The rights questions every picture upload needs (lib/cast.mjs rightsProblem / rightsFields). */
-function RightsQuestions({ rights, onChange, group, testId }: {
-  rights: RightsAnswers; onChange: (rights: RightsAnswers) => void; group: string; testId: (what: string) => string;
-}) {
-  return (
-    <fieldset className="mt-3 text-sm space-y-1">
-      <legend className="text-xs font-semibold mb-1">Whose picture is this?</legend>
-      <label className="flex items-center gap-2">
-        <input type="radio" name={group} checked={rights.rights === 'original'}
-          onChange={() => onChange({ ...rights, rights: 'original' })} data-testid={testId('rights-original')} />
-        I made it myself (my own original work)
-      </label>
-      <label className="flex items-center gap-2">
-        <input type="radio" name={group} checked={rights.rights === 'owned'}
-          onChange={() => onChange({ ...rights, rights: 'owned' })} data-testid={testId('rights-owned')} />
-        I own the rights to use it
-      </label>
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={rights.realPerson}
-          onChange={(e) => onChange({ ...rights, realPerson: e.target.checked, likenessConsent: false })}
-          data-testid={testId('real-person')} />
-        It shows a real person
-      </label>
-      {rights.realPerson && (
-        <label className="flex items-center gap-2 ml-6">
-          <input type="checkbox" checked={rights.likenessConsent}
-            onChange={(e) => onChange({ ...rights, likenessConsent: e.target.checked })}
-            data-testid={testId('likeness-consent')} />
-          That person agreed to their likeness being used in this video
-        </label>
-      )}
-    </fieldset>
   );
 }
 

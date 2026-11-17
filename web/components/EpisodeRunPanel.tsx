@@ -6,7 +6,7 @@ import { balanceDisplay, parseBalanceInput } from '@/lib/balance.mjs';
 import type { HiggsfieldBalance } from '@/lib/balance.mjs';
 import { keepPolling, runEndedView } from '@/lib/run-outcome.mjs';
 import type { RunInfo } from '@/lib/run-outcome.mjs';
-import { finishLine, openGate } from '@/lib/next-step.mjs';
+import { finishLine, gateChip, openGate } from '@/lib/next-step.mjs';
 import {
   REDO_NOTE_MAX, redoEstimateRequest, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
 } from '@/lib/redo.mjs';
@@ -15,6 +15,7 @@ import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } fro
 import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import ShotPlanEditor from './ShotPlanEditor';
 
 /**
  * The episode run, section by section (G-UI-1): the shot plan (G1), the scene pictures (G2, per-picture
@@ -226,11 +227,11 @@ export function runShotIds(state: RunState | null, shotStates: Record<string, Sh
   ])).sort();
 }
 
-function SectionTitle({ id, title, status, tone }: { id: string; title: string; status?: string | null; tone?: keyof typeof tones }) {
+function SectionTitle({ id, title, status }: { id: string; title: string; status?: { label: string; tone: keyof typeof tones } | null }) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
       <h2 id={id} className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h2>
-      {status && <span className={`${chip} ${tones[tone ?? 'wait']}`}>{status}</span>}
+      {status && <span className={`${chip} ${tones[status.tone]}`} data-testid={`${id}-chip`}>{status.label}</span>}
     </div>
   );
 }
@@ -327,32 +328,53 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
 
 // ---------------------------------------------------------------- G1: the shot plan
 
-export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct }: {
+/**
+ * The shot plan: before the run starts (notStarted) and while the run waits for its approval, the
+ * owner or an admin picks each shot's place, props and cast and edits its prompts (ShotPlanEditor);
+ * the approval waits for unsaved edits. Otherwise the shots are listed. waitingOn (waitsOn): who
+ * approves it when the reader may not.
+ */
+export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct, waitingOn = null, notStarted = false,
+  planKey, onPlanSaved }: {
   episodeId: string; state: RunState | null; shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
+  waitingOn?: string | null; notStarted?: boolean; planKey?: string; onPlanSaved?: () => void;
 }) {
+  const [unsaved, setUnsaved] = useState(false);
   const atG1 = openGate(state) === 'G1_SHOT_PLAN';
   const approved = Boolean(state?.approvals.g1_shot_plan) || Boolean(state?.passed_gates.includes('G1_SHOT_PLAN'));
   const ended = Boolean(state?.run?.ended);
+  const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
-      <SectionTitle id="shot-plan-title" title="Shot plan"
-        status={approved ? 'Approved' : atG1 && !ended ? 'Waiting for you' : null} tone={approved ? 'ok' : 'todo'} />
+      <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
       {approved && <p className="sr-only" data-testid="g1-approved">Approved</p>}
       <p className="text-gray-700 dark:text-gray-200">
         {approved
-          ? 'You approved the shot plan.'
+          ? waitingOn ? 'The shot plan is approved.' : 'You approved the shot plan.'
           : atG1
-            ? 'These are the shots the studio plans to make. Approve them to start making the scene pictures.'
-            : 'The shot plan is ready to review once your story is approved.'}
+            ? editable
+              ? 'These are the shots the studio plans to make. Pick the place, props and cast of each shot and fix any prompt, then approve them to start making the scene pictures.'
+              : 'These are the shots the studio plans to make. Approve them to start making the scene pictures.'
+            : notStarted
+              ? 'The shots of this video. Pick the place, props and cast of each shot and fix any prompt before it starts.'
+              : 'The shot plan is ready to review once your story is approved.'}
       </p>
       {atG1 && !ended && (canAct ? (
-        <button data-testid="approve-g1" disabled={busy} className={`${btnPrimary} mt-4`}
-          onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
-            'Shot plan approved.', "Couldn't approve the shot plan")}>
-          Approve the shot plan
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button data-testid="approve-g1" disabled={busy || unsaved} className={btnPrimary}
+            onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
+              'Shot plan approved.', "Couldn't approve the shot plan")}>
+            Approve the shot plan
+          </button>
+          {unsaved && (
+            <span className="text-sm text-amber-800 dark:text-amber-300" data-testid="approve-g1-unsaved">
+              Save or undo your shot changes first.
+            </span>
+          )}
+        </div>
       ) : <div className="mt-3"><NotYours /></div>)}
-      {shots.length > 0 && (
+      {editable && <ShotPlanEditor episodeId={episodeId} refreshKey={planKey} onDirty={setUnsaved} onSaved={onPlanSaved} />}
+      {!editable && shots.length > 0 && (
         <details className="mt-4" open={atG1}>
           <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 dark:text-gray-100 ${focusRing}`}>
             The {shots.length} shots
@@ -395,9 +417,10 @@ function StillThumb({ src, alt, testId }: { src: string; alt: string; testId: st
   );
 }
 
-export function SceneStillsSection({ episodeId, state, shotStates, shotStatesError, shots, castHidden, busy, act, canAct }: {
+export function SceneStillsSection({ episodeId, state, shotStates, shotStatesError, shots, castHidden, busy, act, canAct,
+  waitingOn = null }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null; shotStatesError: string | null;
-  shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
+  shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean; waitingOn?: string | null;
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [pricing, setPricing] = useState<string | null>(null);
@@ -444,11 +467,10 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
 
   return (
     <section id="scene-pictures" className={`${card} scroll-mt-4`} data-testid="shots-review" aria-labelledby="scene-pictures-title">
-      <SectionTitle id="scene-pictures-title" title="Scene pictures"
-        status={approvedAll ? 'Approved' : atG2 && !ended ? 'Waiting for you' : null} tone={approvedAll ? 'ok' : 'todo'} />
+      <SectionTitle id="scene-pictures-title" title="Scene pictures" status={gateChip(approvedAll, atG2 && !ended, waitingOn)} />
       <p className="text-gray-700 dark:text-gray-200">
         {approvedAll
-          ? 'You approved the scene pictures. Each one becomes a short clip.'
+          ? `${waitingOn ? 'The scene pictures are approved.' : 'You approved the scene pictures.'} Each one becomes a short clip.`
           : atG2
             ? 'One picture per shot. Approve the ones that look right, ask for a redo with a note where something should change, then approve them all.'
             : 'The studio makes one picture per shot after you approve the shot plan.'}
@@ -596,9 +618,9 @@ function finalBlockers(state: RunState): string[] {
   return out;
 }
 
-export function FinalCutSection({ episodeId, state, shotStates, files, busy, act, canAct }: {
+export function FinalCutSection({ episodeId, state, shotStates, files, busy, act, canAct, waitingOn = null }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null;
-  files: Record<string, FileInfo> | null; busy: boolean; act: Act; canAct: boolean;
+  files: Record<string, FileInfo> | null; busy: boolean; act: Act; canAct: boolean; waitingOn?: string | null;
 }) {
   const [finalReason, setFinalReason] = useState('');
   const [clipReasons, setClipReasons] = useState<Record<string, string>>({});
@@ -613,10 +635,11 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
 
   return (
     <section id="final-cut" className={`${card} scroll-mt-4`} data-testid="final-cut-card" aria-labelledby="final-cut-title">
-      <SectionTitle id="final-cut-title" title="Final cut & delivery"
-        status={approved ? 'Approved' : reviewing ? 'Waiting for you' : null} tone={approved ? 'ok' : 'todo'} />
+      <SectionTitle id="final-cut-title" title="Final cut & delivery" status={gateChip(approved, reviewing, waitingOn)} />
       {approved && (
-        <p className="font-semibold text-green-800 dark:text-green-300" data-testid="final-approved">You approved the final cut.</p>
+        <p className="font-semibold text-green-800 dark:text-green-300" data-testid="final-approved">
+          {waitingOn ? 'The final cut is approved.' : 'You approved the final cut.'}
+        </p>
       )}
       {!approved && !reviewing && (
         <p className="text-gray-700 dark:text-gray-200">

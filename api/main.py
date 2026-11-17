@@ -1890,6 +1890,19 @@ async def start_episode(
 # Mark start_episode to allow members
 start_episode.allow_members = True
 
+_FAILED_SHOT_FIELDS = ("shot_id", "status")
+_OUTCOME_FIELDS = ("shot_id", "status", "still_url", "clip_url", "pre_approved")
+
+
+def _without_cast_text(failed_shots: list, shot_outcomes: dict) -> tuple[list, dict]:
+    """A run state's failed shots and shot outcomes as a viewer who may not see the episode's cast
+    gets them: the errors, moderation records, QC fail-if lines and plan updates can quote a shot's
+    prompt, so only the shot, its status, its picture and its clip are kept."""
+    return ([{k: f[k] for k in _FAILED_SHOT_FIELDS if k in f} if isinstance(f, dict) else f for f in failed_shots],
+            {sid: {k: o[k] for k in _OUTCOME_FIELDS if k in o} if isinstance(o, dict) else {}
+             for sid, o in shot_outcomes.items()})
+
+
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeStateResponse)
 async def get_episode_state(
     episode_id: str,
@@ -1899,7 +1912,9 @@ async def get_episode_state(
     """
     Get current episode workflow state.
     
-    Requires: Authorization (member or admin).
+    Requires: Authorization (member or admin). A viewer who may not see the episode's cast gets no
+    G2 rejection notes, no failed shot errors and of each shot's outcome only its status, picture
+    and clip (``_without_cast_text``).
     """
     # Member or admin access
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
@@ -1933,10 +1948,16 @@ async def get_episode_state(
     except Exception as e:  # the workflow state stays readable even if the DB is unavailable
         print(f"Stall alerts unavailable for {state['episode_id']}: {e}")
         active_stalls = []
-    # a note may describe the cast, so it is shown to the viewers who may see the cast
+    # a note, a failed shot's error and a shot's QC fail-if lines may quote a prompt or describe the
+    # cast, so they are shown to the viewers who may see the cast
     rejection_reasons = dict(state.get("rejection_reasons") or {})
-    if rejection_reasons and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
+    failed_shots = list(state.get("failed_shots") or [])
+    shot_outcomes = dict(state.get("shot_outcomes") or {})
+    blank = _without_cast_text(failed_shots, shot_outcomes)
+    if ((rejection_reasons or blank != (failed_shots, shot_outcomes))
+            and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)):
         rejection_reasons = {}
+        failed_shots, shot_outcomes = blank
     return EpisodeStateResponse(
         episode_id=state["episode_id"],
         stage=state.get("stage"),
@@ -1957,8 +1978,8 @@ async def get_episode_state(
         pending_clip_retries=list(state.get("pending_clip_retries") or []),
         final_cut_refusals=list(state.get("final_cut_refusals") or []),
         final_cut_rejections=list(state.get("final_cut_rejections") or []),
-        failed_shots=list(state.get("failed_shots") or []),
-        shot_outcomes=dict(state.get("shot_outcomes") or {}),
+        failed_shots=failed_shots,
+        shot_outcomes=shot_outcomes,
         archetype_id=state.get("archetype_id"),
         target_duration_s=state.get("target_duration_s"),
         run=state["run"] if handle is None else await _episode_run(handle),
@@ -3618,7 +3639,9 @@ async def get_shots(
     List all shots for an episode with their status.
     
     Requires: Authorization header OR session cookie. A shot's prompt names the cast, so it is left
-    out (``cast_hidden``) for a caller who may not see this episode's cast, as the shot states do.
+    out (``cast_hidden``) for a caller who may not see this episode's cast, as the shot states do,
+    and so are its QC results (the QC verdicts, the clip's fail-if lines and the moderation record
+    quote it); pre_approved still comes from them.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
@@ -3641,7 +3664,7 @@ async def get_shots(
                     "status": row[1],
                     "still_url": row[2],
                     "clip_url": row[3],
-                    "qc_results": qc_results,
+                    "qc_results": {} if cast_hidden else qc_results,
                     "retries": row[5],
                     "prompt": None if cast_hidden else row[6],
                     "pre_approved": bool(((qc_results or {}).get("still_qc") or {}).get("pre_approved")),
@@ -3812,6 +3835,20 @@ async def approve_still(
 # Mark approve_still to allow members
 approve_still.allow_members = True
 
+STUDIO_UPDATING = "The studio is updating. Try again in a minute."
+
+
+def _update_refusal(update: str, cause: BaseException) -> str:
+    """What a refused update tells whoever sent it. A worker still on older code (mid deploy) has no
+    handler for a new update and rejects it with the SDK's "Update handler for '<name>' expected but
+    not found" error, which means nothing to them."""
+    text = str(cause)
+    if str(getattr(cause, "message", text)).startswith(f"Update handler for '{update}' expected but not found"):
+        logger.warning("The worker has no %s update handler yet: %s", update, text)
+        return STUDIO_UPDATING
+    return text
+
+
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
     """Run a workflow update on the episode workflow; refusals map to 409, missing workflow to 404."""
     if not temporal_client:
@@ -3823,7 +3860,7 @@ async def _execute_episode_update(episode_id: str, update: str, args: list, acti
         return await handle.execute_update(update, args=args)
     except WorkflowUpdateFailedError as e:
         if e.cause and isinstance(e.cause, ApplicationError):
-            raise HTTPException(status_code=409, detail=str(e.cause))
+            raise HTTPException(status_code=409, detail=_update_refusal(update, e.cause))
         raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
     except ApplicationError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -4142,7 +4179,10 @@ async def get_clip_plans(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-28: per shot, the clip prompt and qc_fail_if its kept still's clip will be submitted and
-    QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only."""
+    QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only.
+    The prompt names the cast, so for a caller who may not see this episode's cast (as the shots'
+    prompts) each shot keeps only its version and resynced fields: the prompt and what is read from
+    it (qc_fail_if, the lint result, clip_prompt_is_still_prompt) are left out (``cast_hidden``)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4152,7 +4192,15 @@ async def get_clip_plans(
         plans = await handle.query("clip_plans")
         versions = await handle.query("still_versions")
     except Exception as e:
+        from temporalio.service import RPCError, RPCStatusCode
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=503, detail=f"Could not read clip plans: {e}")
+    if not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
+        return {sid: {"version": row.get("version"), "resynced": list(row.get("resynced") or []),
+                      "clip_prompt": None, "clip_prompt_is_still_prompt": None, "qc_fail_if": [],
+                      "lint_problems": [], "cast_hidden": True}
+                for sid, row in plans.items()}
     from hfvg.still_selection import lint_problems
     live = os.getenv("DRY_RUN", "true").lower() != "true"
     for sid, row in plans.items():
@@ -4163,6 +4211,7 @@ async def get_clip_plans(
         except Exception:
             pass
         row["lint_problems"] = lint_problems(episode_id, sid, row.get("clip_prompt") or "", meta, [], live, kind="clip")
+        row["cast_hidden"] = False
     return plans
 
 
@@ -5055,11 +5104,14 @@ async def get_audit_trail(
     """
     Get audit trail for episode. Member or admin.
     
-    Requires: Auth
+    Requires: Auth. The details quote prompts, redo notes and moderation rewords, which name the
+    cast, so a caller who may not see this episode's cast gets each entry without them
+    (``cast_hidden``).
     """
     # Member or admin access
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
+    cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     
     import aiosqlite
     
@@ -5075,7 +5127,7 @@ async def get_audit_trail(
                     "id": row[0],
                     "episode_id": row[1],
                     "action": row[2],
-                    "details": row[3],
+                    "details": None if cast_hidden else row[3],
                     "user": row[4],
                     "timestamp": row[5],
                 })
@@ -5084,6 +5136,7 @@ async def get_audit_trail(
     return {
         "episode_id": episode_id,
         "entries": entries,
+        "cast_hidden": cast_hidden,
     }
 
 
@@ -7367,6 +7420,18 @@ get_shot_states.read_only = True
 # Cast library (series, characters, reference uploads, character sheets): api/cast_routes.py
 cast_routes.bind(sys.modules[__name__])
 cast_routes.register(app)
+# Props and places library (reference photos of things and settings): api/prop_routes.py
+try:
+    from api import prop_routes
+except ImportError:
+    import prop_routes
+prop_routes.register(app)
+# Shot plan editor (each shot's cast, props, place and prompts before G1 approval): api/shot_plan_routes.py
+try:
+    from api import shot_plan_routes
+except ImportError:
+    import shot_plan_routes
+shot_plan_routes.register(app)
 
 
 if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app

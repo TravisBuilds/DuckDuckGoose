@@ -6,7 +6,8 @@ description and reference pictures in one place. Approved character sheets are l
 is in frame, and planning feeds those references and descriptions into every still with that character.
 
 For the creator-facing steps (upload a picture, lock a sheet, put people in shots) see
-[CAST-HOWTO.md](CAST-HOWTO.md).
+[CAST-HOWTO.md](CAST-HOWTO.md). Props and places (things and settings with reference photos) and the
+shot plan editor build on the same library: see [PROPS.md](PROPS.md).
 
 | Piece | Code |
 |---|---|

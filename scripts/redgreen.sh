@@ -4191,7 +4191,7 @@ test_mutation 593 "run state reports rejection reasons" \
 test_mutation 594 "rejection reasons only for who may see the cast" \
     "api/main.py" \
     "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_why_a_picture_was_turned_down_for_who_may_not_see_the_cast" \
-    sed -i 's/^    if rejection_reasons and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/    if False:  # MUTATED/'
+    sed -i '/^async def get_episode_state(/,/^get_episode_state\.allow_members = True$/ s/^            and not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token)):$/            and False):  # MUTATED/'
 
 # 595: the redo note is framed as a change request
 test_mutation 595 "redo note framed as a change request" \
@@ -4216,6 +4216,248 @@ test_mutation 598 "redo sends the note" \
     "web/lib/redo.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
     sed -i 's/^  return prompt_append ? { prompt_append } : {};$/  return {};  \/\/ MUTATED/'
+
+# ── Props and places, the shot plan editor (599-626) ─────────────────────────────────────────────
+
+# 599: the shot plan (its prompts, cast and props) only for whoever may see the episode's cast
+test_mutation 599 "shot plan hidden from who may not see the cast" \
+    "api/shot_plan_routes.py" \
+    "tests/test_shot_plan_api.py::test_another_member_can_neither_see_nor_change_the_shot_plan" \
+    sed -i 's/^    await cast_api\._require_viewer(library, authorization, studio_admin_token, SHOT_PLAN_HIDDEN)$/    pass  # MUTATED/'
+
+# 600: the shot plan view offers changes only to the episode's owner or an admin
+test_mutation 600 "shot plan: only the owner or an admin may change it" \
+    "api/shot_plan_routes.py" \
+    "tests/test_shot_plan_api.py::test_the_owner_of_another_episode_of_the_series_sees_the_plan_but_cannot_change_it" \
+    sed -i 's/^    return owner is None or owner == user_id, actor, name$/    return True, actor, name  # MUTATED/'
+
+# 601: a prompt or pick change is an episode write: another member's is refused (episode owner guard)
+test_mutation 601 "shot plan edits need the episode's owner or an admin" \
+    "api/main.py" \
+    "tests/test_shot_plan_api.py::test_another_member_can_neither_see_nor_change_the_shot_plan" \
+    sed -i 's/^    if owner is not None and owner != user_id:$/    if False:  # MUTATED/'
+
+# 602: once G1 is approved (or the run is past it) the shot plan stays as it is
+test_mutation 602 "shot plan locked after approval" \
+    "api/shot_plan_routes.py" \
+    "tests/test_shot_plan_api.py::test_after_approval_the_shot_plan_is_locked" \
+    sed -i 's/^        if phase\["state"\] == "locked":$/        if False:  # MUTATED/'
+
+# 603: a change the run refuses puts the previous shots.json back
+test_mutation 603 "refused re-plan restores shots.json" \
+    "api/shot_plan_routes.py" \
+    "tests/test_shot_plan_api.py::test_a_refused_replan_puts_the_old_shot_plan_back" \
+    sed -i 's/^                await asyncio\.to_thread(_write, episode_id, before)$/                pass  # MUTATED/'
+
+# 604: while a run waits at G1, a change goes through the workflow's replan_shots
+test_mutation 604 "shot plan change at G1 goes through the workflow" \
+    "api/shot_plan_routes.py" \
+    "tests/test_shot_plan_api.py::test_at_g1_the_change_goes_through_the_workflow" \
+    sed -i 's/^        if phase\["state"\] == "g1":$/        if False:  # MUTATED/'
+
+# 605: G1 approval waits while a shot plan change is being checked
+test_mutation 605 "G1 approval waits for a re-plan" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_plan_replan.py::test_approval_waits_while_a_replan_is_checked" \
+    sed -i 's/^        if self\._replanning:$/        if False:  # MUTATED/'
+
+# 606: no re-plan once G1 is approved
+test_mutation 606 "no re-plan after G1 approval" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_plan_replan.py::test_a_replan_outside_the_open_g1_gate_is_refused" \
+    sed -i 's/^        if self\.approved_g1_shot_plan or "G1_SHOT_PLAN" in self\.passed_gates:$/        if False:  # MUTATED/'
+
+# 607: a re-plan is applied to the shots that run (the still gets the new prompt, photos and descriptions)
+test_mutation 607 "re-plan applied to the shots that run" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_plan_replan.py::test_props_picked_at_g1_reach_the_still_submit" \
+    sed -i 's/^                    shot\.update(change)$/                    pass  # MUTATED/'
+
+# 608: a re-plan's G1 plan (estimates, preflight errors) replaces the old one
+test_mutation 608 "re-plan recomputes the G1 plan" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_plan_replan.py::test_props_picked_at_g1_reach_the_still_submit" \
+    sed -i 's/^            self\.state\.g1_plan = g1_plan$/            pass  # MUTATED/'
+
+# 609: a re-plan may not change the shot's own refs.json refs (they need a new run)
+test_mutation 609 "re-plan keeps the package refs" \
+    "hfvg/plan_resync.py" \
+    "tests/test_shot_plan_replan.py::test_structural_changes_and_an_empty_prompt_are_refused" \
+    sed -i 's/^        if own != \[k for k in n\.get("ref_keys") or \[\] if not is_cast_key(k)\]:$/        if False:  # MUTATED/'
+
+# 610: a re-plan may not change a shot's trim, tags or pre-approved still
+test_mutation 610 "re-plan keeps the fixed fields" \
+    "hfvg/plan_resync.py" \
+    "tests/test_shot_plan_replan.py::test_structural_changes_and_an_empty_prompt_are_refused" \
+    sed -i 's/^        for f in REPLAN_FIXED_FIELDS:$/        for f in ():  # MUTATED/'
+
+# 611: a prop or place photo only for whoever may see its library
+test_mutation 611 "prop photos are private" \
+    "api/prop_routes.py" \
+    "tests/test_props_api.py::test_another_member_can_neither_change_nor_see_the_props" \
+    sed -i 's/^    if library is None or not await cast_api\._may_see(library, user_id, is_admin):$/    if library is None:  # MUTATED/'
+
+# 612: the props and places only for whoever may see the episode's cast
+test_mutation 612 "props library hidden from who may not see the cast" \
+    "api/prop_routes.py" \
+    "tests/test_props_api.py::test_another_member_can_neither_change_nor_see_the_props" \
+    sed -i 's/^    await cast_api\._require_viewer(library, authorization, studio_admin_token, PROPS_HIDDEN)$/    pass  # MUTATED/'
+
+# 613: prop photo uploads get the size limit before the body is read
+test_mutation 613 "prop photo uploads: size limit" \
+    "api/cast_routes.py" \
+    "tests/test_props_api.py::test_the_size_limit_counts_a_prop_photo_body_without_a_declared_length" \
+    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path))  # MUTATED/'
+
+# 614: props and places are not deleted while a run of the library is in progress
+test_mutation 614 "props deletes wait for the run" \
+    "api/prop_routes.py" \
+    "tests/test_props_api.py::test_deletes_are_refused_while_a_run_is_in_progress" \
+    sed -i 's/^    await cast_api\._refuse_during_runs(library, episode_id, "its props and places can be deleted")$/    pass  # MUTATED/'
+
+# 615: a prop or place with a photo: the rights questions are answered before anything is kept
+test_mutation 615 "prop with a photo: rights attestation" \
+    "api/prop_routes.py" \
+    "tests/test_props_api.py::test_a_photo_needs_the_rights_attestation" \
+    sed -i '/^async def create_prop_with_photo(/,/^create_prop_with_photo\.allow_members = True$/ s/cast_store\.validate_attestation, rights,/(lambda r, d, c, n: {"rights": r, "depicts_real_person": d, "likeness_consent": c, "note": n}), rights,/'
+
+# 616: an image file shared by a cast picture and a prop photo stays while either uses it
+test_mutation 616 "shared image file stays while a prop photo uses it" \
+    "hfvg/cast_store.py" \
+    "tests/test_prop_store.py::test_a_file_shared_by_a_cast_picture_and_a_prop_photo_stays_until_neither_uses_it" \
+    sed -i 's/"SELECT 1 FROM prop_images WHERE sha256 = ? LIMIT 1", (sha256, sha256))/"SELECT 1 FROM prop_images WHERE 0 AND sha256 = ? LIMIT 1", (sha256, sha256))/'
+
+# 617: a shot's place and props send their photos with the shot
+test_mutation 617 "picked props send their photos" \
+    "hfvg/cast_plan.py" \
+    "tests/test_props_plan.py::test_a_shot_with_a_place_and_a_prop_gets_their_photos_and_descriptions" \
+    sed -i 's/^        things\.append({"name": item\["name"\], "images": photos})$/        things.append({"name": item["name"], "images": []})  # MUTATED/'
+
+# 618: a prop picked as the place (or the other way round) refuses the plan
+test_mutation 618 "a prop is not a place" \
+    "hfvg/cast_plan.py" \
+    "tests/test_props_plan.py::test_unknown_ids_and_the_wrong_kind_refuse_the_plan" \
+    sed -i 's/^        if item\["kind"\] != kind:$/        if False:  # MUTATED/'
+
+# 619: the still prompt carries each picked place's and prop's description
+test_mutation 619 "still prompt carries the props descriptions" \
+    "hfvg/cast_prompt.py" \
+    "tests/test_props_plan.py::test_the_still_prompt_gets_the_descriptions_after_the_cast_once" \
+    sed -i 's/^    missing_props = \[p for p in prop_entries(shot_meta) if _norm(p\["clause"\]) not in _norm(out)\]$/    missing_props = []  # MUTATED/'
+
+# 620: the preflight measures the clip prompt with the props keep line the clip submit appends
+test_mutation 620 "preflight measures the clip prompt with the keep line" \
+    "hfvg/preflight.py" \
+    "tests/test_props_plan.py::test_the_preflight_measures_the_clip_prompt_with_the_keep_line" \
+    sed -i 's/^        "clip_prompt": _with_props_lock(shot\.get("clip_prompt") or shot\.get("prompt") or "", shot\.get("shot_meta")),$/        "clip_prompt": shot.get("clip_prompt") or shot.get("prompt") or "",  # MUTATED/'
+
+# 621: the Props & places add form only for whoever may change the library
+test_mutation 621 "props add form only for who may change the library" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^    shown: Boolean(view?\.can_edit) && count < (view?\.limits?\.max_items ?? 0),$/    shown: count < (view?.limits?.max_items ?? 0),  \/\/ MUTATED/'
+
+# 622: a prop or place photo gets the picture checks (type, size) before it is sent
+test_mutation 622 "prop photo: picture checks before upload" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  if (picture) return picture;$/  if (false) return picture;  \/\/ MUTATED/'
+
+# 623: a prop or place photo needs the rights answer before it is sent
+test_mutation 623 "prop photo: rights answer before upload" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  return rightsProblem(answers);$/  return null;  \/\/ MUTATED/'
+
+# 624: a shot plan save sends only the picks that changed
+test_mutation 624 "shot plan save sends only changed picks" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  return JSON\.stringify(a ?? \[\]) === JSON\.stringify(b ?? \[\]);$/  return false;  \/\/ MUTATED/'
+
+# 625: the editor shows the unsaved edit of a field, not the saved value
+test_mutation 625 "shot plan editor shows the unsaved edit" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  return draft && field in draft ? draft\[field\] : shotDraft(shot)\[field\];$/  return shotDraft(shot)[field];  \/\/ MUTATED/'
+
+# 626: a shot without a picture prompt cannot be saved
+test_mutation 626 "shot plan save needs a picture prompt" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i "s/^    if (draft && 'prompt' in draft && !String(draft\.prompt ?? '')\.trim()) return/    if (false) return/"
+
+# 627: the clip plans leave the prompt out for whoever may not see the episode's cast
+test_mutation 627 "clip plans: prompts only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i '/^async def get_clip_plans(/,/^get_clip_plans\.allow_members = True$/ s/^    if not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/    if False:  # MUTATED/'
+
+# 628: ... and the fail-if lines read from it
+test_mutation 628 "clip plans: fail-if lines only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_leave_the_prompt_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^\(                      "clip_prompt": None, "clip_prompt_is_still_prompt": None, \)"qc_fail_if": \[\],$/\1"qc_fail_if": list(row.get("qc_fail_if") or []),  # MUTATED/'
+
+# 629: the clip plans of an episode without a run answer 404
+test_mutation 629 "clip plans: 404 without a run" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_clip_plans_of_an_episode_without_a_run_answer_404" \
+    sed -i '/^async def get_clip_plans(/,/^get_clip_plans\.allow_members = True$/ s/^        if isinstance(e, RPCError) and e\.status == RPCStatusCode\.NOT_FOUND:$/        if False:  # MUTATED/'
+
+# 630: the audit trail's details only for whoever may see the episode's cast
+test_mutation 630 "audit details only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_audit_trail_leaves_the_details_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^                    "details": None if cast_hidden else row\[3\],$/                    "details": row[3],  # MUTATED/'
+
+# 631: the shots' QC results only for whoever may see the episode's cast
+test_mutation 631 "shots: QC results only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_shots_leave_the_qc_results_out_for_who_may_not_see_the_cast" \
+    sed -i 's/^                    "qc_results": {} if cast_hidden else qc_results,$/                    "qc_results": qc_results,  # MUTATED/'
+
+# 632: the run state's failed shot errors only for whoever may see the episode's cast
+test_mutation 632 "run state: failed shot errors only for who may see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^_FAILED_SHOT_FIELDS = ("shot_id", "status")$/_FAILED_SHOT_FIELDS = ("shot_id", "status", "reason")  # MUTATED/'
+
+# 633: ... and of each shot's outcome only its status, picture and clip
+test_mutation 633 "run state: shot outcomes cut for who may not see the cast" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^            {sid: {k: o\[k\] for k in _OUTCOME_FIELDS if k in o} if isinstance(o, dict) else {}$/            {sid: o if isinstance(o, dict) else {}  # MUTATED/'
+
+# 634: ... checked even when no picture was turned down
+test_mutation 634 "run state: the cast check runs for failed shots and outcomes too" \
+    "api/main.py" \
+    "tests/test_member_studio_reads.py::test_the_run_state_leaves_out_failed_shot_errors_and_qc_lines_for_who_may_not_see_the_cast" \
+    sed -i 's/^    if ((rejection_reasons or blank != (failed_shots, shot_outcomes))$/    if ((rejection_reasons)  # MUTATED/'
+
+# 635: an update the worker does not know yet answers a plain 409
+test_mutation 635 "unknown update: plain 409" \
+    "api/main.py" \
+    "tests/test_shot_plan_api.py::test_a_worker_without_replan_shots_answers_a_plain_409" \
+    sed -i "s/^    if str(getattr(cause, \"message\", text))\.startswith(f\"Update handler for '{update}' expected but not found\"):\$/    if False:  # MUTATED/"
+
+# 636: ... read from the error's message, as a real older worker sends it (str() starts with its type)
+test_mutation 636 "unknown update: matched on the SDK's message" \
+    "api/main.py" \
+    "tests/test_shot_plan_api.py::test_an_older_worker_turns_the_change_down_with_a_plain_409" \
+    sed -i "s/^    if str(getattr(cause, \"message\", text))\.startswith(\(.*\)\$/    if text.startswith(\1  # MUTATED/"
+
+# 637: a decision's chip says who it waits on to whoever may not take it
+test_mutation 637 "gate chip: neutral for who may not decide" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  return waitingOn ? .*/  return { label: 'Waiting for you', tone: 'todo' };  \/\/ MUTATED/"
+
+# 638: ... that is, whoever may not take the step
+test_mutation 638 "gate chip: who waits on the owner" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^  return canAct ? null : ownerName || 'the owner';\$/  return null;  \/\/ MUTATED/"
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

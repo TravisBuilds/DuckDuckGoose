@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from hfvg.cast_prompt import parse_cast_request
+from hfvg.cast_prompt import parse_cast_request, parse_props_request
 from hfvg.paths import episode_dir
 from hfvg.qc.clip_constraints import ConstraintError, validate_constraints
 from hfvg.qc.continuity import ContinuityError, validate_hard_checks
@@ -162,14 +162,20 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
 
 
 def _parse_cast_fields(item: dict, sid: str, plan: dict[str, Any]) -> None:
-    """Optional ``cast`` (who is in frame, hfvg.cast_prompt) and ``allow_text`` (this shot may show
-    on-image text). Absent keys leave the plan exactly as before."""
+    """Optional ``cast`` (who is in frame, hfvg.cast_prompt), ``props`` and ``place`` (what and where,
+    from the props and places library) and ``allow_text`` (this shot may show on-image text).
+    Absent keys leave the plan exactly as before."""
     try:
         cast = parse_cast_request(item.get("cast"), sid)
+        props, place = parse_props_request(item.get("props"), item.get("place"), sid)
     except ValueError as e:
         raise ShotDataError(f"shots.json {e}") from None
     if cast:
         plan["cast"] = cast
+    if props:
+        plan["props"] = props
+    if place:
+        plan["place"] = place
     if "allow_text" in item:
         if not isinstance(item["allow_text"], bool):
             raise ShotDataError(f"shots.json shot {sid}: allow_text must be true or false")

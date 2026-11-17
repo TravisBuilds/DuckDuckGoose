@@ -152,10 +152,34 @@ see a cast:
   moderation steps for everyone, but the free text that can quote a shot's prompt (still and clip
   errors, the escalation's provider message and reason, the lint messages) only for a caller who may
   see the cast. Anyone else gets `cast_hidden: true` and those fields empty.
+- The other episode reads that can quote a prompt follow the same rule. Whoever may not see the cast
+  gets:
+  - the shots (`GET /api/episodes/{id}/shots`, `cast_hidden: true`) without each shot's prompt and
+    QC results (the QC verdicts, the clip's fail-if lines, the moderation record); `pre_approved`
+    stays;
+  - the clip plans (`GET /api/episodes/{id}/clip-plans`) with only each shot's `version` and
+    `resynced`, and `cast_hidden: true`: no clip prompt, fail-if lines, lint result or
+    `clip_prompt_is_still_prompt`. An episode without a run answers `404`;
+  - the audit trail (`GET /api/episodes/{id}/audit`, `cast_hidden: true`) with each entry's action,
+    user and time, but no details;
+  - the run state (`GET /api/episodes/{id}`) without the reasons scene pictures were turned down or
+    the failed shots' errors, and with each shot's outcome cut to its status, picture, clip and
+    `pre_approved`.
 - Cast images are only served by `GET /api/cast/images/{image_id}` and `.../thumb`, under the same
   rule as their cast (`401` without a session, `404` for a member who may not see it, checked before
   the file is read or a preview made). They are never served as static files. The `UPLOAD_TOKEN`
   reaches no cast route.
+- **Props and places** (`/api/episodes/{id}/props...`, `/api/props/photos/...`, docs/PROPS.md) follow
+  the cast rules above:
+  - the same library;
+  - the same owner checks for changes (episode owner, plus series owner for a series library);
+  - the same read rule, with `404` for whoever may not see it;
+  - photos served only through the authenticated routes.
+- **The shot plan** (`GET`/`POST /api/episodes/{id}/shot-plan`) is seen by whoever may see the
+  episode's cast; everyone else gets `404`. Changes (prompts, and each shot's cast, props and place)
+  follow the episode write rule only: the owner or an admin, or any member while the episode has no
+  owner. Picking from a series' library changes the episode, not the series. A refused change answers
+  `403` like any episode write and changes nothing.
 
 ## Route Permission Matrix
 
@@ -172,7 +196,7 @@ see a cast:
 - `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
-- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down only for whoever may see the cast)
+- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down, the failed shots' errors and the shots' full outcomes only for whoever may see the cast)
 - `POST /api/episodes/{id}/set-live` - Set episode to live mode
 - `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
 - `GET /api/episodes/{id}/story-shape` - Get story shape
@@ -191,14 +215,14 @@ see a cast:
 - `POST /api/episodes/{id}/shots/{shot_id}/retry-clip` - Retry clip
 - `POST /api/episodes/{id}/reopen` - Reopen episode
 - `POST /api/episodes/{id}/reopen-from-saved` - Reopen from snapshot
-- `GET /api/episodes/{id}/audit` - View audit trail
-- `GET /api/episodes/{id}/shots` - List shots
+- `GET /api/episodes/{id}/audit` - View audit trail (the details only for whoever may see the cast)
+- `GET /api/episodes/{id}/shots` - List shots (prompts and QC results only for whoever may see the cast)
 - `GET /api/episodes/{id}/gates` - List gates
 - `GET /api/episodes/{id}/files` - List review files
 - `GET /api/episodes/{id}/files/{type}` - Get specific review file
 - `GET /api/episodes/{id}/shots/{shot_id}/still` - Get still image
 - `POST /api/episodes/{id}/preflight` - Run preflight checks
-- `GET /api/episodes/{id}/clip-plans` - Get clip plans
+- `GET /api/episodes/{id}/clip-plans` - Get clip plans (clip prompts, fail-if lines and lint results only for whoever may see the cast)
 - `POST /api/episodes/{id}/resync-plans` - Resync plans
 - `POST /api/episodes/{id}/shots/{shot_id}/select-still` - Select still version
 - `GET /api/episodes/{id}/still-versions` - List still versions
@@ -228,6 +252,17 @@ see a cast:
 - `POST /api/episodes/{id}/cast/{character_id}/versions/{version}/sheet/reject` - Clear a step before the lock
 - `POST /api/episodes/{id}/cast/{character_id}/versions/{version}/approve` - Approve and lock the sheet
 - `GET /api/cast/images/{image_id}`, `GET /api/cast/images/{image_id}/thumb` - Cast image and preview (whoever may see its cast)
+- `GET /api/episodes/{id}/props` - The episode's props and places with their photos (whoever may see the cast)
+- `POST /api/episodes/{id}/props` - Add a prop or place
+- `POST /api/episodes/{id}/props/with-photo` - Add a prop or place with its first photo in one step (multipart, rights attestation)
+- `POST /api/episodes/{id}/props/{prop_id}` - Edit a prop's or place's name or description
+- `POST /api/episodes/{id}/props/{prop_id}/delete` - Delete a prop or place (refused during a run)
+- `POST /api/episodes/{id}/props/{prop_id}/photos` - Upload a reference photo (multipart, rights attestation)
+- `POST /api/episodes/{id}/props/{prop_id}/photos/{image_id}/primary` - Make a photo the main one
+- `POST /api/episodes/{id}/props/{prop_id}/photos/{image_id}/delete` - Delete a photo (refused during a run)
+- `GET /api/props/photos/{image_id}`, `GET /api/props/photos/{image_id}/thumb` - Prop or place photo and preview (whoever may see its library)
+- `GET /api/episodes/{id}/shot-plan` - Each shot's prompts, cast, props and place with their edit history (whoever may see the cast)
+- `POST /api/episodes/{id}/shot-plan` - Change shots' prompts and picks before the shot plan is approved (episode write rule; no series rule)
 
 ### Admin-Only Routes
 - `POST /api/episodes/{id}/raise-cap` - Raise credit cap (financial)
