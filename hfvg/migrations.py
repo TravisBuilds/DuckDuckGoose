@@ -6,6 +6,13 @@
   not touched. Recorded in ``schema_migrations`` and safe to run again.
 - props library (``PROPS_LIBRARY_MIGRATION``): props and places with their reference photos, and the
   history of shot plan edits (prompt text and per-shot picks). New tables only, like the cast library.
+- universe (``UNIVERSE_MIGRATION``, docs/WORLDS.md): a series' Universe profile (logline, story
+  bible, style notes, card, cover, narrator voice), each character's saved voice, the creation flow's
+  reference notes and photos, and the mood board versions with their images and approval. New tables
+  only; a series without a profile row reads as an empty profile.
+- universe board requests (``UNIVERSE_BOARD_MIGRATION``, docs/WORLDS.md): a live mood board the
+  worker is making (or failed to make) and its paid picture jobs. The board itself lands in the
+  universe tables when the request ends with at least one picture made. New tables only.
 """
 
 import sqlite3
@@ -193,6 +200,164 @@ PROPS_LIBRARY_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_shot_plan_edits_episode ON shot_plan_edits(episode_id, shot_id, id)",
 )
 
+UNIVERSE_MIGRATION = "2026-11-world-profile-v1"
+
+UNIVERSE_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS series_profiles (
+        series_id TEXT PRIMARY KEY REFERENCES series(series_id),
+        logline TEXT NOT NULL DEFAULT '',
+        bible TEXT NOT NULL DEFAULT '',
+        style_notes TEXT NOT NULL DEFAULT '',
+        preset_id TEXT,
+        cover_image_id TEXT,
+        narrator_voice_id TEXT,
+        narrator_voice_name TEXT,
+        narrator_voice_description TEXT NOT NULL DEFAULT '',
+        narrator_preview_url TEXT,
+        bible_board_id TEXT,
+        bible_generated_at TEXT,
+        updated_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS character_voices (
+        character_id TEXT PRIMARY KEY REFERENCES cast_characters(character_id),
+        description TEXT NOT NULL DEFAULT '',
+        voice_id TEXT NOT NULL,
+        voice_name TEXT NOT NULL DEFAULT '',
+        preview_url TEXT,
+        chosen_by TEXT,
+        chosen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS universe_notes (
+        note_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        topic TEXT NOT NULL CHECK (topic IN ('premise', 'characters', 'places', 'tone')),
+        body TEXT NOT NULL,
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_notes_series ON universe_notes(series_id, created_at)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_photos (
+        image_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        status TEXT NOT NULL DEFAULT 'active',
+        sha256 TEXT NOT NULL,
+        ext TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        bytes INTEGER NOT NULL,
+        caption TEXT NOT NULL DEFAULT '',
+        original_filename TEXT,
+        attestation TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (series_id, sha256)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_photos_sha ON universe_photos(sha256)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_boards (
+        board_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        version INTEGER NOT NULL CHECK (version >= 1),
+        status TEXT NOT NULL CHECK (status IN ('ready', 'approved', 'redo_requested')),
+        prompt TEXT NOT NULL,
+        answers_feedback TEXT NOT NULL DEFAULT '',
+        redo_feedback TEXT,
+        sources TEXT NOT NULL DEFAULT '{}',
+        image_count INTEGER NOT NULL,
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_total_usd_micros INTEGER NOT NULL,
+        dry_run INTEGER NOT NULL,
+        requested_by TEXT,
+        decided_by TEXT,
+        decided_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (series_id, version)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS universe_board_images (
+        image_id TEXT PRIMARY KEY,
+        board_id TEXT NOT NULL REFERENCES universe_boards(board_id),
+        position INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        ext TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        bytes INTEGER NOT NULL,
+        placeholder INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (board_id, position)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_board_images_sha ON universe_board_images(sha256)",
+)
+
+UNIVERSE_BOARD_MIGRATION = "2026-11-universe-board-requests-v1"
+
+UNIVERSE_BOARD_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS universe_board_requests (
+        request_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        status TEXT NOT NULL CHECK (status IN ('making', 'done', 'failed')),
+        prompt TEXT NOT NULL,
+        answers_feedback TEXT NOT NULL DEFAULT '',
+        replaces_board_id TEXT REFERENCES universe_boards(board_id),
+        sources TEXT NOT NULL DEFAULT '{}',
+        image_count INTEGER NOT NULL CHECK (image_count >= 1),
+        model_path TEXT NOT NULL,
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_total_usd_micros INTEGER NOT NULL,
+        workflow_id TEXT NOT NULL,
+        board_id TEXT REFERENCES universe_boards(board_id),
+        error TEXT,
+        requested_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_board_requests_series ON universe_board_requests(series_id, created_at)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_board_jobs (
+        job_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL REFERENCES universe_board_requests(request_id),
+        position INTEGER NOT NULL CHECK (position >= 0),
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'refused', 'skipped',
+                                               'pending_reconcile')),
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_usd_micros INTEGER NOT NULL,
+        reference_count INTEGER NOT NULL DEFAULT 0,
+        sha256 TEXT,
+        ext TEXT,
+        mime TEXT,
+        width INTEGER,
+        height INTEGER,
+        bytes INTEGER,
+        placeholder INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (request_id, position)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_board_jobs_sha ON universe_board_jobs(sha256)",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -313,6 +478,18 @@ def apply_props_library_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, PROPS_LIBRARY_MIGRATION, PROPS_LIBRARY_SQL)
 
 
+def apply_universe_sync(conn: sqlite3.Connection) -> bool:
+    """The universe migration on an open sqlite3 connection (after the cast library's, whose tables
+    it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, UNIVERSE_MIGRATION, UNIVERSE_SQL)
+
+
+def apply_universe_board_sync(conn: sqlite3.Connection) -> bool:
+    """The universe board requests migration on an open sqlite3 connection (after the universe
+    migration, whose tables it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -323,8 +500,20 @@ async def migrate_props_library(db_path: str) -> bool:
     return await _apply(db_path, PROPS_LIBRARY_MIGRATION, PROPS_LIBRARY_SQL)
 
 
+async def migrate_universe(db_path: str) -> bool:
+    """The universe tables (UNIVERSE_MIGRATION); True when it ran now, False when applied."""
+    return await _apply(db_path, UNIVERSE_MIGRATION, UNIVERSE_SQL)
+
+
+async def migrate_universe_board(db_path: str) -> bool:
+    """The universe board request tables (UNIVERSE_BOARD_MIGRATION); True when it ran now."""
+    return await _apply(db_path, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
     await migrate_cast_library(db_path)
     await migrate_props_library(db_path)
+    await migrate_universe(db_path)
+    await migrate_universe_board(db_path)

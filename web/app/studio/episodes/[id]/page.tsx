@@ -6,7 +6,9 @@ import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
 import type { ModelView } from '@/lib/model-limits.mjs';
 import type { CastView } from '@/lib/cast.mjs';
-import { nextStep, statusChip, stepperSteps, storyDone, storyLocked, waitsOn } from '@/lib/next-step.mjs';
+import type { ShotPlanView } from '@/lib/props.mjs';
+import { madeWith, type EpisodeUniverse } from '@/lib/world.mjs';
+import { episodeViewer, nextStep, statusChip, stepperSteps, storyDone, storyLocked, waitsOn } from '@/lib/next-step.mjs';
 import { stageLabel } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
@@ -23,6 +25,7 @@ import NextStepCard, { Stepper } from '@/components/NextStepCard';
 import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
+import { EpisodeBreadcrumb, StartCard, UniverseStrip } from '@/components/UniverseEpisode';
 
 /**
  * The episode page, in the order a creator works: what to do next, the story, the cast, the shot
@@ -86,6 +89,11 @@ interface EpisodeRow {
 }
 
 type Owner = { userId: string | null; name: string | null };
+/**
+ * Who made the episode and whether the reader may act on it: GET .../universe, else (when that cannot
+ * be read) the episode list, where an episode it does not list leaves the reader unable to act.
+ */
+type Maker = { from: 'universe'; info: EpisodeUniverse } | { from: 'list'; owner: Owner | null };
 type Load = 'loading' | 'ok' | 'missing' | 'error';
 
 const sub = 'rounded-lg border border-gray-200 p-4 dark:border-gray-700';
@@ -440,7 +448,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [storyShape, setStoryShape] = useState<StoryShapeData | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditHidden, setAuditHidden] = useState(false);
-  const [owner, setOwner] = useState<Owner | 'loading'>('loading');
+  const [maker, setMaker] = useState<Maker | null>(null);
+  const [made, setMade] = useState<Record<string, string[]> | null>(null);
+  const [linked, setLinked] = useState(0);
   const [cast, setCast] = useState<CastView | null>(null);
   const [propsChanges, setPropsChanges] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -510,21 +520,40 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     loadLimits();
   }, [loadLimits]);
 
-  useEffect(() => {
-    apiFetch<{ episodes: EpisodeRow[] }>('/api/episodes')
-      .then((r) => {
+  const loadMaker = useCallback(async () => {
+    try {
+      const info = await apiFetch<EpisodeUniverse>(`/api/episodes/${episodeId}/universe`);
+      setMaker({ from: 'universe', info });
+    } catch {
+      try {
+        const r = await apiFetch<{ episodes: EpisodeRow[] }>('/api/episodes');
         const row = (r.episodes ?? []).find((e) => e.episode_id === episodeId);
-        setOwner({ userId: row?.user_id ?? null, name: row?.owner_name ?? null });
-      })
-      .catch(() => setOwner({ userId: null, name: null }));
+        setMaker((prev) => prev ?? { from: 'list', owner: row ? { userId: row.user_id, name: row.owner_name } : null });
+      } catch {
+        setMaker((prev) => prev ?? { from: 'list', owner: null });
+      }
+    }
   }, [episodeId]);
 
+  useEffect(() => {
+    loadMaker();
+  }, [loadMaker]);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshRun(), loadPage()]);
-  }, [refreshRun, loadPage]);
+    await Promise.all([refreshRun(), loadPage(), loadMaker()]);
+  }, [refreshRun, loadPage, loadMaker]);
+  // joining a Universe moves the episode's cast and props there: the panels load them again
+  const onLinked = useCallback(async () => {
+    setLinked((n) => n + 1);
+    await refreshAll();
+  }, [refreshAll]);
 
   const dismiss = useCallback(() => setNotice(null), []);
-  const onCastView = useCallback((view: CastView) => setCast(view), []);
+  // a lock (or a new character) changes what the episode uses from its Universe and what it waits on
+  const onCastView = useCallback((view: CastView) => {
+    setCast(view);
+    loadMaker();
+  }, [loadMaker]);
   const onPropsChange = useCallback(() => setPropsChanges((n) => n + 1), []);
   // the shot plan picker reloads when the cast it picks from (or its shots' cast) or the props change
   const castKey = useMemo(() => (cast ? JSON.stringify([
@@ -568,11 +597,36 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   };
 
   const { state, status, stateError, shotStates, shotStatesError, castHidden, credits, stalls, files } = run;
-  const ownerKnown = owner !== 'loading';
-  const mine = ownerKnown && (owner.userId === null || owner.userId === me?.user_id);
-  const canAct = Boolean(me) && (isAdmin || mine);
-  const ownerText = !ownerKnown || owner.userId === null ? null
+  const info = maker?.from === 'universe' ? maker.info : null;
+  // until the reader is known nothing offers them a decision or says it waits for them
+  const viewer = useMemo(() => {
+    if (!me || !maker) return null;
+    if (maker.from === 'universe') return episodeViewer(maker.info, me);
+    if (!maker.owner) return { mine: false, canAct: isAdmin, ownerName: null };
+    const own = maker.owner.userId === null || maker.owner.userId === me.user_id;
+    return { mine: own, canAct: isAdmin || own, ownerName: maker.owner.name };
+  }, [me, maker, isAdmin]);
+  const canAct = viewer?.canAct ?? false;
+  const owner = info ? { userId: info.owner.user_id, name: info.owner.name } : maker?.from === 'list' ? maker.owner : null;
+  const ownerText = !owner || owner.userId === null ? null
     : owner.userId === me?.user_id ? 'Made by you' : `Made by ${owner.name || 'another member'}`;
+
+  // what each scene picture was made with, for the owner (or an admin): the shot plan carries its prompts
+  const hasRun = Boolean(state);
+  useEffect(() => {
+    if (!canAct || !hasRun) return;
+    let cancelled = false;
+    apiFetch<ShotPlanView>(`/api/episodes/${episodeId}/shot-plan`)
+      .then((plan) => {
+        if (!cancelled) setMade(madeWith(plan));
+      })
+      .catch(() => {
+        if (!cancelled) setMade(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [episodeId, canAct, hasRun, planKey]);
 
   if (status === 'loading' || (status === 'missing' && gatesLoad === 'loading')) {
     return (
@@ -592,7 +646,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             There is no video called <span className="font-mono">{episodeId}</span>. Check the link, or pick a video from your list.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/studio" className={btnPrimary}>Back to my videos</Link>
+            <Link href="/studio" className={btnPrimary}>Back to the studio</Link>
             <Link href="/studio/create" className={btnSecondary}>Make a new video</Link>
           </div>
         </div>
@@ -601,8 +655,6 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   }
 
   const story = storyShape?.story_shape ? storyShape : null;
-  // until the owner and the signed-in user are known, the card speaks to the person who made the video
-  const viewer = ownerKnown && me ? { mine, canAct, ownerName: owner.name } : null;
   const waitingOn = waitsOn(viewer);
   const next = state
     ? nextStep(state, storyShape, cast, { files, shots: shotList(shotStates), viewer })
@@ -630,7 +682,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <div>
-        <Link href="/studio" className={`${link} text-sm`}>← My videos</Link>
+        <EpisodeBreadcrumb episodeId={episodeId} info={info} canAct={canAct} onLinked={onLinked} />
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-bold sm:text-3xl">{episodeId}</h1>
           {state && <span className={`${chip} ${tones[headerChip.tone]}`} data-testid="episode-status">{headerChip.label}</span>}
@@ -652,10 +704,12 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
           {steps && <Stepper steps={steps} />}
         </FinishLine>
       ) : (
-        <NextStepCard next={next} steps={steps} canAct={canAct} />
+        viewer && <NextStepCard next={next} steps={steps} canAct={canAct} />
       )}
+      {notStarted && canAct && info?.universe && <StartCard episodeId={episodeId} info={info} onStarted={refreshAll} />}
       {state && <RunEndedCard episodeId={episodeId} state={state} busy={busy} act={act} canAct={canAct} />}
       <StallBanner state={state} stalls={stalls} />
+      <UniverseStrip info={info} />
 
       <section id="story" className="scroll-mt-4" aria-label="Story">
         {story ? (
@@ -670,22 +724,23 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       </section>
 
       <section id="cast" className="scroll-mt-4" aria-label="Cast">
-        <CastPanel episodeId={episodeId} onView={onCastView} />
+        <CastPanel key={linked} episodeId={episodeId} onView={onCastView} />
       </section>
 
       <section id="props" className="scroll-mt-4" aria-label="Props and places">
-        <PropsPanel episodeId={episodeId} onChange={onPropsChange} />
+        <PropsPanel key={linked} episodeId={episodeId} onChange={onPropsChange} />
       </section>
 
-      {(state || notStarted) && !expired && (
+      {(state || notStarted) && !expired && viewer && (
         <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
           canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
       )}
-      {state && !expired && (
+      {state && !expired && viewer && (
         <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}
-          shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} waitingOn={waitingOn} />
+          shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} waitingOn={waitingOn}
+          madeWith={canAct ? made : null} />
       )}
-      {state && !expired && (
+      {state && !expired && viewer && (
         <FinalCutSection episodeId={episodeId} state={state} shotStates={shotStates} files={files} busy={busy} act={act}
           canAct={canAct} waitingOn={waitingOn} />
       )}

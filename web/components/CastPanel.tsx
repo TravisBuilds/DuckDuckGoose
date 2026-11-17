@@ -42,7 +42,9 @@ import { RightsQuestions } from './RightsQuestions';
 
 /**
  * The episode's cast: who is in the video, their pictures and locked character sheets, and who is
- * in each shot. Every action is an API route (api/cast_routes.py), which stays the authority: a
+ * in each shot; or, with `universe`, the characters of a Universe (api/world_routes.py), whose looks
+ * are locked from an episode in it. Every action is an API route under `apiBase`
+ * (/api/episodes/{id} or /api/worlds/{id}; api/cast_routes.py), which stays the authority: a
  * refused action shows the API's reason. Paid sheet pictures show their estimate first and are made
  * only for the amount the creator approved (the worker checks the estimate, balance and caps again).
  * The result of an action shows next to it: in the character's card (by the picture upload, the sheet
@@ -104,8 +106,8 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   );
 }
 
-function PictureUpload({ episodeId, character, version, view, busy, act, note }: {
-  episodeId: string; character: CastCharacter; version: CastVersion; view: CastView; busy: boolean; act: Act;
+function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
+  apiBase: string; character: CastCharacter; version: CastVersion; view: CastView; busy: boolean; act: Act;
   note: CastNote | null;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -122,7 +124,7 @@ function PictureUpload({ episodeId, character, version, view, busy, act, note }:
     form.append('image_file', file);
     for (const [key, value] of rightsFields(rights)) form.append(key, value);
     const done = await act(
-      () => apiFetch(`/api/episodes/${episodeId}/cast/${character.character_id}/versions/${version.version}/images`,
+      () => apiFetch(`${apiBase}/cast/${character.character_id}/versions/${version.version}/images`,
         { method: 'POST', body: form }),
       `Picture of ${character.name} added.`,
       `${character.slug}:upload`,
@@ -172,8 +174,8 @@ function PictureUpload({ episodeId, character, version, view, busy, act, note }:
 
 type SheetRequestBody = { stage: 'options' | 'turnaround'; source?: 'upload' | 'text' | 'auto'; count?: number };
 
-function SheetSection({ episodeId, view, character, version, busy, act, note }: {
-  episodeId: string; view: CastView; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
+function SheetSection({ apiBase, view, character, version, busy, act, note }: {
+  apiBase: string; view: CastView; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
   note: CastNote | null;
 }) {
   const here = `${character.slug}:sheet`;
@@ -192,7 +194,7 @@ function SheetSection({ episodeId, view, character, version, busy, act, note }: 
   const [estimate, setEstimate] = useState<{ request: SheetRequestBody; result: SheetEstimate } | null>(null);
   const [checking, setChecking] = useState(false);
   const [estimateIssue, setEstimateIssue] = useState<string | null>(null);
-  const base = `/api/episodes/${episodeId}/cast/${character.character_id}/versions/${version.version}`;
+  const base = `${apiBase}/cast/${character.character_id}/versions/${version.version}`;
   const problems = requestProblems(version);
   const canEdit = view.can_edit;
   const sheetBlock = view.sheet.model_error
@@ -398,15 +400,15 @@ function SheetSection({ episodeId, view, character, version, busy, act, note }: 
   );
 }
 
-function NewOutfit({ episodeId, character, version, busy, act, onCreated, note }: {
-  episodeId: string; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
+function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: {
+  apiBase: string; character: CastCharacter; version: CastVersion; busy: boolean; act: Act;
   onCreated: (version: number) => void; note: CastNote | null;
 }) {
   const [label, setLabel] = useState('');
   const [outfit, setOutfit] = useState('');
   const create = async () => {
     const made = await act(
-      () => postJson<{ version: CastVersion }>(`/api/episodes/${episodeId}/cast/${character.character_id}/versions`, {
+      () => postJson<{ version: CastVersion }>(`${apiBase}/cast/${character.character_id}/versions`, {
         label: label.trim(), outfit: outfit.trim(), derive_from_version: version.version,
       }),
       'New outfit added. Make its sheet below.',
@@ -439,8 +441,9 @@ function NewOutfit({ episodeId, character, version, busy, act, onCreated, note }
   );
 }
 
-function CharacterCard({ episodeId, view, character, busy, act, note }: {
-  episodeId: string; view: CastView; character: CastCharacter; busy: boolean; act: Act; note: CastNote | null;
+function CharacterCard({ apiBase, view, character, busy, act, note, universe, badge, extra }: {
+  apiBase: string; view: CastView; character: CastCharacter; busy: boolean; act: Act; note: CastNote | null;
+  universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
 }) {
   const canEdit = view.can_edit;
   const [versionNo, setVersionNo] = useState(character.default_version);
@@ -448,7 +451,7 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState({ name: character.name, role: character.role, description: character.description });
   const pictures = versionPictures(version);
-  const base = `/api/episodes/${episodeId}/cast/${character.character_id}`;
+  const base = `${apiBase}/cast/${character.character_id}`;
   const anyLocked = character.versions.some((v) => v.locked);
   const here = character.slug;
 
@@ -461,7 +464,7 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
 
   if (!version) return null;
   const uploadShown = canEdit && !version.locked && pictures.uploads.length < view.limits.max_uploads_per_version;
-  const outfitShown = canEdit && version.locked;
+  const outfitShown = canEdit && version.locked && !universe;
   // A result shows by the part of the card it came from while that part is on screen, else at the card's foot.
   const spot = note?.where.startsWith(`${here}:`) ? note.where.slice(here.length + 1) : null;
   const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
@@ -477,7 +480,7 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
           </h3>
           <p className="text-xs text-gray-600 dark:text-gray-300">Id in the shot plan: <code>{character.slug}</code></p>
         </div>
-        {version.locked ? (
+        {badge ? badge(character, version) : version.locked ? (
           <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200"
             data-testid={`cast-locked-${character.slug}`}>
             Look locked
@@ -515,6 +518,7 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
       {version.locked && (
         <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
       )}
+      {extra?.(character)}
 
       {character.versions.length > 1 && (
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Outfits">
@@ -554,15 +558,19 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
       )}
 
       {uploadShown && (
-        <PictureUpload episodeId={episodeId} character={character} version={version} view={view} busy={busy} act={act}
+        <PictureUpload apiBase={apiBase} character={character} version={version} view={view} busy={busy} act={act}
           note={noteFor('upload')} />
       )}
 
-      <SheetSection key={`${character.character_id}-${version.version}`} episodeId={episodeId} view={view}
-        character={character} version={version} busy={busy} act={act} note={noteFor('sheet')} />
+      {universe ? (
+        <UniverseLook character={character} version={version} lockEpisode={universe.lockEpisode} />
+      ) : (
+        <SheetSection key={`${character.character_id}-${version.version}`} apiBase={apiBase} view={view}
+          character={character} version={version} busy={busy} act={act} note={noteFor('sheet')} />
+      )}
 
       {outfitShown && (
-        <NewOutfit episodeId={episodeId} character={character} version={version} busy={busy} act={act}
+        <NewOutfit apiBase={apiBase} character={character} version={version} busy={busy} act={act}
           onCreated={setVersionNo} note={noteFor('outfit')} />
       )}
 
@@ -575,8 +583,9 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
             Edit name and description
           </button>
           <ConfirmButton disabled={busy} className={`${plainBtn} text-red-700 dark:text-red-300`} confirmLabel="Remove"
-            question={`Remove ${character.name} and all their pictures from the cast?`} onConfirm={remove}>
-            Remove from the cast
+            question={`Remove ${character.name} and all their pictures from ${universe ? 'this Universe' : 'the cast'}?`}
+            onConfirm={remove}>
+            {universe ? 'Remove from this Universe' : 'Remove from the cast'}
           </ConfirmButton>
         </div>
       )}
@@ -590,8 +599,8 @@ function CharacterCard({ episodeId, view, character, busy, act, note }: {
  * checks and rights questions as a picture upload), or without a photo. With no one in the cast yet
  * the photo comes first and "Add a character with a photo" is the main action.
  */
-function AddCharacter({ episodeId, view, busy, act, note }: {
-  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+function AddCharacter({ apiBase, view, busy, act, note }: {
+  apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
 }) {
   const empty = { name: '', role: '', description: '' };
   const [form, setForm] = useState(empty);
@@ -616,11 +625,11 @@ function AddCharacter({ episodeId, view, busy, act, note }: {
     const body = new FormData();
     body.append('image_file', file);
     for (const [key, value] of withPictureFields(form, rights)) body.append(key, value);
-    added(await act(() => apiFetch(`/api/episodes/${episodeId}/cast/with-picture`, { method: 'POST', body }),
+    added(await act(() => apiFetch(`${apiBase}/cast/with-picture`, { method: 'POST', body }),
       `${name} joined the cast with their photo.`, 'add'));
   };
   const addWithoutPhoto = async () => {
-    added(await act(() => postJson(`/api/episodes/${episodeId}/cast`, {
+    added(await act(() => postJson(`${apiBase}/cast`, {
       name, role: form.role.trim(), description: form.description.trim(),
     }), `${name} joined the cast.`, 'add'));
   };
@@ -675,8 +684,8 @@ function AddCharacter({ episodeId, view, busy, act, note }: {
   );
 }
 
-function SeriesControl({ episodeId, view, busy, act, note }: {
-  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
+  episodeId: string; apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
 }) {
   const [list, setList] = useState<SeriesInfo[]>([]);
   const [choice, setChoice] = useState('');
@@ -695,16 +704,16 @@ function SeriesControl({ episodeId, view, busy, act, note }: {
     return (
       <div className="mb-4 text-sm" data-testid="cast-series">
         <p>
-          This cast is shared by the series <strong>{view.series.name}</strong>
-          {others > 0 ? ` with ${others} other video${others === 1 ? '' : 's'}` : ''}. Changes here show up in every video of the series.
+          This cast belongs to the Universe <strong>{view.series.name}</strong>
+          {others > 0 ? ` and is shared with ${others} other video${others === 1 ? '' : 's'}` : ''}. Changes here show up in every video of the Universe.
         </p>
         {view.can_edit && (
           <div className="mt-2">
-            <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Stop using it"
-              question="Stop sharing the series cast? This video starts with an empty cast; the series keeps everyone."
-              onConfirm={() => act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: null }),
-                'This video no longer uses the series cast.', 'series')}>
-              Stop using the series cast
+            <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Take it out"
+              question="Take this video out of the Universe? It starts with an empty cast; the Universe keeps everyone."
+              onConfirm={() => act(() => postJson(`${apiBase}/series`, { series_id: null }),
+                'This video is no longer in the Universe.', 'series')}>
+              Take this video out of the Universe
             </ConfirmButton>
           </div>
         )}
@@ -715,34 +724,34 @@ function SeriesControl({ episodeId, view, busy, act, note }: {
 
   return (
     <div className="mb-4 text-sm" data-testid="cast-series">
-      <p>This cast belongs to this video only. Share it through a series to reuse the same people in later videos.</p>
+      <p>This cast belongs to this video only. Put the video in a Universe to reuse the same people in later videos.</p>
       {view.can_edit && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {list.length > 0 && (
             <>
-              <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Series"
+              <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Universe"
                 className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
-                <option value="">Pick a series…</option>
+                <option value="">Pick a Universe…</option>
                 {list.map((s) => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
               </select>
               <button type="button" disabled={busy || !choice} className={plainBtn}
-                onClick={() => act(() => postJson(`/api/episodes/${episodeId}/series`, { series_id: choice }), 'This video now uses the series cast.', 'series')}>
-                Use this series
+                onClick={() => act(() => postJson(`${apiBase}/series`, { series_id: choice }), 'This video is now in the Universe.', 'series')}>
+                Use this Universe
               </button>
               <span className="text-gray-600 dark:text-gray-300">or</span>
             </>
           )}
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New series name"
-            aria-label="New series name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New Universe name"
+            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
           <button type="button" disabled={busy || !newName.trim()} className={plainBtn}
             onClick={async () => {
               const made = await act(async () => {
                 const created = await postJson<{ series: SeriesInfo }>('/api/series', { name: newName.trim() });
-                return postJson(`/api/episodes/${episodeId}/series`, { series_id: created.series.series_id });
-              }, 'Series started with this cast.', 'series');
+                return postJson(`${apiBase}/series`, { series_id: created.series.series_id });
+              }, 'Universe started with this cast.', 'series');
               if (made !== null) setNewName('');
             }}>
-            Start a series with this cast
+            Start a Universe with this cast
           </button>
         </div>
       )}
@@ -751,8 +760,8 @@ function SeriesControl({ episodeId, view, busy, act, note }: {
   );
 }
 
-function ShotCast({ episodeId, view, busy, act, note }: {
-  episodeId: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+function ShotCast({ apiBase, view, busy, act, note }: {
+  apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
 }) {
   const [picks, setPicks] = useState<Record<string, CastPick[]>>({});
   const [allowText, setAllowText] = useState<Record<string, boolean | null>>({});
@@ -762,7 +771,7 @@ function ShotCast({ episodeId, view, busy, act, note }: {
 
   const save = async () => {
     if (!changes) return;
-    const saved = await act(() => postJson(`/api/episodes/${episodeId}/cast/shots`, changes), 'Saved who is in each shot.', 'shots');
+    const saved = await act(() => postJson(`${apiBase}/cast/shots`, changes), 'Saved who is in each shot.', 'shots');
     if (saved !== null) {
       setPicks({});
       setAllowText({});
@@ -859,9 +868,68 @@ function ShotCast({ episodeId, view, busy, act, note }: {
   );
 }
 
+/**
+ * The Universe page's characters: its view of GET /api/worlds/{id} as a cast, how to reload it after a
+ * change, and the open episode of the Universe where a look is locked (null: none yet).
+ */
+export interface UniverseCast {
+  view: CastView;
+  reload: () => Promise<void>;
+  lockEpisode: string | null;
+}
+
+interface CastPanelProps {
+  episodeId?: string;
+  /** /api/episodes/{id} (the default) or /api/worlds/{id}. */
+  apiBase?: string;
+  universe?: UniverseCast | null;
+  /** In place of a character's lock chip. */
+  badge?: (character: CastCharacter, version: CastVersion) => ReactNode;
+  /** More about a character, under its description. */
+  extra?: (character: CastCharacter) => ReactNode;
+  onView?: (view: CastView) => void;
+}
+
+/** A Universe character's look: a sheet is made and locked from an episode in the Universe. */
+function UniverseLook({ character, version, lockEpisode }: {
+  character: CastCharacter; version: CastVersion; lockEpisode: string | null;
+}) {
+  const sheet = versionPictures(version).sheet;
+  return (
+    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3" data-testid={`cast-sheet-${character.slug}`}>
+      <h4 className="text-sm font-semibold">Character sheet</h4>
+      {sheet.length > 0 && (
+        <div className="my-2">
+          <p className="text-xs font-semibold mb-1">{version.locked ? 'Locked sheet' : 'Sheet so far'}</p>
+          <div className="flex flex-wrap gap-3">
+            {sheet.map((image) => <PictureTile key={image.image_id} image={image} />)}
+          </div>
+        </div>
+      )}
+      {!version.locked && (
+        <p className="text-sm text-gray-700 dark:text-gray-200" data-testid={`universe-lock-${character.slug}`}>
+          Lock this look from an episode in this Universe
+          {lockEpisode ? (
+            <>
+              {': '}
+              <a href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`}
+                className={`font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 rounded ${focusRing}`}
+                data-testid={`universe-lock-link-${character.slug}`}>
+                open {lockEpisode}
+              </a>.
+            </>
+          ) : '. Start a new episode in this Universe, then make and lock the sheet on its page.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** onView: every loaded cast, for the page's Next step (characters in the shot plan without a locked look). */
-export default function CastPanel({ episodeId, onView }: { episodeId: string; onView?: (view: CastView) => void }) {
-  const [view, setView] = useState<CastView | null>(null);
+export default function CastPanel({ episodeId = '', apiBase, universe = null, badge, extra, onView }: CastPanelProps) {
+  const base = apiBase ?? `/api/episodes/${episodeId}`;
+  const [loaded, setView] = useState<CastView | null>(null);
+  const view = universe ? universe.view : loaded;
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [message, setMessage] = useState<CastNote | null>(null);
   const [busy, setBusy] = useState(false);
@@ -870,22 +938,28 @@ export default function CastPanel({ episodeId, onView }: { episodeId: string; on
     onViewRef.current = onView;
   }, [onView]);
 
+  const reloadUniverse = universe?.reload;
   const load = useCallback(async () => {
+    if (reloadUniverse) {
+      await reloadUniverse();
+      return;
+    }
     try {
-      const loaded = await apiFetch<CastView>(`/api/episodes/${episodeId}/cast`);
-      setView(loaded);
-      onViewRef.current?.(loaded);
+      const cast = await apiFetch<CastView>(`${base}/cast`);
+      setView(cast);
+      onViewRef.current?.(cast);
       setLoadIssue(null);
     } catch (e) {
       setLoadIssue(e instanceof ApiError ? e.message : 'The cast could not be loaded right now.');
     }
-  }, [episodeId]);
+  }, [base, reloadUniverse]);
 
+  const inUniverse = Boolean(universe);
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!inUniverse) load();
+  }, [load, inUniverse]);
 
-  const working = anyActiveJobs(view?.characters);
+  const working = !inUniverse && anyActiveJobs(view?.characters);
   useEffect(() => {
     if (!working) return;
     const timer = setInterval(load, 4000);
@@ -926,21 +1000,26 @@ export default function CastPanel({ episodeId, onView }: { episodeId: string; on
     || (message?.where === 'add' && addShown) || message?.where === 'shots' || message?.where === 'series');
   return (
     <div className={card} data-testid="cast-panel">
-      <h2 className="text-xl font-semibold mb-1">Cast</h2>
+      <h2 className="text-xl font-semibold mb-1">{universe ? 'Characters' : 'Cast'}</h2>
       <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
-        The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a
-        character sheet so they look the same in every shot.
+        {universe
+          ? 'The people (and creatures) of this Universe. Describe each one and add a picture; every episode in the Universe uses them, with the look locked once from an episode.'
+          : 'The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a character sheet so they look the same in every shot.'}
       </p>
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {!placed && <CastMessage note={message} />}
       {!view.can_edit && (
         <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
-          Only this video&apos;s owner (or an admin) can change its cast.
+          {universe
+            ? 'Only the owner of this Universe (or an admin) can change its characters.'
+            : <>Only this video&apos;s owner (or an admin) can change its cast.</>}
         </p>
       )}
-      <SeriesControl episodeId={episodeId} view={view} busy={busy} act={act}
-        note={placed && message?.where === 'series' ? message : null} />
-      {view.sheet.dry_run && (
+      {!universe && (
+        <SeriesControl episodeId={episodeId} apiBase={base} view={view} busy={busy} act={act}
+          note={placed && message?.where === 'series' ? message : null} />
+      )}
+      {!universe && view.sheet.dry_run && (
         <p className="mb-4 text-xs text-gray-600 dark:text-gray-300">
           Preview mode: character sheets use free stand-in pictures, so you can try every step at no cost.
         </p>
@@ -950,17 +1029,19 @@ export default function CastPanel({ episodeId, onView }: { episodeId: string; on
       ) : (
         <div className="space-y-4">
           {view.characters.map((c) => (
-            <CharacterCard key={c.character_id} episodeId={episodeId} view={view} character={c} busy={busy} act={act}
-              note={ofCharacter(c.slug)} />
+            <CharacterCard key={c.character_id} apiBase={base} view={view} character={c} busy={busy} act={act}
+              note={ofCharacter(c.slug)} universe={universe} badge={badge} extra={extra} />
           ))}
         </div>
       )}
       {addShown && (
-        <AddCharacter episodeId={episodeId} view={view} busy={busy} act={act}
+        <AddCharacter apiBase={base} view={view} busy={busy} act={act}
           note={placed && message?.where === 'add' ? message : null} />
       )}
-      <ShotCast episodeId={episodeId} view={view} busy={busy} act={act}
-        note={placed && message?.where === 'shots' ? message : null} />
+      {!universe && (
+        <ShotCast apiBase={base} view={view} busy={busy} act={act}
+          note={placed && message?.where === 'shots' ? message : null} />
+      )}
     </div>
   );
 }

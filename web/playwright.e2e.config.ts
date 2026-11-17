@@ -4,7 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
  * Full dry-run episode E2E (G-UI-1): the browser drives a REAL backend, no route mocks:
  *   scripts/e2e_backend.py = Temporal dev server + production worker + FastAPI app, DRY_RUN, temp dirs.
  * The Next app is the production build (`npm run build` first) with the same ADMIN_SECRET, so the
- * middleware verifies the API-signed session cookie for real.
+ * middleware verifies the API-signed session cookie for real. One exception: a live mood board needs
+ * a paid provider, so universe-live-board-e2e mocks the live board's routes (only those).
  */
 const ADMIN_SECRET = process.env.E2E_ADMIN_SECRET || 'e2e-only-admin-secret-not-used-anywhere-else';
 const PYTHON = process.env.E2E_PYTHON || 'python';
@@ -13,7 +14,7 @@ const API_PORT = 8000;
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(full-episode-e2e|beginner-wizard-e2e|run-ended-e2e|wizard-member-e2e|cast-panel-e2e|member-review-e2e|expired-run-e2e|props-shot-plan-e2e)\.spec\.ts$/,
+  testMatch: /(full-episode-e2e|beginner-wizard-e2e|run-ended-e2e|wizard-member-e2e|cast-panel-e2e|member-review-e2e|expired-run-e2e|props-shot-plan-e2e|world-first-e2e|universe-live-board-e2e)\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

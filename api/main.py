@@ -1841,6 +1841,7 @@ async def start_episode(
             status_code=400,
             detail=f"Refusing to start {request.episode_id}: {'; '.join(lint_problems)}",
         )
+    await _refuse_unlocked_universe_cast(request.episode_id, "start")
 
     # The wizard's brief travels as a workflow input (workflow code reads no files): the card's profile
     # and the creator's length, clamped to the card's range, resolved here.
@@ -2175,6 +2176,7 @@ async def start_episode_again(
     problems += [] if dry_run else lint_kit_problems(episode_id)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
+    await _refuse_unlocked_universe_cast(episode_id, "start")
     await record_new_episode(episode_id, beatmap_path, studio_admin_token)
     try:
         new = await temporal_client.start_workflow(
@@ -2338,6 +2340,17 @@ async def _audit(episode_id: str, action: str, details: str) -> None:
         print(f"Audit log write failed ({action}): {e}")
 
 
+async def _refuse_unlocked_universe_cast(episode_id: str, before: str = "approve") -> None:
+    """409 while an episode in a Universe uses a character whose look is not locked: a Universe keeps
+    one locked look per character in every episode, so the episode does not start (and its shot plan
+    is not approved) before the lock. A run plans its references when it starts, so a look locked
+    later would not reach it (docs/WORLDS.md). Episodes outside a Universe are not affected."""
+    from hfvg import world_store
+    unlocked = await asyncio.to_thread(world_store.unlocked_cast, episode_id)
+    if unlocked:
+        raise HTTPException(status_code=409, detail=world_store.lock_message(unlocked, before))
+
+
 @app.post("/api/episodes/{episode_id}/approve")
 async def approve_gate(
     episode_id: str,
@@ -2392,10 +2405,11 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"Story shape approval refused: {str(cause)}"
+                        detail=_refused("Story shape approval refused", "approve_story_shape", cause)
                     )
             # For G1 approval, use update (with validator) to check estimates availability
             elif request.gate_id.lower() in ["g1_shot_plan", "g1"]:
+                await _refuse_unlocked_universe_cast(episode_id)
                 try:
                     result = await handle.execute_update(
                         signal_name,
@@ -2413,7 +2427,7 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"G1 approval refused: {str(cause)}"
+                        detail=_refused("G1 approval refused", signal_name, cause)
                     )
             elif request.gate_id.lower() == "g2_scene_stills":
                 # GAP-27: every kept still's headcount vs the declared cast; a FAIL blocks G2
@@ -2437,7 +2451,7 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"G2 approval refused: {str(cause)}"
+                        detail=_refused("G2 approval refused", signal_name, cause)
                     )
                 return {
                     "success": True,
@@ -2593,7 +2607,7 @@ async def update_story_shape(
                 cause = getattr(e, "cause", None) or e
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Story shape update refused: {str(cause)}"
+                    detail=_refused("Story shape update refused", "update_story_shape", cause)
                 )
         
         raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
@@ -3019,6 +3033,7 @@ async def get_dashboard(
             "el_vo_takes": "voice_over",
             "el_sfx": "sound_effects",
             "el_music_one_take": "music",
+            "U1_mood_board": "mood_boards",
         }
         
         for job in jobs:
@@ -3841,12 +3856,19 @@ STUDIO_UPDATING = "The studio is updating. Try again in a minute."
 def _update_refusal(update: str, cause: BaseException) -> str:
     """What a refused update tells whoever sent it. A worker still on older code (mid deploy) has no
     handler for a new update and rejects it with the SDK's "Update handler for '<name>' expected but
-    not found" error, which means nothing to them."""
+    not found" error (a RuntimeError in the worker), which means nothing to them."""
     text = str(cause)
     if str(getattr(cause, "message", text)).startswith(f"Update handler for '{update}' expected but not found"):
         logger.warning("The worker has no %s update handler yet: %s", update, text)
         return STUDIO_UPDATING
     return text
+
+
+def _refused(prefix: str, update: str, cause: BaseException) -> str:
+    """A refused update's 409 text: the workflow's reason after ``prefix``, or only the plain
+    studio-updating note when the worker does not have the update yet."""
+    text = _update_refusal(update, cause)
+    return text if text == STUDIO_UPDATING else f"{prefix}: {text}"
 
 
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
@@ -3863,7 +3885,7 @@ async def _execute_episode_update(episode_id: str, update: str, args: list, acti
             raise HTTPException(status_code=409, detail=_update_refusal(update, e.cause))
         raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
     except ApplicationError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=_update_refusal(update, e))
     except HTTPException:
         raise
     except Exception as e:
@@ -5360,11 +5382,11 @@ async def retry_shot(
             # Update was refused - check if it's an ApplicationError inside
             if e.cause and isinstance(e.cause, ApplicationError):
                 # Map workflow refusal to 409 Conflict
-                raise HTTPException(status_code=409, detail=str(e.cause))
+                raise HTTPException(status_code=409, detail=_update_refusal("retry_shot", e.cause))
             raise
         except ApplicationError as e:
             # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=_update_refusal("retry_shot", e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
@@ -6461,6 +6483,7 @@ class DraftFromIdeaRequest(BaseModel):
     archetype_id: str | None = Field(None, description="Optional wizard card id (hfvg/data/genre_presets.yaml); empty = freeform")
     target_duration: int = Field(60, ge=DRAFT_MIN_S, le=DRAFT_MAX_S, description="Target duration in seconds (clamped to the card's length range)")
     style_preset: str | None = Field(None, max_length=500, description="Optional style description")
+    world_id: str | None = Field(None, max_length=40, description="Optional Universe (series id): the draft keeps its characters, places, props and look")
 
 
 class DraftFromIdeaResponse(BaseModel):
@@ -6650,6 +6673,8 @@ async def draft_from_idea(
         )
     target_duration, length_note = clamp_length(profile, request.target_duration)
     voiced = profile.get("vo_mode") in ("narration", "dialogue")
+    universe = (await world_routes.draft_universe(request.world_id, profile.get("vo_mode"), authorization,
+                                                  studio_admin_token) if request.world_id else None)
     
     # Generate a unique episode ID matching pattern: ep[0-9]{2}(?:[a-z][a-z0-9]{0,11})?
     # Format: ep{2 digits}{3 lowercase letters} (e.g., ep42abc)
@@ -6796,13 +6821,16 @@ Return ONLY valid JSON with these exact keys."""
 {card_line}
 
 Generate all the files ({file_keys}) as a single JSON response."""
+    if universe is not None:
+        user_prompt = f"{user_prompt}\n\n{universe['context']}"
 
     lead_warnings = [length_note] if length_note else []
 
     # Fake LLM mode: return a deterministic draft for the card (test-only)
     if use_fake_llm:
         logger.info(f"FAKE LLM: Returning canned draft data for episode {episode_id}")
-        fake = genre_drafts.fake_draft(profile, request.idea, episode_id, target_duration, style_guidance)
+        fake = genre_drafts.fake_draft(profile, request.idea, episode_id, target_duration, style_guidance,
+                                       universe_names=universe["names"] if universe else None)
         parsed_shots = parse_beatmap_text(fake["beatmap_md"])
         return _draft_response(
             episode_id=episode_id, profile=profile, archetype_id=request.archetype_id,
@@ -7432,6 +7460,12 @@ try:
 except ImportError:
     import shot_plan_routes
 shot_plan_routes.register(app)
+# Universes (a series with its profile, saved voices, creation flow and library): api/world_routes.py
+try:
+    from api import world_routes
+except ImportError:
+    import world_routes
+world_routes.register(app)
 
 
 if __name__ == "__main__":  # after every route definition, or `python -m api.main` serves a partial app

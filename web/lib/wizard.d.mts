@@ -27,6 +27,26 @@ export interface VoicePick {
 
 export type VoiceChoices = Record<string, Pick<VoicePick, 'voice_id'> | null | undefined>;
 
+/** A Universe's saved voice prefilled into a slot (savedVoiceChoices). */
+export interface SavedVoicePick {
+  voice_id: string;
+  name: string;
+  description: string;
+  preview_url: string | null;
+  saved: true;
+}
+
+/** What savedVoiceChoices reads of GET /api/worlds/{id}. */
+export interface UniverseVoices {
+  world?: { profile?: { narrator_voice?: { voice_id: string; name?: string; description?: string; preview_url?: string | null } | null } } | null;
+  characters?: { name: string; voice?: { voice_id: string; name?: string; description?: string; preview_url?: string | null } | null }[] | null;
+}
+
+export declare function savedVoiceChoices(
+  slots: VoiceSlot[] | null | undefined,
+  universe: UniverseVoices | null | undefined,
+): Record<string, SavedVoicePick>;
+
 export declare function lengthOptions(range: [number, number], defaultLength: number): number[];
 export declare function formatAspect(aspect: string): string;
 export declare function soundLabel(preset: { voiceOver: string; music: string }): string;

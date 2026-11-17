@@ -2041,7 +2041,7 @@ test_mutation 232 "Run report uses real ledger caps (no placeholder)" \
 test_mutation 233 "API returns 409 when the workflow refuses a reject/retry" \
     "api/main.py" \
     "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_reject_still_persists_state_in_db" \
-    sed -i 's/^        raise HTTPException(status_code=409, detail=str(e))$/        return {"refused": str(e)}  # MUTATED/'
+    sed -i 's/^        raise HTTPException(status_code=409, detail=_update_refusal(update, e))$/        return {"refused": str(e)}  # MUTATED/'
 
 # 234: G-RETRY-1f: a clip retry reuses the approved still (no new still submit)
 test_mutation 234 "Clip retry child reuses the approved still" \
@@ -4307,7 +4307,7 @@ test_mutation 612 "props library hidden from who may not see the cast" \
 test_mutation 613 "prop photo uploads: size limit" \
     "api/cast_routes.py" \
     "tests/test_props_api.py::test_the_size_limit_counts_a_prop_photo_body_without_a_declared_length" \
-    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path))  # MUTATED/'
+    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path) or UNIVERSE_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path) or UNIVERSE_UPLOAD_PATH_RE.match(path))  # MUTATED/'
 
 # 614: props and places are not deleted while a run of the library is in progress
 test_mutation 614 "props deletes wait for the run" \
@@ -4325,7 +4325,7 @@ test_mutation 615 "prop with a photo: rights attestation" \
 test_mutation 616 "shared image file stays while a prop photo uses it" \
     "hfvg/cast_store.py" \
     "tests/test_prop_store.py::test_a_file_shared_by_a_cast_picture_and_a_prop_photo_stays_until_neither_uses_it" \
-    sed -i 's/"SELECT 1 FROM prop_images WHERE sha256 = ? LIMIT 1", (sha256, sha256))/"SELECT 1 FROM prop_images WHERE 0 AND sha256 = ? LIMIT 1", (sha256, sha256))/'
+    sed -i 's/"SELECT 1 FROM prop_images WHERE sha256 = ? UNION ALL "/"SELECT 1 FROM prop_images WHERE 0 AND sha256 = ? UNION ALL "/'
 
 # 617: a shot's place and props send their photos with the shot
 test_mutation 617 "picked props send their photos" \
@@ -4458,6 +4458,192 @@ test_mutation 638 "gate chip: who waits on the owner" \
     "web/lib/next-step.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
     sed -i "s/^  return canAct ? null : ownerName || 'the owner';\$/  return null;  \/\/ MUTATED/"
+
+# 639: a Universe only for who may see it: everyone else gets the 404 a missing one gets
+test_mutation 639 "universe: hidden from who may not see it" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_another_member_gets_the_404_a_missing_universe_gets" \
+    sed -i 's/^    if not await cast_api\._may_see_series(series, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 640: ... and changed only by its owner or an admin (an episode editor sees it, nothing more)
+test_mutation 640 "universe: only its owner or an admin changes it" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_episode_editors_see_the_universe_but_do_not_change_it" \
+    sed -i 's/^    if who\["can_edit"\]:$/    if True:  # MUTATED/'
+
+# 641: "Used in N episodes" counts each episode once per item, not each shot
+test_mutation 641 "universe: used-in counts episodes, not shots" \
+    "hfvg/world_store.py" \
+    "tests/test_world_store.py::test_used_in_counts_each_episode_once_per_item_and_tolerates_bad_files" \
+    sed -i 's/^        for slug in {\*usage\["places"\], \*usage\["props"\]}:$/        for slug in [s for shot in shot_usage(episode_id) for s in [shot["place"], *shot["props"]] if s]:  # MUTATED/'
+
+# 642: a draft without a Universe asks the model byte for byte what it asked before
+test_mutation 642 "draft: nothing added without a Universe" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_draft_without_a_universe_asks_the_model_exactly_what_it_asked_before" \
+    sed -i 's/^\( *studio_admin_token) if request\.world_id else \)None)$/\1{"context": "", "names": None})  # MUTATED/'
+
+# 643: a locked look whose pictures changed since the lock reads "Look changed since lock"
+test_mutation 643 "consistency: a changed lock shows" \
+    "web/lib/consistency.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[consistency.test.mjs]" \
+    sed -i "s/^  if (version\.locked && (version\.problems ?? \[\])\.length > 0) return BADGES\.drift;\$/  if (false) return BADGES.drift;  \/\/ MUTATED/"
+
+# 644: a drafted character takes the Universe character of its name, unless two share the name
+test_mutation 644 "consistency: a shared name is not auto-mapped" \
+    "web/lib/consistency.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[consistency.test.mjs]" \
+    sed -i "s/^    byName\.set(key, byName\.has(key) ? null : c\.slug);\$/    byName.set(key, c.slug);  \/\/ MUTATED/"
+
+# 645: a character's saved voice is changed only by the Universe's owner or an admin
+test_mutation 645 "voices: only the owner saves a character's voice" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_saving_a_picked_voice_calls_no_provider_and_only_owners_see_it" \
+    sed -i '/^async def save_character_voice(/,/^save_character_voice\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = await _viewer(series_id, authorization, studio_admin_token)  # MUTATED/'
+
+# 646: in a Universe, a speaker named like one of its characters starts with that character's saved voice
+test_mutation 646 "wizard: speakers start with the saved voice" \
+    "web/lib/wizard.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[wizard.test.mjs]" \
+    sed -i "s/^    const voice = slot\.role === 'narrator' ? narrator : slot\.role === 'speaker' ? byName\.get(sameName(slot\.speaker)) : null;\$/    const voice = slot.role === 'narrator' ? narrator : null;  \/\/ MUTATED/"
+
+# 647: an episode in a Universe does not start before every look it uses is locked
+test_mutation 647 "lock: the start waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_does_not_start_before_every_look_it_uses_is_locked" \
+    sed -i 's/^    await _refuse_unlocked_universe_cast(request\.episode_id, "start")$/    pass  # MUTATED/'
+
+# 648: ... nor starts again
+test_mutation 648 "lock: start again waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_does_not_start_again_before_its_looks_are_locked" \
+    sed -i 's/^    await _refuse_unlocked_universe_cast(episode_id, "start")$/    pass  # MUTATED/'
+
+# 649: ... nor has its shot plan approved
+test_mutation 649 "lock: the shot plan approval waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_waits_for_locked_looks_before_its_shot_plan" \
+    sed -i 's/^                await _refuse_unlocked_universe_cast(episode_id)$/                pass  # MUTATED/'
+
+# 650: ... nor puts a character without a locked look in a shot while the run waits at the shot plan
+test_mutation 650 "lock: picks at the shot plan need a locked look" \
+    "api/shot_plan_routes.py" \
+    "tests/test_world_api.py::test_at_the_shot_plan_a_universe_episode_takes_only_characters_with_a_locked_look" \
+    sed -i 's/^            if unlocked:$/            if False:  # MUTATED/'
+
+# 651: an episode's Universe, strip and locks only for who may see its cast
+test_mutation 651 "episode strip: only for who may see the cast" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the_cast" \
+    sed -i 's/^    if not await cast_api\._may_see(library, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 652: reference photos and open mood boards only for the Universe's owner and admins
+test_mutation 652 "universe images: references only for the owner" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_universe_images_follow_who_may_see_them" \
+    sed -i 's/^    if who\["can_edit"\] or image\.get("board_status") == "approved":$/    if True:  # MUTATED/'
+
+# 653: a worker older than live mood boards gets the owner a plain 409 before any price is asked or anything charged
+test_mutation 653 "mood board: an older worker is a plain 409" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_without_a_worker_for_it_is_a_plain_409_before_anything_is_asked_or_charged" \
+    sed -i '/^async def _board_worker_problem() /,/^    return None$/ s/^    if not polling:$/    if False:  # MUTATED/'
+
+# 654: the story bible and style notes go into a draft only for the Universe's owner and admins
+test_mutation 654 "draft: bible and style notes only for the owner" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_draft_in_a_universe_is_written_with_its_context" \
+    sed -i 's/include_private=who\["can_edit"\])$/include_private=True)  # MUTATED/'
+
+# 655: the episode page takes who may act from the episode's Universe view
+test_mutation 655 "episode viewer: may act only when the API says so" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^    canAct: info\.can_act === true,\$/    canAct: true,  \/\/ MUTATED/"
+
+# 656: the start request kept for an episode that waits for its looks starts only that episode
+test_mutation 656 "kept start: only for its own episode" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
+
+# 657: a Universe reference photo upload is counted against the size limit before its form is parsed
+test_mutation 657 "universe reference photo uploads: size limit" \
+    "api/cast_routes.py" \
+    "tests/test_world_api.py::test_the_size_limit_counts_a_universe_upload_without_a_declared_length[/api/worlds/sr_000000000000/photos-True]" \
+    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path) or UNIVERSE_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path))  # MUTATED/'
+
+# 658: a live mood board picture whose provider estimate is above its approved share is refused before any spend
+test_mutation 658 "mood board: estimates guard before each picture" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_estimate_above_the_approved_share_spends_nothing" \
+    sed -i 's/^            if estimated_usd > job\["approved_usd_micros"\]:$/            if False:  # MUTATED/'
+
+# 659: ... and passes the balance gate before anything is reserved
+test_mutation 659 "mood board: balance gate before each picture" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_balance_gate_spends_nothing" \
+    sed -i '/^async def _generate_live(/,/^    finally:$/ s/^            if not passed:$/            if False:  # MUTATED/'
+
+# 660: a paid picture's job ledger row is in the Universe owner's name (dashboard, cost truth)
+test_mutation 660 "mood board: ledger row in the owner's name" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_success_reserves_submits_commits_records_the_ledger_and_keeps_the_picture" \
+    sed -i 's/^                                            user_id=job\["owner_user_id"\])$/                                            user_id=None)  # MUTATED/'
+
+# 661: cost truth counts the U1_mood_board line as the mood board stage
+test_mutation 661 "mood board: cost truth stage" \
+    "hfvg/cost_report.py" \
+    "tests/test_universe_board.py::test_live_success_reserves_submits_commits_records_the_ledger_and_keeps_the_picture" \
+    sed -i 's/^    "U1_mood_board": "mood_boards",$/    "U1_mood_board": "stills",  # MUTATED/'
+
+# 662: a board picture the provider has not finished goes to the reconciler as a mood board job
+test_mutation 662 "mood board: reconciler routes uboard- jobs" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_universe_board.py::test_poll_exhaustion_keeps_the_holds_and_the_reconciler_settles" \
+    sed -i '/^    if job_id\.startswith("uboard-"):$/{n;s/^        return "universe_board"$/        return "cast_sheet"  # MUTATED/}'
+
+# 663: the API starts a live board only within the total the owner approved
+test_mutation 663 "mood board: the approved total" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if total > approved:$/    if False:  # MUTATED/'
+
+# 664: ... and within what the Universe's mood board budget has left before its stop
+test_mutation 664 "mood board: the budget line before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if total > budget\["available_usd_micros"\]:$/    if False:  # MUTATED/'
+
+# 665: ... only with a recorded balance (GC.01)
+test_mutation 665 "mood board: GC.01 before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if not fresh\.get("ok"):$/    if False:  # MUTATED/'
+
+# 666: ... and only past the balance gate
+test_mutation 666 "mood board: balance gate before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if not passed:$/    if False:  # MUTATED/'
+
+# 667: a live board that stopped early keeps the pictures that were paid for
+test_mutation 667 "mood board: paid pictures are kept" \
+    "hfvg/world_store.py" \
+    "tests/test_world_store.py::test_a_live_board_keeps_every_picture_that_was_made" \
+    sed -i 's/^    elif not made:$/    elif True:  # MUTATED/'
+
+# 668: the Universe page follows a live board while the worker makes it
+test_mutation 668 "mood board: the page follows the board being made" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (request\.status === 'making') {\$/  if (false) {  \/\/ MUTATED/"
+
+# 669: the live estimate shows what the Universe's mood board budget has left before anything is spent
+test_mutation 669 "mood board: the estimate shows the budget left" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (budget) {\$/  if (false) {  \/\/ MUTATED/"
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

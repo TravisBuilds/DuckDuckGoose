@@ -6,11 +6,11 @@ export default function Home() {
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl sm:text-6xl font-bold mb-6 text-balance">
-            Pick a card,<br />get a finished short video
+            Create a Universe once.<br />Every episode keeps it.
           </h1>
           <p className="text-xl text-gray-600 dark:text-gray-400 mb-8 text-balance">
-            DuckDuckGoose is a hands-free AI video harness. Choose your archetype, 
-            describe your idea, and let us handle the rest.
+            Your characters, places and props keep the same locked look in every short video you make.
+            Pick a card, describe the episode, and DuckDuckGoose handles the rest.
           </p>
           <Link
             href="/archetypes"

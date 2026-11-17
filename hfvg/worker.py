@@ -28,6 +28,11 @@ from hfvg.activities.cast_sheet import (
     generate_cast_sheet_image_activity,
     reconcile_cast_sheet_job_activity,
 )
+from hfvg.activities.universe_board import (
+    finish_universe_board_activity,
+    generate_universe_board_image_activity,
+    reconcile_universe_board_job_activity,
+)
 from hfvg.activities.ref_generation import (
     generate_ref_activity,
     generate_ref_edit_activity,
@@ -53,6 +58,7 @@ from hfvg.workflows import EpisodeWorkflow, PostingWorkflow, ShotWorkflow, Recon
 from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 from hfvg.workflows.cast_sheet import CastSheetWorkflow
 from hfvg.workflows.balance_check import BalanceCheckWorkflow
+from hfvg.workflows.universe_board import UniverseBoardWorkflow, universe_task_queue
 
 logging.basicConfig(level=logging.INFO)
 quiet_http_client_logs()
@@ -126,6 +132,7 @@ PRODUCTION_ACTIVITIES = [
     generate_cast_sheet_image_activity,
     finish_cast_sheet_jobs_activity,
     reconcile_cast_sheet_job_activity,
+    reconcile_universe_board_job_activity,
     scheduled_balance_check,
 ]
 
@@ -139,6 +146,20 @@ PRODUCTION_WORKFLOWS = [
     CastSheetWorkflow,
     BalanceCheckWorkflow,
 ]
+
+# Live mood boards run on their own task queue (universe_task_queue(TASK_QUEUE)): the API starts one
+# only while a worker polls it, so an older worker never receives a board it cannot make.
+UNIVERSE_WORKFLOWS = [UniverseBoardWorkflow]
+UNIVERSE_ACTIVITIES = [generate_universe_board_image_activity, finish_universe_board_activity]
+
+
+def production_workers(client, task_queue: str) -> list[Worker]:
+    """The worker on the main task queue and the one on its mood board task queue."""
+    return [
+        Worker(client, task_queue=task_queue, workflows=PRODUCTION_WORKFLOWS, activities=PRODUCTION_ACTIVITIES),
+        Worker(client, task_queue=universe_task_queue(task_queue), workflows=UNIVERSE_WORKFLOWS,
+               activities=UNIVERSE_ACTIVITIES),
+    ]
 
 
 async def setup_schedules(client, task_queue: str) -> bool:
@@ -188,20 +209,15 @@ async def main():
         data_converter=temporal_data_converter,
     )
 
-    logger.info(f"Starting worker on task queue: {config.TASK_QUEUE}")
-    worker = Worker(
-        client,
-        task_queue=config.TASK_QUEUE,
-        workflows=PRODUCTION_WORKFLOWS,
-        activities=PRODUCTION_ACTIVITIES,
-    )
+    logger.info(f"Starting worker on task queues: {config.TASK_QUEUE}, {universe_task_queue(config.TASK_QUEUE)}")
+    workers = production_workers(client, config.TASK_QUEUE)
 
     # Reconciler + stall watchdog run on a Temporal Schedule (RECONCILE_INTERVAL_MINUTES)
     await setup_schedules(client, config.TASK_QUEUE)
     await setup_balance_check_schedule(client, config.TASK_QUEUE)
 
     logger.info("Worker running. Press Ctrl+C to exit.")
-    await worker.run()
+    await asyncio.gather(*(worker.run() for worker in workers))
 
 
 if __name__ == "__main__":

@@ -125,8 +125,14 @@ def _env_int(name: str, default: int) -> int:
 
 @contextmanager
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the cast and props tables present (the migrations run if this DB never had them)."""
-    from hfvg.migrations import apply_cast_library_sync, apply_props_library_sync
+    """A connection with the cast, props and universe tables present (the migrations run if this DB
+    never had them)."""
+    from hfvg.migrations import (
+        apply_cast_library_sync,
+        apply_props_library_sync,
+        apply_universe_board_sync,
+        apply_universe_sync,
+    )
     target = path or db_path()
     if target not in (":memory:",) and not target.startswith("file:"):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +141,8 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
     try:
         apply_cast_library_sync(conn)
         apply_props_library_sync(conn)
+        apply_universe_sync(conn)
+        apply_universe_board_sync(conn)
         yield conn
     finally:
         conn.close()
@@ -434,6 +442,7 @@ def delete_character(character_id: str, actor: str | None = None, *, force: bool
             conn.execute("DELETE FROM cast_versions WHERE character_id = ?", (character_id,))
             conn.execute("DELETE FROM cast_sheet_jobs WHERE character_id = ? AND status IN ('completed', 'failed')",
                          (character_id,))
+            conn.execute("DELETE FROM character_voices WHERE character_id = ?", (character_id,))
             conn.execute("DELETE FROM cast_characters WHERE character_id = ?", (character_id,))
             audit(conn, actor, "character_delete_forced" if locked else "character_delete", episode_id=episode_id,
                   character_id=character_id,
@@ -824,9 +833,14 @@ def delete_image(image_id: str, actor: str | None = None, *, character_id: str |
 
 
 def file_in_use(conn, sha256: str) -> bool:
-    """A cast picture or a prop/place photo still uses the stored file (they share the image store)."""
+    """A cast picture, a prop/place photo, a Universe reference photo, a mood board image or a
+    picture a live mood board job made still uses the stored file (they share the image store)."""
     return conn.execute("SELECT 1 FROM cast_images WHERE sha256 = ? UNION ALL "
-                        "SELECT 1 FROM prop_images WHERE sha256 = ? LIMIT 1", (sha256, sha256)).fetchone() is not None
+                        "SELECT 1 FROM prop_images WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM universe_photos WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM universe_board_images WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM universe_board_jobs WHERE sha256 = ? LIMIT 1",
+                        (sha256, sha256, sha256, sha256, sha256)).fetchone() is not None
 
 
 def _remove_unreferenced_file(conn, sha256: str, ext: str) -> bool:

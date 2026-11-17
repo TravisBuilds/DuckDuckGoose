@@ -259,10 +259,13 @@ def llm_instructions(profile: dict, target_s: int) -> str:
     return "\n".join(lines)
 
 
-def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: str) -> dict:
+def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: str,
+               universe_names: list[str] | None = None) -> dict:
     """Deterministic DRAFT_LLM_FAKE draft for any card (test/e2e only): files that pass the real
     validators, shot lengths from the card's pacing, the card's aspect, a script for voice cards and
-    a title."""
+    a title. A draft in a Universe (``universe_names``, its characters in order) casts them: the
+    lead is the first and a dialogue's speakers are the first two (the card's second speaker when
+    the Universe has one character)."""
     lengths = shot_lengths(profile, target_s)
     shot_aspect = aspect.generation_aspect(profile.get("aspect"))
     layout = build_layout(profile, idea, float(target_s), config.STORY_SHAPING_MAX_BEAT_DURATION_S)
@@ -271,6 +274,8 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
     grammar = list(profile.get("shot_grammar") or []) or ["cinematic shot"]
     speakers = speakers_for(profile)
     two_hander = profile.get("vo_mode") == "dialogue"
+    if universe_names and two_hander:
+        speakers = [universe_names[0], universe_names[1] if len(universe_names) > 1 else speakers[1]]
     acts = _act_for_times(layout, lengths)
     rows, shots = [], []
     for i, d in enumerate(lengths, start=1):
@@ -287,7 +292,8 @@ def fake_draft(profile: dict, idea: str, episode_id: str, target_s: int, style: 
                "| # | ID | Screen (gen) | Room | TOD | Chars | Action | Purpose | In | Out | Model |\n"
                "|---|---|---|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
     names = speakers if two_hander else []
-    characters = {"A": {"name": names[0] if names else "Lead", "role": "lead",
+    lead = names[0] if names else (universe_names[0] if universe_names else "Lead")
+    characters = {"A": {"name": lead, "role": "lead",
                         "description": f"original lead character of the story: {short}"}}
     if two_hander:
         characters["B"] = {"name": names[1], "role": "companion",

@@ -30,8 +30,11 @@ export function useMe(): MeState & { isAdmin: boolean } {
 }
 
 const NAV: { href: string; label: string; adminOnly?: boolean; active: (path: string) => boolean }[] = [
-  { href: '/studio', label: 'My videos', active: (p) => p === '/studio' || p.startsWith('/studio/episodes') },
-  { href: '/studio/create', label: 'New video', active: (p) => p.startsWith('/studio/create') },
+  {
+    href: '/studio', label: 'Universes',
+    active: (p) => p === '/studio' || p.startsWith('/studio/universes') || p.startsWith('/studio/episodes'),
+  },
+  { href: '/studio/create', label: 'New episode', active: (p) => p.startsWith('/studio/create') },
   { href: '/studio/users', label: 'Members', adminOnly: true, active: (p) => p.startsWith('/studio/users') },
   { href: '/dashboard', label: 'Costs', adminOnly: true, active: (p) => p.startsWith('/dashboard') },
 ];
@@ -182,7 +185,7 @@ export function AdminOnly({ children }: { children: ReactNode }) {
       <p className="mt-2 text-gray-600 dark:text-gray-300">
         Your account can make and review videos. Ask an admin if you need something from this page.
       </p>
-      <Link href="/studio" className={`${btnPrimary} mt-6`}>Back to my videos</Link>
+      <Link href="/studio" className={`${btnPrimary} mt-6`}>Back to the studio</Link>
     </div>
   );
 }

@@ -210,6 +210,152 @@ def test_route_authorization_matrix(db_path, method, path, expected_per_role, re
             )
 
 
+# Universe routes (api/world_routes.py). Roles: "none" (no login), "other" (a member with nothing in
+# the Universe: the 404 a missing Universe gets), "editor" (a member whose episode is in it: may
+# see, may not change), "owner" (the member who made it) and "admin". Each role acts on a Universe of
+# its own, so one role's change never meets another's.
+SEE = {"none": 401, "other": 404, "editor": 200, "owner": 200, "admin": 200}
+CHANGE = {"none": 401, "other": 404, "editor": 403, "owner": 200, "admin": 200}
+ANY_MEMBER = {"none": 401, "other": 200, "editor": 200, "owner": 200, "admin": 200}
+UNIVERSE_ROUTE_CASES = [
+    ("GET", "/api/worlds", ANY_MEMBER),
+    ("POST", "/api/worlds", ANY_MEMBER),
+    ("GET", "/api/worlds/{series_id}", SEE),
+    ("POST", "/api/worlds/{series_id}/profile", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/with-picture", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/1/images", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/1/images/{image_id}/primary", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/1/images/{image_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/voice", CHANGE),
+    ("POST", "/api/worlds/{series_id}/narrator-voice", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/with-photo", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos/{photo_id}/primary", CHANGE),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos/{photo_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/notes", CHANGE),
+    ("POST", "/api/worlds/{series_id}/notes/{note_id}", CHANGE),
+    ("POST", "/api/worlds/{series_id}/notes/{note_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/photos", CHANGE),
+    ("POST", "/api/worlds/{series_id}/photos/{reference_id}/delete", CHANGE),
+    ("POST", "/api/worlds/{series_id}/board/estimate", CHANGE),
+    ("POST", "/api/worlds/{series_id}/board", CHANGE),
+    ("POST", "/api/worlds/{series_id}/board/{board_id}/approve", CHANGE),
+    ("POST", "/api/worlds/{series_id}/bible", CHANGE),
+    ("GET", "/api/worlds/images/{reference_id}", SEE),  # the cover: shown to whoever may see the Universe
+    ("GET", "/api/worlds/images/{reference_id}/thumb", SEE),
+    ("GET", "/api/episodes/{episode_id}/universe", ANY_MEMBER),
+    ("POST", "/api/episodes/draft-from-idea?world", SEE),
+]
+UNIVERSE_JSON = {
+    "/api/worlds": {"name": "Tide Hollow"},
+    "/api/worlds/{series_id}/profile": {"logline": "A bay of humming lanterns"},
+    "/api/worlds/{series_id}/cast": {"name": "Moss"},
+    "/api/worlds/{series_id}/cast/{character_id}": {"name": "Wren Two"},
+    "/api/worlds/{series_id}/cast/{character_id}/voice": {"voice_id": "fake-voice-1", "name": "Calm"},
+    "/api/worlds/{series_id}/narrator-voice": {"voice_id": "fake-voice-1", "name": "Calm"},
+    "/api/worlds/{series_id}/props": {"kind": "prop", "name": "Oar"},
+    "/api/worlds/{series_id}/props/{prop_id}": {"name": "Long pier"},
+    "/api/worlds/{series_id}/notes": {"topic": "tone", "body": "Quiet and warm"},
+    "/api/worlds/{series_id}/notes/{note_id}": {"body": "Quieter"},
+    "/api/worlds/{series_id}/board/estimate": {"feedback": "warmer light"},
+    "/api/worlds/{series_id}/board": {"feedback": "warmer light", "approved_total_usd_micros": 10**9},
+}
+
+
+async def _universe_for(role_episode: str, owner_id: str, editor_id: str, approved: bool) -> dict:
+    """A Universe owned by the member with a character (an upload), a place (a photo), a note, a
+    reference photo as its cover and a mood board (approved for the bible route), and an episode of
+    the editor in it."""
+    import os
+    from hfvg import cast_store, prop_store, world_store
+    from hfvg.estimates import still_call_usd_micros
+    from hfvg.studio_db import create_episode
+    from tests.cast_helpers import attestation, image_bytes
+
+    sid = world_store.create_universe(f"Bay {role_episode}", owner_id, actor=owner_id)["series"]["series_id"]
+    library = ("series", sid)
+    wren = cast_store.create_character_with_upload(library, "Wren", "lead", "a lantern keeper", image_bytes(seed=1),
+                                                   filename="w.png", attestation=attestation(), actor=owner_id)
+    pier = prop_store.create_item_with_upload(library, "place", "Pier", "wet planks", image_bytes(seed=2),
+                                              filename="p.png", attestation=attestation(), actor=owner_id)
+    note = world_store.add_note(sid, "premise", "Lanterns that hum", owner_id)
+    ref = world_store.add_reference_photo(sid, image_bytes(seed=3), filename="r.png", attestation=attestation(),
+                                          actor=owner_id)
+    world_store.update_profile(sid, cover_image_id=ref["image_id"], actor=owner_id)
+    plan = world_store.plan_board(sid)
+    total = world_store.BOARD_IMAGES * still_call_usd_micros()
+    board = world_store.create_board(sid, plan, estimate_usd_micros=total, approved_total_usd_micros=total,
+                                     dry_run=True, images=world_store.placeholder_board_images(sid, plan["photo_files"]),
+                                     placeholder=True, requested_by=owner_id)
+    if approved:
+        world_store.approve_board(sid, board["board_id"], owner_id)
+    await create_episode(os.environ["DATABASE_PATH"], role_episode, user_id=editor_id)
+    cast_store.link_episode(role_episode, sid, "admin")
+    return {"series_id": sid, "character_id": wren["character_id"],
+            "image_id": wren["versions"][0]["images"][0]["image_id"], "prop_id": pier["prop_id"],
+            "photo_id": pier["photos"][0]["image_id"], "note_id": note["note_id"], "reference_id": ref["image_id"],
+            "board_id": board["board_id"], "episode_id": role_episode}
+
+
+def _universe_request(client, cookies, method: str, path: str, ids: dict):
+    import io
+    from tests.cast_helpers import image_bytes
+    kwargs = {"cookies": cookies} if cookies else {}
+    if path == "/api/episodes/draft-from-idea?world":
+        return client.post("/api/episodes/draft-from-idea", json={
+            "idea": "A keeper lights the last lantern", "archetype_id": "cozy-hangout", "target_duration": 12,
+            "world_id": ids["series_id"]}, **kwargs)
+    url = path.format(**ids)
+    if method == "GET":
+        return client.get(url, **kwargs)
+    files = {"image_file": ("new.png", io.BytesIO(image_bytes(seed=77)), "image/png")}
+    if path.endswith("/with-picture"):
+        return client.post(url, data={"rights": "original", "name": "Moss"}, files=files, **kwargs)
+    if path.endswith("/with-photo"):
+        return client.post(url, data={"rights": "original", "kind": "prop", "name": "Oar"}, files=files, **kwargs)
+    if path.endswith("/images") or path.endswith("/photos"):
+        return client.post(url, data={"rights": "original"}, files=files, **kwargs)
+    return client.post(url, json=UNIVERSE_JSON.get(path, {}), **kwargs)
+
+
+@pytest.mark.parametrize("method,path,expected_per_role", UNIVERSE_ROUTE_CASES)
+async def test_universe_route_authorization_matrix(db_path, monkeypatch, tmp_path, method, path, expected_per_role):
+    """Every Universe route for no login, another member, an episode editor, the owner and an admin
+    (DRY_RUN and DRAFT_LLM_FAKE: no provider is asked)."""
+    from fastapi.testclient import TestClient
+    from hfvg.users import UserManager
+
+    path_db, _admin, member = db_path
+    monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
+    users = UserManager(path_db)
+    await users.create_user(name="Other Member", email="other@test.com", role="member", password="other123")
+    editor = await users.create_user(name="Episode Editor", email="editor@test.com", role="member",
+                                     password="editor123")
+    logins = {"other": ("other@test.com", "other123"), "editor": ("editor@test.com", "editor123"),
+              "owner": ("member@test.com", "member123"), "admin": ("admin@test.com", "admin123")}
+    from api.main import app
+    for n, (role, expected) in enumerate(expected_per_role.items()):
+        ids = await _universe_for(f"ep{70 + n}mtx", member["user_id"], editor["user_id"], path.endswith("/bible"))
+        client = TestClient(app)
+        cookies = {}
+        if role in logins:
+            email, password = logins[role]
+            response = client.post("/api/login", json={"email": email, "password": password})
+            assert response.status_code == 200, response.text
+            cookies = response.cookies
+        response = _universe_request(client, cookies, method, path, ids)
+        assert response.status_code == expected, (
+            f"{role.upper()} {method} {path}: expected {expected}, got {response.status_code}. Response: {response.text}")
+        if role == "other" and expected == 404 and "/images/" not in path:
+            assert response.json()["detail"] == f"Universe {ids['series_id']} not found"
+
+
 def test_upload_endpoints_auth(db_path, tmp_path):
     """Test upload endpoints with multipart form data for all roles, asserting exact success codes."""
     from fastapi.testclient import TestClient

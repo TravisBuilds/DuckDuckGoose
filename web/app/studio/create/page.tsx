@@ -1,11 +1,15 @@
 'use client';
 
-import React, { Suspense, useRef, useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatUsd } from '@/lib/money';
-import { apiFetch, postJson } from '@/lib/studio-api';
+import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
+import { VoicePreview, VoiceSlotPicker, emptyVoice, type VoiceState } from '@/components/VoiceSlotPicker';
 import { presets, getPresetById } from '@/lib/presets';
+import { chip, tones } from '@/lib/ui';
+import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
+import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
   FREEFORM_DEFAULT_LENGTH,
   FREEFORM_LENGTH_RANGE,
@@ -21,10 +25,12 @@ import {
   lengthOptions,
   onScreenTextDefaults,
   onScreenTextProblem,
+  savedVoiceChoices,
   slotToken,
   soundLabel,
   voiceBlockMessage,
   type OnScreenTextChoices,
+  type SavedVoicePick,
   type VoiceChoices,
   type VoicePick,
   type VoiceSlot,
@@ -84,21 +90,9 @@ interface DraftResponse {
   cast?: DraftCastEntry[];
 }
 
-interface VoiceState {
-  description: string;
-  choice: VoicePick | null;
-  shown: string[];
-  busy: boolean;
-  error: string | null;
-}
-
 type WizardStep = 'archetype' | 'idea' | 'review' | 'loading';
 
 const CARD_GROUPS = groupByTemplate(presets);
-
-function emptyVoice(): VoiceState {
-  return { description: '', choice: null, shown: [], busy: false, error: null };
-}
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -111,130 +105,33 @@ function voicesForDraft(slots: VoiceSlot[], previous: Record<string, VoiceState>
   );
 }
 
-function VoicePreview({ pick, token }: { pick: VoicePick; token: string }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [playError, setPlayError] = useState<string | null>(null);
-
-  if (!pick.preview_url) {
-    return <span className="text-xs text-gray-500">No preview for this voice</span>;
-  }
-
-  const toggle = async () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (!audio.paused) {
-      audio.pause();
-      audio.currentTime = 0;
-      return;
-    }
-    setPlayError(null);
-    try {
-      await audio.play();
-    } catch (e) {
-      setPlayError(`Could not play the preview: ${errorText(e)}`);
-    }
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={toggle}
-        className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700"
-        data-testid={`voice-play-${token}`}
-      >
-        {playing ? '■ Stop' : '▶ Play preview'}
-      </button>
-      <audio
-        ref={audioRef}
-        src={pick.preview_url}
-        preload="none"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        data-testid={`voice-audio-${token}`}
-      />
-      {playError && <span className="text-xs text-red-700 dark:text-red-300">{playError}</span>}
-    </>
-  );
+/** A draft's characters matched to the Universe's by name: a match is the same character, reused. */
+function withUniverseCast(rows: DraftCastRow[], characters: CastCharacter[]): DraftCastRow[] {
+  const mapping = autoMapCast(rows, characters);
+  return rows.map(row => ({ ...row, seriesSlug: mapping[row.code] ?? '' }));
 }
 
-function VoiceSlotPicker({
-  slot,
-  state,
-  onDescription,
-  onFind,
-  onRetry,
-}: {
-  slot: VoiceSlot;
-  state: VoiceState;
-  onDescription: (text: string) => void;
-  onFind: () => void;
-  onRetry: () => void;
-}) {
+/** A slot that starts with the voice saved in the Universe; the creator may pick another for this episode. */
+function SavedVoiceSlot({ slot, pick, onChange }: { slot: VoiceSlot; pick: SavedVoicePick; onChange: () => void }) {
   const token = slotToken(slot.key);
-  const inputId = `voice-description-${token}`;
-  const choice = state.choice;
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0" data-testid={`voice-slot-${token}`}>
-      <label htmlFor={inputId} className="block text-sm font-semibold">
-        {slot.label}: describe the voice
-      </label>
-      <p className="text-xs text-gray-500 mb-2">
-        {slot.lines} voice-over line{slot.lines === 1 ? '' : 's'}
-      </p>
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input
-          id={inputId}
-          type="text"
-          value={state.description}
-          onChange={(e) => onDescription(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !state.busy) onFind();
-          }}
-          maxLength={300}
-          placeholder={`e.g. ${slot.suggestion}`}
-          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
-          data-testid={inputId}
-        />
+    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0" data-testid={`voice-saved-${token}`}>
+      <p className="text-sm font-semibold">{slot.label}</p>
+      <p className="text-xs text-gray-500 mb-2">{slot.lines} voice-over line{slot.lines === 1 ? '' : 's'}</p>
+      <div className="flex flex-wrap items-center gap-3 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3" data-voice-id={pick.voice_id}>
+        <span className="text-sm" data-testid={`voice-saved-name-${token}`}>
+          Saved voice: <strong>{pick.name || 'unnamed voice'}</strong>
+        </span>
+        <VoicePreview pick={pick} token={`saved-${token}`} />
         <button
           type="button"
-          onClick={onFind}
-          disabled={state.busy || state.description.trim().length < 3}
-          className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-semibold disabled:opacity-50"
-          data-testid={`voice-find-${token}`}
+          onClick={onChange}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700"
+          data-testid={`voice-saved-change-${token}`}
         >
-          {state.busy ? 'Finding…' : 'Find a voice'}
+          Use a different voice for this episode
         </button>
       </div>
-      {state.error && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid={`voice-error-${token}`}>
-          {state.error}
-        </p>
-      )}
-      {choice && (
-        <div
-          className="mt-3 flex flex-wrap items-center gap-3 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3"
-          data-testid={`voice-choice-${token}`}
-          data-voice-id={choice.voice_id}
-        >
-          <span className="text-sm">
-            Voice: <strong data-testid={`voice-name-${token}`}>{choice.name}</strong>
-          </span>
-          <VoicePreview key={choice.voice_id} pick={choice} token={token} />
-          <button
-            type="button"
-            onClick={onRetry}
-            disabled={state.busy}
-            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-            data-testid={`voice-retry-${token}`}
-          >
-            Try another voice
-          </button>
-          {choice.reason && <p className="w-full text-xs text-gray-500">{choice.reason}</p>}
-        </div>
-      )}
     </div>
   );
 }
@@ -243,6 +140,7 @@ function CreateVideoWizard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedPreset = getPresetById(searchParams?.get('archetype') ?? '');
+  const worldId = searchParams?.get('world') ?? '';
 
   const [step, setStep] = useState<WizardStep>(preselectedPreset ? 'idea' : 'archetype');
   const [selectedArchetype, setSelectedArchetype] = useState<string | null>(preselectedPreset?.id ?? null);
@@ -265,14 +163,19 @@ function CreateVideoWizard() {
   const [seriesList, setSeriesList] = useState<SeriesInfo[] | null>(null);
   const [seriesId, setSeriesId] = useState('');
   const [seriesCast, setSeriesCast] = useState<CastCharacter[]>([]);
+  const [universe, setUniverse] = useState<WorldView | null>(null);
+  const [universeIssue, setUniverseIssue] = useState<string | null>(null);
+  const [ownVoice, setOwnVoice] = useState<Record<string, boolean>>({});
 
   const selectedPreset = selectedArchetype ? getPresetById(selectedArchetype) ?? null : null;
   const lengthRange = selectedPreset?.lengthRange ?? FREEFORM_LENGTH_RANGE;
   const recommendedLength = selectedPreset?.defaultLength ?? FREEFORM_DEFAULT_LENGTH;
   const voiceSlots = draft?.voice_slots ?? [];
-  const voiceChoices: VoiceChoices = Object.fromEntries(
-    Object.entries(voices).map(([key, state]) => [key, state.choice]),
-  );
+  const savedVoices: Record<string, SavedVoicePick> = universe ? savedVoiceChoices(voiceSlots, universe) : {};
+  const voiceChoices: VoiceChoices = {
+    ...Object.fromEntries(Object.entries(voices).map(([key, state]) => [key, state.choice])),
+    ...Object.fromEntries(Object.entries(savedVoices).filter(([key]) => !ownVoice[key])),
+  };
   const voiceBlock = draft ? voiceBlockMessage(voiceSlots, voiceChoices, !!draft.default_voice_available) : null;
   const textBlock = draft ? onScreenTextProblem(textOnScreen) : null;
   const chosenPictures = Object.values(castPictures).filter((file): file is File => !!file);
@@ -302,13 +205,45 @@ function CreateVideoWizard() {
     checkLiveAvailability();
   }, []);
 
+  // A new episode in a Universe (?world=): its genre is the default style and its characters are reused
+  React.useEffect(() => {
+    if (!worldId) return;
+    let cancelled = false;
+    apiFetch<WorldView>(`/api/worlds/${encodeURIComponent(worldId)}`)
+      .then(view => {
+        if (cancelled) return;
+        if (!view.can_edit) {
+          setUniverseIssue('Only the owner of this Universe, or an admin, can start episodes in it.');
+          return;
+        }
+        setUniverse(view);
+        setSeriesId(view.world.series_id);
+        setSeriesCast(view.characters);
+        const genre = preselectedPreset ? null : getPresetById(view.world.profile.preset_id ?? '');
+        if (genre) {
+          setSelectedArchetype(genre.id);
+          setTargetDuration(genre.defaultLength);
+          setStep(current => (current === 'archetype' ? 'idea' : current));
+        }
+      })
+      .catch(e => {
+        if (cancelled) return;
+        setUniverseIssue(e instanceof ApiError && e.status === 404
+          ? 'This Universe could not be found. It may have been removed, or it is not shared with you.'
+          : `The Universe could not be loaded: ${errorText(e)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [worldId, preselectedPreset]);
+
   // Series the creator may add this video to (their own, or any for an admin)
   React.useEffect(() => {
-    if (step !== 'review' || seriesList !== null) return;
+    if (step !== 'review' || seriesList !== null || worldId) return;
     apiFetch<{ series: SeriesInfo[] }>('/api/series')
       .then(res => setSeriesList(res.series.filter(s => s.can_edit)))
       .catch(() => setSeriesList([]));
-  }, [step, seriesList]);
+  }, [step, seriesList, worldId]);
 
   const chooseSeries = async (id: string) => {
     setSeriesId(id);
@@ -368,11 +303,12 @@ function CreateVideoWizard() {
         archetype_id: selectedArchetype,
         target_duration: targetDuration,
         style_preset: stylePreset || null,
+        ...(universe ? { world_id: universe.world.series_id } : {}),
       });
 
       setDraft(response);
       setSubmittedIdea(fullIdea);
-      setCastRows(draftCastRows(response.cast));
+      setCastRows(universe ? withUniverseCast(draftCastRows(response.cast), universe.characters) : draftCastRows(response.cast));
       setCastPictures({});
       setVoices(previous => voicesForDraft(response.voice_slots ?? [], previous));
       setTextOnScreen(onScreenTextDefaults(
@@ -447,8 +383,8 @@ function CreateVideoWizard() {
       // is in it, so every still gets their description and pictures
       let shotsJson = draft.shots_json;
       let promptKit = draft.prompt_kit_json;
+      if (seriesId) await postJson(`/api/episodes/${episodeId}/series`, { series_id: seriesId });
       if (castRows.length > 0) {
-        if (seriesId) await postJson(`/api/episodes/${episodeId}/series`, { series_id: seriesId });
         const imported = await postJson<{ characters: ImportedCharacter[] }>(
           `/api/episodes/${episodeId}/cast/import`, castImportBody(castRows, seriesCast));
         shotsJson = shotsWithCast(draft.shots_json, castRows, imported.characters);
@@ -486,14 +422,29 @@ function CreateVideoWizard() {
       }
 
       // Start episode with story shaping enabled by default
-      await postJson('/api/episodes', {
+      const start: StartRequest = {
         episode_id: episodeId,
         dry_run: dryRun,
         enable_story_shaping: true,
         archetype_id: draft.archetype_id ?? selectedArchetype,
         idea: submittedIdea,
         target_duration: draft.target_duration ?? targetDuration,
-      });
+      };
+      // in a Universe every character keeps one locked look: until each one is locked the video waits
+      // on its page, which starts it with this same request once they are
+      if (seriesId) {
+        const info = await apiFetch<EpisodeUniverse>(`/api/episodes/${episodeId}/universe`);
+        if ((info.lock?.unlocked ?? []).length > 0) {
+          try {
+            window.localStorage.setItem(pendingStartKey(episodeId), JSON.stringify(start));
+          } catch {
+            // without it the page offers a free test run, and says so
+          }
+          router.push(`/studio/episodes/${episodeId}#cast`);
+          return;
+        }
+      }
+      await postJson('/api/episodes', start);
 
       // Redirect to episode page
       router.push(`/studio/episodes/${episodeId}`);
@@ -512,6 +463,27 @@ function CreateVideoWizard() {
           <p className="text-gray-600 dark:text-gray-400">
             Our AI is writing the script, planning shots, and setting up characters. This takes about 10-20 seconds.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (worldId && !universe) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16">
+          {universeIssue ? (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6" data-testid="wizard-universe-problem">
+              <h1 className="text-xl font-semibold mb-2">This episode can&apos;t start in that Universe</h1>
+              <p className="text-sm text-gray-700 dark:text-gray-200">{universeIssue}</p>
+              <div className="mt-4 flex flex-wrap gap-3 text-sm">
+                <Link href="/studio" className="text-blue-600 dark:text-blue-400 hover:underline">Back to the studio</Link>
+                <Link href="/studio/create" className="text-blue-600 dark:text-blue-400 hover:underline">Make a video without a Universe</Link>
+              </div>
+            </div>
+          ) : (
+            <p role="status" className="text-center text-gray-600 dark:text-gray-400">Loading the Universe…</p>
+          )}
         </div>
       </div>
     );
@@ -541,6 +513,15 @@ function CreateVideoWizard() {
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Create an original short video in minutes. No coding required.
           </p>
+          {universe && (
+            <p className="mt-2 text-sm" data-testid="wizard-universe">
+              In:{' '}
+              <Link href={`/studio/universes/${encodeURIComponent(universe.world.series_id)}`}
+                className="font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                {universe.world.name}
+              </Link>
+            </p>
+          )}
         </div>
       </div>
 
@@ -792,14 +773,22 @@ function CreateVideoWizard() {
                 </div>
               ) : (
                 <>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    Everyone here joins your video&apos;s cast. Their name and look go into every shot they are in, so
-                    describe the look the same way you want it on screen. A picture is optional; on the video&apos;s
-                    page you can lock each look with a character sheet.
-                  </p>
-                  {seriesList && seriesList.length > 0 && (
+                  {universe ? (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4" data-testid="universe-cast-note">
+                      Characters already in {universe.world.name} keep their name, look and locked sheet. Anyone new
+                      joins the Universe when this video is set up. Every character needs a locked look before the
+                      video starts: you lock a new one with a character sheet on the video&apos;s page.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      Everyone here joins your video&apos;s cast. Their name and look go into every shot they are in, so
+                      describe the look the same way you want it on screen. A picture is optional; on the video&apos;s
+                      page you can lock each look with a character sheet.
+                    </p>
+                  )}
+                  {!universe && seriesList && seriesList.length > 0 && (
                     <label className="block text-sm mb-4">
-                      <span className="block font-medium mb-1">Series (optional)</span>
+                      <span className="block font-medium mb-1">Universe (optional)</span>
                       <select
                         value={seriesId}
                         onChange={(e) => chooseSeries(e.target.value)}
@@ -810,7 +799,7 @@ function CreateVideoWizard() {
                         {seriesList.map(s => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
                       </select>
                       <span className="block text-xs text-gray-500 mt-1">
-                        Pick a series to reuse its cast and their locked looks.
+                        Pick a Universe to reuse its cast and their locked looks.
                       </span>
                     </label>
                   )}
@@ -819,15 +808,24 @@ function CreateVideoWizard() {
                       const same = row.seriesSlug ? seriesCast.find(c => c.slug === row.seriesSlug) : undefined;
                       const picture = castPictures[row.code] ?? null;
                       const pictureIssue = picture ? pictureProblem(picture, null) : null;
+                      const match = universe ? castMatchText(same) : null;
                       return (
                         <div
                           key={row.code}
                           className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0"
                           data-testid={`cast-row-${row.code}`}
                         >
+                          {match && (
+                            <p className="mb-2">
+                              <span className={`${chip} ${tones[match.badge?.tone ?? 'todo']}`} data-testid={`cast-match-${row.code}`}
+                                data-matched={match.matched}>
+                                {match.text}
+                              </span>
+                            </p>
+                          )}
                           {seriesCast.length > 0 && (
                             <label className="block text-sm mb-2">
-                              <span className="block font-medium mb-1">Same as in the series</span>
+                              <span className="block font-medium mb-1">Same as in the Universe</span>
                               <select
                                 value={row.seriesSlug}
                                 onChange={(e) => {
@@ -837,7 +835,7 @@ function CreateVideoWizard() {
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
                                 data-testid={`cast-same-${row.code}`}
                               >
-                                <option value="">No, new in this video</option>
+                                <option value="">{universe ? 'No, new to this Universe' : 'No, new in this video'}</option>
                                 {seriesCast.map(c => <option key={c.slug} value={c.slug}>{c.name}</option>)}
                               </select>
                             </label>
@@ -955,18 +953,42 @@ function CreateVideoWizard() {
                 <h3 className="font-semibold mb-1">Voices</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Describe each voice in plain words and we pick a matching one. Play it, and try another until it fits.
+                  {universe && Object.keys(savedVoices).length > 0 && ` The voices saved in ${universe.world.name} are filled in.`}
                 </p>
                 <div className="space-y-4">
-                  {voiceSlots.map(slot => (
-                    <VoiceSlotPicker
-                      key={slot.key}
-                      slot={slot}
-                      state={voices[slot.key] ?? emptyVoice()}
-                      onDescription={(text) => patchVoice(slot.key, { description: text })}
-                      onFind={() => findVoice(slot, false)}
-                      onRetry={() => findVoice(slot, true)}
-                    />
-                  ))}
+                  {voiceSlots.map(slot => {
+                    const saved = savedVoices[slot.key];
+                    if (saved && !ownVoice[slot.key]) {
+                      return (
+                        <SavedVoiceSlot key={slot.key} slot={slot} pick={saved}
+                          onChange={() => setOwnVoice(previous => ({ ...previous, [slot.key]: true }))} />
+                      );
+                    }
+                    const picker = (
+                      <VoiceSlotPicker
+                        key={slot.key}
+                        slot={slot}
+                        state={voices[slot.key] ?? emptyVoice()}
+                        onDescription={(text) => patchVoice(slot.key, { description: text })}
+                        onFind={() => findVoice(slot, false)}
+                        onRetry={() => findVoice(slot, true)}
+                      />
+                    );
+                    if (!saved) return picker;
+                    return (
+                      <div key={slot.key} className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0">
+                        {picker}
+                        <button
+                          type="button"
+                          onClick={() => setOwnVoice(previous => ({ ...previous, [slot.key]: false }))}
+                          className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                          data-testid={`voice-saved-back-${slotToken(slot.key)}`}
+                        >
+                          Use the saved voice ({saved.name || 'unnamed voice'}) instead
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
                 {draft.default_voice_available && (
                   <p className="text-xs text-gray-500 mt-4">Lines without a chosen voice use the studio's default voice.</p>
@@ -1087,6 +1109,12 @@ function CreateVideoWizard() {
                     data-testid="cast-block"
                   >
                     {castBlock}
+                  </p>
+                )}
+                {universe && (
+                  <p className="text-sm text-gray-700 dark:text-gray-200 mb-4" data-testid="universe-lock-note">
+                    This video is in {universe.world.name}, so it starts once every character in it has a locked look.
+                    If one doesn&apos;t yet, the video waits on its page: make and lock the character sheet there, then start it.
                   </p>
                 )}
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>

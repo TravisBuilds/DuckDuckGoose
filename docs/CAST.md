@@ -7,7 +7,9 @@ is in frame, and planning feeds those references and descriptions into every sti
 
 For the creator-facing steps (upload a picture, lock a sheet, put people in shots) see
 [CAST-HOWTO.md](CAST-HOWTO.md). Props and places (things and settings with reference photos) and the
-shot plan editor build on the same library: see [PROPS.md](PROPS.md).
+shot plan editor build on the same library: see [PROPS.md](PROPS.md). A series is shown in the studio
+as a Universe, with its profile, saved voices, creation flow and the lock every episode in it needs
+before it starts: see [WORLDS.md](WORLDS.md).
 
 | Piece | Code |
 |---|---|

@@ -85,6 +85,37 @@ NOT_EPISODE_WRITES = [
     ("POST", "/api/voices/pick"),
     ("POST", "/api/users/me/change-password"),
     ("POST", "/api/series"),  # a new series owned by the caller
+    ("POST", "/api/worlds"),  # a new Universe owned by the caller
+]
+# Member-allowed writes to a Universe (api/world_routes.py): its owner or an admin, checked in the
+# handler. Whoever may not see the Universe gets the 404 a missing one gets.
+WORLD_WRITES = [
+    ("POST", "/api/worlds/{series_id}/profile"),
+    ("POST", "/api/worlds/{series_id}/cast"),
+    ("POST", "/api/worlds/{series_id}/cast/with-picture"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/{version}/images"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/{version}/images/{image_id}/primary"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/versions/{version}/images/{image_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/cast/{character_id}/voice"),
+    ("POST", "/api/worlds/{series_id}/narrator-voice"),
+    ("POST", "/api/worlds/{series_id}/props"),
+    ("POST", "/api/worlds/{series_id}/props/with-photo"),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}"),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos"),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos/{image_id}/primary"),
+    ("POST", "/api/worlds/{series_id}/props/{prop_id}/photos/{image_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/notes"),
+    ("POST", "/api/worlds/{series_id}/notes/{note_id}"),
+    ("POST", "/api/worlds/{series_id}/notes/{note_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/photos"),
+    ("POST", "/api/worlds/{series_id}/photos/{image_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/board/estimate"),
+    ("POST", "/api/worlds/{series_id}/board"),
+    ("POST", "/api/worlds/{series_id}/board/{board_id}/approve"),
+    ("POST", "/api/worlds/{series_id}/bible"),
 ]
 REFUSED = "belongs to another member; only its owner or an admin can change it"
 
@@ -233,7 +264,7 @@ def test_every_member_write_route_is_classified():
                and not getattr(r.endpoint, "read_only", False) for m in r.methods if m != "GET"}
     as_routes = {(m, p.replace("{ep}", "{episode_id}")) for m, p in PATH_WRITES}
     assert guarded == as_routes
-    assert member_writes == as_routes | set(BODY_WRITES) | set(NOT_EPISODE_WRITES)
+    assert member_writes == as_routes | set(BODY_WRITES) | set(NOT_EPISODE_WRITES) | set(WORLD_WRITES)
 
 
 @pytest.mark.parametrize("method,path", PATH_WRITES + BODY_WRITES)
@@ -385,6 +416,121 @@ async def test_reads_follow_the_existing_visibility_rules(studio):
     assert other.get(f"/api/episodes/{EP}/audit").status_code == 200
     res = other.post(f"/api/episodes/{EP}/preflight", json={"shots": _draft(studio)["shots_json"]["shots"]})
     assert res.status_code == 200, res.text
+
+
+# ------------------------------------------------------------------ Universes
+WORLD_BODIES = {
+    "/api/worlds/{series_id}/profile": {"logline": "A bay of humming lanterns"},
+    "/api/worlds/{series_id}/cast": {"name": "Moss"},
+    "/api/worlds/{series_id}/cast/{character_id}": {"name": "Wren Two"},
+    "/api/worlds/{series_id}/cast/{character_id}/voice": {"voice_id": "fake-voice-1", "name": "Calm"},
+    "/api/worlds/{series_id}/narrator-voice": {"voice_id": "fake-voice-1", "name": "Calm"},
+    "/api/worlds/{series_id}/props": {"kind": "prop", "name": "Oar"},
+    "/api/worlds/{series_id}/props/{prop_id}": {"name": "Long pier"},
+    "/api/worlds/{series_id}/notes": {"topic": "tone", "body": "Quiet and warm"},
+    "/api/worlds/{series_id}/notes/{note_id}": {"body": "Quieter"},
+    "/api/worlds/{series_id}/board/estimate": {"feedback": "warmer light"},
+    "/api/worlds/{series_id}/board": {"feedback": "warmer light", "approved_total_usd_micros": 10**9},
+}
+
+
+@pytest.fixture
+def universe(studio, tmp_path, monkeypatch):
+    """A Universe owned by OWNER with a character (an upload), a place (a photo), a note, a
+    reference photo and a mood board waiting for approval; the ids the write routes take."""
+    from hfvg import world_store
+    from tests.cast_helpers import image_bytes
+    monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
+    monkeypatch.setenv("DRY_RUN", "true")
+    owner = _client(studio, "owner")
+    world = owner.post("/api/worlds", json={"name": "Lantern Bay"}).json()["world"]
+    sid = world["series_id"]
+    base = f"/api/worlds/{sid}"
+    png = {"rights": "original"}
+    wren = owner.post(f"{base}/cast/with-picture", data={**png, "name": "Wren"},
+                      files={"image_file": ("w.png", io.BytesIO(image_bytes(seed=1)), "image/png")}).json()["character"]
+    pier = owner.post(f"{base}/props/with-photo", data={**png, "kind": "place", "name": "Pier"},
+                      files={"image_file": ("p.png", io.BytesIO(image_bytes(seed=2)), "image/png")}).json()["item"]
+    note = owner.post(f"{base}/notes", json={"topic": "premise", "body": "Lanterns that hum"}).json()["note"]
+    ref = owner.post(f"{base}/photos", data=png,
+                     files={"image_file": ("r.png", io.BytesIO(image_bytes(seed=3)), "image/png")}).json()["photo"]
+    total = owner.post(f"{base}/board/estimate", json={}).json()["total_usd_micros"]
+    board = owner.post(f"{base}/board", json={"approved_total_usd_micros": total}).json()["board"]
+    ids = {"series_id": sid, "character_id": wren["character_id"], "version": 1,
+           "image_id": wren["versions"][0]["images"][0]["image_id"], "prop_id": pier["prop_id"],
+           "photo_id": pier["photos"][0]["image_id"], "note_id": note["note_id"], "reference_id": ref["image_id"],
+           "board_id": board["board_id"]}
+    assert all(ids.values()) and world_store.list_boards(sid)[0]["status"] == "ready"
+    return ids
+
+
+def _world_write(client, path: str, ids: dict):
+    """A request to a Universe write route with a body good enough to get past validation."""
+    from tests.cast_helpers import image_bytes
+    image = (ids["photo_id"] if "/props/" in path else ids["reference_id"]
+             if path.startswith("/api/worlds/{series_id}/photos/") else ids["image_id"])
+    url = path.format(series_id=ids["series_id"], character_id=ids["character_id"], version=1, image_id=image,
+                      prop_id=ids["prop_id"], note_id=ids["note_id"], board_id=ids["board_id"])
+    files = {"image_file": ("new.png", io.BytesIO(image_bytes(seed=77)), "image/png")}
+    if path.endswith("/with-picture"):
+        return client.post(url, data={"rights": "original", "name": "Moss"}, files=files)
+    if path.endswith("/with-photo"):
+        return client.post(url, data={"rights": "original", "kind": "prop", "name": "Oar"}, files=files)
+    if path.endswith("/images") or path.endswith("/photos"):
+        return client.post(url, data={"rights": "original"}, files=files)
+    return client.post(url, json=WORLD_BODIES.get(path, {}))
+
+
+def _universe_state(sid: str) -> str:
+    from hfvg import cast_store, prop_store, world_store
+    characters = cast_store.list_characters(("series", sid))
+    return json.dumps({
+        "profile": world_store.get_profile(sid),
+        "characters": characters,
+        "voices": world_store.character_voices([c["character_id"] for c in characters]),
+        "items": prop_store.list_items(("series", sid)),
+        "notes": world_store.list_notes(sid),
+        "photos": world_store.list_reference_photos(sid),
+        "boards": world_store.list_boards(sid, with_prompt=True),
+    }, sort_keys=True, default=str)
+
+
+@pytest.mark.parametrize("method,path", WORLD_WRITES)
+async def test_another_member_cannot_change_a_universe(studio, universe, method, path):
+    """A member who may not see the Universe gets the 404 a missing one gets; one who may see it (an
+    episode of theirs is in it) gets the owner refusal. Nothing changes, nothing starts."""
+    sid = universe["series_id"]
+    before = _universe_state(sid)
+    other = _client(studio, "other")
+    res = _world_write(other, path, universe)
+    assert (res.status_code, res.json()["detail"]) == (404, f"Universe {sid} not found"), res.text
+    missing = _world_write(other, path, {**universe, "series_id": "sr_ffffffffffff"})
+    assert (missing.status_code, missing.json()["detail"]) == (404, "Universe sr_ffffffffffff not found")
+    import os
+    from hfvg.studio_db import create_episode
+    with sqlite3.connect(os.environ["DATABASE_PATH"]) as c:
+        member_id = c.execute("SELECT user_id FROM users WHERE email = ?", (OTHER[0],)).fetchone()[0]
+    await create_episode(os.environ["DATABASE_PATH"], "ep90mbr", user_id=member_id)
+    assert _client(studio, "admin").post("/api/episodes/ep90mbr/series", json={"series_id": sid}).status_code == 200
+    before = _universe_state(sid)
+    res = _world_write(other, path, universe)
+    assert (res.status_code, res.json()["detail"]) == (403, f"Universe Lantern Bay {REFUSED}"), res.text
+    assert _universe_state(sid) == before
+    studio.temporal_client.start_workflow.assert_not_called()
+    studio.temporal_client.handle.execute_update.assert_not_called()
+
+
+@pytest.mark.parametrize("who", ["owner", "admin", "bearer"])
+@pytest.mark.parametrize("method,path", WORLD_WRITES)
+async def test_the_owner_and_admins_change_a_universe(studio, universe, method, path, who):
+    from hfvg import cast_store, world_store
+    sid = universe["series_id"]
+    if path.endswith("/bible"):
+        world_store.approve_board(sid, universe["board_id"], "tester")
+    res = _world_write(_client(studio, who), path, universe)
+    assert res.status_code == 200, (path, res.text)
+    assert cast_store.get_series(sid)["owner_user_id"] == studio.owner_id
+    studio.temporal_client.start_workflow.assert_not_called()
 
 
 # ------------------------------------------------------------------ start again

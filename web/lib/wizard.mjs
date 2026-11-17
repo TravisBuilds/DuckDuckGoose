@@ -5,6 +5,8 @@
  * vo.speakers[name] each dialogue speaker's lines).
  */
 
+import { sameName } from './consistency.mjs';
+
 /** Length window and default when the creator skips the cards (FREEFORM_PROFILE in hfvg/genre_presets.py). */
 export const FREEFORM_LENGTH_RANGE = [30, 120];
 export const FREEFORM_DEFAULT_LENGTH = 60;
@@ -112,6 +114,37 @@ export function applyVoiceChoices(plan, slots, choices) {
     } else if (slot.role === 'speaker' && slot.speaker) {
       out.vo.speakers = { ...(out.vo.speakers || {}), [slot.speaker]: voiceId };
     }
+  }
+  return out;
+}
+
+/**
+ * The voices a Universe saved for a draft's voice slots (GET /api/worlds/{id}, its owner's view): the
+ * narrator slot gets the Universe's narrator voice, a speaker slot the saved voice of the Universe
+ * character with the speaker's name (case-insensitive, trimmed; a name two characters share is left
+ * out). { [slot.key]: { voice_id, name, description, preview_url, saved: true } }; {} without a
+ * Universe, so a plan without one is written exactly as before.
+ */
+export function savedVoiceChoices(slots, universe) {
+  if (!universe) return {};
+  const byName = new Map();
+  for (const character of universe.characters ?? []) {
+    const key = sameName(character.name);
+    if (!key || !character.voice?.voice_id) continue;
+    byName.set(key, byName.has(key) ? null : character.voice);
+  }
+  const narrator = universe.world?.profile?.narrator_voice ?? null;
+  const out = {};
+  for (const slot of slots ?? []) {
+    const voice = slot.role === 'narrator' ? narrator : slot.role === 'speaker' ? byName.get(sameName(slot.speaker)) : null;
+    if (!voice?.voice_id) continue;
+    out[slot.key] = {
+      voice_id: voice.voice_id,
+      name: voice.name ?? '',
+      description: voice.description ?? '',
+      preview_url: voice.preview_url ?? null,
+      saved: true,
+    };
   }
   return out;
 }

@@ -252,7 +252,7 @@ test('the drafted cast becomes editable rows; a row needs a name unless it uses 
   assert.deepEqual(rows.map(r => [r.code, r.slug, r.name, r.seriesSlug]), [['A', 'mara', 'Mara', ''], ['B', 'tobin', 'Tobin', '']]);
   assert.equal(castRowsProblem(rows), null);
   rows[1].name = '  ';
-  assert.equal(castRowsProblem(rows), 'Give character B a name, or pick one from the series.');
+  assert.equal(castRowsProblem(rows), 'Give character B a name, or pick one from the Universe.');
   rows[1].seriesSlug = 'pip';
   assert.equal(castRowsProblem(rows), null);
   assert.deepEqual(draftCastRows(undefined), []);

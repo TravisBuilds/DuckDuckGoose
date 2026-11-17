@@ -34,8 +34,10 @@ from hfvg.cast_prompt import MAX_CAST_PER_SHOT, parse_cast_request
 router = APIRouter()
 
 IMAGE_ID_RE = re.compile(r"^ci_[0-9a-f]{12}$")
-UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/cast/(?:[^/]+/versions/[^/]+/images|with-picture)/?$")
-PROP_UPLOAD_PATH_RE = re.compile(r"^/api/episodes/[^/]+/props/(?:[^/]+/photos|with-photo)/?$")  # api/prop_routes.py
+UPLOAD_PATH_RE = re.compile(
+    r"^/api/(?:episodes|worlds)/[^/]+/cast/(?:[^/]+/versions/[^/]+/images|with-picture)/?$")
+PROP_UPLOAD_PATH_RE = re.compile(r"^/api/(?:episodes|worlds)/[^/]+/props/(?:[^/]+/photos|with-photo)/?$")  # api/prop_routes.py
+UNIVERSE_UPLOAD_PATH_RE = re.compile(r"^/api/worlds/[^/]+/photos/?$")  # api/world_routes.py
 FORM_OVERHEAD_BYTES = 64 * 1024
 TRUE_VALUES = ("1", "true", "yes", "on")
 CAST_HIDDEN = "Only the people working on this episode (and admins) can see its cast"
@@ -349,11 +351,12 @@ async def _send_too_large(send, limit: int) -> None:
 
 
 def _is_upload(path: str) -> bool:
-    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path))
+    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path) or UNIVERSE_UPLOAD_PATH_RE.match(path))
 
 
 class CastUploadLimit:
-    """413 for a cast picture or prop photo upload whose body is larger than CAST_UPLOAD_MAX_BYTES
+    """413 for a cast picture, prop photo or Universe reference photo upload (episode or Universe
+    routes) whose body is larger than CAST_UPLOAD_MAX_BYTES
     (plus the form's own overhead) before the multipart form is parsed or written anywhere: the
     declared length is checked first, then the body is counted as it arrives (chunked uploads have
     no length)."""

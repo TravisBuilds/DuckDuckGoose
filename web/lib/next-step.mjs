@@ -242,6 +242,14 @@ export function nextStep(state, story = null, cast = null, more = {}) {
         `You can look over the shots below. Only ${who} or an admin can approve them.`, '#shot-plan');
     }
     const names = charactersToLock(cast);
+    if (names.length > 0 && cast?.library?.kind === 'series') {
+      return {
+        step: 'cast',
+        title: `Lock the look of ${listNames(names)}`,
+        text: 'This video is in a Universe, where every character keeps one locked look: lock it before you approve the shot plan.',
+        href: '#cast',
+      };
+    }
     if (names.length > 0) {
       return {
         step: 'cast',
@@ -387,6 +395,21 @@ export function statusChip(next) {
     default:
       return { label: 'In progress', tone: 'wait' };
   }
+}
+
+/**
+ * The episode page's reader from GET /api/episodes/{id}/universe ({ owner: { user_id, name }, can_act })
+ * and the signed-in user, or null while either is unknown. can_act is the API's own rule, so an
+ * episode the page knows nothing else about is never taken for one without an owner.
+ */
+export function episodeViewer(info, me) {
+  if (!info || !me) return null;
+  const ownerId = info.owner?.user_id ?? null;
+  return {
+    mine: ownerId === null || ownerId === me.user_id,
+    canAct: info.can_act === true,
+    ownerName: info.owner?.name ?? null,
+  };
 }
 
 /** Who a step waits on when this reader may not take it (see MAKER), else null. */

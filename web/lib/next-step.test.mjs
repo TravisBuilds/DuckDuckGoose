@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  cardStatus, charactersToLock, finishLine, gateChip, listNames, nextStep, openGate, shotIds, statusChip, stepperSteps,
-  stillsToReview, storyDone, storyLocked, waitsOn,
+  cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, nextStep, openGate, shotIds, statusChip,
+  stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -89,6 +89,20 @@ test('G1: characters in the shot plan without a locked look come first, as advic
   assert.equal(next.href, '#cast');
   assert.equal(next.advisory, true);
   assert.deepEqual(next.also, { text: 'Go to the shot plan', href: '#shot-plan' });
+});
+
+test('G1: in a Universe the look must be locked first, so it is not advice', () => {
+  const cast = { ...castView({ picks: { S01: ['mara'] } }), library: { kind: 'series', id: 'se_harbour' } };
+  const next = nextStep(runState({ current_gate: 'G1_SHOT_PLAN', story_shape: STORY }), null, cast);
+  assert.equal(next.step, 'cast');
+  assert.equal(next.title, 'Lock the look of Mara');
+  assert.equal(next.href, '#cast');
+  assert.equal(next.advisory, undefined);
+  assert.equal(next.also, undefined);
+  assert.match(next.text, /lock it before you approve the shot plan/);
+  // an episode outside a Universe keeps the advice
+  const own = { ...castView({ picks: { S01: ['mara'] } }), library: { kind: 'episode', id: 'ep01' } };
+  assert.equal(nextStep(runState({ current_gate: 'G1_SHOT_PLAN', story_shape: STORY }), null, own).advisory, true);
 });
 
 test('G1: the version a shot picks is the one that must be locked', () => {
@@ -447,6 +461,26 @@ test('a decision\'s section says who it waits on to someone who may not take it'
     assert.deepEqual(gateChip(true, true, who), { label: 'Approved', tone: 'ok' });
     assert.equal(gateChip(false, false, who), null);
   }
+});
+
+test('the episode page reads its reader from the API, so a member who may not act never sees "Waiting for you"', () => {
+  const member = { user_id: 'u_member' };
+  // another member's episode: the API says who made it and that this reader may not act
+  const theirs = episodeViewer({ owner: { user_id: 'u_robin', name: 'Robin' }, can_act: false }, member);
+  assert.deepEqual(theirs, { mine: false, canAct: false, ownerName: 'Robin' });
+  assert.deepEqual(gateChip(false, true, waitsOn(theirs)), { label: 'Waiting on Robin', tone: 'wait' });
+  // an episode the API knows no owner of is still only the API's to call: no owner, no permission, no "for you"
+  const unknown = episodeViewer({ owner: { user_id: null, name: null }, can_act: false }, member);
+  assert.deepEqual(unknown, { mine: true, canAct: false, ownerName: null });
+  assert.deepEqual(gateChip(false, true, waitsOn(unknown)), { label: 'Waiting on the owner', tone: 'wait' });
+  // the owner, and an admin on someone else's episode, take the step
+  assert.deepEqual(episodeViewer({ owner: { user_id: 'u_member', name: 'Me' }, can_act: true }, member),
+    { mine: true, canAct: true, ownerName: 'Me' });
+  assert.deepEqual(episodeViewer({ owner: { user_id: 'u_robin', name: 'Robin' }, can_act: true }, { user_id: 'u_admin' }),
+    { mine: false, canAct: true, ownerName: 'Robin' });
+  // until both are known there is no reader (the page shows no decision chip yet)
+  assert.equal(episodeViewer(null, member), null);
+  assert.equal(episodeViewer({ owner: { user_id: 'u_robin' }, can_act: false }, null), null);
 });
 
 test('names read as a sentence', () => {
