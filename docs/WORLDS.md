@@ -149,7 +149,7 @@ The Universe page's "New episode in this Universe" opens `/studio/create?world=<
   the "From your Universe" strip (the characters, places and props it uses with their badges), the
   Start card while looks are unlocked, and "Made with" chips under each scene picture. A member who
   may not act on the episode sees no "Waiting for you" and no decision buttons.
-- **Home.** "Your universes" first (cover, health line, counts, latest episode), then the episodes:
+- **Home.** "Your Universes" first (cover, health line, counts, latest episode), then the episodes:
   Continue, Recently finished (with a player and a download link) and Unfiled (episodes in no
   Universe, each with "Add to a Universe").
 
