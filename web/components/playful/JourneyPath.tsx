@@ -42,9 +42,15 @@ export default function JourneyPath({ stops, current, label, compact = false, te
   const here = current ?? stops.find((stop) => stop.state === 'now')?.key ?? null;
   useEffect(() => {
     const nav = strip.current;
-    const stop = nav?.querySelector<HTMLElement>('[aria-current="step"]');
-    if (!nav || !stop || nav.scrollWidth <= nav.clientWidth) return;
-    nav.scrollLeft = stop.offsetLeft - (nav.clientWidth - stop.offsetWidth) / 2;
+    if (!nav) return undefined;
+    const centre = () => {
+      const stop = nav.querySelector<HTMLElement>('[aria-current="step"]');
+      if (!stop || nav.scrollWidth <= nav.clientWidth) return;
+      nav.scrollLeft = stop.offsetLeft - (nav.clientWidth - stop.offsetWidth) / 2;
+    };
+    const watch = new ResizeObserver(centre);
+    watch.observe(nav);
+    return () => watch.disconnect();
   }, [here]);
   return (
     <nav ref={strip} aria-label={label} data-testid={testId} className={`relative overflow-x-auto pb-1 ${className}`}>
