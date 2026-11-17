@@ -1,4 +1,6 @@
 import type { UniverseCounts } from './consistency.mjs';
+import type { CastCharacter, CastVersion } from './cast.mjs';
+import type { PropItem } from './props.mjs';
 
 /** One card of GET /api/worlds. */
 export interface UniverseCard {
@@ -35,6 +37,119 @@ export interface SavedVoice {
   chosen_at?: string | null;
 }
 
+export interface UniverseImage {
+  image_id: string;
+  url: string;
+  thumb_url: string;
+}
+
+export interface WorldCharacter extends Omit<CastCharacter, 'versions'> {
+  versions: (CastVersion & { problems: string[] })[];
+  locked_versions: number[];
+  primary_image: UniverseImage | null;
+  used_in: { episodes: number; versions: Record<string, number> };
+  /** The owner's and admins' view only. */
+  voice?: SavedVoice | null;
+}
+
+export interface WorldItem extends PropItem {
+  primary_photo: UniverseImage | null;
+  used_in: { episodes: number };
+}
+
+export interface WorldEpisode {
+  episode_id: string;
+  created_at: string | null;
+  owner_user_id: string | null;
+  owner_name: string | null;
+  can_change: boolean;
+  finished: boolean;
+  primary_file: string | null;
+}
+
+export interface WorldNote {
+  note_id: string;
+  series_id: string;
+  topic: string;
+  body: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorldPhoto extends UniverseImage {
+  caption: string;
+  width: number;
+  height: number;
+  bytes: number;
+  mime: string;
+  original_filename: string | null;
+  created_at: string;
+}
+
+export interface WorldBoard {
+  board_id: string;
+  series_id: string;
+  version: number;
+  status: 'ready' | 'approved' | 'redo_requested';
+  prompt?: string;
+  answers_feedback: string;
+  redo_feedback: string | null;
+  image_count: number;
+  estimate_usd_micros: number;
+  approved_total_usd_micros: number;
+  dry_run: boolean;
+  created_at: string;
+  images: (UniverseImage & { position: number; width: number; height: number; placeholder: boolean })[];
+}
+
+export interface BoardEstimate {
+  version: number;
+  count: number;
+  per_image_usd_micros: number[];
+  total_usd_micros: number;
+  dry_run: boolean;
+  redo: boolean;
+  summary: string;
+}
+
+/** The creation flow (owner and admins): references, mood boards, and what the next board may be. */
+export interface WorldCreation {
+  notes: WorldNote[];
+  photos: WorldPhoto[];
+  boards: WorldBoard[];
+  board: { available: boolean; image_count: number; dry_run: boolean; unavailable: string | null };
+  topics: string[];
+  limits: { max_notes: number; note_max: number; max_photos: number; caption_max: number; feedback_max: number };
+}
+
+/** GET /api/worlds/{id}. */
+export interface WorldView {
+  world: UniverseCard;
+  can_edit: boolean;
+  characters: WorldCharacter[];
+  items: WorldItem[];
+  episodes: WorldEpisode[];
+  look: { board_id: string; version: number; images: (UniverseImage & { position: number })[] } | null;
+  limits: {
+    max_upload_bytes: number;
+    min_image_px: number;
+    formats: string[];
+    max_uploads_per_version: number;
+    max_characters: number;
+    max_photos_per_item: number;
+    max_items: number;
+    max_props_per_shot: number;
+    name_max: number;
+    description_max: number;
+    logline_max: number;
+    bible_max: number;
+    style_notes_max: number;
+  };
+  attestation: { rights: string[]; likeness_gate: string };
+  creation?: WorldCreation;
+}
+
 export interface HomeEpisode {
   episode_id: string;
   user_id: string | null;
@@ -54,7 +169,9 @@ export interface HomeEntry<E extends HomeEpisode, U extends { series_id: string;
 
 export declare function universeByEpisode<U extends { episodes?: string[] }>(worlds: U[] | null | undefined): Map<string, U>;
 export declare function mayChange(episode: HomeEpisode | null | undefined, viewer: HomeViewer | null | undefined): boolean;
-export declare function isFinished(state: { run?: { ended?: boolean; outcome?: string | null } | null } | null | undefined): boolean;
+export declare function isFinished(
+  state: { run?: { ended?: boolean | null; outcome?: string | null } | null } | null | undefined,
+): boolean;
 export declare function homeSections<E extends HomeEpisode, U extends { series_id: string; episodes?: string[] }>(
   worlds: U[] | null | undefined,
   episodes: E[] | null | undefined,
