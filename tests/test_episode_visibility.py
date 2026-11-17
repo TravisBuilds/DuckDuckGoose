@@ -526,11 +526,11 @@ async def test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_se
         assert sid not in client.get("/api/worlds").text and sid not in client.get("/api/series").text, who
 
 
-async def test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_see(studio):
-    """Its audit trail and its sheet jobs name the episode each was asked for from."""
+def _asked_from(studio, *episodes: str) -> None:
+    """An audit entry and a (finished) sheet job on Wren's first version asked for from each episode."""
     from hfvg import cast_store
     sid, wren, una = studio.series_id, studio.wren_id, studio.user_ids["universe_owner"]
-    for n, ep in enumerate((EP, SIB), start=1):
+    for n, ep in enumerate(episodes, start=1):
         cast_store.log_event(una, "sheet_request", series_id=sid, episode_id=ep, character_id=wren,
                              details={"note": f"asked from {ep}"})
         job_id = f"castsheet-{wren}-v1-front-a{n}"
@@ -538,9 +538,16 @@ async def test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_s
                                      "view": "front", "attempt": n, "episode_id": ep, "requested_by": una})
         cast_store.update_sheet_job(job_id, status="completed")
 
-    def jobs(character: dict) -> list:
-        return [job["episode_id"] for version in character["versions"] for job in version["sheet_jobs"]]
 
+def _jobs(character: dict) -> list:
+    """The episode each of a character's sheet jobs names."""
+    return [job["episode_id"] for version in character["versions"] for job in version["sheet_jobs"]]
+
+
+async def test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_see(studio):
+    """Its audit trail and its sheet jobs name the episode each was asked for from."""
+    sid, wren = studio.series_id, studio.wren_id
+    _asked_from(studio, EP, SIB)
     for who, eps in UNIVERSE_SEES.items():
         client = _client(studio, who)
         res = client.get(f"/api/episodes/{eps[0]}/cast/{wren}")
@@ -549,13 +556,122 @@ async def test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_s
         assert sorted({row["episode_id"] for row in body["audit"]} - {None}) == eps, who
         assert any(row["episode_id"] is None for row in body["audit"]), who  # the character's own rows stay
         named = [ep if ep in eps else None for ep in (EP, SIB)]
-        assert jobs(body["character"]) == named, who
+        assert _jobs(body["character"]) == named, who
         [character] = client.get(f"/api/worlds/{sid}").json()["characters"]
-        assert jobs(character) == named, who
+        assert _jobs(character) == named, who
         [character] = client.get(f"/api/series/{sid}").json()["characters"]
-        assert jobs(character) == named, who
+        assert _jobs(character) == named, who
         [character] = client.get(f"/api/episodes/{eps[0]}/cast").json()["characters"]
-        assert jobs(character) == named, who
+        assert _jobs(character) == named, who
+
+
+async def test_the_props_view_names_only_the_episodes_of_its_universe_the_caller_may_see(studio):
+    """GET /api/episodes/{id}/props names the Universe the episode is in with its episodes: the editor
+    of a sibling episode is told of theirs alone, the owner of the Universe and admins of both."""
+    cases = {  # who: (the episode whose props and places they open, the Universe's episodes they are told of)
+        "sibling": (SIB, [SIB]),
+        "owner": (EP, [EP]),
+        "universe_owner": (EP, [EP, SIB]),
+        "admin": (EP, [EP, SIB]),
+        "staff": (SIB, [EP, SIB]),
+        "bearer": (EP, [EP, SIB]),
+    }
+    for who, (ep, eps) in cases.items():
+        res = _client(studio, who).get(f"/api/episodes/{ep}/props")
+        assert res.status_code == 200, (who, res.text)
+        body = res.json()
+        assert (body["series"]["series_id"], sorted(body["series"]["episodes"])) == (studio.series_id, eps), who
+        assert [item["prop_id"] for item in body["items"]] == [studio.pier_id], who
+        hidden_ids = {EP, SIB} - set(eps)
+        assert not any(e in res.text or WORDS[e] in res.text for e in hidden_ids), (who, res.text)
+    member = _client(studio, "member")
+    res = member.get(f"/api/episodes/{EP}/props")
+    assert (res.status_code, res.json()) == _gone(EP), res.text
+    mine = member.get(f"/api/episodes/{MINE}/props").json()
+    assert (mine["library"], mine["series"]) == ({"kind": "episode", "id": MINE}, None)
+
+
+READ_LISTS = ["/api/episodes", "/api/worlds", "/api/series", "/api/worlds/{series_id}", "/api/series/{series_id}",
+              "/api/me"]
+
+
+async def test_no_read_names_an_episode_the_caller_may_not_see(studio):
+    """Every member read about every episode the caller may see, and the lists and Universe views:
+    none carries the id or the words of an episode they may not see, with sheet jobs and audit entries
+    asked for from both episodes of the Universe."""
+    _asked_from(studio, EP, SIB)
+    for who in ("owner", "sibling", "universe_owner", "member", "outsider"):
+        client = _client(studio, who)
+        hidden_ids = EVERY_EPISODE - SEES[who]
+        urls = [(method, _url(studio, path, ep)) for ep in sorted(SEES[who]) for method, path in READS]
+        urls += [("GET", path.format(series_id=studio.series_id)) for path in READ_LISTS]
+        for method, url in urls:
+            res = client.request(method, url)
+            leaked = [word for ep in sorted(hidden_ids) for word in (ep, WORDS[ep]) if word in res.text]
+            assert not leaked, (who, method, url, leaked, res.text[:300])
+
+
+UNA_EP = "ep66vis"
+
+
+async def test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see(studio):
+    """Mo takes EP out of Una's Universe: Wren keeps the sheet job asked for from EP, and EP is no
+    longer Una's to see. What her changes to Wren answer, from the Universe page or from an episode of
+    her own in it, names SIB and her episode but not EP; an admin's names all three."""
+    from PIL import Image
+
+    from hfvg import cast_store
+    from hfvg.studio_db import create_episode
+    sid, wren = studio.series_id, studio.wren_id
+    await create_episode(os.environ["DATABASE_PATH"], UNA_EP, user_id=studio.user_ids["universe_owner"])
+    cast_store.link_episode(UNA_EP, sid, "admin")
+    _asked_from(studio, EP, SIB, UNA_EP)
+    res = _client(studio, "owner").post(f"/api/episodes/{EP}/series", json={"series_id": None})
+    assert (res.status_code, res.json()["series_id"]) == (200, None), res.text
+    for n, role in enumerate((cast_store.MASTER_ROLE, *cast_store.TURNAROUND_ROLES, cast_store.HEAD_ROLE)):
+        png = io.BytesIO()
+        Image.new("RGB", (512, 768), (30 * n, 90, 120)).save(png, "PNG")
+        cast_store.add_generated_image(wren, 1, png.getvalue(), role=role, job_id=f"sheet-{role}", placeholder=True)
+    episode_cast = f"/api/episodes/{UNA_EP}/cast/{wren}"
+    for who, named in (("admin", [EP, SIB, UNA_EP]), ("universe_owner", [None, SIB, UNA_EP])):
+        client = _client(studio, who)
+        res = client.post(f"/api/worlds/{sid}/cast/{wren}", json={"description": "a lantern keeper by the pier"})
+        assert (res.status_code, _jobs(res.json()["character"])) == (200, named), (who, res.text)
+        res = client.post(episode_cast, json={"role": "the lead"})
+        assert (res.status_code, _jobs(res.json()["character"])) == (200, named), (who, res.text)
+        res = client.post(f"{episode_cast}/versions/1", json={"label": f"harbour coat for {who}"})
+        assert (res.status_code, _jobs({"versions": [res.json()["version"]]})) == (200, named), (who, res.text)
+        res = client.post(f"{episode_cast}/versions", json={"label": f"storm coat for {who}"})
+        assert (res.status_code, _jobs(res.json()["character"])) == (200, named), (who, res.text)
+        assert res.json()["version"]["sheet_jobs"] == [], (who, res.text)
+    res = _client(studio, "universe_owner").post(f"{episode_cast}/versions/1/approve", json={"allow_placeholder": True})
+    assert res.status_code == 200, res.text
+    assert res.json()["version"]["locked"] is True
+    assert _jobs({"versions": [res.json()["version"]]}) == _jobs(res.json()["character"]) == [None, SIB, UNA_EP]
+    assert EP not in res.text
+
+
+async def test_a_redo_on_an_episode_without_a_run_answers_as_for_one_that_does_not_exist(studio):
+    """Temporal has no run for a made-up id ("workflow not found"): the redo answers the 404 of an
+    episode that does not exist, which is also what a hidden episode answers, not a 500."""
+    from temporalio.service import RPCError, RPCStatusCode
+    real = studio.temporal_client.get_workflow_handle.side_effect
+
+    def handle_for(workflow_id, *args, **kwargs):
+        handle = real(workflow_id, *args, **kwargs)
+        if workflow_id == MISSING:
+            handle.execute_update = AsyncMock(side_effect=RPCError(
+                f"workflow not found for ID: {MISSING}", RPCStatusCode.NOT_FOUND, b""))
+        return handle
+
+    studio.temporal_client.get_workflow_handle.side_effect = handle_for
+    for who in ("member", "owner", "admin"):
+        client = _client(studio, who)
+        for body in ({}, {"prompt_append": "warmer light"}):
+            res = client.post(f"/api/episodes/{MISSING}/shots/S01/retry", json=body)
+            assert (res.status_code, res.json()) == _gone(MISSING), (who, body, res.text)
+    res = _client(studio, "member").post(f"/api/episodes/{EP}/shots/S01/retry", json={})
+    assert (res.status_code, res.json()) == _gone(EP), res.text
 
 
 async def test_unlinking_does_not_name_the_run_of_an_episode_the_caller_may_not_see(studio):
