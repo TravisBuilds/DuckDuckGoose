@@ -12,7 +12,9 @@ the edit history (hfvg/shot_plan_edits.py).
 Who may change it: the episode write rule (its owner or an admin; any member while it has no owner),
 checked by the guard before these handlers run. Picking from a series' cast and props changes the
 episode, not the series library, so no series rule applies. Who may see it: whoever may see the
-episode's cast (the 404 a missing cast gets for everyone else). Nothing here spends.
+episode's cast (the 404 a missing cast gets for everyone else). Its prompts, the text of prompt edits
+and the edit notes only admins, the series' owner and whoever may change the episode; an owner of
+another episode of the series gets the plan without them. Nothing here spends.
 """
 
 from __future__ import annotations
@@ -156,7 +158,15 @@ def _picks(item: dict) -> dict:
     return {"cast": cast, "props": props, "place": place}
 
 
-def _plan(episode_id: str, history: list[dict]) -> dict:
+def _without_text(row: dict) -> dict:
+    """An edit without its note, and without the old and new text of a prompt edit."""
+    text = row["field"] in shot_plan_edits.TEXT_FIELDS
+    return {**row, "old": None if text else row["old"], "new": None if text else row["new"], "note": None}
+
+
+def _plan(episode_id: str, history: list[dict], hide_prompts: bool = False) -> dict:
+    """``hide_prompts``: no prompts, no text of the prompt edits and no notes, and no detail of a
+    shots.json that cannot be planned (it can quote a prompt)."""
     from hfvg.cast_plan import preview_episode_cast
     read = _read_raw(episode_id)
     if read is None:
@@ -165,7 +175,10 @@ def _plan(episode_id: str, history: list[dict]) -> dict:
     try:
         report = preview_episode_cast(episode_id, raw, live=not cast_api._dry_run())
     except ValueError as e:
-        report = {"shots": {}, "errors": [f"shots.json cannot be planned: {e}"], "notes": []}
+        error = "shots.json cannot be planned" if hide_prompts else f"shots.json cannot be planned: {e}"
+        report = {"shots": {}, "errors": [error], "notes": []}
+    if hide_prompts:
+        history = [_without_text(row) for row in history]
     by_shot: dict[str, list[dict]] = {}
     for row in history:
         rows = by_shot.setdefault(row["shot_id"], [])
@@ -177,8 +190,10 @@ def _plan(episode_id: str, history: list[dict]) -> dict:
         row = report["shots"].get(sid, {})
         errors = [e for e in report["errors"] if e.startswith(f"shot {sid}:")]
         claimed.update(errors)
-        shots.append({"shot_id": sid, "prompt": str(item.get("prompt") or ""),
-                      "end_prompt": item.get("end_prompt"), "clip_prompt": item.get("clip_prompt"),
+        prompts = ({"prompt": None, "end_prompt": None, "clip_prompt": None} if hide_prompts else
+                   {"prompt": str(item.get("prompt") or ""), "end_prompt": item.get("end_prompt"),
+                    "clip_prompt": item.get("clip_prompt")})
+        shots.append({"shot_id": sid, **prompts,
                       "end_frame": bool(item.get("end_frame")), "model": item.get("model"),
                       "duration": item.get("duration"), **_picks(item),
                       "refs": [r["label"] for r in row.get("refs") or []], "notes": row.get("notes") or [],
@@ -187,17 +202,18 @@ def _plan(episode_id: str, history: list[dict]) -> dict:
             "notes": report.get("notes") or []}
 
 
-async def _view(episode_id: str, library: tuple[str, str], may_change: bool) -> dict:
+async def _view(episode_id: str, library: tuple[str, str], may_change: bool, prompts_hidden: bool = False) -> dict:
     phase = await _phase(episode_id)
     characters = await cast_api._call(cast_store.list_characters, library)
     items = await cast_api._call(prop_store.list_items, library)
     history = await asyncio.to_thread(shot_plan_edits.list_edits, episode_id)
-    plan = await asyncio.to_thread(_plan, episode_id, history)
+    plan = await asyncio.to_thread(_plan, episode_id, history, prompts_hidden)
     return {
         "episode_id": episode_id,
         "library": {"kind": library[0], "id": library[1]},
         "phase": phase,
         "may_change": may_change,
+        "prompts_hidden": prompts_hidden,
         "can_edit": may_change and phase["state"] in ("open", "g1") and plan["uploaded"],
         "characters": [_character_row(c) for c in characters],
         "props": [_prop_row(i) for i in items],
@@ -212,12 +228,16 @@ async def get_shot_plan(episode_id: str, authorization: str | None = Header(None
                         studio_admin_token: str | None = Cookie(None)):
     """Every shot with its prompts, its cast, props and place, what they plan to (refs, notes,
     errors) and its edit history, the cast and props to pick from, and whether the plan can change
-    now (``phase``) and by this caller (``can_edit``)."""
+    now (``phase``) and by this caller (``can_edit``). The prompts, the text of prompt edits and the
+    edit notes only for a caller who may see them (cast_api._may_see_prompts); anyone else who may
+    see the series cast gets the plan without them (``prompts_hidden``)."""
     episode_id = cast_api._episode_id(episode_id)
     library = await cast_api._library(episode_id)
     await cast_api._require_viewer(library, authorization, studio_admin_token, SHOT_PLAN_HIDDEN)
     may_change, _, _ = await _may_change(episode_id, authorization, studio_admin_token)
-    return await _view(episode_id, library, may_change)
+    _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
+    prompts_hidden = not await cast_api._may_see_prompts(episode_id, user_id, is_admin)
+    return await _view(episode_id, library, may_change, prompts_hidden)
 
 get_shot_plan.allow_members = True
 

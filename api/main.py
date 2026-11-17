@@ -873,7 +873,7 @@ class EpisodeStateResponse(BaseModel):
     passed_gates: list[str] = []
     shot_decisions: dict[str, str] = {}
     # G2: the owner's note on each scene picture they turned down (the reject reason), which "Make this
-    # picture again" sends with the redo. Empty for a viewer who may not see this episode's cast.
+    # picture again" sends with the redo. Empty for a viewer who may not read this episode's prompts.
     rejection_reasons: dict[str, str] = {}
     pending_retries: list[str] = []
     clip_retries: dict[str, int] = {}
@@ -1896,9 +1896,9 @@ _OUTCOME_FIELDS = ("shot_id", "status", "still_url", "clip_url", "pre_approved")
 
 
 def _without_cast_text(failed_shots: list, shot_outcomes: dict) -> tuple[list, dict]:
-    """A run state's failed shots and shot outcomes as a viewer who may not see the episode's cast
-    gets them: the errors, moderation records, QC fail-if lines and plan updates can quote a shot's
-    prompt, so only the shot, its status, its picture and its clip are kept."""
+    """A run state's failed shots and shot outcomes as a viewer who may not read the episode's
+    prompts gets them: the errors, moderation records, QC fail-if lines and plan updates can quote a
+    shot's prompt, so only the shot, its status, its picture and its clip are kept."""
     return ([{k: f[k] for k in _FAILED_SHOT_FIELDS if k in f} if isinstance(f, dict) else f for f in failed_shots],
             {sid: {k: o[k] for k in _OUTCOME_FIELDS if k in o} if isinstance(o, dict) else {}
              for sid, o in shot_outcomes.items()})
@@ -1913,8 +1913,8 @@ async def get_episode_state(
     """
     Get current episode workflow state.
     
-    Requires: Authorization (member or admin). A viewer who may not see the episode's cast gets no
-    G2 rejection notes, no failed shot errors and of each shot's outcome only its status, picture
+    Requires: Authorization (member or admin). A viewer who may not read the episode's prompts gets
+    no G2 rejection notes, no failed shot errors and of each shot's outcome only its status, picture
     and clip (``_without_cast_text``).
     """
     # Member or admin access
@@ -1950,7 +1950,7 @@ async def get_episode_state(
         print(f"Stall alerts unavailable for {state['episode_id']}: {e}")
         active_stalls = []
     # a note, a failed shot's error and a shot's QC fail-if lines may quote a prompt or describe the
-    # cast, so they are shown to the viewers who may see the cast
+    # cast, so they are shown to the viewers who may read the episode's prompts
     rejection_reasons = dict(state.get("rejection_reasons") or {})
     failed_shots = list(state.get("failed_shots") or [])
     shot_outcomes = dict(state.get("shot_outcomes") or {})
@@ -3654,7 +3654,7 @@ async def get_shots(
     List all shots for an episode with their status.
     
     Requires: Authorization header OR session cookie. A shot's prompt names the cast, so it is left
-    out (``cast_hidden``) for a caller who may not see this episode's cast, as the shot states do,
+    out (``cast_hidden``) for a caller who may not read this episode's prompts, as the shot states do,
     and so are its QC results (the QC verdicts, the clip's fail-if lines and the moderation record
     quote it); pre_approved still comes from them.
     """
@@ -4202,7 +4202,7 @@ async def get_clip_plans(
 ):
     """GAP-28: per shot, the clip prompt and qc_fail_if its kept still's clip will be submitted and
     QC'd with, plus the clip-prompt lint result (same gate as the paid clip submit). Read-only.
-    The prompt names the cast, so for a caller who may not see this episode's cast (as the shots'
+    The prompt names the cast, so for a caller who may not read this episode's prompts (as the shots'
     prompts) each shot keeps only its version and resynced fields: the prompt and what is read from
     it (qc_fail_if, the lint result, clip_prompt_is_still_prompt) are left out (``cast_hidden``)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
@@ -5127,7 +5127,7 @@ async def get_audit_trail(
     Get audit trail for episode. Member or admin.
     
     Requires: Auth. The details quote prompts, redo notes and moderation rewords, which name the
-    cast, so a caller who may not see this episode's cast gets each entry without them
+    cast, so a caller who may not read this episode's prompts gets each entry without them
     (``cast_hidden``).
     """
     # Member or admin access
@@ -7035,7 +7035,8 @@ async def preflight_episode(
     """Per-shot pass/fail against the model limits, same rules as G1 and submit (no provider calls).
 
     Shots come from the request or the episode's uploaded shots.json (<EPISODES_DIR>/{id}/shots.json).
-    Requires: Authorization header OR session cookie.
+    Requires: Authorization header OR session cookie. Why an uploaded shots.json cannot be read is
+    said only to a caller who may read the episode's prompts (the reason can quote one).
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
@@ -7052,6 +7053,8 @@ async def preflight_episode(
             raw = json.loads(shots_path.read_text(encoding="utf-8"))
             parse_shots(raw)  # same validation as upload
         except (ValueError, ShotDataError) as e:
+            if not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
+                raise HTTPException(status_code=400, detail="Invalid shots.json")
             raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")
         shots = raw["shots"]
 
@@ -7059,7 +7062,7 @@ async def preflight_episode(
     errors = [v for v in report["violations"] if v["severity"] == "error"]
     warnings = [v for v in report["violations"] if v["severity"] == "warning"]
     # who is in frame (shots' cast): what the run's planning would refuse, from the episode's cast.
-    # Its answers name the cast's characters, so only for a caller who may see that cast.
+    # Its answers name the cast's characters, so only for a caller who may read the episode's prompts.
     from hfvg.cast_plan import cast_problems
     has_cast = any(isinstance(s, dict) and s.get("cast") for s in shots)
     cast_hidden = has_cast and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
@@ -7400,7 +7403,7 @@ async def get_shot_states(
     (rungs taken per phase, escalation). Shots whose workflow is gone are reported as unavailable.
     Members read it too (the episode page's scene pictures). The free text (errors, provider and lint
     messages) can quote a shot's prompt, which names the cast, so it is left out (``cast_hidden``) for
-    a caller who may not see this episode's cast, as the preflight's cast check is."""
+    a caller who may not read this episode's prompts, as the preflight's cast check is."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:

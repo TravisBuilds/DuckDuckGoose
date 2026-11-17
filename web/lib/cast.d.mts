@@ -64,7 +64,7 @@ export interface CastCharacter {
 
 export interface CastShot {
   shot_id: string;
-  prompt: string;
+  prompt: string | null; // null for a member who may not see this episode's prompts (prompts_hidden)
   characters: string[];
   cast: CastPick[];
   allow_text: boolean | null;
@@ -112,6 +112,7 @@ export interface CastView {
     plan: { errors: string[]; notes: string[]; text_policy: string | null } | null;
     error: string | null;
   };
+  prompts_hidden: boolean;
   still_max_refs: number | null;
   sheet: {
     dry_run: boolean;

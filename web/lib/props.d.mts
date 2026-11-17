@@ -68,7 +68,7 @@ export interface ShotPlanEdit {
 
 export interface ShotPlanShot {
   shot_id: string;
-  prompt: string;
+  prompt: string | null; // null (with end_prompt and clip_prompt) for a member who may not see this episode's prompts (prompts_hidden)
   end_prompt: string | null;
   clip_prompt: string | null;
   end_frame: boolean;
@@ -89,6 +89,7 @@ export interface ShotPlanView {
   library: { kind: string; id: string };
   phase: { state: 'open' | 'g1' | 'locked'; run_id: string | null; reason: string | null; replanning: boolean };
   may_change: boolean;
+  prompts_hidden: boolean;
   can_edit: boolean;
   uploaded: boolean;
   characters: { slug: string; name: string; role: string | null; thumb_url: string | null }[];

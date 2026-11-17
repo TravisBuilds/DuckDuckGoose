@@ -7,8 +7,10 @@ is checked against the episode's owner before the handler runs (the app-wide gua
 series' cast also needs the series' owner or an admin (only an admin while the series has no owner).
 Who may see a cast: admins, whoever may change an episode that uses it (its owner, or every member
 while it has no owner) and the series' owner. Everyone else gets the 404 a missing cast, series or
-image gets, so a refusal does not tell whether it exists. Images are served only through the
-authenticated image routes below, never as static files.
+image gets, so a refusal does not tell whether it exists. An episode's prompts are narrower: a series
+cast is seen by whoever may change one of the series' episodes, but each episode's prompts only by
+admins, the series' owner and whoever may change that episode (_may_see_prompts). Images are served
+only through the authenticated image routes below, never as static files.
 
 Paid sheet images go through ``CastSheetWorkflow``: the creator sees the estimate and approves it,
 then the activity re-checks the provider estimate against the approval, the balance gate, the caps
@@ -172,10 +174,22 @@ async def _require_viewer(library: tuple[str, str], authorization: str | None, c
         raise HTTPException(status_code=404, detail=hidden)
 
 
+async def _may_see_prompts(episode_id: str, user_id: str | None, is_admin: bool) -> bool:
+    """Who may read an episode's prompts and the text that quotes them: an admin, whoever may change
+    the episode (its owner, or every member while it has no owner) and the owner of its series. For an
+    episode with its own cast these are the people who see the cast; a series cast is also seen by
+    whoever may change another episode of the series, and they do not get this episode's prompts."""
+    if is_admin or await _may_change_one_of([episode_id], user_id):
+        return True
+    library = await _library(episode_id)
+    return library[0] == "series" and _owns_series(await _call(cast_store.get_series, library[1]), user_id)
+
+
 async def may_see_episode_cast(episode_id: str, authorization: str | None, cookie: str | None) -> bool:
-    """For other routes that report on an episode's cast (the preflight's cast check)."""
+    """For other routes that report on an episode's shots (``cast_hidden``): whether the caller may
+    read their prompts and the text that quotes them, which names the cast (_may_see_prompts)."""
     _, user_id, is_admin = await _actor(authorization, cookie)
-    return await _may_see(await _library(_episode_id(episode_id)), user_id, is_admin)
+    return await _may_see_prompts(_episode_id(episode_id), user_id, is_admin)
 
 
 # ------------------------------------------------------------------------------------- helpers
@@ -264,8 +278,9 @@ def _read_shot_list(path) -> tuple[dict, dict]:
         raise HTTPException(status_code=400, detail=f"shots.json cannot be read: {e}") from None
 
 
-def _shots_view(episode_id: str) -> dict:
-    """The uploaded shots with their cast and what each shot's cast plans to (no files written)."""
+def _shots_view(episode_id: str, hide_prompts: bool = False) -> dict:
+    """The uploaded shots with their cast and what each shot's cast plans to (no files written).
+    ``hide_prompts``: no prompt, and no detail of a shots.json that cannot be read (it can quote one)."""
     from hfvg.cast_plan import preview_episode_cast
     path = paths.episode_dir(episode_id) / "shots.json"
     if not path.is_file():
@@ -274,12 +289,13 @@ def _shots_view(episode_id: str) -> dict:
         raw = json.loads(path.read_text(encoding="utf-8"))
         report = preview_episode_cast(episode_id, raw, live=not _dry_run())
     except (OSError, ValueError) as e:
-        return {"uploaded": True, "shots": [], "plan": None, "error": f"shots.json cannot be read: {e}"}
+        return {"uploaded": True, "shots": [], "plan": None,
+                "error": "shots.json cannot be read" if hide_prompts else f"shots.json cannot be read: {e}"}
     shots = []
     for item in raw["shots"]:
         sid = item["id"]
         row = report["shots"].get(sid, {})
-        shots.append({"shot_id": sid, "prompt": str(item.get("prompt") or "")[:240],
+        shots.append({"shot_id": sid, "prompt": None if hide_prompts else str(item.get("prompt") or "")[:240],
                       "characters": item.get("characters") or [], "cast": row.get("cast") or [],
                       "allow_text": item.get("allow_text"), "text_policy": row.get("text_policy"),
                       "refs": row.get("refs") or [], "notes": row.get("notes") or []})
@@ -550,10 +566,14 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
                            studio_admin_token: str | None = Cookie(None)):
     """Everything the Cast panel shows: the episode's cast library (its series' or its own), each
     character with versions, images and sheet jobs, the shots with their cast and what each shot's
-    cast plans to, the still model's reference limit and the sheet options."""
+    cast plans to, the still model's reference limit and the sheet options. The shots' prompts only
+    for a caller who may see them (_may_see_prompts); anyone else who may see a series cast gets the
+    shots without them (``prompts_hidden``)."""
     episode_id = _episode_id(episode_id)
     library = await _library(episode_id)
     await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)
+    _, user_id, is_admin = await _actor(authorization, studio_admin_token)
+    prompts_hidden = not await _may_see_prompts(episode_id, user_id, is_admin)
     characters = await _call(cast_store.list_characters, library)
     await _refresh_sheet_jobs(characters)
     characters = await _call(cast_store.list_characters, library)
@@ -563,7 +583,8 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
         "library": {"kind": library[0], "id": library[1]},
         "series": series,
         "characters": [_character_out(c) for c in characters],
-        "shots": await asyncio.to_thread(_shots_view, episode_id),
+        "shots": await asyncio.to_thread(_shots_view, episode_id, prompts_hidden),
+        "prompts_hidden": prompts_hidden,
         "still_max_refs": await asyncio.to_thread(_still_cap),
         "sheet": await asyncio.to_thread(_sheet_info, await _live_mode(episode_id)),
         "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), "min_image_px": cast_store.min_image_px(),
