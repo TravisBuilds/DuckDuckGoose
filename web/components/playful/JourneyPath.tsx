@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useRef } from 'react';
 import Icon from './Icon';
 
 export type StopState = 'done' | 'now' | 'todo' | 'blocked';
@@ -24,7 +27,8 @@ const STATE_WORDS: Record<StopState, string> = {
  * The board-game path of numbered stops (DESIGN-TARGETS-v2 §3): green check bubbles for done
  * stops, a pulsing mustard bubble for the current one, dashed stops ahead and a coral one when
  * blocked; dashed links fill green behind you. Used for the five Universe steps and the episode
- * trail (with coins on paid steps). Scrolls sideways inside itself on narrow screens.
+ * trail (with coins on paid steps). Scrolls sideways inside itself on narrow screens, with the
+ * current stop centred.
  */
 export default function JourneyPath({ stops, current, label, compact = false, testId, className = '' }: {
   stops: JourneyStop[];
@@ -34,8 +38,16 @@ export default function JourneyPath({ stops, current, label, compact = false, te
   testId?: string;
   className?: string;
 }) {
+  const strip = useRef<HTMLElement>(null);
+  const here = current ?? stops.find((stop) => stop.state === 'now')?.key ?? null;
+  useEffect(() => {
+    const nav = strip.current;
+    const stop = nav?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (!nav || !stop || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollLeft = stop.offsetLeft - (nav.clientWidth - stop.offsetWidth) / 2;
+  }, [here]);
   return (
-    <nav aria-label={label} data-testid={testId} className={`overflow-x-auto pb-1 ${className}`}>
+    <nav ref={strip} aria-label={label} data-testid={testId} className={`relative overflow-x-auto pb-1 ${className}`}>
       <ol className={`pf-path min-w-max ${compact ? 'is-compact' : ''}`}>
         {stops.map((stop, i) => {
           const isCurrent = current ? stop.key === current : stop.state === 'now';

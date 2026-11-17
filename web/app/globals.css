@@ -588,6 +588,9 @@
     color: var(--ink-soft);
     margin-top: -3px;
   }
+  @media (max-width: 359px) {
+    .pf-stop-note { display: none; }
+  }
   .pf-link {
     flex: 1;
     min-width: 24px;
