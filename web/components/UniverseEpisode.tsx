@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
-import { GateChecklist, IconCircle, PriceBlock, Seal, hueOf } from '@/components/playful';
+import { Avatar, GateChecklist, IconCircle, PriceBlock, Seal } from '@/components/playful';
 import { castColours } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
@@ -133,16 +133,13 @@ export function EpisodeBreadcrumb({ episodeId, info, canAct, onLinked }: {
 function StripEntry({ name, image, badge, testId, colour, ring = false }: {
   name: string; image: { thumb_url: string } | null; badge: Badge; testId: string; colour?: CastColour | null; ring?: boolean;
 }) {
-  const hue = colour ? hueOf(colour) : null;
   return (
     <li className={`flex min-w-0 max-w-full items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3.5 ${ring ? 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]' : 'shadow-card'}`}
       data-testid={testId}>
       {image ? (
         <img src={`${API_URL}${image.thumb_url}`} alt="" className="h-10 w-10 flex-none rounded-full object-cover" />
       ) : (
-        <span aria-hidden="true" className={`grid h-10 w-10 flex-none place-items-center rounded-full font-display text-[16px] ${hue ? `${hue.soft} ${hue.ink}` : 'bg-mist text-ink-soft'}`}>
-          {name.slice(0, 1)}
-        </span>
+        <Avatar name={name} hue={colour?.colour ?? 'ink'} size={40} />
       )}
       <span className="min-w-0">
         <span className="block truncate text-[13.5px] font-extrabold" title={name}>{name}</span>

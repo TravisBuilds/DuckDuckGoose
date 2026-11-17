@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { LogoMark } from '@/components/playful';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -50,16 +51,17 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-page px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
+          <LogoMark className="mx-auto mb-3 size-12" />
           <h1 className="text-3xl font-bold mb-2">Studio Console</h1>
           <p className="text-gray-600">
             {showAdminLogin ? 'Admin access' : 'Sign in to your account'}
           </p>
         </div>
 
-        <form onSubmit={handleLogin} className="bg-white rounded-lg shadow-lg p-8">
+        <form onSubmit={handleLogin} className="pf-card p-8">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
               {error}
@@ -123,7 +125,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading || (!showAdminLogin && (!email || !password)) || (showAdminLogin && !secret)}
-            className="w-full px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="pf-btn pf-btn-primary w-full"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

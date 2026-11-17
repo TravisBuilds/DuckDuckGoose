@@ -77,7 +77,7 @@ export function UniverseCreateForm({ heading = 'h2' }: { heading?: 'h1' | 'h2' |
         </p>
       )}
       {problem && <p role="alert" className="mt-3 text-[13px] text-coral-ink" data-testid="universe-create-problem">{problem}</p>}
-      <button type="submit" disabled={busy || !name.trim()} className="pf-btn pf-btn-go mt-4 w-full"
+      <button type="submit" disabled={busy || !name.trim()} className="pf-btn pf-btn-primary mt-4 w-full"
         title={name.trim() ? undefined : 'Turns on once your Universe has a name.'}
         aria-describedby={name.trim() ? undefined : 'universe-create-why'} data-testid="universe-create">
         {busy ? 'Creating…' : 'Start gathering references →'}
