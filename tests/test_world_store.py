@@ -447,9 +447,9 @@ def test_a_live_board_keeps_every_picture_that_was_made():
         world_store.store_board_job_picture(job["job_id"], image_bytes(seed=10 + job["position"]), placeholder=False)
     # it stopped after 3 of 4 pictures: the three that were paid for are the board, with the reason
     short = world_store.finish_board_request("mr_0123456789aa")
+    assert (short["status"], short["error"], short["made"]) == ("done", world_store.BOARD_STOPPED, 3)
     board = world_store.list_boards(sid)[0]
-    assert (short["status"], short["error"], short["made"], short["board_id"]) == (
-        "done", world_store.BOARD_STOPPED, 3, board["board_id"])
+    assert short["board_id"] == board["board_id"]
     assert [j["status"] for j in short["jobs"]] == ["completed"] * 3 + ["skipped"]
     assert (board["version"], board["status"], board["dry_run"], board["image_count"]) == (1, "ready", False, 3)
     assert [(i["position"], i["source"]) for i in board["images"]] == [(0, "generated"), (1, "generated"),
