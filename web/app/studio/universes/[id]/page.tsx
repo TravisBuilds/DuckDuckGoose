@@ -23,8 +23,8 @@ import { btnPrimary, btnSecondary, card, chip, focusRing, input as field, link, 
  * A Universe: its header (name, one line, kind of video, owner, how many looks are locked), how it is
  * built (owner and admins), its story bible (owner and admins), its look, characters, places and
  * props (the episode panels with apiBase /api/worlds/{id}), saved voices (owner and admins), its
- * episodes, and the film placeholder. GET /api/worlds/{id} answers 404 to anyone who may not see it,
- * the same as a Universe that does not exist.
+ * episodes (the ones the reader may see), and the film placeholder. GET /api/worlds/{id} answers 404
+ * to anyone who may not see it, the same as a Universe that does not exist.
  */
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and reload.';
@@ -358,6 +358,11 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
           <h2 id="episodes-title" className="text-xl font-semibold">Episodes</h2>
           <Link href={newEpisode} className={btnSecondary}>New episode</Link>
         </div>
+        {!view.can_edit && (
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300" data-testid="universe-episodes-note">
+            You see the episodes you made in this Universe and the shared ones.
+          </p>
+        )}
         {view.episodes.length === 0 ? (
           <p className="mt-2 text-sm text-gray-700 dark:text-gray-300" data-testid="universe-episodes-empty">
             No episodes yet. Start one: its characters, places and look come from this Universe.

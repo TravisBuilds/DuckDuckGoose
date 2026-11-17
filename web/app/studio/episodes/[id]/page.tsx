@@ -643,7 +643,10 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         <div className={`${card} text-center`} data-testid="episode-not-found">
           <h1 className="text-2xl font-bold">We couldn&apos;t find this video</h1>
           <p className="mt-2 text-gray-700 dark:text-gray-200">
-            There is no video called <span className="font-mono">{episodeId}</span>. Check the link, or pick a video from your list.
+            There is no video called <span className="font-mono">{episodeId}</span> that you can open. Check the link, or pick a video from your list.
+          </p>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            A video opens only for the person who made it, the owner of its Universe and admins.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Link href="/studio" className={btnPrimary}>Back to the studio</Link>

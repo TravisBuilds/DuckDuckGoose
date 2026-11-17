@@ -397,7 +397,7 @@ export default function StudioHomePage() {
             <>
               {' · '}
               <button type="button" className={link} onClick={() => setChosenScope('everyone')} data-testid="scope-everyone">
-                See everyone&apos;s videos
+                See the shared videos
               </button>
             </>
           )}
@@ -461,9 +461,16 @@ export default function StudioHomePage() {
 
       {ready && (
         <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {scope === 'mine' ? 'Your episodes' : 'Everyone’s episodes'}
-          </h2>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {scope === 'mine' ? 'Your episodes' : isAdmin ? 'Everyone’s episodes' : 'All episodes you can open'}
+            </h2>
+            {!isAdmin && (
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300" data-testid="episodes-scope-note">
+                You see the episodes you made, the ones in your Universes and the shared ones.
+              </p>
+            )}
+          </div>
           <div role="group" aria-label="Show videos" className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-600 dark:bg-gray-800">
             {(['mine', 'everyone'] as const).map((value) => (
               <button key={value} type="button" aria-pressed={scope === value} onClick={() => setChosenScope(value)}
@@ -471,7 +478,7 @@ export default function StudioHomePage() {
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${focusRing} ${
                   scope === value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700'
                 }`}>
-                {value === 'mine' ? 'Mine' : 'Everyone'}
+                {value === 'mine' ? 'Mine' : isAdmin ? 'Everyone' : 'All'}
               </button>
             ))}
           </div>
@@ -488,8 +495,8 @@ export default function StudioHomePage() {
           </p>
           {scope === 'mine' && othersMade && (
             <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
-              Other people&apos;s videos are under{' '}
-              <button type="button" className={link} onClick={() => setChosenScope('everyone')}>Everyone</button>.
+              Other people&apos;s videos you can open are under{' '}
+              <button type="button" className={link} onClick={() => setChosenScope('everyone')}>{isAdmin ? 'Everyone' : 'All'}</button>.
             </p>
           )}
         </div>
