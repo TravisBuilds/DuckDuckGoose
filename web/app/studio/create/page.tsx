@@ -9,6 +9,9 @@ import { VoicePreview, VoiceSlotPicker, emptyVoice, type VoiceState } from '@/co
 import { presets, getPresetById } from '@/lib/presets';
 import { chip, tones } from '@/lib/ui';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
+import { castColours, speakerColours } from '@/lib/castColour.mjs';
+import { CastDot, GooseArt, JourneyPath, SceneBackdrop, SpeakerChip } from '@/components/playful';
+import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
   FREEFORM_DEFAULT_LENGTH,
@@ -456,11 +459,11 @@ function CreateVideoWizard() {
 
   if (step === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-black mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold mb-2">Creating your video...</h2>
-          <p className="text-gray-600">
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div className="max-w-md text-center">
+          <GooseArt className="pf-nod mx-auto mb-4 h-[120px] w-[110px]" />
+          <h2 className="mb-2 text-[24px]">Creating your video...</h2>
+          <p className="text-ink-soft">
             Our AI is writing the script, planning shots, and setting up characters. This takes about 10-20 seconds.
           </p>
         </div>
@@ -470,19 +473,19 @@ function CreateVideoWizard() {
 
   if (worldId && !universe) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16">
           {universeIssue ? (
-            <div className="bg-white rounded-lg border border-gray-200 p-6" data-testid="wizard-universe-problem">
+            <div className="pf-card p-6" data-testid="wizard-universe-problem">
               <h1 className="text-xl font-semibold mb-2">This episode can&apos;t start in that Universe</h1>
               <p className="text-sm text-gray-700">{universeIssue}</p>
               <div className="mt-4 flex flex-wrap gap-3 text-sm">
-                <Link href="/studio" className="text-blue-600 hover:underline">Back to the studio</Link>
-                <Link href="/studio/create" className="text-blue-600 hover:underline">Make a video without a Universe</Link>
+                <Link href="/studio" className="font-extrabold text-blue-deep underline">Back to the studio</Link>
+                <Link href="/studio/create" className="font-extrabold text-blue-deep underline">Make a video without a Universe</Link>
               </div>
             </div>
           ) : (
-            <p role="status" className="text-center text-gray-600">Loading the Universe…</p>
+            <p role="status" className="text-center text-ink-soft">Loading the Universe…</p>
           )}
         </div>
       </div>
@@ -490,7 +493,7 @@ function CreateVideoWizard() {
   }
 
   const errorBox = error && (
-    <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-sm text-red-800">
+    <div role="alert" className="mb-6 rounded-inner bg-coral-soft p-4 text-[13.5px] font-bold text-coral-ink">
       {error}
     </div>
   );
@@ -498,40 +501,66 @@ function CreateVideoWizard() {
   const filterClass = (active: boolean) =>
     `px-3 py-1 rounded-full border text-sm ${
       active
-        ? 'bg-black text-white border-black'
-        : 'border-gray-300 hover:border-blue-500'
+        ? 'bg-ink text-white border-ink'
+        : 'bg-white border-transparent shadow-card hover:border-blue-deep'
     }`;
 
+  const order = ['archetype', 'idea', 'review'];
+  const at = order.indexOf(step);
+  const trail: JourneyStop[] = [
+    { key: 'archetype', name: 'Style', note: selectedPreset?.name ?? (at > 0 ? 'Freeform' : 'Pick one'), state: at > 0 ? 'done' : 'now' },
+    { key: 'idea', name: 'Idea', note: at > 1 ? 'Written' : 'A few sentences', state: at > 1 ? 'done' : at === 1 ? 'now' : 'todo' },
+    { key: 'review', name: 'Review & start', note: 'Price shown first', state: at === 2 ? 'now' : 'todo', paid: true },
+    { key: 'episode', name: 'Episode page', note: 'Approve each step', state: 'todo' },
+  ];
+
+  const universeColours = castColours(seriesCast);
+  const shotEnds: number[] = [];
+  for (const shot of draft?.shots_json?.shots ?? []) shotEnds.push((shotEnds[shotEnds.length - 1] ?? 0) + (Number(shot.duration) || 0));
+  const scriptLines: { id: string; text: string; speaker: string | null; shot: number | null }[] =
+    (draft?.audio_plan_json?.vo?.lines ?? [])
+      .filter((line: { text?: string }) => line?.text)
+      .map((line: { id?: string; text: string; speaker?: string; at?: number }, i: number) => {
+        const at = Number(line.at) || 0;
+        const index = shotEnds.findIndex((end) => at < end);
+        return { id: line.id ?? `L${i + 1}`, text: line.text, speaker: line.speaker?.trim() || null, shot: index >= 0 ? index + 1 : null };
+      });
+  const speakers = speakerColours(['', ...scriptLines.map((line) => line.speaker ?? '')], seriesCast);
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href="/studio" className="text-sm text-blue-600 hover:underline mb-2 inline-block">
+    <div className="min-h-screen pb-12">
+      <div className="mx-auto max-w-[1100px] px-4 pt-3 sm:px-8 sm:pt-6">
+        <SceneBackdrop className="px-5 pb-6 pt-5 sm:px-10 sm:pb-8 sm:pt-7" floorHeight={44}>
+          <GooseArt className="pointer-events-none absolute right-8 top-4 hidden h-[120px] w-[110px] md:block" />
+          <Link href="/studio" className="text-[13px] font-extrabold text-blue-deep">
             ← Studio
           </Link>
-          <h1 className="text-2xl font-bold">Make Your Own Video</h1>
-          <p className="text-sm text-gray-600">
+          <h1 className="mt-1 text-[32px] leading-tight sm:text-[44px]">Make Your Own Video</h1>
+          <p className="text-[15px] text-ink-soft">
             Create an original short video in minutes. No coding required.
           </p>
           {universe && (
-            <p className="mt-2 text-sm" data-testid="wizard-universe">
+            <p className="pf-chip mt-2 bg-white text-ink shadow-card" data-testid="wizard-universe">
               In:{' '}
               <Link href={`/studio/universes/${encodeURIComponent(universe.world.series_id)}`}
-                className="font-semibold text-blue-600 hover:underline">
+                className="font-extrabold text-blue-deep underline">
                 {universe.world.name}
               </Link>
             </p>
           )}
-        </div>
+          <div className="mx-auto mt-4 max-w-[760px] rounded-card bg-white/75 px-3 pb-1 pt-3 backdrop-blur-md sm:px-5">
+            <JourneyPath stops={trail} current={step} label="Steps to make a video" compact />
+          </div>
+        </SceneBackdrop>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-[1100px] px-4 py-8 sm:px-8">
         {step !== 'review' && errorBox}
 
         {step === 'archetype' && (
           <section>
-            <h2 className="text-xl font-semibold mb-4">Step 1: Choose a Style</h2>
-            <p className="text-gray-600 mb-6">
+            <h2 className="mb-2 text-[26px]">Step 1: Choose a Style</h2>
+            <p className="mb-6 text-ink-soft">
               Pick a video type. It sets the length range, picture format and sound; you tell the story next.
             </p>
 
@@ -561,19 +590,19 @@ function CreateVideoWizard() {
 
             {visibleGroups.map(group => (
               <div key={group.template} className="mb-8" data-testid={`preset-group-${group.template}`}>
-                <h3 className="text-lg font-semibold mb-3">{group.label}</h3>
+                <h3 className="mb-3 text-[19px]">{group.label}</h3>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {group.presets.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
                       onClick={() => handleArchetypeSelect(preset.id)}
-                      className="text-left p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 transition-colors"
+                      className="pf-card border-2 border-transparent p-4 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-blue-deep motion-reduce:transform-none"
                       data-testid={`preset-card-${preset.id}`}
                     >
-                      <h4 className="font-semibold mb-1">{preset.name}</h4>
-                      <p className="text-sm text-gray-600 mb-2">{preset.description}</p>
-                      <div className="flex flex-wrap gap-x-2 text-xs text-gray-500">
+                      <h4 className="mb-1 text-[16px]">{preset.name}</h4>
+                      <p className="mb-2 text-[13.5px] text-ink-soft">{preset.description}</p>
+                      <div className="flex flex-wrap gap-x-2 text-[12px] font-bold text-ink-soft">
                         <span data-testid={`card-length-${preset.id}`}>{preset.lengthRange[0]}–{preset.lengthRange[1]}s</span>
                         <span>·</span>
                         <span data-testid={`card-aspect-${preset.id}`}>{formatAspect(preset.aspect)}</span>
@@ -589,7 +618,7 @@ function CreateVideoWizard() {
             <button
               type="button"
               onClick={handleSkipCards}
-              className="text-sm text-blue-600 hover:underline"
+              className="text-[13.5px] font-extrabold text-blue-deep underline"
             >
               Skip - I'll describe my style in the next step →
             </button>
@@ -602,7 +631,7 @@ function CreateVideoWizard() {
               <button
                 type="button"
                 onClick={handleChangeStyle}
-                className="text-sm text-blue-600 hover:underline"
+                className="text-[13.5px] font-extrabold text-blue-deep underline"
                 data-testid="change-style"
               >
                 ← Change style
@@ -610,7 +639,7 @@ function CreateVideoWizard() {
             </div>
 
             {selectedPreset ? (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="selected-style">
+              <div className="rounded-inner bg-blue-soft p-4" data-testid="selected-style">
                 <p className="text-sm font-semibold text-blue-900">Style: {selectedPreset.name}</p>
                 <p className="text-xs text-blue-700">{selectedPreset.description}</p>
                 <p className="text-xs text-blue-700 mt-1">
@@ -618,7 +647,7 @@ function CreateVideoWizard() {
                 </p>
               </div>
             ) : (
-              <div className="bg-gray-100 border border-gray-200 rounded-lg p-4" data-testid="selected-style">
+              <div className="rounded-inner bg-[#EFEDE7] p-4" data-testid="selected-style">
                 <p className="text-sm font-semibold">Style: Freeform</p>
                 <p className="text-xs text-gray-600">
                   No video type picked: describe the style in your own words. {FREEFORM_LENGTH_RANGE[0]}–{FREEFORM_LENGTH_RANGE[1]}s · 9:16.
@@ -627,8 +656,8 @@ function CreateVideoWizard() {
             )}
 
             <div>
-              <label className="block text-lg font-semibold mb-2">Step 2: Describe Your Video</label>
-              <p className="text-sm text-gray-600 mb-4">
+              <label className="mb-2 block font-display text-[26px]">Step 2: Describe Your Video</label>
+              <p className="mb-4 text-[13.5px] text-ink-soft">
                 Tell us about your story, characters, setting, and mood. A few sentences is enough.
               </p>
               <textarea
@@ -636,13 +665,13 @@ function CreateVideoWizard() {
                 onChange={(e) => setIdea(e.target.value)}
                 placeholder="Example: A curious robot explores an abandoned library filled with glowing books. It discovers a special book that comes alive with magical creatures. The mood is mysterious and wonder-filled."
                 rows={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-base"
+                className="pf-input w-full text-base"
                 data-testid="idea-input"
               />
             </div>
 
             {selectedPreset && selectedPreset.briefFields.length > 0 && (
-              <fieldset className="border border-gray-200 rounded-lg p-4" data-testid="brief-fields">
+              <fieldset className="pf-card p-4" data-testid="brief-fields">
                 <legend className="px-1 text-sm font-semibold">Optional details for {selectedPreset.name}</legend>
                 <p className="text-xs text-gray-500 mb-3">Fill in any that help; leave the rest blank.</p>
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -655,7 +684,7 @@ function CreateVideoWizard() {
                         onChange={(e) => setBriefAnswers(previous => ({ ...previous, [field]: e.target.value }))}
                         placeholder="Optional"
                         maxLength={300}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                        className="pf-input w-full"
                         data-testid={`brief-${field}`}
                       />
                     </label>
@@ -671,7 +700,7 @@ function CreateVideoWizard() {
                   id="target-length"
                   value={targetDuration}
                   onChange={(e) => setTargetDuration(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  className="pf-input w-full"
                   data-testid="duration-select"
                 >
                   {lengthOptions(lengthRange, recommendedLength).map(seconds => (
@@ -690,13 +719,13 @@ function CreateVideoWizard() {
                   value={stylePreset}
                   onChange={(e) => setStylePreset(e.target.value)}
                   placeholder="e.g., anime, watercolor, cinematic"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  className="pf-input w-full"
                   data-testid="style-input"
                 />
               </div>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm">
+            <div className="rounded-inner bg-mustard-soft p-4 text-sm">
               <p className="font-semibold text-yellow-900 mb-2">
                 ✓ Original Content Only
               </p>
@@ -709,7 +738,7 @@ function CreateVideoWizard() {
             <button
               onClick={handleGenerateDraft}
               disabled={busy || !idea.trim()}
-              className="w-full px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="pf-btn pf-btn-primary w-full"
               data-testid="generate-button"
             >
               Generate Video Plan →
@@ -720,11 +749,65 @@ function CreateVideoWizard() {
         {step === 'review' && draft && (
           <section className="space-y-6">
             <div>
-              <h2 className="text-xl font-semibold mb-2">Step 3: Review & Start</h2>
-              <p className="text-sm text-gray-600">
+              <h2 className="mb-1 text-[26px]">Step 3: Review & Start</h2>
+              <p className="text-[13.5px] text-ink-soft">
                 We've created a complete plan for your video. Review it and start production.
               </p>
             </div>
+
+            {universe && castRows.length > 0 && (
+              <section className="pf-card p-6" data-testid="wizard-from-universe" aria-labelledby="from-universe-title">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 id="from-universe-title" className="text-[19px]">From {universe.world.name}</h3>
+                  <p className="text-[12.5px] text-ink-soft">Every episode reuses these exact looks.</p>
+                </div>
+                <ul className="mt-3 flex flex-wrap gap-2.5">
+                  {castRows.map(row => {
+                    const same = row.seriesSlug ? seriesCast.find(c => c.slug === row.seriesSlug) : undefined;
+                    const match = castMatchText(same);
+                    const locked = match.badge?.tone === 'ok';
+                    return (
+                      <li key={row.code} data-testid={`wizard-from-${row.code}`}
+                        className={`flex min-w-0 items-center gap-2 rounded-full bg-white py-1.5 pl-3 pr-1.5 shadow-card ${locked ? '' : 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]'}`}>
+                        {same && <CastDot colour={universeColours[same.slug]} />}
+                        <span className="truncate text-[13.5px] font-extrabold">{same?.name ?? (row.name || row.code)}</span>
+                        <span className={`${chip} ${tones[match.badge?.tone ?? 'info']}`}>{match.badge?.label ?? 'New to this Universe'}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {castRows.some(row => {
+                  const same = row.seriesSlug ? seriesCast.find(c => c.slug === row.seriesSlug) : undefined;
+                  return castMatchText(same).badge?.tone !== 'ok';
+                }) && (
+                  <p className="mt-3 rounded-inner bg-coral-soft p-3 text-[13px] font-bold text-coral-ink">
+                    A character with a coral ring has no locked look yet: the video waits on its page until you lock it there.
+                  </p>
+                )}
+              </section>
+            )}
+
+            {scriptLines.length > 0 && (
+              <section className="pf-card p-6" data-testid="wizard-script" aria-labelledby="script-title">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="script-title" className="text-[19px]">Script</h3>
+                  <span className="flex gap-1.5">
+                    <span className={`${chip} ${tones.run}`}>Dialogue preview</span>
+                    <span className={`${chip} ${tones.wait}`}>Table read · coming</span>
+                  </span>
+                </div>
+                <ol className="mt-3 divide-y divide-[#F0EADF]">
+                  {scriptLines.map((line, i) => (
+                    <li key={`${line.id}-${i}`} className="grid grid-cols-[minmax(0,8.5rem)_1fr_auto] items-start gap-3 py-2.5 text-[14px]">
+                      <SpeakerChip name={line.speaker} colour={speakers[line.speaker ?? ''] ?? speakers['']} className="w-full" />
+                      <span className="min-w-0 break-words">{line.text}</span>
+                      <span className="whitespace-nowrap text-[12px] font-bold text-ink-soft">{line.shot ? `Shot ${line.shot}` : ''}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-2 text-[12px] text-ink-soft">Each speaker keeps their colour and saved voice from the Universe.</p>
+              </section>
+            )}
 
             {draft.warnings && draft.warnings.length > 0 && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -734,8 +817,8 @@ function CreateVideoWizard() {
               </div>
             )}
 
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="font-semibold mb-3">Story Overview</h3>
+            <div className="pf-card p-6">
+              <h3 className="mb-3 text-[19px]">Story Overview</h3>
               <div className="space-y-2 text-sm">
                 <p>
                   <span className="font-medium">Episode:</span> {draft.episode_id}
@@ -761,8 +844,8 @@ function CreateVideoWizard() {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 p-6" data-testid="review-cast">
-              <h3 className="font-semibold mb-3">Characters</h3>
+            <div className="pf-card p-6" data-testid="review-cast">
+              <h3 className="mb-3 text-[19px]">Characters</h3>
               {castRows.length === 0 ? (
                 <div className="space-y-2">
                   {Object.entries(draft.prompt_kit_json.characters || {}).map(([code, char]: [string, any]) => (
@@ -792,7 +875,7 @@ function CreateVideoWizard() {
                       <select
                         value={seriesId}
                         onChange={(e) => chooseSeries(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                        className="pf-input w-full"
                         data-testid="cast-series-select"
                       >
                         <option value="">Only this video</option>
@@ -832,7 +915,7 @@ function CreateVideoWizard() {
                                   patchCastRow(row.code, { seriesSlug: e.target.value });
                                   setCastPictures(previous => ({ ...previous, [row.code]: null }));
                                 }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                                className="pf-input w-full"
                                 data-testid={`cast-same-${row.code}`}
                               >
                                 <option value="">{universe ? 'No, new to this Universe' : 'No, new in this video'}</option>
@@ -854,7 +937,7 @@ function CreateVideoWizard() {
                                 maxLength={60}
                                 aria-label="Name"
                                 placeholder="Name"
-                                className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                                className="pf-input"
                                 data-testid={`cast-name-${row.code}`}
                               />
                               <input
@@ -864,7 +947,7 @@ function CreateVideoWizard() {
                                 maxLength={80}
                                 aria-label="Part they play"
                                 placeholder="Part they play, e.g. the lead"
-                                className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                                className="pf-input"
                               />
                               <textarea
                                 value={row.description}
@@ -873,7 +956,7 @@ function CreateVideoWizard() {
                                 rows={2}
                                 aria-label="What they look like"
                                 placeholder="What they look like: age, build, face, hair, colours, clothing"
-                                className="sm:col-span-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                                className="pf-input sm:col-span-2"
                                 data-testid={`cast-description-${row.code}`}
                               />
                               <label className="sm:col-span-2 text-sm">
@@ -949,8 +1032,8 @@ function CreateVideoWizard() {
             </div>
 
             {voiceSlots.length > 0 && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6" data-testid="voices-section">
-                <h3 className="font-semibold mb-1">Voices</h3>
+              <div className="pf-card p-6" data-testid="voices-section">
+                <h3 className="mb-1 text-[19px]">Voices</h3>
                 <p className="text-sm text-gray-600 mb-4">
                   Describe each voice in plain words and we pick a matching one. Play it, and try another until it fits.
                   {universe && Object.keys(savedVoices).length > 0 && ` The voices saved in ${universe.world.name} are filled in.`}
@@ -981,7 +1064,7 @@ function CreateVideoWizard() {
                         <button
                           type="button"
                           onClick={() => setOwnVoice(previous => ({ ...previous, [slot.key]: false }))}
-                          className="mt-2 text-sm text-blue-600 hover:underline"
+                          className="mt-2 text-sm font-extrabold text-blue-deep underline"
                           data-testid={`voice-saved-back-${slotToken(slot.key)}`}
                         >
                           Use the saved voice ({saved.name || 'unnamed voice'}) instead
@@ -997,8 +1080,8 @@ function CreateVideoWizard() {
             )}
 
             {textOnScreen && (
-              <div className="bg-white rounded-lg border border-gray-200 p-6" data-testid="on-screen-text">
-                <h3 className="font-semibold mb-1">Text on screen</h3>
+              <div className="pf-card p-6" data-testid="on-screen-text">
+                <h3 className="mb-1 text-[19px]">Text on screen</h3>
                 <p className="text-sm text-gray-600 mb-4">
                   {draft.preset ? `Set up the way ${draft.preset.name} videos usually look. ` : ''}
                   A subtitle file (.srt) comes with the video either way.
@@ -1034,7 +1117,7 @@ function CreateVideoWizard() {
                       maxLength={TEXT_CARD_MAX_CHARS}
                       aria-label="Title card text"
                       placeholder="Episode title"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                      className="pf-input w-full"
                       data-testid="ost-title-text"
                     />
                   )}
@@ -1054,7 +1137,7 @@ function CreateVideoWizard() {
                       onChange={(e) => patchText({ endText: e.target.value })}
                       maxLength={TEXT_CARD_MAX_CHARS}
                       aria-label="End card text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                      className="pf-input w-full"
                       data-testid="ost-end-text"
                     />
                   )}
@@ -1062,8 +1145,8 @@ function CreateVideoWizard() {
               </div>
             )}
 
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="font-semibold mb-3">Shot List</h3>
+            <div className="pf-card p-6">
+              <h3 className="mb-3 text-[19px]">Shot List</h3>
               <div className="space-y-3">
                 {draft.shots_json.shots.map((shot: any, i: number) => (
                   <div key={shot.id} className="border-l-4 border-blue-500 pl-4 py-2">
@@ -1079,7 +1162,7 @@ function CreateVideoWizard() {
               <button
                 onClick={handleRegenerateDraft}
                 disabled={busy}
-                className="w-full px-6 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:bg-gray-50 disabled:opacity-50"
+                className="pf-btn pf-btn-quiet w-full"
                 data-testid="regenerate-button"
               >
                 Regenerate Plan
@@ -1089,7 +1172,7 @@ function CreateVideoWizard() {
                 {errorBox}
                 {voiceBlock && (
                   <p
-                    className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900"
+                    className="mb-4 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink"
                     data-testid="voice-block"
                   >
                     {voiceBlock}
@@ -1097,7 +1180,7 @@ function CreateVideoWizard() {
                 )}
                 {textBlock && (
                   <p
-                    className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900"
+                    className="mb-4 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink"
                     data-testid="text-block"
                   >
                     {textBlock}
@@ -1105,7 +1188,7 @@ function CreateVideoWizard() {
                 )}
                 {!voiceBlock && !textBlock && castBlock && (
                   <p
-                    className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900"
+                    className="mb-4 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink"
                     data-testid="cast-block"
                   >
                     {castBlock}
@@ -1121,22 +1204,28 @@ function CreateVideoWizard() {
                 
                 <div className="space-y-3">
                   {liveAvailable ? (
-                    <button
-                      onClick={() => setShowLiveConfirm(true)}
-                      disabled={busy || !!startBlock}
-                      className="w-full px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 text-left"
-                      data-testid="make-video-button"
-                    >
-                      <div className="flex items-center justify-between">
+                    <>
+                      <button
+                        onClick={() => setShowLiveConfirm(true)}
+                        disabled={busy || !!startBlock || !draft.cost_estimate}
+                        className="pf-btn pf-btn-go w-full !justify-between"
+                        data-testid="make-video-button"
+                      >
                         <span>Make My Video (uses credits) →</span>
                         {draft.cost_estimate && (
                           <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
                         )}
-                      </div>
-                    </button>
+                      </button>
+                      {!draft.cost_estimate && (
+                        <p className="text-[12.5px] text-ink-soft" data-testid="make-video-no-price">
+                          We couldn&apos;t get a price for this plan, so a live run stays off. Regenerate the plan to try
+                          again, or preview it for free.
+                        </p>
+                      )}
+                    </>
                   ) : (
-                    <div className="w-full px-6 py-3 border-2 border-gray-300 rounded-lg bg-gray-50 opacity-60">
-                      <div className="text-sm text-gray-600">
+                    <div className="w-full rounded-input border-2 border-dashed border-[#D9D1BF] px-5 py-3">
+                      <div className="text-[13px] text-ink-soft">
                         <p className="font-semibold mb-1">Live mode not available</p>
                         <p className="text-xs">Server is in dry-run mode. Use preview to test.</p>
                       </div>
@@ -1146,7 +1235,7 @@ function CreateVideoWizard() {
                   <button
                     onClick={() => handleStartEpisode(true)}
                     disabled={busy || !!startBlock}
-                    className="w-full px-6 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:bg-gray-50 disabled:opacity-50"
+                    className="pf-btn pf-btn-primary w-full"
                     data-testid="preview-button"
                   >
                     Preview Only (free test run)
@@ -1160,18 +1249,18 @@ function CreateVideoWizard() {
             </div>
 
             {showLiveConfirm && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                  <h3 className="text-lg font-semibold mb-3">Confirm Live Production</h3>
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
+                <div className="pf-card w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="live-confirm-title">
+                  <h3 id="live-confirm-title" className="mb-3 text-[20px]">Confirm Live Production</h3>
                   <p className="text-sm text-gray-600 mb-4">
                     This will start a live production run that uses real credits and charges you.
                   </p>
                   {draft.cost_estimate && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4">
-                      <p className="text-sm font-semibold text-yellow-900">
+                    <div className="mb-4 rounded-inner border-2 border-mustard bg-mustard-soft p-3">
+                      <p className="text-sm font-extrabold text-ink">
                         Estimated cost: {formatUsd(draft.cost_estimate.total_usd_micros)}
                       </p>
-                      <p className="text-xs text-yellow-800 mt-1">
+                      <p className="mt-1 text-xs text-ink-soft">
                         This is an estimate. Actual cost may vary based on retries and model usage.
                       </p>
                     </div>
@@ -1179,7 +1268,7 @@ function CreateVideoWizard() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => setShowLiveConfirm(false)}
-                      className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold hover:bg-gray-50"
+                      className="pf-btn pf-btn-quiet flex-1"
                     >
                       Cancel
                     </button>
@@ -1188,7 +1277,7 @@ function CreateVideoWizard() {
                         setShowLiveConfirm(false);
                         handleStartEpisode(false);
                       }}
-                      className="flex-1 px-4 py-2 bg-black text-white rounded-lg font-semibold hover:bg-gray-800"
+                      className="pf-btn pf-btn-go flex-1"
                       data-testid="confirm-live-button"
                     >
                       Confirm & Start
@@ -1201,7 +1290,7 @@ function CreateVideoWizard() {
         )}
 
         <div className="mt-8">
-          <Link href="/studio/episodes/new" className="text-sm text-gray-600 hover:underline">
+          <Link href="/studio/episodes/new" className="text-[13px] font-bold text-ink-soft underline">
             Advanced: Upload files manually →
           </Link>
         </div>
