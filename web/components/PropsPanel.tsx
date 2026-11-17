@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
@@ -11,10 +11,11 @@ import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
 
 /**
- * The video's props and places (its series' when it is in one): a name, a short description and
- * reference photos for each, so a prop or place looks the same in every shot it is picked for. The
- * picks are made per shot in the shot plan (ShotPlanEditor). Every action is an API route
- * (api/prop_routes.py), which stays the authority: a refused action shows the API's reason next to it.
+ * The video's props and places (its series' when it is in one), or with `universe` those of a
+ * Universe: a name, a short description and reference photos for each, so a prop or place looks the
+ * same in every shot it is picked for. The picks are made per shot in the shot plan (ShotPlanEditor).
+ * Every action is an API route under `apiBase` (/api/episodes/{id} or /api/worlds/{id};
+ * api/prop_routes.py), which stays the authority: a refused action shows the API's reason next to it.
  */
 
 type Note = { tone: 'ok' | 'problem'; text: string; where: string };
@@ -59,8 +60,8 @@ function photoHint(view: PropsView) {
 }
 
 /** Another photo of the same prop or place (another angle, a close-up), with the rights questions. */
-function AddPhoto({ episodeId, view, item, busy, act }: {
-  episodeId: string; view: PropsView; item: PropItem; busy: boolean; act: Act;
+function AddPhoto({ apiBase, view, item, busy, act }: {
+  apiBase: string; view: PropsView; item: PropItem; busy: boolean; act: Act;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
@@ -72,7 +73,7 @@ function AddPhoto({ episodeId, view, item, busy, act }: {
     const form = new FormData();
     form.append('image_file', file);
     for (const [key, value] of rightsFields(rights)) form.append(key, value);
-    await act(() => apiFetch(`/api/episodes/${episodeId}/props/${item.prop_id}/photos`, { method: 'POST', body: form }),
+    await act(() => apiFetch(`${apiBase}/props/${item.prop_id}/photos`, { method: 'POST', body: form }),
       `Photo of ${item.name} added.`, item.slug, () => {
         setFile(null);
         setRights(emptyRights());
@@ -104,8 +105,9 @@ function AddPhoto({ episodeId, view, item, busy, act }: {
   );
 }
 
-function ItemCard({ episodeId, view, item, busy, act, note }: {
-  episodeId: string; view: PropsView; item: PropItem; busy: boolean; act: Act; note: Note | null;
+function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
+  apiBase: string; view: PropsView; item: PropItem; busy: boolean; act: Act; note: Note | null;
+  extra?: (item: PropItem) => ReactNode;
 }) {
   const photos = itemPhotos(item);
   const [editing, setEditing] = useState(false);
@@ -113,7 +115,7 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
   const kind = KIND_TEXT[item.kind] ?? KIND_TEXT.prop;
   const save = async () => {
     const name = form.name.trim();
-    await act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}`,
+    await act(() => postJson(`${apiBase}/props/${item.prop_id}`,
       { name, description: form.description.trim() }), `${name} saved.`, item.slug, () => setEditing(false));
   };
   const edit = () => {
@@ -140,6 +142,7 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
             {item.description || 'No description yet: add what it looks like, so every shot gets it right.'}
           </p>
           <p className={`${hint} mt-1`}>{photos.length === 1 ? '1 photo' : `${photos.length} photos`}</p>
+          {extra?.(item)}
         </div>
       </div>
 
@@ -154,14 +157,14 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
                     <span className={`${chip} ${tones.ok} justify-center`}>Main photo</span>
                   ) : (
                     <button type="button" className={smallBtn} disabled={busy}
-                      onClick={() => act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}/photos/${photo.image_id}/primary`, {}),
+                      onClick={() => act(() => postJson(`${apiBase}/props/${item.prop_id}/photos/${photo.image_id}/primary`, {}),
                         'Main photo changed.', item.slug)}>
                       Use as main
                     </button>
                   )}
                   <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className={smallBtn}
                     testId={`prop-photo-remove-${photo.image_id}`}
-                    onConfirm={() => act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}/photos/${photo.image_id}/delete`, {}),
+                    onConfirm={() => act(() => postJson(`${apiBase}/props/${item.prop_id}/photos/${photo.image_id}/delete`, {}),
                       'Photo removed.', item.slug)}>
                     Remove
                   </ConfirmButton>
@@ -196,21 +199,21 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
           {photos.length === 1 && (
             <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className={smallBtn}
               testId={`prop-photo-remove-${photos[0].image_id}`}
-              onConfirm={() => act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}/photos/${photos[0].image_id}/delete`, {}),
+              onConfirm={() => act(() => postJson(`${apiBase}/props/${item.prop_id}/photos/${photos[0].image_id}/delete`, {}),
                 'Photo removed.', item.slug)}>
               Remove the photo
             </ConfirmButton>
           )}
           <ConfirmButton question={`Remove ${item.name} and its photos?`} confirmLabel="Remove" disabled={busy}
             className={smallBtn} testId={`prop-remove-${item.slug}`}
-            onConfirm={() => act(() => postJson(`/api/episodes/${episodeId}/props/${item.prop_id}/delete`, {}),
+            onConfirm={() => act(() => postJson(`${apiBase}/props/${item.prop_id}/delete`, {}),
               `${item.name} removed.`, item.slug)}>
             Remove {kind.label.toLowerCase()}
           </ConfirmButton>
         </div>
       )}
       {view.can_edit && photos.length < view.limits.max_photos_per_item && (
-        <AddPhoto episodeId={episodeId} view={view} item={item} busy={busy} act={act} />
+        <AddPhoto apiBase={apiBase} view={view} item={item} busy={busy} act={act} />
       )}
       <Message note={note} />
     </li>
@@ -221,8 +224,8 @@ function ItemCard({ episodeId, view, item, busy, act, note }: {
  * Add a prop or place: what it is, a photo (with the same checks and rights questions as a cast
  * picture), a name and what it looks like; or without a photo. The photo comes first.
  */
-function AddItem({ episodeId, view, busy, act, note }: {
-  episodeId: string; view: PropsView; busy: boolean; act: Act; note: Note | null;
+function AddItem({ apiBase, view, busy, act, note }: {
+  apiBase: string; view: PropsView; busy: boolean; act: Act; note: Note | null;
 }) {
   const empty = { name: '', description: '' };
   const [kind, setKind] = useState<PropKind | ''>('');
@@ -248,12 +251,12 @@ function AddItem({ episodeId, view, busy, act, note }: {
     const body = new FormData();
     body.append('image_file', file);
     for (const [key, value] of withPhotoFields({ kind, ...form }, rights)) body.append(key, value);
-    await act(() => apiFetch(`/api/episodes/${episodeId}/props/with-photo`, { method: 'POST', body }),
+    await act(() => apiFetch(`${apiBase}/props/with-photo`, { method: 'POST', body }),
       `${name} added with its photo. Pick it on a shot in the shot plan.`, 'add', added);
   };
   const addWithoutPhoto = async () => {
     if (!kind) return;
-    await act(() => postJson(`/api/episodes/${episodeId}/props`, { kind, name, description: form.description.trim() }),
+    await act(() => postJson(`${apiBase}/props`, { kind, name, description: form.description.trim() }),
       `${name} added. Add a photo so the studio knows what it looks like.`, 'add', added);
   };
   return (
@@ -313,25 +316,42 @@ function AddItem({ episodeId, view, busy, act, note }: {
   );
 }
 
-/** onChange: after every change, so the shot plan picker shows the new list. */
-export default function PropsPanel({ episodeId, onChange }: { episodeId: string; onChange?: () => void }) {
-  const [view, setView] = useState<PropsView | null>(null);
+/** The Universe page's props and places (its view of GET /api/worlds/{id}) and how to reload them after a change. */
+export interface UniverseProps {
+  view: PropsView;
+  reload: () => Promise<void>;
+}
+
+/** onChange: after every change, so the shot plan picker shows the new list. extra: more about an item, under its photo count. */
+export default function PropsPanel({ episodeId = '', apiBase, universe = null, extra, onChange }: {
+  episodeId?: string; apiBase?: string; universe?: UniverseProps | null; extra?: (item: PropItem) => ReactNode;
+  onChange?: () => void;
+}) {
+  const base = apiBase ?? `/api/episodes/${episodeId}`;
+  const [loaded, setView] = useState<PropsView | null>(null);
+  const view = universe ? universe.view : loaded;
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [message, setMessage] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const reloadUniverse = universe?.reload;
   const load = useCallback(async () => {
+    if (reloadUniverse) {
+      await reloadUniverse();
+      return;
+    }
     try {
-      setView(await apiFetch<PropsView>(`/api/episodes/${episodeId}/props`));
+      setView(await apiFetch<PropsView>(`${base}/props`));
       setLoadIssue(null);
     } catch (e) {
       setLoadIssue(e instanceof ApiError ? e.message : 'The props and places could not be loaded right now.');
     }
-  }, [episodeId]);
+  }, [base, reloadUniverse]);
 
+  const inUniverse = Boolean(universe);
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!inUniverse) load();
+  }, [load, inUniverse]);
 
   const act: Act = async (fn, done, where, onDone) => {
     setBusy(true);
@@ -366,7 +386,7 @@ export default function PropsPanel({ episodeId, onChange }: { episodeId: string;
   return (
     <div className={card} data-testid="props-panel">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">Props &amp; places</h2>
+        <h2 className="text-xl font-semibold">{universe ? 'Places & props' : <>Props &amp; places</>}</h2>
         {view.items.length > 0 && (
           <span className={`${chip} ${tones.wait}`} data-testid="props-count">
             {view.items.length} of {view.limits.max_items}
@@ -374,10 +394,11 @@ export default function PropsPanel({ episodeId, onChange }: { episodeId: string;
         )}
       </div>
       <p className="mb-3 text-sm text-gray-700 dark:text-gray-300">
-        The things and settings that have to look right, with a photo of each. Pick them on each shot in the shot
-        plan: the studio sends their photos with that shot and adds your description to its prompt.
+        {universe
+          ? 'The places and things of this Universe, with a photo of each. Every episode in it can pick them on a shot in its shot plan: the studio sends their photos with that shot and adds your description to its prompt.'
+          : 'The things and settings that have to look right, with a photo of each. Pick them on each shot in the shot plan: the studio sends their photos with that shot and adds your description to its prompt.'}
       </p>
-      {view.series && (
+      {!universe && view.series && (
         <p className={`${hint} mb-3`} data-testid="props-series">
           Shared by every video in the series “{view.series.name}”.
         </p>
@@ -386,7 +407,9 @@ export default function PropsPanel({ episodeId, onChange }: { episodeId: string;
       {!placed && <Message note={message} />}
       {!view.can_edit && (
         <p className="mb-3 text-sm text-gray-700 dark:text-gray-300" data-testid="props-read-only">
-          {view.series
+          {universe
+            ? 'Only the owner of this Universe (or an admin) can change its places and props.'
+            : view.series
             ? 'Only the owner of this series (or an admin) can change its props and places.'
             : 'Only this video’s owner (or an admin) can change its props and places.'}
         </p>
@@ -408,12 +431,12 @@ export default function PropsPanel({ episodeId, onChange }: { episodeId: string;
       ) : (
         <ul className="grid gap-3 lg:grid-cols-2" data-testid="props-list">
           {view.items.map((item) => (
-            <ItemCard key={item.prop_id} episodeId={episodeId} view={view} item={item} busy={busy} act={act}
-              note={placed ? shownIn(item.slug) : null} />
+            <ItemCard key={item.prop_id} apiBase={base} view={view} item={item} busy={busy} act={act}
+              note={placed ? shownIn(item.slug) : null} extra={extra} />
           ))}
         </ul>
       )}
-      {add.shown && <AddItem episodeId={episodeId} view={view} busy={busy} act={act} note={placed ? shownIn('add') : null} />}
+      {add.shown && <AddItem apiBase={base} view={view} busy={busy} act={act} note={placed ? shownIn('add') : null} />}
     </div>
   );
 }
