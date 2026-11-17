@@ -36,9 +36,12 @@ import type {
   SeriesInfo,
   SheetEstimate,
 } from '@/lib/cast.mjs';
+import { castColours, castColourAt } from '@/lib/castColour.mjs';
+import type { CastColour } from '@/lib/castColour.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
+import { CharacterCard as PlayfulCharacterCard } from './playful';
 
 /**
  * The episode's cast: who is in the video, their pictures and locked character sheets, and who is
@@ -51,9 +54,9 @@ import { RightsQuestions } from './RightsQuestions';
  * or the outfit when those are on screen), by the add form, the shots or the series.
  */
 
-const btn = `px-3 py-1.5 rounded text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const plainBtn = `${btn} border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700`;
-const darkBtn = `${btn} bg-black dark:bg-white text-white dark:text-black`;
+const btn = 'pf-btn pf-btn-sm';
+const plainBtn = `${btn} pf-btn-quiet`;
+const darkBtn = `${btn} pf-btn-primary`;
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
 /** Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series". */
@@ -65,7 +68,7 @@ function CastMessage({ note }: { note: CastNote | null | undefined }) {
   if (!note) return null;
   return (
     <p data-testid="cast-message" data-tone={note.tone}
-      className={`my-3 p-3 rounded text-sm ${note.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+      className={`my-3 rounded-inner p-3 text-[13px] font-bold ${note.tone === 'ok' ? 'bg-green-soft text-green-ink' : 'bg-coral-soft text-coral-ink'}`}>
       {note.text}
     </p>
   );
@@ -87,7 +90,7 @@ function Thumb({ image, label }: { image: CastImage; label?: string }) {
         src={`${API_URL}${image.thumb_url}`}
         alt={text}
         loading="lazy"
-        className="w-36 h-36 object-cover rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900"
+        className="h-36 w-36 rounded-[12px] bg-mist object-cover shadow-card"
       />
     </a>
   );
@@ -97,12 +100,37 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   return (
     <figure className="w-36" data-testid={`cast-image-${image.image_id}`}>
       <Thumb image={image} label={label} />
-      <figcaption className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+      <figcaption className="mt-1 text-[12px] font-bold text-ink-soft">
         {label ?? PICTURE_LABELS[image.role] ?? image.role}
-        {image.placeholder && <span className="block text-amber-700 dark:text-amber-300">stand-in (preview)</span>}
+        {image.placeholder && <span className="block text-mustard-ink">stand-in (preview)</span>}
       </figcaption>
       {children && <div className="mt-1 flex flex-col gap-1">{children}</div>}
     </figure>
+  );
+}
+
+/** A character sheet as a compact grid of thumbnails, each opening the full picture. */
+function SheetGrid({ images }: { images: CastImage[] }) {
+  return (
+    <>
+      <ul className="grid grid-cols-4 gap-1.5">
+        {images.map((image) => {
+          const text = PICTURE_LABELS[image.role] ?? image.role;
+          return (
+            <li key={image.image_id} data-testid={`cast-image-${image.image_id}`}>
+              <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" title={`${text}: open the full picture`}
+                className={`block rounded-[10px] ${focusRing}`}>
+                <img src={`${API_URL}${image.thumb_url}`} alt={text} loading="lazy"
+                  className="aspect-square w-full rounded-[10px] bg-mist object-cover shadow-card" />
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      {images.some((image) => image.placeholder) && (
+        <p className="mt-1 text-[11.5px] font-bold text-mustard-ink">Stand-in pictures (preview)</p>
+      )}
+    </>
   );
 }
 
@@ -137,9 +165,9 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
   };
 
   return (
-    <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40" data-testid={`cast-upload-${character.slug}`}>
+    <div className="mt-3 p-3 rounded-lg bg-gray-50" data-testid={`cast-upload-${character.slug}`}>
       <p className="text-sm font-semibold">Add a picture of {character.name}</p>
-      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2" id={`cast-upload-hint-${character.slug}`}>
+      <p className="text-xs text-gray-600 mb-2" id={`cast-upload-hint-${character.slug}`}>
         PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
         A clear full-body picture on a plain background works best.
       </p>
@@ -153,10 +181,10 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
         aria-describedby={`cast-upload-hint-${character.slug}`}
         data-testid={`cast-upload-file-${character.slug}`}
       />
-      {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
+      {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
       <RightsQuestions rights={rights} onChange={setRights} group={group} testId={(what) => `cast-${what}-${character.slug}`} />
       {file && !fileIssue && rightsIssue && (
-        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2">{rightsIssue}</p>
+        <p className="text-xs text-amber-800 mt-2">{rightsIssue}</p>
       )}
       <button
         type="button"
@@ -252,13 +280,13 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
 
   const estimateBox = (label: string) => (
     <div className="mt-2">
-      {estimateIssue && <p className="text-sm text-red-700 dark:text-red-300" role="alert">{estimateIssue}</p>}
+      {estimateIssue && <p className="text-sm text-red-700" role="alert">{estimateIssue}</p>}
       {estimate && (
-        <div className="p-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20"
+        <div className="p-3 rounded-lg border border-yellow-200 bg-yellow-50"
           data-testid={`cast-estimate-${character.slug}`}>
-          <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">{estimateText(estimate.result)}</p>
+          <p className="text-sm font-semibold text-yellow-900">{estimateText(estimate.result)}</p>
           {!estimate.result.dry_run && (
-            <p className="text-xs text-yellow-800 dark:text-yellow-300 mt-1">
+            <p className="text-xs text-yellow-800 mt-1">
               The studio checks the price, your balance and this video&apos;s budget again before each picture.
             </p>
           )}
@@ -275,13 +303,13 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
   );
 
   return (
-    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3" data-testid={`cast-sheet-${character.slug}`}
+    <div className="mt-4 border-t border-gray-200 pt-3" data-testid={`cast-sheet-${character.slug}`}
       data-step={step}>
       <h4 className="text-sm font-semibold">Character sheet</h4>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{SHEET_STEP_TEXT[step]}</p>
+      <p className="text-sm text-gray-600 mb-2">{SHEET_STEP_TEXT[step]}</p>
 
       {problems.length > 0 && (
-        <div className="mb-2 p-2 rounded bg-red-50 dark:bg-red-900/20 text-sm text-red-800 dark:text-red-200">
+        <div className="mb-2 p-2 rounded bg-red-50 text-sm text-red-800">
           <p className="font-semibold">Some pictures were not made:</p>
           <ul className="list-disc ml-5">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
         </div>
@@ -309,14 +337,12 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
       {pictures.sheet.length > 0 && (
         <div className="mb-3">
           <p className="text-xs font-semibold mb-1">{version.locked ? 'Locked sheet' : 'Sheet so far'}</p>
-          <div className="flex flex-wrap gap-3">
-            {pictures.sheet.map((image) => <PictureTile key={image.image_id} image={image} />)}
-          </div>
+          <SheetGrid images={pictures.sheet} />
         </div>
       )}
 
       {canEdit && step !== 'locked' && step !== 'working' && sheetBlock && (
-        <p className="text-sm text-amber-800 dark:text-amber-300">{sheetBlock}</p>
+        <p className="text-sm text-amber-800">{sheetBlock}</p>
       )}
 
       {canEdit && !sheetBlock && step === 'start' && (
@@ -343,7 +369,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
           <label className="flex items-center gap-2 text-sm">
             How many options
             <select value={count} onChange={(e) => { setChosenCount(Number(e.target.value)); setEstimate(null); }}
-              className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
+              className="px-2 py-1 border border-gray-300 rounded bg-white"
               data-testid={`cast-option-count-${character.slug}`}>
               {optionCounts(fromPicture).map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
@@ -421,9 +447,9 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
     }
   };
   return (
-    <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40">
+    <div className="mt-3 p-3 rounded-lg bg-gray-50">
       <p className="text-sm font-semibold">New outfit</p>
-      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
+      <p className="text-xs text-gray-600 mb-2">
         Made from this locked look (never from scene pictures), so the face and body stay the same.
       </p>
       <div className="grid sm:grid-cols-2 gap-2">
@@ -441,9 +467,9 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
   );
 }
 
-function CharacterCard({ apiBase, view, character, busy, act, note, universe, badge, extra }: {
-  apiBase: string; view: CastView; character: CastCharacter; busy: boolean; act: Act; note: CastNote | null;
-  universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
+function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
+  apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
+  note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
 }) {
   const canEdit = view.can_edit;
   const [versionNo, setVersionNo] = useState(character.default_version);
@@ -470,26 +496,29 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
   const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
   const noteFor = (part: string) => (inPlace && spot === part ? note : null);
   const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
+  const face = pictures.uploads.find((image) => image.is_primary) ?? pictures.uploads[0] ?? pictures.sheet[0] ?? null;
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4" data-testid={`cast-character-${character.slug}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="font-semibold">
-            {character.name}
-            {character.role && <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-300">{character.role}</span>}
-          </h3>
-          <p className="text-xs text-gray-600 dark:text-gray-300">Id in the shot plan: <code>{character.slug}</code></p>
-        </div>
+    <PlayfulCharacterCard testId={`cast-character-${character.slug}`} colour={colour} name={character.name}
+      picture={face ? { src: `${API_URL}${face.thumb_url}`, alt: '' } : null}
+      seal={version.locked ? { state: 'locked', top: 'locked', bottom: `v${version.version}` } : { state: 'open', top: 'not', bottom: 'locked' }}
+      needsYou={canEdit && !anyLocked}
+      title={(
+        <>
+          <h3 className="break-words text-[19px]">{character.name}</h3>
+          {character.role && <p className="text-[12.5px] font-bold text-ink-soft">{character.role}</p>}
+        </>
+      )}>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {badge ? badge(character, version) : version.locked ? (
-          <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200"
-            data-testid={`cast-locked-${character.slug}`}>
+          <span className="pf-chip pf-chip-lock" data-testid={`cast-locked-${character.slug}`}>
             Look locked
           </span>
         ) : (
-          <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+          <span className="pf-chip pf-chip-open">
             Look not locked yet
           </span>
         )}
+        <span className="text-[11.5px] text-ink-soft">Id in the shot plan: <code>{character.slug}</code></span>
       </div>
 
       {editing ? (
@@ -501,7 +530,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
           {anyLocked && (
-            <p className="text-xs text-gray-600 dark:text-gray-300">Locked looks keep the description they were locked with.</p>
+            <p className="text-[12px] text-ink-soft">Locked looks keep the description they were locked with.</p>
           )}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy || !text.name.trim()} className={darkBtn}>Save</button>
@@ -509,14 +538,14 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           </div>
         </div>
       ) : (
-        <p className="text-sm mt-2">
+        <p className="mt-2 text-[13.5px]">
           {character.description || (
-            <span className="text-gray-600 dark:text-gray-300">No description yet. Say how they look so every shot gets them right.</span>
+            <span className="text-ink-soft">No description yet. Say how they look so every shot gets them right.</span>
           )}
         </p>
       )}
       {version.locked && (
-        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
+        <p className="mt-1 text-[12px] text-ink-soft">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
       )}
       {extra?.(character)}
 
@@ -525,17 +554,17 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           {character.versions.map((v) => (
             <button key={v.version} type="button" aria-pressed={v.version === version.version}
               onClick={() => setVersionNo(v.version)}
-              className={`${btn} border ${v.version === version.version ? 'bg-black text-white dark:bg-white dark:text-black' : 'border-gray-300 dark:border-gray-600'}`}>
+              className={`pf-chip min-h-9 cursor-pointer ${v.version === version.version ? 'bg-green-deep text-white' : 'bg-mist text-ink-soft'}`}>
               {v.label || `Version ${v.version}`}{v.locked ? ' ✓' : ''}
             </button>
           ))}
         </div>
       )}
-      {version.outfit && <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">Outfit: {version.outfit}</p>}
+      {version.outfit && <p className="mt-2 text-[12px] text-ink-soft">Outfit: {version.outfit}</p>}
 
       {pictures.uploads.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-semibold mb-1">Your pictures</p>
+          <p className="mb-1 text-[12px] font-extrabold">Your pictures</p>
           <div className="flex flex-wrap gap-3">
             {pictures.uploads.map((image) => (
               <PictureTile key={image.image_id} image={image} label={image.is_primary ? 'Main picture' : 'Picture'}>
@@ -563,7 +592,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
       )}
 
       {universe ? (
-        <UniverseLook character={character} version={version} lockEpisode={universe.lockEpisode} />
+        <UniverseLook character={character} version={version} lockEpisode={universe.lockEpisode} canEdit={canEdit} />
       ) : (
         <SheetSection key={`${character.character_id}-${version.version}`} apiBase={apiBase} view={view}
           character={character} version={version} busy={busy} act={act} note={noteFor('sheet')} />
@@ -582,7 +611,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           }} disabled={busy} className={plainBtn}>
             Edit name and description
           </button>
-          <ConfirmButton disabled={busy} className={`${plainBtn} text-red-700 dark:text-red-300`} confirmLabel="Remove"
+          <ConfirmButton disabled={busy} className={`${plainBtn} !text-coral-ink`} confirmLabel="Remove"
             question={`Remove ${character.name} and all their pictures from ${universe ? 'this Universe' : 'the cast'}?`}
             onConfirm={remove}>
             {universe ? 'Remove from this Universe' : 'Remove from the cast'}
@@ -590,7 +619,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
         </div>
       )}
       <CastMessage note={cardNote} />
-    </div>
+    </PlayfulCharacterCard>
   );
 }
 
@@ -635,23 +664,23 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
   };
   return (
     <div data-testid="cast-add" data-first={first ? 'true' : 'false'}
-      className={`mt-4 p-4 rounded-lg border ${first ? 'border-blue-300 bg-blue-50/40 dark:border-blue-700 dark:bg-blue-900/10' : 'border-dashed border-gray-300 dark:border-gray-600'}`}>
+      className={`mt-4 p-4 rounded-lg border ${first ? 'border-blue-300 bg-blue-50/40' : 'border-dashed border-gray-300'}`}>
       <h3 className="text-sm font-semibold mb-1" data-testid="cast-add-title">{title}</h3>
       {first && (
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        <p className="text-sm text-gray-700 mb-3">
           Start with a photo or drawing of each character: the studio makes their character sheet from it, so they
           look the same in every shot.
         </p>
       )}
       <label htmlFor="cast-add-file" className="block text-sm font-medium">{first ? 'Photo' : 'Photo (optional)'}</label>
-      <p id="cast-add-file-hint" className="text-xs text-gray-600 dark:text-gray-300 mb-1">
+      <p id="cast-add-file-hint" className="text-xs text-gray-600 mb-1">
         PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
         A clear full-body picture on a plain background works best.
       </p>
       <input id="cast-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="cast-add-file-hint"
         className={`text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
-      {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
+      {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
       <div className="grid sm:grid-cols-2 gap-2 mt-3">
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={60}
           placeholder="Name, e.g. Mara" aria-label="Name" className={field} data-testid="cast-add-name" />
@@ -667,7 +696,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
         <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
       )}
       {file && !fileIssue && photoIssue && (
-        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2" data-testid="cast-add-photo-problem">{photoIssue}</p>
+        <p className="text-xs text-amber-800 mt-2" data-testid="cast-add-photo-problem">{photoIssue}</p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={addWithPhoto} disabled={busy || !!photoIssue} className={darkBtn}
@@ -730,7 +759,7 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
           {list.length > 0 && (
             <>
               <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Universe"
-                className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                className="px-2 py-1.5 border border-gray-300 rounded bg-white">
                 <option value="">Pick a Universe…</option>
                 {list.map((s) => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
               </select>
@@ -738,11 +767,11 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
                 onClick={() => act(() => postJson(`${apiBase}/series`, { series_id: choice }), 'This video is now in the Universe.', 'series')}>
                 Use this Universe
               </button>
-              <span className="text-gray-600 dark:text-gray-300">or</span>
+              <span className="text-gray-600">or</span>
             </>
           )}
           <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New Universe name"
-            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
+            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 rounded bg-white" />
           <button type="button" disabled={busy || !newName.trim()} className={plainBtn}
             onClick={async () => {
               const made = await act(async () => {
@@ -779,23 +808,23 @@ function ShotCast({ apiBase, view, busy, act, note }: {
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4" data-testid="cast-shots">
+    <div className="mt-6 border-t border-gray-200 pt-4" data-testid="cast-shots">
       <h3 className="text-base font-semibold mb-1">Who is in each shot</h3>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+      <p className="text-sm text-gray-600 mb-3">
         Pick who appears in each shot. Their description and pictures are added to that shot automatically, and
         pictures never get captions, speech bubbles or lettering unless you allow words for that shot.
       </p>
-      {view.shots.error && <p className="text-sm text-red-700 dark:text-red-300">{view.shots.error}</p>}
-      {!view.shots.uploaded && <p className="text-sm text-gray-600 dark:text-gray-300">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
+      {view.shots.error && <p className="text-sm text-red-700">{view.shots.error}</p>}
+      {!view.shots.uploaded && <p className="text-sm text-gray-600">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
       {view.shots.plan && view.shots.plan.errors.length > 0 && (
-        <div className="mb-3 p-3 rounded bg-red-50 dark:bg-red-900/20 text-sm text-red-800 dark:text-red-200" role="alert"
+        <div className="mb-3 p-3 rounded bg-red-50 text-sm text-red-800" role="alert"
           data-testid="cast-plan-errors">
           <p className="font-semibold">Fix these before starting:</p>
           <ul className="list-disc ml-5">{view.shots.plan.errors.map((e) => <li key={e}>{e}</li>)}</ul>
         </div>
       )}
       {shots.length > 0 && view.characters.length === 0 && (
-        <p className="text-sm text-gray-600 dark:text-gray-300">Add someone to the cast first.</p>
+        <p className="text-sm text-gray-600">Add someone to the cast first.</p>
       )}
       {shots.length > 0 && view.characters.length > 0 && (
         <ul className="space-y-3">
@@ -804,11 +833,11 @@ function ShotCast({ apiBase, view, busy, act, note }: {
             const allowed = (shot.shot_id in allowText ? allowText[shot.shot_id] : shot.allow_text) === true;
             const update = (next: CastPick[]) => setPicks({ ...picks, [shot.shot_id]: next });
             return (
-              <li key={shot.shot_id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+              <li key={shot.shot_id} className="border border-gray-200 rounded-lg p-3"
                 data-testid={`cast-shot-${shot.shot_id}`}>
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-semibold text-sm">{shot.shot_id}</span>
-                  <span className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2">{shot.prompt}</span>
+                  <span className="text-xs text-gray-600 line-clamp-2">{shot.prompt}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {view.characters.map((c) => {
@@ -817,7 +846,7 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                       <button key={c.slug} type="button" aria-pressed={on} disabled={busy || !view.can_edit}
                         onClick={() => update(toggleCast(current, c.slug))}
                         data-testid={`cast-shot-${shot.shot_id}-${c.slug}`}
-                        className={`${btn} border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600'}`}>
+                        className={`${btn} border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
                         {on ? '✓ ' : ''}{c.name}
                       </button>
                     );
@@ -830,7 +859,7 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                       {c.name} wears
                       <select value={p.version ?? ''} disabled={busy || !view.can_edit}
                         onChange={(e) => update(setCastVersion(current, p.character, e.target.value ? Number(e.target.value) : null))}
-                        className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                        className="px-2 py-1 border border-gray-300 rounded bg-white">
                         <option value="">their usual look</option>
                         {c.versions.map((v) => (
                           <option key={v.version} value={v.version}>{v.label || `Version ${v.version}`}{v.locked ? ' (locked)' : ''}</option>
@@ -845,12 +874,12 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                   Words may appear in this picture (a sign or a title card)
                 </label>
                 {shot.refs.length > 0 && (
-                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                  <p className="mt-2 text-xs text-gray-600">
                     Reference pictures for this shot: {shot.refs.map((r) => r.label).join(' · ')}
                   </p>
                 )}
                 {shot.notes.map((note) => (
-                  <p key={note} className="mt-1 text-xs text-amber-800 dark:text-amber-300">{note}</p>
+                  <p key={note} className="mt-1 text-xs text-amber-800">{note}</p>
                 ))}
               </li>
             );
@@ -891,29 +920,27 @@ interface CastPanelProps {
 }
 
 /** A Universe character's look: a sheet is made and locked from an episode in the Universe. */
-function UniverseLook({ character, version, lockEpisode }: {
-  character: CastCharacter; version: CastVersion; lockEpisode: string | null;
+function UniverseLook({ character, version, lockEpisode, canEdit }: {
+  character: CastCharacter; version: CastVersion; lockEpisode: string | null; canEdit: boolean;
 }) {
   const sheet = versionPictures(version).sheet;
   return (
-    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3" data-testid={`cast-sheet-${character.slug}`}>
+    <div className="mt-4 border-t border-gray-200 pt-3" data-testid={`cast-sheet-${character.slug}`}>
       <h4 className="text-sm font-semibold">Character sheet</h4>
       {sheet.length > 0 && (
         <div className="my-2">
           <p className="text-xs font-semibold mb-1">{version.locked ? 'Locked sheet' : 'Sheet so far'}</p>
-          <div className="flex flex-wrap gap-3">
-            {sheet.map((image) => <PictureTile key={image.image_id} image={image} />)}
-          </div>
+          <SheetGrid images={sheet} />
         </div>
       )}
-      {!version.locked && (
-        <p className="text-sm text-gray-700 dark:text-gray-200" data-testid={`universe-lock-${character.slug}`}>
+      {canEdit && !version.locked && (
+        <p className="text-sm text-gray-700" data-testid={`universe-lock-${character.slug}`}>
           Lock this look from an episode in this Universe
           {lockEpisode ? (
             <>
               {': '}
               <a href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`}
-                className={`font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 rounded ${focusRing}`}
+                className={`font-semibold text-blue-700 underline-offset-2 hover:underline rounded ${focusRing}`}
                 data-testid={`universe-lock-link-${character.slug}`}>
                 open {lockEpisode}
               </a>.
@@ -984,13 +1011,14 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
 
   if (!view) {
     return (
-      <div className={card} data-testid="cast-panel">
-        <h2 className="text-xl font-semibold mb-1">Cast</h2>
-        <p className="text-sm text-gray-700 dark:text-gray-300">{loadIssue ?? 'Loading the cast…'}</p>
+      <div className={universe ? 'min-w-0' : card} data-testid="cast-panel">
+        <h2 className="mb-1 text-[24px]">{universe ? 'Characters' : 'Cast'}</h2>
+        <p className="text-[13.5px] text-ink-soft">{loadIssue ?? 'Loading the cast…'}</p>
       </div>
     );
   }
 
+  const colours = castColours(view.characters);
   const ofCharacter = (slug: string) =>
     message && (message.where === slug || message.where.startsWith(`${slug}:`)) ? message : null;
   const addShown = addForm(view).shown;
@@ -999,9 +1027,9 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
     view.characters.some((c) => c.slug === owner)
     || (message?.where === 'add' && addShown) || message?.where === 'shots' || message?.where === 'series');
   return (
-    <div className={card} data-testid="cast-panel">
-      <h2 className="text-xl font-semibold mb-1">{universe ? 'Characters' : 'Cast'}</h2>
-      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+    <div className={universe ? 'min-w-0' : card} data-testid="cast-panel">
+      <h2 className="mb-1 text-[24px]">{universe ? 'Characters' : 'Cast'}</h2>
+      <p className="mb-4 text-[13.5px] text-ink-soft">
         {universe
           ? 'The people (and creatures) of this Universe. Describe each one and add a picture; every episode in the Universe uses them, with the look locked once from an episode.'
           : 'The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a character sheet so they look the same in every shot.'}
@@ -1009,7 +1037,7 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {!placed && <CastMessage note={message} />}
       {!view.can_edit && (
-        <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
+        <p className="mb-4 text-[13.5px] text-ink-soft">
           {universe
             ? 'Only the owner of this Universe (or an admin) can change its characters.'
             : <>Only this video&apos;s owner (or an admin) can change its cast.</>}
@@ -1020,16 +1048,17 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
           note={placed && message?.where === 'series' ? message : null} />
       )}
       {!universe && view.sheet.dry_run && (
-        <p className="mb-4 text-xs text-gray-600 dark:text-gray-300">
+        <p className="mb-4 text-[12px] text-ink-soft">
           Preview mode: character sheets use free stand-in pictures, so you can try every step at no cost.
         </p>
       )}
       {view.characters.length === 0 ? (
-        <p className="text-sm text-gray-600 dark:text-gray-300">No one in the cast yet.</p>
+        <p className="text-[13.5px] text-ink-soft">No one in the cast yet.</p>
       ) : (
-        <div className="space-y-4">
-          {view.characters.map((c) => (
-            <CharacterCard key={c.character_id} apiBase={base} view={view} character={c} busy={busy} act={act}
+        <div className={`grid items-start gap-5 sm:grid-cols-2 ${universe ? 'xl:grid-cols-3' : ''}`}>
+          {view.characters.map((c, i) => (
+            <CharacterCard key={c.character_id} apiBase={base} view={view} character={c}
+              colour={colours[c.slug] ?? castColourAt(i)} index={i} busy={busy} act={act}
               note={ofCharacter(c.slug)} universe={universe} badge={badge} extra={extra} />
           ))}
         </div>

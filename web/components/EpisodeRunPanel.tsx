@@ -230,7 +230,7 @@ export function runShotIds(state: RunState | null, shotStates: Record<string, Sh
 function SectionTitle({ id, title, status }: { id: string; title: string; status?: { label: string; tone: keyof typeof tones } | null }) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <h2 id={id} className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h2>
+      <h2 id={id} className="text-xl font-semibold text-gray-900">{title}</h2>
       {status && <span className={`${chip} ${tones[status.tone]}`} data-testid={`${id}-chip`}>{status.label}</span>}
     </div>
   );
@@ -238,7 +238,7 @@ function SectionTitle({ id, title, status }: { id: string; title: string; status
 
 function NotYours() {
   return (
-    <p className="text-sm text-gray-700 dark:text-gray-200">
+    <p className="text-sm text-gray-700">
       Only the person who made this video, or an admin, can approve or change it.
     </p>
   );
@@ -260,13 +260,13 @@ export function FinishLine({ episodeId, run, files, mine = true, children }: {
     <section id="finished" className={highlight} data-testid="run-ended" data-tone={done ? 'done' : 'expired'}
       aria-labelledby="finished-title">
       {children}
-      <h2 id="finished-title" className={`text-2xl font-bold text-gray-900 dark:text-white ${children ? 'mt-4' : ''}`}
+      <h2 id="finished-title" className={`text-2xl font-bold text-gray-900 ${children ? 'mt-4' : ''}`}
         data-testid="run-ended-title">
         {finish.title}
       </h2>
-      <p className="mt-1 text-gray-700 dark:text-gray-200">{finish.text}</p>
+      <p className="mt-1 text-gray-700">{finish.text}</p>
       {!done && run?.reason && (
-        <p className="mt-1 break-words text-sm text-gray-700 dark:text-gray-200" data-testid="run-ended-reason">{run.reason}</p>
+        <p className="mt-1 break-words text-sm text-gray-700" data-testid="run-ended-reason">{run.reason}</p>
       )}
       {finish.primary && (
         <video data-testid="ready-video" controls playsInline preload="metadata" src={fileUrl(episodeId, finish.primary)}
@@ -295,7 +295,7 @@ export function RunEndedCard({ episodeId, state, busy, act, canAct }: {
   if (!ended || ended.tone !== 'error') return null;
   return (
     <section id="run-ended" role="alert" data-testid="run-ended" data-tone={ended.tone}
-      className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900 sm:p-6 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
+      className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900 sm:p-6">
       <h2 className="text-xl font-bold" data-testid="run-ended-title">{ended.title}</h2>
       {ended.reason && <p className="mt-1 break-words text-sm" data-testid="run-ended-reason">{ended.reason}</p>}
       {ended.canStartAgain && canAct && (
@@ -317,7 +317,7 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
   if (!count || state?.run?.ended) return null;
   return (
     <div role="status" data-testid="stall-banner"
-      className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+      className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
       <p className="font-semibold">
         {count === 1 ? 'One step is taking longer than it should.' : `${count} steps are taking longer than they should.`}
       </p>
@@ -348,7 +348,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
       {approved && <p className="sr-only" data-testid="g1-approved">Approved</p>}
-      <p className="text-gray-700 dark:text-gray-200">
+      <p className="text-gray-700">
         {approved
           ? waitingOn ? 'The shot plan is approved.' : 'You approved the shot plan.'
           : atG1
@@ -367,7 +367,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
             Approve the shot plan
           </button>
           {unsaved && (
-            <span className="text-sm text-amber-800 dark:text-amber-300" data-testid="approve-g1-unsaved">
+            <span className="text-sm text-amber-800" data-testid="approve-g1-unsaved">
               Save or undo your shot changes first.
             </span>
           )}
@@ -376,7 +376,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
       {editable && <ShotPlanEditor episodeId={episodeId} refreshKey={planKey} onDirty={setUnsaved} onSaved={onPlanSaved} />}
       {!editable && shots.length > 0 && (
         <details className="mt-4" open={atG1}>
-          <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 dark:text-gray-100 ${focusRing}`}>
+          <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 ${focusRing}`}>
             The {shots.length} shots
           </summary>
           <ol className="mt-2 space-y-2">
@@ -385,7 +385,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
               return (
                 <li key={shot.shot_id} className="flex gap-3 text-sm">
                   <span className="w-10 shrink-0 font-mono font-semibold">{shot.shot_id}</span>
-                  <span className="text-gray-700 dark:text-gray-200">{text || 'No description'}</span>
+                  <span className="text-gray-700">{text || 'No description'}</span>
                 </li>
               );
             })}
@@ -403,7 +403,7 @@ function StillThumb({ src, alt, testId }: { src: string; alt: string; testId: st
   const frame = 'mx-auto aspect-[9/16] w-full max-w-[160px] rounded-md';
   if (broken) {
     return (
-      <div className={`${frame} flex items-center justify-center bg-gray-100 p-2 text-center text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200`}>
+      <div className={`${frame} flex items-center justify-center bg-gray-100 p-2 text-center text-xs text-gray-700`}>
         The picture could not be loaded.
       </div>
     );
@@ -412,7 +412,7 @@ function StillThumb({ src, alt, testId }: { src: string; alt: string; testId: st
     <a href={src} target="_blank" rel="noopener noreferrer" className={`block rounded-md ${focusRing}`}
       title="Open the full picture in a new tab">
       <img src={src} alt={alt} data-testid={testId} onError={() => setBroken(true)}
-        className={`${frame} bg-gray-100 object-cover dark:bg-gray-700`} />
+        className={`${frame} bg-gray-100 object-cover`} />
     </a>
   );
 }
@@ -470,7 +470,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   return (
     <section id="scene-pictures" className={`${card} scroll-mt-4`} data-testid="shots-review" aria-labelledby="scene-pictures-title">
       <SectionTitle id="scene-pictures-title" title="Scene pictures" status={gateChip(approvedAll, atG2 && !ended, waitingOn)} />
-      <p className="text-gray-700 dark:text-gray-200">
+      <p className="text-gray-700">
         {approvedAll
           ? `${waitingOn ? 'The scene pictures are approved.' : 'You approved the scene pictures.'} Each one becomes a short clip.`
           : atG2
@@ -481,12 +481,12 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
 
       {shotStatesError && started && (
         <p role="alert" data-testid="stills-error"
-          className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
+          className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
           The scene pictures could not be loaded: {shotStatesError}
         </p>
       )}
       {!shotStatesError && atG2 && ids.length === 0 && (
-        <p className="mt-4 text-sm text-gray-700 dark:text-gray-200">The pictures are being made. They show up here as they finish.</p>
+        <p className="mt-4 text-sm text-gray-700">The pictures are being made. They show up here as they finish.</p>
       )}
 
       {ids.length > 0 && (
@@ -504,7 +504,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const confirming = redo?.sid === sid ? redo : null;
             return (
               <li key={sid} data-testid={`still-card-${sid}`}
-                className="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                className="flex flex-col gap-3 rounded-lg border border-gray-200 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-sm font-semibold">{sid}</span>
                   <span className={`${chip} ${tones[c.tone]}`} data-testid={`still-chip-${sid}`}>{c.label}</span>
@@ -513,13 +513,13 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                   <StillThumb src={stillSrc(episodeId, sid, row)} testId={`still-thumb-${sid}`}
                     alt={`Scene picture ${sid}${description ? `: ${description}` : ''}`} />
                 ) : (
-                  <div className="mx-auto flex aspect-[9/16] w-full max-w-[160px] items-center justify-center rounded-md bg-gray-100 p-2 text-center text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                  <div className="mx-auto flex aspect-[9/16] w-full max-w-[160px] items-center justify-center rounded-md bg-gray-100 p-2 text-center text-xs text-gray-700">
                     {status === 'failed' ? "This picture couldn't be made." : 'Being made…'}
                   </div>
                 )}
-                {description && <p className="line-clamp-3 text-sm text-gray-700 dark:text-gray-200">{description}</p>}
+                {description && <p className="line-clamp-3 text-sm text-gray-700">{description}</p>}
                 {(madeWith?.[sid] ?? []).length > 0 && (
-                  <div className="text-xs text-gray-700 dark:text-gray-200" data-testid={`made-with-${sid}`}>
+                  <div className="text-xs text-gray-700" data-testid={`made-with-${sid}`}>
                     <span className="mr-1">Made with</span>
                     <ul className="inline-flex flex-wrap gap-1 align-middle">
                       {madeWith?.[sid]?.map((name) => (
@@ -528,7 +528,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                     </ul>
                   </div>
                 )}
-                {!castHidden && ss?.still_error && <p className="text-xs text-red-700 dark:text-red-300">{ss.still_error}</p>}
+                {!castHidden && ss?.still_error && <p className="text-xs text-red-700">{ss.still_error}</p>}
                 {canDecide && (
                   <div className="mt-auto space-y-2">
                     <button data-testid={`approve-shot-${sid}`} disabled={busy || decision === 'approved'} className={`${btnPrimary} w-full`}
@@ -536,7 +536,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                         `Picture ${sid} approved.`, `Couldn't approve picture ${sid}`)}>
                       {decision === 'approved' ? 'Approved' : 'Approve'}
                     </button>
-                    <label htmlFor={`reject-reason-${sid}`} className="block text-xs font-medium text-gray-700 dark:text-gray-200">
+                    <label htmlFor={`reject-reason-${sid}`} className="block text-xs font-medium text-gray-700">
                       What should change in this picture?
                     </label>
                     <input id={`reject-reason-${sid}`} data-testid={`reject-reason-${sid}`} value={note} className={input}
@@ -546,7 +546,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                         if (confirming) setRedo(null);
                       }}
                       placeholder="e.g. the framing is too loose" />
-                    <p id={`reject-reason-hint-${sid}`} className="text-xs text-gray-700 dark:text-gray-200">
+                    <p id={`reject-reason-hint-${sid}`} className="text-xs text-gray-700">
                       Your note goes with the redo when this picture is made again.
                     </p>
                     <button data-testid={`reject-shot-${sid}`} disabled={busy || !note.trim()} className={`${btnSecondary} w-full`}
@@ -565,23 +565,23 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       </button>
                     )}
                     {redoIssue?.sid === sid && (
-                      <p role="alert" data-testid={`redo-problem-${sid}`} className="text-sm text-red-700 dark:text-red-300">
+                      <p role="alert" data-testid={`redo-problem-${sid}`} className="text-sm text-red-700">
                         {redoIssue.text}
                       </p>
                     )}
                     {confirming && (
                       <div data-testid={`redo-estimate-${sid}`}
-                        className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+                        className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
                         <p id={`redo-price-${sid}`} data-testid={`redo-price-${sid}`}
-                          className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
+                          className="text-sm font-semibold text-yellow-900">
                           {redoPriceText(confirming.estimate)}
                         </p>
                         <p id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}
-                          className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
+                          className="mt-1 text-xs text-yellow-900">
                           {redoNoteText(confirming.note)}
                         </p>
                         {!confirming.estimate.dry_run && (
-                          <p className="mt-1 text-xs text-yellow-900 dark:text-yellow-200">
+                          <p className="mt-1 text-xs text-yellow-900">
                             The studio checks the price, your balance and this video&apos;s budget again before the picture is made.
                           </p>
                         )}
@@ -606,13 +606,13 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
       )}
 
       {atG2 && !ended && canAct && (
-        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
           <button data-testid="approve-g2" disabled={busy} className={btnPrimary}
             onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g2_scene_stills' }),
               'Scene pictures approved. Making the clips now.', "Couldn't approve the scene pictures")}>
             Approve all scene pictures
           </button>
-          <span className="text-sm text-gray-700 dark:text-gray-200">Approve once every picture has your decision.</span>
+          <span className="text-sm text-gray-700">Approve once every picture has your decision.</span>
         </div>
       )}
     </section>
@@ -649,12 +649,12 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
     <section id="final-cut" className={`${card} scroll-mt-4`} data-testid="final-cut-card" aria-labelledby="final-cut-title">
       <SectionTitle id="final-cut-title" title="Final cut & delivery" status={gateChip(approved, reviewing, waitingOn)} />
       {approved && (
-        <p className="font-semibold text-green-800 dark:text-green-300" data-testid="final-approved">
+        <p className="font-semibold text-green-800" data-testid="final-approved">
           {waitingOn ? 'The final cut is approved.' : 'You approved the final cut.'}
         </p>
       )}
       {!approved && !reviewing && (
-        <p className="text-gray-700 dark:text-gray-200">
+        <p className="text-gray-700">
           {ended && !completed
             ? 'This run stopped before the final cut.'
             : 'After the clips are made, the studio edits them together with sound. The result shows up here for you to watch and approve.'}
@@ -663,7 +663,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
 
       {reviewing && state && (
         <>
-          <p className="text-gray-700 dark:text-gray-200">
+          <p className="text-gray-700">
             Watch the video. Approve it to finish, redo a clip that is not right, or send the cut back with notes.
           </p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -674,28 +674,28 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
                   <video data-testid={`preview-${type}`} controls playsInline preload="metadata" src={fileUrl(episodeId, type)}
                     className={`w-full rounded bg-black ${type === 'phone' ? 'max-h-[70vh] max-w-xs' : ''}`} />
                 ) : (
-                  <p className="rounded bg-gray-100 p-3 text-sm text-gray-700 dark:bg-gray-700 dark:text-gray-200" data-testid={`preview-${type}-missing`}>
+                  <p className="rounded bg-gray-100 p-3 text-sm text-gray-700" data-testid={`preview-${type}-missing`}>
                     {noFileText}
                   </p>
                 )}
               </div>
             ))}
           </div>
-          <p className="mt-4 text-sm text-gray-700 dark:text-gray-200">
+          <p className="mt-4 text-sm text-gray-700">
             Picture check: {qcLabel(state.assembly?.qc?.verdict)} · Sound and files check: {qcLabel(state.delivery?.qc?.verdict)}
           </p>
           {blockers.length > 0 && (
-            <p className="mt-2 text-sm text-red-800 dark:text-red-300" data-testid="final-blockers">
+            <p className="mt-2 text-sm text-red-800" data-testid="final-blockers">
               Approving will be refused until {blockers.join('; ')}.
             </p>
           )}
           {state.final_cut_refusals.length > 0 && (
-            <p className="mt-2 text-xs text-gray-700 dark:text-gray-200">
+            <p className="mt-2 text-xs text-gray-700">
               Last time approval was refused: {refusalText(state.final_cut_refusals[state.final_cut_refusals.length - 1])}
             </p>
           )}
           {state.final_cut_rejections.length > 0 && (
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-200" data-testid="final-rejections">
+            <p className="mt-2 text-sm text-gray-700" data-testid="final-rejections">
               Your notes so far: {state.final_cut_rejections.map((r) => r.reason).join(' | ')}
             </p>
           )}
@@ -724,7 +724,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
                   })}
                 </ul>
               </details>
-              <div className="mt-6 flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+              <div className="mt-6 flex flex-col gap-3 border-t border-gray-200 pt-4">
                 <div>
                   {/* Deliberately NOT disabled by the blocker list: the API decides and its 409 is shown. */}
                   <button data-testid="approve-final" disabled={busy} className={btnPrimary}
@@ -733,7 +733,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
                     Approve the final cut
                   </button>
                 </div>
-                <label htmlFor="final-reject-reason" className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                <label htmlFor="final-reject-reason" className="text-sm font-medium text-gray-700">
                   Or send it back: what should change?
                 </label>
                 <textarea id="final-reject-reason" data-testid="final-reject-reason" value={finalReason} rows={2}
@@ -761,7 +761,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
           <ul className="mt-1 space-y-1 text-sm">
             {downloads.map((type) => (
               <li key={type}>
-                <a data-testid={`download-${type}`} className="text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+                <a data-testid={`download-${type}`} className="text-blue-700 underline-offset-2 hover:underline"
                   href={`${fileUrl(episodeId, type)}?download=true`}>
                   {fileLabel(type)}
                 </a>
@@ -776,7 +776,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
 
 // ---------------------------------------------------------------- Production details
 
-const sub = 'rounded-lg border border-gray-200 p-4 dark:border-gray-700';
+const sub = 'rounded-lg border border-gray-200 p-4';
 
 function QcBlock({ title, testid, view, onAccept, busy, canAccept }: {
   title: string; testid: string; view: StageView | null; busy: boolean; canAccept: boolean;
@@ -787,7 +787,7 @@ function QcBlock({ title, testid, view, onAccept, busy, canAccept }: {
     return (
       <div className={sub} data-testid={testid}>
         <h3 className="font-semibold">{title}</h3>
-        <p className="text-sm text-gray-700 dark:text-gray-200">Not produced yet.</p>
+        <p className="text-sm text-gray-700">Not produced yet.</p>
       </div>
     );
   }
@@ -798,14 +798,14 @@ function QcBlock({ title, testid, view, onAccept, busy, canAccept }: {
       <p className="text-sm">
         Verdict: <strong data-testid={`${testid}-verdict`}>{verdict}</strong> ({qcLabel(verdict)})
         {' · '}
-        <span data-testid={`${testid}-blocking`} className={view.blocking ? 'font-semibold text-red-700 dark:text-red-300' : 'text-green-800 dark:text-green-300'}>
+        <span data-testid={`${testid}-blocking`} className={view.blocking ? 'font-semibold text-red-700' : 'text-green-800'}>
           {view.blocking ? 'blocking' : 'not blocking'}
         </span>
-        {view.stale && <span className="ml-2 text-amber-800 dark:text-amber-300">(stale: a clip changed since this was built)</span>}
+        {view.stale && <span className="ml-2 text-amber-800">(stale: a clip changed since this was built)</span>}
       </p>
-      {view.qc?.reason && <p className="mt-1 text-xs text-gray-700 dark:text-gray-200">{view.qc.reason}</p>}
+      {view.qc?.reason && <p className="mt-1 text-xs text-gray-700">{view.qc.reason}</p>}
       {view.acceptance?.reason && (
-        <p className="mt-1 text-xs text-blue-800 dark:text-blue-300" data-testid={`${testid}-accepted`}>Accepted: {view.acceptance.reason}</p>
+        <p className="mt-1 text-xs text-blue-800" data-testid={`${testid}-accepted`}>Accepted: {view.acceptance.reason}</p>
       )}
       {view.blocking && canAccept && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -828,7 +828,7 @@ function CreditsCard({ episodeId, credits, busy, act, isAdmin }: {
   const [newBalance, setNewBalance] = useState('');
   const [newCap, setNewCap] = useState('');
   const bd = balanceDisplay(credits?.higgsfield_balance);
-  const tone = bd.tone === 'ok' ? 'text-green-800 dark:text-green-300' : bd.tone === 'warn' ? 'text-amber-800 dark:text-amber-300' : 'text-red-700 dark:text-red-300';
+  const tone = bd.tone === 'ok' ? 'text-green-800' : bd.tone === 'warn' ? 'text-amber-800' : 'text-red-700';
   return (
     <div className={sub} data-testid="credits-card">
       <h3 className="mb-1 font-semibold">Credit cap and balance</h3>
@@ -836,14 +836,14 @@ function CreditsCard({ episodeId, credits, busy, act, isAdmin }: {
         <p className="text-sm">
           Spent <strong>{credits.spent_credits}</strong> · reserved {credits.reserved_credits} · cap{' '}
           <strong data-testid="credit-cap">{credits.cap_credits || 'not set'}</strong>
-          {credits.pause_needed && <span className="ml-2 font-semibold text-red-700 dark:text-red-300" data-testid="cap-paused">at cap: shots paused</span>}
+          {credits.pause_needed && <span className="ml-2 font-semibold text-red-700" data-testid="cap-paused">at cap: shots paused</span>}
         </p>
-      ) : <p className="text-sm text-gray-700 dark:text-gray-200">No credit line yet.</p>}
+      ) : <p className="text-sm text-gray-700">No credit line yet.</p>}
       <p className={`mt-1 text-sm ${tone}`} data-testid="higgsfield-balance" data-tone={bd.tone}>{bd.text}</p>
       {isAdmin && (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
-            <label htmlFor="new-balance" className="block text-xs font-medium text-gray-700 dark:text-gray-200">Provider balance (USD)</label>
+            <label htmlFor="new-balance" className="block text-xs font-medium text-gray-700">Provider balance (USD)</label>
             <div className="mt-1 flex gap-2">
               <input id="new-balance" data-testid="new-balance" value={newBalance} inputMode="decimal" className={input}
                 onChange={(e) => setNewBalance(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 42.50" />
@@ -858,7 +858,7 @@ function CreditsCard({ episodeId, credits, busy, act, isAdmin }: {
             </div>
           </div>
           <div>
-            <label htmlFor="new-cap" className="block text-xs font-medium text-gray-700 dark:text-gray-200">New cap (credits)</label>
+            <label htmlFor="new-cap" className="block text-xs font-medium text-gray-700">New cap (credits)</label>
             <div className="mt-1 flex gap-2">
               <input id="new-cap" data-testid="new-cap" value={newCap} inputMode="numeric" className={input}
                 onChange={(e) => setNewCap(e.target.value.replace(/[^0-9]/g, ''))} placeholder="e.g. 650" />
@@ -908,14 +908,14 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
           </p>
         )}
         <p className="text-sm">Passed gates: <span data-testid="passed-gates">{state.passed_gates.join(', ') || '—'}</span></p>
-        {failed.length > 0 && <p className="text-sm text-red-700 dark:text-red-300">Failed shots: {failed.join(', ')}</p>}
+        {failed.length > 0 && <p className="text-sm text-red-700">Failed shots: {failed.join(', ')}</p>}
         {state.run && (
-          <p className="text-xs text-gray-700 dark:text-gray-200">
+          <p className="text-xs text-gray-700">
             Run {state.run.run_id ?? 'unknown'} · {state.run.status}{state.run.dry_run ? ' · dry run' : ''}
           </p>
         )}
         {state.run?.archived && (
-          <p className="mt-1 text-xs text-gray-700 dark:text-gray-200" data-testid="run-archived">
+          <p className="mt-1 text-xs text-gray-700" data-testid="run-archived">
             The workflow server no longer keeps this run&apos;s history.{' '}
             {state.run.outcome !== 'completed'
               ? 'Nothing saved shows how it ended.'
@@ -938,7 +938,7 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
       <div className={sub} data-testid="moderation-card">
         <h3 className="mb-1 font-semibold">Moderation ladder</h3>
         {moderated.length === 0 ? (
-          <p className="text-sm text-gray-700 dark:text-gray-200" data-testid="moderation-none">No moderation steps were needed.</p>
+          <p className="text-sm text-gray-700" data-testid="moderation-none">No moderation steps were needed.</p>
         ) : (
           <ul className="space-y-1 text-sm">
             {moderated.map((sid) => (
@@ -948,7 +948,7 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
                   m.steps.length ? <span key={phase} className="mr-3">{phase}: {m.steps.join(' → ')}</span> : null
                 ))}
                 {shotStates?.[sid]?.moderation_escalation
-                  ? <span className="text-red-700 dark:text-red-300">escalated: {refusalText(shotStates?.[sid]?.moderation_escalation)}</span>
+                  ? <span className="text-red-700">escalated: {refusalText(shotStates?.[sid]?.moderation_escalation)}</span>
                   : null}
               </li>
             ))}
@@ -976,7 +976,7 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
   return (
     <div className={sub} data-testid="shots-card">
       <h3 className="mb-2 font-semibold">Shot list ({ids.length} shots)</h3>
-      {ids.length === 0 && <p className="text-sm text-gray-700 dark:text-gray-200">No shots loaded. Upload BEATMAP.md to load shots.</p>}
+      {ids.length === 0 && <p className="text-sm text-gray-700">No shots loaded. Upload BEATMAP.md to load shots.</p>}
       <ul className="space-y-3">
         {ids.map((sid) => {
           const ss = shotStates?.[sid];
@@ -984,12 +984,12 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
           const decision = state?.shot_decisions[sid];
           const check = preflight?.[sid];
           return (
-            <li key={sid} className="rounded border border-gray-200 p-3 dark:border-gray-700" data-testid={`shot-${sid}`}>
+            <li key={sid} className="rounded border border-gray-200 p-3" data-testid={`shot-${sid}`}>
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <strong>{sid}</strong>
-                {row?.beat_id && <span className={`${chip} ${tones.todo}`} title={row.beat_purpose}>{row.beat_id}</span>}
+                {row?.beat_id && <span className={`${chip} ${tones.info}`} title={row.beat_purpose}>{row.beat_id}</span>}
                 {check && (
-                  <span className={check.ok ? 'text-green-800 dark:text-green-300' : 'text-red-700 dark:text-red-300'}
+                  <span className={check.ok ? 'text-green-800' : 'text-red-700'}
                     title={check.errors.join('\n') || 'Passes model limits'}>
                     {check.ok ? '✓ limits' : '✗ limits'}
                   </span>
@@ -999,12 +999,12 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
                 <span>clip: <span data-testid={`shot-${sid}-clip`}>{ss?.clip_status ?? '—'}</span></span>
                 {decision && <span data-testid={`shot-${sid}-decision`} className="font-semibold">{decision}</span>}
                 {state?.clip_retries[sid] ? <span>clip retries: {state.clip_retries[sid]}</span> : null}
-                {state?.pending_clip_retries.includes(sid) && <span className="text-amber-800 dark:text-amber-300">clip retry running</span>}
-                {row && <span className="text-gray-700 dark:text-gray-200">db: {row.status}{row.retries > 0 ? ` (retry ${row.retries})` : ''}</span>}
+                {state?.pending_clip_retries.includes(sid) && <span className="text-amber-800">clip retry running</span>}
+                {row && <span className="text-gray-700">db: {row.status}{row.retries > 0 ? ` (retry ${row.retries})` : ''}</span>}
               </div>
-              {(ss?.still_error || ss?.clip_error) && <p className="mt-1 text-xs text-red-700 dark:text-red-300">{ss?.still_error ?? ss?.clip_error}</p>}
-              {row?.beat_purpose && <p className="mt-1 text-sm italic text-purple-800 dark:text-purple-300">{row.beat_purpose}</p>}
-              {row?.prompt && !castHidden && <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">{row.prompt}</p>}
+              {(ss?.still_error || ss?.clip_error) && <p className="mt-1 text-xs text-red-700">{ss?.still_error ?? ss?.clip_error}</p>}
+              {row?.beat_purpose && <p className="mt-1 text-sm italic text-purple-800">{row.beat_purpose}</p>}
+              {row?.prompt && !castHidden && <p className="mt-1 text-sm text-gray-700">{row.prompt}</p>}
               {row?.still_url && (
                 <div className="mt-2 text-xs">
                   Still
@@ -1012,11 +1012,11 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
                     <span data-testid={`still-${sid}-pre-approved`} className={`ml-2 ${chip} ${tones.todo}`}>pre-approved (no still spend)</span>
                   )}
                   <img src={stillSrc(episodeId, sid, row)} alt={`Still ${sid}`} loading="lazy"
-                    className="mt-1 h-32 w-auto rounded border border-gray-300 object-cover dark:border-gray-600" />
+                    className="mt-1 h-32 w-auto rounded border border-gray-300 object-cover" />
                 </div>
               )}
               {row?.clip_url && (
-                <video src={row.clip_url} controls preload="none" className="mt-2 w-64 rounded border border-gray-300 dark:border-gray-600" />
+                <video src={row.clip_url} controls preload="none" className="mt-2 w-64 rounded border border-gray-300" />
               )}
             </li>
           );

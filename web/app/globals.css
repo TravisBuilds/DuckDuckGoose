@@ -1,24 +1,911 @@
 @import "tailwindcss";
 
+/* Light-first: there is no dark mode, so a dark: utility never applies (nothing sets a .dark class). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Studio tokens: a light, airy sky-blue look. lib/palette.mjs holds the same values and
+ * lib/palette.test.mjs checks they agree and that every text pair meets WCAG AA. White text goes
+ * only on the -deep tokens; the -ink tokens are the text colours on the -soft fills. The bright
+ * swatches (azure, lime, orange-red, yellow, cyan) are fills, circles, dots and chips.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
+  --coral: #FF5A1F;
+  --coral-deep: #C2410C;
+  --coral-soft: #FFE8DE;
+  --mustard: #FFD60A;
+  --mustard-deep: #7D5E00;
+  --mustard-soft: #FFF5C2;
+  --blue: #1E9BF0;
+  --blue-deep: #0A6CC0;
+  --blue-soft: #DCEFFB;
+  --aqua: #BDEBFA;
+  --aqua-deep: #0A6C88;
+  --aqua-soft: #E4F7FD;
+  --green: #C6F432;
+  --green-deep: #3F720C;
+  --green-soft: #EEFBC6;
+  --lilac: #A78BFA;
+  --lilac-deep: #6447CF;
+  --lilac-soft: #EFEBFE;
+  --coral-ink: #B2380A;
+  --mustard-ink: #735600;
+  --blue-ink: #0A62AD;
+  --aqua-ink: #0A627C;
+  --green-ink: #3F6A06;
+  --lilac-ink: #5B3FC0;
+  --ink: #1F2A44;
+  --ink-soft: #536379;
+  --line: #DCE7F2;
+  --line-strong: #B8CCE0;
+  --page: #EAF6FD;
+  --sky: #DCEFFB;
+  --paper: #FFFFFF;
+  --mist: #EDF3F9;
+  --off-fill: #E6ECF2;
+  --off-blue: #CFE0F0;
+  --off-blue-ink: #28496B;
+  --off-soft: #E9EFF4;
+  --off-green: #E6EDCB;
+  --off-green-ink: #4B5A1E;
+  --off-coral: #F2DCD2;
+  --off-coral-ink: #7A3418;
+  --off-peach: #F3E5DE;
+  --off-peach-ink: #664335;
+
+  --glass: rgba(255, 255, 255, 0.8);
+  --glass-line: rgba(255, 255, 255, 0.95);
+  --glass-solid: rgba(255, 255, 255, 0.96);
+
+  --r-sm: 14px;
+  --r-md: 18px;
+  --r-lg: 26px;
+  --r-xl: 34px;
+  --pill: 999px;
+  --shadow-1: 0 1px 2px rgba(31, 75, 120, 0.05), 0 8px 24px rgba(31, 75, 120, 0.08);
+  --shadow-2: 0 2px 6px rgba(31, 75, 120, 0.06), 0 18px 44px rgba(31, 75, 120, 0.15);
+  --shadow-azure: 0 8px 18px rgba(10, 108, 192, 0.26);
+
+  --font-display-stack: var(--font-montserrat), "Montserrat", "Poppins", system-ui, sans-serif;
+  --font-body-stack: var(--font-nunito), "Nunito", "Nunito Sans", system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme inline {
+  --color-coral: var(--coral);
+  --color-coral-deep: var(--coral-deep);
+  --color-coral-soft: var(--coral-soft);
+  --color-coral-ink: var(--coral-ink);
+  --color-mustard: var(--mustard);
+  --color-mustard-deep: var(--mustard-deep);
+  --color-mustard-soft: var(--mustard-soft);
+  --color-mustard-ink: var(--mustard-ink);
+  --color-blue: var(--blue);
+  --color-blue-deep: var(--blue-deep);
+  --color-blue-soft: var(--blue-soft);
+  --color-blue-ink: var(--blue-ink);
+  --color-aqua: var(--aqua);
+  --color-aqua-deep: var(--aqua-deep);
+  --color-aqua-soft: var(--aqua-soft);
+  --color-aqua-ink: var(--aqua-ink);
+  --color-green: var(--green);
+  --color-green-deep: var(--green-deep);
+  --color-green-soft: var(--green-soft);
+  --color-green-ink: var(--green-ink);
+  --color-lilac: var(--lilac);
+  --color-lilac-deep: var(--lilac-deep);
+  --color-lilac-soft: var(--lilac-soft);
+  --color-lilac-ink: var(--lilac-ink);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-page: var(--page);
+  --color-sky: var(--sky);
+  --color-paper: var(--paper);
+  --color-mist: var(--mist);
+  --color-off-fill: var(--off-fill);
+
+  --font-display: var(--font-display-stack);
+  --font-sans: var(--font-body-stack);
+
+  --radius-input: var(--r-sm);
+  --radius-inner: var(--r-md);
+  --radius-card: var(--r-lg);
+  --radius-scene: var(--r-xl);
+  --shadow-card: var(--shadow-1);
+  --shadow-float: var(--shadow-2);
+  --shadow-sm: var(--shadow-1);
+}
+
+/* Tailwind's default families, re-pointed at the palette (lib/palette.mjs REMAP) so older panels match. */
+@theme {
+  --radius-lg: 0.75rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.75rem;
+  --radius-3xl: 2.25rem;
+
+  /* the older pages' black buttons and text become the navy ink */
+  --color-black: #1F2A44;
+
+  --color-gray-50: #F5F9FC;
+  --color-gray-100: #EDF3F8;
+  --color-gray-200: #DCE7F2;
+  --color-gray-300: #C3D3E3;
+  --color-gray-400: #93A5BA;
+  --color-gray-500: #5F7088;
+  --color-gray-600: #536379;
+  --color-gray-700: #435269;
+  --color-gray-800: #2E3A52;
+  --color-gray-900: #1F2A44;
+  --color-gray-950: #141C30;
+
+  --color-blue-50: #F0F8FE;
+  --color-blue-100: #DCEFFB;
+  --color-blue-200: #BCE1F9;
+  --color-blue-300: #8DCDF6;
+  --color-blue-400: #4DB2F2;
+  --color-blue-500: #1E9BF0;
+  --color-blue-600: #0A6CC0;
+  --color-blue-700: #0A5FA8;
+  --color-blue-800: #0B4F8A;
+  --color-blue-900: #0C3F6C;
+  --color-blue-950: #0A2A47;
+
+  --color-red-50: #FFF4EF;
+  --color-red-100: #FFE8DE;
+  --color-red-200: #FFCDB8;
+  --color-red-300: #FFA987;
+  --color-red-400: #FF8053;
+  --color-red-500: #FF5A1F;
+  --color-red-600: #C2410C;
+  --color-red-700: #A8360A;
+  --color-red-800: #8A2D0A;
+  --color-red-900: #6E250B;
+  --color-red-950: #451505;
+
+  --color-green-50: #F8FEE7;
+  --color-green-100: #EEFBC6;
+  --color-green-200: #E2F8A0;
+  --color-green-300: #D6F673;
+  --color-green-400: #CDF552;
+  --color-green-500: #C6F432;
+  --color-green-600: #3F720C;
+  --color-green-700: #36620A;
+  --color-green-800: #2E5309;
+  --color-green-900: #264309;
+  --color-green-950: #162905;
+
+  --color-amber-50: #FFFBE8;
+  --color-amber-100: #FFF5C2;
+  --color-amber-200: #FFEC8F;
+  --color-amber-300: #FFE45C;
+  --color-amber-400: #FFDD33;
+  --color-amber-500: #FFD60A;
+  --color-amber-600: #7D5E00;
+  --color-amber-700: #6E5300;
+  --color-amber-800: #5E4700;
+  --color-amber-900: #4D3A00;
+  --color-amber-950: #332600;
+
+  --color-yellow-50: #FFFBE8;
+  --color-yellow-100: #FFF5C2;
+  --color-yellow-200: #FFEC8F;
+  --color-yellow-300: #FFE45C;
+  --color-yellow-400: #FFDD33;
+  --color-yellow-500: #FFD60A;
+  --color-yellow-600: #7D5E00;
+  --color-yellow-700: #6E5300;
+  --color-yellow-800: #5E4700;
+  --color-yellow-900: #4D3A00;
+  --color-yellow-950: #332600;
+}
+
+@layer base {
+  html {
+    background: var(--page);
   }
-}
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: system-ui, -apple-system, sans-serif;
-  font-feature-settings: "rlig" 1, "calt" 1;
+  body {
+    font-family: var(--font-body-stack);
+    font-weight: 600;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--page);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display-stack);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  /* A 3px blue-deep outline with a 2px white offset on every interactive element. */
+  :focus-visible {
+    outline: 3px solid var(--blue-deep);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--paper);
+  }
+
+  ::selection {
+    background: var(--blue-soft);
+    color: var(--ink);
+  }
 }
 
 @utility text-balance {
   text-wrap: balance;
+}
+
+@layer components {
+  /* ---- buttons: pill, a soft shadow in their own colour, lift on hover and sink when pressed ---- */
+  .pf-btn {
+    --pf-shadow: 0 0 #0000;
+    --pf-edge: 0 0 #0000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    border: 0;
+    border-radius: var(--pill);
+    padding: 11px 22px;
+    font: 600 14.5px/1.2 var(--font-display-stack);
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: var(--pf-edge), var(--pf-shadow);
+    transition: transform 120ms ease, box-shadow 160ms ease, background-color 120ms ease;
+  }
+  /* a long label wraps on a phone instead of pushing its card past the screen */
+  @media (max-width: 639px) {
+    .pf-btn {
+      white-space: normal;
+      text-wrap: balance;
+      text-align: center;
+    }
+  }
+  .pf-btn:focus-visible {
+    box-shadow: var(--pf-edge), 0 0 0 2px var(--paper), var(--pf-shadow);
+  }
+  .pf-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(-1px);
+  }
+  .pf-btn:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(1px);
+    --pf-shadow: 0 0 #0000;
+  }
+  /* --pf-off-*: the variant's look while it is off, its own hue with the colour drained out */
+  .pf-btn-primary {
+    --pf-shadow: var(--shadow-azure);
+    --pf-off-bg: var(--off-blue);
+    --pf-off-fg: var(--off-blue-ink);
+    --pf-off-edge: inset 0 0 0 1.5px #A9C6E2;
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
+    color: #fff;
+  }
+  .pf-btn-go {
+    --pf-shadow: 0 8px 18px rgba(104, 140, 8, 0.26);
+    --pf-edge: inset 0 0 0 1.5px #A8D61A;
+    --pf-off-bg: var(--off-green);
+    --pf-off-fg: var(--off-green-ink);
+    --pf-off-edge: inset 0 0 0 1.5px #C9D69E;
+    background: var(--green);
+    color: var(--ink);
+  }
+  .pf-btn-danger {
+    --pf-shadow: 0 8px 18px rgba(194, 65, 12, 0.24);
+    --pf-off-bg: var(--off-coral);
+    --pf-off-fg: var(--off-coral-ink);
+    --pf-off-edge: inset 0 0 0 1.5px #E2BBAA;
+    background: linear-gradient(180deg, #C9450E, var(--coral-deep));
+    color: #fff;
+  }
+  .pf-btn-ghost {
+    --pf-edge: inset 0 0 0 1.5px var(--blue-deep);
+    --pf-off-bg: #fff;
+    --pf-off-fg: var(--ink-soft);
+    --pf-off-edge: inset 0 0 0 1.5px var(--line-strong);
+    background: #fff;
+    color: var(--blue-ink);
+  }
+  .pf-btn-quiet {
+    --pf-shadow: var(--shadow-1);
+    --pf-edge: inset 0 0 0 1px var(--line);
+    --pf-off-bg: #fff;
+    --pf-off-fg: var(--ink-soft);
+    --pf-off-edge: inset 0 0 0 1px var(--line);
+    background: #fff;
+    color: var(--ink);
+  }
+  .pf-btn-quiet:hover:not(:disabled) {
+    --pf-edge: inset 0 0 0 1px var(--line-strong);
+  }
+  .pf-btn-soft {
+    --pf-off-bg: var(--off-soft);
+    --pf-off-fg: var(--off-blue-ink);
+    --pf-off-edge: inset 0 0 0 1.5px #D5E0EA;
+    background: var(--blue-soft);
+    color: var(--blue-ink);
+  }
+  .pf-btn-peach {
+    --pf-off-bg: var(--off-peach);
+    --pf-off-fg: var(--off-peach-ink);
+    --pf-off-edge: inset 0 0 0 1.5px #E6CDBF;
+    background: linear-gradient(90deg, #FFE8DE, #FFD0BC);
+    color: var(--ink);
+  }
+  .pf-btn-sm {
+    min-height: 36px;
+    padding: 7px 14px;
+    font-size: 13px;
+  }
+  /* off: flat (no shadow, so it doesn't look pressable) in the variant's drained hue, with a rim */
+  .pf-btn:disabled,
+  .pf-btn[aria-disabled="true"] {
+    --pf-edge: var(--pf-off-edge, 0 0 #0000);
+    --pf-shadow: 0 0 #0000;
+    background: var(--pf-off-bg, var(--off-fill));
+    color: var(--pf-off-fg, var(--ink-soft));
+    cursor: not-allowed;
+    transform: none;
+  }
+  /* why a button is off, under it: a tooltip alone never shows on a phone */
+  .pf-off-why {
+    margin-top: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ink-soft);
+  }
+
+  /* ---- chips ---- */
+  .pf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: var(--pill);
+    padding: 4px 11px;
+    font: 600 12px/1.35 var(--font-display-stack);
+    white-space: nowrap;
+  }
+  .pf-chip-lock { background: var(--green-soft); color: var(--green-ink); }
+  .pf-chip-open { background: var(--mist); color: var(--ink-soft); }
+  .pf-chip-warn { background: var(--mustard-soft); color: var(--mustard-ink); }
+  .pf-chip-bad { background: var(--coral-soft); color: var(--coral-ink); }
+  .pf-chip-info { background: var(--aqua-soft); color: var(--aqua-ink); }
+  .pf-chip-blue { background: var(--blue-soft); color: var(--blue-ink); }
+  .pf-chip-lilac { background: var(--lilac-soft); color: var(--lilac-ink); }
+  .pf-chip-ink { background: var(--ink); color: #fff; }
+
+  .pf-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    /* lime, yellow and cyan are pale on white: a thin navy rim keeps the dot visible */
+    box-shadow: inset 0 0 0 1px rgba(31, 42, 68, 0.22);
+  }
+  .pf-dot-striped {
+    background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.85) 0 2px, transparent 2px 4px);
+    box-shadow: 0 0 0 1.5px currentColor;
+  }
+
+  /* ---- cards and glass ---- */
+  .pf-card {
+    background: var(--paper);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-1);
+    border: 1px solid rgba(220, 231, 242, 0.75);
+  }
+  .pf-lift {
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+  .pf-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+  }
+  .pf-glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
+    border: 1px solid var(--glass-line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-2);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .pf-glass {
+      background: var(--glass-solid);
+    }
+  }
+  .pf-inner {
+    border-radius: var(--r-md);
+    background: #fff;
+  }
+
+  /* ---- inputs ---- */
+  .pf-input {
+    width: 100%;
+    border: 0;
+    background: #fff;
+    border-radius: var(--r-sm);
+    padding: 12px 16px;
+    font: 600 15px/1.4 var(--font-body-stack);
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1.5px #CFDDEA;
+  }
+  .pf-input::placeholder {
+    color: #627188;
+  }
+  .pf-input:disabled {
+    background: var(--mist);
+    color: var(--ink-soft);
+  }
+  .pf-label {
+    display: block;
+    font: 700 11.5px/1.3 var(--font-display-stack);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 6px 4px;
+  }
+  .pf-eyebrow {
+    font: 700 11.5px/1.3 var(--font-display-stack);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  /* ---- pill tabs ---- */
+  .pf-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 8px 16px;
+    border-radius: var(--pill);
+    font: 600 14px/1.2 var(--font-display-stack);
+    color: var(--ink-soft);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .pf-tab:hover {
+    background: rgba(30, 155, 240, 0.1);
+    color: var(--blue-ink);
+  }
+  .pf-tab[aria-current="page"],
+  .pf-tab[aria-selected="true"],
+  .pf-tab.is-on {
+    background: var(--blue-deep);
+    color: #fff;
+    box-shadow: var(--shadow-azure);
+  }
+
+  /* ---- hero band: a light-blue header with two big soft circles, all CSS ---- */
+  .pf-band {
+    position: relative;
+    border-radius: var(--r-xl);
+    overflow: hidden;
+    isolation: isolate;
+    background: var(--sky);
+  }
+  .pf-band::before,
+  .pf-band::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .pf-band::before {
+    width: 300px;
+    height: 300px;
+    right: -110px;
+    top: -150px;
+    background: var(--green);
+  }
+  .pf-band::after {
+    width: 230px;
+    height: 230px;
+    left: -90px;
+    bottom: -140px;
+    background: var(--aqua);
+  }
+  /* on a phone the circles only peek in from the corners, clear of the headline */
+  @media (max-width: 639px) {
+    .pf-band::before {
+      width: 170px;
+      height: 170px;
+      right: -78px;
+      top: -100px;
+    }
+    .pf-band::after {
+      width: 150px;
+      height: 150px;
+      left: -70px;
+      bottom: -96px;
+    }
+  }
+  /* the small uppercase title centred at the top of a light-blue header */
+  .pf-band-title {
+    font: 700 12px/1.3 var(--font-display-stack);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
+  }
+
+  /* ---- an avatar: initials on a soft gradient circle ---- */
+  .pf-avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border-radius: 50%;
+    color: var(--ink);
+    font-family: var(--font-display-stack);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  }
+
+  /* ---- a round icon button (play, more) at the end of a list row ---- */
+  .pf-round {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--blue-soft);
+    color: var(--blue-ink);
+    transition: transform 120ms ease, background-color 120ms ease;
+  }
+  .pf-round.is-solid {
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
+    color: #fff;
+    box-shadow: var(--shadow-azure);
+  }
+  .pf-round:hover {
+    transform: translateY(-1px);
+  }
+
+  /* ---- consistency seal (a round badge) ---- */
+  .pf-seal {
+    width: 64px;
+    height: 64px;
+    flex: none;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: var(--ink);
+    font: 700 10.5px/1.1 var(--font-display-stack);
+    background: var(--green);
+    box-shadow: 0 0 0 4px #fff, var(--shadow-1);
+  }
+  .pf-seal.is-open {
+    background: #fff;
+    border: 2px dashed var(--line-strong);
+    color: var(--ink);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.6), var(--shadow-1);
+  }
+  .pf-seal.is-drift {
+    background: var(--coral-deep);
+    color: #fff;
+    box-shadow: 0 0 0 4px #fff, var(--shadow-1);
+  }
+  .pf-seal.is-stamping {
+    animation: pf-stamp 350ms cubic-bezier(0.3, 1.4, 0.6, 1) both;
+  }
+
+  /* ---- journey path ---- */
+  .pf-path {
+    display: flex;
+    align-items: flex-start;
+  }
+  .pf-stop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 116px;
+    flex: none;
+    text-align: center;
+    color: inherit;
+    text-decoration: none;
+    border-radius: var(--r-md);
+    padding: 2px 0 4px;
+    position: relative;
+  }
+  .pf-bub {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font: 700 16px var(--font-display-stack);
+    background: #fff;
+    border: 2px dashed var(--line-strong);
+    color: var(--ink-soft);
+  }
+  .pf-stop.is-done .pf-bub {
+    background: var(--green);
+    border: 3px solid #fff;
+    color: var(--ink);
+    box-shadow: 0 0 0 1.5px #A8D61A, var(--shadow-1);
+  }
+  .pf-stop.is-now .pf-bub {
+    background: var(--blue-deep);
+    border: 3px solid #fff;
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--blue), 0 0 0 9px rgba(30, 155, 240, 0.18);
+    animation: pf-pulse 2s ease-in-out infinite;
+  }
+  .pf-stop.is-blocked .pf-bub {
+    background: var(--coral-soft);
+    border: 3px solid #fff;
+    color: var(--coral-ink);
+    box-shadow: 0 0 0 2px var(--coral);
+  }
+  .pf-path.is-compact .pf-stop {
+    width: 92px;
+  }
+  a.pf-stop:hover .pf-bub {
+    transform: translateY(-2px);
+  }
+  .pf-bub {
+    transition: transform 160ms ease;
+  }
+  .pf-stop-name {
+    font: 600 13px/1.2 var(--font-display-stack);
+  }
+  .pf-stop-note {
+    font-size: 11.5px;
+    line-height: 1.25;
+    color: var(--ink-soft);
+    margin-top: -3px;
+  }
+  @media (max-width: 359px) {
+    .pf-stop-note { display: none; }
+  }
+  .pf-link {
+    flex: 1;
+    min-width: 24px;
+    height: 4px;
+    margin-top: 22px;
+    border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--line-strong) 0 8px, transparent 8px 15px);
+    position: relative;
+    overflow: hidden;
+  }
+  .pf-link.is-done {
+    background: var(--green);
+    animation: pf-fill 400ms ease-out both;
+    transform-origin: left center;
+  }
+  .pf-coin {
+    position: absolute;
+    top: -9px;
+    right: -14px;
+    border-radius: var(--pill);
+    padding: 1px 6px;
+    font: 700 10px/1.3 var(--font-display-stack);
+    color: var(--ink);
+    background: var(--mustard);
+    border: 2px solid #fff;
+  }
+
+  /* ---- the azure "make something" button raised in the phone tab bar ---- */
+  .pf-fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
+    color: #fff;
+    display: grid;
+    place-items: center;
+    margin-top: -30px;
+    box-shadow: 0 0 0 5px #fff, var(--shadow-azure);
+    transition: transform 120ms ease;
+  }
+  .pf-fab:active {
+    transform: translateY(1px);
+  }
+
+  /* ---- boards: pinned pictures and notes ---- */
+  .pf-board {
+    background: var(--sky) radial-gradient(rgba(10, 108, 192, 0.1) 1px, transparent 1.5px) 0 0 / 14px 14px;
+    border-radius: var(--r-lg);
+    padding: 22px;
+    position: relative;
+  }
+  .pf-polaroid {
+    background: #fff;
+    padding: 8px 8px 30px;
+    border-radius: 16px;
+    box-shadow: var(--shadow-1);
+    position: relative;
+  }
+  .pf-polaroid.is-dropping {
+    animation: pf-drop 420ms cubic-bezier(0.2, 1.2, 0.4, 1) both;
+  }
+  .pf-polaroid-cap {
+    position: absolute;
+    bottom: 7px;
+    left: 12px;
+    right: 12px;
+    font: 600 12px var(--font-display-stack);
+    color: var(--ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pf-pin {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 0 0 3px #fff;
+    z-index: 1;
+  }
+  .pf-sticky {
+    padding: 14px 16px 16px;
+    border-radius: 18px;
+    box-shadow: var(--shadow-1);
+    font-size: 13.5px;
+    position: relative;
+    color: var(--ink);
+  }
+  .pf-sticky-yellow { background: var(--mustard-soft); }
+  .pf-sticky-peach { background: var(--coral-soft); }
+  .pf-sticky-blue { background: var(--aqua-soft); }
+  .pf-sticky-green { background: var(--green-soft); }
+  .pf-stamp {
+    position: absolute;
+    font: 700 15px var(--font-display-stack);
+    color: var(--green-ink);
+    border: 2.5px solid var(--green-ink);
+    border-radius: var(--pill);
+    padding: 4px 14px;
+    background: var(--green-soft);
+    letter-spacing: 0.1em;
+    animation: pf-stamp-land 300ms cubic-bezier(0.3, 1.4, 0.6, 1) both;
+  }
+  .pf-stitch {
+    border: 2px dashed var(--line-strong);
+    border-radius: var(--r-md);
+  }
+
+  /* ---- price block ---- */
+  .pf-price {
+    border-radius: var(--r-md);
+    background: #fff;
+    padding: 16px 18px;
+    box-shadow: inset 0 0 0 2px var(--mustard), var(--shadow-1);
+  }
+  .pf-price-big {
+    font: 700 32px/1.1 var(--font-display-stack);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  /* ---- a tip: a white card with an azure dot ---- */
+  .pf-bubble {
+    position: relative;
+    background: #fff;
+    border-radius: 18px;
+    padding: 10px 14px 10px 34px;
+    box-shadow: var(--shadow-1);
+    font-size: 14px;
+  }
+  .pf-bubble::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 17px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--blue);
+    box-shadow: 0 0 0 4px var(--blue-soft);
+  }
+
+  /* links that read as links on any light surface */
+  .pf-link-text {
+    color: var(--blue-deep);
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(10, 108, 192, 0.35);
+    border-radius: 4px;
+  }
+  .pf-link-text:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .pf-confetti {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .pf-confetti i {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pf-confetti 600ms ease-out both;
+  }
+}
+
+@keyframes pf-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--blue), 0 0 0 7px rgba(30, 155, 240, 0.22); }
+  50% { box-shadow: 0 0 0 2px var(--blue), 0 0 0 12px rgba(30, 155, 240, 0.08); }
+}
+@keyframes pf-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes pf-stamp {
+  0% { transform: scale(1.35); }
+  60% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+@keyframes pf-stamp-land {
+  0% { opacity: 0; transform: scale(1.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes pf-drop {
+  0% { opacity: 0; transform: translateY(-20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes pf-confetti {
+  0% { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))); }
+}
+@keyframes pf-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* With reduced motion, every movement becomes a short fade. */
+@media (prefers-reduced-motion: reduce) {
+  .pf-btn,
+  .pf-lift,
+  .pf-round,
+  .pf-fab {
+    transition: none;
+  }
+  .pf-btn:hover:not(:disabled),
+  .pf-btn:active:not(:disabled),
+  .pf-lift:hover,
+  .pf-round:hover,
+  .pf-fab:active,
+  a.pf-stop:hover .pf-bub {
+    transform: none;
+  }
+  .pf-stop.is-now .pf-bub {
+    animation: none;
+  }
+  .pf-seal.is-stamping,
+  .pf-stamp,
+  .pf-polaroid.is-dropping,
+  .pf-link.is-done {
+    animation: pf-fade 200ms ease-out both;
+  }
+  .pf-confetti {
+    display: none;
+  }
 }

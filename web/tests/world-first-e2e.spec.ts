@@ -146,8 +146,9 @@ test.describe.serial('Universe first', () => {
     await page.getByTestId('universe-logline').fill('A rainy harbour town where two friends keep the old lights burning');
     await page.getByTestId('universe-genre').selectOption(CARD);
     await page.getByTestId('universe-create').click();
-    await page.waitForURL(/\/studio\/universes\/sr_[0-9a-f]+\?created=1$/);
-    universeId = new URL(page.url()).pathname.split('/').pop()!;
+    // the new Universe opens on its References step (/studio/universes/{id}/create?step=references)
+    await page.waitForURL(/\/studio\/universes\/sr_[0-9a-f]+\/create\?step=references$/);
+    universeId = new URL(page.url()).pathname.split('/')[3];
     await expect(page.getByTestId('universe-name')).toHaveText(UNIVERSE);
     await expect(page.getByTestId('universe-genre')).toHaveText(CARD_NAME);
     await expect(page.getByTestId('universe-health')).toHaveText('No characters yet');
@@ -167,7 +168,9 @@ test.describe.serial('Universe first', () => {
     await page.getByTestId('creation-photo-send').click();
     await expect(page.locator('[data-testid^="creation-photo-ui_"]')).toHaveCount(1);
 
-    // 2. the mood board: its price first, then the pictures
+    // 2. the mood board (its own step): its price first, then the pictures
+    await page.getByTestId('creation-next').click();
+    await page.waitForURL(`/studio/universes/${universeId}/create?step=moodboard`);
     await page.getByTestId('board-check-price').click();
     await expect(page.getByTestId('board-estimate')).toContainText('4 placeholder images, free in dry-run mode');
     await page.getByTestId('board-make').click();
@@ -175,11 +178,14 @@ test.describe.serial('Universe first', () => {
     // 3. approved, nothing downstream ran before
     await expect(page.getByTestId('bible-write')).toHaveCount(0);
     await page.getByTestId('board-approve').click();
+    await page.waitForURL(`/studio/universes/${universeId}/create?step=bible`);
     await expect(page.getByTestId('board-approved')).toBeVisible();
     // 4. the bible: its characters and place join the Universe
     await page.getByTestId('bible-write').click();
     await expect(page.getByTestId('bible-done')).toBeVisible();
     await expect(page.getByTestId('creation-message-bible')).toHaveText('Added 2 characters, 1 place and 0 props.');
+    await page.getByTestId('creation-open-universe').click();
+    await page.waitForURL(`/studio/universes/${universeId}`);
     await expect(page.getByTestId('cast-character-mira-vale')).toBeVisible();
     await expect(page.getByTestId('cast-character-oskar-brine')).toBeVisible();
     await expect(page.getByTestId('prop-lantern-pier')).toBeVisible();

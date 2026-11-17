@@ -92,28 +92,28 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
       <div className="max-w-4xl mx-auto">
         <Link
           href="/archetypes"
-          className="inline-flex items-center text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 mb-8"
+          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-8"
         >
           ← Back to archetypes
         </Link>
 
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-4">{preset.name}</h1>
-          <p className="text-xl text-gray-600 dark:text-gray-400">
+          <p className="text-xl text-gray-600">
             {preset.description}
           </p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+          <div className="p-4 bg-gray-50 rounded-lg">
             <h3 className="font-semibold mb-2">Format</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-gray-600">
               {templateDesc}
             </p>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+          <div className="p-4 bg-gray-50 rounded-lg">
             <h3 className="font-semibold mb-2">Details</h3>
-            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+            <ul className="text-sm text-gray-600 space-y-1">
               <li>Length: {preset.lengthRange[0]}–{preset.lengthRange[1]} seconds</li>
               <li>Aspect: {preset.aspect}</li>
               <li>Voice: {preset.voiceOver}</li>
@@ -126,7 +126,7 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
           <h2 className="text-2xl font-semibold mb-4">Example structure</h2>
           <div className="space-y-3">
             {exampleBeats.map((beat, index) => (
-              <div key={index} className="p-4 border border-gray-200 dark:border-gray-800 rounded-lg">
+              <div key={index} className="p-4 border border-gray-200 rounded-lg">
                 <p className="text-sm">{beat}</p>
               </div>
             ))}
@@ -139,13 +139,13 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
             {preset.briefFields.map((field) => (
               <span
                 key={field}
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm font-medium"
+                className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium"
               >
                 {field.replace(/_/g, ' ')}
               </span>
             ))}
           </div>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-4">
+          <p className="text-sm text-gray-600 mt-4">
             Our harness handles shot planning, generation, quality checks, and assembly.
           </p>
         </div>
@@ -154,17 +154,17 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
           {preset.tags.map((tag) => (
             <span
               key={tag}
-              className="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm"
+              className="px-3 py-1 bg-gray-100 rounded text-sm"
             >
               {tag}
             </span>
           ))}
         </div>
 
-        <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
-          <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-6">
+        <div className="border-t border-gray-200 pt-8">
+          <div className="bg-gray-50 rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-2">Ready to create?</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            <p className="text-sm text-gray-600 mb-4">
               Describe your idea and the studio drafts the story and the shots in this style; you approve each
               step before anything is made. Pricing starts at 340-510 credits per video.
             </p>
@@ -172,7 +172,7 @@ export default async function ArchetypeDetailPage({ params }: PageProps) {
               data-testid="archetype-create-link">
               Make a video in this style
             </Link>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mt-3">
+            <p className="text-xs text-gray-600 mt-3">
               You sign in to the studio first if you are not signed in yet.
             </p>
           </div>

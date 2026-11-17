@@ -104,6 +104,12 @@ export function stepperSteps(
   cast: CastLike | null | undefined,
   next: NextStep | null | undefined,
 ): StepperStep[] | null;
+export const PAID_STEPS: StepKey[];
+export function stepNote(
+  step: Pick<StepperStep, 'key' | 'status'>,
+  more?: { cost?: number | null; live?: boolean; dryRun?: boolean | null },
+): string;
+export function liveRun(mode?: { live?: boolean; dryRun?: boolean | null }): boolean;
 export type ChipTone = 'ok' | 'todo' | 'wait' | 'warn' | 'bad';
 export function statusChip(next: NextStep | null | undefined): { label: string; tone: ChipTone };
 export function episodeViewer(

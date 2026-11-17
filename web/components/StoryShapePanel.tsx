@@ -72,7 +72,7 @@ export default function StoryShapePanel({
     return (
       <div className={card}>
         <h2 className="text-xl font-semibold mb-2">Story</h2>
-        <p className="text-gray-700 dark:text-gray-200">This video has no story outline.</p>
+        <p className="text-gray-700">This video has no story outline.</p>
       </div>
     );
   }
@@ -123,7 +123,7 @@ export default function StoryShapePanel({
 
   return (
     <div className={panel}>
-      <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-4 sm:p-6 border-b border-gray-200">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Story</h2>
           <div className="flex flex-wrap items-center gap-2">
@@ -142,13 +142,13 @@ export default function StoryShapePanel({
           </div>
         </div>
         {editable && !isEditing && (
-          <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
+          <p className="mt-2 text-sm text-gray-700">
             Read it through. Edit anything that is not right, then approve it to start planning the shots.
           </p>
         )}
-        {!approved && readOnly && note && <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">{note}</p>}
+        {!approved && readOnly && note && <p className="mt-2 text-sm text-gray-700">{note}</p>}
         {problem && (
-          <p role="alert" data-testid="story-problem" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
+          <p role="alert" data-testid="story-problem" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">
             {problem}
           </p>
         )}
@@ -157,7 +157,7 @@ export default function StoryShapePanel({
       <div className="p-4 sm:p-6 space-y-6">
         <div>
           {isEditing ? (
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label className="block text-sm font-medium text-gray-700">
               In one sentence
               <input data-testid="story-logline-input" type="text" value={editedShape?.logline || ''}
                 onChange={(e) => setEditedShape((prev) => (prev ? { ...prev, logline: e.target.value } : null))}
@@ -165,7 +165,7 @@ export default function StoryShapePanel({
             </label>
           ) : (
             <>
-              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">In one sentence</h3>
+              <h3 className="text-sm font-medium text-gray-600 mb-1">In one sentence</h3>
               <p className="text-lg" data-testid="story-logline">{story_shape.logline}</p>
             </>
           )}
@@ -173,7 +173,7 @@ export default function StoryShapePanel({
 
         <div>
           {isEditing ? (
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label className="block text-sm font-medium text-gray-700">
               The opening (first {story_shape.hook_deadline_s} seconds)
               <textarea value={editedShape?.hook || ''} rows={2}
                 onChange={(e) => setEditedShape((prev) => (prev ? { ...prev, hook: e.target.value } : null))}
@@ -181,7 +181,7 @@ export default function StoryShapePanel({
             </label>
           ) : (
             <>
-              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+              <h3 className="text-sm font-medium text-gray-600 mb-1">
                 The opening (first {story_shape.hook_deadline_s} seconds)
               </h3>
               <p>{story_shape.hook}</p>
@@ -190,7 +190,7 @@ export default function StoryShapePanel({
         </div>
 
         <div>
-          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">
+          <h3 className="text-sm font-medium text-gray-600 mb-3">
             What happens ({story_shape.beats.length} parts)
           </h3>
           <ol className="space-y-3">
@@ -198,24 +198,24 @@ export default function StoryShapePanel({
               <li key={beat.beat_id}
                 className={`p-4 rounded-lg border ${
                   beat.beat_id === story_shape.midpoint_beat_id
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-gray-200 dark:border-gray-700'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200'
                 }`}>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Part {idx + 1}</span>
+                    <span className="text-sm font-semibold text-gray-700">Part {idx + 1}</span>
                     {beat.beat_id === story_shape.midpoint_beat_id && (
-                      <span className={`${chip} ${tones.todo}`}>The turning point</span>
+                      <span className={`${chip} ${tones.info}`}>The turning point</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+                  <div className="flex items-center gap-3 text-sm text-gray-600">
                     <span>{beat.target_duration_s} s</span>
                     <span className="capitalize">{beat.emotional_tone}</span>
                   </div>
                 </div>
                 <p className="text-sm">{beat.description}</p>
                 {beat.shot_ids.length > 0 && (
-                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">Shots: {beat.shot_ids.join(', ')}</p>
+                  <p className="mt-2 text-xs text-gray-600">Shots: {beat.shot_ids.join(', ')}</p>
                 )}
               </li>
             ))}
@@ -224,7 +224,7 @@ export default function StoryShapePanel({
 
         <div>
           {isEditing ? (
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label className="block text-sm font-medium text-gray-700">
               The ending
               <textarea value={editedShape?.payoff || ''} rows={2}
                 onChange={(e) => setEditedShape((prev) => (prev ? { ...prev, payoff: e.target.value } : null))}
@@ -232,21 +232,21 @@ export default function StoryShapePanel({
             </label>
           ) : (
             <>
-              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">The ending</h3>
+              <h3 className="text-sm font-medium text-gray-600 mb-1">The ending</h3>
               <p>{story_shape.payoff}</p>
             </>
           )}
         </div>
 
         {critique && (
-          <details className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <summary className={`cursor-pointer rounded text-sm font-medium text-gray-700 dark:text-gray-200 ${focusRing}`}>
+          <details className="border-t border-gray-200 pt-4">
+            <summary className={`cursor-pointer rounded text-sm font-medium text-gray-700 ${focusRing}`}>
               What the story checker said ({critique.score}/100{critique.passes ? ', looks good' : ', worth another look'})
             </summary>
             <div className="mt-3 space-y-3">
               {critique.issues.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">Things to watch</h4>
+                  <h4 className="text-sm font-medium text-red-700 mb-1">Things to watch</h4>
                   <ul className="list-disc list-inside space-y-1 text-sm">
                     {critique.issues.map((issue, idx) => <li key={idx}>{issue}</li>)}
                   </ul>
@@ -254,7 +254,7 @@ export default function StoryShapePanel({
               )}
               {critique.suggestions.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Ideas</h4>
+                  <h4 className="text-sm font-medium text-blue-700 mb-1">Ideas</h4>
                   <ul className="list-disc list-inside space-y-1 text-sm">
                     {critique.suggestions.map((suggestion, idx) => <li key={idx}>{suggestion}</li>)}
                   </ul>
@@ -265,7 +265,7 @@ export default function StoryShapePanel({
         )}
 
         {isEditing && (
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200">
             <button onClick={handleCancel} className={btnSecondary} disabled={loading}>
               Cancel
             </button>

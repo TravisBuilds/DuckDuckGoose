@@ -120,23 +120,23 @@ interface StudioUser {
   email: string;
 }
 
-const card = "bg-white dark:bg-gray-800 rounded-lg shadow p-6";
-const h2 = "text-lg font-semibold text-gray-900 dark:text-white";
-const th = "px-3 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider";
-const td = "px-3 py-2 text-sm text-gray-900 dark:text-white";
-const muted = "text-xs text-gray-500 dark:text-gray-400";
+const card = "bg-white rounded-lg shadow p-6";
+const h2 = "text-lg font-semibold text-gray-900";
+const th = "px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider";
+const td = "px-3 py-2 text-sm text-gray-900";
+const muted = "text-xs text-gray-500";
 const button = "px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50";
 
 const WARNING_STYLE: Record<string, string> = {
-  error: "bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-800 dark:text-red-200",
-  warning: "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-800 text-yellow-900 dark:text-yellow-100",
-  info: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200",
+  error: "bg-red-50 border-red-300 text-red-800",
+  warning: "bg-yellow-50 border-yellow-300 text-yellow-900",
+  info: "bg-blue-50 border-blue-200 text-blue-800",
 };
 
 const COVERAGE_STYLE: Record<string, string> = {
-  none: "text-red-600 dark:text-red-400",
-  partial: "text-yellow-700 dark:text-yellow-300",
-  full: "text-green-700 dark:text-green-400",
+  none: "text-red-600",
+  partial: "text-yellow-700",
+  full: "text-green-700",
 };
 
 async function callApi(path: string, init: RequestInit = {}) {
@@ -159,7 +159,7 @@ function CostTable({ title, rows, label }: {
         counts jobs that have both numbers.
       </p>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <table className="min-w-full divide-y divide-gray-200">
           <thead>
             <tr>
               <th className={`${th} text-left`}>{label}</th>
@@ -171,7 +171,7 @@ function CostTable({ title, rows, label }: {
               <th className={`${th} text-right`}>Actual vs estimate</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="divide-y divide-gray-200">
             {rows.map((row) => (
               <tr key={row.key}>
                 <td className={td}>{row.key}</td>
@@ -338,16 +338,16 @@ export default function Dashboard() {
   const maxDaily = Math.max(0, ...(truth?.daily || []).map(d => d.spend_usd_micros));
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
+    <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-3xl font-bold text-gray-900">
               Admin Dashboard
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-gray-500 mt-1">
               {data.dry_run && (
-                <span className="inline-block px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded text-xs font-medium mr-2">
+                <span className="inline-block px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium mr-2">
                   DRY RUN MODE
                 </span>
               )}
@@ -381,7 +381,7 @@ export default function Dashboard() {
           </div>
         )}
         {actionMessage && (
-          <div className="mb-6 border rounded-md px-4 py-2 text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-200">
+          <div className="mb-6 border rounded-md px-4 py-2 text-sm bg-white border-gray-300 text-gray-800">
             {actionMessage}
           </div>
         )}
@@ -389,8 +389,8 @@ export default function Dashboard() {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Spend (all committed jobs)</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+            <h3 className="text-sm font-medium text-gray-500">Spend (all committed jobs)</h3>
+            <p className="text-2xl font-bold text-gray-900 mt-2">
               {truth ? formatUsdMicros(truth.totals.spend_usd_micros) : "—"}
             </p>
             <p className={`text-xs mt-1 ${COVERAGE_STYLE[coverage.tone]}`}>{coverage.text}</p>
@@ -402,8 +402,8 @@ export default function Dashboard() {
           </div>
 
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Actual vs estimate</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+            <h3 className="text-sm font-medium text-gray-500">Actual vs estimate</h3>
+            <p className="text-2xl font-bold text-gray-900 mt-2">
               {truth ? pctText(truth.totals.delta_pct) : "—"}
             </p>
             <p className={`${muted} mt-1`}>{truth ? deltaText(truth.totals) : ""}</p>
@@ -416,14 +416,14 @@ export default function Dashboard() {
           </div>
 
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Month-end projection</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{projection.amount}</p>
+            <h3 className="text-sm font-medium text-gray-500">Month-end projection</h3>
+            <p className="text-2xl font-bold text-gray-900 mt-2">{projection.amount}</p>
             <p className={`${muted} mt-1`}>{projection.note}</p>
           </div>
 
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Per finished episode</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{finished.episode}</p>
+            <h3 className="text-sm font-medium text-gray-500">Per finished episode</h3>
+            <p className="text-2xl font-bold text-gray-900 mt-2">{finished.episode}</p>
             <p className={`${muted} mt-1`}>Per finished minute: {finished.minute}</p>
             <p className={muted}>{finished.note}</p>
             {truth?.per_finished.all_spend_per_finished_episode_usd_micros != null && (
@@ -452,10 +452,10 @@ export default function Dashboard() {
               const readings = data.balances?.readings[provider] || [];
               const latest = readingLine(readings[0], now);
               return (
-                <div key={provider} className="py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                <div key={provider} className="py-2 border-b border-gray-200 last:border-b-0">
                   <div className="flex justify-between text-sm">
-                    <span className="font-medium text-gray-700 dark:text-gray-300 capitalize">{provider}</span>
-                    <span className={latest.tone === "ok" ? "text-gray-900 dark:text-white" : "text-red-600 dark:text-red-400"}>
+                    <span className="font-medium text-gray-700 capitalize">{provider}</span>
+                    <span className={latest.tone === "ok" ? "text-gray-900" : "text-red-600"}>
                       {latest.text}
                     </span>
                   </div>
@@ -513,14 +513,14 @@ export default function Dashboard() {
                 {busy === "test-alert" ? "Sending…" : "Send test alert"}
               </button>
             </div>
-            <p className={`text-sm ${data.alerts.status.configured ? "text-gray-700 dark:text-gray-300" : "text-red-600 dark:text-red-400"}`}>
+            <p className={`text-sm ${data.alerts.status.configured ? "text-gray-700" : "text-red-600"}`}>
               {destinationText(data.alerts.status)}
             </p>
             {testAlert && <p className={`${muted} mt-1`}>Test alert: {testAlertText(testAlert)}</p>}
             <ul className="mt-3 space-y-1">
               {data.alerts.recent.map((a) => (
                 <li key={a.id} className="text-sm">
-                  <span className="text-gray-900 dark:text-white">{a.subject}</span>
+                  <span className="text-gray-900">{a.subject}</span>
                   {a.is_test && <span className={`${muted} ml-1`}>(test)</span>}
                   <span className={`${muted} block`}>
                     {new Date(a.sent_at).toLocaleString()}: {deliveryText(a)}
@@ -553,7 +553,7 @@ export default function Dashboard() {
                 assign one here (this does not change who may edit the episode).
               </p>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <table className="min-w-full divide-y divide-gray-200">
                   <thead>
                     <tr>
                       <th className={`${th} text-left`}>Episode</th>
@@ -566,7 +566,7 @@ export default function Dashboard() {
                       <th className={`${th} text-left`}>Assign</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody className="divide-y divide-gray-200">
                     {truth.by_episode.map((ep) => (
                       <tr key={ep.episode_id}>
                         <td className={td}>
@@ -600,7 +600,7 @@ export default function Dashboard() {
                             disabled={busy !== null}
                             value={ep.attribution === "assigned" ? ep.person?.user_id || "" : ""}
                             onChange={(e) => assignSpend(ep.episode_id, e.target.value)}
-                            className="text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600"
+                            className="text-sm rounded border-gray-300"
                           >
                             <option value="">Automatic</option>
                             {studioUsers.map((u) => (
@@ -621,7 +621,7 @@ export default function Dashboard() {
             <div className={card} data-testid="people">
               <h2 className={`${h2} mb-3`}>Spend by person</h2>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <table className="min-w-full divide-y divide-gray-200">
                   <thead>
                     <tr>
                       <th className={`${th} text-left`}>Person</th>
@@ -632,7 +632,7 @@ export default function Dashboard() {
                       <th className={`${th} text-left`}>Attributed by</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody className="divide-y divide-gray-200">
                     {truth.by_person.map((p) => (
                       <tr key={p.user_id || "unattributed"}>
                         <td className={td}>
@@ -643,7 +643,7 @@ export default function Dashboard() {
                         <td className={`${td} text-right`}>{formatUsdMicros(p.actual_usd_micros)}</td>
                         <td className={`${td} text-right`}>{pctText(p.coverage_pct)}</td>
                         <td className={`${td} text-right`}>{p.episodes}</td>
-                        <td className={`${td} text-gray-500 dark:text-gray-400`}>
+                        <td className={`${td} text-gray-500`}>
                           {p.attribution.map(attributionText).join(", ")}
                         </td>
                       </tr>
@@ -675,7 +675,7 @@ export default function Dashboard() {
                 ] as const).map(([label, key]) => (
                   <div key={key}>
                     <p className={muted}>{label}</p>
-                    <p className="font-medium text-gray-900 dark:text-white">
+                    <p className="font-medium text-gray-900">
                       {formatUsdMicros(truth.provider_reported.higgsfield_month_usd_micros[key])}
                     </p>
                   </div>
@@ -692,7 +692,7 @@ export default function Dashboard() {
               </p>
               {truth.provider_reported.unmatched_buckets.length > 0 && (
                 <div className="mt-3">
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unmatched provider spend</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-1">Unmatched provider spend</h3>
                   <ul className="space-y-0.5">
                     {truth.provider_reported.unmatched_buckets.map((b) => (
                       <li key={`${b.day}-${b.model}-${b.unit}`} className={muted}>
@@ -714,7 +714,7 @@ export default function Dashboard() {
                   return (
                     <div
                       key={day.date}
-                      className="flex-1 bg-blue-200 dark:bg-blue-900 rounded-t relative flex flex-col justify-end"
+                      className="flex-1 bg-blue-200 rounded-t relative flex flex-col justify-end"
                       style={{ height: `${height}%`, minHeight: height > 0 ? "2px" : "0" }}
                       title={`${day.date}: ${formatUsdMicros(day.spend_usd_micros)} (${formatUsdMicros(day.actual_usd_micros)} provider-reported)`}
                     >
@@ -731,23 +731,23 @@ export default function Dashboard() {
         {/* Users */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Users</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+            <h3 className="text-sm font-medium text-gray-500">Active Users</h3>
+            <p className="text-2xl font-bold text-gray-900 mt-2">
               {data.user_stats.active_7d}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-gray-500 mt-1">
               Total: {data.user_stats.total_users} users
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-500">
               Today: {data.user_stats.active_today} | 30d: {data.user_stats.active_30d}
             </p>
           </div>
           <div className={card}>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Top models (ledger)</h3>
+            <h3 className="text-sm font-medium text-gray-500">Top models (ledger)</h3>
             {(data.models || []).slice(0, 5).map((model) => (
               <div key={model.model} className="flex justify-between text-sm py-1">
-                <span className="text-gray-600 dark:text-gray-400 truncate mr-2">{model.model}</span>
-                <span className="text-gray-900 dark:text-white">{formatUSD(model.actual_usd)}</span>
+                <span className="text-gray-600 truncate mr-2">{model.model}</span>
+                <span className="text-gray-900">{formatUSD(model.actual_usd)}</span>
               </div>
             ))}
           </div>
@@ -755,17 +755,17 @@ export default function Dashboard() {
 
         {/* Recent Milestones */}
         {data.milestones && data.milestones.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          <div className="bg-white rounded-lg shadow p-6 mb-8">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
               Recent Milestones
             </h2>
             <div className="space-y-2">
               {data.milestones.map((milestone, i) => (
-                <div key={i} className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                <div key={i} className="flex justify-between items-center py-2 border-b border-gray-200 last:border-b-0">
+                  <span className="text-sm text-gray-700">
                     {milestone.message}
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {new Date(milestone.reached_at).toLocaleDateString()}
                   </span>
                 </div>
