@@ -135,7 +135,7 @@ function StripEntry({ name, image, badge, testId, colour, ring = false }: {
 }) {
   const hue = colour ? hueOf(colour) : null;
   return (
-    <li className={`flex min-w-0 max-w-full items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3.5 shadow-card ${ring ? 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]' : ''}`}
+    <li className={`flex min-w-0 max-w-full items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3.5 ${ring ? 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]' : 'shadow-card'}`}
       data-testid={testId}>
       {image ? (
         <img src={`${API_URL}${image.thumb_url}`} alt="" className="h-10 w-10 flex-none rounded-full object-cover" />

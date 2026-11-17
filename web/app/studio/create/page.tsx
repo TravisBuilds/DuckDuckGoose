@@ -768,7 +768,7 @@ function CreateVideoWizard() {
                     const locked = match.badge?.tone === 'ok';
                     return (
                       <li key={row.code} data-testid={`wizard-from-${row.code}`}
-                        className={`flex min-w-0 items-center gap-2 rounded-full bg-white py-1.5 pl-3 pr-1.5 shadow-card ${locked ? '' : 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]'}`}>
+                        className={`flex min-w-0 items-center gap-2 rounded-full bg-white py-1.5 pl-3 pr-1.5 ${locked ? 'shadow-card' : 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]'}`}>
                         {same && <CastDot colour={universeColours[same.slug]} />}
                         <span className="truncate text-[13.5px] font-extrabold">{same?.name ?? (row.name || row.code)}</span>
                         <span className={`${chip} ${tones[match.badge?.tone ?? 'info']}`}>{match.badge?.label ?? 'New to this Universe'}</span>
