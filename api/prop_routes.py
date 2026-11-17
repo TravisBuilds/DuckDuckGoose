@@ -108,13 +108,17 @@ class PropUpdateRequest(BaseModel):
 @router.get("/api/episodes/{episode_id}/props")
 async def get_episode_props(episode_id: str, authorization: str | None = Header(None),
                             studio_admin_token: str | None = Cookie(None)):
-    """The episode's props and places (its series' when it is in a series) with their photos, the
-    upload limits and rights questions, and whether the caller may change them."""
+    """The episode's props and places (its series' when it is in a series, with the episodes of it the
+    caller may see) with their photos, the upload limits and rights questions, and whether the caller
+    may change them."""
     episode_id = cast_api._episode_id(episode_id)
     library = await cast_api._library(episode_id)
     await cast_api._require_viewer(library, authorization, studio_admin_token, PROPS_HIDDEN)
     items = await cast_api._call(prop_store.list_items, library)
     series = await cast_api._call(cast_store.get_series, library[1]) if library[0] == "series" else None
+    if series is not None:
+        _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
+        series = await cast_api.series_seen_by(series, user_id, is_admin)
     return {
         "episode_id": episode_id,
         "library": {"kind": library[0], "id": library[1]},

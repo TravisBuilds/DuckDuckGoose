@@ -294,8 +294,7 @@ async def _creation_view(series_id: str) -> dict:
 async def _world_view(who: dict) -> dict:
     """Of the Universe's episodes only those the caller may see: listed, counted and in the "used
     in" counts."""
-    seen = await cast_api.visible_episodes(who["series"]["episodes"], who["user_id"], who["is_admin"])
-    series = {**who["series"], "episodes": [e for e in who["series"]["episodes"] if e in seen]}
+    series = await cast_api.series_seen_by(who["series"], who["user_id"], who["is_admin"])
     can_edit = who["can_edit"]
     series_id = series["series_id"]
     library = ("series", series_id)
@@ -450,7 +449,7 @@ async def create_world_character(series_id: str, request: CharacterCreateRequest
     cast_api._check_text(request.name, request.role, request.description, request.outfit)
     character = await _call(cast_store.create_character, ("series", series_id), request.name, request.role,
                             request.description, request.slug or None, who["actor"], outfit=request.outfit)
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 create_world_character.allow_members = True
 
@@ -477,7 +476,7 @@ async def create_world_character_with_picture(
     data = await prop_api._read_photo(image_file)
     character = await _call(cast_store.create_character_with_upload, ("series", series_id), name, role, description,
                             data, filename=image_file.filename, attestation=attestation, actor=who["actor"])
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 create_world_character_with_picture.allow_members = True
 
@@ -492,7 +491,7 @@ async def update_world_character(series_id: str, character_id: str, request: Cha
     cast_api._check_text(request.name, request.role, request.description)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
                             description=request.description, actor=who["actor"])
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 update_world_character.allow_members = True
 

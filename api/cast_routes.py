@@ -224,18 +224,43 @@ async def may_see_episode(episode_id: str, user_id: str | None, is_admin: bool) 
     return episode_id in await visible_episodes([episode_id], user_id, is_admin)
 
 
+async def series_seen_by(series: dict, user_id: str | None, is_admin: bool) -> dict:
+    """A series record for a response (the cast, props and Universe views): only the episodes in it
+    the caller may see."""
+    visible = await visible_episodes(series["episodes"], user_id, is_admin)
+    return {**series, "episodes": [e for e in series["episodes"] if e in visible]}
+
+
+async def _hidden_in_sheet_jobs(versions: list[dict], user_id: str | None, is_admin: bool) -> set[str]:
+    named = {job.get("episode_id") for version in versions for job in version.get("sheet_jobs") or []} - {None, ""}
+    return named - await visible_episodes(named, user_id, is_admin)
+
+
+def _version_without(version: dict, hidden: set[str]) -> dict:
+    return {**version, "sheet_jobs": [{**job, "episode_id": None} if job.get("episode_id") in hidden else job
+                                      for job in version.get("sheet_jobs") or []]}
+
+
 async def _without_hidden_episodes(characters: list[dict], user_id: str | None, is_admin: bool) -> list[dict]:
     """A series character's sheet jobs name the episode each was asked for from: for a caller who
-    may not see that episode, the jobs without it."""
-    named = {job.get("episode_id") for character in characters for version in character["versions"]
-             for job in version.get("sheet_jobs") or []} - {None, ""}
-    hidden = named - await visible_episodes(named, user_id, is_admin)
+    may not see that episode (one that has left the Universe, say), the jobs without it."""
+    hidden = await _hidden_in_sheet_jobs([v for c in characters for v in c["versions"]], user_id, is_admin)
     if not hidden:
         return characters
-    return [{**character, "versions": [
-        {**version, "sheet_jobs": [{**job, "episode_id": None} if job.get("episode_id") in hidden else job
-                                   for job in version.get("sheet_jobs") or []]}
-        for version in character["versions"]]} for character in characters]
+    return [{**character, "versions": [_version_without(v, hidden) for v in character["versions"]]}
+            for character in characters]
+
+
+async def character_seen_by(character: dict, user_id: str | None, is_admin: bool) -> dict:
+    """One character for a response, read or change: _character_out, its sheet jobs without the
+    episodes the caller may not see."""
+    return (await _without_hidden_episodes([_character_out(character)], user_id, is_admin))[0]
+
+
+async def version_seen_by(version: dict, user_id: str | None, is_admin: bool) -> dict:
+    """One version for a response, its sheet jobs without the episodes the caller may not see."""
+    hidden = await _hidden_in_sheet_jobs([version], user_id, is_admin)
+    return _version_without(version, hidden) if hidden else version
 
 
 async def episode_exists(episode_id: str) -> bool:
@@ -668,8 +693,7 @@ async def get_series_cast(series_id: str, authorization: str | None = Header(Non
     if not await _may_see_series(series, user_id, is_admin):
         raise HTTPException(status_code=404, detail=f"Series {series_id} not found")
     characters = await _call(cast_store.list_characters, ("series", series_id))
-    visible = await visible_episodes(series["episodes"], user_id, is_admin)
-    return {"series": {**series, "episodes": [e for e in series["episodes"] if e in visible]},
+    return {"series": await series_seen_by(series, user_id, is_admin),
             "characters": await _without_hidden_episodes([_character_out(c) for c in characters], user_id, is_admin),
             "can_edit": is_admin or _owns_series(series, user_id)}
 
@@ -715,8 +739,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
     characters = await _call(cast_store.list_characters, library)
     series = await _call(cast_store.get_series, library[1]) if library[0] == "series" else None
     if series is not None:
-        visible = await visible_episodes(series["episodes"], user_id, is_admin)
-        series = {**series, "episodes": [e for e in series["episodes"] if e in visible]}
+        series = await series_seen_by(series, user_id, is_admin)
     return {
         "episode_id": episode_id,
         "library": {"kind": library[0], "id": library[1]},
@@ -742,13 +765,13 @@ async def create_cast_character(episode_id: str, request: CharacterCreateRequest
                                 studio_admin_token: str | None = Cookie(None)):
     """Add a character to the episode's cast (its series' cast when it is in a series)."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     _check_text(request.name, request.role, request.description, request.outfit)
     character = await _call(cast_store.create_character, library, request.name, request.role, request.description,
                             request.slug or None, actor, episode_id=episode_id, outfit=request.outfit)
-    return {"character": _character_out(character)}
+    return {"character": await character_seen_by(character, user_id, is_admin)}
 
 create_cast_character.allow_members = True
 
@@ -771,7 +794,7 @@ async def create_cast_character_with_picture(
     and description with the picture and its rights attestation. The picture gets the checks, limits
     and private storage of a version's picture upload; nothing is kept when any of it is refused."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     _check_text(name, role, description)
@@ -785,7 +808,7 @@ async def create_cast_character_with_picture(
     character = await _call(cast_store.create_character_with_upload, library, name, role, description, data,
                             filename=image_file.filename, attestation=attestation, actor=actor,
                             episode_id=episode_id)
-    return {"character": _character_out(character)}
+    return {"character": await character_seen_by(character, user_id, is_admin)}
 
 create_cast_character_with_picture.allow_members = True
 
@@ -875,7 +898,7 @@ async def get_cast_character(episode_id: str, character_id: str, authorization: 
     audit = await _call(cast_store.list_audit, character_id=character_id, limit=200)
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     visible = await visible_episodes({row["episode_id"] for row in audit if row.get("episode_id")}, user_id, is_admin)
-    return {"character": (await _without_hidden_episodes([_character_out(character)], user_id, is_admin))[0],
+    return {"character": await character_seen_by(character, user_id, is_admin),
             "audit": [row for row in audit if not row.get("episode_id") or row["episode_id"] in visible]}
 
 get_cast_character.allow_members = True
@@ -887,14 +910,14 @@ async def update_cast_character(episode_id: str, character_id: str, request: Cha
                                 studio_admin_token: str | None = Cookie(None)):
     """Edit the name, role or description (a locked version keeps the description it was locked with)."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     await _character_in(library, character_id)
     _check_text(request.name, request.role, request.description)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
                             description=request.description, actor=actor, episode_id=episode_id)
-    return {"character": _character_out(character)}
+    return {"character": await character_seen_by(character, user_id, is_admin)}
 
 update_cast_character.allow_members = True
 
@@ -926,14 +949,16 @@ async def create_cast_version(episode_id: str, character_id: str, request: Versi
     """A new version (outfit). Deriving from a locked version uses its locked master as the identity
     reference of the new sheet (never scene stills)."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     await _character_in(library, character_id)
     _check_text(request.label, request.outfit)
     version = await _call(cast_store.create_version, character_id, label=request.label, outfit=request.outfit,
                           derive_from_version=request.derive_from_version, actor=actor, episode_id=episode_id)
-    return {"version": version, "character": _character_out(await _call(cast_store.get_character, character_id))}
+    character = await _call(cast_store.get_character, character_id)
+    return {"version": await version_seen_by(version, user_id, is_admin),
+            "character": await character_seen_by(character, user_id, is_admin)}
 
 create_cast_version.allow_members = True
 
@@ -944,14 +969,14 @@ async def update_cast_version(episode_id: str, character_id: str, version: int, 
                               studio_admin_token: str | None = Cookie(None)):
     """Edit an unlocked version's label or outfit."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     await _character_in(library, character_id)
     _check_text(request.label, request.outfit)
     updated = await _call(cast_store.update_version, character_id, version, label=request.label,
                           outfit=request.outfit, actor=actor, episode_id=episode_id)
-    return {"version": updated}
+    return {"version": await version_seen_by(updated, user_id, is_admin)}
 
 update_cast_version.allow_members = True
 
@@ -1194,7 +1219,7 @@ async def approve_sheet(episode_id: str, character_id: str, version: int, reques
     with this character, and nothing in the version can change any more. A sheet of dry-run
     placeholders can be locked only in dry-run mode (live plans never use placeholders)."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     character = await _character_in(library, character_id)
@@ -1205,7 +1230,9 @@ async def approve_sheet(episode_id: str, character_id: str, version: int, reques
         raise HTTPException(status_code=409, detail="Placeholder sheets can be locked only in dry-run mode")
     locked = await _call(cast_store.approve_version, character_id, version, actor,
                          allow_placeholder=request.allow_placeholder, episode_id=episode_id)
-    return {"version": locked, "character": _character_out(await _call(cast_store.get_character, character_id))}
+    character = await _call(cast_store.get_character, character_id)
+    return {"version": await version_seen_by(locked, user_id, is_admin),
+            "character": await character_seen_by(character, user_id, is_admin)}
 
 approve_sheet.allow_members = True
 
