@@ -42,6 +42,31 @@ JOB_KEYS = ("job_id", "request_id", "series_id", "position", "prompt", "refs", "
 POLL_INTERVAL_S = 5
 POLL_LIMIT = 120
 
+# What the owner reads when a live board stops early, by the error type of the picture that stopped it
+# (the technical error stays in the job row, the workflow result and the log).
+OWNER_REASONS = {
+    "EstimateAboveApproved": ("The price of a picture went up after you approved it, so the studio stopped before "
+                              "paying more. Check the price again."),
+    "InsufficientBalance": ("The studio's balance was too low for the next picture, so it stopped there. Ask an "
+                            "admin to top up the balance, then try again."),
+    "CreditReserveRefused": ("The studio could not set credits aside for the next picture, so it stopped there. "
+                             "Ask an admin to check the balance."),
+    "BudgetReserveRefused": ("This Universe's mood board budget reached its stop, so the studio stopped there. Ask "
+                             "an admin about the budget."),
+    "MoodBoardPending": ("The provider took too long with a picture, so the studio stopped there. What that picture "
+                         "cost is settled when the provider finishes."),
+    "MoodBoardRefused": ("The studio would not make the next picture (a reference photo changed, or the words were "
+                         "refused), so it stopped there. Check the references, then try again."),
+    "MissingCredentials": "The studio is not set up to make pictures right now. Ask an admin.",
+    "InvalidCredentials": "The studio is not set up to make pictures right now. Ask an admin.",
+}
+PROVIDER_STOPPED = "The provider could not make a picture, so the studio stopped there. Try again in a while."
+
+
+def owner_reason(kind: object) -> str:
+    """The plain reason for an error type (an ApplicationError type name); unknown: PROVIDER_STOPPED."""
+    return OWNER_REASONS.get(kind, PROVIDER_STOPPED) if isinstance(kind, str) else PROVIDER_STOPPED
+
 
 class _PollLimitError(RuntimeError):
     pass

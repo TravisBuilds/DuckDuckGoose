@@ -421,41 +421,55 @@ def _live_request(sid: str, request_id: str, feedback: str = "") -> list[dict]:
     return jobs
 
 
-def test_a_live_board_becomes_the_next_version_only_when_every_picture_is_made():
+def test_a_live_board_keeps_every_picture_that_was_made():
     sid = _universe()
     world_store.add_note(sid, "premise", "Lanterns that talk")
+    # a request that made no picture fails with its reason
+    _live_request(sid, "mr_0123456789a0")
+    failed = world_store.finish_board_request("mr_0123456789a0", "The provider could not make a picture")
+    assert (failed["status"], failed["error"], failed["made"], failed["board_id"]) == (
+        "failed", "The provider could not make a picture", 0, None)
+    assert [j["status"] for j in failed["jobs"]] == ["skipped"] * 4
+    assert world_store.list_boards(sid) == [] and world_store.open_board_request(sid) == failed
+    assert world_store.finish_board_request("mr_0123456789a0", "later") == failed  # an ended request stays as it is
+    # one being made: no plan meanwhile; its prompt is not in the view; a job keeps its first picture
     jobs = _live_request(sid, "mr_0123456789aa")
     request = world_store.open_board_request(sid)
     assert (request["status"], request["made"], [j["status"] for j in request["jobs"]]) == (
         "making", 0, ["queued"] * 4)
     assert "prompt" not in request
-    # one board at a time: no plan, approval or photo removal meanwhile
     with pytest.raises(CastConflict, match=world_store.BOARD_BEING_MADE):
         world_store.plan_board(sid)
     first = world_store.store_board_job_picture(jobs[0]["job_id"], image_bytes(seed=1), placeholder=False)
     again = world_store.store_board_job_picture(jobs[0]["job_id"], image_bytes(seed=2), placeholder=False)
-    assert again["sha256"] == first["sha256"] and again["status"] == "completed"  # the first picture is kept
+    assert again["sha256"] == first["sha256"] and again["status"] == "completed"
     for job in jobs[1:3]:
         world_store.store_board_job_picture(job["job_id"], image_bytes(seed=10 + job["position"]), placeholder=False)
-    failed = world_store.finish_board_request("mr_0123456789aa")
-    assert (failed["status"], failed["error"], failed["made"]) == (
-        "failed", "The generation stopped after 3 of 4 pictures", 3)
-    assert [j["status"] for j in failed["jobs"]] == ["completed"] * 3 + ["skipped"]
-    assert world_store.list_boards(sid) == [] and world_store.open_board_request(sid)["status"] == "failed"
-    assert world_store.finish_board_request("mr_0123456789aa", "later") == failed  # an ended request stays as it is
-    with cast_store.connect() as conn:  # a kept picture keeps its file in the image store
+    # it stopped after 3 of 4 pictures: the three that were paid for are the board, with the reason
+    short = world_store.finish_board_request("mr_0123456789aa")
+    board = world_store.list_boards(sid)[0]
+    assert (short["status"], short["error"], short["made"], short["board_id"]) == (
+        "done", world_store.BOARD_STOPPED, 3, board["board_id"])
+    assert [j["status"] for j in short["jobs"]] == ["completed"] * 3 + ["skipped"]
+    assert (board["version"], board["status"], board["dry_run"], board["image_count"]) == (1, "ready", False, 3)
+    assert [(i["position"], i["source"]) for i in board["images"]] == [(0, "generated"), (1, "generated"),
+                                                                       (2, "generated")]
+    assert world_store.open_board_request(sid) == short  # the page says why the board has fewer pictures
+    with cast_store.connect() as conn:
         assert cast_store.file_in_use(conn, first["sha256"])
-    jobs = _live_request(sid, "mr_0123456789ab")
+    # a redo that made every picture: the next version, and nothing to report
+    jobs = _live_request(sid, "mr_0123456789ab", "fewer lanterns")
     for job in jobs:
         world_store.store_board_job_picture(job["job_id"], image_bytes(seed=20 + job["position"]), placeholder=False)
     done = world_store.finish_board_request("mr_0123456789ab")
-    board = world_store.list_boards(sid)[0]
-    assert (done["status"], done["board_id"]) == ("done", board["board_id"])
-    assert (board["version"], board["status"], board["dry_run"], len(board["images"])) == (1, "ready", False, 4)
-    assert [i["source"] for i in board["images"]] == ["generated"] * 4
+    boards = world_store.list_boards(sid)
+    assert (done["status"], done["error"], done["board_id"]) == ("done", None, boards[1]["board_id"])
+    assert [(b["version"], b["status"], b["image_count"]) for b in boards] == [(1, "redo_requested", 3),
+                                                                             (2, "ready", 4)]
     assert world_store.open_board_request(sid) is None
     assert [a["action"] for a in _audit("universe_board")] == [
-        "universe_board_request", "universe_board_failed", "universe_board_request", "universe_board_create"]
+        "universe_board_request", "universe_board_failed", "universe_board_request", "universe_board_create",
+        "universe_board_request", "universe_board_create"]
 
 
 def test_a_live_redo_answers_its_feedback_and_a_board_made_meanwhile_refuses_the_request():

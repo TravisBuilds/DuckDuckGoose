@@ -515,7 +515,7 @@ async def test_the_board_workflow_makes_the_board_and_a_redo_answers_its_feedbac
     assert world_store.open_board_request(sid) is None and FakeProvider.instances == []
 
 
-async def test_the_live_board_workflow_stops_at_the_first_refusal_and_spends_nothing_more(
+async def test_the_live_board_workflow_stops_at_the_first_refusal_and_keeps_the_pictures_it_paid_for(
         tmp_path, monkeypatch, provider, http):
     from temporalio.worker import Worker
 
@@ -525,20 +525,44 @@ async def test_the_live_board_workflow_stops_at_the_first_refusal_and_spends_not
     sid = _universe()
     jobs = _request(sid)
     jobs[1]["approved_usd_micros"] = PRICE - 1  # the second picture's price is above its approved share
+    price_went_up = board_activity.OWNER_REASONS["EstimateAboveApproved"]
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(env.client, task_queue=universe_task_queue("uboard-live"),
                           workflows=UNIVERSE_WORKFLOWS, activities=UNIVERSE_ACTIVITIES):
             done = await _board_workflow(env, jobs, "uboard-live")
-    assert done["status"] == "failed" and "price went up" in done["error"], done
-    assert [r["status"] for r in done["results"]] == ["completed", "failed"]
-    assert [_status(j["job_id"]) for j in jobs] == ["completed", "failed", "skipped", "skipped"]
-    assert len(_calls("submit")) == 1
-    assert [await _credit_txns(db_path, j["job_id"]) for j in jobs] == [["reserve", "commit"], [], [], []]
-    line = await _line(db_path, sid)
-    assert (line["spent"], line["reserved"]) == (PRICE, 0)
+            assert done["status"] == "partial" and "price went up" in done["error"], done
+            assert done["reason"] == price_went_up
+            assert [r["status"] for r in done["results"]] == ["completed", "failed"]
+            assert [_status(j["job_id"]) for j in jobs] == ["completed", "failed", "skipped", "skipped"]
+            assert len(_calls("submit")) == 1
+            assert [await _credit_txns(db_path, j["job_id"]) for j in jobs] == [["reserve", "commit"], [], [], []]
+            line = await _line(db_path, sid)
+            assert (line["spent"], line["reserved"]) == (PRICE, 0)
+            # the picture that was paid for is the board; the owner reads the plain reason
+            board = world_store.list_boards(sid)[0]
+            request = world_store.open_board_request(sid)
+            assert (request["status"], request["made"], request["error"], request["board_id"]) == (
+                "done", 1, price_went_up, board["board_id"])
+            assert (board["version"], board["status"], board["dry_run"], board["image_count"]) == (
+                1, "ready", False, 1)
+            # a redo whose first picture is refused makes nothing: it fails, the board stays as it was
+            redo = _request(sid, feedback="more fog")
+            redo[0]["approved_usd_micros"] = PRICE - 1
+            stopped = await _board_workflow(env, redo, "uboard-live")
+    assert (stopped["status"], stopped["reason"], stopped["board_id"]) == ("failed", price_went_up, None), stopped
     request = world_store.open_board_request(sid)
-    assert request["status"] == "failed" and request["made"] == 1 and "price went up" in request["error"]
-    assert world_store.list_boards(sid) == []
+    assert (request["status"], request["made"], request["error"]) == ("failed", 0, price_went_up)
+    assert [(b["version"], b["status"]) for b in world_store.list_boards(sid)] == [(1, "ready")]
+    assert len(_calls("submit")) == 1 and (await _line(db_path, sid))["spent"] == PRICE
+
+
+def test_the_owner_reads_a_plain_reason_for_every_stop():
+    reasons = board_activity.OWNER_REASONS
+    assert board_activity.owner_reason("BudgetReserveRefused") == reasons["BudgetReserveRefused"]
+    for unknown in (None, "RuntimeError", 3):
+        assert board_activity.owner_reason(unknown) == board_activity.PROVIDER_STOPPED
+    for text in [*reasons.values(), board_activity.PROVIDER_STOPPED]:
+        assert "usd_micros" not in text and "uboard-" not in text and text.endswith(".")
 
 
 async def test_the_reconcile_workflow_settles_board_pictures(tmp_path, monkeypatch):

@@ -43,6 +43,7 @@ BOARD_IMAGES = 4
 BOARD_PX = 768
 BOARD_PROMPT_MAX = 2400
 BOARD_BEING_MADE = "A mood board is being made; wait for it to finish"
+BOARD_STOPPED = "The studio's worker stopped before every picture was made."
 BOARD_JOB_STATUSES = ("queued", "running", "completed", "failed", "refused", "skipped", "pending_reconcile")
 
 VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -652,18 +653,20 @@ def board_request(request_id: str) -> dict:
 
 
 def open_board_request(series_id: str) -> dict | None:
-    """The live board the owner waits on: the one being made, or the last one that failed after the
-    latest board was made (with its reason). None otherwise."""
+    """The live board the owner should hear about: the one being made, the last one that failed after
+    the latest board was made, or the one that made the latest board with fewer pictures than asked
+    (each with its reason). None otherwise."""
     with connect() as conn:
         row = conn.execute("SELECT * FROM universe_board_requests WHERE series_id = ? "
                            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (series_id,)).fetchone()
-        if row is None or row["status"] == "done":
+        if row is None:
             return None
-        if row["status"] == "failed":
-            latest = conn.execute("SELECT created_at FROM universe_boards WHERE series_id = ? "
-                                  "ORDER BY version DESC LIMIT 1", (series_id,)).fetchone()
-            if latest is not None and latest["created_at"] > row["updated_at"]:
-                return None
+        latest = conn.execute("SELECT board_id, created_at FROM universe_boards WHERE series_id = ? "
+                              "ORDER BY version DESC LIMIT 1", (series_id,)).fetchone()
+        if row["status"] == "done" and (not row["error"] or latest is None or latest["board_id"] != row["board_id"]):
+            return None
+        if row["status"] == "failed" and latest is not None and latest["created_at"] > row["updated_at"]:
+            return None
         return _request_view(conn, row)
 
 
@@ -759,10 +762,11 @@ def store_board_job_picture(job_id: str, data: bytes, *, placeholder: bool) -> d
 
 
 def finish_board_request(request_id: str, error: str | None = None, actor: str | None = "worker") -> dict:
-    """End a live board request. With every picture made and no error, the pictures become the next
-    mood board version, ``ready`` for the owner (a redo marks the board it answers
-    ``redo_requested``). Otherwise the request is ``failed`` with the reason and its jobs that did
-    not run are ``skipped``. Idempotent: an ended request is returned as it is."""
+    """End a live board request: the pictures it made become the next mood board version, ``ready``
+    for the owner (a redo marks the board it answers ``redo_requested``), so a picture that was paid
+    for is never lost. A request that stopped early (``error``, or fewer pictures than asked) keeps the
+    reason and its jobs that did not run are ``skipped``; with no picture made it is ``failed``.
+    Idempotent: an ended request is returned as it is."""
     with connect() as conn:
         with _tx(conn):
             row = _request_row(conn, request_id)
@@ -777,18 +781,25 @@ def _end_request(conn, req, error: str | None, actor: str | None, now: str) -> N
     made = [j for j in jobs if j["status"] == "completed" and j["sha256"]]
     boards = _board_rows(conn, req["series_id"])
     if error is None and len(made) < req["image_count"]:
-        error = f"The generation stopped after {len(made)} of {req['image_count']} pictures"
-    if error is None and any(b["status"] == "approved" for b in boards):
-        error = "A mood board was approved meanwhile"
+        error = BOARD_STOPPED
     if error is not None:
         conn.execute("UPDATE universe_board_jobs SET status = 'skipped', error = ?, updated_at = ? "
                      "WHERE request_id = ? AND status IN ('queued', 'running')",
                      (f"Stopped: {error}"[:1000], now, req["request_id"]))
-        conn.execute("UPDATE universe_board_requests SET status = 'failed', error = ?, updated_at = ? "
-                     "WHERE request_id = ?", (error[:1000], now, req["request_id"]))
-        audit(conn, actor, "universe_board_failed", series_id=req["series_id"],
-              details={"request_id": req["request_id"], "made": len(made), "error": error[:300]})
+    if any(b["status"] == "approved" for b in boards):
+        error = "A mood board was approved meanwhile"
+    elif not made:
+        error = error or BOARD_STOPPED
+    else:
+        _board_from_request(conn, req, made, boards, error, now)
         return
+    conn.execute("UPDATE universe_board_requests SET status = 'failed', error = ?, updated_at = ? "
+                 "WHERE request_id = ?", (error[:1000], now, req["request_id"]))
+    audit(conn, actor, "universe_board_failed", series_id=req["series_id"],
+          details={"request_id": req["request_id"], "made": len(made), "error": error[:300]})
+
+
+def _board_from_request(conn, req, made: list, boards: list, error: str | None, now: str) -> None:
     version = (boards[-1]["version"] + 1) if boards else 1
     board_id = _new_id("mb")
     placeholder = all(j["placeholder"] for j in made)
@@ -810,11 +821,11 @@ def _end_request(conn, req, error: str | None, actor: str | None, now: str) -> N
             (_new_id("bi"), board_id, job["position"], job["sha256"], job["ext"], job["mime"], job["width"],
              job["height"], job["bytes"], job["placeholder"], "placeholder" if job["placeholder"] else "generated",
              now))
-    conn.execute("UPDATE universe_board_requests SET status = 'done', board_id = ?, error = NULL, updated_at = ? "
-                 "WHERE request_id = ?", (board_id, now, req["request_id"]))
+    conn.execute("UPDATE universe_board_requests SET status = 'done', board_id = ?, error = ?, updated_at = ? "
+                 "WHERE request_id = ?", (board_id, error[:1000] if error else None, now, req["request_id"]))
     audit(conn, req["requested_by"], "universe_board_create", series_id=req["series_id"],
           details={"board_id": board_id, "version": version, "images": len(made),
-                   "estimate_usd_micros": req["estimate_usd_micros"],
+                   "asked_images": req["image_count"], "estimate_usd_micros": req["estimate_usd_micros"],
                    "approved_total_usd_micros": req["approved_total_usd_micros"], "dry_run": placeholder,
                    "redo_of": req["replaces_board_id"], "request_id": req["request_id"]})
 

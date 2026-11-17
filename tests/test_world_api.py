@@ -938,8 +938,7 @@ async def test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_
         studio.temporal_client.handle.describe = AsyncMock(
             return_value=MagicMock(status=WorkflowExecutionStatus.FAILED))
         request = owner.get(base).json()["creation"]["board_request"]
-        assert (request["status"], request["error"]) == (
-            "failed", f"The generation stopped after 0 of {count} pictures")
+        assert (request["status"], request["error"]) == ("failed", world_store.BOARD_STOPPED)
         assert [j["status"] for j in request["jobs"]] == ["skipped"] * count
         # a request Temporal does not know: kept while its start may still be on the way, then ended
         studio.temporal_client.handle.describe = AsyncMock(

@@ -4,8 +4,8 @@ Input (built by api/world_routes.py after the owner approved the estimate):
 ``{"request_id", "series_id", "jobs": [job, ...]}`` (hfvg.universe_boards.plan_jobs with each job's
 share of the approved total). Jobs run in order; the first failure or refusal (price above the
 approval, balance, budget stop, provider error) stops the board and nothing else is spent. Then
-finish_universe_board_activity turns the pictures into the next board version, or records why the
-board failed.
+finish_universe_board_activity turns the pictures that were made into the next board version, with
+the plain reason (owner_reason) when it stopped early, or records why no picture was made.
 
 It runs on its own task queue (universe_task_queue): the API starts a board only while a worker
 polls that queue, so a worker without this workflow (an older image mid deploy) gets the owner a
@@ -19,11 +19,13 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from hfvg.activities.universe_board import (
         finish_universe_board_activity,
         generate_universe_board_image_activity,
+        owner_reason,
     )
 
 # A paid call is never retried automatically (a retry could pay twice); the activity resumes a
@@ -63,7 +65,7 @@ class UniverseBoardWorkflow:
 
     @workflow.run
     async def run(self, request: dict) -> dict:
-        error = None
+        error = reason = None
         for job in list(request.get("jobs") or []):
             try:
                 result = await workflow.execute_activity(
@@ -74,12 +76,16 @@ class UniverseBoardWorkflow:
                 )
             except ActivityError as e:
                 error = str(e.cause or e)
+                # a timed-out picture keeps its holds for the reconciler, like a poll that ran out
+                reason = owner_reason("MoodBoardPending" if isinstance(e.cause, TemporalTimeoutError)
+                                      else getattr(e.cause, "type", None))
                 self.results.append({"job_id": job["job_id"], "status": "failed", "error": error})
                 break
             self.results.append(result)
         finished = await workflow.execute_activity(
-            finish_universe_board_activity, args=[request["request_id"], error],
+            finish_universe_board_activity, args=[request["request_id"], reason],
             start_to_close_timeout=timedelta(minutes=2), retry_policy=QUICK,
         )
-        return {"status": "completed" if finished.get("status") == "done" else "failed", "results": self.results,
-                "board_id": finished.get("board_id"), "error": error}
+        status = ("failed" if finished.get("status") != "done" else "completed" if error is None else "partial")
+        return {"status": status, "results": self.results, "board_id": finished.get("board_id"), "error": error,
+                "reason": reason}
