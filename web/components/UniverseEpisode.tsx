@@ -1,11 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
+import { GateChecklist, GooseArt, PriceBlock, Seal, hueOf } from '@/components/playful';
+import { castColours } from '@/lib/castColour.mjs';
+import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
-import { btnPrimary, btnSecondary, card, highlight, input, link } from '@/lib/ui';
+import { btnGo, btnPrimary, btnSecondary, card, input, link, tones } from '@/lib/ui';
 import {
   pendingStart, pendingStartKey, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem, type UniverseCard,
 } from '@/lib/world.mjs';
@@ -84,7 +87,7 @@ function AddToUniverse({ episodeId, onLinked }: { episodeId: string; onLinked: (
         </div>
       )}
       {problem && (
-        <p role="alert" className="text-red-700 dark:text-red-300" data-testid="breadcrumb-add-problem">{problem}</p>
+        <p role="alert" className="font-bold text-coral-ink" data-testid="breadcrumb-add-problem">{problem}</p>
       )}
     </div>
   );
@@ -99,7 +102,7 @@ export function EpisodeBreadcrumb({ episodeId, info, canAct, onLinked }: {
 }) {
   const universe = info?.universe ?? null;
   return (
-    <nav aria-label="Breadcrumb" className="flex flex-wrap items-baseline gap-x-1 text-sm text-gray-600 dark:text-gray-300"
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-baseline gap-x-1 text-[13px] font-extrabold text-ink-soft"
       data-testid="episode-breadcrumb">
       {universe ? (
         <Link href={`/studio/universes/${encodeURIComponent(universe.series_id)}`} className={`${link} break-words`}
@@ -127,19 +130,22 @@ export function EpisodeBreadcrumb({ episodeId, info, canAct, onLinked }: {
   );
 }
 
-function StripEntry({ name, image, badge, testId }: {
-  name: string; image: { thumb_url: string } | null; badge: Badge; testId: string;
+function StripEntry({ name, image, badge, testId, colour, ring = false }: {
+  name: string; image: { thumb_url: string } | null; badge: Badge; testId: string; colour?: CastColour | null; ring?: boolean;
 }) {
+  const hue = colour ? hueOf(colour) : null;
   return (
-    <li className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-gray-200 p-2 sm:w-64 dark:border-gray-700"
+    <li className={`flex min-w-0 max-w-full items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3.5 shadow-card ${ring ? 'shadow-[0_0_0_3px_var(--coral),var(--shadow-1)]' : ''}`}
       data-testid={testId}>
       {image ? (
-        <img src={`${API_URL}${image.thumb_url}`} alt="" className="h-12 w-12 flex-none rounded-md object-cover" />
+        <img src={`${API_URL}${image.thumb_url}`} alt="" className="h-10 w-10 flex-none rounded-full object-cover" />
       ) : (
-        <span aria-hidden="true" className="h-12 w-12 flex-none rounded-md bg-gray-100 dark:bg-gray-700" />
+        <span aria-hidden="true" className={`grid h-10 w-10 flex-none place-items-center rounded-full font-display text-[16px] ${hue ? `${hue.soft} ${hue.ink}` : 'bg-[#F2EEE5] text-ink-soft'}`}>
+          {name.slice(0, 1)}
+        </span>
       )}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-gray-900 dark:text-white" title={name}>{name}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[13.5px] font-extrabold" title={name}>{name}</span>
         <ConsistencyBadge badge={badge} testId={`${testId}-badge`} />
       </span>
     </li>
@@ -153,33 +159,72 @@ function itemEntries(items: StripItem[], kind: 'place' | 'prop') {
   ));
 }
 
-/** What the episode uses from its Universe, with a badge on each (for a reader who may see its cast). */
-export function UniverseStrip({ info }: { info: EpisodeUniverse | null }) {
+/**
+ * "From <Universe>": what the episode uses from its Universe, each with its lock or photo badge and an
+ * unlocked character ringed in coral (for a reader who may see its cast). `children` sit at the foot
+ * (the lock gate).
+ */
+export function UniverseStrip({ info, children }: { info: EpisodeUniverse | null; children?: ReactNode }) {
   if (!info?.universe || !info.strip) return null;
   const { characters, places, props } = info.strip;
   const empty = characters.length + places.length + props.length === 0;
+  const colours = castColours(characters);
   return (
     <section className={card} data-testid="universe-strip" aria-labelledby="universe-strip-title">
-      <h2 id="universe-strip-title" className="text-lg font-semibold">From your Universe</h2>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
-        What this episode&apos;s shots use from{' '}
-        <Link href={`/studio/universes/${encodeURIComponent(info.universe.series_id)}`} className={link}>{info.universe.name}</Link>.
-      </p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="universe-strip-title" className="text-[22px]">From {info.universe.name}</h2>
+        <p className="text-[12.5px] text-ink-soft">
+          What this episode&apos;s shots use from{' '}
+          <Link href={`/studio/universes/${encodeURIComponent(info.universe.series_id)}`} className={link}>{info.universe.name}</Link>.
+        </p>
+      </div>
       {empty ? (
-        <p className="mt-3 text-sm text-gray-700 dark:text-gray-200" data-testid="universe-strip-empty">
+        <p className="mt-3 text-[13.5px] text-ink-soft" data-testid="universe-strip-empty">
           No shot uses a character, place or prop from the Universe yet.
         </p>
       ) : (
-        <ul className="mt-3 flex flex-wrap gap-3">
+        <ul className="mt-3 flex flex-wrap gap-2.5">
           {characters.map((c) => (
             <StripEntry key={`character-${c.slug}-${c.version}`} name={c.version !== 1 ? `${c.name} (look ${c.version})` : c.name}
-              image={c.image} badge={stripBadge(c)} testId={`strip-character-${c.slug}`} />
+              image={c.image} badge={stripBadge(c)} testId={`strip-character-${c.slug}`} colour={colours[c.slug]}
+              ring={!c.locked} />
           ))}
           {itemEntries(places, 'place')}
           {itemEntries(props, 'prop')}
         </ul>
       )}
+      {children}
     </section>
+  );
+}
+
+/**
+ * The lock gate (DESIGN-TARGETS-v2 §6.5): in a Universe every character keeps one locked look, so the
+ * video cannot start while one it uses is not locked. The studio enforces it; this card says it in one
+ * sentence and points to the cast, where the look is locked with a character sheet.
+ */
+export function LockGateCard({ info }: { info: EpisodeUniverse }) {
+  const unlocked = info.lock?.unlocked ?? [];
+  if (unlocked.length === 0) return null;
+  const first = unlocked[0].name.split(' ')[0];
+  return (
+    <div className="mt-4 flex flex-col gap-4 rounded-[22px] border-2 border-[#F4B3AB] bg-coral-soft p-4 sm:flex-row sm:items-center"
+      data-testid="lock-gate">
+      <Seal state="open" top="not" bottom="locked" size={64} className="shrink-0" />
+      <div className="min-w-0 flex-1">
+        <h3 className="text-[18px]">
+          {unlocked.length === 1 ? `Lock ${first}’s look before this video starts` : 'Lock these looks before this video starts'}
+        </h3>
+        <p className="mt-1 text-[13.5px]" data-testid="start-lock">
+          Lock the look of {lockNames(unlocked)} before this video starts: it is in {info.universe?.name ?? 'a Universe'},
+          where every character keeps one locked look in every episode.{' '}
+          <a href="#cast" className={link} data-testid="start-lock-link">Go to Cast</a>, make the character sheet and lock it.
+        </p>
+      </div>
+      <a href="#cast" className={`${btnGo} shrink-0`} data-testid="lock-gate-link">
+        {unlocked.length === 1 ? `Lock ${first}’s look` : 'Lock the looks'}
+      </a>
+    </div>
   );
 }
 
@@ -224,31 +269,47 @@ export function StartCard({ episodeId, info, onStarted }: {
     }
   };
 
+  const locked = unlocked.length === 0;
   return (
-    <section className={highlight} data-testid="start-card" aria-labelledby="start-card-title">
-      <h2 id="start-card-title" className="text-xl font-semibold">Start this video</h2>
-      {unlocked.length > 0 ? (
-        <p className="mt-1 text-gray-700 dark:text-gray-200" data-testid="start-lock">
-          Lock the look of {lockNames(unlocked)} before this video starts: it is in {info.universe?.name ?? 'a Universe'},
-          where every character keeps one locked look in every episode.{' '}
-          <a href="#cast" className={link} data-testid="start-lock-link">Go to Cast</a>, make the character sheet and lock it.
-        </p>
-      ) : (
-        <p className="mt-1 text-gray-700 dark:text-gray-200" data-testid="start-ready">
+    <section data-testid="start-card" aria-labelledby="start-card-title">
+      <div className="flex items-center gap-3">
+        <GooseArt className="h-[64px] w-[58px] shrink-0" />
+        <div className="min-w-0">
+          <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your OK needed' : 'Waiting for a lock'}</span>
+          <h2 id="start-card-title" className="mt-1 text-[20px] leading-tight">Start this video</h2>
+        </div>
+      </div>
+      {locked && (
+        <p className="mt-2 text-[14px]" data-testid="start-ready">
           Every character in it has a locked look, so it can start.
         </p>
       )}
-      <p className="mt-2 text-sm text-gray-700 dark:text-gray-200" data-testid="start-mode">
-        {request.dry_run
-          ? 'It starts as a free test run: no credits are used.'
-          : 'It starts as the live run you confirmed when you made it: it uses credits.'}
-      </p>
-      <button type="button" className={`${btnPrimary} mt-4 w-full sm:w-auto`} disabled={busy || unlocked.length > 0} onClick={start}
+      <PriceBlock className="mt-3" total={request.dry_run ? 'Free' : 'Live run'} status={request.dry_run ? 'Test run' : 'Priced when you made it'}
+        rows={request.dry_run
+          ? [{ label: 'Pictures and clips', value: 'Free stand-ins' }]
+          : [{ label: 'Pictures, clips and voices', value: 'The price you confirmed' }]}>
+        <p className="mt-2 text-[12.5px]" data-testid="start-mode">
+          {request.dry_run
+            ? 'It starts as a free test run: no credits are used.'
+            : 'It starts as the live run you confirmed when you made it: it uses credits.'}
+        </p>
+      </PriceBlock>
+      <GateChecklist className="mt-3" testId="start-checklist" items={[
+        { key: 'price', label: request.dry_run ? 'Free test run' : 'Price confirmed when you made it', done: true },
+        { key: 'locked', label: 'Every character locked', done: locked,
+          detail: locked ? null : `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` },
+      ]} />
+      <button type="button" className={`${btnGo} mt-3 w-full`} disabled={busy || !locked} onClick={start}
         data-testid="start-episode">
         {busy ? 'Starting…' : 'Start the video'}
       </button>
+      <p className="mt-2 text-center text-[12px] text-ink-soft">
+        {locked
+          ? request.dry_run ? 'Nothing is charged in a test run.' : 'The studio checks the price and your balance again before each paid step.'
+          : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
+      </p>
       {problem && (
-        <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid="start-problem">{problem}</p>
+        <p role="alert" className="mt-2 text-[13px] font-bold text-coral-ink" data-testid="start-problem">{problem}</p>
       )}
     </section>
   );
