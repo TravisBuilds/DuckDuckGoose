@@ -85,6 +85,19 @@ export function creationJourney(view) {
   };
 }
 
+/**
+ * The path as the creation screen of `screen` shows it: that screen is the highlighted stop, every
+ * finished step reads done (the screen keeps its highlight, `complete` says it is finished too) and
+ * the rest are ahead, so the Universe's next step is only highlighted on its own screen.
+ */
+export function screenSteps(journey, screen) {
+  return (journey?.steps ?? []).map((step) => ({
+    ...step,
+    state: step.key === screen ? 'now' : step.state === 'done' ? 'done' : 'todo',
+    complete: step.state === 'done',
+  }));
+}
+
 /** The step a creation URL asks for, or the Universe's current step (Lock once everything is done). */
 export function stepFromQuery(raw, journey) {
   const asked = String(raw ?? '').toLowerCase();

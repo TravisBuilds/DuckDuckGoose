@@ -21,6 +21,10 @@ export interface CreationJourney {
 }
 
 export declare function creationJourney(view: WorldView | null | undefined): CreationJourney;
+export declare function screenSteps(
+  journey: Pick<CreationJourney, 'steps'> | null | undefined,
+  screen: CreationStep,
+): { key: CreationStep; name: string; note: string; state: StepState; complete: boolean }[];
 export declare function stepFromQuery(raw: string | null | undefined, journey: { current: CreationStep | null } | null): CreationStep;
 export declare function stepNumber(key: CreationStep): number;
 

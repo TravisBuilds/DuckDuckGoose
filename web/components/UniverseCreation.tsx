@@ -16,7 +16,7 @@ import type { RightsAnswers } from '@/lib/cast.mjs';
 import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
 import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
 import {
-  CREATION_NAMES, boardUnlockHint, creationJourney, sealFor, stepFromQuery, stepNumber, toneChips,
+  CREATION_NAMES, boardUnlockHint, creationJourney, screenSteps, sealFor, stepFromQuery, stepNumber, toneChips,
   type CreationStep,
 } from '@/lib/journey.mjs';
 import { input as field, label as fieldLabel, tones } from '@/lib/ui';
@@ -362,12 +362,13 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     );
   };
 
-  const stops = journey.steps.map((s) => ({
+  const stops = screenSteps(journey, step).map((s) => ({
     key: s.key,
     name: s.name,
-    note: s.key === 'references' && s.state === 'done' ? 'Add more any time' : s.note,
+    note: s.key === 'references' && s.complete ? 'Add more any time' : s.note,
     state: s.state,
-    href: s.state !== 'todo' || s.key === step ? stepHref(s.key) : null,
+    complete: s.complete,
+    href: s.complete || s.key === journey.current || s.key === step ? stepHref(s.key) : null,
   }));
   const bubble: Record<CreationStep, string> = {
     spark: 'Every Universe starts with a spark: a name and a line about it.',

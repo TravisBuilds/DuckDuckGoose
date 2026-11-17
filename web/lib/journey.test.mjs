@@ -7,6 +7,7 @@ import {
   boardUnlocked,
   creationJourney,
   homeJourney,
+  screenSteps,
   sealFor,
   stepFromQuery,
   stepNumber,
@@ -78,6 +79,23 @@ test('a board already made keeps References done even if references were removed
   const journey = creationJourney(view({ boards: [{ board_id: 'mb_1', version: 1, status: 'ready' }] }));
   assert.equal(journey.steps[1].state, 'done');
   assert.equal(journey.current, 'moodboard');
+});
+
+test('a creation screen highlights itself, not the next step, and shows finished steps done', () => {
+  const screen = (journey, key) => screenSteps(journey, key).map((s) => `${s.key}:${s.state}${s.complete ? '+' : ''}`);
+  // References done (a note opened the board), the Universe's next step is the mood board
+  const open = creationJourney(view({ notes: 1 }));
+  assert.equal(open.current, 'moodboard');
+  assert.deepEqual(screen(open, 'references'), ['spark:done+', 'references:now+', 'moodboard:todo', 'bible:todo', 'lock:todo']);
+  assert.deepEqual(screen(open, 'moodboard'), ['spark:done+', 'references:done+', 'moodboard:now', 'bible:todo', 'lock:todo']);
+  // looking back at the spark of a Universe with its bible written: the later steps stay done
+  const approved = { board_id: 'mb_1', version: 1, status: 'approved' };
+  const written = creationJourney(view({ notes: 1, boards: [approved], bibleBoard: 'mb_1', characters: [{ slug: 'a', locked_versions: [] }] }));
+  assert.deepEqual(screen(written, 'spark'), ['spark:now+', 'references:done+', 'moodboard:done+', 'bible:done+', 'lock:todo']);
+  assert.deepEqual(screen(written, 'lock'), ['spark:done+', 'references:done+', 'moodboard:done+', 'bible:done+', 'lock:now']);
+  // the notes stay the journey's
+  assert.deepEqual(screenSteps(open, 'references').map((s) => s.note), open.steps.map((s) => s.note));
+  assert.deepEqual(screenSteps(null, 'spark'), []);
 });
 
 test('a step in the URL wins; anything else is the current step', () => {

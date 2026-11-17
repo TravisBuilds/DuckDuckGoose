@@ -33,6 +33,15 @@ async function signIn(page: Page, who: { email: string; password: string }) {
   await expect(page).toHaveURL(/\/studio$/);
 }
 
+/** Each stop's state on the creation path, and the one stop marked as the screen you are on. */
+async function expectPath(page: Page, states: Record<string, string>, here: string) {
+  for (const [key, state] of Object.entries(states)) {
+    await expect(page.getByTestId(`creation-path-${key}`)).toHaveAttribute('data-state', state);
+  }
+  await expect(page.getByTestId('creation-path').locator('[aria-current="step"]')).toHaveCount(1);
+  await expect(page.getByTestId(`creation-path-${here}`).locator('[aria-current="step"]')).toHaveCount(1);
+}
+
 test.describe.serial('Playful studio guarantees', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -65,6 +74,19 @@ test.describe.serial('Playful studio guarantees', () => {
     await page.getByTestId('board-check-price').click();
     await expect(page.getByTestId('board-estimate')).toContainText('4 placeholder images, free in dry-run mode');
     await expect(page.getByTestId('board-make')).toBeEnabled();
+  });
+
+  test('a creation screen highlights itself on the path, and the steps already done read done', async ({ page }) => {
+    await signIn(page, OWNER);
+    // the note opened the mood board: References is done and the mood board is the Universe's next step
+    await page.goto(`/studio/universes/${universeId}/create?step=references`);
+    await expect(page.getByTestId('creation-step-2')).toBeVisible();
+    await expectPath(page, { spark: 'done', references: 'now', moodboard: 'todo', bible: 'todo', lock: 'todo' }, 'references');
+    await expect(page.getByTestId('creation-path-references')).toHaveAttribute('data-complete', 'true');
+    await page.goto(`/studio/universes/${universeId}/create?step=moodboard`);
+    await expectPath(page, { spark: 'done', references: 'done', moodboard: 'now', bible: 'todo', lock: 'todo' }, 'moodboard');
+    await page.goto(`/studio/universes/${universeId}/create?step=spark`);
+    await expectPath(page, { spark: 'now', references: 'done', moodboard: 'todo', bible: 'todo', lock: 'todo' }, 'spark');
   });
 
   test('an episode with an unlocked character keeps its start button off', async ({ page }) => {

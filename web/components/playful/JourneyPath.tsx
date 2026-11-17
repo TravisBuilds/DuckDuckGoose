@@ -11,6 +11,8 @@ export interface JourneyStop {
   name: string;
   note?: string | null;
   state: StopState;
+  /** Finished, though highlighted as the screen you are on: its bubble shows the check. */
+  complete?: boolean;
   /** A step that spends money once approved: it wears a "$" coin. */
   paid?: boolean;
   href?: string | null;
@@ -57,25 +59,27 @@ export default function JourneyPath({ stops, current, label, compact = false, te
       <ol className={`pf-path min-w-max ${compact ? 'is-compact' : ''}`}>
         {stops.map((stop, i) => {
           const isCurrent = current ? stop.key === current : stop.state === 'now';
+          const finished = stop.state === 'done' || Boolean(stop.complete);
+          const before = stops[i - 1];
           const body = (
             <>
               <span className="pf-bub" aria-hidden="true">
-                {stop.state === 'done' ? <Icon name="check" size={18} />
+                {finished ? <Icon name="check" size={18} />
                   : stop.state === 'blocked' ? <Icon name="lock" size={17} /> : i + 1}
                 {stop.paid && <span className="pf-coin">$</span>}
               </span>
               <span className="pf-stop-name">{stop.name}</span>
               {stop.note && <span className="pf-stop-note">{stop.note}</span>}
               <span className="sr-only">
-                {`, step ${i + 1} of ${stops.length}, ${STATE_WORDS[stop.state]}${stop.paid ? ', costs money' : ''}`}
+                {`, step ${i + 1} of ${stops.length}, ${STATE_WORDS[stop.state]}${finished && stop.state !== 'done' ? ', done' : ''}${stop.paid ? ', costs money' : ''}`}
               </span>
             </>
           );
           const cls = `pf-stop is-${stop.state}`;
           return (
             <li key={stop.key} data-testid={testId ? `${testId}-${stop.key}` : undefined} data-state={stop.state}
-              className={`flex items-start ${i === 0 ? 'flex-none' : 'flex-1'}`}>
-              {i > 0 && <span aria-hidden="true" className={`pf-link ${stops[i - 1].state === 'done' ? 'is-done' : ''}`} />}
+              data-complete={finished ? 'true' : undefined} className={`flex items-start ${i === 0 ? 'flex-none' : 'flex-1'}`}>
+              {i > 0 && <span aria-hidden="true" className={`pf-link ${before.state === 'done' || before.complete ? 'is-done' : ''}`} />}
               {stop.href ? (
                 <Link href={stop.href} className={cls} aria-current={isCurrent ? 'step' : undefined}>{body}</Link>
               ) : (
