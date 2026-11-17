@@ -5402,6 +5402,9 @@ async def retry_shot(
             # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
             raise HTTPException(status_code=400, detail=_update_refusal("retry_shot", e))
         except Exception as e:
+            from temporalio.service import RPCError, RPCStatusCode
+            if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+                raise  # no run: the 404 below, as for an episode that does not exist
             raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
         # Audit log
