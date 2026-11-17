@@ -1787,9 +1787,10 @@ async def start_episode(
     Start a new episode workflow.
     
     Requires: Authorization header with admin secret OR session cookie (member or admin); a member
-    starts only an episode of their own or one without an owner. A new episode (no DB row yet) is
-    recorded with the session user as its owner. Refused (409) while the episode has a run in
-    progress, before its beatmap or row is touched.
+    starts only an episode of their own or one without an owner, and gets the 404 of an episode that
+    does not exist for one they may not see. A new episode (no DB row yet) is recorded with the
+    session user as its owner. Refused (409) while the episode has a run in progress, before its
+    beatmap or row is touched.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)

@@ -66,13 +66,14 @@ profile.
 
 | Action | Who |
 |---|---|
-| See a Universe (page, card, its pictures that are not private) | Admins, its owner, and whoever may change one of its episodes (an episode editor). Everyone else gets the 404 a missing Universe gets (`Universe <id> not found`), with no names or pictures. |
+| See a Universe (page, card, its pictures that are not private) | Admins, its owner, and whoever may change one of its episodes (an episode editor). Everyone else gets the 404 a missing Universe gets (`Universe <id> not found`), with no names or pictures. Its page and card list and count only the episodes the reader may see (next row). |
+| See an episode of it (its page, story, shots, files, every route about it, and in every list) | Admins, its owner (the Universe's), and whoever may change that episode. An editor of another episode of the Universe does not see it at all: every route about it answers the 404 an episode that does not exist gets, and no list or count includes it (docs/AUTHENTICATION.md, "Who sees an episode"). |
 | Change it (profile, characters, places, props, saved voices, notes, reference photos, mood board, bible) | Its owner or an admin. An episode editor gets 403. A Universe without an owner (made by a Bearer request, or before series had owners) changes only through an admin. |
 | See its story bible, style notes, saved voices, notes, reference photos, open mood boards and the creation flow | Its owner and admins. An episode editor sees the cover and an approved mood board, not the references. |
 | Start a new episode from it (button on its page) | Its owner and admins. An episode editor sees a note instead. |
 | Put an episode in it ("Add to a Universe", `POST /api/episodes/{id}/series`) | Whoever may change the episode, if they also own the Universe (or are an admin). |
-| See an episode's Universe, strip and locks (`GET /api/episodes/{id}/universe`) | Whoever may see the episode's cast. Everyone else gets only who made the episode and that they may not act on it. |
-| Read an episode's prompts (shot, end, clip and still prompts, the text of prompt edits, and the free text that can quote them) | Admins, the Universe's owner and whoever may change that episode. An editor of another episode of the Universe gets that episode's shots, cast and shot plan without them (`prompts_hidden`, `cast_hidden`; docs/AUTHENTICATION.md). |
+| See an episode's Universe, strip and locks (`GET /api/episodes/{id}/universe`) | Whoever may see the episode (they all see its cast). Everyone else gets the 404 an episode that does not exist gets. |
+| Read an episode's prompts (shot, end, clip and still prompts, the text of prompt edits, and the free text that can quote them) | Admins, the Universe's owner and whoever may change that episode: the people who see the episode. The prompt rule stays a second line behind the episode rule: a reader who reached an episode without it would get its shots, cast and shot plan without them (`prompts_hidden`, `cast_hidden`; docs/AUTHENTICATION.md). |
 | Create a Universe | Any signed-in member (they own it). |
 
 Nobody else receives prompt text: the mood board prompt is in the owner's creation flow only, an
@@ -103,9 +104,16 @@ Every route allows members and runs under the app-wide guard. "Viewer" means the
 | `POST /api/worlds/{id}/board/{board_id}/approve` | Owner |
 | `POST /api/worlds/{id}/bible` | Owner |
 | `GET /api/worlds/images/{image_id}` and `/thumb` | Owner; a viewer only for the cover and an approved board |
-| `GET /api/episodes/{id}/universe` | Any member (see the table above for what each gets) |
+| `GET /api/episodes/{id}/universe` | Whoever may see the episode (404 for everyone else, as for an episode that does not exist) |
 
-Deletes are refused (409) while any episode of the Universe is being made. Uploads keep the cast
+Lists and counts follow the episode rule: a Universe's episodes, its episode and finished counts, and
+each character's and place's "Used in N episodes" count only the episodes the reader may see, and a
+character's audit trail and sheet jobs leave out the episodes they may not see. An episode editor's
+counts are smaller than the owner's; admins and the owner get the full ones.
+
+Deletes are refused (409) while any episode of the Universe is being made. Taking an episode out of a
+Universe while another of its episodes is being made names that episode and its run only to whoever
+may see it; everyone else reads "Another video of this Universe is being made right now". Uploads keep the cast
 limits (`CAST_UPLOAD_MAX_BYTES`, `CAST_MIN_IMAGE_PX`) and get 413 before anything is stored.
 
 In live mode `POST /api/worlds/{id}/board` answers `{"board": null, "request": ...}` and the worker
