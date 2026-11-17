@@ -4744,6 +4744,120 @@ test_mutation 685 "preflight: no detail of an unreadable shots.json" \
     "tests/test_editor_prompt_isolation.py::test_the_preflight_does_not_quote_another_episode_s_shots_json_that_cannot_be_read" \
     sed -i '/^async def preflight_episode(/,/^preflight_episode\.allow_members = True$/ s/^            if not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/            if False:  # MUTATED/'
 
+# 686: every member route about an episode answers who may not see it as for an episode that does not exist
+test_mutation 686 "episode visibility: the app-wide guard hides the episode" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_a_read_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[GET-/api/episodes/{episode_id}/story-shape]" \
+    sed -i '/^    if allow_members and "episode_id" in request\.path_params:$/,/^            reading=method == "GET" or getattr(endpoint, "read_only", False))$/d'
+
+# 687: the guard covers the writes too, not only the reads
+test_mutation 687 "episode visibility: writes hidden too" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_a_write_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[POST-/api/episodes/{episode_id}/approve]" \
+    sed -i 's/^    if allow_members and "episode_id" in request\.path_params:$/    if allow_members and method == "GET" and "episode_id" in request.path_params:  # MUTATED/'
+
+# 688: a read of an episode that does not exist gets the same 404 as a hidden one
+test_mutation 688 "episode visibility: a missing episode answers as a hidden one" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_read_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[GET-/api/episodes/{episode_id}/audit]" \
+    sed -i 's/^    if not await may_see_episode(episode_id, user_id, False) or (reading and not await episode_exists(episode_id)):$/    if not await may_see_episode(episode_id, user_id, False):  # MUTATED/'
+
+# 689: admins get past the rule on every route
+test_mutation 689 "episode visibility: admins see every episode's routes" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_read_answers_whoever_may_see_the_episode[GET-/api/episodes/{episode_id}/story-shape]" \
+    sed -i '/^async def require_episode_visible(/,/^        raise episode_hidden(episode_id)$/ s/^    if is_admin:$/    if False:  # MUTATED/'
+
+# 690: admins see every episode in the lists
+test_mutation 690 "episode visibility: admins list every episode" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_episode_list_has_only_the_episodes_the_caller_may_see" \
+    sed -i '/^async def visible_episodes(/,/^    return seen$/ s/^    if is_admin:$/    if False:  # MUTATED/'
+
+# 691: the member who made an episode sees it
+test_mutation 691 "episode visibility: the owner sees the episode" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_episode_list_has_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^    seen = {e for e in ids if owners\.get(e) is None or owners\[e\] == user_id}$/    seen = {e for e in ids if owners.get(e) is None}  # MUTATED/'
+
+# 692: every member sees an episode without an owner (every member edits it)
+test_mutation 692 "episode visibility: an episode without an owner is seen by every member" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_episode_list_has_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^    seen = {e for e in ids if owners\.get(e) is None or owners\[e\] == user_id}$/    seen = {e for e in ids if user_id is not None and owners.get(e) == user_id}  # MUTATED/'
+
+# 693: the owner of a Universe sees the episodes in it
+test_mutation 693 "episode visibility: the Universe owner sees its episodes" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_episode_list_has_only_the_episodes_the_caller_may_see" \
+    sed -i '/^    if rest and user_id:$/,/^        seen\.update(e for e in rest if universe_owners\.get(e) is not None and universe_owners\[e\] == user_id)$/d'
+
+# 694: the episode list leaves out the episodes the caller may not see
+test_mutation 694 "episode visibility: the episode list" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_the_episode_list_has_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^            for row in \[row for row in rows if row\["episode_id"\] in visible\]\[:100\]:$/            for row in rows[:100]:  # MUTATED/'
+
+# 695: the series list names and counts only the episodes the caller may see
+test_mutation 695 "episode visibility: the series list" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^        row\["episodes"\] = \[e for e in row\["episodes"\] if e in visible\]$/        pass  # MUTATED/'
+
+# 696: a series' cast names only the episodes of the series the caller may see
+test_mutation 696 "episode visibility: the series cast" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^    return {"series": {\*\*series, "episodes": \[e for e in series\["episodes"\] if e in visible\]},$/    return {"series": series,  # MUTATED/'
+
+# 697: an episode's cast names only the episodes of its series the caller may see
+test_mutation 697 "episode visibility: the episode cast's series" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^        series = {\*\*series, "episodes": \[e for e in series\["episodes"\] if e in visible\]}$/        pass  # MUTATED/'
+
+# 698: a Universe card names and counts only the episodes the caller may see
+test_mutation 698 "episode visibility: the Universe cards" \
+    "api/world_routes.py" \
+    "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^    visible = \[{\*\*r, "episodes": \[e for e in r\["episodes"\] if e in seen\]} for r in visible\]$/    pass  # MUTATED/'
+
+# 699: a Universe page lists and counts only the episodes the caller may see
+test_mutation 699 "episode visibility: the Universe page" \
+    "api/world_routes.py" \
+    "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
+    sed -i 's/^    series = {\*\*who\["series"\], "episodes": \[e for e in who\["series"\]\["episodes"\] if e in seen\]}$/    series = who["series"]  # MUTATED/'
+
+# 700: a character's audit trail leaves out the entries of episodes the caller may not see
+test_mutation 700 "episode visibility: a character's audit trail" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_see" \
+    sed -i 's/^            "audit": \[row for row in audit if not row\.get("episode_id") or row\["episode_id"\] in visible\]}$/            "audit": audit}  # MUTATED/'
+
+# 701: a character's sheet jobs do not name the episodes the caller may not see
+test_mutation 701 "episode visibility: a character's sheet jobs" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_universe_character_leaves_out_the_episodes_the_caller_may_not_see" \
+    sed -i '/^async def _without_hidden_episodes(/,/^async def episode_exists(/ s/^    if not hidden:$/    if True:  # MUTATED/'
+
+# 702: the refusal to unlink during a run does not name an episode (or its run) the caller may not see
+test_mutation 702 "episode visibility: the unlink refusal names no hidden run" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_unlinking_does_not_name_the_run_of_an_episode_the_caller_may_not_see" \
+    sed -i 's/^        if run and ep not in named:$/        if False:  # MUTATED/'
+
+# 703: the beatmap upload (episode id in the form) hides an episode the caller may not see
+test_mutation 703 "episode visibility: the beatmap upload" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_a_write_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[POST-/api/episodes/upload]" \
+    sed -i '/^async def upload_beatmap(/,/^upload_beatmap\.allow_members = True$/ s/^    await cast_routes\.require_episode_visible(episode_id, request\.headers\.get("authorization"), studio_admin_token)$/    pass  # MUTATED/'
+
+# 704: the start (episode id in the body) hides an episode the caller may not see
+test_mutation 704 "episode visibility: the start" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_a_write_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[POST-/api/episodes]" \
+    sed -i '/^async def start_episode(/,/^start_episode\.allow_members = True$/ s/^    await cast_routes\.require_episode_visible(request\.episode_id, authorization, studio_admin_token)$/    pass  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
