@@ -22,7 +22,7 @@ from hfvg import paths, shot_plan_edits
 
 ADMIN = "editor-prompts-admin-secret-0123456789abcdef"
 USERS = {  # who: (name, email, password, role)
-    "universe_owner": ("Rowan Owner", "rowan.owner@prompts.test", "owner-pass-123", "member"),
+    "universe_owner": ("Remy Owner", "remy.owner@prompts.test", "owner-pass-123", "member"),
     "editor": ("Ada Editor", "ada.editor@prompts.test", "editor-pass-123", "member"),
     "maker": ("Bo Maker", "bo.maker@prompts.test", "maker-pass-123", "member"),
     "outsider": ("Cy Outsider", "cy.outsider@prompts.test", "outsider-pass-123", "member"),
