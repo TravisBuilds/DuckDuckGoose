@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, nextStep, openGate, shotIds, statusChip,
-  stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
+  PAID_STEPS, cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, nextStep, openGate, shotIds,
+  statusChip, stepNote, stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -229,7 +229,7 @@ test('a purged run that finished reads as finished from its saved state', () => 
   assert.deepEqual([next.step, next.title, next.href], ['done', 'Your video is ready', '#finished']);
   assert.deepEqual(statusChip(next), { label: 'Finished', tone: 'ok' });
   assert.deepEqual(Object.fromEntries(stepperSteps(state, story, null, next).map((s) => [s.key, s.status])), {
-    story: 'done', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'current',
+    story: 'done', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'done',
   });
   assert.equal(storyLocked(state), true);
   assert.equal(openGate(state), null);
@@ -297,7 +297,7 @@ test('episode page of a delivered run Temporal purged: finished, with its video,
     ready: true, primary: 'phone', title: 'Your video is ready', text: 'Watch it here and download the files you need.',
   });
   assert.deepEqual(Object.fromEntries(stepperSteps(PURGED_DELIVERED, null, null, next).map((s) => [s.key, s.status])), {
-    story: 'skipped', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'current',
+    story: 'skipped', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'done',
   });
   assert.equal(openGate(PURGED_DELIVERED), null);
   // someone else's finished video waits on no one either
@@ -365,11 +365,43 @@ test('the stepper marks done, current and skipped steps', () => {
 
   const done = runState({ story_shape: STORY, approvals: { story_shape: true }, run: { ended: true, outcome: 'completed' } });
   assert.deepEqual(statuses(done), {
-    story: 'done', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'current',
+    story: 'done', cast: 'skipped', shot_plan: 'done', stills: 'done', final_cut: 'done', download: 'done',
   });
+
+  // a finished video has no step left to do: Download is done too, nothing stays "current"
+  assert.ok(Object.values(statuses(done)).every((status) => status !== 'current'));
 
   const stopped = runState({ story_shape: STORY, approvals: { story_shape: true, g1_shot_plan: true }, run: { ended: true, outcome: 'failed' } });
   assert.equal(statuses(stopped).stills, 'stopped');
+});
+
+test('the words under a step: a paid step says "Free" only in a test run, else its recorded cost or that none is recorded', () => {
+  const done = (key) => ({ key, status: 'done' });
+  assert.equal(stepNote(done('stills'), { cost: 1_240_000, dryRun: false }), '$1.24');
+  assert.equal(stepNote(done('final_cut'), { cost: 50_000, dryRun: true }), '$0.05');
+  // a test run makes free stand-ins: nothing in it was paid for
+  assert.equal(stepNote(done('stills'), { cost: 0, dryRun: true }), 'Free');
+  assert.equal(stepNote(done('cast'), { cost: null, dryRun: true }), 'Free');
+  // a live run with no spend on record never reads "Free"
+  for (const cost of [0, null, undefined]) {
+    for (const key of PAID_STEPS) assert.equal(stepNote(done(key), { cost, dryRun: false }), 'Cost not recorded');
+  }
+  // nor when the run does not say which it was
+  assert.equal(stepNote(done('stills'), { cost: 0 }), 'Cost not recorded');
+  assert.equal(stepNote(done('stills'), { cost: 0, dryRun: null, live: false }), 'Cost not recorded');
+  assert.deepEqual(PAID_STEPS, ['cast', 'stills', 'final_cut']);
+  // steps that never spend, and the rest of the trail
+  assert.equal(stepNote(done('story'), { dryRun: false }), 'Done');
+  assert.equal(stepNote(done('download'), { cost: 0, dryRun: false }), 'Done');
+  assert.equal(stepNote({ key: 'stills', status: 'current' }), 'Now');
+  assert.equal(stepNote({ key: 'cast', status: 'skipped' }), 'Skipped');
+  assert.equal(stepNote({ key: 'stills', status: 'stopped' }), 'Stopped here');
+  assert.equal(stepNote({ key: 'stills', status: 'todo' }, { live: true }), 'Priced first');
+  assert.equal(stepNote({ key: 'stills', status: 'todo' }, { live: false }), 'Free test run');
+  assert.equal(stepNote({ key: 'shot_plan', status: 'todo' }, { live: true }), '');
+  // a step to come follows the run's own mode once there is a run, whatever live mode says now
+  assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: true, dryRun: true }), 'Free test run');
+  assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: false, dryRun: false }), 'Priced first');
 });
 
 test('studio home chips', () => {

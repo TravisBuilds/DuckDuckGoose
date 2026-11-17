@@ -5,11 +5,14 @@ import path from 'node:path';
 
 /**
  * The guarantees the studio's look must keep (DESIGN-TARGETS-v2 §6.7), against the real dry-run backend
- * (playwright.e2e.config.ts, no API mocks): the mood board's price is on screen before its button turns
- * on; an episode whose character has no locked look keeps its start button off (and the server refuses
- * it too); a member who may see a Universe without owning it gets no lock or voice controls; and at
- * 390 px the studio's bottom bar replaces the top tabs. The Universe is made through the API: nothing
- * here is generated or charged.
+ * (playwright.e2e.config.ts): the mood board's price is on screen before its button turns on; a creation
+ * screen is the highlighted stop of its path; at 390 px the mood board decision fits the screen; an
+ * episode whose character has no locked look keeps its start button off (and the server refuses it
+ * too); a member who may see a Universe without owning it gets no lock or voice controls; at 390 px the
+ * studio's bottom bar replaces the top tabs; and a finished episode's trail says Download is done and
+ * never calls a paid step "Free" without a recorded cost. The Universe is made through the API: nothing
+ * here is generated or charged. The only API mocks turn the finished test run's record into a live
+ * one's (a live run needs paid providers): dry_run off, then spend on its budget lines.
  */
 
 const API = 'http://localhost:8000';
@@ -20,7 +23,10 @@ const CHARACTER = { name: 'Juniper Reed', slug: 'juniper-reed', description: 'a 
 const CARD = 'cartoon-made-real';
 const CARD_NAME = 'Cartoon world, made real';
 const VIEWER_EPISODE = 'ep93pbv';
-const BEATMAP = readFileSync(path.join(__dirname, 'fixtures', 'e2e', 'BEATMAP.md'));
+const FINISHED_EPISODE = 'ep94pbf';
+const ADMIN = { email: 'e2e@test.local', password: 'e2e-test-password' };
+const FIXTURES = path.join(__dirname, 'fixtures', 'e2e');
+const BEATMAP = readFileSync(path.join(FIXTURES, 'BEATMAP.md'));
 
 let universeId = '';
 let episodeId = '';
@@ -210,5 +216,87 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(page.locator('#studio-make-menu').getByRole('link', { name: /New episode/ })).toBeVisible();
     const extra = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(extra, `the home scrolls sideways by ${extra}px`).toBeLessThanOrEqual(0);
+  });
+
+  test('a finished episode: Download is done, and a paid step with no recorded cost never says Free', async ({ page }) => {
+    test.setTimeout(240_000);
+    await signIn(page, ADMIN);
+    const file = (name: string, mimeType: string) => ({ name, mimeType, buffer: readFileSync(path.join(FIXTURES, name)) });
+    const uploads: [string, Record<string, ReturnType<typeof file> | string>][] = [
+      ['/api/episodes/upload', { episode_id: FINISHED_EPISODE, beatmap_file: file('BEATMAP.md', 'text/markdown') }],
+      [`/api/episodes/${FINISHED_EPISODE}/upload-shots`,
+        { shots_file: file('shots.json', 'application/json'), refs_file: file('refs.json', 'application/json') }],
+      [`/api/episodes/${FINISHED_EPISODE}/upload-prompt-kit`, { prompt_kit_file: file('prompt_kit.json', 'application/json') }],
+    ];
+    for (const [url, multipart] of uploads) {
+      const sent = await page.request.post(`${API}${url}`, { multipart });
+      expect(sent.status(), await sent.text()).toBe(200);
+    }
+    const started = await page.request.post(`${API}/api/episodes`, {
+      data: { episode_id: FINISHED_EPISODE, dry_run: true, enable_story_shaping: false } });
+    expect(started.status(), await started.text()).toBe(200);
+
+    // a free test run, approved gate by gate
+    await page.goto(`/studio/episodes/${FINISHED_EPISODE}`);
+    await expect(page.getByTestId('current-gate')).toHaveText('G1_SHOT_PLAN', { timeout: 60_000 });
+    await page.getByTestId('approve-g1').click();
+    await expect(page.getByTestId('run-message')).toHaveText('Shot plan approved.');
+    await expect(page.getByTestId('current-gate')).toHaveText('G2_SCENE_STILLS', { timeout: 60_000 });
+    for (const sid of ['S01', 'S02']) {
+      await expect(page.getByTestId(`shot-${sid}-still`)).toHaveText('done', { timeout: 60_000 });
+      await page.getByTestId(`approve-shot-${sid}`).click();
+      await expect(page.getByTestId('run-message')).toHaveText(`Picture ${sid} approved.`);
+    }
+    await page.getByTestId('approve-g2').click();
+    await expect(page.getByTestId('run-message')).toHaveText(/^Scene pictures approved\./);
+    await expect(page.getByTestId('current-gate')).toHaveText('G_FINAL_CUT', { timeout: 120_000 });
+    await expect(page.getByTestId('final-blockers')).toHaveCount(0, { timeout: 120_000 });
+    await page.getByTestId('approve-final').click();
+    await expect(page.getByTestId('run-finished')).toHaveText('Finished', { timeout: 120_000 });
+
+    // finished: Download is done, nothing on the trail is "now", and a test run's paid steps were free
+    const note = (key: string) => page.getByTestId(`step-${key}`).locator('.pf-stop-note');
+    await page.reload();
+    await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
+    await expect(page.getByTestId('stepper').locator('[aria-current="step"]')).toHaveCount(0);
+    await expect(note('stills')).toHaveText('Free');
+    await expect(note('final_cut')).toHaveText('Free');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('$0.00');
+
+    // the same run as a live one that recorded no spend (a live run needs paid providers, so its
+    // record is the dry run's with dry_run off): no paid step says "Free"
+    await page.route(`${API}/api/episodes/${FINISHED_EPISODE}`, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const response = await route.fetch();
+      const body = await response.json();
+      return route.fulfill({ response, json: { ...body, run: { ...body.run, dry_run: false } } });
+    });
+    await page.route(`${API}/api/episodes/${FINISHED_EPISODE}/gates`, async (route) => {
+      const response = await route.fetch();
+      return route.fulfill({ response, json: { ...(await response.json()), live_mode: true } });
+    });
+    await page.reload();
+    await expect(note('stills')).toHaveText('Cost not recorded');
+    await expect(note('final_cut')).toHaveText('Cost not recorded');
+    await expect(page.getByTestId('stepper')).not.toContainText('Free');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('Not recorded');
+    await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
+
+    // with spend on record, each paid step shows what it cost
+    const spend: Record<string, number> = { L3_final_stills: 1_240_000, L4_video: 3_000_000 };
+    await page.route(`${API}/api/episodes/${FINISHED_EPISODE}/budget`, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const lines = body.lines.filter((line: { line_name: string }) => !(line.line_name in spend));
+      for (const [lineName, spent] of Object.entries(spend)) {
+        lines.push({ line_name: lineName, provider: 'higgsfield', spent, reserved: 0, total: spent, cap: 10_000_000,
+          stop: 8_000_000, at_stop: false, unit: 'usd_micros' });
+      }
+      return route.fulfill({ response, json: { ...body, lines } });
+    });
+    await page.reload();
+    await expect(note('stills')).toHaveText('$1.24');
+    await expect(note('final_cut')).toHaveText('$3.00');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('$4.24');
   });
 });

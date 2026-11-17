@@ -691,10 +691,15 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         : 'The studio is writing the story outline. It shows up here for you to read and approve.';
 
   const live = Boolean(gates?.live_mode);
+  const dryRun = state?.run?.dry_run ?? null;
   const spent = budget ? budget.lines.reduce((sum, line) => sum + line.spent, 0) : null;
-  const costs = Object.fromEntries(Object.entries(STEP_LINES).map(([key, of]) => [
-    key, budget ? budget.lines.filter((line) => of(line.line_name)).reduce((sum, line) => sum + line.spent, 0) : null,
-  ]));
+  // a step's spend is on record only when the episode's budget has lines of its own for it
+  const costs = Object.fromEntries(Object.entries(STEP_LINES).map(([key, of]) => {
+    const lines = budget?.lines.filter((line) => of(line.line_name)) ?? [];
+    return [key, lines.length > 0 ? lines.reduce((sum, line) => sum + line.spent, 0) : null];
+  }));
+  // a finished live run that recorded no spend says so instead of $0.00
+  const realCost = spent === null || (spent === 0 && dryRun !== true) ? 'Not recorded' : formatUsd(spent);
   const startHere = notStarted && canAct && Boolean(info?.universe);
   const unlocked = info?.lock?.unlocked ?? [];
   const decision = Boolean(viewer) && !completed && !expired && canAct && !next.waiting && DECISIONS.includes(next.step);
@@ -720,11 +725,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       <dl className="mt-3 rounded-inner border-2 border-[#E5DED0] bg-white p-3 text-[13px]">
         <div className="flex justify-between gap-3">
           <dt>Real cost of this episode</dt>
-          <dd className="font-extrabold" data-testid="episode-real-cost">{spent === null ? 'Not available' : formatUsd(spent)}</dd>
+          <dd className="font-extrabold" data-testid="episode-real-cost">{realCost}</dd>
         </div>
         <div className="mt-1.5 flex justify-between gap-3">
           <dt>This run</dt>
-          <dd className="font-extrabold">{live ? 'Live: paid providers' : 'Test run: free'}</dd>
+          <dd className="font-extrabold">{(dryRun === null ? live : !dryRun) ? 'Live: paid providers' : 'Test run: free'}</dd>
         </div>
       </dl>
     </section>
@@ -752,7 +757,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       {(steps || preStart) && (
         <section className="pf-card mt-4 px-3 pb-2 pt-4 sm:px-6" aria-label="Steps of this video">
-          {steps ? <Stepper steps={steps} costs={costs} live={live} />
+          {steps ? <Stepper steps={steps} costs={costs} live={live} dryRun={dryRun} />
             : preStart && <Stepper steps={preStart} live={live} testId="stepper-before-start" />}
         </section>
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import type { NextStep, StepperStep } from '@/lib/next-step.mjs';
+import { PAID_STEPS, stepNote, type NextStep, type StepperStep } from '@/lib/next-step.mjs';
 import { formatUsd } from '@/lib/money';
 import { btnGo, btnSecondary, link, tones } from '@/lib/ui';
 import { GooseArt, Icon } from './playful';
@@ -13,32 +13,21 @@ const STATE: Record<StepperStep['status'], { cls: string; words: string }> = {
   stopped: { cls: 'is-blocked', words: 'stopped here' },
 };
 
-/** The steps that spend money in a live run: character sheets, scene pictures, then the clips and voices. */
-export const PAID_STEPS = new Set(['cast', 'stills', 'final_cut']);
-
-function stepNote(step: StepperStep, cost: number | null | undefined, live: boolean): string {
-  if (step.status === 'done') return cost ? formatUsd(cost) : PAID_STEPS.has(step.key) ? 'Free' : 'Done';
-  if (step.status === 'skipped') return 'Skipped';
-  if (step.status === 'stopped') return 'Stopped here';
-  if (step.status === 'current') return 'Now';
-  return PAID_STEPS.has(step.key) ? (live ? 'Priced first' : 'Free test run') : '';
-}
-
 /**
  * Story, Cast, Shot plan, Scene pictures, Final cut, Download as the board-game trail: a "$" coin on
  * each step that spends in a live run, and under each done step what it really cost (`costs`, from
- * the episode's budget lines; "Free" in a test run).
+ * the episode's budget lines; "Free" only in a test run, `dryRun` being the run's own record).
  */
-export function Stepper({ steps, costs = {}, live = false, testId = 'stepper' }: {
-  steps: StepperStep[]; costs?: Record<string, number | null>; live?: boolean; testId?: string;
+export function Stepper({ steps, costs = {}, live = false, dryRun = null, testId = 'stepper' }: {
+  steps: StepperStep[]; costs?: Record<string, number | null>; live?: boolean; dryRun?: boolean | null; testId?: string;
 }) {
   return (
     <div className="overflow-x-auto pb-1">
       <ol className="pf-path min-w-max" aria-label="Steps" data-testid={testId}>
         {steps.map((step, i) => {
           const state = STATE[step.status];
-          const paid = PAID_STEPS.has(step.key);
-          const note = stepNote(step, costs[step.key], live);
+          const paid = PAID_STEPS.includes(step.key);
+          const note = stepNote(step, { cost: costs[step.key] ?? null, live, dryRun });
           return (
             <li key={step.key} className={`flex items-start ${i === 0 ? 'flex-none' : 'flex-1'}`}
               data-testid={testId === 'stepper' ? `step-${step.key}` : `${testId}-${step.key}`}

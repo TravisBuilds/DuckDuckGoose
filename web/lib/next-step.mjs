@@ -7,6 +7,8 @@
  * without it.
  */
 
+import { formatUsdMicros } from './balance.mjs';
+
 export const STEPS = ['story', 'cast', 'shot_plan', 'stills', 'final_cut', 'download'];
 
 export const STEP_LABELS = {
@@ -357,7 +359,7 @@ export function stepperSteps(state, story, cast, next) {
     shot_plan: g1 ? 'done' : 'todo',
     stills: approvals.g2_scene_stills || passed(state, 'G2_SCENE_STILLS') || completed ? 'done' : 'todo',
     final_cut: approvals.g_final_cut || passed(state, 'G_FINAL_CUT') || completed ? 'done' : 'todo',
-    download: completed ? 'current' : 'todo',
+    download: completed ? 'done' : 'todo',
   };
   if (!cast || !plannedCast(cast)) status.cast = 'skipped';
   else if (charactersToLock(cast).length === 0) status.cast = 'done';
@@ -371,6 +373,36 @@ export function stepperSteps(state, story, cast, next) {
     if (key) status[key] = 'current';
   }
   return STEPS.map((key) => ({ key, label: STEP_LABELS[key], status: status[key] }));
+}
+
+/** The steps that spend money in a live run: character sheets, scene pictures, then the clips and voices. */
+export const PAID_STEPS = ['cast', 'stills', 'final_cut'];
+
+/**
+ * The words under a step of the trail. A finished paid step shows the spend recorded for it, "Free"
+ * only when its run was a test run (nothing in it was paid for), and in a live run without a recorded
+ * spend "Cost not recorded", never "Free". `cost`: the recorded spend in usd_micros, or null when the
+ * step has none on record (the budget was not read, or the step has no budget line of its own).
+ * `dryRun`: the run's recorded mode, null before a run; `live`: the studio's live mode, which a step
+ * to come follows only while no run says otherwise.
+ */
+export function stepNote(step, { cost = null, live = false, dryRun = null } = {}) {
+  const paid = PAID_STEPS.includes(step?.key);
+  switch (step?.status) {
+    case 'done':
+      if (!paid) return 'Done';
+      if (typeof cost === 'number' && cost > 0) return formatUsdMicros(cost);
+      return dryRun === true ? 'Free' : 'Cost not recorded';
+    case 'skipped':
+      return 'Skipped';
+    case 'stopped':
+      return 'Stopped here';
+    case 'current':
+      return 'Now';
+    default:
+      if (!paid) return '';
+      return (dryRun === null ? live : !dryRun) ? 'Priced first' : 'Free test run';
+  }
 }
 
 /** The status chip on a studio home card. */
