@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CREATION_STEPS,
   boardUnlockHint,
+  byNeedsYou,
   boardUnlocked,
   creationJourney,
   homeJourney,
@@ -143,4 +144,13 @@ test('tone chips: short phrases from a tone note, no repeats, at most six', () =
   assert.deepEqual(toneChips('a, b, c, d, e, f, g, h').length, 6);
   assert.deepEqual(toneChips('this phrase is far too long to be a little tone chip at all, short'), ['short']);
   assert.deepEqual(toneChips(null), []);
+});
+
+test('keep going: a decision waiting for you comes first, then stopped, then working; ties keep their order', () => {
+  const entries = [
+    { id: 'a', tone: 'wait' }, { id: 'b', tone: 'todo' }, { id: 'c', tone: 'ok' },
+    { id: 'd', tone: 'bad' }, { id: 'e', tone: 'todo' }, { id: 'f', tone: null }, { id: 'g', tone: 'run' },
+  ];
+  assert.deepEqual(byNeedsYou(entries, (e) => e.tone).map((e) => e.id), ['b', 'e', 'd', 'g', 'a', 'c', 'f']);
+  assert.deepEqual(byNeedsYou(null, () => 'todo'), []);
 });

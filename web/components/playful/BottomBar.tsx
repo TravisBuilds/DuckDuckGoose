@@ -9,6 +9,8 @@ export interface BottomItem {
   active?: boolean;
   onClick?: () => void;
   expanded?: boolean;
+  /** The menu this button toggles (it is not a click outside that menu). */
+  menu?: string;
 }
 
 /**
@@ -28,7 +30,7 @@ export default function BottomBar({ items, fab, label = 'Studio', testId }: {
       </Link>
     ) : (
       <button key={item.key} type="button" onClick={item.onClick} className={cls} aria-expanded={item.expanded}
-        data-testid={testId ? `${testId}-${item.key}` : undefined}>
+        data-menu={item.menu} data-testid={testId ? `${testId}-${item.key}` : undefined}>
         {item.icon}{item.label}
       </button>
     );

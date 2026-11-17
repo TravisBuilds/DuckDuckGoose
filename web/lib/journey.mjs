@@ -171,3 +171,13 @@ export function toneChips(text, max = 6) {
   }
   return out;
 }
+
+/** Keep going order: a decision waiting for you first, then stopped, then working or waiting, then the rest. */
+const NEEDS_RANK = { todo: 0, bad: 1, run: 2, wait: 3, warn: 4, ok: 5 };
+
+export function byNeedsYou(entries, toneOf) {
+  return (entries ?? [])
+    .map((entry, i) => ({ entry, i, rank: NEEDS_RANK[toneOf(entry) ?? ''] ?? 6 }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map(({ entry }) => entry);
+}

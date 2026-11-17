@@ -44,3 +44,4 @@ export declare function sealFor(
   drift?: number,
 ): SealWords;
 export declare function toneChips(text: string | null | undefined, max?: number): string[];
+export declare function byNeedsYou<T>(entries: T[] | null | undefined, toneOf: (entry: T) => string | null | undefined): T[];
