@@ -2041,7 +2041,7 @@ test_mutation 232 "Run report uses real ledger caps (no placeholder)" \
 test_mutation 233 "API returns 409 when the workflow refuses a reject/retry" \
     "api/main.py" \
     "tests/test_gate_correctness_round1.py::TestPerShotG2Decisions::test_reject_still_persists_state_in_db" \
-    sed -i 's/^        raise HTTPException(status_code=409, detail=str(e))$/        return {"refused": str(e)}  # MUTATED/'
+    sed -i 's/^        raise HTTPException(status_code=409, detail=_update_refusal(update, e))$/        return {"refused": str(e)}  # MUTATED/'
 
 # 234: G-RETRY-1f: a clip retry reuses the approved still (no new still submit)
 test_mutation 234 "Clip retry child reuses the approved still" \
@@ -4307,7 +4307,7 @@ test_mutation 612 "props library hidden from who may not see the cast" \
 test_mutation 613 "prop photo uploads: size limit" \
     "api/cast_routes.py" \
     "tests/test_props_api.py::test_the_size_limit_counts_a_prop_photo_body_without_a_declared_length" \
-    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path))  # MUTATED/'
+    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path) or UNIVERSE_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path) or UNIVERSE_UPLOAD_PATH_RE.match(path))  # MUTATED/'
 
 # 614: props and places are not deleted while a run of the library is in progress
 test_mutation 614 "props deletes wait for the run" \
@@ -4325,7 +4325,7 @@ test_mutation 615 "prop with a photo: rights attestation" \
 test_mutation 616 "shared image file stays while a prop photo uses it" \
     "hfvg/cast_store.py" \
     "tests/test_prop_store.py::test_a_file_shared_by_a_cast_picture_and_a_prop_photo_stays_until_neither_uses_it" \
-    sed -i 's/"SELECT 1 FROM prop_images WHERE sha256 = ? LIMIT 1", (sha256, sha256))/"SELECT 1 FROM prop_images WHERE 0 AND sha256 = ? LIMIT 1", (sha256, sha256))/'
+    sed -i 's/"SELECT 1 FROM prop_images WHERE sha256 = ? UNION ALL "/"SELECT 1 FROM prop_images WHERE 0 AND sha256 = ? UNION ALL "/'
 
 # 617: a shot's place and props send their photos with the shot
 test_mutation 617 "picked props send their photos" \
@@ -4566,6 +4566,12 @@ test_mutation 656 "kept start: only for its own episode" \
     "web/lib/world.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
     sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
+
+# 657: a Universe reference photo upload is counted against the size limit before its form is parsed
+test_mutation 657 "universe reference photo uploads: size limit" \
+    "api/cast_routes.py" \
+    "tests/test_world_api.py::test_the_size_limit_counts_a_universe_upload_without_a_declared_length[/api/worlds/sr_000000000000/photos-True]" \
+    sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path) or UNIVERSE_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path))  # MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
