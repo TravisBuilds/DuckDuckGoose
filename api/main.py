@@ -3033,6 +3033,7 @@ async def get_dashboard(
             "el_vo_takes": "voice_over",
             "el_sfx": "sound_effects",
             "el_music_one_take": "music",
+            "U1_mood_board": "mood_boards",
         }
         
         for job in jobs:

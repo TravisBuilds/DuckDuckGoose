@@ -41,6 +41,7 @@ STAGES = {
     "el_vo_takes": "voice_over",
     "el_sfx": "sound_effects",
     "el_music_one_take": "music",
+    "U1_mood_board": "mood_boards",
 }
 UNATTRIBUTED = "unattributed"
 

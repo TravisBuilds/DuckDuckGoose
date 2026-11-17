@@ -4,7 +4,8 @@
 Starts, in ONE process:
   * a Temporal dev/test server (WorkflowEnvironment.start_local, binary downloaded by the SDK; the
     time-skipping server cannot be used: it lacks ListWorkflowExecutions, which G1 approval needs),
-  * the production worker (PRODUCTION_WORKFLOWS + PRODUCTION_ACTIVITIES on config.TASK_QUEUE),
+  * the production workers (hfvg.worker.production_workers: config.TASK_QUEUE and its mood board
+    task queue),
   * the real FastAPI app (api.main:app) under uvicorn, connected to that test server.
 
 Everything runs in DRY_RUN with a throw-away work dir (database, EPISODES_DIR, dry-run outputs),
@@ -125,8 +126,9 @@ DEV_SERVER_ARGS = [arg for key in ("history.transferProcessorUpdateAckInterval",
 
 async def _main(port: int) -> None:
     import uvicorn
+    from contextlib import AsyncExitStack
+
     from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
 
     from hfvg.budget import BudgetLedger
     from hfvg.config import config
@@ -134,7 +136,7 @@ async def _main(port: int) -> None:
     from hfvg.studio_db import init_studio_db
     from hfvg.temporal_converter import temporal_data_converter
     from hfvg.users import UserManager, ROLE_ADMIN, ROLE_MEMBER
-    from hfvg.worker import PRODUCTION_ACTIVITIES, PRODUCTION_WORKFLOWS
+    from hfvg.worker import production_workers
 
     db = os.environ["DATABASE_PATH"]
     await init_studio_db(db)
@@ -170,8 +172,9 @@ async def _main(port: int) -> None:
         target = env.client.service_client.config.target_host
         os.environ["TEMPORAL_ADDRESS"] = target
         os.environ["TEMPORAL_NAMESPACE"] = env.client.namespace
-        async with Worker(env.client, task_queue=config.TASK_QUEUE,
-                          workflows=PRODUCTION_WORKFLOWS, activities=PRODUCTION_ACTIVITIES):
+        async with AsyncExitStack() as workers:
+            for worker in production_workers(env.client, config.TASK_QUEUE):
+                await workers.enter_async_context(worker)
             from api import main as api_main  # imported after the env is final (module-level config)
 
             api_main.TEMPORAL_ADDRESS = target

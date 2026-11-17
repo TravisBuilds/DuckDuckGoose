@@ -58,13 +58,16 @@ def stall_threshold_minutes() -> int:
 
 def job_type_of(job_id: str) -> str:
     """Harness job ids are still-... / clip-... (see submit_*_job_enforced); castsheet-... are
-    character sheet images (hfvg.activities.cast_sheet), settled by their own reconcile activity."""
+    character sheet images (hfvg.activities.cast_sheet) and uboard-... live mood board pictures
+    (hfvg.activities.universe_board), each settled by its own reconcile activity."""
     if job_id.startswith("still-"):
         return "still"
     if job_id.startswith("clip-"):
         return "clip"
     if job_id.startswith("castsheet-"):
         return "cast_sheet"
+    if job_id.startswith("uboard-"):
+        return "universe_board"
     raise ValueError(f"Cannot derive job type from job id {job_id!r}")
 
 

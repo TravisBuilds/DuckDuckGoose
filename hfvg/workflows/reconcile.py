@@ -11,7 +11,9 @@ One run:
      (idempotent; a committed job is never released).
    - still running -> left pending for the next scheduled run.
    Character sheet jobs (``castsheet-...``) are settled by ``reconcile_cast_sheet_job_activity``
-   instead (same commit/release rules; the image goes to the cast library, not to a shot).
+   instead (same commit/release rules; the image goes to the cast library, not to a shot), and live
+   mood board pictures (``uboard-...``) by ``reconcile_universe_board_job_activity`` (the picture
+   stays with its board request).
 3. Late assets whose landing failed earlier are re-landed (no re-poll, no second commit).
 
 Schedule: :func:`ensure_reconcile_schedule` creates/updates the Temporal Schedule
@@ -42,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
         poll_job_status,
         release_job_budget,
     )
+    from hfvg.activities.universe_board import reconcile_universe_board_job_activity
 
 RECONCILE_WORKFLOW_ID = "hfvg-reconcile-pending-jobs"
 RECONCILE_SCHEDULE_ID = "hfvg-reconcile-schedule"
@@ -92,6 +95,16 @@ class ReconcilePendingJobsWorkflow:
                     if outcome != "still_pending":
                         await workflow.execute_activity(
                             record_reconcile_outcome, args=[job, outcome, "cast sheet"],
+                            start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+                    continue
+                if job["job_type"] == "universe_board":
+                    outcome = await workflow.execute_activity(
+                        reconcile_universe_board_job_activity, job,
+                        start_to_close_timeout=timedelta(minutes=5), retry_policy=quick)
+                    summary[outcome] += 1
+                    if outcome != "still_pending":
+                        await workflow.execute_activity(
+                            record_reconcile_outcome, args=[job, outcome, "mood board"],
                             start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                     continue
                 status = await workflow.execute_activity(
