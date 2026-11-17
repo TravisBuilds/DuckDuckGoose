@@ -4543,11 +4543,11 @@ test_mutation 652 "universe images: references only for the owner" \
     "tests/test_world_api.py::test_universe_images_follow_who_may_see_them" \
     sed -i 's/^    if who\["can_edit"\] or image\.get("board_status") == "approved":$/    if True:  # MUTATED/'
 
-# 653: a live mood board is refused before any provider is asked or anything charged
-test_mutation 653 "mood board: a live board is refused" \
+# 653: a worker older than live mood boards gets the owner a plain 409 before any price is asked or anything charged
+test_mutation 653 "mood board: an older worker is a plain 409" \
     "api/world_routes.py" \
-    "tests/test_world_api.py::test_a_live_mood_board_is_refused_before_anything_is_asked_or_charged" \
-    sed -i '/^def _board_prices() -> list\[int\]:$/,/^    return \[/ s/^    if not cast_api\._dry_run():$/    if False:  # MUTATED/'
+    "tests/test_world_api.py::test_a_live_board_without_a_worker_for_it_is_a_plain_409_before_anything_is_asked_or_charged" \
+    sed -i '/^async def _board_worker_problem() /,/^    return None$/ s/^    if not polling:$/    if False:  # MUTATED/'
 
 # 654: the story bible and style notes go into a draft only for the Universe's owner and admins
 test_mutation 654 "draft: bible and style notes only for the owner" \
@@ -4572,6 +4572,78 @@ test_mutation 657 "universe reference photo uploads: size limit" \
     "api/cast_routes.py" \
     "tests/test_world_api.py::test_the_size_limit_counts_a_universe_upload_without_a_declared_length[/api/worlds/sr_000000000000/photos-True]" \
     sed -i 's/^    return bool(UPLOAD_PATH_RE\.match(path) or PROP_UPLOAD_PATH_RE\.match(path) or UNIVERSE_UPLOAD_PATH_RE\.match(path))$/    return bool(UPLOAD_PATH_RE.match(path) or PROP_UPLOAD_PATH_RE.match(path))  # MUTATED/'
+
+# 658: a live mood board picture whose provider estimate is above its approved share is refused before any spend
+test_mutation 658 "mood board: estimates guard before each picture" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_estimate_above_the_approved_share_spends_nothing" \
+    sed -i 's/^            if estimated_usd > job\["approved_usd_micros"\]:$/            if False:  # MUTATED/'
+
+# 659: ... and passes the balance gate before anything is reserved
+test_mutation 659 "mood board: balance gate before each picture" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_balance_gate_spends_nothing" \
+    sed -i '/^async def _generate_live(/,/^    finally:$/ s/^            if not passed:$/            if False:  # MUTATED/'
+
+# 660: a paid picture's job ledger row is in the Universe owner's name (dashboard, cost truth)
+test_mutation 660 "mood board: ledger row in the owner's name" \
+    "hfvg/activities/universe_board.py" \
+    "tests/test_universe_board.py::test_live_success_reserves_submits_commits_records_the_ledger_and_keeps_the_picture" \
+    sed -i 's/^                                            user_id=job\["owner_user_id"\])$/                                            user_id=None)  # MUTATED/'
+
+# 661: cost truth counts the U1_mood_board line as the mood board stage
+test_mutation 661 "mood board: cost truth stage" \
+    "hfvg/cost_report.py" \
+    "tests/test_universe_board.py::test_live_success_reserves_submits_commits_records_the_ledger_and_keeps_the_picture" \
+    sed -i 's/^    "U1_mood_board": "mood_boards",$/    "U1_mood_board": "stills",  # MUTATED/'
+
+# 662: a board picture the provider has not finished goes to the reconciler as a mood board job
+test_mutation 662 "mood board: reconciler routes uboard- jobs" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_universe_board.py::test_poll_exhaustion_keeps_the_holds_and_the_reconciler_settles" \
+    sed -i '/^    if job_id\.startswith("uboard-"):$/{n;s/^        return "universe_board"$/        return "cast_sheet"  # MUTATED/}'
+
+# 663: the API starts a live board only within the total the owner approved
+test_mutation 663 "mood board: the approved total" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if total > approved:$/    if False:  # MUTATED/'
+
+# 664: ... and within what the Universe's mood board budget has left before its stop
+test_mutation 664 "mood board: the budget line before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if total > budget\["available_usd_micros"\]:$/    if False:  # MUTATED/'
+
+# 665: ... only with a recorded balance (GC.01)
+test_mutation 665 "mood board: GC.01 before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if not fresh\.get("ok"):$/    if False:  # MUTATED/'
+
+# 666: ... and only past the balance gate
+test_mutation 666 "mood board: balance gate before the start" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker" \
+    sed -i '/^async def _start_live_board(/,/^    return {"board": None, "request": made/ s/^    if not passed:$/    if False:  # MUTATED/'
+
+# 667: a live board that stopped early keeps the pictures that were paid for
+test_mutation 667 "mood board: paid pictures are kept" \
+    "hfvg/world_store.py" \
+    "tests/test_world_store.py::test_a_live_board_keeps_every_picture_that_was_made" \
+    sed -i 's/^    elif not made:$/    elif True:  # MUTATED/'
+
+# 668: the Universe page follows a live board while the worker makes it
+test_mutation 668 "mood board: the page follows the board being made" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (request\.status === 'making') {\$/  if (false) {  \/\/ MUTATED/"
+
+# 669: the live estimate shows what the Universe's mood board budget has left before anything is spent
+test_mutation 669 "mood board: the estimate shows the budget left" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (budget) {\$/  if (false) {  \/\/ MUTATED/"
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

@@ -390,8 +390,8 @@ async def test_live_success_reserves_submits_commits_records_the_ledger_and_keep
     assert cast_store.image_file(picture["sha256"], picture["ext"]).is_file()
     # cost truth: the mood board stage, in the Universe owner's name
     truth = await build_cost_truth(db_path)
-    stages = {s["stage"]: s for s in truth["by_stage"]}
-    assert stages["mood_boards"]["spend_usd_micros"] == PRICE
+    stages = {s["stage"]: s["spend_usd_micros"] for s in truth["by_stage"]}
+    assert stages.get("mood_boards") == PRICE, stages
     person = next(p for p in truth["by_person"] if p["user_id"] == OWNER_ID)
     assert person["spend_usd_micros"] == PRICE and person["attribution"] == ["job_owner"]
     # the same job again: the kept picture is returned, nothing is reserved or submitted twice
