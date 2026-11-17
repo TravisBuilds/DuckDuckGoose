@@ -140,20 +140,31 @@ see a cast:
   An episode's own cast is seen by whoever may change the episode: its owner, or every member while it
   has no owner. A series cast is seen by the series' owner and by whoever may change one of the
   series' episodes.
+- An episode's **prompts**, and the text that can quote them, are read only by admins, the owner of
+  the episode's series and whoever may change the episode (its owner, or every member while it has
+  no owner). For an episode with its own cast these are the people who see its cast. Whoever may
+  change another episode of the series sees the series cast and this episode's shots with their
+  cast, but none of this episode's prompts (the reads below).
 - Everyone else gets the `404` a missing item gets, so a refusal does not tell whether the cast,
   series, character or image exists: `Series <id> not found`, `Image <id> not found`, or for
   `GET /api/episodes/{id}/cast...` one message for the cast and its characters. `GET /api/series`
   leaves out the series the caller may not see. The responses say whether the caller may change the
   cast (`can_edit`).
 - The preflight (`POST /api/episodes/{id}/preflight`, read-only) checks the shots' cast only for a
-  caller who may see it. Anyone else gets `cast_hidden: true` and no `cast_errors`, which would name
-  the cast's characters.
+  caller who may read the episode's prompts. Anyone else gets `cast_hidden: true` and no
+  `cast_errors`, which would name the cast's characters.
 - The shot states (`GET /api/episodes/{id}/shot-states`, read-only) keep the statuses and the
   moderation steps for everyone, but the free text that can quote a shot's prompt (still and clip
   errors, the escalation's provider message and reason, the lint messages) only for a caller who may
-  see the cast. Anyone else gets `cast_hidden: true` and those fields empty.
-- The other episode reads that can quote a prompt follow the same rule. Whoever may not see the cast
-  gets:
+  read the episode's prompts. Anyone else gets `cast_hidden: true` and those fields empty.
+- The other episode reads that can quote a prompt follow the same rule. Whoever may not read the
+  episode's prompts gets:
+  - the cast (`GET /api/episodes/{id}/cast`, a series cast they may see, `prompts_hidden: true`) with
+    each shot's cast, refs and notes but no prompt, and no detail of a shots.json that cannot be read;
+  - the shot plan (`GET /api/episodes/{id}/shot-plan`, `prompts_hidden: true`) with each shot's cast,
+    props, place, refs and notes but no prompt, end prompt or clip prompt, an edit history without
+    the old and new text of prompt edits and without the edits' notes, and no detail of a shots.json
+    that cannot be planned;
   - the shots (`GET /api/episodes/{id}/shots`, `cast_hidden: true`) without each shot's prompt and
     QC results (the QC verdicts, the clip's fail-if lines, the moderation record); `pre_approved`
     stays;
@@ -176,16 +187,19 @@ see a cast:
   - the same read rule, with `404` for whoever may not see it;
   - photos served only through the authenticated routes.
 - **The shot plan** (`GET`/`POST /api/episodes/{id}/shot-plan`) is seen by whoever may see the
-  episode's cast; everyone else gets `404`. Changes (prompts, and each shot's cast, props and place)
-  follow the episode write rule only: the owner or an admin, or any member while the episode has no
-  owner. Picking from a series' library changes the episode, not the series. A refused change answers
-  `403` like any episode write and changes nothing.
+  episode's cast; everyone else gets `404`. Its prompts, the text of prompt edits and the edit notes
+  only by whoever may read the episode's prompts (above). Changes (prompts, and each shot's cast,
+  props and place) follow the episode write rule only: the owner or an admin, or any member while the
+  episode has no owner. Picking from a series' library changes the episode, not the series. A refused
+  change answers `403` like any episode write and changes nothing.
 - **Universes** (`/api/worlds...`, `GET /api/episodes/{id}/universe`, docs/WORLDS.md) are series and
   follow the series rules above: seen by admins, the series owner and whoever may change one of its
   episodes (everyone else gets the `404` a missing Universe gets); changed only by the owner or an
   admin (`403` otherwise). The story bible, style notes, saved voices, creation notes, reference
   photos and open mood boards are shown only to the owner and admins. Universe images are served only
-  by `GET /api/worlds/images/{image_id}` and `.../thumb`, under the same rule.
+  by `GET /api/worlds/images/{image_id}` and `.../thumb`, under the same rule. Each episode's prompts
+  follow the prompt rule above, so whoever may change one episode of a Universe does not read the
+  prompts of its other episodes.
 
 ## Route Permission Matrix
 
@@ -202,13 +216,13 @@ see a cast:
 - `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
-- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down, the failed shots' errors and the shots' full outcomes only for whoever may see the cast)
+- `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down, the failed shots' errors and the shots' full outcomes only for whoever may read the episode's prompts)
 - `POST /api/episodes/{id}/set-live` - Set episode to live mode
 - `POST /api/episodes/{id}/set-dry` - Set episode to dry mode
 - `GET /api/episodes/{id}/story-shape` - Get story shape
 - `PUT /api/episodes/{id}/story-shape` - Update story shape
 - `GET /api/episodes/{id}/budget` - View episode budget estimate (read-only)
-- `GET /api/episodes/{id}/shot-states` - Scene pictures' and clips' review state (free text only for whoever may see the cast)
+- `GET /api/episodes/{id}/shot-states` - Scene pictures' and clips' review state (free text only for whoever may read the episode's prompts)
 - `GET /api/episodes/{id}/credits` - The run's credit line and the recorded Higgsfield balance (read-only; raising the cap stays admin-only)
 - `GET /api/episodes/{id}/stalls` - The episode's stall alerts
 - `GET /api/models` - Model limits
@@ -221,14 +235,14 @@ see a cast:
 - `POST /api/episodes/{id}/shots/{shot_id}/retry-clip` - Retry clip
 - `POST /api/episodes/{id}/reopen` - Reopen episode
 - `POST /api/episodes/{id}/reopen-from-saved` - Reopen from snapshot
-- `GET /api/episodes/{id}/audit` - View audit trail (the details only for whoever may see the cast)
-- `GET /api/episodes/{id}/shots` - List shots (prompts and QC results only for whoever may see the cast)
+- `GET /api/episodes/{id}/audit` - View audit trail (the details only for whoever may read the episode's prompts)
+- `GET /api/episodes/{id}/shots` - List shots (prompts and QC results only for whoever may read the episode's prompts)
 - `GET /api/episodes/{id}/gates` - List gates
 - `GET /api/episodes/{id}/files` - List review files
 - `GET /api/episodes/{id}/files/{type}` - Get specific review file
 - `GET /api/episodes/{id}/shots/{shot_id}/still` - Get still image
 - `POST /api/episodes/{id}/preflight` - Run preflight checks
-- `GET /api/episodes/{id}/clip-plans` - Get clip plans (clip prompts, fail-if lines and lint results only for whoever may see the cast)
+- `GET /api/episodes/{id}/clip-plans` - Get clip plans (clip prompts, fail-if lines and lint results only for whoever may read the episode's prompts)
 - `POST /api/episodes/{id}/resync-plans` - Resync plans
 - `POST /api/episodes/{id}/shots/{shot_id}/select-still` - Select still version
 - `GET /api/episodes/{id}/still-versions` - List still versions
@@ -239,7 +253,7 @@ see a cast:
 - `POST /api/episodes/draft-from-idea` - Generate episode files from plain-language idea (beginner wizard)
 - `GET /api/series`, `POST /api/series`, `GET /api/series/{series_id}` - List the series the caller may see, create (owned by the caller) and view one (`404` when the caller may not see it)
 - `POST /api/episodes/{id}/series` - Put the episode in a series or take it out (series owner too; an admin for a series without an owner)
-- `GET /api/episodes/{id}/cast` - The episode's cast, shots and sheet status (whoever may see the cast)
+- `GET /api/episodes/{id}/cast` - The episode's cast, shots and sheet status (whoever may see the cast; the shots' prompts only for whoever may read the episode's prompts)
 - `POST /api/episodes/{id}/cast` - Add a character
 - `POST /api/episodes/{id}/cast/with-picture` - Add a character with its reference picture in one step (multipart, rights attestation)
 - `POST /api/episodes/{id}/cast/import` - Add the characters a draft wrote (create wizard)
@@ -267,7 +281,7 @@ see a cast:
 - `POST /api/episodes/{id}/props/{prop_id}/photos/{image_id}/primary` - Make a photo the main one
 - `POST /api/episodes/{id}/props/{prop_id}/photos/{image_id}/delete` - Delete a photo (refused during a run)
 - `GET /api/props/photos/{image_id}`, `GET /api/props/photos/{image_id}/thumb` - Prop or place photo and preview (whoever may see its library)
-- `GET /api/episodes/{id}/shot-plan` - Each shot's prompts, cast, props and place with their edit history (whoever may see the cast)
+- `GET /api/episodes/{id}/shot-plan` - Each shot's prompts, cast, props and place with their edit history (whoever may see the cast; the prompts, the text of prompt edits and the edit notes only for whoever may read the episode's prompts)
 - `POST /api/episodes/{id}/shot-plan` - Change shots' prompts and picks before the shot plan is approved (episode write rule; no series rule)
 
 ### Admin-Only Routes
