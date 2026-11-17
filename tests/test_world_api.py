@@ -12,8 +12,10 @@ import json
 import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 import respx
 from temporalio.client import WorkflowExecutionStatus
@@ -35,6 +37,8 @@ MONEY_TABLES = ("budget_lines", "budget_transactions", "job_ledger", "round_hold
 SECRET_WORDS = "The lighthouse keeper hides a map in the brass bell"
 STYLE_WORDS = "chalk pastel, foggy teal shadows"
 NOTE_WORDS = "Salt-crusted lanterns that hum at low tide"
+PRICE = 390_000
+HF_BASE = "https://api.higgsfield.ai"
 
 
 class _Workflows:
@@ -799,24 +803,222 @@ async def test_the_creation_flow_runs_on_placeholders_without_a_provider_or_a_le
     assert owner.post(f"{base}/photos/{photo.json()['photo']['image_id']}/delete").status_code == 200
 
 
-async def test_a_live_mood_board_is_refused_before_anything_is_asked_or_charged(studio, monkeypatch):
+class _PricedProvider:
+    """HiggsfieldStillProvider stand-in for the API: its price for each picture, and nothing else
+    (the API never uploads or submits; the worker does, picture by picture)."""
+
+    prompts: list[str] = []
+
+    def __init__(self, model_path=None, **_kw):
+        self.model_path = model_path
+
+    async def estimate_usd_and_credits(self, **params):
+        _PricedProvider.prompts.append(params["prompt"])
+        return PRICE, 6.5
+
+    async def close(self):
+        pass
+
+
+def _live(api_main, monkeypatch, *, pollers: int = 1) -> None:
+    """Live mode, with ``pollers`` workers polling the mood board task queue."""
+    from hfvg.providers import higgsfield_still
+    for key, value in {"DRY_RUN": "false", "HIGGSFIELD_API_KEY": "test_id:test_secret",
+                       "HIGGSFIELD_BASE_URL": HF_BASE}.items():
+        monkeypatch.setenv(key, value)
+    _PricedProvider.prompts = []
+    monkeypatch.setattr(higgsfield_still, "HiggsfieldStillProvider", _PricedProvider)
+    api_main.temporal_client.namespace = "default"
+    api_main.temporal_client.workflow_service.describe_task_queue = AsyncMock(
+        return_value=MagicMock(pollers=[MagicMock()] * pollers))
+
+
+@contextmanager
+def _provider_http():
+    """Provider HTTP of a live test: the balance gate's usage lookup is answered (no spend
+    reported); any other request is recorded and refused. Yields (usage route, other route)."""
+    with respx.mock(assert_all_called=False) as router:
+        usage = router.get(f"{HF_BASE}/models/usage").mock(
+            return_value=httpx.Response(200, json={"time_series": [], "total": 0}))
+        other = router.route().mock(return_value=httpx.Response(599))
+        yield usage, other
+
+
+async def test_a_live_board_without_a_worker_for_it_is_a_plain_409_before_anything_is_asked_or_charged(
+        studio, monkeypatch):
+    """A worker older than live mood boards does not poll their task queue: the owner gets a plain
+    409 (an unreachable Temporal a plain 503) before any price is asked, anything recorded or started."""
     from api import world_routes
     owner = _client(studio, "owner")
     sid = _world(owner)
     owner.post(f"{_base(sid)}/notes", json={"topic": "premise", "body": NOTE_WORDS})
-    monkeypatch.setenv("DRY_RUN", "false")
+    _live(studio, monkeypatch, pollers=0)
     before = _money_rows()
-    with respx.mock(assert_all_called=False) as network:
+    with _provider_http() as (usage, other):
         for url, body in [(f"{_base(sid)}/board/estimate", {}),
                           (f"{_base(sid)}/board", {"approved_total_usd_micros": 10**9})]:
             res = owner.post(url, json=body)
-            assert (res.status_code, res.json().get("detail")) == (409, world_routes.LIVE_BOARD), url
+            assert (res.status_code, res.json().get("detail")) == (409, world_routes.BOARD_WORKER_MISSING), url
         view = owner.get(_base(sid)).json()
-    assert view["creation"]["board"]["available"] is False and view["creation"]["boards"] == []
-    assert network.calls.call_count == 0 and _money_rows() == before
-    assert world_store.list_boards(sid) == []
-    # the fake bible writer is for dry-run tests only
-    monkeypatch.setenv("DRY_RUN", "true")
+        assert view["creation"]["board"] == {"available": False, "image_count": world_store.BOARD_IMAGES,
+                                             "dry_run": False, "unavailable": world_routes.BOARD_WORKER_MISSING}
+        assert view["creation"]["boards"] == [] and view["creation"]["board_request"] is None
+        asked = studio.temporal_client.workflow_service.describe_task_queue.await_args.args[0]
+        assert (asked.namespace, asked.task_queue.name) == ("default", "hfvg-tasks-universe")
+        _nothing_started(studio)
+        studio.temporal_client.workflow_service.describe_task_queue = AsyncMock(
+            side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""))
+        res = owner.post(f"{_base(sid)}/board/estimate", json={})
+        assert (res.status_code, res.json()["detail"]) == (503, world_routes.BOARD_WORKER_UNREACHABLE)
+        creation = owner.get(_base(sid)).json()["creation"]
+        assert creation["board"]["unavailable"] == world_routes.BOARD_WORKER_UNREACHABLE
+        studio.temporal_client = None
+        res = owner.post(f"{_base(sid)}/board", json={"approved_total_usd_micros": 10**9})
+        assert (res.status_code, res.json()["detail"]) == (503, world_routes.BOARD_WORKER_UNREACHABLE)
+    assert (usage.call_count, other.call_count) == (0, 0) and _PricedProvider.prompts == []
+    assert world_store.list_boards(sid) == [] and _money_rows() == before
+
+
+async def test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_worker(studio, monkeypatch):
+    from datetime import timedelta
+
+    from api import world_routes
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import usd_to_micros
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    base = _base(sid)
+    owner.post(f"{base}/notes", json={"topic": "premise", "body": NOTE_WORDS})
+    photo = owner.post(f"{base}/photos", data={"rights": "original", "caption": "foggy pier"}, files=_files())
+    _live(studio, monkeypatch)
+    ledger = BudgetLedger(os.environ["DATABASE_PATH"])
+    count = world_store.BOARD_IMAGES
+    total = PRICE * count
+    with _provider_http() as (usage, other):
+        estimate = owner.post(f"{base}/board/estimate", json={})
+        assert estimate.status_code == 200, estimate.text
+        est = estimate.json()
+        assert (est["dry_run"], est["redo"], est["per_image_usd_micros"], est["total_usd_micros"]) == (
+            False, False, [PRICE] * count, total)
+        assert est["references_per_picture"] == 1 and est["model_path"]
+        assert est["budget"] == {"line": "U1_mood_board", "cap_usd_micros": 4_000_000, "stop_usd_micros": 3_200_000,
+                                 "spent_usd_micros": 0, "reserved_usd_micros": 0, "available_usd_micros": 3_200_000}
+        assert len(_PricedProvider.prompts) == count  # the provider's own price for each picture
+        # refused before anything is recorded: above the approval, the budget line, GC.01, the gate
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total - 1})
+        assert res.status_code == 409 and res.json()["detail"].startswith("The estimate is now")
+        key = f"universe-{sid}"
+        await ledger.ensure_line(key, "U1_mood_board", 4_000_000)
+        assert await ledger.reserve(key, "U1_mood_board", 2_000_000, "an earlier board", job_id="uboard-earlier-0")
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total})
+        assert res.status_code == 409 and "mood board budget has $1.20 left" in res.json()["detail"]
+        await ledger.release(key, "U1_mood_board", 2_000_000, "test", job_id="uboard-earlier-0")
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total})
+        assert res.status_code == 409 and "GC.01: no manual Higgsfield balance recorded" in res.json()["detail"]
+        await ledger.set_manual_balance(usd_to_micros("1.00"), "test", "low")
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total})
+        assert res.status_code == 409 and res.json()["detail"].startswith("Balance check failed")
+        _nothing_started(studio)
+        assert world_store.open_board_request(sid) is None
+        await ledger.set_manual_balance(usd_to_micros("100.00"), "test", "topped up")
+        before = _money_rows()
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total + 100_000})
+        assert res.status_code == 200, res.text
+        assert _money_rows() == before  # the worker reserves and pays picture by picture; the API holds nothing
+        _check_started_board(studio, res.json(), sid, total, count)
+        # while it is made: no second board, and its references stay
+        res = owner.post(f"{base}/board/estimate", json={})
+        assert (res.status_code, res.json()["detail"]) == (409, world_store.BOARD_BEING_MADE)
+        res = owner.post(f"{base}/photos/{photo.json()['photo']['image_id']}/delete")
+        assert res.status_code == 409 and res.json()["detail"].startswith(world_store.BOARD_BEING_MADE)
+        _running(studio)
+        creation = owner.get(base).json()["creation"]
+        assert creation["board_request"]["status"] == "making" and creation["board"]["available"] is True
+        # its workflow ended without finishing it (a crashed worker): the page ends it, with the reason
+        studio.temporal_client.handle.describe = AsyncMock(
+            return_value=MagicMock(status=WorkflowExecutionStatus.FAILED))
+        request = owner.get(base).json()["creation"]["board_request"]
+        assert (request["status"], request["error"]) == (
+            "failed", f"The generation stopped after 0 of {count} pictures")
+        assert [j["status"] for j in request["jobs"]] == ["skipped"] * count
+        # a request Temporal does not know: kept while its start may still be on the way, then ended
+        studio.temporal_client.handle.describe = AsyncMock(
+            side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b""))
+        assert owner.post(f"{base}/board", json={"approved_total_usd_micros": total}).status_code == 200
+        assert owner.get(base).json()["creation"]["board_request"]["status"] == "making"
+        monkeypatch.setattr(world_routes, "BOARD_START_GRACE", timedelta(0))
+        assert owner.get(base).json()["creation"]["board_request"]["status"] == "failed"
+        # the worker could not be asked: the request ends at once, nothing was made or charged
+        studio.temporal_client.start_workflow = AsyncMock(side_effect=RuntimeError("connection reset by peer"))
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total})
+        assert (res.status_code, res.json()["detail"]) == (503, world_routes.BOARD_NOT_STARTED)
+        request = owner.get(base).json()["creation"]["board_request"]
+        assert (request["status"], request["error"]) == ("failed", world_routes.BOARD_NOT_STARTED)
+    assert other.call_count == 0 and usage.call_count > 0
+    assert _money_rows() == before and world_store.list_boards(sid) == []
+
+
+def _check_started_board(api_main, body: dict, sid: str, total: int, count: int) -> None:
+    """The started board: a request being made, its jobs queued, and UniverseBoardWorkflow on the
+    mood board task queue with each picture's share of the approved total (100_000 above the estimate)."""
+    from api import world_routes
+    from hfvg.workflows.universe_board import UniverseBoardWorkflow
+    made = body["request"]
+    assert body["board"] is None and body["estimate"]["total_usd_micros"] == total
+    assert (made["status"], made["made"], made["image_count"]) == ("making", 0, count)
+    assert [j["status"] for j in made["jobs"]] == ["queued"] * count and "prompt" not in made
+    start = api_main.temporal_client.start_workflow
+    start.assert_awaited_once()
+    assert start.await_args.args[0] == UniverseBoardWorkflow.run
+    assert start.await_args.kwargs == {"id": f"universe-board-{made['request_id']}",
+                                       "task_queue": "hfvg-tasks-universe",
+                                       "execution_timeout": world_routes.BOARD_RUN_TIMEOUT}
+    jobs = start.await_args.args[1]["jobs"]
+    # each picture may cost up to its share of the approved total, never more in sum
+    assert [j["approved_usd_micros"] for j in jobs] == [PRICE + 100_000 // count] * count
+    assert sum(j["approved_usd_micros"] for j in jobs) <= total + 100_000
+    assert {j["ledger_key"] for j in jobs} == {f"universe-{sid}"}
+    assert {j["owner_user_id"] for j in jobs} == {api_main.owner_id}
+    assert [len(j["refs"]) for j in jobs] == [1] * count
+
+
+async def test_a_live_redo_answers_the_feedback_on_the_latest_board(studio, monkeypatch):
+    from hfvg.budget import BudgetLedger
+    from hfvg.pricing import usd_to_micros
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    base = _base(sid)
+    owner.post(f"{base}/notes", json={"topic": "premise", "body": NOTE_WORDS})
+    plan = world_store.plan_board(sid)
+    first = world_store.create_board(sid, plan, estimate_usd_micros=0, approved_total_usd_micros=0, dry_run=True,
+                                     images=world_store.placeholder_board_images("x", plan["photo_files"]),
+                                     placeholder=True, requested_by="tester")
+    _live(studio, monkeypatch)
+    await BudgetLedger(os.environ["DATABASE_PATH"]).set_manual_balance(usd_to_micros("100.00"), "test", "balance")
+    feedback = "warmer light, fewer boats"
+    with _provider_http() as (_usage, other):
+        res = owner.post(f"{base}/board/estimate", json={})
+        assert res.status_code == 409 and res.json()["detail"].startswith("Approve this mood board, or say what")
+        estimate = owner.post(f"{base}/board/estimate", json={"feedback": feedback}).json()
+        assert estimate["redo"] is True and estimate["version"] == 2
+        assert all(f"Change from the last board: {feedback}" in p for p in _PricedProvider.prompts)
+        res = owner.post(f"{base}/board", json={"approved_total_usd_micros": estimate["total_usd_micros"],
+                                                "feedback": feedback})
+        assert res.status_code == 200, res.text
+        made = res.json()["request"]
+        assert (made["answers_feedback"], made["replaces_board_id"]) == (feedback, first["board_id"])
+        jobs = studio.temporal_client.start_workflow.await_args.args[1]["jobs"]
+        assert all(f"Change from the last board: {feedback}" in j["prompt"] for j in jobs)
+        # the board it answers waits for the redo; it cannot be approved meanwhile
+        res = owner.post(f"{base}/board/{first['board_id']}/approve")
+        assert res.status_code == 409 and res.json()["detail"].startswith(world_store.BOARD_BEING_MADE)
+    assert other.call_count == 0
+
+
+async def test_the_fake_bible_writer_is_for_dry_run_tests_only(studio, monkeypatch):
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    owner.post(f"{_base(sid)}/notes", json={"topic": "premise", "body": NOTE_WORDS})
     plan = world_store.plan_board(sid)
     world_store.create_board(sid, plan, estimate_usd_micros=0, approved_total_usd_micros=0, dry_run=True,
                              images=world_store.placeholder_board_images("x", plan["photo_files"]), placeholder=True,
@@ -1029,6 +1231,7 @@ def _model_input(api_main, client, body: dict) -> tuple:
     """The draft response and what the (mocked) model was asked."""
     import random
     from unittest.mock import patch
+
     from tests.test_draft_repair import _files as draft_files
     completion = MagicMock()
     completion.choices = [MagicMock(message=MagicMock(content=json.dumps(draft_files())))]

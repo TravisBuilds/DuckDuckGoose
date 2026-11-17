@@ -16,25 +16,31 @@ Deletes are refused while any episode of the Universe is being made.
 
 The mood board is the only paid step of making a Universe: its estimate comes first and a board is
 refused when the estimate is above the approved total. Dry-run mode (DRY_RUN=true) makes free
-placeholder boards. A live board is refused (nothing is charged) until the worker has a Universe
-budget line to charge it to, with its own estimate check and balance gate. The bible is written by
-the language model from the approved board and the references (DRAFT_LLM_FAKE=1: a deterministic
-test bible, dry-run only).
+placeholder boards here. A live board's estimate is the image provider's own price for each picture
+(hfvg.universe_boards plans them; reference photos go with each picture as the still model allows);
+the API checks the approval, the room left on the Universe's mood board budget line and the balance
+gate, then the worker makes the pictures (UniverseBoardWorkflow, on its own task queue) and checks
+each picture's price, the balance gate and the budget line again before paying. A worker that does
+not poll that queue (one older than live boards) gets the owner a plain 409 before anything is asked
+or charged. The bible is written by the language model from the approved board and the references
+(DRAFT_LLM_FAKE=1: a deterministic test bible, dry-run only).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Cookie, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from hfvg import cast_store, prop_store, world_store
+from hfvg import cast_store, prop_store, universe_boards, world_store
 
 try:  # "api.cast_routes" in tests and the e2e backend; "cast_routes" when uvicorn runs from api/
     from api import cast_routes as cast_api
@@ -44,15 +50,26 @@ except ImportError:
     import prop_routes as prop_api
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 CHARACTER_ID_RE = re.compile(r"^ch_[0-9a-f]{12}$")
 NOTE_ID_RE = re.compile(r"^un_[0-9a-f]{12}$")
 BOARD_ID_RE = re.compile(r"^mb_[0-9a-f]{12}$")
 UNIVERSE_IMAGE_RE = re.compile(r"^(?:ui|bi)_[0-9a-f]{12}$")
 VIDEO_FILES = ("phone", "master_subs", "master_nosubs")
-LIVE_BOARD = ("Paid mood boards are not switched on yet: they need a Universe budget line in the studio's worker, "
-              "which comes with a later update. Nothing was charged. Meanwhile add the characters, places and "
-              "props yourself and write the story bible on the Universe page.")
+# The task queue the API starts studio workflows on (live mood boards: its "-universe" queue).
+BOARD_TASK_QUEUE = "hfvg-tasks"
+BOARD_START_GRACE = timedelta(minutes=2)
+# Far above a board's own limits (four pictures of at most 12 minutes each): a board no worker
+# picks up (one started just as the worker was rolled back) ends instead of waiting forever.
+BOARD_RUN_TIMEOUT = timedelta(hours=2)
+ESTIMATE_REQUEST_ID = "mr_000000000000"
+BOARD_WORKER_MISSING = ("Mood boards are made by the studio's worker, and the worker running now cannot make them yet. "
+                        "Nothing was charged. Ask an admin to update the worker, then try again.")
+BOARD_WORKER_UNREACHABLE = ("The studio's worker cannot be reached right now, so no mood board was started. Nothing "
+                            "was charged; try again in a minute.")
+BOARD_NOT_STARTED = ("The studio's worker could not be asked to make the mood board, so nothing was made or "
+                     "charged. Try again in a minute.")
 COVER_ROUTES = {"cast": "/api/cast/images/", "prop": "/api/props/photos/", "reference": "/api/worlds/images/",
                 "board": "/api/worlds/images/"}
 
@@ -287,14 +304,21 @@ async def _episodes_view(episode_ids: list[str], user_id: str | None, is_admin: 
 
 
 async def _creation_view(series_id: str) -> dict:
+    """The owner's creation steps. ``board_request``: the live board being made (its pictures so
+    far) or the last one that failed, with its reason. ``board.unavailable``: why a live board
+    cannot be started now (the worker), before anything is estimated or charged."""
+    await _refresh_board_requests(series_id)
     notes = await _call(world_store.list_notes, series_id)
     photos = await _call(world_store.list_reference_photos, series_id)
     boards = await _call(world_store.list_boards, series_id, with_prompt=True)
+    request = await _call(world_store.open_board_request, series_id)
     dry = cast_api._dry_run()
+    problem = None if dry else await _board_worker_problem()
     return {
         "notes": notes, "photos": [_reference_out(p) for p in photos], "boards": [_board_out(b) for b in boards],
-        "board": {"available": dry, "image_count": world_store.BOARD_IMAGES, "dry_run": dry,
-                  "unavailable": None if dry else LIVE_BOARD},
+        "board": {"available": problem is None, "image_count": world_store.BOARD_IMAGES, "dry_run": dry,
+                  "unavailable": problem[1] if problem else None},
+        "board_request": request,
         "topics": list(world_store.NOTE_TOPICS),
         "limits": {"max_notes": world_store.MAX_NOTES, "note_max": world_store.NOTE_MAX,
                    "max_photos": world_store.MAX_REFERENCE_PHOTOS, "caption_max": world_store.CAPTION_MAX,
@@ -805,6 +829,7 @@ async def delete_world_reference_photo(series_id: str, image_id: str, authorizat
     who = await _editor(series_id, authorization, studio_admin_token)
     if not image_id.startswith("ui_") or not UNIVERSE_IMAGE_RE.match(image_id):
         raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
+    await _refresh_board_requests(series_id)
     return await _call(world_store.delete_reference_photo, series_id, image_id, who["actor"])
 
 delete_world_reference_photo.allow_members = True
@@ -812,32 +837,181 @@ delete_world_reference_photo.allow_members = True
 
 # ------------------------------------------------------------------------------------- creation: mood board
 
-def _board_prices() -> list[int]:
-    """Per-image price in usd_micros of a mood board: the dry-run figure. A live board is refused
-    before any provider is asked (nothing is charged)."""
+async def _board_worker_problem() -> tuple[int, str] | None:
+    """Why a live board cannot be started now, as (status, plain message); None while a worker polls
+    the mood board task queue. Nothing is asked of a provider or charged before this passes."""
+    from hfvg.workflows.universe_board import worker_polls
+    client = cast_api._api().temporal_client
+    if client is None:
+        return 503, BOARD_WORKER_UNREACHABLE
+    try:
+        polling = await worker_polls(client, BOARD_TASK_QUEUE)
+    except Exception as e:  # noqa: BLE001 - the owner gets the plain message, the log the reason
+        logger.warning("Could not ask Temporal which workers poll the mood board queue: %s", e)
+        return 503, BOARD_WORKER_UNREACHABLE
+    if not polling:
+        logger.warning("No worker polls %s: the running worker predates live mood boards",
+                       f"{BOARD_TASK_QUEUE}-universe")
+        return 409, BOARD_WORKER_MISSING
+    return None
+
+
+async def _require_board_worker() -> None:
+    problem = await _board_worker_problem()
+    if problem:
+        raise HTTPException(status_code=problem[0], detail=problem[1])
+
+
+async def _refresh_board_requests(series_id: str) -> None:
+    """A live board whose workflow ended without finishing it (a crashed worker, a cancelled run) is
+    finished here: the board when every picture was made, else failed (the reconciler settles any
+    money still held for its pictures). A workflow Temporal does not know counts as ended only once
+    the request is older than BOARD_START_GRACE (it is recorded just before its workflow starts)."""
+    from datetime import datetime, timezone
+
+    from temporalio.service import RPCError, RPCStatusCode
+    api = cast_api._api()
+    if not api.temporal_client:
+        return
+    for request in await _call(world_store.making_board_requests, series_id):
+        try:
+            desc = await api.temporal_client.get_workflow_handle(request["workflow_id"]).describe()
+            ended = api._run_ended(desc.status)
+        except RPCError as e:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(request["created_at"])
+            ended = e.status == RPCStatusCode.NOT_FOUND and age > BOARD_START_GRACE
+        except Exception:  # noqa: BLE001 - unknown: keep waiting
+            ended = False
+        if ended:
+            await _call(world_store.finish_board_request, request["request_id"], None, "api")
+
+
+def _dry_prices() -> list[int]:
     from hfvg.estimates import still_call_usd_micros
-    if not cast_api._dry_run():
-        raise HTTPException(status_code=409, detail=LIVE_BOARD)
     return [still_call_usd_micros() for _ in range(world_store.BOARD_IMAGES)]
 
 
 def _board_estimate(plan: dict, prices: list[int]) -> dict:
+    """A dry-run board's estimate: placeholder pictures, free."""
     total = sum(prices)
     return {"version": plan["version"], "count": len(prices), "per_image_usd_micros": prices,
             "total_usd_micros": total, "dry_run": True, "redo": bool(plan["answers_feedback"]),
             "summary": f"{len(prices)} placeholder images, free in dry-run mode"}
 
 
+async def _board_budget(series_id: str) -> dict:
+    """The Universe's mood board budget line: cap, stop and what is left before the stop. The line
+    is created with these figures when the first live picture is paid for."""
+    from hfvg.budget import BudgetLedger, compute_stop_usd_micros, get_budget_settings
+    ledger = BudgetLedger(cast_api._api().DATABASE_PATH)
+    await ledger.init_db()
+    try:
+        line = await ledger.get_line_status(universe_boards.ledger_key(series_id), universe_boards.LINE)
+    except ValueError:
+        cap = universe_boards.LINE_CAP_USD_MICROS
+        stop = compute_stop_usd_micros(cap, get_budget_settings().stop_percent)
+        return {"line": universe_boards.LINE, "cap_usd_micros": cap, "stop_usd_micros": stop, "spent_usd_micros": 0,
+                "reserved_usd_micros": 0, "available_usd_micros": stop}
+    return {"line": universe_boards.LINE, "cap_usd_micros": line["budget_cap"],
+            "stop_usd_micros": line["stop_threshold"], "spent_usd_micros": line["spent"],
+            "reserved_usd_micros": line["reserved"], "available_usd_micros": max(line["available"], 0)}
+
+
+async def _live_jobs(series_id: str, plan: dict, who: dict, request_id: str) -> tuple[list[dict], list[int]]:
+    """The paid picture jobs of a live board and the provider's own price of each (fail closed)."""
+    from hfvg.cast_sheets import prompt_problems
+    owner = cast_api._series_owner(who["series"]) or who["user_id"]
+    jobs = await _call(universe_boards.plan_jobs, plan, request_id=request_id, series_id=series_id,
+                       owner_user_id=owner)
+    problems = sorted({p for job in jobs for p in prompt_problems(job["prompt"])})
+    if problems:
+        raise HTTPException(status_code=400, detail=(
+            "The mood board words are refused by the content policy (" + ", ".join(problems)
+            + "); change the notes, captions or feedback"))
+    return jobs, await cast_api._price_jobs(jobs, False)
+
+
+def _live_estimate(plan: dict, jobs: list[dict], prices: list[int], budget: dict) -> dict:
+    total = sum(prices)
+    return {"version": plan["version"], "count": len(prices), "per_image_usd_micros": prices,
+            "total_usd_micros": total, "dry_run": False, "redo": bool(plan["answers_feedback"]),
+            "model_path": jobs[0]["model_path"], "references_per_picture": len(jobs[0]["refs"]), "budget": budget,
+            "summary": (f"{len(prices)} pictures, about {cast_api._usd(total)}, charged to this Universe's mood "
+                        f"board budget ({cast_api._usd(budget['available_usd_micros'])} left)")}
+
+
+def _estimate_above(total: int, approved: int) -> HTTPException:
+    return HTTPException(status_code=409, detail=(
+        f"The estimate is now {cast_api._usd(total)} (you approved {cast_api._usd(approved)}); "
+        "review it and approve again"))
+
+
 @router.post("/api/worlds/{series_id}/board/estimate")
 async def estimate_world_board(series_id: str, request: BoardRequest, authorization: str | None = Header(None),
                                studio_admin_token: str | None = Cookie(None)):
-    """What the next mood board makes and costs (nothing is generated or charged)."""
-    await _editor(series_id, authorization, studio_admin_token)
+    """What the next mood board makes and costs (nothing is generated or charged). Live: the
+    provider's own price for each picture, and what is left on the Universe's mood board budget."""
+    who = await _editor(series_id, authorization, studio_admin_token)
     cast_api._check_text(request.feedback)
+    await _refresh_board_requests(series_id)
     plan = await _call(world_store.plan_board, series_id, request.feedback)
-    return _board_estimate(plan, _board_prices())
+    if cast_api._dry_run():
+        return _board_estimate(plan, _dry_prices())
+    await _require_board_worker()
+    jobs, prices = await _live_jobs(series_id, plan, who, ESTIMATE_REQUEST_ID)
+    return _live_estimate(plan, jobs, prices, await _board_budget(series_id))
 
 estimate_world_board.allow_members = True
+
+
+async def _start_live_board(series_id: str, plan: dict, who: dict, approved: int) -> dict:
+    """Ask the worker for a live board the owner approved: the estimate within the approval and the
+    budget line, the recorded balance (GC.01) and the balance gate, then the request and its jobs,
+    then UniverseBoardWorkflow."""
+    from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
+    from hfvg.budget import BudgetLedger, balance_freshness
+    from hfvg.workflows.universe_board import (
+        UniverseBoardWorkflow,
+        universe_board_workflow_id,
+        universe_task_queue,
+    )
+    await _require_board_worker()
+    request_id = cast_store._new_id("mr")
+    jobs, prices = await _live_jobs(series_id, plan, who, request_id)
+    total = sum(prices)
+    if total > approved:
+        raise _estimate_above(total, approved)
+    budget = await _board_budget(series_id)
+    if total > budget["available_usd_micros"]:
+        raise HTTPException(status_code=409, detail=(
+            f"This Universe's mood board budget has {cast_api._usd(budget['available_usd_micros'])} left before its "
+            f"stop, and this board costs about {cast_api._usd(total)}. Nothing was charged; ask an admin about the "
+            "budget."))
+    api = cast_api._api()
+    fresh = balance_freshness(await BudgetLedger(api.DATABASE_PATH).get_balance_status())
+    if not fresh.get("ok"):
+        raise HTTPException(status_code=409, detail=f"Nothing was charged: {fresh['reason']}")
+    passed, reason = await BalanceMonitor(api.DATABASE_PATH).check_preflight_balance(
+        provider="higgsfield", estimate_usd_micros=total, auto_topup_enabled=HIGGSFIELD_AUTO_TOPUP_ENABLED)
+    if not passed:
+        raise HTTPException(status_code=409, detail=f"Balance check failed: {reason}")
+    # each picture may cost up to its share of the approved total; the worker refuses a higher estimate
+    headroom = approved - total
+    jobs = [{**job, "estimated_usd_micros": price, "approved_usd_micros": price + (headroom * price // total if total else 0)}
+            for job, price in zip(jobs, prices)]
+    workflow_id = universe_board_workflow_id(request_id)
+    made = await _call(world_store.start_board_request, series_id, plan, jobs, request_id=request_id,
+                       workflow_id=workflow_id, estimate_usd_micros=total, approved_total_usd_micros=approved,
+                       model_path=jobs[0]["model_path"], requested_by=who["actor"])
+    try:
+        await api.temporal_client.start_workflow(
+            UniverseBoardWorkflow.run, {"request_id": request_id, "series_id": series_id, "jobs": jobs},
+            id=workflow_id, task_queue=universe_task_queue(BOARD_TASK_QUEUE), execution_timeout=BOARD_RUN_TIMEOUT)
+    except Exception as e:  # noqa: BLE001 - nothing ran: the request ends here, the log keeps the reason
+        logger.error("Could not start mood board %s: %s", workflow_id, e)
+        await _call(world_store.finish_board_request, request_id, BOARD_NOT_STARTED, who["actor"])
+        raise HTTPException(status_code=503, detail=BOARD_NOT_STARTED) from None
+    return {"board": None, "request": made, "estimate": _live_estimate(plan, jobs, prices, budget)}
 
 
 @router.post("/api/worlds/{series_id}/board")
@@ -845,17 +1019,21 @@ async def generate_world_board(series_id: str, request: BoardGenerateRequest, au
                                studio_admin_token: str | None = Cookie(None)):
     """Make the mood board the creator approved the estimate of: the first one, or a redo that
     answers the feedback on the latest. Refused (409) when the estimate is now above the approved
-    total."""
+    total. Dry run: placeholder pictures, made here. Live: after the budget line and balance checks
+    the worker makes it picture by picture (UniverseBoardWorkflow) and checks each picture's price
+    against the approval, the balance gate and the budget line again before paying; the page shows
+    it when every picture is made."""
     who = await _editor(series_id, authorization, studio_admin_token)
     cast_api._check_text(request.feedback)
+    await _refresh_board_requests(series_id)
     plan = await _call(world_store.plan_board, series_id, request.feedback)
-    prices = _board_prices()
-    total = sum(prices)
     approved = request.approved_total_usd_micros
+    if not cast_api._dry_run():
+        return await _start_live_board(series_id, plan, who, approved)
+    prices = _dry_prices()
+    total = sum(prices)
     if total > approved:
-        raise HTTPException(status_code=409, detail=(
-            f"The estimate is now {cast_api._usd(total)} (you approved {cast_api._usd(approved)}); "
-            "review it and approve again"))
+        raise _estimate_above(total, approved)
     images = await asyncio.to_thread(world_store.placeholder_board_images,
                                      f"{series_id}:{plan['version']}:{plan['answers_feedback']}", plan["photo_files"])
     board = await _call(world_store.create_board, series_id, plan, estimate_usd_micros=total,
@@ -873,6 +1051,7 @@ async def approve_world_board(series_id: str, board_id: str, authorization: str 
     who = await _editor(series_id, authorization, studio_admin_token)
     if not BOARD_ID_RE.match(board_id):
         raise HTTPException(status_code=404, detail=f"Mood board {board_id} not found")
+    await _refresh_board_requests(series_id)
     return {"board": _board_out(await _call(world_store.approve_board, series_id, board_id, who["actor"]))}
 
 approve_world_board.allow_members = True
