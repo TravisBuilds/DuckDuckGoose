@@ -866,11 +866,11 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         <h3 className="text-[19px]">{journey.current === null ? 'Every look is sealed' : 'Lock from an episode'}</h3>
         <p className={hint}>{counts.locked} of {plural(counts.characters, 'look')} locked. Locking itself is free; a character sheet is priced before it is made.</p>
         {lockEpisode ? (
-          <Link href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`} className="pf-btn pf-btn-go mt-4 w-full" data-testid="creation-lock-episode">
+          <Link href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`} className="pf-btn pf-btn-primary mt-4 w-full" data-testid="creation-lock-episode">
             Open {lockEpisode} to lock looks
           </Link>
         ) : (
-          <Link href={`/studio/create?world=${encodeURIComponent(seriesId)}`} className="pf-btn pf-btn-go mt-4 w-full" data-testid="creation-first-episode">
+          <Link href={`/studio/create?world=${encodeURIComponent(seriesId)}`} className="pf-btn pf-btn-primary mt-4 w-full" data-testid="creation-first-episode">
             Make your first episode
           </Link>
         )}

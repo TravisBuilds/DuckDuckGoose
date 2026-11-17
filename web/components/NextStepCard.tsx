@@ -2,7 +2,7 @@
 
 import { PAID_STEPS, stepNote, type NextStep, type StepperStep } from '@/lib/next-step.mjs';
 import { formatUsd } from '@/lib/money';
-import { btnGo, btnSecondary, link, tones } from '@/lib/ui';
+import { btnPrimary, btnSecondary, link, tones } from '@/lib/ui';
 import { GooseArt, Icon } from './playful';
 
 const STATE: Record<StepperStep['status'], { cls: string; words: string }> = {
@@ -95,7 +95,7 @@ export default function NextStepCard({ next, steps, canAct, live = false, spent 
       {(next.href || next.also) && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           {next.href && (
-            <a href={next.href} className={toDo ? `${btnGo} w-full` : `${btnSecondary} pf-btn-sm`} data-testid="next-step-link">
+            <a href={next.href} className={toDo ? `${btnPrimary} w-full` : `${btnSecondary} pf-btn-sm`} data-testid="next-step-link">
               {toDo ? 'Show me' : 'Go there'}
             </a>
           )}

@@ -145,6 +145,8 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(page.getByTestId('start-checklist-locked')).toHaveAttribute('data-done', 'false');
     await expect(page.getByTestId('start-episode')).toBeDisabled();
     await expect(page.getByTestId(`strip-character-${CHARACTER.slug}-badge`)).toHaveText('Not locked yet');
+    // green means locked or approved: the link to go and lock is a plain primary action
+    await expect(page.getByTestId('lock-gate-link')).toHaveClass(/\bpf-btn-primary\b/);
     // the page only explains the gate: the server refuses the start as well
     const refused = await page.request.post(`${API}/api/episodes`, {
       data: { episode_id: episodeId, dry_run: true, enable_story_shaping: true } });
@@ -170,6 +172,10 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(page.locator(`[data-testid*="voice-${CHARACTER.slug}"]`).first()).toBeVisible();
     await expect(page.getByTestId('universe-narrator')).toBeVisible();
     await expect(page.getByTestId('universe-new-episode')).toBeVisible();
+    // nothing is locked yet: "look changed since lock" is neutral, not the green of a locked look
+    await expect(page.getByTestId('universe-drift')).toHaveText('None');
+    await expect(page.getByTestId('universe-drift')).toHaveClass(/\btext-ink-soft\b/);
+    await expect(page.getByTestId('universe-new-episode')).toHaveClass(/\bpf-btn-primary\b/);
 
     // the viewer owns an episode an admin filed in the Universe, so may see it, but not change it
     await page.context().clearCookies();

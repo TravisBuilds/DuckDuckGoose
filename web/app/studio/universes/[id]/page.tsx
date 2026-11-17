@@ -379,11 +379,14 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
               )}
               <li className={row}>
                 <span>Look changed since lock</span>
-                <span className={drift > 0 ? 'text-coral-ink' : 'text-green-ink'}>{drift > 0 ? plural(drift, 'character') : 'None'}</span>
+                <span className={drift > 0 ? 'text-coral-ink' : counts.locked_characters > 0 ? 'text-green-ink' : 'text-ink-soft'}
+                  data-testid="universe-drift">
+                  {drift > 0 ? plural(drift, 'character') : 'None'}
+                </span>
               </li>
             </ul>
             {view.can_edit ? (
-              <Link href={newEpisode} className="pf-btn pf-btn-go mt-3 w-full" data-testid="universe-new-episode">
+              <Link href={newEpisode} className="pf-btn pf-btn-primary mt-3 w-full" data-testid="universe-new-episode">
                 New episode in this Universe
               </Link>
             ) : (

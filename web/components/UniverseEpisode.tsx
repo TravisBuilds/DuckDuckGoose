@@ -221,7 +221,7 @@ export function LockGateCard({ info }: { info: EpisodeUniverse }) {
           <a href="#cast" className={link} data-testid="start-lock-link">Go to Cast</a>, make the character sheet and lock it.
         </p>
       </div>
-      <a href="#cast" className={`${btnGo} shrink-0`} data-testid="lock-gate-link">
+      <a href="#cast" className={`${btnPrimary} shrink-0`} data-testid="lock-gate-link">
         {unlocked.length === 1 ? `Lock ${first}’s look` : 'Lock the looks'}
       </a>
     </div>
