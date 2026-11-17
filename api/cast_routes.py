@@ -192,6 +192,128 @@ async def may_see_episode_cast(episode_id: str, authorization: str | None, cooki
     return await _may_see_prompts(_episode_id(episode_id), user_id, is_admin)
 
 
+# ------------------------------------------------------------------------------------- who may see an episode
+# The one rule of every route (docs/AUTHENTICATION.md): an episode is seen only by admins (admin
+# sessions, the Bearer ADMIN_SECRET), whoever may change it (its owner, or every member while it has
+# no owner) and the owner of the Universe it is in: the people who may read its prompts. Everyone
+# else gets the 404 an episode that does not exist gets, and it is left out of every list, Universe
+# page and count they see.
+
+
+def episode_hidden(episode_id: str) -> HTTPException:
+    """The answer to an episode the caller may not see: the 404 GET /api/episodes/{id} gives an
+    episode that does not exist."""
+    return HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
+
+
+async def visible_episodes(episode_ids, user_id: str | None, is_admin: bool) -> set[str]:
+    """The ones of ``episode_ids`` the caller may see, in a fixed number of queries."""
+    ids = list(dict.fromkeys(episode_ids))
+    if is_admin:
+        return set(ids)
+    owners = await _episode_owners(ids)
+    seen = {e for e in ids if owners.get(e) is None or owners[e] == user_id}
+    rest = [e for e in ids if e not in seen]
+    if rest and user_id:
+        universe_owners = await _universe_owners(rest)
+        seen.update(e for e in rest if universe_owners.get(e) is not None and universe_owners[e] == user_id)
+    return seen
+
+
+async def may_see_episode(episode_id: str, user_id: str | None, is_admin: bool) -> bool:
+    return episode_id in await visible_episodes([episode_id], user_id, is_admin)
+
+
+async def _without_hidden_episodes(characters: list[dict], user_id: str | None, is_admin: bool) -> list[dict]:
+    """A series character's sheet jobs name the episode each was asked for from: for a caller who
+    may not see that episode, the jobs without it."""
+    named = {job.get("episode_id") for character in characters for version in character["versions"]
+             for job in version.get("sheet_jobs") or []} - {None, ""}
+    hidden = named - await visible_episodes(named, user_id, is_admin)
+    if not hidden:
+        return characters
+    return [{**character, "versions": [
+        {**version, "sheet_jobs": [{**job, "episode_id": None} if job.get("episode_id") in hidden else job
+                                   for job in version.get("sheet_jobs") or []]}
+        for version in character["versions"]]} for character in characters]
+
+
+async def episode_exists(episode_id: str) -> bool:
+    """An episode the studio has: its row, or its folder of files."""
+    if await _episode_rows([episode_id]):
+        return True
+    return await asyncio.to_thread(paths.episode_dir(_api().episode_workflow_id(episode_id)).is_dir)
+
+
+async def require_episode_visible(raw_id: str, authorization: str | None, cookie: str | None, *,
+                                  reading: bool = False) -> None:
+    """episode_hidden unless the caller may see the episode: the app-wide guard runs it for every
+    member route with the episode in its path, the upload and the start for the episode in their
+    form or body. ``reading`` (a GET or a report): an episode that does not exist gets the same 404,
+    so the answer does not tell whether an episode exists."""
+    api = _api()
+    episode_id = api.episode_workflow_id(raw_id)
+    try:
+        api.validate_episode_id(episode_id)
+    except HTTPException:
+        return  # the route refuses the id itself (400): it names no episode
+    _, user_id, is_admin = await _actor(authorization, cookie)
+    if is_admin:
+        return
+    if not await may_see_episode(episode_id, user_id, False) or (reading and not await episode_exists(episode_id)):
+        raise episode_hidden(episode_id)
+
+
+async def _universe_owners(episode_ids: list[str]) -> dict[str, str | None]:
+    """The owner of the Universe each episode is in (None: in none, or the Universe has no owner)."""
+    ids = {e: _api().episode_workflow_id(e) for e in episode_ids}
+    rows = await _studio_rows_in("SELECT es.episode_id, s.owner_user_id FROM episode_series es "
+                                 "JOIN series s ON s.series_id = es.series_id WHERE es.episode_id IN",
+                                 sorted(set(ids.values())))
+    owners = {r[0]: _series_owner({"owner_user_id": r[1]}) for r in rows}
+    return {e: owners.get(ids[e]) for e in episode_ids}
+
+
+async def _episode_rows(episode_ids: list[str]) -> dict[str, tuple]:
+    """(user_id, created_at) of each episode with a row, by the id the caller passed (the
+    normalization of api.main.episode_owner)."""
+    ids = {e: _api().episode_workflow_id(e) for e in episode_ids}
+    rows = await _studio_rows_in("SELECT episode_id, user_id, created_at FROM episodes WHERE episode_id IN",
+                                 sorted(set(ids.values())))
+    by_id = {r[0]: (r[1], r[2]) for r in rows}
+    return {e: by_id[ids[e]] for e in episode_ids if ids[e] in by_id}
+
+
+async def _episode_owners(episode_ids: list[str]) -> dict[str, str | None]:
+    """The owner of each episode (None: no owner), the rule of api.main.episode_owner in a fixed
+    number of queries."""
+    from hfvg.users import LEGACY_USER_ID
+    rows = await _episode_rows(episode_ids)
+    owners = {e: row[0] for e, row in rows.items()}
+    return {e: None if owners.get(e) in (None, "", LEGACY_USER_ID) else owners[e] for e in episode_ids}
+
+
+async def _studio_rows_in(sql: str, values: list[str], chunk: int = 500) -> list[tuple]:
+    """Rows of ``sql`` + " (?, ?, ...)" over ``values``, a few hundred at a time."""
+    rows: list[tuple] = []
+    for start in range(0, len(values), chunk):
+        part = values[start:start + chunk]
+        rows += await _studio_rows(f"{sql} ({', '.join('?' for _ in part)})", tuple(part))
+    return rows
+
+
+async def _studio_rows(sql: str, params: tuple) -> list[tuple]:
+    """Rows of the studio DB; none when the table does not exist yet (503 on other DB errors)."""
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(_api().DATABASE_PATH) as db:
+            return list(await (await db.execute(sql, params)).fetchall())
+    except aiosqlite.OperationalError as e:
+        if "no such table" in str(e):
+            return []
+        raise HTTPException(status_code=503, detail=f"studio database error: {e}") from None
+
+
 # ------------------------------------------------------------------------------------- helpers
 
 
@@ -213,16 +335,22 @@ async def _character_in(library: tuple[str, str], character_id: str) -> dict:
     return character
 
 
-async def _refuse_during_runs(library: tuple[str, str], episode_id: str, what: str) -> None:
+async def _refuse_during_runs(library: tuple[str, str], episode_id: str, what: str,
+                              viewer: tuple[str | None, bool] | None = None) -> None:
     """409 while the episode (or, for a series cast, any episode of the series) has a run in progress:
-    the run planned its references from this cast."""
+    the run planned its references from this cast. ``viewer`` (user id, is admin) for a caller who
+    may not see every episode of the series: those it may not see are not named."""
     episodes = [episode_id]
     if library[0] == "series":
         series = await _call(cast_store.get_series, library[1])
         episodes += [e for e in series["episodes"] if e != episode_id]
     api = _api()
+    named = set(episodes) if viewer is None else await visible_episodes(episodes, *viewer)
     for ep in episodes:
         run = await api._open_episode_run(ep)
+        if run and ep not in named:
+            raise HTTPException(status_code=409, detail=(
+                f"Another video of this Universe is being made right now; {what} after that run ends"))
         if run:
             raise HTTPException(status_code=409, detail=(
                 f"Episode {ep} is being made right now (run {run['run_id']}); {what} after that run ends"))
@@ -501,7 +629,8 @@ class ShotCastRequest(BaseModel):
 
 @router.get("/api/series")
 async def list_series(authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):
-    """The series the caller may see and whether the caller may change each one."""
+    """The series the caller may see and whether the caller may change each one, each with the
+    episodes the caller may see (and their count)."""
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     rows = []
     for row in await _call(cast_store.list_series):
@@ -509,6 +638,10 @@ async def list_series(authorization: str | None = Header(None), studio_admin_tok
             continue
         row["can_edit"] = is_admin or _owns_series(row, user_id)
         rows.append(row)
+    visible = await visible_episodes([e for row in rows for e in row["episodes"]], user_id, is_admin)
+    for row in rows:
+        row["episodes"] = [e for e in row["episodes"] if e in visible]
+        row["episode_count"] = len(row["episodes"])
     return {"series": rows}
 
 list_series.allow_members = True
@@ -528,13 +661,16 @@ create_series.allow_members = True
 @router.get("/api/series/{series_id}")
 async def get_series_cast(series_id: str, authorization: str | None = Header(None),
                           studio_admin_token: str | None = Cookie(None)):
-    """A series with its characters (the create wizard maps drafted characters to them)."""
+    """A series with its characters (the create wizard maps drafted characters to them) and the
+    episodes the caller may see."""
     _, user_id, is_admin = await _actor(authorization, studio_admin_token)
     series = await _call(cast_store.get_series, series_id)
     if not await _may_see_series(series, user_id, is_admin):
         raise HTTPException(status_code=404, detail=f"Series {series_id} not found")
     characters = await _call(cast_store.list_characters, ("series", series_id))
-    return {"series": series, "characters": [_character_out(c) for c in characters],
+    visible = await visible_episodes(series["episodes"], user_id, is_admin)
+    return {"series": {**series, "episodes": [e for e in series["episodes"] if e in visible]},
+            "characters": await _without_hidden_episodes([_character_out(c) for c in characters], user_id, is_admin),
             "can_edit": is_admin or _owns_series(series, user_id)}
 
 get_series_cast.allow_members = True
@@ -546,13 +682,13 @@ async def set_episode_series(episode_id: str, request: EpisodeSeriesRequest,
     """Put the episode in a series (its own characters move into the series cast) or take it out
     (series_id null; the series keeps its characters). Needs the series' owner as well."""
     episode_id = _episode_id(episode_id)
-    actor, _, _ = await _actor(authorization, studio_admin_token)
+    actor, user_id, is_admin = await _actor(authorization, studio_admin_token)
     if request.series_id:
         await _require_viewer(("series", request.series_id), authorization, studio_admin_token,
                               f"Series {request.series_id} not found")
         await _require_series_owner(request.series_id, authorization, studio_admin_token)
     current = await _library(episode_id)
-    await _refuse_during_runs(current, episode_id, "its series can change")
+    await _refuse_during_runs(current, episode_id, "its series can change", viewer=(user_id, is_admin))
     return await _call(cast_store.link_episode, episode_id, request.series_id or None, actor)
 
 set_episode_series.allow_members = True
@@ -578,11 +714,14 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
     await _refresh_sheet_jobs(characters)
     characters = await _call(cast_store.list_characters, library)
     series = await _call(cast_store.get_series, library[1]) if library[0] == "series" else None
+    if series is not None:
+        visible = await visible_episodes(series["episodes"], user_id, is_admin)
+        series = {**series, "episodes": [e for e in series["episodes"] if e in visible]}
     return {
         "episode_id": episode_id,
         "library": {"kind": library[0], "id": library[1]},
         "series": series,
-        "characters": [_character_out(c) for c in characters],
+        "characters": await _without_hidden_episodes([_character_out(c) for c in characters], user_id, is_admin),
         "shots": await asyncio.to_thread(_shots_view, episode_id, prompts_hidden),
         "prompts_hidden": prompts_hidden,
         "still_max_refs": await asyncio.to_thread(_still_cap),
@@ -727,13 +866,17 @@ set_shot_cast.allow_members = True
 @router.get("/api/episodes/{episode_id}/cast/{character_id}")
 async def get_cast_character(episode_id: str, character_id: str, authorization: str | None = Header(None),
                              studio_admin_token: str | None = Cookie(None)):
-    """One character with its versions, images, sheet jobs and audit trail."""
+    """One character with its versions, images, sheet jobs and audit trail (a series character's
+    without the episodes of the series the caller may not see)."""
     episode_id = _episode_id(episode_id)
     library = await _library(episode_id)
     await _require_viewer(library, authorization, studio_admin_token, CAST_HIDDEN)
     character = await _character_in(library, character_id)
     audit = await _call(cast_store.list_audit, character_id=character_id, limit=200)
-    return {"character": _character_out(character), "audit": audit}
+    _, user_id, is_admin = await _actor(authorization, studio_admin_token)
+    visible = await visible_episodes({row["episode_id"] for row in audit if row.get("episode_id")}, user_id, is_admin)
+    return {"character": (await _without_hidden_episodes([_character_out(character)], user_id, is_admin))[0],
+            "audit": [row for row in audit if not row.get("episode_id") or row["episode_id"] in visible]}
 
 get_cast_character.allow_members = True
 

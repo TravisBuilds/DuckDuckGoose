@@ -8,6 +8,10 @@ the cast) out for a member who may not see the episode's cast (docs/AUTHENTICATI
 shots (the prompt itself and the QC results), the clip plans (the clip prompt and what is read from
 it), the audit trail (each entry's details) and the run state (G2 notes, failed shot errors and all
 of a shot's outcome but its status, picture and clip).
+
+A member no longer sees another member's episode at all (tests/test_episode_visibility.py). These
+tests run with every member seeing every episode (the rule before), so what is left out here stays
+pinned as the second line behind that.
 """
 from __future__ import annotations
 
@@ -19,6 +23,8 @@ import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("every_member_sees_every_episode")
 
 ADMIN = "member-reads-admin-secret-0123456789abcdef"
 OWNER = ("owner@reads.test", "owner-pass-123")

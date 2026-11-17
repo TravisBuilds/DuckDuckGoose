@@ -4,7 +4,11 @@ episodes made by two other members. The editor of one sees the Universe, its cas
 episode's shots, cast and shot plan, but none of the other episode's prompts or the text that can
 quote them (end and clip prompts, fail-if lines, prompt edits and their notes, errors, moderation and
 lint messages, G2 notes, audit details, why its shots.json cannot be read). The Universe's owner and
-admins read them for every episode, each editor for their own. Every text is invented."""
+admins read them for every episode, each editor for their own. Every text is invented.
+
+The editor of one episode no longer sees another episode of the Universe at all
+(tests/test_episode_visibility.py). These tests run with every member seeing every episode (the rule
+before), so the prompts left out here stay pinned as the second line behind that."""
 
 from __future__ import annotations
 
@@ -19,6 +23,8 @@ import pytest
 from temporalio.service import RPCError, RPCStatusCode
 
 from hfvg import paths, shot_plan_edits
+
+pytestmark = pytest.mark.usefixtures("every_member_sees_every_episode")
 
 ADMIN = "editor-prompts-admin-secret-0123456789abcdef"
 USERS = {  # who: (name, email, password, role)

@@ -1085,6 +1085,7 @@ async def test_universe_images_follow_who_may_see_them(studio):
 # ------------------------------------------------------------------------------------- an episode's Universe
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the_cast(studio):
     owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
     view = owner.get(f"/api/episodes/{EP}/universe").json()
