@@ -4645,6 +4645,105 @@ test_mutation 669 "mood board: the estimate shows the budget left" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
     sed -i "s/^  if (budget) {\$/  if (false) {  \/\/ MUTATED/"
 
+# ---- An episode's prompts reach only admins, its Universe's owner and whoever may change it
+# (docs/AUTHENTICATION.md): the editor of another episode of the Universe gets them stripped. Ids 670-685
+
+# 670: the prompt rule is the episode's, not the series cast's (an editor of another episode sees the cast)
+test_mutation 670 "prompts: per episode, not per series" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shots_leave_another_episode_s_prompts_and_qc_results_out_for_its_universe_editors" \
+    sed -i 's/^    return await _may_see_prompts(_episode_id(episode_id), user_id, is_admin)$/    return await _may_see(await _library(_episode_id(episode_id)), user_id, is_admin)  # MUTATED/'
+
+# 671: the Universe's owner reads the prompts of every episode in it
+test_mutation 671 "prompts: the Universe owner reads them" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^    return library\[0\] == "series" and _owns_series(await _call(cast_store\.get_series, library\[1\]), user_id)$/    return False  # MUTATED/'
+
+# 672: whoever may change the episode reads its prompts
+test_mutation 672 "prompts: whoever may change the episode reads them" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^    if is_admin or await _may_change_one_of(\[episode_id\], user_id):$/    if is_admin:  # MUTATED/'
+
+# 673: admins read every episode's prompts
+test_mutation 673 "prompts: admins read them" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^    if is_admin or await _may_change_one_of(\[episode_id\], user_id):$/    if await _may_change_one_of([episode_id], user_id):  # MUTATED/'
+
+# 674: the cast leaves each shot's prompt out for who may not read it
+test_mutation 674 "cast: no shot prompt for who may not read it" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^        shots\.append({"shot_id": sid, "prompt": None if hide_prompts else str(item\.get("prompt") or "")\[:240\],$/        shots.append({"shot_id": sid, "prompt": str(item.get("prompt") or "")[:240],  # MUTATED/'
+
+# 675: ... decided by the prompt rule
+test_mutation 675 "cast: prompts_hidden from the prompt rule" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^    prompts_hidden = not await _may_see_prompts(episode_id, user_id, is_admin)$/    prompts_hidden = False  # MUTATED/'
+
+# 676: ... and handed to the shots view
+test_mutation 676 "cast: the shots view gets prompts_hidden" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_gives_the_editor_of_another_episode_its_shots_without_their_prompts" \
+    sed -i 's/^        "shots": await asyncio\.to_thread(_shots_view, episode_id, prompts_hidden),$/        "shots": await asyncio.to_thread(_shots_view, episode_id),  # MUTATED/'
+
+# 677: the cast does not quote a shots.json that cannot be read to who may not read its prompts
+test_mutation 677 "cast: no detail of an unreadable shots.json" \
+    "api/cast_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_cast_does_not_quote_another_episode_s_shots_json_that_cannot_be_read" \
+    sed -i 's/^                "error": "shots\.json cannot be read" if hide_prompts else f"shots\.json cannot be read: {e}"}$/                "error": f"shots.json cannot be read: {e}"}  # MUTATED/'
+
+# 678: the shot plan's prompts_hidden comes from the prompt rule
+test_mutation 678 "shot plan: prompts_hidden from the prompt rule" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^    prompts_hidden = not await cast_api\._may_see_prompts(episode_id, user_id, is_admin)$/    prompts_hidden = False  # MUTATED/'
+
+# 679: ... and reaches the plan
+test_mutation 679 "shot plan: the plan gets prompts_hidden" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^    plan = await asyncio\.to_thread(_plan, episode_id, history, prompts_hidden)$/    plan = await asyncio.to_thread(_plan, episode_id, history)  # MUTATED/'
+
+# 680: the plan leaves the still, end and clip prompts out
+test_mutation 680 "shot plan: no prompts for who may not read them" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^        prompts = ({"prompt": None, "end_prompt": None, "clip_prompt": None} if hide_prompts else$/        prompts = ({"prompt": None, "end_prompt": None, "clip_prompt": None} if False else  # MUTATED/'
+
+# 681: ... and the edit history without its text
+test_mutation 681 "shot plan: the history without its text" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^        history = \[_without_text(row) for row in history\]$/        history = list(history)  # MUTATED/'
+
+# 682: a prompt edit keeps no old or new text
+test_mutation 682 "shot plan: a prompt edit without its old and new text" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^    text = row\["field"\] in shot_plan_edits\.TEXT_FIELDS$/    text = False  # MUTATED/'
+
+# 683: an edit keeps no note
+test_mutation 683 "shot plan: an edit without its note" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_gives_the_editor_of_another_episode_no_prompts_prompt_edits_or_notes" \
+    sed -i 's/^    return {\*\*row, "old": None if text else row\["old"\], "new": None if text else row\["new"\], "note": None}$/    return {**row, "old": None if text else row["old"], "new": None if text else row["new"]}  # MUTATED/'
+
+# 684: the shot plan does not quote a shots.json that cannot be planned to who may not read its prompts
+test_mutation 684 "shot plan: no detail of a shots.json that cannot be planned" \
+    "api/shot_plan_routes.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_shot_plan_does_not_quote_another_episode_s_shots_json_that_cannot_be_planned" \
+    sed -i 's/^        error = "shots\.json cannot be planned" if hide_prompts else f"shots\.json cannot be planned: {e}"$/        error = f"shots.json cannot be planned: {e}"  # MUTATED/'
+
+# 685: the preflight does not say why an uploaded shots.json cannot be read to who may not read its prompts
+test_mutation 685 "preflight: no detail of an unreadable shots.json" \
+    "api/main.py" \
+    "tests/test_editor_prompt_isolation.py::test_the_preflight_does_not_quote_another_episode_s_shots_json_that_cannot_be_read" \
+    sed -i '/^async def preflight_episode(/,/^preflight_episode\.allow_members = True$/ s/^            if not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/            if False:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
