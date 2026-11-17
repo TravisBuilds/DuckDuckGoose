@@ -253,6 +253,14 @@
     box-shadow: var(--pf-edge), var(--pf-drop);
     transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
   }
+  /* a long label wraps on a phone instead of pushing its card past the screen */
+  @media (max-width: 639px) {
+    .pf-btn {
+      white-space: normal;
+      text-wrap: balance;
+      text-align: center;
+    }
+  }
   .pf-btn:focus-visible {
     box-shadow: var(--pf-edge), 0 0 0 2px var(--cream), var(--pf-drop);
   }

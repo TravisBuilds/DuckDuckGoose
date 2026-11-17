@@ -89,6 +89,33 @@ test.describe.serial('Playful studio guarantees', () => {
     await expectPath(page, { spark: 'now', references: 'done', moodboard: 'todo', bible: 'todo', lock: 'todo' }, 'spark');
   });
 
+  test('at 390 px the mood board decision and the goose stay on the screen', async ({ page }) => {
+    await signIn(page, OWNER);
+    await page.goto(`/studio/universes/${universeId}/create?step=moodboard`);
+    await page.getByTestId('board-check-price').click();
+    await page.getByTestId('board-make').click();
+    await expect(page.getByTestId('board-images-1').locator('img')).toHaveCount(4);
+    await expect(page.getByTestId('creation-approve')).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const extra = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(extra, `the mood board scrolls sideways by ${extra}px`).toBeLessThanOrEqual(0);
+    const board = (await page.getByTestId('creation-board').boundingBox())!;
+    for (const id of ['board-love-it', 'board-not-quite', 'board-approve', 'board-feedback', 'board-redo-price']) {
+      const box = (await page.getByTestId(id).boundingBox())!;
+      expect(box.x, `${id} starts left of its card`).toBeGreaterThanOrEqual(board.x);
+      expect(box.x + box.width, `${id} ends past its card`).toBeLessThanOrEqual(board.x + board.width);
+    }
+    expect(board.x + board.width).toBeLessThanOrEqual(390);
+    // the bubble's tail points at the goose beside it, inside the page's margin
+    const goose = (await page.getByTestId('creation-goose').locator('svg').first().boundingBox())!;
+    const bubble = (await page.getByTestId('creation-bubble').boundingBox())!;
+    const tail = await page.getByTestId('creation-bubble').evaluate((el) => parseFloat(getComputedStyle(el, '::after').left));
+    expect(goose.x).toBeGreaterThanOrEqual(16);
+    expect(bubble.x + tail, 'the bubble tail reaches past the goose').toBeGreaterThanOrEqual(goose.x + goose.width);
+    expect(bubble.x + bubble.width).toBeLessThanOrEqual(390 - 16);
+  });
+
   test('an episode with an unlocked character keeps its start button off', async ({ page }) => {
     await signIn(page, OWNER);
     const added = await page.request.post(`${API}/api/worlds/${universeId}/cast`, {

@@ -625,8 +625,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           <p className={`${hint} mt-3`} data-testid="board-short">{progress.text}</p>
         )}
         {showDecide && waiting && (
-          <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1.25fr]" data-testid="creation-approve">
-            <div className="rounded-card bg-green-soft p-5">
+          <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.25fr]" data-testid="creation-approve">
+            <div className="rounded-card bg-green-soft p-5" data-testid="board-love-it">
               <h3 className="text-[19px]">Love it?</h3>
               <p className="mb-3 mt-1 text-[13.5px]">
                 Approving pins this board as the look of {world.name}. Next we write the character and setting bible from it.
@@ -636,7 +636,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               </button>
             </div>
             {!creation.board.unavailable && (
-              <div className="rounded-card bg-mustard-soft p-5">
+              <div className="rounded-card bg-mustard-soft p-5" data-testid="board-not-quite">
                 <h3 className="text-[19px]">Not quite?</h3>
                 <label htmlFor="board-feedback" className="mb-2 mt-1 block text-[13.5px]">
                   Tell us what to change. We show the price of the redo before it runs.
@@ -882,7 +882,10 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   return (
     <div className="mx-auto max-w-[1240px] px-4 pb-14 sm:px-8" data-testid="universe-creation" data-step={step}>
       {head}
-      <p className="pf-bubble mt-4 lg:hidden">{bubble[step]}</p>
+      <div className="mt-4 flex items-end gap-3 lg:hidden" data-testid="creation-goose">
+        <GooseArt className="h-14 w-[51px] shrink-0" />
+        <p className="pf-bubble min-w-0 flex-1" data-testid="creation-bubble">{bubble[step]}</p>
+      </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0" data-testid={`creation-step-${stepNumber(step)}`}>{main}</div>
         <GlassPanel as="aside" className="self-start p-[22px] lg:sticky lg:top-24" aria-label={`${CREATION_NAMES[step]}: what's next`}>
