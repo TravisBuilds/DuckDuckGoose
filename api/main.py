@@ -2392,7 +2392,7 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"Story shape approval refused: {str(cause)}"
+                        detail=_refused("Story shape approval refused", "approve_story_shape", cause)
                     )
             # For G1 approval, use update (with validator) to check estimates availability
             elif request.gate_id.lower() in ["g1_shot_plan", "g1"]:
@@ -2413,7 +2413,7 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"G1 approval refused: {str(cause)}"
+                        detail=_refused("G1 approval refused", signal_name, cause)
                     )
             elif request.gate_id.lower() == "g2_scene_stills":
                 # GAP-27: every kept still's headcount vs the declared cast; a FAIL blocks G2
@@ -2437,7 +2437,7 @@ async def approve_gate(
                     cause = getattr(e, "cause", None) or e
                     raise HTTPException(
                         status_code=409,
-                        detail=f"G2 approval refused: {str(cause)}"
+                        detail=_refused("G2 approval refused", signal_name, cause)
                     )
                 return {
                     "success": True,
@@ -2593,7 +2593,7 @@ async def update_story_shape(
                 cause = getattr(e, "cause", None) or e
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Story shape update refused: {str(cause)}"
+                    detail=_refused("Story shape update refused", "update_story_shape", cause)
                 )
         
         raise HTTPException(status_code=404, detail=f"No running workflow found for episode {episode_id}")
@@ -3841,12 +3841,19 @@ STUDIO_UPDATING = "The studio is updating. Try again in a minute."
 def _update_refusal(update: str, cause: BaseException) -> str:
     """What a refused update tells whoever sent it. A worker still on older code (mid deploy) has no
     handler for a new update and rejects it with the SDK's "Update handler for '<name>' expected but
-    not found" error, which means nothing to them."""
+    not found" error (a RuntimeError in the worker), which means nothing to them."""
     text = str(cause)
     if str(getattr(cause, "message", text)).startswith(f"Update handler for '{update}' expected but not found"):
         logger.warning("The worker has no %s update handler yet: %s", update, text)
         return STUDIO_UPDATING
     return text
+
+
+def _refused(prefix: str, update: str, cause: BaseException) -> str:
+    """A refused update's 409 text: the workflow's reason after ``prefix``, or only the plain
+    studio-updating note when the worker does not have the update yet."""
+    text = _update_refusal(update, cause)
+    return text if text == STUDIO_UPDATING else f"{prefix}: {text}"
 
 
 async def _execute_episode_update(episode_id: str, update: str, args: list, action: str):
@@ -3863,7 +3870,7 @@ async def _execute_episode_update(episode_id: str, update: str, args: list, acti
             raise HTTPException(status_code=409, detail=_update_refusal(update, e.cause))
         raise HTTPException(status_code=500, detail=f"{action} failed: {e}")
     except ApplicationError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=_update_refusal(update, e))
     except HTTPException:
         raise
     except Exception as e:
@@ -5360,11 +5367,11 @@ async def retry_shot(
             # Update was refused - check if it's an ApplicationError inside
             if e.cause and isinstance(e.cause, ApplicationError):
                 # Map workflow refusal to 409 Conflict
-                raise HTTPException(status_code=409, detail=str(e.cause))
+                raise HTTPException(status_code=409, detail=_update_refusal("retry_shot", e.cause))
             raise
         except ApplicationError as e:
             # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=_update_refusal("retry_shot", e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
