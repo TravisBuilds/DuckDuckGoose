@@ -59,7 +59,7 @@ async function expectSheetOnTheBottom(page: Page) {
   expect(sheet.x + sheet.width).toBeGreaterThanOrEqual(390);
   expect(sheet.y + sheet.height, 'a gap under the sheet shows the page').toBeGreaterThanOrEqual(844 - 1);
   expect(bar.y, 'the bottom bar sits on the sheet').toBeGreaterThan(sheet.y);
-  expect(await page.getByTestId('gate-sheet').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 253, 248)');
+  expect(await page.getByTestId('gate-sheet').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
   return sheet;
 }
 
@@ -118,8 +118,8 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(send).toHaveAttribute('aria-describedby', 'creation-photo-why');
     await expect(page.getByTestId('creation-photo-why')).toHaveText('Turns on once you choose a photo.');
     // the primary blue with the colour drained out (globals.css --off-blue / --off-blue-ink), not grey
-    expect(await send.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(207, 220, 236)');
-    expect(await send.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(47, 75, 112)');
+    expect(await send.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(207, 224, 240)');
+    expect(await send.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(40, 73, 107)');
     await expect(page.getByTestId('creation-note-why')).toHaveText('Turns on once you write a note.');
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -133,7 +133,7 @@ test.describe.serial('Playful studio guarantees', () => {
     expect(exit.x + exit.width).toBeLessThanOrEqual(390);
   });
 
-  test('at 390 px the mood board decision and the goose stay on the screen', async ({ page }) => {
+  test('at 390 px the mood board decision and the tip stay on the screen', async ({ page }) => {
     await signIn(page, OWNER);
     await page.goto(`/studio/universes/${universeId}/create?step=moodboard`);
     await page.getByTestId('board-check-price').click();
@@ -151,13 +151,11 @@ test.describe.serial('Playful studio guarantees', () => {
       expect(box.x + box.width, `${id} ends past its card`).toBeLessThanOrEqual(board.x + board.width);
     }
     expect(board.x + board.width).toBeLessThanOrEqual(390);
-    // the bubble's tail points at the goose beside it, inside the page's margin
-    const goose = (await page.getByTestId('creation-goose').locator('svg').first().boundingBox())!;
+    // the step's tip sits inside the page's margin on both sides
+    await expect(page.getByTestId('creation-tip')).toBeVisible();
     const bubble = (await page.getByTestId('creation-bubble').boundingBox())!;
-    const tail = await page.getByTestId('creation-bubble').evaluate((el) => parseFloat(getComputedStyle(el, '::after').left));
-    expect(goose.x).toBeGreaterThanOrEqual(16);
-    expect(bubble.x + tail, 'the bubble tail reaches past the goose').toBeGreaterThanOrEqual(goose.x + goose.width);
-    expect(bubble.x + bubble.width).toBeLessThanOrEqual(390 - 16);
+    expect(bubble.x, 'the tip starts in the left margin').toBeGreaterThanOrEqual(16);
+    expect(bubble.x + bubble.width, 'the tip ends in the right margin').toBeLessThanOrEqual(390 - 16);
   });
 
   test('an episode with an unlocked character keeps its start button off', async ({ page }) => {
