@@ -37,14 +37,18 @@ export const link = `pf-link-text ${focusRing}`;
 /** Small status pill; pair with one of the tones below. */
 export const chip = 'pf-chip';
 
-/** One meaning per colour: green done/locked, blue to do, aqua working, mustard needs you, coral stopped. */
+/**
+ * One meaning per colour (DESIGN-TARGETS-v2 §1.3): green done/locked, mustard a decision waiting
+ * for you, aqua the studio working, coral stopped, blue plain information.
+ */
 export const tones = {
   ok: 'bg-green-soft text-green-ink',
-  todo: 'bg-blue-soft text-blue-ink',
+  todo: 'bg-mustard-soft text-mustard-ink',
   run: 'bg-aqua-soft text-aqua-ink',
   wait: 'bg-[#EFEDE7] text-ink-soft',
   warn: 'bg-mustard-soft text-mustard-ink',
   bad: 'bg-coral-soft text-coral-ink',
+  info: 'bg-blue-soft text-blue-ink',
 } as const;
 
 export type Tone = keyof typeof tones;

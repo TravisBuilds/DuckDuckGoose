@@ -205,7 +205,7 @@ export default function StoryShapePanel({
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Part {idx + 1}</span>
                     {beat.beat_id === story_shape.midpoint_beat_id && (
-                      <span className={`${chip} ${tones.todo}`}>The turning point</span>
+                      <span className={`${chip} ${tones.info}`}>The turning point</span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">

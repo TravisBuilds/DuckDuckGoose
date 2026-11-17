@@ -987,7 +987,7 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
             <li key={sid} className="rounded border border-gray-200 p-3 dark:border-gray-700" data-testid={`shot-${sid}`}>
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <strong>{sid}</strong>
-                {row?.beat_id && <span className={`${chip} ${tones.todo}`} title={row.beat_purpose}>{row.beat_id}</span>}
+                {row?.beat_id && <span className={`${chip} ${tones.info}`} title={row.beat_purpose}>{row.beat_id}</span>}
                 {check && (
                   <span className={check.ok ? 'text-green-800 dark:text-green-300' : 'text-red-700 dark:text-red-300'}
                     title={check.errors.join('\n') || 'Passes model limits'}>

@@ -538,6 +538,7 @@
     position: relative;
   }
   .pf-bub {
+    position: relative;
     width: 44px;
     height: 44px;
     border-radius: 50%;
@@ -567,6 +568,15 @@
     color: var(--coral-ink);
     box-shadow: 0 0 0 3px var(--coral);
   }
+  .pf-path.is-compact .pf-stop {
+    width: 92px;
+  }
+  a.pf-stop:hover .pf-bub {
+    transform: translateY(-2px);
+  }
+  .pf-bub {
+    transition: transform 160ms ease;
+  }
   .pf-stop-name {
     font-weight: 800;
     font-size: 13px;
@@ -595,17 +605,32 @@
   }
   .pf-coin {
     position: absolute;
-    top: -4px;
-    right: calc(50% - 32px);
-    width: 22px;
-    height: 22px;
+    top: -9px;
+    right: -14px;
+    border-radius: var(--pill);
+    padding: 1px 6px;
+    font: 800 10px/1.3 var(--font-body-stack);
+    color: var(--ink);
+    background: var(--mustard);
+    border: 2px solid #fff;
+  }
+
+  /* ---- the coral "make something" button in the phone bottom bar (an icon, 3.6:1 like any graphic) ---- */
+  .pf-fab {
+    width: 54px;
+    height: 54px;
     border-radius: 50%;
+    background: var(--coral);
+    color: #fff;
     display: grid;
     place-items: center;
-    font: 700 12px var(--font-display-stack);
-    color: var(--ink);
-    background: radial-gradient(circle at 35% 30%, #F4DE9E, var(--mustard));
-    box-shadow: 0 0 0 2px #fff, 0 2px 0 var(--mustard-deep);
+    margin-top: -26px;
+    box-shadow: 0 5px 0 #a3352d;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .pf-fab:active {
+    transform: translateY(2px);
+    box-shadow: 0 3px 0 #a3352d;
   }
 
   /* ---- paper: cork board, polaroids, sticky notes, stamp ---- */
@@ -712,6 +737,12 @@
     border-radius: 46% 54% 50% 50% / 55% 50% 50% 45%;
   }
 
+  .pf-nod .pf-goose-head {
+    transform-box: fill-box;
+    transform-origin: 20% 100%;
+    animation: pf-nod 700ms ease-in-out 1;
+  }
+
   /* links that read as links on any light surface */
   .pf-link-text {
     color: var(--blue-deep);
@@ -768,6 +799,11 @@
   0% { opacity: 1; transform: translate(-50%, -50%) rotate(0); }
   100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) rotate(200deg); }
 }
+@keyframes pf-nod {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(9deg); }
+  60% { transform: rotate(-3deg); }
+}
 @keyframes pf-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -780,7 +816,8 @@
     transition: none;
   }
   .pf-btn:active:not(:disabled),
-  .pf-lift:hover {
+  .pf-lift:hover,
+  a.pf-stop:hover .pf-bub {
     transform: none;
   }
   .pf-stop.is-now .pf-bub {
@@ -794,5 +831,10 @@
   }
   .pf-confetti {
     display: none;
+  }
+  .pf-nod .pf-goose-head,
+  .pf-fab {
+    animation: none;
+    transition: none;
   }
 }

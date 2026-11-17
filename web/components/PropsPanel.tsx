@@ -136,7 +136,7 @@ function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="break-words font-semibold text-gray-900 dark:text-white">{item.name}</h3>
-            <span className={`${chip} ${item.kind === 'place' ? tones.todo : tones.wait}`}>{kind.label}</span>
+            <span className={`${chip} ${item.kind === 'place' ? tones.info : tones.ok}`}>{kind.label}</span>
           </div>
           <p className="mt-1 break-words text-sm text-gray-700 dark:text-gray-200" data-testid={`prop-description-${item.slug}`}>
             {item.description || 'No description yet: add what it looks like, so every shot gets it right.'}
