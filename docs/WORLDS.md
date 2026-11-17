@@ -108,7 +108,9 @@ Every route allows members and runs under the app-wide guard. "Viewer" means the
 
 Lists and counts follow the episode rule: a Universe's episodes, its episode and finished counts, and
 each character's and place's "Used in N episodes" count only the episodes the reader may see, and a
-character's audit trail and sheet jobs leave out the episodes they may not see. An episode editor's
+character's audit trail and sheet jobs leave out the episodes they may not see (in what a change to a
+character answers too). An episode's props view names only the episodes of its Universe the reader
+may see, like its cast view. An episode editor's
 counts are smaller than the owner's; admins and the owner get the full ones.
 
 Deletes are refused (409) while any episode of the Universe is being made. Taking an episode out of a

@@ -133,22 +133,32 @@ An episode, and everything about it, is seen only by the people working on it:
   id in their form or body.
 - Whoever may not see an episode gets the `404` an episode that does not exist gets
   (`No workflow found for episode <id>`) on all of them, reads and writes alike, and nothing changes.
-  A member's read of an episode that does not exist gets the same `404`, so the answer does not tell
-  whether an episode exists. A write to an id that is not taken goes on as before (it creates the
-  episode).
+  A member's read of an episode that does not exist gets the same `404`, so a read does not tell
+  whether an episode exists.
+- A write does: a write to an id that is not taken goes on as before and answers what that route
+  answers for an episode with nothing in it yet, while a hidden episode answers the `404` before the
+  body is read. So a member who writes to an id can tell "taken by an episode I may not see" from
+  "free" (they learn nothing else about it). The upload and the start make the episode (`200`);
+  `set-dry` and taking it out of a Universe answer `200` and change no episode; a body the route
+  refuses gets `422`; a shot, character or prop it does not find, or an episode without a shot list or
+  run, gets that route's own `404`. A redo (`POST /api/episodes/{id}/shots/{shot_id}/retry`) of an
+  id without a run answers `404` `No workflow found for episode <id>` (before, a `500`).
 - Lists leave hidden episodes out entirely: `GET /api/episodes` (and so the studio home and its
   "Continue" and "Recently finished" sections), the Universe cards and pages (`/api/worlds`,
-  `/api/worlds/{id}`), `GET /api/series`, `GET /api/series/{id}` and an episode's cast view (the
-  episodes of its series). Counts are counted after that, so they are scoped too: a Universe's
-  episode and finished counts, `episode_count` of a series, and each character's and place's "Used in
-  N episodes". A Universe character's audit trail leaves out the entries of hidden episodes, and its
-  sheet jobs do not name them (`episode_id: null`). Admins' lists and counts, and the cost dashboard
-  (admins only), stay complete.
+  `/api/worlds/{id}`), `GET /api/series`, `GET /api/series/{id}`, and an episode's cast and props
+  views (`GET /api/episodes/{id}/cast`, `GET /api/episodes/{id}/props`: the episodes of its series).
+  Counts are counted after that, so they are scoped too: a Universe's episode and finished counts,
+  `episode_count` of a series, and each character's and place's "Used in N episodes". A Universe
+  character's audit trail leaves out the entries of hidden episodes, and its sheet jobs do not name
+  them (`episode_id: null`) wherever the character or one of its versions is in an answer, the
+  answers to changes included (an episode taken out of the Universe leaves its sheet jobs on the
+  character). Admins' lists and counts, and the cost dashboard (admins only), stay complete.
 - Taking an episode out of its Universe while another episode of the Universe has a run open answers
   `409`; the message names that episode and its run only to whoever may see it, and reads "Another
   video of this Universe is being made right now" for everyone else.
 - One helper decides it everywhere: `cast_routes.visible_episodes` (`may_see_episode`,
-  `require_episode_visible`). The app-wide guard (`require_admin_auth`) runs it for every
+  `require_episode_visible`; for answers that carry other episodes' ids, `series_seen_by`,
+  `character_seen_by` and `version_seen_by`). The app-wide guard (`require_admin_auth`) runs it for every
   member-allowed route with `{episode_id}` in the path, before the ownership check; the upload and the
   start run it in their handlers. The people it lets in are those who may read the episode's prompts
   (below), so the prompt stripping (`prompts_hidden`, `cast_hidden`) stays as a second line behind it.

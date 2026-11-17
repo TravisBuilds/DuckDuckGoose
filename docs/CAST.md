@@ -207,7 +207,8 @@ The episode routes (`/api/episodes/{id}/cast...`) first need the episode itself 
 ([Who sees an episode](AUTHENTICATION.md#who-sees-an-episode)): an editor of another episode of the
 series sees the series cast through their own episode or the Universe page, never through this one.
 The series' episode lists, a character's audit trail and its sheet jobs leave out the episodes the
-reader may not see.
+reader may not see, in every answer that carries them (what a change to a character or version
+answers included).
 
 Everyone else gets the answer a missing item gets, so a refusal does not tell whether a cast,
 series, character or picture exists: **404** with `Series <id> not found`, `Image <id> not found`,
