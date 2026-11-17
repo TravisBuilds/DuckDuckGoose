@@ -35,8 +35,8 @@ export function Toast({ notice, onDismiss, testId }: {
 
   if (!notice) return null;
   const tone = notice.tone === 'bad'
-    ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100'
-    : 'border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100';
+    ? 'border-red-300 bg-red-50 text-red-900'
+    : 'border-green-300 bg-green-50 text-green-900';
   const body = (
     <div className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-lg border px-4 py-3 shadow-lg ${tone}`}>
       <span aria-hidden="true" className="mt-0.5 text-sm font-bold">{notice.tone === 'bad' ? '!' : '✓'}</span>

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Light-first: the old dark: utilities stay inert (nothing ever sets a .dark class). */
+/* Light-first: there is no dark mode, so a dark: utility never applies (nothing sets a .dark class). */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*

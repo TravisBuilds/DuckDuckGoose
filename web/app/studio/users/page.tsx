@@ -148,8 +148,8 @@ export default function UsersPage() {
     return (
       <div className="py-24 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black dark:border-white mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading users...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading users...</p>
         </div>
       </div>
     );
@@ -159,14 +159,14 @@ export default function UsersPage() {
     <div>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
         <h1 className="text-2xl font-bold">Members</h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-gray-600">
           Manage studio users and permissions
         </p>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-200">
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
             {error}
           </div>
         )}
@@ -174,23 +174,23 @@ export default function UsersPage() {
         <div className="mb-6">
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200"
+            className="px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800"
           >
             {showCreateForm ? 'Cancel' : 'Create User'}
           </button>
         </div>
 
         {showCreateForm && (
-          <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold mb-4">Create New User</h2>
             
             {inviteUrl ? (
               <div className="space-y-4">
-                <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                  <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm font-medium text-green-800 mb-2">
                     ✓ User created successfully!
                   </p>
-                  <p className="text-sm text-green-700 dark:text-green-300 mb-4">
+                  <p className="text-sm text-green-700 mb-4">
                     Share this invite link with the user (valid for 72 hours):
                   </p>
                   <div className="flex gap-2">
@@ -198,7 +198,7 @@ export default function UsersPage() {
                       type="text"
                       value={inviteUrl}
                       readOnly
-                      className="flex-1 px-3 py-2 text-sm border border-green-300 dark:border-green-700 rounded bg-white dark:bg-gray-900 font-mono"
+                      className="flex-1 px-3 py-2 text-sm border border-green-300 rounded bg-white font-mono"
                     />
                     <button
                       onClick={copyInviteLink}
@@ -214,7 +214,7 @@ export default function UsersPage() {
                     setInviteUrl('');
                     setCreateForm({ name: '', email: '', role: 'member', useInvite: true });
                   }}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
                 >
                   Close
                 </button>
@@ -227,7 +227,7 @@ export default function UsersPage() {
                     type="text"
                     value={createForm.name}
                     onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
                     required
                   />
                 </div>
@@ -238,7 +238,7 @@ export default function UsersPage() {
                     type="email"
                     value={createForm.email}
                     onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
                     required
                   />
                 </div>
@@ -248,12 +248,12 @@ export default function UsersPage() {
                   <select
                     value={createForm.role}
                     onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
                   >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-xs text-gray-500">
                     Admin: Full access. Member: Episode management only.
                   </p>
                 </div>
@@ -275,14 +275,14 @@ export default function UsersPage() {
                   <button
                     type="submit"
                     disabled={createLoading}
-                    className="px-6 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50"
+                    className="px-6 py-2 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50"
                   >
                     {createLoading ? 'Creating...' : 'Create User'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowCreateForm(false)}
-                    className="px-6 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                    className="px-6 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
                   >
                     Cancel
                   </button>
@@ -292,30 +292,30 @@ export default function UsersPage() {
           </div>
         )}
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="bg-white rounded-lg border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold">Users ({users.length})</h2>
           </div>
           
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="divide-y divide-gray-200">
             {users.map((user) => (
-              <div key={user.user_id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+              <div key={user.user_id} className="px-6 py-4 hover:bg-gray-50">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <h3 className="font-medium">{user.name}</h3>
                       <span className={`px-2 py-1 text-xs font-medium rounded ${
                         user.role === 'admin'
-                          ? 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200'
-                          : 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-blue-100 text-blue-800'
                       }`}>
                         {user.role}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    <p className="text-sm text-gray-600 mt-1">
                       {user.email}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Created: {new Date(user.created_at).toLocaleDateString()}
                       {user.last_active && ` · Last active: ${new Date(user.last_active).toLocaleDateString()}`}
                     </p>
@@ -323,7 +323,7 @@ export default function UsersPage() {
                   
                   <button
                     onClick={() => handleGenerateResetLink(user.user_id)}
-                    className="ml-4 px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+                    className="ml-4 px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
                   >
                     Copy Reset Link
                   </button>

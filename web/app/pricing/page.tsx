@@ -11,10 +11,10 @@ export default function PricingPage() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4">Simple, transparent pricing</h1>
-          <p className="text-xl text-gray-600 dark:text-gray-400 mb-2">
+          <p className="text-xl text-gray-600 mb-2">
             Pay only for what you create
           </p>
-          <p className="text-sm text-gray-500 dark:text-gray-500">
+          <p className="text-sm text-gray-500">
             1 credit = ${creditRate.toFixed(2)} · Credits cover generation, retries, and assembly
           </p>
         </div>
@@ -25,12 +25,12 @@ export default function PricingPage() {
               key={tier.name}
               className={`rounded-lg border ${
                 tier.recommended
-                  ? 'border-black dark:border-white shadow-lg scale-105'
-                  : 'border-gray-200 dark:border-gray-800'
+                  ? 'border-black shadow-lg scale-105'
+                  : 'border-gray-200'
               } overflow-hidden`}
             >
               {tier.recommended && (
-                <div className="bg-black dark:bg-white text-white dark:text-black text-center py-2 text-sm font-semibold">
+                <div className="bg-black text-white text-center py-2 text-sm font-semibold">
                   Most popular
                 </div>
               )}
@@ -38,9 +38,9 @@ export default function PricingPage() {
                 <h3 className="text-2xl font-bold mb-2">{tier.name}</h3>
                 <div className="mb-4">
                   <span className="text-4xl font-bold">${tier.price}</span>
-                  <span className="text-gray-600 dark:text-gray-400">/month</span>
+                  <span className="text-gray-600">/month</span>
                 </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                <p className="text-sm text-gray-600 mb-6">
                   {tier.credits.toLocaleString()} credits per month
                 </p>
                 <ul className="space-y-3 mb-6">
@@ -65,7 +65,7 @@ export default function PricingPage() {
                 </ul>
                 <button
                   disabled
-                  className="w-full px-6 py-3 bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 rounded-lg font-semibold cursor-not-allowed"
+                  className="w-full px-6 py-3 bg-gray-300 text-gray-500 rounded-lg font-semibold cursor-not-allowed"
                 >
                   Coming soon
                 </button>
@@ -74,39 +74,39 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <div className="border-t border-gray-200 dark:border-gray-800 pt-12">
+        <div className="border-t border-gray-200 pt-12">
           <h2 className="text-2xl font-bold mb-8 text-center">How credits work</h2>
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <div className="p-6 bg-gray-50 dark:bg-gray-900 rounded-lg">
+            <div className="p-6 bg-gray-50 rounded-lg">
               <h3 className="font-semibold mb-3">Credit pricing</h3>
-              <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <ul className="space-y-2 text-sm text-gray-600">
                 <li>• 1 credit = $0.01 at list price</li>
                 <li>• Larger plans bring cost down to $0.0084/credit</li>
                 <li>• Credits cover all generation, retries, and assembly</li>
                 <li>• No hidden fees or per-shot charges</li>
               </ul>
             </div>
-            <div className="p-6 bg-gray-50 dark:bg-gray-900 rounded-lg">
+            <div className="p-6 bg-gray-50 rounded-lg">
               <h3 className="font-semibold mb-3">Typical costs</h3>
-              <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <ul className="space-y-2 text-sm text-gray-600">
                 <li>• Cozy micro (15s): ~510 credits ($5.10)</li>
                 <li>• Mood loop (10s): ~340 credits ($3.40)</li>
                 <li>• Music montage (45s): ~1,490 credits ($14.90)</li>
                 <li>• POV adventure (30s): ~860 credits ($8.60)</li>
               </ul>
             </div>
-            <div className="p-6 bg-gray-50 dark:bg-gray-900 rounded-lg">
+            <div className="p-6 bg-gray-50 rounded-lg">
               <h3 className="font-semibold mb-3">Credit lifetime</h3>
-              <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <ul className="space-y-2 text-sm text-gray-600">
                 <li>• Monthly credits roll over once (up to 2× your grant)</li>
                 <li>• Top-up credits valid for 12 months</li>
                 <li>• Trial credits expire after 7 days</li>
                 <li>• Unused credits spent oldest-first</li>
               </ul>
             </div>
-            <div className="p-6 bg-gray-50 dark:bg-gray-900 rounded-lg">
+            <div className="p-6 bg-gray-50 rounded-lg">
               <h3 className="font-semibold mb-3">Quote & reserve</h3>
-              <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <ul className="space-y-2 text-sm text-gray-600">
                 <li>• Price quoted at the planning stage and locked for 24h</li>
                 <li>• Credits reserved before video generation starts</li>
                 <li>• Refunded automatically if moderation blocks the video</li>
@@ -117,7 +117,7 @@ export default function PricingPage() {
         </div>
 
         <div className="mt-12 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-500">
+          <p className="text-sm text-gray-500">
             Payment processing will be handled via Stripe. No payment information is collected in this preview version.
           </p>
         </div>

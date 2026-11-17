@@ -140,9 +140,9 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
   };
 
   return (
-    <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40" data-testid={`cast-upload-${character.slug}`}>
+    <div className="mt-3 p-3 rounded-lg bg-gray-50" data-testid={`cast-upload-${character.slug}`}>
       <p className="text-sm font-semibold">Add a picture of {character.name}</p>
-      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2" id={`cast-upload-hint-${character.slug}`}>
+      <p className="text-xs text-gray-600 mb-2" id={`cast-upload-hint-${character.slug}`}>
         PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
         A clear full-body picture on a plain background works best.
       </p>
@@ -156,10 +156,10 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
         aria-describedby={`cast-upload-hint-${character.slug}`}
         data-testid={`cast-upload-file-${character.slug}`}
       />
-      {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
+      {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
       <RightsQuestions rights={rights} onChange={setRights} group={group} testId={(what) => `cast-${what}-${character.slug}`} />
       {file && !fileIssue && rightsIssue && (
-        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2">{rightsIssue}</p>
+        <p className="text-xs text-amber-800 mt-2">{rightsIssue}</p>
       )}
       <button
         type="button"
@@ -255,13 +255,13 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
 
   const estimateBox = (label: string) => (
     <div className="mt-2">
-      {estimateIssue && <p className="text-sm text-red-700 dark:text-red-300" role="alert">{estimateIssue}</p>}
+      {estimateIssue && <p className="text-sm text-red-700" role="alert">{estimateIssue}</p>}
       {estimate && (
-        <div className="p-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20"
+        <div className="p-3 rounded-lg border border-yellow-200 bg-yellow-50"
           data-testid={`cast-estimate-${character.slug}`}>
-          <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">{estimateText(estimate.result)}</p>
+          <p className="text-sm font-semibold text-yellow-900">{estimateText(estimate.result)}</p>
           {!estimate.result.dry_run && (
-            <p className="text-xs text-yellow-800 dark:text-yellow-300 mt-1">
+            <p className="text-xs text-yellow-800 mt-1">
               The studio checks the price, your balance and this video&apos;s budget again before each picture.
             </p>
           )}
@@ -278,13 +278,13 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
   );
 
   return (
-    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3" data-testid={`cast-sheet-${character.slug}`}
+    <div className="mt-4 border-t border-gray-200 pt-3" data-testid={`cast-sheet-${character.slug}`}
       data-step={step}>
       <h4 className="text-sm font-semibold">Character sheet</h4>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{SHEET_STEP_TEXT[step]}</p>
+      <p className="text-sm text-gray-600 mb-2">{SHEET_STEP_TEXT[step]}</p>
 
       {problems.length > 0 && (
-        <div className="mb-2 p-2 rounded bg-red-50 dark:bg-red-900/20 text-sm text-red-800 dark:text-red-200">
+        <div className="mb-2 p-2 rounded bg-red-50 text-sm text-red-800">
           <p className="font-semibold">Some pictures were not made:</p>
           <ul className="list-disc ml-5">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
         </div>
@@ -319,7 +319,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
       )}
 
       {canEdit && step !== 'locked' && step !== 'working' && sheetBlock && (
-        <p className="text-sm text-amber-800 dark:text-amber-300">{sheetBlock}</p>
+        <p className="text-sm text-amber-800">{sheetBlock}</p>
       )}
 
       {canEdit && !sheetBlock && step === 'start' && (
@@ -346,7 +346,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
           <label className="flex items-center gap-2 text-sm">
             How many options
             <select value={count} onChange={(e) => { setChosenCount(Number(e.target.value)); setEstimate(null); }}
-              className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
+              className="px-2 py-1 border border-gray-300 rounded bg-white"
               data-testid={`cast-option-count-${character.slug}`}>
               {optionCounts(fromPicture).map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
@@ -424,9 +424,9 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
     }
   };
   return (
-    <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40">
+    <div className="mt-3 p-3 rounded-lg bg-gray-50">
       <p className="text-sm font-semibold">New outfit</p>
-      <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
+      <p className="text-xs text-gray-600 mb-2">
         Made from this locked look (never from scene pictures), so the face and body stay the same.
       </p>
       <div className="grid sm:grid-cols-2 gap-2">
@@ -641,23 +641,23 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
   };
   return (
     <div data-testid="cast-add" data-first={first ? 'true' : 'false'}
-      className={`mt-4 p-4 rounded-lg border ${first ? 'border-blue-300 bg-blue-50/40 dark:border-blue-700 dark:bg-blue-900/10' : 'border-dashed border-gray-300 dark:border-gray-600'}`}>
+      className={`mt-4 p-4 rounded-lg border ${first ? 'border-blue-300 bg-blue-50/40' : 'border-dashed border-gray-300'}`}>
       <h3 className="text-sm font-semibold mb-1" data-testid="cast-add-title">{title}</h3>
       {first && (
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        <p className="text-sm text-gray-700 mb-3">
           Start with a photo or drawing of each character: the studio makes their character sheet from it, so they
           look the same in every shot.
         </p>
       )}
       <label htmlFor="cast-add-file" className="block text-sm font-medium">{first ? 'Photo' : 'Photo (optional)'}</label>
-      <p id="cast-add-file-hint" className="text-xs text-gray-600 dark:text-gray-300 mb-1">
+      <p id="cast-add-file-hint" className="text-xs text-gray-600 mb-1">
         PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
         A clear full-body picture on a plain background works best.
       </p>
       <input id="cast-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="cast-add-file-hint"
         className={`text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
-      {fileIssue && <p className="text-xs text-red-700 dark:text-red-300 mt-1">{fileIssue}</p>}
+      {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
       <div className="grid sm:grid-cols-2 gap-2 mt-3">
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={60}
           placeholder="Name, e.g. Mara" aria-label="Name" className={field} data-testid="cast-add-name" />
@@ -673,7 +673,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
         <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
       )}
       {file && !fileIssue && photoIssue && (
-        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2" data-testid="cast-add-photo-problem">{photoIssue}</p>
+        <p className="text-xs text-amber-800 mt-2" data-testid="cast-add-photo-problem">{photoIssue}</p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={addWithPhoto} disabled={busy || !!photoIssue} className={darkBtn}
@@ -736,7 +736,7 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
           {list.length > 0 && (
             <>
               <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Universe"
-                className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                className="px-2 py-1.5 border border-gray-300 rounded bg-white">
                 <option value="">Pick a Universe…</option>
                 {list.map((s) => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
               </select>
@@ -744,11 +744,11 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
                 onClick={() => act(() => postJson(`${apiBase}/series`, { series_id: choice }), 'This video is now in the Universe.', 'series')}>
                 Use this Universe
               </button>
-              <span className="text-gray-600 dark:text-gray-300">or</span>
+              <span className="text-gray-600">or</span>
             </>
           )}
           <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New Universe name"
-            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
+            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 rounded bg-white" />
           <button type="button" disabled={busy || !newName.trim()} className={plainBtn}
             onClick={async () => {
               const made = await act(async () => {
@@ -785,23 +785,23 @@ function ShotCast({ apiBase, view, busy, act, note }: {
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4" data-testid="cast-shots">
+    <div className="mt-6 border-t border-gray-200 pt-4" data-testid="cast-shots">
       <h3 className="text-base font-semibold mb-1">Who is in each shot</h3>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+      <p className="text-sm text-gray-600 mb-3">
         Pick who appears in each shot. Their description and pictures are added to that shot automatically, and
         pictures never get captions, speech bubbles or lettering unless you allow words for that shot.
       </p>
-      {view.shots.error && <p className="text-sm text-red-700 dark:text-red-300">{view.shots.error}</p>}
-      {!view.shots.uploaded && <p className="text-sm text-gray-600 dark:text-gray-300">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
+      {view.shots.error && <p className="text-sm text-red-700">{view.shots.error}</p>}
+      {!view.shots.uploaded && <p className="text-sm text-gray-600">Upload this video&apos;s shots first; then choose who is in each one here.</p>}
       {view.shots.plan && view.shots.plan.errors.length > 0 && (
-        <div className="mb-3 p-3 rounded bg-red-50 dark:bg-red-900/20 text-sm text-red-800 dark:text-red-200" role="alert"
+        <div className="mb-3 p-3 rounded bg-red-50 text-sm text-red-800" role="alert"
           data-testid="cast-plan-errors">
           <p className="font-semibold">Fix these before starting:</p>
           <ul className="list-disc ml-5">{view.shots.plan.errors.map((e) => <li key={e}>{e}</li>)}</ul>
         </div>
       )}
       {shots.length > 0 && view.characters.length === 0 && (
-        <p className="text-sm text-gray-600 dark:text-gray-300">Add someone to the cast first.</p>
+        <p className="text-sm text-gray-600">Add someone to the cast first.</p>
       )}
       {shots.length > 0 && view.characters.length > 0 && (
         <ul className="space-y-3">
@@ -810,11 +810,11 @@ function ShotCast({ apiBase, view, busy, act, note }: {
             const allowed = (shot.shot_id in allowText ? allowText[shot.shot_id] : shot.allow_text) === true;
             const update = (next: CastPick[]) => setPicks({ ...picks, [shot.shot_id]: next });
             return (
-              <li key={shot.shot_id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+              <li key={shot.shot_id} className="border border-gray-200 rounded-lg p-3"
                 data-testid={`cast-shot-${shot.shot_id}`}>
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-semibold text-sm">{shot.shot_id}</span>
-                  <span className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2">{shot.prompt}</span>
+                  <span className="text-xs text-gray-600 line-clamp-2">{shot.prompt}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {view.characters.map((c) => {
@@ -823,7 +823,7 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                       <button key={c.slug} type="button" aria-pressed={on} disabled={busy || !view.can_edit}
                         onClick={() => update(toggleCast(current, c.slug))}
                         data-testid={`cast-shot-${shot.shot_id}-${c.slug}`}
-                        className={`${btn} border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600'}`}>
+                        className={`${btn} border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
                         {on ? '✓ ' : ''}{c.name}
                       </button>
                     );
@@ -836,7 +836,7 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                       {c.name} wears
                       <select value={p.version ?? ''} disabled={busy || !view.can_edit}
                         onChange={(e) => update(setCastVersion(current, p.character, e.target.value ? Number(e.target.value) : null))}
-                        className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                        className="px-2 py-1 border border-gray-300 rounded bg-white">
                         <option value="">their usual look</option>
                         {c.versions.map((v) => (
                           <option key={v.version} value={v.version}>{v.label || `Version ${v.version}`}{v.locked ? ' (locked)' : ''}</option>
@@ -851,12 +851,12 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                   Words may appear in this picture (a sign or a title card)
                 </label>
                 {shot.refs.length > 0 && (
-                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                  <p className="mt-2 text-xs text-gray-600">
                     Reference pictures for this shot: {shot.refs.map((r) => r.label).join(' · ')}
                   </p>
                 )}
                 {shot.notes.map((note) => (
-                  <p key={note} className="mt-1 text-xs text-amber-800 dark:text-amber-300">{note}</p>
+                  <p key={note} className="mt-1 text-xs text-amber-800">{note}</p>
                 ))}
               </li>
             );
@@ -902,7 +902,7 @@ function UniverseLook({ character, version, lockEpisode }: {
 }) {
   const sheet = versionPictures(version).sheet;
   return (
-    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3" data-testid={`cast-sheet-${character.slug}`}>
+    <div className="mt-4 border-t border-gray-200 pt-3" data-testid={`cast-sheet-${character.slug}`}>
       <h4 className="text-sm font-semibold">Character sheet</h4>
       {sheet.length > 0 && (
         <div className="my-2">
@@ -913,13 +913,13 @@ function UniverseLook({ character, version, lockEpisode }: {
         </div>
       )}
       {!version.locked && (
-        <p className="text-sm text-gray-700 dark:text-gray-200" data-testid={`universe-lock-${character.slug}`}>
+        <p className="text-sm text-gray-700" data-testid={`universe-lock-${character.slug}`}>
           Lock this look from an episode in this Universe
           {lockEpisode ? (
             <>
               {': '}
               <a href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`}
-                className={`font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 rounded ${focusRing}`}
+                className={`font-semibold text-blue-700 underline-offset-2 hover:underline rounded ${focusRing}`}
                 data-testid={`universe-lock-link-${character.slug}`}>
                 open {lockEpisode}
               </a>.

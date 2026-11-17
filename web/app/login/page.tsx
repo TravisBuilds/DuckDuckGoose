@@ -50,18 +50,18 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">Studio Console</h1>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-gray-600">
             {showAdminLogin ? 'Admin access' : 'Sign in to your account'}
           </p>
         </div>
 
-        <form onSubmit={handleLogin} className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+        <form onSubmit={handleLogin} className="bg-white rounded-lg shadow-lg p-8">
           {error && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-800 dark:text-red-200">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
               {error}
             </div>
           )}
@@ -77,7 +77,7 @@ function LoginForm() {
                   id="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-black dark:focus:ring-white focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="you@example.com"
                   required
                   autoFocus
@@ -93,7 +93,7 @@ function LoginForm() {
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-black dark:focus:ring-white focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="Enter your password"
                   required
                 />
@@ -109,13 +109,13 @@ function LoginForm() {
                 id="secret"
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-black dark:focus:ring-white focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                 placeholder="Enter admin secret"
                 required
                 autoFocus
               />
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Set in <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">STUDIO_ADMIN_SECRET</code> environment variable
+              <p className="mt-2 text-xs text-gray-500">
+                Set in <code className="px-1 py-0.5 bg-gray-100 rounded">STUDIO_ADMIN_SECRET</code> environment variable
               </p>
             </div>
           )}
@@ -123,7 +123,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading || (!showAdminLogin && (!email || !password)) || (showAdminLogin && !secret)}
-            className="w-full px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -138,7 +138,7 @@ function LoginForm() {
                 setPassword('');
                 setSecret('');
               }}
-              className="text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
+              className="text-sm text-gray-600 hover:text-black"
             >
               {showAdminLogin ? '← Back to email sign in' : 'Sign in with admin secret'}
             </button>
@@ -152,9 +152,9 @@ function LoginForm() {
 export default function StudioLoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     }>

@@ -24,7 +24,7 @@ export default function ArchetypeCard({ preset }: ArchetypeCardProps) {
   const gradient = getGradientForTemplate(preset.template);
   
   return (
-    <div className="group relative rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden hover:border-gray-300 dark:hover:border-gray-700 transition-colors">
+    <div className="group relative rounded-lg border border-gray-200 overflow-hidden hover:border-gray-300 transition-colors">
       <Link
         href={`/archetypes/${preset.id}`}
         className="block"
@@ -45,20 +45,20 @@ export default function ArchetypeCard({ preset }: ArchetypeCardProps) {
       </Link>
       <div className="p-4">
         <h3 className="font-semibold text-lg mb-1">{preset.name}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+        <p className="text-sm text-gray-600 mb-3">
           {preset.description}
         </p>
         <div className="flex flex-wrap gap-2 mb-3">
           {preset.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded"
+              className="text-xs px-2 py-1 bg-gray-100 rounded"
             >
               {tag}
             </span>
           ))}
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-500 mb-3">
+        <div className="text-xs text-gray-500 mb-3">
           {preset.lengthRange[0]}–{preset.lengthRange[1]}s · {preset.aspect}
         </div>
         <Link
