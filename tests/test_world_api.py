@@ -553,9 +553,11 @@ async def test_deletes_wait_while_any_episode_of_the_universe_is_being_made(stud
 async def test_the_universe_page_shows_locks_problems_use_and_episodes(studio):
     owner = _client(studio, "owner")
     sid = _world(owner, logline="Lanterns keep the bay's secrets")
-    wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
+    wren = _character(owner, sid)
+    _character(owner, sid, "Moss")
     _lock(wren["character_id"])
-    pier, lantern = _item(owner, sid), _item(owner, sid, "Lantern", "prop")
+    pier = _item(owner, sid)
+    _item(owner, sid, "Lantern", "prop")
     owner.post(f"{_base(sid)}/props/{pier['prop_id']}/photos", data={"rights": "original"},
                files=_files(image_bytes(seed=21, color=(40, 120, 90))))
     owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
@@ -890,7 +892,8 @@ async def test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the
     sid = _world(owner)
     wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
     _lock(wren["character_id"])
-    pier, lantern = _item(owner, sid), _item(owner, sid, "Lantern", "prop")
+    _item(owner, sid)
+    _item(owner, sid, "Lantern", "prop")
     owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
     _write_shots(EP, [_shot("A01", cast=["wren", "moss"], place="pier", props=["lantern", "nope"]),
                       _shot("A02", cast=[{"character": "moss", "version": 2}, "ghost"])])
@@ -990,7 +993,8 @@ async def test_a_universe_episode_does_not_start_again_before_its_looks_are_lock
 async def test_at_the_shot_plan_a_universe_episode_takes_only_characters_with_a_locked_look(studio):
     owner = _client(studio, "owner")
     sid = _world(owner)
-    wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
+    wren = _character(owner, sid)
+    _character(owner, sid, "Moss")
     _lock(wren["character_id"])
     owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
     _write_shots(EP, [_shot("A01", cast=["wren"]), _shot("A02")])
