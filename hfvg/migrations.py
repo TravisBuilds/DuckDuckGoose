@@ -12,7 +12,7 @@
   only; a series without a profile row reads as an empty profile.
 - universe board requests (``UNIVERSE_BOARD_MIGRATION``, docs/WORLDS.md): a live mood board the
   worker is making (or failed to make) and its paid picture jobs. The board itself lands in the
-  universe tables when every picture is made. New tables only.
+  universe tables when the request ends with at least one picture made. New tables only.
 """
 
 import sqlite3

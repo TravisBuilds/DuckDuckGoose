@@ -326,8 +326,9 @@ async def _committed(db_path: str, job_id: str) -> bool:
 
 @activity.defn
 async def finish_universe_board_activity(request_id: str, error: str | None = None) -> dict:
-    """End a live board request (hfvg.world_store.finish_board_request): the next board version when
-    every picture was made, else failed with the reason (its jobs that did not run are skipped)."""
+    """End a live board request (hfvg.world_store.finish_board_request): the next board version with
+    the pictures made (and ``error``, the owner's reason, when it stopped early), or failed with that
+    reason when none was made. Its jobs that did not run are skipped."""
     view = await asyncio.to_thread(world_store.finish_board_request, request_id, error, "worker")
     return {"request_id": request_id, "status": view["status"], "board_id": view["board_id"], "made": view["made"]}
 

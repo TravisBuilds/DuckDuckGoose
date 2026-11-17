@@ -622,7 +622,8 @@ def get_board_image(image_id: str) -> dict:
 
 # ------------------------------------------------------------------------------------- live mood boards
 # A live board is a request the worker makes picture by picture (hfvg.activities.universe_board);
-# its pictures become the next board version only when every one of them is made.
+# when it ends, the pictures it made (paid for) become the next board version, with the reason when
+# it stopped early. A request that made none fails.
 
 def _making_request(conn, series_id: str):
     return conn.execute("SELECT * FROM universe_board_requests WHERE series_id = ? AND status = 'making' "

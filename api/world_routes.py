@@ -864,7 +864,7 @@ async def _require_board_worker() -> None:
 
 async def _refresh_board_requests(series_id: str) -> None:
     """A live board whose workflow ended without finishing it (a crashed worker, a cancelled run) is
-    finished here: the board when every picture was made, else failed (the reconciler settles any
+    finished here: a board of the pictures it made, else failed (the reconciler settles any
     money still held for its pictures). A workflow Temporal does not know counts as ended only once
     the request is older than BOARD_START_GRACE (it is recorded just before its workflow starts)."""
     from datetime import datetime, timezone
@@ -1021,8 +1021,8 @@ async def generate_world_board(series_id: str, request: BoardGenerateRequest, au
     answers the feedback on the latest. Refused (409) when the estimate is now above the approved
     total. Dry run: placeholder pictures, made here. Live: after the budget line and balance checks
     the worker makes it picture by picture (UniverseBoardWorkflow) and checks each picture's price
-    against the approval, the balance gate and the budget line again before paying; the page shows
-    it when every picture is made."""
+    against the approval, the balance gate and the budget line again before paying; the page follows
+    it, and the pictures made become the next board (with the reason when it stopped early)."""
     who = await _editor(series_id, authorization, studio_admin_token)
     cast_api._check_text(request.feedback)
     await _refresh_board_requests(series_id)
