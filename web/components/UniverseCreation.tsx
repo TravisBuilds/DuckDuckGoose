@@ -1,23 +1,40 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { formatUsd } from '@/lib/money';
+import { formatUsdMicros } from '@/lib/balance.mjs';
+import { formatLocalDate } from '@/lib/time';
+import { getPresetById, presets } from '@/lib/presets';
+import { groupByTemplate } from '@/lib/wizard.mjs';
+import { healthLine, driftCount } from '@/lib/consistency.mjs';
+import { castColours } from '@/lib/castColour.mjs';
 import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
 import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
 import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
-import { btnPrimary, btnSecondary, card, chip, focusRing, input as field, tones } from '@/lib/ui';
+import {
+  CREATION_NAMES, boardUnlockHint, creationJourney, sealFor, stepFromQuery, stepNumber, toneChips,
+  type CreationStep,
+} from '@/lib/journey.mjs';
+import { input as field, label as fieldLabel, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
+import { useStudioFocus } from './StudioShell';
+import {
+  CastDot, EmptyState, GlassPanel, GooseArt, Icon, JourneyPath, PinBoard, PriceBlock, RefTile, SceneBackdrop, Seal,
+  StickyNote, TOPIC_STICKY,
+} from './playful';
 
 /**
- * How a Universe is made (its owner and admins): references (notes on the premise, characters,
- * places and tone, and photos), a mood board made from them for the price shown first, approved or
- * redone with feedback, then the bible: characters, places and props written from the approved board.
- * Every step is an API route (api/world_routes.py), which stays the authority: a refused step shows
- * the API's reason. A live board is made by the worker picture by picture: the page asks again
- * every BOARD_POLL_MS until it is made.
+ * Making a Universe, one step per screen (DESIGN-TARGETS-v2 §6.3): Spark, References, Mood board,
+ * Bible and Lock at /studio/universes/{id}/create?step=…, for its owner and admins. Every step is an
+ * API route (api/world_routes.py), which stays the authority: a refused step shows the API's reason.
+ * Only pressing Make spends, for the price shown first; the one-liner and kind of video save as you
+ * type (free), and an unsent note waits on this device. A live board is made by the worker picture
+ * by picture: the page asks again every BOARD_POLL_MS until it is made.
  */
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
@@ -28,9 +45,18 @@ const TOPIC_TEXT: Record<string, { label: string; placeholder: string }> = {
   places: { label: 'Places', placeholder: 'Where it happens: rooms, streets, landscapes, the weather' },
   tone: { label: 'Tone', placeholder: 'How it feels: funny, cosy, eerie; the colours and light' },
 };
-const hint = 'text-xs text-gray-600 dark:text-gray-300';
+const TITLES: Record<CreationStep, string> = {
+  spark: 'Name your Universe',
+  references: 'Gather your references',
+  moodboard: 'Make your mood board',
+  bible: 'Write the bible',
+  lock: 'Lock the looks',
+};
+const CARD_GROUPS = groupByTemplate(presets);
+const hint = 'text-[12.5px] text-ink-soft';
 
 type Note = { tone: 'ok' | 'problem'; text: string; where: string };
+type BibleResult = { created: Record<string, string[]>; skipped: string[]; dropped: string[] };
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
@@ -40,47 +66,48 @@ function megabytes(bytes: number): number {
   return Math.round(bytes / 1_048_576);
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 function Message({ note, where }: { note: Note | null; where: string }) {
   if (!note || note.where !== where) return null;
   return (
     <p data-testid={`creation-message-${where}`} data-tone={note.tone} role={note.tone === 'problem' ? 'alert' : 'status'}
-      className={`mt-3 rounded-lg p-3 text-sm ${note.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+      className={`mt-3 rounded-inner p-3 text-[13.5px] font-bold ${note.tone === 'ok' ? 'bg-green-soft text-green-ink' : 'bg-coral-soft text-coral-ink'}`}>
       {note.text}
     </p>
   );
 }
 
-function StepTitle({ n, title, status }: { n: number; title: string; status: 'done' | 'current' | 'todo' }) {
-  const tone = status === 'done' ? tones.ok : status === 'current' ? tones.todo : tones.wait;
+function BoardPictures({ board, dropping, testId }: { board: WorldBoard; dropping: boolean; testId?: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-2" data-testid={`creation-step-${n}`} data-status={status}>
-      <h3 className="text-base font-semibold text-gray-900 dark:text-white">{n}. {title}</h3>
-      <span className={`${chip} ${tone}`}>{status === 'done' ? 'Done' : status === 'current' ? 'Now' : 'Later'}</span>
-    </div>
+    <PinBoard testId={testId} dropping={dropping}
+      pictures={board.images.map((image) => ({
+        key: image.image_id,
+        src: `${API_URL}${image.thumb_url}`,
+        href: `${API_URL}${image.url}`,
+        alt: `Mood board ${board.version}, picture ${image.position + 1}`,
+        caption: image.placeholder ? 'Stand-in (preview)' : null,
+      }))} />
   );
 }
 
-function BoardImages({ board }: { board: WorldBoard }) {
-  return (
-    <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid={`board-images-${board.version}`}>
-      {board.images.map((image) => (
-        <li key={image.image_id}>
-          <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" className={`block rounded-lg ${focusRing}`}
-            title="Open the full picture">
-            <img src={`${API_URL}${image.thumb_url}`} alt={`Mood board ${board.version}, picture ${image.position + 1}`}
-              loading="lazy" className="aspect-square w-full rounded-lg border border-gray-300 bg-gray-100 object-cover dark:border-gray-600 dark:bg-gray-900" />
-          </a>
-          {image.placeholder && <p className={`${hint} mt-1`}>Stand-in (preview)</p>}
-        </li>
-      ))}
-    </ul>
+function SideNext({ href, children, disabled = false, testId = 'creation-next' }: {
+  href: string; children: ReactNode; disabled?: boolean; testId?: string;
+}) {
+  return disabled ? (
+    <button type="button" disabled className="pf-btn pf-btn-primary mt-4 w-full" data-testid={testId}>{children}</button>
+  ) : (
+    <Link href={href} className="pf-btn pf-btn-primary mt-4 w-full" data-testid={testId}>{children}</Link>
   );
 }
 
-export function UniverseCreation({ view, reload }: { view: WorldView; reload: () => Promise<void> }) {
-  const creation = view.creation;
-  const seriesId = view.world.series_id;
+export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; stepParam: string | null }) {
+  const router = useRouter();
   const base = `/api/worlds/${encodeURIComponent(seriesId)}`;
+  const here = `/studio/universes/${encodeURIComponent(seriesId)}`;
+  const stepHref = (key: CreationStep) => `${here}/create?step=${key}`;
+  const [view, setView] = useState<WorldView | null>(null);
+  const [problem, setProblem] = useState<{ status: number; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<Note | null>(null);
   const [topic, setTopic] = useState('premise');
@@ -90,19 +117,128 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
   const [caption, setCaption] = useState('');
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
   const [inputKey, setInputKey] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [estimate, setEstimate] = useState<{ feedback: string; result: BoardEstimate } | null>(null);
-  const [bible, setBible] = useState<{ created: Record<string, string[]>; skipped: string[]; dropped: string[] } | null>(null);
+  const [bible, setBible] = useState<BibleResult | null>(null);
+  const [justMade, setJustMade] = useState<string | null>(null);
+  const [spark, setSpark] = useState<{ logline: string; preset: string } | null>(null);
+  const [sparkSaving, setSparkSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setView(await apiFetch<WorldView>(base));
+      setProblem(null);
+    } catch (e) {
+      setProblem(e instanceof ApiError ? { status: e.status, text: e.message } : { status: 0, text: UNREACHABLE });
+    }
+  }, [base]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const creation = view?.creation ?? null;
+  const journey = creationJourney(view);
+  const step = stepFromQuery(stepParam, journey);
   const progress = boardProgress(creation?.board_request);
   const making = progress?.kind === 'making';
   useEffect(() => {
     if (!making) return undefined;
     const timer = setInterval(() => {
-      reload().catch(() => undefined);
+      load().catch(() => undefined);
     }, BOARD_POLL_MS);
     return () => clearInterval(timer);
-  }, [making, reload]);
-  if (!creation) return null;
+  }, [making, load]);
+
+  // the unsent note waits on this device until it is added
+  const draftKey = `ddg:universe-note:${seriesId}`;
+  const restored = useRef(false);
+  useEffect(() => {
+    try {
+      const kept = JSON.parse(window.localStorage.getItem(draftKey) ?? 'null');
+      if (kept && typeof kept.text === 'string') {
+        setText(kept.text);
+        if (typeof kept.topic === 'string') setTopic(kept.topic);
+      }
+    } catch {
+      // nothing kept
+    }
+    restored.current = true;
+  }, [draftKey]);
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      if (text.trim()) window.localStorage.setItem(draftKey, JSON.stringify({ topic, text }));
+      else window.localStorage.removeItem(draftKey);
+    } catch {
+      // storage refused: the draft just is not kept
+    }
+  }, [draftKey, topic, text]);
+
+  useEffect(() => {
+    if (view && spark === null) setSpark({ logline: view.world.profile.logline ?? '', preset: view.world.profile.preset_id ?? '' });
+  }, [view, spark]);
+  const saveProfile = useCallback(async (changes: { logline?: string; preset_id?: string | null }) => {
+    setSparkSaving(true);
+    try {
+      await postJson(`${base}/profile`, changes);
+      await load();
+    } catch (e) {
+      setNote({ tone: 'problem', text: problemText(e), where: 'spark' });
+    } finally {
+      setSparkSaving(false);
+    }
+  }, [base, load]);
+  const savedLogline = view?.world.profile.logline ?? '';
+  const lastSent = useRef<string | null>(null);
+  useEffect(() => {
+    const wanted = spark?.logline.trim();
+    if (wanted === undefined || wanted === savedLogline || wanted === lastSent.current) return undefined;
+    const timer = setTimeout(() => {
+      lastSent.current = wanted;
+      saveProfile({ logline: wanted });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [spark, savedLogline, saveProfile]);
+
+  useStudioFocus(view ? {
+    label: 'New Universe',
+    name: view.world.name,
+    saved: busy || sparkSaving ? 'saving' : 'saved',
+    exitHref: '/studio',
+  } : null);
+
+  if (!view) {
+    if (problem?.status === 404) {
+      return (
+        <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="universe-not-found">
+          <GooseArt className="mx-auto h-28 w-28" />
+          <h1 className="mt-2 text-[28px]">This Universe could not be found</h1>
+          <p className="mt-2 text-ink-soft">It may have been removed, or you may not have access to it. Ask its owner if you think you should.</p>
+          <Link href="/studio" className="pf-btn pf-btn-primary mt-6">Back to the studio</Link>
+        </div>
+      );
+    }
+    return (
+      <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-8">
+        {problem
+          ? <p role="alert" className="text-[13.5px] text-coral-ink">{problem.text}</p>
+          : <p className="text-[13.5px] text-ink-soft">Loading the Universe…</p>}
+      </div>
+    );
+  }
+
+  const world = view.world;
+  if (!view.can_edit || !creation) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="creation-owner-only">
+        <GooseArt className="mx-auto h-28 w-28" />
+        <h1 className="mt-2 text-[28px]">Only its owner builds this Universe</h1>
+        <p className="mt-2 text-ink-soft">The owner of {world.name}, or an admin, adds its references and mood board.</p>
+        <Link href={here} className="pf-btn pf-btn-primary mt-6">Open the Universe</Link>
+      </div>
+    );
+  }
 
   const act = async <T,>(where: string, fn: () => Promise<T>, done: string | ((result: T) => string)): Promise<T | null> => {
     setBusy(true);
@@ -110,30 +246,29 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
     try {
       const result = await fn();
       setNote({ tone: 'ok', text: typeof done === 'string' ? done : done(result), where });
-      await reload();
+      await load();
       return result;
     } catch (e) {
       setNote({ tone: 'problem', text: problemText(e), where });
-      await reload().catch(() => undefined);
+      await load().catch(() => undefined);
       return null;
     } finally {
       setBusy(false);
     }
   };
 
-  const boards = creation.boards;
-  const latest = boards.length > 0 ? boards[boards.length - 1] : null;
-  const approved = boards.find((b) => b.status === 'approved') ?? null;
-  const bibleDone = Boolean(approved && view.world.profile.bible_board_id === approved.board_id);
-  const references = creation.notes.length + creation.photos.length;
-  const status = (n: number): 'done' | 'current' | 'todo' => {
-    const current = references === 0 ? 1 : !latest ? 2 : !approved ? 3 : !bibleDone ? 4 : 5;
-    return n < current ? 'done' : n === current ? 'current' : 'todo';
-  };
+  const { counts, latest, approved, bibleDone } = journey;
   const limits = creation.limits;
   const fileIssue = file ? pictureProblem(file, view.limits.max_upload_bytes) : null;
   const rightsIssue = rightsProblem(rights);
   const waiting = latest?.status === 'ready' ? latest : null;
+  const preset = getPresetById(world.profile.preset_id ?? '');
+  const drift = driftCount(view.characters);
+  const healthTone = drift > 0 ? tones.bad : world.counts.characters === 0 ? tones.wait
+    : world.counts.locked_characters >= world.counts.characters ? tones.ok : tones.warn;
+  const unlockHint = boardUnlockHint(counts.notes, counts.photos);
+  const lockEpisode = view.episodes.find((e) => !e.finished && e.can_change)?.episode_id ?? null;
+  const colours = castColours(view.characters);
 
   const addNote = () => act('notes', () => postJson(`${base}/notes`, { topic, body: text.trim() }), 'Note added.')
     .then((made) => { if (made) setText(''); });
@@ -154,6 +289,12 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
       setRights(emptyRights());
       setInputKey((k) => k + 1);
     }
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) setFile(dropped);
   };
   const checkPrice = async (redo: string) => {
     setBusy(true);
@@ -176,261 +317,578 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
       return estimate.feedback ? 'The new mood board is ready below.' : 'Your mood board is ready below.';
     });
     if (made) {
+      setJustMade(made.board?.board_id ?? 'making');
       setEstimate(null);
       setFeedback('');
     }
   };
-  const approve = (board: WorldBoard) => act('board', () => postJson(`${base}/board/${board.board_id}/approve`, {}),
-    'Mood board approved. Next: the bible.');
+  const approve = async (board: WorldBoard) => {
+    const done = await act('board', () => postJson(`${base}/board/${board.board_id}/approve`, {}), 'Mood board approved. Next: the bible.');
+    if (done !== null) router.push(stepHref('bible'));
+  };
   const writeBible = async () => {
-    const made = await act('bible', () => postJson<{ bible: { created: Record<string, string[]>; skipped: string[]; dropped: string[] } }>(
-      `${base}/bible`, {}), (r) => {
+    const made = await act('bible', () => postJson<{ bible: BibleResult }>(`${base}/bible`, {}), (r) => {
       const c = r.bible.created;
-      return `Added ${c.characters.length} character${c.characters.length === 1 ? '' : 's'}, ${c.places.length} place${c.places.length === 1 ? '' : 's'} and ${c.props.length} prop${c.props.length === 1 ? '' : 's'}.`;
+      return `Added ${plural(c.characters.length, 'character')}, ${plural(c.places.length, 'place')} and ${plural(c.props.length, 'prop')}.`;
     });
     if (made) setBible(made.bible);
   };
 
-  const estimateBox = estimate && (
-    <div className="mt-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20"
-      data-testid="board-estimate">
-      <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
-        {estimate.result.dry_run
-          ? `${estimate.result.summary} (a live board would cost ${formatUsd(estimate.result.total_usd_micros)})`
-          : estimate.result.summary}
-      </p>
-      {!estimate.result.dry_run && (
-        <>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-yellow-900 dark:text-yellow-200" data-testid="board-estimate-lines">
-            {boardEstimateLines(estimate.result).map((line) => <li key={line}>{line}</li>)}
-          </ul>
-          <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-300">
-            Nothing is charged until you press Make. Before each picture the studio checks its price against
-            this estimate, the balance and the budget again, and stops (keeping the pictures already made) if
-            one of them changed.
-          </p>
-        </>
-      )}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <button type="button" className={btnPrimary} disabled={busy} onClick={makeBoard} data-testid="board-make">
-          {estimate.feedback ? 'Make the new mood board' : 'Make the mood board'}
-        </button>
-        <button type="button" className={btnSecondary} disabled={busy} onClick={() => setEstimate(null)}>Cancel</button>
+  const priceOf = (result: BoardEstimate) => (result.dry_run ? 'Free' : formatUsd(result.total_usd_micros));
+  const estimateBlock = (forRedo: boolean) => {
+    if (!estimate || Boolean(estimate.feedback) !== forRedo) return null;
+    const result = estimate.result;
+    const budget = result.dry_run ? null : result.budget ?? null;
+    return (
+      <PriceBlock testId="board-estimate" className="mt-3.5" total={priceOf(result)}
+        rows={budget ? [{ label: 'Mood board budget left now', value: formatUsdMicros(budget.available_usd_micros) }] : []}
+        after={budget ? { label: 'Left after this board', value: formatUsdMicros(budget.available_usd_micros - result.total_usd_micros) } : null}>
+        <p className="mt-2 text-[13px] font-bold">
+          {result.dry_run ? `${result.summary} (a live board would cost ${formatUsd(result.total_usd_micros)})` : result.summary}
+        </p>
+        {!result.dry_run && (
+          <>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]" data-testid="board-estimate-lines">
+              {boardEstimateLines(result).map((line) => <li key={line}>{line}</li>)}
+            </ul>
+            <p className="mt-1.5 text-[12px] text-ink-soft">
+              Nothing is charged until you press Make. Before each picture the studio checks its price against
+              this estimate, the balance and the budget again, and stops (keeping the pictures already made) if
+              one of them changed.
+            </p>
+          </>
+        )}
+      </PriceBlock>
+    );
+  };
+
+  const stops = journey.steps.map((s) => ({
+    key: s.key,
+    name: s.name,
+    note: s.key === 'references' && s.state === 'done' ? 'Add more any time' : s.note,
+    state: s.state,
+    href: s.state !== 'todo' || s.key === step ? stepHref(s.key) : null,
+  }));
+  const bubble: Record<CreationStep, string> = {
+    spark: 'Every Universe starts with a spark: a name and a line about it.',
+    references: `The more you show me, the closer the board gets. ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} so far!`,
+    moodboard: making ? 'Pictures appear on the board as they are made.' : `I mix your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} into one look.`,
+    bible: 'From the approved board I write the characters, places and props.',
+    lock: counts.characters === 0 ? 'No characters yet: add them on the Universe page.' : `${counts.locked} of ${plural(counts.characters, 'look')} sealed.`,
+  };
+
+  const head = (
+    <section className="relative mt-3 sm:mt-6" aria-labelledby="creation-title">
+      <GooseArt className="pointer-events-none absolute right-[250px] top-[-30px] z-[2] hidden h-[164px] w-[150px] lg:block" />
+      <p className="pf-bubble absolute right-[46px] top-6 z-[3] hidden max-w-[250px] lg:block" aria-live="polite">{bubble[step]}</p>
+      <SceneBackdrop className="px-5 pb-10 pt-6 sm:px-10 sm:pb-[70px] sm:pt-[26px]" floorHeight={56}>
+        <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-[#2B3654]">
+          <Link href="/studio" className="text-blue-deep">Universes</Link>
+          <span aria-hidden="true"> › </span>
+          <Link href={here} className="text-blue-deep" data-testid="universe-name">{world.name}</Link>
+        </nav>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="pf-chip bg-white/80 text-ink">Step {stepNumber(step)} of 5</span>
+          {preset && <span className="pf-chip bg-white/80 text-ink" data-testid="universe-genre">{preset.name}</span>}
+          <span className={`pf-chip ${healthTone}`} data-testid="universe-health">{healthLine(world.counts, drift)}</span>
+        </div>
+        <h1 id="creation-title" className="mt-2 text-[30px] sm:text-[40px]">{TITLES[step]}</h1>
+        <div className="mx-auto mt-4 max-w-[860px] rounded-card bg-white/70 px-3 pb-1.5 pt-4 backdrop-blur-md sm:px-[22px]">
+          <JourneyPath stops={stops} current={step} label="Steps to make this Universe" testId="creation-path" />
+        </div>
+      </SceneBackdrop>
+    </section>
+  );
+
+  const referencesSummary = (
+    <div>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-[22px]">Your references</h2>
+        <Link href={stepHref('references')} className="text-[13px] font-extrabold text-blue-deep">Add more →</Link>
       </div>
+      {creation.photos.length > 0 && (
+        <ul className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
+          {creation.photos.slice(0, 6).map((p) => (
+            <RefTile key={p.image_id} src={`${API_URL}${p.thumb_url}`} alt={p.caption || 'Reference photo'} />
+          ))}
+        </ul>
+      )}
+      {creation.photos.length > 6 && <p className="mt-2 text-[13px] font-bold text-ink-soft">+ {plural(creation.photos.length - 6, 'more photo')}</p>}
+      {creation.notes.length > 0 && (
+        <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+          {creation.notes.slice(0, 4).map((n, i) => (
+            <StickyNote key={n.note_id} index={i} colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
+              <span className="line-clamp-4 whitespace-pre-line break-words">{n.body}</span>
+            </StickyNote>
+          ))}
+        </div>
+      )}
+      {counts.notes + counts.photos === 0 && (
+        <EmptyState className="mt-3" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
+          The mood board is made from them.
+        </EmptyState>
+      )}
     </div>
   );
 
-  return (
-    <section className={card} data-testid="universe-creation" aria-labelledby="creation-title">
-      <h2 id="creation-title" className="text-xl font-semibold">Build this Universe</h2>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
-        Only you (and admins) see this part. Add references, approve a mood board, and the studio writes the
-        characters and places for you. You can also add them yourself below at any time.
-      </p>
+  let main: ReactNode = null;
+  let side: ReactNode = null;
 
-      <div className="mt-5 space-y-6">
-        <div data-testid="creation-references">
-          <StepTitle n={1} title="References" status={status(1)} />
-          <p className={`${hint} mt-1`}>A few words about each, and photos of anything that sets the look (your own or ones you have the rights to).</p>
-          {creation.notes.length > 0 && (
-            <ul className="mt-3 space-y-2" data-testid="creation-notes">
-              {creation.notes.map((n) => (
-                <li key={n.note_id} className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700" data-testid={`creation-note-${n.note_id}`}>
-                  <span className={`${chip} ${tones.wait} mr-2`}>{TOPIC_TEXT[n.topic]?.label ?? n.topic}</span>
+  if (step === 'spark') {
+    main = (
+      <section className="pf-card p-6" data-testid="creation-spark" aria-labelledby="spark-title">
+        <h2 id="spark-title" className="text-[22px]">The spark</h2>
+        <p className={hint}>Changes save as you type. Nothing here costs anything.</p>
+        <p className={`${fieldLabel} mt-4`}>Name</p>
+        <p className="font-display text-[22px] font-semibold">{world.name}</p>
+        <p className={hint}>Chosen when the Universe started.</p>
+        <label htmlFor="creation-logline" className={`${fieldLabel} mt-4`}>What&apos;s it about?</label>
+        <textarea id="creation-logline" value={spark?.logline ?? ''} rows={3} maxLength={view.limits.logline_max}
+          onChange={(e) => setSpark((s) => ({ logline: e.target.value, preset: s?.preset ?? '' }))}
+          placeholder="e.g. A kiln village where every bell remembers a name…" className={field} data-testid="creation-logline" />
+        <label htmlFor="creation-genre" className={`${fieldLabel} mt-4`}>Kind of video new episodes start with</label>
+        <select id="creation-genre" value={spark?.preset ?? ''} className={field} data-testid="creation-genre"
+          onChange={(e) => {
+            setSpark((s) => ({ logline: s?.logline ?? '', preset: e.target.value }));
+            saveProfile({ preset_id: e.target.value || null });
+          }}>
+          <option value="">Decide per episode</option>
+          {CARD_GROUPS.map((group) => (
+            <optgroup key={group.template} label={group.label}>
+              {group.presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <p className="mt-3 text-[12.5px] font-bold text-ink-soft" role="status" data-testid="creation-spark-saved">
+          {sparkSaving ? 'Saving…' : 'Saved'}
+        </p>
+        <Message note={note} where="spark" />
+      </section>
+    );
+    side = (
+      <>
+        <h3 className="text-[19px]">Next: references</h3>
+        <p className={hint}>Photos and a few notes on the premise, the characters, the places and the tone.</p>
+        <SideNext href={stepHref('references')}>Next: References →</SideNext>
+      </>
+    );
+  } else if (step === 'references') {
+    main = (
+      <div data-testid="creation-references">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h2 className="text-[22px]">Your references</h2>
+          <span className="text-[13px] text-ink-soft">Only you and your episode editors see these.</span>
+        </div>
+        {creation.photos.length < limits.max_photos && (
+          <div data-testid="creation-photo-form" onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)} onDrop={onDrop}
+            className={`mt-3 rounded-card border-[3px] border-dashed p-5 ${dragging ? 'border-blue-deep bg-blue-100' : 'border-[#9DBEE6] bg-blue-soft'}`}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div aria-hidden="true" className="grid size-16 flex-none place-items-center rounded-[20px] bg-white text-blue-deep">
+                <Icon name="photo" size={32} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[19px]">Drop photos, sketches or screenshots</h3>
+                <p id="creation-photo-hint" className={hint}>
+                  Up to {limits.max_photos}. PNG, JPG or WebP, at least {view.limits.min_image_px} px on each side, up to{' '}
+                  {megabytes(view.limits.max_upload_bytes)} MB. Your own, or ones you have the rights to.
+                </p>
+              </div>
+              <label htmlFor="creation-photo-file" className="pf-btn pf-btn-primary pf-btn-sm cursor-pointer focus-within:outline-3 focus-within:outline-blue-deep">
+                Choose a photo
+                <input id="creation-photo-file" key={inputKey} type="file" accept={PICTURE_ACCEPT} aria-describedby="creation-photo-hint"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="sr-only" data-testid="creation-photo-file" />
+              </label>
+            </div>
+            {file && <p className="mt-3 break-words text-[13px] font-bold">Chosen: {file.name}</p>}
+            {fileIssue && <p className="mt-1 text-[12.5px] font-bold text-coral-ink">{fileIssue}</p>}
+            <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={limits.caption_max}
+              aria-label="Caption (optional)" placeholder="Caption (optional), e.g. the harbour at dusk" className={`${field} mt-3`}
+              data-testid="creation-photo-caption" />
+            {file && <RightsQuestions rights={rights} onChange={setRights} group="creation-rights" testId={(w) => `creation-${w}`} />}
+            {file && !fileIssue && rightsIssue && <p className="mt-2 text-[12.5px] font-bold text-mustard-ink">{rightsIssue}</p>}
+            <button type="button" className="pf-btn pf-btn-primary pf-btn-sm mt-3" disabled={busy || !file || !!fileIssue || !!rightsIssue}
+              onClick={uploadPhoto} data-testid="creation-photo-send">
+              Upload the photo
+            </button>
+          </div>
+        )}
+        <Message note={note} where="photos" />
+        {creation.photos.length > 0 && (
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6" data-testid="creation-photos">
+            {creation.photos.map((p) => (
+              <RefTile key={p.image_id} testId={`creation-photo-${p.image_id}`} src={`${API_URL}${p.thumb_url}`}
+                href={`${API_URL}${p.url}`} alt={p.caption || 'Reference photo'} caption={p.caption}>
+                <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className="pf-btn pf-btn-quiet pf-btn-sm w-full"
+                  onConfirm={() => act('photos', () => postJson(`${base}/photos/${p.image_id}/delete`, {}), 'Photo removed.')}>
+                  Remove
+                </ConfirmButton>
+              </RefTile>
+            ))}
+          </ul>
+        )}
+
+        <h2 className="mt-7 text-[22px]">Your notes</h2>
+        {creation.notes.length < limits.max_notes && (
+          <div className="pf-card mt-3 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label htmlFor="creation-topic" className="text-[13px] font-extrabold">About</label>
+              <select id="creation-topic" value={topic} onChange={(e) => setTopic(e.target.value)} className={`${field} sm:w-auto`}
+                data-testid="creation-topic">
+                {creation.topics.map((t) => <option key={t} value={t}>{TOPIC_TEXT[t]?.label ?? t}</option>)}
+              </select>
+            </div>
+            <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={limits.note_max} rows={3}
+              aria-label="Note" placeholder={TOPIC_TEXT[topic]?.placeholder} className={`${field} mt-2`}
+              data-testid="creation-note-text" />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <button type="button" className="pf-btn pf-btn-soft pf-btn-sm" disabled={busy || !text.trim()} onClick={addNote}
+                data-testid="creation-note-add">
+                <Icon name="plus" size={13} />Add the note
+              </button>
+              {text.trim() && <span className={hint}>Kept on this device until you add it.</span>}
+            </div>
+          </div>
+        )}
+        <Message note={note} where="notes" />
+        {creation.notes.length > 0 && (
+          <ul className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4" data-testid="creation-notes">
+            {creation.notes.map((n, i) => (
+              <li key={n.note_id} data-testid={`creation-note-${n.note_id}`}>
+                <StickyNote index={i} colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
                   {editing?.id === n.note_id ? (
-                    <div className="mt-2 space-y-2">
+                    <div className="space-y-2">
                       <textarea value={editing.body} onChange={(e) => setEditing({ id: n.note_id, body: e.target.value })}
-                        maxLength={limits.note_max} rows={3} aria-label="Note" className={field} />
-                      <div className="flex gap-2">
-                        <button type="button" className={btnPrimary} disabled={busy || !editing.body.trim()} onClick={saveNote}>Save</button>
-                        <button type="button" className={btnSecondary} onClick={() => setEditing(null)}>Cancel</button>
+                        maxLength={limits.note_max} rows={4} aria-label="Note" className={field} />
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className="pf-btn pf-btn-primary pf-btn-sm" disabled={busy || !editing.body.trim()} onClick={saveNote}>Save</button>
+                        <button type="button" className="pf-btn pf-btn-quiet pf-btn-sm" onClick={() => setEditing(null)}>Cancel</button>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <span className="whitespace-pre-line break-words">{n.body}</span>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button type="button" className={btnSecondary} disabled={busy}
+                      <span className="block whitespace-pre-line break-words">{n.body}</span>
+                      <span className="mt-2 flex flex-wrap gap-1.5">
+                        <button type="button" className="pf-btn pf-btn-quiet pf-btn-sm !min-h-9 !px-3" disabled={busy}
                           onClick={() => setEditing({ id: n.note_id, body: n.body })}>
                           Edit
                         </button>
-                        <ConfirmButton question="Remove this note?" confirmLabel="Remove" disabled={busy} className={btnSecondary}
+                        <ConfirmButton question="Remove this note?" confirmLabel="Remove" disabled={busy} className="pf-btn pf-btn-quiet pf-btn-sm !min-h-9 !px-3"
                           onConfirm={() => removeNote(n.note_id)}>
                           Remove
                         </ConfirmButton>
-                      </div>
+                      </span>
                     </>
                   )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {creation.notes.length < limits.max_notes && (
-            <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40">
-              <label htmlFor="creation-topic" className="block text-sm font-medium">About</label>
-              <select id="creation-topic" value={topic} onChange={(e) => setTopic(e.target.value)} className={`${field} mt-1 sm:w-auto`}
-                data-testid="creation-topic">
-                {creation.topics.map((t) => <option key={t} value={t}>{TOPIC_TEXT[t]?.label ?? t}</option>)}
-              </select>
-              <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={limits.note_max} rows={3}
-                aria-label="Note" placeholder={TOPIC_TEXT[topic]?.placeholder} className={`${field} mt-2`}
-                data-testid="creation-note-text" />
-              <button type="button" className={`${btnSecondary} mt-2`} disabled={busy || !text.trim()} onClick={addNote}
-                data-testid="creation-note-add">
-                Add the note
-              </button>
-            </div>
-          )}
-          <Message note={note} where="notes" />
-
-          {creation.photos.length > 0 && (
-            <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="creation-photos">
-              {creation.photos.map((p) => (
-                <li key={p.image_id} data-testid={`creation-photo-${p.image_id}`}>
-                  <a href={`${API_URL}${p.url}`} target="_blank" rel="noreferrer" className={`block rounded-lg ${focusRing}`}>
-                    <img src={`${API_URL}${p.thumb_url}`} alt={p.caption || 'Reference photo'} loading="lazy"
-                      className="aspect-square w-full rounded-lg border border-gray-300 object-cover dark:border-gray-600" />
-                  </a>
-                  {p.caption && <p className={`${hint} mt-1 break-words`}>{p.caption}</p>}
-                  <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className={`${btnSecondary} mt-1 w-full`}
-                    onConfirm={() => act('photos', () => postJson(`${base}/photos/${p.image_id}/delete`, {}), 'Photo removed.')}>
-                    Remove
-                  </ConfirmButton>
-                </li>
-              ))}
-            </ul>
-          )}
-          {creation.photos.length < limits.max_photos && (
-            <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40" data-testid="creation-photo-form">
-              <label htmlFor="creation-photo-file" className="block text-sm font-medium">Add a photo</label>
-              <p id="creation-photo-hint" className={hint}>
-                PNG, JPG or WebP, at least {view.limits.min_image_px} px on each side, up to {megabytes(view.limits.max_upload_bytes)} MB.
-              </p>
-              <input id="creation-photo-file" key={inputKey} type="file" accept={PICTURE_ACCEPT} aria-describedby="creation-photo-hint"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)} className={`mt-1 block w-full text-sm ${focusRing}`}
-                data-testid="creation-photo-file" />
-              {fileIssue && <p className="mt-1 text-xs text-red-700 dark:text-red-300">{fileIssue}</p>}
-              <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={limits.caption_max}
-                aria-label="Caption (optional)" placeholder="Caption (optional), e.g. the harbour at dusk" className={`${field} mt-2`}
-                data-testid="creation-photo-caption" />
-              {file && (
-                <RightsQuestions rights={rights} onChange={setRights} group="creation-rights" testId={(w) => `creation-${w}`} />
-              )}
-              {file && !fileIssue && rightsIssue && <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">{rightsIssue}</p>}
-              <button type="button" className={`${btnSecondary} mt-2`} disabled={busy || !file || !!fileIssue || !!rightsIssue}
-                onClick={uploadPhoto} data-testid="creation-photo-send">
-                Upload the photo
-              </button>
-            </div>
-          )}
-          <Message note={note} where="photos" />
-        </div>
-
-        <div data-testid="creation-board">
-          <StepTitle n={2} title="Mood board" status={latest ? 'done' : status(2)} />
-          <p className={`${hint} mt-1`}>
-            {creation.board.image_count} pictures that set the look, made from your references. You see the price first.
-          </p>
-          {progress?.kind === 'making' && (
-            <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20"
-              data-testid="board-making" role="status">
-              <p className="text-sm text-blue-900 dark:text-blue-200">{progress.text}</p>
-              <progress className="mt-2 h-2 w-full accent-blue-600" max={progress.asked} value={progress.made}
-                aria-label="Mood board pictures made" />
-            </div>
-          )}
-          {progress?.kind === 'failed' && (
-            <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200"
-              data-testid="board-failed" role="alert">
-              {progress.text}
+                </StickyNote>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+    side = (
+      <>
+        <h3 className="text-[19px]">{journey.boardOpen ? 'Ready for a mood board' : 'Gathering references'}</h3>
+        <p className={hint}>
+          {journey.boardOpen
+            ? `${creation.board.image_count} pictures will mix your photos and notes into one look. You see the price first.`
+            : unlockHint}
+        </p>
+        <ul className="mt-3 space-y-1 text-[13px] font-bold">
+          <li className="flex justify-between border-b border-dashed border-ink/10 py-1.5">Photos<b>{counts.photos} of {limits.max_photos}</b></li>
+          <li className="flex justify-between py-1.5">Notes<b>{counts.notes} of {limits.max_notes}</b></li>
+        </ul>
+        <SideNext href={stepHref('moodboard')} disabled={!journey.boardOpen}>Next: Mood board →</SideNext>
+      </>
+    );
+  } else if (step === 'moodboard') {
+    const showDecide = Boolean(waiting) && !making;
+    main = latest ? (
+      <section className="pf-card p-5 sm:p-6" data-testid="creation-board" aria-labelledby="board-title">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3" data-testid="board-latest" data-status={latest.status}>
+          <div>
+            <h2 id="board-title" className="text-[22px]">Mood board {latest.version}</h2>
+            <p className={hint}>
+              Made {formatLocalDate(latest.created_at)} · {latest.dry_run ? 'free stand-in pictures (dry run)' : `priced at ${formatUsdMicros(latest.estimate_usd_micros)} before it ran`}
+              {latest.answers_feedback && <> · asked: {latest.answers_feedback}</>}
             </p>
-          )}
+          </div>
+          {latest.status === 'approved' && <span className="pf-chip pf-chip-lock"><Icon name="check" size={11} />Board {latest.version} approved</span>}
+        </div>
+        <div className="relative">
+          <BoardPictures board={latest} dropping={justMade === latest.board_id} testId={`board-images-${latest.version}`} />
+          {latest.status === 'approved' && <span className="pf-stamp right-6 top-6" aria-hidden="true">APPROVED</span>}
+        </div>
+        {progress?.kind === 'short' && creation.board_request?.board_id === latest.board_id && (
+          <p className={`${hint} mt-3`} data-testid="board-short">{progress.text}</p>
+        )}
+        {showDecide && waiting && (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1.25fr]" data-testid="creation-approve">
+            <div className="rounded-card bg-green-soft p-5">
+              <h3 className="text-[19px]">Love it?</h3>
+              <p className="mb-3 mt-1 text-[13.5px]">
+                Approving pins this board as the look of {world.name}. Next we write the character and setting bible from it.
+              </p>
+              <button type="button" className="pf-btn pf-btn-go" disabled={busy} onClick={() => approve(waiting)} data-testid="board-approve">
+                <Icon name="check" size={16} />Approve board {waiting.version} → write the bible
+              </button>
+            </div>
+            {!creation.board.unavailable && (
+              <div className="rounded-card bg-mustard-soft p-5">
+                <h3 className="text-[19px]">Not quite?</h3>
+                <label htmlFor="board-feedback" className="mb-2 mt-1 block text-[13.5px]">
+                  Tell us what to change. We show the price of the redo before it runs.
+                </label>
+                <textarea id="board-feedback" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2}
+                  maxLength={limits.feedback_max} placeholder="e.g. warmer light, fewer people, more of the sea"
+                  className={field} data-testid="board-feedback" />
+                <button type="button" className="pf-btn pf-btn-ghost pf-btn-sm mt-2.5" disabled={busy || !feedback.trim()}
+                  onClick={() => checkPrice(feedback.trim())} data-testid="board-redo-price">
+                  Check the price of a redo
+                </button>
+                {estimateBlock(true)}
+                {estimate?.feedback && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" className="pf-btn pf-btn-go" disabled={busy} onClick={makeBoard} data-testid="board-make">
+                      <Icon name="spark" size={16} />Make the new mood board · {priceOf(estimate.result)}
+                    </button>
+                    <button type="button" className="pf-btn pf-btn-quiet" disabled={busy} onClick={() => setEstimate(null)}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    ) : <div data-testid="creation-board">{referencesSummary}</div>;
+
+    const sideStatus = (
+      <>
+        {progress?.kind === 'making' && (
+          <div className="mt-3 rounded-inner bg-aqua-soft p-3" data-testid="board-making" role="status">
+            <p className="text-[13.5px] font-bold text-aqua-ink">{progress.text}</p>
+            <progress className="mt-2 h-2 w-full accent-aqua-deep" max={progress.asked} value={progress.made}
+              aria-label="Mood board pictures made" />
+          </div>
+        )}
+        {progress?.kind === 'failed' && (
+          <p className="mt-3 rounded-inner bg-coral-soft p-3 text-[13.5px] font-bold text-coral-ink" data-testid="board-failed" role="alert">
+            {progress.text}
+          </p>
+        )}
+        <Message note={note?.text === BOARD_STARTED && !making ? null : note} where="board" />
+      </>
+    );
+    if (!latest) {
+      side = (
+        <>
+          <h3 className="text-[19px]">{making ? 'Making your mood board' : 'Ready for a mood board'}</h3>
+          <p className={hint}>We make {creation.board.image_count} pictures that mix your photos and notes into one look.</p>
+          {sideStatus}
           {creation.board.unavailable && !making ? (
-            <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200"
-              data-testid="board-unavailable">
+            <p className="mt-3 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink" data-testid="board-unavailable">
               {creation.board.unavailable}
             </p>
-          ) : !latest && !making && (
-            <div className="mt-2">
-              <button type="button" className={btnPrimary} disabled={busy || references === 0} onClick={() => checkPrice('')}
-                data-testid="board-check-price">
+          ) : !making && (
+            <>
+              <button type="button" className="pf-btn pf-btn-soft mt-3.5 w-full" disabled={busy || !journey.boardOpen}
+                onClick={() => checkPrice('')} data-testid="board-check-price">
                 Check the price
               </button>
-              {references === 0 && <p className={`${hint} mt-1`}>Add a note or a photo first.</p>}
-              {!estimate?.feedback && estimateBox}
-            </div>
-          )}
-          {latest && (
-            <div className="mt-3" data-testid="board-latest" data-status={latest.status}>
-              <p className="text-sm font-medium">
-                Mood board {latest.version}
-                {latest.answers_feedback && <span className="font-normal text-gray-600 dark:text-gray-300"> (asked: {latest.answers_feedback})</span>}
+              {unlockHint && <p className={`${hint} mt-1.5`}>{unlockHint}</p>}
+              {estimateBlock(false)}
+              <button type="button" className="pf-btn pf-btn-go mt-4 w-full" disabled={busy || !estimate || Boolean(estimate.feedback)}
+                onClick={makeBoard} data-testid="board-make">
+                <Icon name="spark" size={16} />
+                {estimate && !estimate.feedback ? `Make my mood board · ${priceOf(estimate.result)}` : 'Make my mood board'}
+              </button>
+              {estimate && !estimate.feedback && (
+                <button type="button" className="pf-btn pf-btn-quiet pf-btn-sm mt-2 w-full" disabled={busy} onClick={() => setEstimate(null)}>
+                  Cancel
+                </button>
+              )}
+              <p className="mt-2 text-center text-[12px] text-ink-soft">
+                Nothing is spent until you press this. If we can&apos;t get a price, the button stays off.
               </p>
-              <BoardImages board={latest} />
-              {progress?.kind === 'short' && creation.board_request?.board_id === latest.board_id && (
-                <p className={`${hint} mt-2`} data-testid="board-short">{progress.text}</p>
-              )}
-            </div>
+            </>
           )}
-          <Message note={note?.text === BOARD_STARTED && !making ? null : note} where="board" />
-        </div>
-
-        <div data-testid="creation-approve">
-          <StepTitle n={3} title="Approve it, or redo it with feedback" status={status(3)} />
+          <ul className="mt-3 space-y-1 text-[12.5px]">
+            {[`Uses your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')}`,
+              'Redo as many times as you like, each priced first', 'Nothing else runs until you approve'].map((line) => (
+              <li key={line} className="flex gap-2"><span aria-hidden="true" className="font-black text-green-ink">✓</span>{line}</li>
+            ))}
+          </ul>
+        </>
+      );
+    } else {
+      side = (
+        <>
+          <h3 className="text-[19px]">{approved ? `Board ${approved.version} approved` : making ? 'Making the new board' : 'Look it over'}</h3>
           {approved ? (
-            <p className="mt-2 text-sm" data-testid="board-approved">Mood board {approved.version} is approved: it sets the look of this Universe.</p>
-          ) : making ? (
-            <p className={`${hint} mt-1`}>Once the mood board being made is ready.</p>
-          ) : waiting ? (
-            <div className="mt-2 space-y-3">
-              <button type="button" className={btnPrimary} disabled={busy} onClick={() => approve(waiting)} data-testid="board-approve">
-                Approve this mood board
-              </button>
-              {!creation.board.unavailable && (
-                <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40">
-                  <label htmlFor="board-feedback" className="block text-sm font-medium">Or say what to change</label>
-                  <textarea id="board-feedback" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2}
-                    maxLength={limits.feedback_max} placeholder="e.g. warmer light, fewer people, more of the sea"
-                    className={`${field} mt-1`} data-testid="board-feedback" />
-                  <button type="button" className={`${btnSecondary} mt-2`} disabled={busy || !feedback.trim()}
-                    onClick={() => checkPrice(feedback.trim())} data-testid="board-redo-price">
-                    Check the price of a redo
-                  </button>
-                  {estimate?.feedback && estimateBox}
+            <p className="mt-1 text-[13.5px]" data-testid="board-approved">
+              Mood board {approved.version} is approved: it sets the look of this Universe.
+            </p>
+          ) : (
+            <p className={hint}>Approve it, or say what to change and see the price of a redo first. Nothing else runs until you approve.</p>
+          )}
+          {sideStatus}
+          {approved && <SideNext href={stepHref('bible')}>Next: write the bible →</SideNext>}
+        </>
+      );
+    }
+  } else if (step === 'bible') {
+    const profile = world.profile;
+    const premise = creation.notes.find((n) => n.topic === 'premise')?.body || profile.logline || '';
+    const tone = toneChips(creation.notes.filter((n) => n.topic === 'tone').map((n) => n.body).join(', '));
+    const toneColours = [tones.warn, tones.run, tones.bad, tones.ok, tones.info, tones.wait];
+    main = (
+      <div data-testid="creation-bible">
+        {!approved ? (
+          <EmptyState title="Approve a mood board first" mascot="goose"
+            action={<Link href={stepHref('moodboard')} className="pf-btn pf-btn-soft pf-btn-sm">Go to the mood board</Link>}>
+            The bible is written from the approved board and your notes.
+          </EmptyState>
+        ) : !bibleDone ? (
+          <section className="pf-card p-6" aria-labelledby="bible-title">
+            <h2 id="bible-title" className="text-[22px]">Characters, places and props</h2>
+            <p className="mt-1 text-[13.5px]" data-testid="board-approved">
+              Mood board {approved.version} is approved: it sets the look of this Universe.
+            </p>
+            <p className={`${hint} mt-2`}>
+              The studio writes the characters, places and props from the approved board and your notes, and fills an empty
+              story bible and style notes. Names you have already stay as they are.
+            </p>
+            <div className="mt-4"><BoardPictures board={approved} dropping={false} /></div>
+            <button type="button" className="pf-btn pf-btn-go mt-5" disabled={busy} onClick={writeBible} data-testid="bible-write">
+              <Icon name="book" size={16} />{busy ? 'Writing…' : 'Write the bible'}
+            </button>
+          </section>
+        ) : (
+          <section className="pf-card p-6" aria-labelledby="bible-title">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="bible-title" className="text-[22px]">Story bible</h2>
+              <Link href={`${here}#bible`} className="text-[13px] font-extrabold text-blue-deep">Edit on the Universe page</Link>
+            </div>
+            <p className={`${hint} mt-1`} data-testid="bible-done">
+              Written from mood board {approved.version}. Change them on the Universe page; lock each character&apos;s look from an episode.
+            </p>
+            {premise && (<><h3 className="mb-1.5 mt-4 text-[15px]">Premise</h3><p className="whitespace-pre-line break-words text-[13.5px]">{premise}</p></>)}
+            {tone.length > 0 && (
+              <>
+                <h3 className="mb-1.5 mt-4 text-[15px]">Tone</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {tone.map((t, i) => <span key={t} className={`pf-chip ${toneColours[i % toneColours.length]}`}>{t}</span>)}
                 </div>
-              )}
-            </div>
-          ) : (
-            <p className={`${hint} mt-1`}>Once the mood board is made.</p>
-          )}
-        </div>
-
-        <div data-testid="creation-bible">
-          <StepTitle n={4} title="Characters and places" status={status(4)} />
-          {bibleDone ? (
-            <p className="mt-2 text-sm" data-testid="bible-done">
-              Written from mood board {approved?.version}. Change them below; lock each character&apos;s look from an episode.
-            </p>
-          ) : approved ? (
-            <div className="mt-2">
-              <p className={hint}>The studio writes the characters, places and props from the approved board and your notes. Names you have already stay as they are.</p>
-              <button type="button" className={`${btnPrimary} mt-2`} disabled={busy} onClick={writeBible} data-testid="bible-write">
-                {busy ? 'Writing…' : 'Write the characters and places'}
-              </button>
-            </div>
-          ) : (
-            <p className={`${hint} mt-1`}>Once the mood board is approved.</p>
-          )}
-          {bible && (bible.skipped.length > 0 || bible.dropped.length > 0) && (
-            <p className={`${hint} mt-2`} data-testid="bible-left-out">
-              {bible.skipped.length > 0 && <>Kept as they were: {bible.skipped.join(', ')}. </>}
-              {bible.dropped.length > 0 && <>Left out (the studio cannot make them): {bible.dropped.join(', ')}.</>}
-            </p>
-          )}
-          <Message note={note} where="bible" />
-        </div>
+              </>
+            )}
+            {profile.bible && (
+              <>
+                <h3 className="mb-1.5 mt-4 text-[15px]">How this Universe works</h3>
+                <div className="space-y-2 text-[13.5px]">
+                  {profile.bible.split(/\n{2,}/).map((para, i) => (
+                    <p key={i} className="flex gap-2 whitespace-pre-line break-words"><span aria-hidden="true" className="text-coral">✦</span><span>{para}</span></p>
+                  ))}
+                </div>
+              </>
+            )}
+            {profile.style_notes && (<><h3 className="mb-1.5 mt-4 text-[15px]">Style</h3><p className="whitespace-pre-line break-words text-[13.5px]">{profile.style_notes}</p></>)}
+            <h3 className="mb-2 mt-5 text-[15px]">Who and what it keeps</h3>
+            <ul className="flex flex-wrap gap-2">
+              {view.characters.map((c) => (
+                <li key={c.character_id} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[13px] font-extrabold shadow-card">
+                  <CastDot colour={colours[c.slug]} />{c.name}
+                </li>
+              ))}
+              {view.items.map((item) => (
+                <li key={item.prop_id} className={`pf-chip ${item.kind === 'place' ? 'pf-chip-blue' : 'pf-chip-lock'} !py-1.5`}>
+                  {item.kind === 'place' ? 'Place' : 'Prop'}: {item.name}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {bible && (bible.skipped.length > 0 || bible.dropped.length > 0) && (
+          <p className={`${hint} mt-3`} data-testid="bible-left-out">
+            {bible.skipped.length > 0 && <>Kept as they were: {bible.skipped.join(', ')}. </>}
+            {bible.dropped.length > 0 && <>Left out (the studio cannot make them): {bible.dropped.join(', ')}.</>}
+          </p>
+        )}
+        <Message note={note} where="bible" />
       </div>
-    </section>
+    );
+    side = (
+      <>
+        <h3 className="text-[19px]">{bibleDone ? 'Bible written' : 'The bible'}</h3>
+        <p className={hint}>
+          {bibleDone
+            ? `${plural(counts.characters, 'character')} and ${counts.things} places and props joined ${world.name}. Add photos and voices on the Universe page.`
+            : 'Characters, places and props, written once from the approved board. You can change every word afterwards.'}
+        </p>
+        <SideNext href={stepHref('lock')} disabled={!bibleDone}>Next: lock the looks →</SideNext>
+        <Link href={here} className="pf-btn pf-btn-quiet mt-2 w-full" data-testid="creation-open-universe">Open the Universe</Link>
+      </>
+    );
+  } else {
+    main = (
+      <section className="pf-card p-6" data-testid="creation-lock" aria-labelledby="lock-title">
+        <h2 id="lock-title" className="text-[22px]">Seal each look</h2>
+        <p className="mt-1 text-[13.5px]">
+          A look is locked from an episode in this Universe: make the character sheet there and lock it. Every episode after
+          uses exactly that sheet and those photos, and an episode starts once every character in it is locked.
+        </p>
+        {view.characters.length === 0 ? (
+          <EmptyState className="mt-4" title="No characters yet"
+            action={<Link href={`${here}#characters`} className="pf-btn pf-btn-soft pf-btn-sm">Add a character</Link>}>
+            Write the bible, or add characters on the Universe page.
+          </EmptyState>
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {view.characters.map((c) => {
+              const seal = sealFor({ characters: 1, locked_characters: c.locked_versions.length > 0 ? 1 : 0 });
+              return (
+                <li key={c.character_id} className="flex items-center gap-3 rounded-inner bg-white p-3 shadow-card" data-testid={`creation-look-${c.slug}`}>
+                  <Seal state={seal.state} top={c.locked_versions.length > 0 ? 'locked' : 'not'} bottom={c.locked_versions.length > 0 ? `v${Math.max(...c.locked_versions)}` : 'locked'} size={54} />
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 font-extrabold"><CastDot colour={colours[c.slug]} />{c.name}</p>
+                    <p className={hint}>{c.locked_versions.length > 0 ? 'Look locked' : 'Not locked yet'}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    );
+    side = (
+      <>
+        <h3 className="text-[19px]">{journey.current === null ? 'Every look is sealed' : 'Lock from an episode'}</h3>
+        <p className={hint}>{counts.locked} of {plural(counts.characters, 'look')} locked. Locking itself is free; a character sheet is priced before it is made.</p>
+        {lockEpisode ? (
+          <Link href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`} className="pf-btn pf-btn-go mt-4 w-full" data-testid="creation-lock-episode">
+            Open {lockEpisode} to lock looks
+          </Link>
+        ) : (
+          <Link href={`/studio/create?world=${encodeURIComponent(seriesId)}`} className="pf-btn pf-btn-go mt-4 w-full" data-testid="creation-first-episode">
+            Make your first episode
+          </Link>
+        )}
+        <Link href={here} className="pf-btn pf-btn-quiet mt-2 w-full" data-testid="creation-open-universe">Open the Universe</Link>
+      </>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-[1240px] px-4 pb-14 sm:px-8" data-testid="universe-creation" data-step={step}>
+      {head}
+      <p className="pf-bubble mt-4 lg:hidden">{bubble[step]}</p>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
+        <div className="min-w-0" data-testid={`creation-step-${stepNumber(step)}`}>{main}</div>
+        <GlassPanel as="aside" className="self-start p-[22px] lg:sticky lg:top-24" aria-label={`${CREATION_NAMES[step]}: what's next`}>
+          {side}
+        </GlassPanel>
+      </div>
+    </div>
   );
 }
 
