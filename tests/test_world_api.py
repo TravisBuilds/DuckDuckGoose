@@ -940,6 +940,84 @@ async def test_a_universe_episode_waits_for_locked_looks_before_its_shot_plan(st
     studio.temporal_client.handle.execute_update.assert_awaited_once_with("approve_g1_shot_plan", False)
 
 
+START = {"episode_id": EP, "dry_run": True, "beatmap_content": "# Episode ep91wld Beatmap\n\nA01 a pier at dawn\n"}
+
+
+async def test_a_universe_episode_does_not_start_before_every_look_it_uses_is_locked(studio):
+    owner, other = _client(studio, "owner"), _client(studio, "other")
+    sid = _world(owner)
+    wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
+    _lock(wren["character_id"])
+    owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    _write_shots(EP, [_shot("A01", cast=["wren"]), _shot("A02", cast=["moss"])])
+    res = owner.post("/api/episodes", json=START)
+    assert (res.status_code, res.json()["detail"]) == (
+        409, world_store.lock_message([{"name": "Moss", "version": 1}], "start"))
+    assert res.json()["detail"].startswith("Lock the look of Moss before this video starts: this video is in a Universe")
+    studio.temporal_client.start_workflow.assert_not_called()
+    _lock(moss["character_id"])
+    res = owner.post("/api/episodes", json=START)
+    assert res.status_code == 200, res.text
+    studio.temporal_client.start_workflow.assert_awaited_once()
+    # outside a Universe a character without a locked look does not hold the start
+    _write_shots(OTHER_EP, [_shot("B01", cast=["sky"])])
+    cast_store.create_character(("episode", OTHER_EP), "Sky", "lead", "a kite flyer", None, "tester")
+    res = other.post("/api/episodes", json={**START, "episode_id": OTHER_EP,
+                                            "beatmap_content": "# Episode ep92wld Beatmap\n\nB01 a kite\n"})
+    assert res.status_code == 200, res.text
+
+
+async def test_a_universe_episode_does_not_start_again_before_its_looks_are_locked(studio):
+    from tests.test_episode_ownership import _ended_run
+    from tests.test_run_uploads_voice_recheck import _temporal
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    wren = _character(owner, sid)
+    owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    _write_shots(EP, [_shot("A01", cast=["wren"])])
+    studio.temporal_client = _temporal("FAILED")
+    _ended_run(studio, EP)
+    res = owner.post(f"/api/episodes/{EP}/start-again")
+    assert (res.status_code, res.json()["detail"]) == (
+        409, world_store.lock_message([{"name": "Wren", "version": 1}], "start"))
+    studio.temporal_client.start_workflow.assert_not_called()
+    _lock(wren["character_id"])
+    res = owner.post(f"/api/episodes/{EP}/start-again")
+    assert res.status_code == 200, res.text
+    studio.temporal_client.start_workflow.assert_awaited_once()
+
+
+async def test_at_the_shot_plan_a_universe_episode_takes_only_characters_with_a_locked_look(studio):
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
+    _lock(wren["character_id"])
+    owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
+    _write_shots(EP, [_shot("A01", cast=["wren"]), _shot("A02")])
+    handle = studio.temporal_client.handle
+    handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.RUNNING, run_id="run-open"))
+    state = {"current_gate": "G1_SHOT_PLAN", "passed_gates": [], "approvals": {"g1_shot_plan": False},
+             "replanning": False}
+    handle.query = AsyncMock(side_effect=lambda name, *a, **k: {
+        "reopen_snapshot": {"attrs": {"reopen_log": [], "_dry_run": True}}, "get_state": state}[name])
+    before = (paths.episode_dir(EP) / "shots.json").read_text()
+    res = owner.post(f"/api/episodes/{EP}/shot-plan", json={"shots": {"A02": {"cast": ["moss"]}}})
+    assert (res.status_code, res.json()["detail"]) == (
+        409, world_store.lock_message([{"name": "Moss", "version": 1}], "pick"))
+    assert res.json()["detail"].startswith("Lock the look of Moss before they are put in a shot")
+    assert (paths.episode_dir(EP) / "shots.json").read_text() == before
+    handle.execute_update.assert_not_called()
+    # a character with a locked look goes in, through the run's re-plan
+    res = owner.post(f"/api/episodes/{EP}/shot-plan", json={"shots": {"A02": {"cast": ["wren"]}}})
+    assert res.status_code == 200, res.text
+    assert handle.execute_update.call_args.args[0] == "replan_shots"
+    # before a run the pick is saved: the start waits for the lock instead
+    handle.describe = AsyncMock(side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b""))
+    res = owner.post(f"/api/episodes/{EP}/shot-plan", json={"shots": {"A02": {"cast": ["moss"]}}})
+    assert res.status_code == 200, res.text
+    assert owner.post("/api/episodes", json=START).status_code == 409
+
+
 # ------------------------------------------------------------------------------------- drafts
 
 

@@ -1841,6 +1841,7 @@ async def start_episode(
             status_code=400,
             detail=f"Refusing to start {request.episode_id}: {'; '.join(lint_problems)}",
         )
+    await _refuse_unlocked_universe_cast(request.episode_id, "start")
 
     # The wizard's brief travels as a workflow input (workflow code reads no files): the card's profile
     # and the creator's length, clamped to the card's range, resolved here.
@@ -2175,6 +2176,7 @@ async def start_episode_again(
     problems += [] if dry_run else lint_kit_problems(episode_id)
     if problems:
         raise HTTPException(status_code=400, detail=f"Refusing to start {episode_id} again: {'; '.join(problems[:10])}")
+    await _refuse_unlocked_universe_cast(episode_id, "start")
     await record_new_episode(episode_id, beatmap_path, studio_admin_token)
     try:
         new = await temporal_client.start_workflow(

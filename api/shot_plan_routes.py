@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, Cookie, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from hfvg import cast_store, paths, prop_store, shot_plan_edits
+from hfvg import cast_store, paths, prop_store, shot_plan_edits, world_store
 from hfvg.cast_prompt import MAX_CAST_PER_SHOT, MAX_PROPS_PER_SHOT, parse_cast_request, parse_props_request
 
 try:  # "api.cast_routes" in tests and the e2e backend; "cast_routes" when uvicorn runs from api/
@@ -330,6 +330,11 @@ async def update_shot_plan(episode_id: str, request: ShotPlanRequest, authorizat
         if phase["state"] == "locked":
             raise HTTPException(status_code=409,
                                 detail=f"The shot plan of {episode_id} cannot change now: {phase['reason']}")
+        if phase["state"] == "g1" and library[0] == "series":
+            # the re-plan takes each character's pictures as they are now: a look locked later would not reach this run
+            unlocked = await asyncio.to_thread(world_store.unlocked_cast, episode_id, raw)
+            if unlocked:
+                raise HTTPException(status_code=409, detail=world_store.lock_message(unlocked, "pick"))
         reason = _reason(request.note, name, edits)
         await asyncio.to_thread(_write, episode_id, json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
         result = None
