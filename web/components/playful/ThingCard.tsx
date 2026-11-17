@@ -8,7 +8,7 @@ import { BellArt, BoatArt, KilnArt } from './art';
 export default function ThingCard({ kind, index = 0, picture, title, photos, testId, children }: {
   kind: 'place' | 'prop';
   index?: number;
-  picture?: { src: string; alt: string } | null;
+  picture?: { src: string; alt: string; href?: string } | null;
   title: ReactNode;
   photos: number;
   testId?: string;
@@ -17,10 +17,21 @@ export default function ThingCard({ kind, index = 0, picture, title, photos, tes
   const soft = ['bg-coral-soft', 'bg-blue-soft', 'bg-mustard-soft', 'bg-aqua-soft', 'bg-green-soft', 'bg-lilac-soft'][index % 6];
   return (
     <div className="pf-card min-w-0 p-3.5" data-testid={testId}>
-      <div className={`grid h-[96px] place-items-center overflow-hidden rounded-[14px] ${picture ? 'bg-[#F2EEE5]' : soft}`}>
-        {picture ? <img src={picture.src} alt={picture.alt} loading="lazy" className="h-full w-full object-cover" />
+      <div className={`relative grid h-[96px] place-items-center overflow-hidden rounded-[14px] ${picture ? 'bg-[#F2EEE5]' : soft}`}>
+        {picture ? (
+          picture.href ? (
+            <a href={picture.href} target="_blank" rel="noreferrer" title="Open the full photo" className="block h-full w-full">
+              <img src={picture.src} alt={picture.alt} loading="lazy" className="h-full w-full object-cover" />
+            </a>
+          ) : <img src={picture.src} alt={picture.alt} loading="lazy" className="h-full w-full object-cover" />
+        )
           : kind === 'prop' ? <BellArt className="h-[60px] w-[60px]" />
             : index % 2 === 0 ? <KilnArt className="h-[66px] w-[80px]" /> : <BoatArt className="h-[66px] w-[80px]" />}
+        {!picture && (
+          <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-white/90 px-2 text-[11px] font-extrabold text-ink-soft">
+            No photo yet
+          </span>
+        )}
       </div>
       <div className="mt-2.5 text-center">
         {title}

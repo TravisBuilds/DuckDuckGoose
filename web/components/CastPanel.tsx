@@ -36,9 +36,12 @@ import type {
   SeriesInfo,
   SheetEstimate,
 } from '@/lib/cast.mjs';
+import { castColours, castColourAt } from '@/lib/castColour.mjs';
+import type { CastColour } from '@/lib/castColour.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
+import { CharacterCard as PlayfulCharacterCard } from './playful';
 
 /**
  * The episode's cast: who is in the video, their pictures and locked character sheets, and who is
@@ -51,9 +54,9 @@ import { RightsQuestions } from './RightsQuestions';
  * or the outfit when those are on screen), by the add form, the shots or the series.
  */
 
-const btn = `px-3 py-1.5 rounded text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const plainBtn = `${btn} border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700`;
-const darkBtn = `${btn} bg-black dark:bg-white text-white dark:text-black`;
+const btn = 'pf-btn pf-btn-sm';
+const plainBtn = `${btn} pf-btn-quiet`;
+const darkBtn = `${btn} pf-btn-primary`;
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
 /** Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series". */
@@ -65,7 +68,7 @@ function CastMessage({ note }: { note: CastNote | null | undefined }) {
   if (!note) return null;
   return (
     <p data-testid="cast-message" data-tone={note.tone}
-      className={`my-3 p-3 rounded text-sm ${note.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+      className={`my-3 rounded-inner p-3 text-[13px] font-bold ${note.tone === 'ok' ? 'bg-green-soft text-green-ink' : 'bg-coral-soft text-coral-ink'}`}>
       {note.text}
     </p>
   );
@@ -87,7 +90,7 @@ function Thumb({ image, label }: { image: CastImage; label?: string }) {
         src={`${API_URL}${image.thumb_url}`}
         alt={text}
         loading="lazy"
-        className="w-36 h-36 object-cover rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900"
+        className="h-36 w-36 rounded-[12px] bg-[#F2EEE5] object-cover shadow-card"
       />
     </a>
   );
@@ -97,9 +100,9 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   return (
     <figure className="w-36" data-testid={`cast-image-${image.image_id}`}>
       <Thumb image={image} label={label} />
-      <figcaption className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+      <figcaption className="mt-1 text-[12px] font-bold text-ink-soft">
         {label ?? PICTURE_LABELS[image.role] ?? image.role}
-        {image.placeholder && <span className="block text-amber-700 dark:text-amber-300">stand-in (preview)</span>}
+        {image.placeholder && <span className="block text-mustard-ink">stand-in (preview)</span>}
       </figcaption>
       {children && <div className="mt-1 flex flex-col gap-1">{children}</div>}
     </figure>
@@ -441,9 +444,9 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
   );
 }
 
-function CharacterCard({ apiBase, view, character, busy, act, note, universe, badge, extra }: {
-  apiBase: string; view: CastView; character: CastCharacter; busy: boolean; act: Act; note: CastNote | null;
-  universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
+function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
+  apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
+  note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
 }) {
   const canEdit = view.can_edit;
   const [versionNo, setVersionNo] = useState(character.default_version);
@@ -470,26 +473,29 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
   const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
   const noteFor = (part: string) => (inPlace && spot === part ? note : null);
   const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
+  const face = pictures.uploads.find((image) => image.is_primary) ?? pictures.uploads[0] ?? pictures.sheet[0] ?? null;
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4" data-testid={`cast-character-${character.slug}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="font-semibold">
-            {character.name}
-            {character.role && <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-300">{character.role}</span>}
-          </h3>
-          <p className="text-xs text-gray-600 dark:text-gray-300">Id in the shot plan: <code>{character.slug}</code></p>
-        </div>
+    <PlayfulCharacterCard testId={`cast-character-${character.slug}`} colour={colour} index={index}
+      picture={face ? { src: `${API_URL}${face.thumb_url}`, alt: '' } : null}
+      seal={version.locked ? { state: 'locked', top: 'locked', bottom: `v${version.version}` } : { state: 'open', top: 'not', bottom: 'locked' }}
+      needsYou={canEdit && !anyLocked}
+      title={(
+        <>
+          <h3 className="break-words text-[19px]">{character.name}</h3>
+          {character.role && <p className="text-[12.5px] font-bold text-ink-soft">{character.role}</p>}
+        </>
+      )}>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {badge ? badge(character, version) : version.locked ? (
-          <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200"
-            data-testid={`cast-locked-${character.slug}`}>
+          <span className="pf-chip pf-chip-lock" data-testid={`cast-locked-${character.slug}`}>
             Look locked
           </span>
         ) : (
-          <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+          <span className="pf-chip pf-chip-open">
             Look not locked yet
           </span>
         )}
+        <span className="text-[11.5px] text-ink-soft">Id in the shot plan: <code>{character.slug}</code></span>
       </div>
 
       {editing ? (
@@ -501,7 +507,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
           {anyLocked && (
-            <p className="text-xs text-gray-600 dark:text-gray-300">Locked looks keep the description they were locked with.</p>
+            <p className="text-[12px] text-ink-soft">Locked looks keep the description they were locked with.</p>
           )}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy || !text.name.trim()} className={darkBtn}>Save</button>
@@ -509,14 +515,14 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           </div>
         </div>
       ) : (
-        <p className="text-sm mt-2">
+        <p className="mt-2 text-[13.5px]">
           {character.description || (
-            <span className="text-gray-600 dark:text-gray-300">No description yet. Say how they look so every shot gets them right.</span>
+            <span className="text-ink-soft">No description yet. Say how they look so every shot gets them right.</span>
           )}
         </p>
       )}
       {version.locked && (
-        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
+        <p className="mt-1 text-[12px] text-ink-soft">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
       )}
       {extra?.(character)}
 
@@ -525,17 +531,17 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           {character.versions.map((v) => (
             <button key={v.version} type="button" aria-pressed={v.version === version.version}
               onClick={() => setVersionNo(v.version)}
-              className={`${btn} border ${v.version === version.version ? 'bg-black text-white dark:bg-white dark:text-black' : 'border-gray-300 dark:border-gray-600'}`}>
+              className={`pf-chip min-h-9 cursor-pointer ${v.version === version.version ? 'bg-green-deep text-white' : 'bg-[#F2EEE5] text-ink-soft'}`}>
               {v.label || `Version ${v.version}`}{v.locked ? ' ✓' : ''}
             </button>
           ))}
         </div>
       )}
-      {version.outfit && <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">Outfit: {version.outfit}</p>}
+      {version.outfit && <p className="mt-2 text-[12px] text-ink-soft">Outfit: {version.outfit}</p>}
 
       {pictures.uploads.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-semibold mb-1">Your pictures</p>
+          <p className="mb-1 text-[12px] font-extrabold">Your pictures</p>
           <div className="flex flex-wrap gap-3">
             {pictures.uploads.map((image) => (
               <PictureTile key={image.image_id} image={image} label={image.is_primary ? 'Main picture' : 'Picture'}>
@@ -582,7 +588,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
           }} disabled={busy} className={plainBtn}>
             Edit name and description
           </button>
-          <ConfirmButton disabled={busy} className={`${plainBtn} text-red-700 dark:text-red-300`} confirmLabel="Remove"
+          <ConfirmButton disabled={busy} className={`${plainBtn} !text-coral-ink`} confirmLabel="Remove"
             question={`Remove ${character.name} and all their pictures from ${universe ? 'this Universe' : 'the cast'}?`}
             onConfirm={remove}>
             {universe ? 'Remove from this Universe' : 'Remove from the cast'}
@@ -590,7 +596,7 @@ function CharacterCard({ apiBase, view, character, busy, act, note, universe, ba
         </div>
       )}
       <CastMessage note={cardNote} />
-    </div>
+    </PlayfulCharacterCard>
   );
 }
 
@@ -984,13 +990,14 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
 
   if (!view) {
     return (
-      <div className={card} data-testid="cast-panel">
-        <h2 className="text-xl font-semibold mb-1">Cast</h2>
-        <p className="text-sm text-gray-700 dark:text-gray-300">{loadIssue ?? 'Loading the cast…'}</p>
+      <div className={universe ? 'min-w-0' : card} data-testid="cast-panel">
+        <h2 className="mb-1 text-[24px]">{universe ? 'Characters' : 'Cast'}</h2>
+        <p className="text-[13.5px] text-ink-soft">{loadIssue ?? 'Loading the cast…'}</p>
       </div>
     );
   }
 
+  const colours = castColours(view.characters);
   const ofCharacter = (slug: string) =>
     message && (message.where === slug || message.where.startsWith(`${slug}:`)) ? message : null;
   const addShown = addForm(view).shown;
@@ -999,9 +1006,9 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
     view.characters.some((c) => c.slug === owner)
     || (message?.where === 'add' && addShown) || message?.where === 'shots' || message?.where === 'series');
   return (
-    <div className={card} data-testid="cast-panel">
-      <h2 className="text-xl font-semibold mb-1">{universe ? 'Characters' : 'Cast'}</h2>
-      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+    <div className={universe ? 'min-w-0' : card} data-testid="cast-panel">
+      <h2 className="mb-1 text-[24px]">{universe ? 'Characters' : 'Cast'}</h2>
+      <p className="mb-4 text-[13.5px] text-ink-soft">
         {universe
           ? 'The people (and creatures) of this Universe. Describe each one and add a picture; every episode in the Universe uses them, with the look locked once from an episode.'
           : 'The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a character sheet so they look the same in every shot.'}
@@ -1009,7 +1016,7 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {!placed && <CastMessage note={message} />}
       {!view.can_edit && (
-        <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
+        <p className="mb-4 text-[13.5px] text-ink-soft">
           {universe
             ? 'Only the owner of this Universe (or an admin) can change its characters.'
             : <>Only this video&apos;s owner (or an admin) can change its cast.</>}
@@ -1020,16 +1027,17 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
           note={placed && message?.where === 'series' ? message : null} />
       )}
       {!universe && view.sheet.dry_run && (
-        <p className="mb-4 text-xs text-gray-600 dark:text-gray-300">
+        <p className="mb-4 text-[12px] text-ink-soft">
           Preview mode: character sheets use free stand-in pictures, so you can try every step at no cost.
         </p>
       )}
       {view.characters.length === 0 ? (
-        <p className="text-sm text-gray-600 dark:text-gray-300">No one in the cast yet.</p>
+        <p className="text-[13.5px] text-ink-soft">No one in the cast yet.</p>
       ) : (
-        <div className="space-y-4">
-          {view.characters.map((c) => (
-            <CharacterCard key={c.character_id} apiBase={base} view={view} character={c} busy={busy} act={act}
+        <div className={`grid items-start gap-5 sm:grid-cols-2 ${universe ? 'xl:grid-cols-3' : ''}`}>
+          {view.characters.map((c, i) => (
+            <CharacterCard key={c.character_id} apiBase={base} view={view} character={c}
+              colour={colours[c.slug] ?? castColourAt(i)} index={i} busy={busy} act={act}
               note={ofCharacter(c.slug)} universe={universe} badge={badge} extra={extra} />
           ))}
         </div>

@@ -12,8 +12,10 @@ export interface PinnedPicture {
   note?: string | null;
 }
 
-/** One pinned picture: white border, a pin, a slight tilt; drops in (staggered) when `dropping`. */
-export function Polaroid({ picture, index = 0, dropping = false }: { picture: PinnedPicture; index?: number; dropping?: boolean }) {
+/** One pinned picture: white border, a pin, a slight tilt; drops in (staggered) when `dropping`. `children` sit under it. */
+export function Polaroid({ picture, index = 0, dropping = false, children }: {
+  picture: PinnedPicture; index?: number; dropping?: boolean; children?: ReactNode;
+}) {
   const tilt = TILTS[index % TILTS.length];
   const style = { transform: `rotate(${tilt}deg)`, ['--pf-tilt' as string]: `${tilt}deg`, animationDelay: dropping ? `${index * 80}ms` : undefined } as CSSProperties;
   const img = <img src={picture.src} alt={picture.alt} loading="lazy" className="aspect-[4/3] w-full rounded-[3px] bg-[#F2EEE5] object-cover" />;
@@ -25,6 +27,7 @@ export function Polaroid({ picture, index = 0, dropping = false }: { picture: Pi
         {picture.caption && <span className="pf-polaroid-cap">{picture.caption}</span>}
       </div>
       {picture.note && <p className="mt-1.5 text-[11px] font-extrabold text-ink-soft">{picture.note}</p>}
+      {children}
     </li>
   );
 }
