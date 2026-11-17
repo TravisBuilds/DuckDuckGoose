@@ -5,6 +5,7 @@
  * change it and it is in no Universe (so "Add to a Universe" applies).
  */
 
+import { formatUsdMicros } from './balance.mjs';
 import { VIDEO_FILES } from './next-step.mjs';
 
 /** Episode id -> the Universe card it is in, for the Universes the reader may see. */
@@ -96,6 +97,57 @@ export function madeWith(plan) {
 /** Where the browser keeps the start request of a Universe episode that waits for its looks to be locked. */
 export function pendingStartKey(episodeId) {
   return `ddg:start:${episodeId}`;
+}
+
+/** How often the Universe page asks again while a live mood board is being made (ms). */
+export const BOARD_POLL_MS = 4000;
+
+/**
+ * What the Universe page says about a live mood board (creation.board_request), or null when there
+ * is nothing to say. making: the pictures made so far (the page asks again every BOARD_POLL_MS);
+ * failed: no picture was made, with the reason; short: the latest board has fewer pictures than
+ * asked (the ones that were paid for), with the reason.
+ */
+export function boardProgress(request) {
+  if (!request || typeof request !== 'object') return null;
+  const asked = Number.isInteger(request.image_count) && request.image_count > 0 ? request.image_count : 0;
+  const made = Number.isInteger(request.made) && request.made > 0 ? Math.min(request.made, asked) : 0;
+  const reason = typeof request.error === 'string' ? request.error.trim() : '';
+  if (request.status === 'making') {
+    return { kind: 'making', made, asked, text: `Making the mood board: ${made} of ${asked} pictures made. This page updates by itself.` };
+  }
+  if (request.status === 'failed') {
+    return { kind: 'failed', made, asked, text: reason ? `The mood board was not made. ${reason}` : 'The mood board was not made.' };
+  }
+  if (request.status === 'done' && reason && made < asked) {
+    return { kind: 'short', made, asked, text: `This mood board has ${made} of the ${asked} pictures. ${reason}` };
+  }
+  return null;
+}
+
+/**
+ * What a live mood board estimate (POST /api/worlds/{id}/board/estimate) shows before anything is
+ * spent, after its summary: the price of each picture, what the pictures are made with, and what the
+ * Universe's mood board budget has left before its stop. A dry-run estimate: none.
+ */
+export function boardEstimateLines(estimate) {
+  if (!estimate || estimate.dry_run) return [];
+  const prices = estimate.per_image_usd_micros ?? [];
+  const lines = [];
+  if (prices.length > 0) {
+    lines.push(prices.every((p) => p === prices[0])
+      ? `${prices.length} picture${prices.length === 1 ? '' : 's'} at ${formatUsdMicros(prices[0])} each (the provider's price)`
+      : `The provider's price of each picture: ${prices.map(formatUsdMicros).join(', ')}`);
+  }
+  const refs = Number.isInteger(estimate.references_per_picture) ? estimate.references_per_picture : 0;
+  const madeFrom = refs > 0 ? `your notes and ${refs} of your reference photos` : 'your notes';
+  lines.push(estimate.model_path ? `Made from ${madeFrom}, with ${estimate.model_path}` : `Made from ${madeFrom}`);
+  const budget = estimate.budget;
+  if (budget) {
+    lines.push(`This Universe's mood board budget has ${formatUsdMicros(budget.available_usd_micros)} left `
+      + `(it stops at ${formatUsdMicros(budget.stop_usd_micros)} spent of ${formatUsdMicros(budget.cap_usd_micros)})`);
+  }
+  return lines;
 }
 
 /**

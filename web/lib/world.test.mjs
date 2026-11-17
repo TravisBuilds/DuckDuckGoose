@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  homeSections, isFinished, isFirstRun, madeWith, mayChange, pendingStart, pendingStartKey, posterShot, primaryVideo,
-  universeByEpisode, universeChoices,
+  BOARD_POLL_MS, boardEstimateLines, boardProgress, homeSections, isFinished, isFirstRun, madeWith, mayChange,
+  pendingStart, pendingStartKey, posterShot, primaryVideo, universeByEpisode, universeChoices,
 } from './world.mjs';
 
 const worlds = [
@@ -96,6 +96,52 @@ test('what each scene picture was made with', () => {
   });
   assert.deepEqual(madeWith(null), {});
   assert.deepEqual(madeWith({ shots: [{ shot_id: 'S01', cast: ['mira-vale'] }] }), {});
+});
+
+test('what the page says while a live mood board is made, and when it stopped', () => {
+  const request = (status, made, error = null) => ({ status, made, error, image_count: 4, board_id: status === 'done' ? 'mb_1' : null });
+  assert.deepEqual(boardProgress(request('making', 1)), {
+    kind: 'making', made: 1, asked: 4, text: 'Making the mood board: 1 of 4 pictures made. This page updates by itself.',
+  });
+  assert.ok(BOARD_POLL_MS >= 1000 && BOARD_POLL_MS <= 10_000);
+  const stop = 'The price of a picture went up after you approved it, so the studio stopped before paying more.';
+  assert.deepEqual(boardProgress(request('failed', 0, stop)), {
+    kind: 'failed', made: 0, asked: 4, text: `The mood board was not made. ${stop}`,
+  });
+  assert.equal(boardProgress(request('failed', 0)).text, 'The mood board was not made.');
+  // a board with fewer pictures than asked (the ones that were paid for) says why
+  assert.deepEqual(boardProgress(request('done', 3, stop)), {
+    kind: 'short', made: 3, asked: 4, text: `This mood board has 3 of the 4 pictures. ${stop}`,
+  });
+  // a finished board, nothing at all, or a count that makes no sense
+  assert.equal(boardProgress(request('done', 4)), null);
+  assert.equal(boardProgress(request('done', 4, stop)), null);
+  assert.equal(boardProgress(null), null);
+  assert.equal(boardProgress({ status: 'making', made: 9, image_count: 4 }).made, 4);
+  assert.equal(boardProgress({ status: 'making', made: -1, image_count: 'x' }).text,
+    'Making the mood board: 0 of 0 pictures made. This page updates by itself.');
+});
+
+test('a live mood board estimate shows each picture\'s price, what it is made with and the budget left', () => {
+  const live = {
+    dry_run: false, per_image_usd_micros: [390_000, 390_000, 390_000, 390_000], total_usd_micros: 1_560_000,
+    model_path: 'xai/grok-imagine-image-2.0', references_per_picture: 2,
+    budget: { line: 'U1_mood_board', cap_usd_micros: 4_000_000, stop_usd_micros: 3_200_000, spent_usd_micros: 390_000,
+      reserved_usd_micros: 0, available_usd_micros: 2_810_000 },
+  };
+  assert.deepEqual(boardEstimateLines(live), [
+    "4 pictures at $0.39 each (the provider's price)",
+    'Made from your notes and 2 of your reference photos, with xai/grok-imagine-image-2.0',
+    "This Universe's mood board budget has $2.81 left (it stops at $3.20 spent of $4.00)",
+  ]);
+  assert.deepEqual(boardEstimateLines({ ...live, per_image_usd_micros: [390_000, 410_000], references_per_picture: 1, budget: undefined }), [
+    "The provider's price of each picture: $0.39, $0.41",
+    'Made from your notes and 1 of your reference photos, with xai/grok-imagine-image-2.0',
+  ]);
+  assert.deepEqual(boardEstimateLines({ ...live, per_image_usd_micros: [], references_per_picture: 0, model_path: undefined,
+    budget: undefined }), ['Made from your notes']);
+  assert.deepEqual(boardEstimateLines({ ...live, dry_run: true }), []);
+  assert.deepEqual(boardEstimateLines(null), []);
 });
 
 test('the start request kept while a Universe episode waits for its looks', () => {

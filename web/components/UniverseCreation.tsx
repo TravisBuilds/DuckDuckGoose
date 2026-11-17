@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { formatUsd } from '@/lib/money';
 import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
-import type { BoardEstimate, WorldBoard, WorldView } from '@/lib/world.mjs';
+import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
+import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
 import { btnPrimary, btnSecondary, card, chip, focusRing, input as field, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
@@ -15,10 +16,12 @@ import { RightsQuestions } from './RightsQuestions';
  * places and tone, and photos), a mood board made from them for the price shown first, approved or
  * redone with feedback, then the bible: characters, places and props written from the approved board.
  * Every step is an API route (api/world_routes.py), which stays the authority: a refused step shows
- * the API's reason.
+ * the API's reason. A live board is made by the worker picture by picture: the page asks again
+ * every BOARD_POLL_MS until it is made.
  */
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
+const BOARD_STARTED = 'The studio is making the mood board now. The pictures appear here when they are made.';
 const TOPIC_TEXT: Record<string, { label: string; placeholder: string }> = {
   premise: { label: 'Premise', placeholder: 'What the Universe is about, who wants what, what keeps happening' },
   characters: { label: 'Characters', placeholder: 'Who lives here: names, ages, how they look and act' },
@@ -90,6 +93,15 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
   const [feedback, setFeedback] = useState('');
   const [estimate, setEstimate] = useState<{ feedback: string; result: BoardEstimate } | null>(null);
   const [bible, setBible] = useState<{ created: Record<string, string[]>; skipped: string[]; dropped: string[] } | null>(null);
+  const progress = boardProgress(creation?.board_request);
+  const making = progress?.kind === 'making';
+  useEffect(() => {
+    if (!making) return undefined;
+    const timer = setInterval(() => {
+      reload().catch(() => undefined);
+    }, BOARD_POLL_MS);
+    return () => clearInterval(timer);
+  }, [making, reload]);
   if (!creation) return null;
 
   const act = async <T,>(where: string, fn: () => Promise<T>, done: string | ((result: T) => string)): Promise<T | null> => {
@@ -157,9 +169,12 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
   };
   const makeBoard = async () => {
     if (!estimate) return;
-    const made = await act('board', () => postJson(`${base}/board`, {
+    const made = await act('board', () => postJson<{ board: WorldBoard | null; request?: WorldBoardRequest }>(`${base}/board`, {
       feedback: estimate.feedback, approved_total_usd_micros: estimate.result.total_usd_micros,
-    }), estimate.feedback ? 'The new mood board is ready below.' : 'Your mood board is ready below.');
+    }), (r) => {
+      if (!r.board) return BOARD_STARTED;
+      return estimate.feedback ? 'The new mood board is ready below.' : 'Your mood board is ready below.';
+    });
     if (made) {
       setEstimate(null);
       setFeedback('');
@@ -182,12 +197,19 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
       <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
         {estimate.result.dry_run
           ? `${estimate.result.summary} (a live board would cost ${formatUsd(estimate.result.total_usd_micros)})`
-          : `${estimate.result.summary}: ${formatUsd(estimate.result.total_usd_micros)}`}
+          : estimate.result.summary}
       </p>
       {!estimate.result.dry_run && (
-        <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-300">
-          The studio checks the price and your balance again before each picture.
-        </p>
+        <>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-yellow-900 dark:text-yellow-200" data-testid="board-estimate-lines">
+            {boardEstimateLines(estimate.result).map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-300">
+            Nothing is charged until you press Make. Before each picture the studio checks its price against
+            this estimate, the balance and the budget again, and stops (keeping the pictures already made) if
+            one of them changed.
+          </p>
+        </>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" className={btnPrimary} disabled={busy} onClick={makeBoard} data-testid="board-make">
@@ -309,12 +331,26 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
           <p className={`${hint} mt-1`}>
             {creation.board.image_count} pictures that set the look, made from your references. You see the price first.
           </p>
-          {creation.board.unavailable ? (
+          {progress?.kind === 'making' && (
+            <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20"
+              data-testid="board-making" role="status">
+              <p className="text-sm text-blue-900 dark:text-blue-200">{progress.text}</p>
+              <progress className="mt-2 h-2 w-full accent-blue-600" max={progress.asked} value={progress.made}
+                aria-label="Mood board pictures made" />
+            </div>
+          )}
+          {progress?.kind === 'failed' && (
+            <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200"
+              data-testid="board-failed" role="alert">
+              {progress.text}
+            </p>
+          )}
+          {creation.board.unavailable && !making ? (
             <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200"
               data-testid="board-unavailable">
               {creation.board.unavailable}
             </p>
-          ) : !latest && (
+          ) : !latest && !making && (
             <div className="mt-2">
               <button type="button" className={btnPrimary} disabled={busy || references === 0} onClick={() => checkPrice('')}
                 data-testid="board-check-price">
@@ -331,15 +367,20 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
                 {latest.answers_feedback && <span className="font-normal text-gray-600 dark:text-gray-300"> (asked: {latest.answers_feedback})</span>}
               </p>
               <BoardImages board={latest} />
+              {progress?.kind === 'short' && creation.board_request?.board_id === latest.board_id && (
+                <p className={`${hint} mt-2`} data-testid="board-short">{progress.text}</p>
+              )}
             </div>
           )}
-          <Message note={note} where="board" />
+          <Message note={note?.text === BOARD_STARTED && !making ? null : note} where="board" />
         </div>
 
         <div data-testid="creation-approve">
           <StepTitle n={3} title="Approve it, or redo it with feedback" status={status(3)} />
           {approved ? (
             <p className="mt-2 text-sm" data-testid="board-approved">Mood board {approved.version} is approved: it sets the look of this Universe.</p>
+          ) : making ? (
+            <p className={`${hint} mt-1`}>Once the mood board being made is ready.</p>
           ) : waiting ? (
             <div className="mt-2 space-y-3">
               <button type="button" className={btnPrimary} disabled={busy} onClick={() => approve(waiting)} data-testid="board-approve">

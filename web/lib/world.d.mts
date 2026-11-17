@@ -103,6 +103,16 @@ export interface WorldBoard {
   images: (UniverseImage & { position: number; width: number; height: number; placeholder: boolean })[];
 }
 
+/** The Universe's mood board budget line (U1_mood_board under universe-<series id>). */
+export interface BoardBudget {
+  line: string;
+  cap_usd_micros: number;
+  stop_usd_micros: number;
+  spent_usd_micros: number;
+  reserved_usd_micros: number;
+  available_usd_micros: number;
+}
+
 export interface BoardEstimate {
   version: number;
   count: number;
@@ -111,7 +121,43 @@ export interface BoardEstimate {
   dry_run: boolean;
   redo: boolean;
   summary: string;
+  /** Live only: the still model, the reference photos each picture is made with, the budget line. */
+  model_path?: string;
+  references_per_picture?: number;
+  budget?: BoardBudget;
 }
+
+/** A live mood board the worker makes picture by picture (no prompt text). */
+export interface WorldBoardRequest {
+  request_id: string;
+  series_id: string;
+  status: 'making' | 'done' | 'failed';
+  answers_feedback: string;
+  replaces_board_id: string | null;
+  image_count: number;
+  model_path: string;
+  estimate_usd_micros: number;
+  approved_total_usd_micros: number;
+  workflow_id: string;
+  board_id: string | null;
+  error: string | null;
+  requested_by: string | null;
+  created_at: string;
+  updated_at: string;
+  jobs: { position: number; status: string }[];
+  made: number;
+}
+
+export interface BoardProgress {
+  kind: 'making' | 'failed' | 'short';
+  made: number;
+  asked: number;
+  text: string;
+}
+
+export declare const BOARD_POLL_MS: number;
+export declare function boardProgress(request: WorldBoardRequest | null | undefined): BoardProgress | null;
+export declare function boardEstimateLines(estimate: BoardEstimate | null | undefined): string[];
 
 /** The creation flow (owner and admins): references, mood boards, and what the next board may be. */
 export interface WorldCreation {
@@ -119,6 +165,7 @@ export interface WorldCreation {
   photos: WorldPhoto[];
   boards: WorldBoard[];
   board: { available: boolean; image_count: number; dry_run: boolean; unavailable: string | null };
+  board_request: WorldBoardRequest | null;
   topics: string[];
   limits: { max_notes: number; note_max: number; max_photos: number; caption_max: number; feedback_max: number };
 }
