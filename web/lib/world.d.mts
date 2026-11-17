@@ -190,3 +190,55 @@ export declare function primaryVideo(files: Record<string, { available: boolean 
 export declare function posterShot(
   shotOutcomes: Record<string, { still_url?: string | null }> | null | undefined,
 ): string | null;
+
+export declare function madeWith(plan: {
+  characters?: { slug: string; name: string }[] | null;
+  props?: { slug: string; name: string }[] | null;
+  shots?: {
+    shot_id: string;
+    cast?: (string | { character: string; version?: number | null })[] | null;
+    place?: string | null;
+    props?: string[] | null;
+  }[] | null;
+} | null | undefined): Record<string, string[]>;
+
+/** POST /api/episodes, as the wizard sends it. */
+export interface StartRequest {
+  episode_id: string;
+  dry_run: boolean;
+  enable_story_shaping: boolean;
+  archetype_id?: string | null;
+  idea?: string;
+  target_duration?: number | null;
+}
+
+export declare function pendingStartKey(episodeId: string): string;
+export declare function pendingStart(text: string | null | undefined, episodeId: string): StartRequest | null;
+
+/** GET /api/episodes/{id}/universe. */
+export interface EpisodeUniverse {
+  episode_id: string;
+  owner: { user_id: string | null; name: string | null };
+  can_act: boolean;
+  /** null: the caller may not see this episode's cast. */
+  linked: boolean | null;
+  universe: { series_id: string; name: string } | null;
+  strip: {
+    characters: {
+      character_id: string; slug: string; name: string; version: number; exists: boolean; locked: boolean;
+      latest_locked: number | null; problems: string[]; image: { url: string; thumb_url: string } | null;
+    }[];
+    places: StripItem[];
+    props: StripItem[];
+  } | null;
+  lock: { required: boolean; unlocked: { character: string; character_id: string; name: string; version: number }[] } | null;
+}
+
+export interface StripItem {
+  prop_id: string;
+  slug: string;
+  kind: string;
+  name: string;
+  photos: number;
+  image: { url: string; thumb_url: string } | null;
+}

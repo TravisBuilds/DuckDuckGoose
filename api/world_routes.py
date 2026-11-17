@@ -1057,7 +1057,7 @@ async def get_episode_universe(episode_id: str, authorization: str | None = Head
                                studio_admin_token: str | None = Cookie(None)):
     """Who made the episode and whether the caller may act on it; for a caller who may see its cast,
     the Universe it is in (or none), what it uses from it and the characters whose look still has
-    to be locked before its shot plan is approved."""
+    to be locked before it starts (and before its shot plan is approved)."""
     episode_id = cast_api._episode_id(episode_id)
     _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
     owner = await cast_api._api().episode_owner(episode_id)

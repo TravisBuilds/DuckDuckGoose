@@ -288,9 +288,15 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
               <span className={`${chip} ${tones[healthTone]}`} data-testid="universe-health">{healthLine(counts, drift)}</span>
             </p>
           </div>
-          <Link href={newEpisode} className={`${btnPrimary} w-full sm:w-auto`} data-testid="universe-new-episode">
-            New episode in this Universe
-          </Link>
+          {view.can_edit ? (
+            <Link href={newEpisode} className={`${btnPrimary} w-full sm:w-auto`} data-testid="universe-new-episode">
+              New episode in this Universe
+            </Link>
+          ) : (
+            <p className="text-sm text-gray-700 sm:max-w-[14rem] dark:text-gray-200" data-testid="universe-new-episode-note">
+              Only the owner of this Universe, or an admin, can start episodes in it.
+            </p>
+          )}
         </div>
       </header>
 

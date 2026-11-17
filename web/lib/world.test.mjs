@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  homeSections, isFinished, isFirstRun, mayChange, posterShot, primaryVideo, universeByEpisode, universeChoices,
+  homeSections, isFinished, isFirstRun, madeWith, mayChange, pendingStart, pendingStartKey, posterShot, primaryVideo,
+  universeByEpisode, universeChoices,
 } from './world.mjs';
 
 const worlds = [
@@ -76,4 +77,41 @@ test('Universes an episode may join, the file a finished card plays and its post
   assert.equal(posterShot({ B01: { still_url: '/b' }, A02: { still_url: '/a2' }, A01: { still_url: null } }), 'A02');
   assert.equal(posterShot({ A01: {} }), null);
   assert.equal(posterShot(null), null);
+});
+
+test('what each scene picture was made with', () => {
+  const plan = {
+    characters: [{ slug: 'mira-vale', name: 'Mira Vale' }, { slug: 'oskar', name: 'Oskar' }],
+    props: [{ slug: 'harbour', name: 'The Harbour' }, { slug: 'lantern', name: 'Brass lantern' }],
+    shots: [
+      { shot_id: 'S01', cast: ['mira-vale', { character: 'oskar', version: 2 }], place: 'harbour', props: ['lantern'] },
+      { shot_id: 'S02', cast: [{ character: 'mira-vale' }, 'mira-vale', 'gone'], place: null, props: ['lantern', 'lantern'] },
+      { shot_id: 'S03', cast: null, place: 'nowhere', props: null },
+      { shot_id: 'S04' },
+    ],
+  };
+  assert.deepEqual(madeWith(plan), {
+    S01: ['Mira Vale', 'Oskar', 'The Harbour', 'Brass lantern'],
+    S02: ['Mira Vale', 'Brass lantern'],
+  });
+  assert.deepEqual(madeWith(null), {});
+  assert.deepEqual(madeWith({ shots: [{ shot_id: 'S01', cast: ['mira-vale'] }] }), {});
+});
+
+test('the start request kept while a Universe episode waits for its looks', () => {
+  assert.equal(pendingStartKey('ep_harbour_01'), 'ddg:start:ep_harbour_01');
+  const sent = {
+    episode_id: 'ep_harbour_01', dry_run: false, enable_story_shaping: true, archetype_id: 'cozy-slice',
+    idea: 'A lighthouse keeper finds a map', target_duration: 30,
+  };
+  assert.deepEqual(pendingStart(JSON.stringify(sent), 'ep_harbour_01'), sent);
+  // another episode's request, nothing kept, or text that is not a request: nothing to start with
+  assert.equal(pendingStart(JSON.stringify(sent), 'ep_other'), null);
+  assert.equal(pendingStart(null, 'ep_harbour_01'), null);
+  assert.equal(pendingStart('{not json', 'ep_harbour_01'), null);
+  assert.equal(pendingStart('"ep_harbour_01"', 'ep_harbour_01'), null);
+  // only a run the wizard confirmed as live is live; unknown fields stay behind
+  assert.deepEqual(pendingStart(JSON.stringify({ episode_id: 'ep_harbour_01', archetype_id: null, budget: 9 }), 'ep_harbour_01'),
+    { episode_id: 'ep_harbour_01', dry_run: true, enable_story_shaping: true });
+  assert.equal(pendingStart(JSON.stringify({ ...sent, dry_run: 'no' }), 'ep_harbour_01').dry_run, true);
 });

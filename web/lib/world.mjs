@@ -72,3 +72,48 @@ export function primaryVideo(files) {
 export function posterShot(shotOutcomes) {
   return Object.keys(shotOutcomes ?? {}).sort().find((sid) => shotOutcomes[sid]?.still_url) ?? null;
 }
+
+/**
+ * What each scene picture was made with, by name (GET /api/episodes/{id}/shot-plan): its characters,
+ * then its place, then its props, each once. Shots without any are left out; unknown picks too.
+ */
+export function madeWith(plan) {
+  const characters = new Map((plan?.characters ?? []).map((c) => [c.slug, c.name]));
+  const items = new Map((plan?.props ?? []).map((p) => [p.slug, p.name]));
+  const out = {};
+  for (const shot of plan?.shots ?? []) {
+    const picks = [
+      ...(shot.cast ?? []).map((entry) => characters.get(typeof entry === 'string' ? entry : entry?.character)),
+      shot.place ? items.get(shot.place) : undefined,
+      ...(shot.props ?? []).map((slug) => items.get(slug)),
+    ];
+    const names = [...new Set(picks.filter(Boolean))];
+    if (names.length > 0) out[shot.shot_id] = names;
+  }
+  return out;
+}
+
+/** Where the browser keeps the start request of a Universe episode that waits for its looks to be locked. */
+export function pendingStartKey(episodeId) {
+  return `ddg:start:${episodeId}`;
+}
+
+/**
+ * The start request (POST /api/episodes) the wizard kept for this episode, read from its stored text,
+ * or null (nothing kept, unreadable, or another episode's). Without a readable dry_run it is a free
+ * test run: a live run is only ever the one the wizard confirmed.
+ */
+export function pendingStart(text, episodeId) {
+  let body;
+  try {
+    body = JSON.parse(text ?? '');
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== 'object' || body.episode_id !== episodeId) return null;
+  const out = { episode_id: episodeId, dry_run: body.dry_run !== false, enable_story_shaping: body.enable_story_shaping !== false };
+  if (typeof body.archetype_id === 'string' && body.archetype_id) out.archetype_id = body.archetype_id;
+  if (typeof body.idea === 'string' && body.idea) out.idea = body.idea;
+  if (typeof body.target_duration === 'number' && Number.isFinite(body.target_duration)) out.target_duration = body.target_duration;
+  return out;
+}

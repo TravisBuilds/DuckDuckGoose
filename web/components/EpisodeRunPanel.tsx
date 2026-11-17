@@ -418,9 +418,11 @@ function StillThumb({ src, alt, testId }: { src: string; alt: string; testId: st
 }
 
 export function SceneStillsSection({ episodeId, state, shotStates, shotStatesError, shots, castHidden, busy, act, canAct,
-  waitingOn = null }: {
+  waitingOn = null, madeWith = null }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null; shotStatesError: string | null;
   shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean; waitingOn?: string | null;
+  /** Per shot, the characters, place and props its picture was made with (the owner's view only). */
+  madeWith?: Record<string, string[]> | null;
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [pricing, setPricing] = useState<string | null>(null);
@@ -516,6 +518,16 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                   </div>
                 )}
                 {description && <p className="line-clamp-3 text-sm text-gray-700 dark:text-gray-200">{description}</p>}
+                {(madeWith?.[sid] ?? []).length > 0 && (
+                  <div className="text-xs text-gray-700 dark:text-gray-200" data-testid={`made-with-${sid}`}>
+                    <span className="mr-1">Made with</span>
+                    <ul className="inline-flex flex-wrap gap-1 align-middle">
+                      {madeWith?.[sid]?.map((name) => (
+                        <li key={name} className={`${chip} ${tones.wait} max-w-full truncate`}>{name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {!castHidden && ss?.still_error && <p className="text-xs text-red-700 dark:text-red-300">{ss.still_error}</p>}
                 {canDecide && (
                   <div className="mt-auto space-y-2">
