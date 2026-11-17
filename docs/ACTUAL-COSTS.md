@@ -82,6 +82,10 @@ dashboard warning.
 * **Actual vs estimate** per provider, stage (budget line) and episode: spend, provider-reported,
   estimated, coverage, and the difference *over jobs that have both numbers only* (a job without an
   actual never reads as an exact estimate).
+* **Live mood boards** ([WORLDS.md](./WORLDS.md#live-mood-boards)) are booked under
+  `universe-<series id>` on the line `U1_mood_board` (stage `mood_boards`), with the Universe's owner
+  on each job. That key is not an episode: it is listed with the episodes, is never finished, and its
+  spend counts in "all spend per finished episode" like that of an unfinished episode.
 * **Coverage** = provider-reported dollars / spend dollars.
 * **In flight**: jobs still holding a reservation are not spend yet and are listed separately;
   released jobs cost nothing.
