@@ -127,8 +127,9 @@ test.describe('A live mood board', () => {
     await signIn(page, OWNER);
     await page.getByTestId('universe-name').fill('Kelp Hollow');
     await page.getByTestId('universe-create').click();
-    await page.waitForURL(/\/studio\/universes\/sr_[0-9a-f]+\?created=1$/);
-    const sid = new URL(page.url()).pathname.split('/').pop()!;
+    // the new Universe opens on its References step (/studio/universes/{id}/create?step=references)
+    await page.waitForURL(/\/studio\/universes\/sr_[0-9a-f]+\/create\?step=references$/);
+    const sid = new URL(page.url()).pathname.split('/')[3];
     await page.getByTestId('creation-topic').selectOption('premise');
     await page.getByTestId('creation-note-text').fill('A village in a kelp forest where the tide decides the day.');
     await page.getByTestId('creation-note-add').click();
@@ -137,7 +138,8 @@ test.describe('A live mood board', () => {
     const live: Live = { request: null, boards: [], unavailable: null };
     const sent: unknown[] = [];
     await liveBoardRoutes(page, sid, live, sent);
-    await page.reload();
+    // the mood board is its own step; the reloads below stay on it
+    await page.goto(`/studio/universes/${sid}/create?step=moodboard`);
 
     // the price first: each picture's provider price, what it is made with, the budget left
     await page.getByTestId('board-check-price').click();
