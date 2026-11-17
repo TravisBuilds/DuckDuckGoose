@@ -10,7 +10,9 @@ The shot plan editor is where the picks happen. Before the run starts, and while
 shot plan approval (G1), the episode's owner (or an admin) can change each shot's place, props, cast
 and prompts. Every change is kept in the shot's history.
 
-For the creator-facing steps see [CAST-HOWTO.md](CAST-HOWTO.md#7-props-and-places).
+For the creator-facing steps see [CAST-HOWTO.md](CAST-HOWTO.md#7-props-and-places). A series' places
+and props are also its Universe's, changed from the Universe page and shown on each episode's strip:
+see [WORLDS.md](WORLDS.md).
 
 | Piece | Code |
 |---|---|

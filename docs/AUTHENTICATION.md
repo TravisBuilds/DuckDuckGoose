@@ -180,6 +180,12 @@ see a cast:
   follow the episode write rule only: the owner or an admin, or any member while the episode has no
   owner. Picking from a series' library changes the episode, not the series. A refused change answers
   `403` like any episode write and changes nothing.
+- **Universes** (`/api/worlds...`, `GET /api/episodes/{id}/universe`, docs/WORLDS.md) are series and
+  follow the series rules above: seen by admins, the series owner and whoever may change one of its
+  episodes (everyone else gets the `404` a missing Universe gets); changed only by the owner or an
+  admin (`403` otherwise). The story bible, style notes, saved voices, creation notes, reference
+  photos and open mood boards are shown only to the owner and admins. Universe images are served only
+  by `GET /api/worlds/images/{image_id}` and `.../thumb`, under the same rule.
 
 ## Route Permission Matrix
 
