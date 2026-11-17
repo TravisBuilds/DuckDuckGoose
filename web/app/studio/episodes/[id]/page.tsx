@@ -474,6 +474,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setSheetOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheetOpen]);
+
   const loadPage = useCallback(async () => {
     const [g, b, s, a, st] = await Promise.allSettled([
       apiFetch<Gates>(`/api/episodes/${episodeId}/gates`),
@@ -766,17 +773,27 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       )}
 
       <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        {gate && sheet && sheetOpen && (
+          <div aria-hidden="true" className="fixed inset-0 z-20 bg-ink/40 lg:hidden" onClick={() => setSheetOpen(false)}
+            data-testid="gate-sheet-scrim" />
+        )}
         {gate && (
-          <aside aria-label="What happens next"
-            className={`lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1 ${sheet ? 'fixed inset-x-2 bottom-[92px] z-30 lg:inset-auto lg:z-auto' : ''}`}>
-            <GlassPanel className={`p-4 sm:p-5 ${sheet ? 'shadow-float' : ''}`}>
+          <aside aria-label="What happens next" data-testid="gate-panel"
+            className={`lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1 ${sheet ? 'fixed inset-x-0 bottom-0 z-30 lg:inset-auto lg:z-auto' : ''}`}>
+            {/* below lg the sheet is solid and reaches the screen's bottom edge, under the phone's bottom
+                bar (hidden from 640 px): pb-[88px] keeps its content above that bar */}
+            <GlassPanel className={`p-4 sm:p-5 ${sheet ? 'max-lg:rounded-b-none max-lg:border-x-0 max-lg:border-b-0 max-lg:bg-paper max-lg:pb-[88px] max-lg:shadow-[0_-10px_30px_rgba(29,35,48,0.18)] sm:max-lg:pb-5' : ''}`}
+              data-testid="gate-sheet">
               {sheet && (
-                <button type="button" className="flex min-h-11 w-full items-center justify-between gap-3 text-left lg:hidden"
-                  aria-expanded={sheetOpen} aria-controls="gate-body" onClick={() => setSheetOpen((open) => !open)}
-                  data-testid="gate-sheet-toggle">
-                  <span className="min-w-0 truncate text-[14px] font-extrabold">{sheetTitle}</span>
-                  <span className="pf-btn pf-btn-soft pf-btn-sm shrink-0">{sheetOpen ? 'Close' : 'Open'}</span>
-                </button>
+                <>
+                  <span aria-hidden="true" className="mx-auto -mt-1 mb-2 block h-1 w-10 rounded-full bg-ink/15 lg:hidden" />
+                  <button type="button" className="flex min-h-11 w-full items-center justify-between gap-3 text-left lg:hidden"
+                    aria-expanded={sheetOpen} aria-controls="gate-body" onClick={() => setSheetOpen((open) => !open)}
+                    data-testid="gate-sheet-toggle">
+                    <span className="min-w-0 truncate text-[14px] font-extrabold">{sheetTitle}</span>
+                    <span className="pf-btn pf-btn-soft pf-btn-sm shrink-0">{sheetOpen ? 'Close' : 'Open'}</span>
+                  </button>
+                </>
               )}
               <div id="gate-body"
                 className={sheet ? (sheetOpen ? 'mt-3 max-h-[60vh] overflow-y-auto lg:mt-0 lg:max-h-none lg:overflow-visible' : 'hidden lg:block') : ''}>

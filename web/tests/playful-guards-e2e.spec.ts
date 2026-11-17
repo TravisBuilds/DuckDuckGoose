@@ -8,7 +8,8 @@ import path from 'node:path';
  * (playwright.e2e.config.ts): the mood board's price is on screen before its button turns on; a creation
  * screen is the highlighted stop of its path; at 390 px the mood board decision fits the screen; an
  * episode whose character has no locked look keeps its start button off (and the server refuses it
- * too); a member who may see a Universe without owning it gets no lock or voice controls; at 390 px the
+ * too), and on a phone its start panel is a solid bottom sheet with nothing showing beneath it; a
+ * member who may see a Universe without owning it gets no lock or voice controls; at 390 px the
  * studio's bottom bar replaces the top tabs; and a finished episode's trail says Download is done and
  * never calls a paid step "Free" without a recorded cost. The Universe is made through the API: nothing
  * here is generated or charged. The only API mocks turn the finished test run's record into a live
@@ -46,6 +47,18 @@ async function expectPath(page: Page, states: Record<string, string>, here: stri
   }
   await expect(page.getByTestId('creation-path').locator('[aria-current="step"]')).toHaveCount(1);
   await expect(page.getByTestId(`creation-path-${here}`).locator('[aria-current="step"]')).toHaveCount(1);
+}
+
+/** At 390 x 844 the gate's bottom sheet spans the screen to its bottom edge, solid, under the bottom bar. */
+async function expectSheetOnTheBottom(page: Page) {
+  const sheet = (await page.getByTestId('gate-sheet').boundingBox())!;
+  const bar = (await page.getByTestId('studio-bottom-bar').boundingBox())!;
+  expect(sheet.x).toBeLessThanOrEqual(0);
+  expect(sheet.x + sheet.width).toBeGreaterThanOrEqual(390);
+  expect(sheet.y + sheet.height, 'a gap under the sheet shows the page').toBeGreaterThanOrEqual(844 - 1);
+  expect(bar.y, 'the bottom bar sits on the sheet').toBeGreaterThan(sheet.y);
+  expect(await page.getByTestId('gate-sheet').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 253, 248)');
+  return sheet;
 }
 
 test.describe.serial('Playful studio guarantees', () => {
@@ -158,9 +171,24 @@ test.describe.serial('Playful studio guarantees', () => {
     await page.reload();
     await expect(page.getByTestId('gate-sheet-toggle')).toBeVisible();
     await expect(page.getByTestId('start-episode')).toBeHidden();
+    await expectSheetOnTheBottom(page);
     await page.getByTestId('gate-sheet-toggle').click();
     await expect(page.getByTestId('start-episode')).toBeVisible();
     await expect(page.getByTestId('start-episode')).toBeDisabled();
+    // open, it is still solid and on the bottom edge, its start button clears the bottom bar, and the
+    // page behind is dimmed: a tap on it, or Escape, closes the sheet
+    const sheet = await expectSheetOnTheBottom(page);
+    const bar = (await page.getByTestId('studio-bottom-bar').boundingBox())!;
+    const start = (await page.getByTestId('start-episode').boundingBox())!;
+    expect(start.y + start.height, 'the start button is under the bottom bar').toBeLessThanOrEqual(bar.y);
+    await expect(page.getByTestId('gate-sheet-scrim')).toBeVisible();
+    await page.getByTestId('gate-sheet-scrim').click({ position: { x: 20, y: sheet.y - 20 } });
+    await expect(page.getByTestId('gate-sheet-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('gate-sheet-scrim')).toHaveCount(0);
+    await page.getByTestId('gate-sheet-toggle').click();
+    await expect(page.getByTestId('gate-sheet-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('gate-sheet-toggle')).toHaveAttribute('aria-expanded', 'false');
   });
 
   test("a member who doesn't own the Universe sees no lock or voice controls", async ({ page }, testInfo) => {
