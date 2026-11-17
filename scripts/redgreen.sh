@@ -4808,13 +4808,13 @@ test_mutation 695 "episode visibility: the series list" \
 test_mutation 696 "episode visibility: the series cast" \
     "api/cast_routes.py" \
     "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
-    sed -i 's/^    return {"series": {\*\*series, "episodes": \[e for e in series\["episodes"\] if e in visible\]},$/    return {"series": series,  # MUTATED/'
+    sed -i 's/^    return {"series": await series_seen_by(series, user_id, is_admin),$/    return {"series": series,  # MUTATED/'
 
 # 697: an episode's cast names only the episodes of its series the caller may see
 test_mutation 697 "episode visibility: the episode cast's series" \
     "api/cast_routes.py" \
     "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
-    sed -i 's/^        series = {\*\*series, "episodes": \[e for e in series\["episodes"\] if e in visible\]}$/        pass  # MUTATED/'
+    sed -i 's/^        series = await series_seen_by(series, user_id, is_admin)$/        pass  # MUTATED/'
 
 # 698: a Universe card names and counts only the episodes the caller may see
 test_mutation 698 "episode visibility: the Universe cards" \
@@ -4826,7 +4826,7 @@ test_mutation 698 "episode visibility: the Universe cards" \
 test_mutation 699 "episode visibility: the Universe page" \
     "api/world_routes.py" \
     "tests/test_episode_visibility.py::test_the_universe_lists_and_counts_only_the_episodes_the_caller_may_see" \
-    sed -i 's/^    series = {\*\*who\["series"\], "episodes": \[e for e in who\["series"\]\["episodes"\] if e in seen\]}$/    series = who["series"]  # MUTATED/'
+    sed -i 's/^    series = await cast_api\.series_seen_by(who\["series"\], who\["user_id"\], who\["is_admin"\])$/    series = who["series"]  # MUTATED/'
 
 # 700: a character's audit trail leaves out the entries of episodes the caller may not see
 test_mutation 700 "episode visibility: a character's audit trail" \
@@ -4857,6 +4857,78 @@ test_mutation 704 "episode visibility: the start" \
     "api/main.py" \
     "tests/test_episode_visibility.py::test_a_write_answers_who_may_not_see_the_episode_as_for_one_that_does_not_exist[POST-/api/episodes]" \
     sed -i '/^async def start_episode(/,/^start_episode\.allow_members = True$/ s/^    await cast_routes\.require_episode_visible(request\.episode_id, authorization, studio_admin_token)$/    pass  # MUTATED/'
+
+# 705: an episode's props view names only the episodes of its Universe the caller may see
+test_mutation 705 "episode visibility: the props view's Universe" \
+    "api/prop_routes.py" \
+    "tests/test_episode_visibility.py::test_the_props_view_names_only_the_episodes_of_its_universe_the_caller_may_see" \
+    sed -i 's/^        series = await cast_api\.series_seen_by(series, user_id, is_admin)$/        pass  # MUTATED/'
+
+# 706: the one helper every view of a series record goes through keeps only the episodes the caller may see
+test_mutation 706 "episode visibility: a series record for a response" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_the_props_view_names_only_the_episodes_of_its_universe_the_caller_may_see" \
+    sed -i 's/^    return {\*\*series, "episodes": \[e for e in series\["episodes"\] if e in visible\]}$/    return series  # MUTATED/'
+
+# 707: a character in a response, read or change, does not name the episodes the caller may not see
+test_mutation 707 "episode visibility: a character for a response" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i 's/^    return (await _without_hidden_episodes(\[_character_out(character)\], user_id, is_admin))\[0\]$/    return _character_out(character)  # MUTATED/'
+
+# 708: a version in a response does not name the episodes the caller may not see
+test_mutation 708 "episode visibility: a version for a response" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i 's/^    return _version_without(version, hidden) if hidden else version$/    return version  # MUTATED/'
+
+# 709: a change to a character from the Universe page answers without the episodes the caller may not see
+test_mutation 709 "episode visibility: a Universe character change" \
+    "api/world_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def update_world_character(/,/^update_world_character\.allow_members = True$/ s/^    return {"character": await cast_api\.character_seen_by(character, who\["user_id"\], who\["is_admin"\])}$/    return {"character": cast_api._character_out(character)}  # MUTATED/'
+
+# 710: a change to a character from an episode answers without the episodes the caller may not see
+test_mutation 710 "episode visibility: an episode cast character change" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def update_cast_character(/,/^update_cast_character\.allow_members = True$/ s/^    return {"character": await character_seen_by(character, user_id, is_admin)}$/    return {"character": _character_out(character)}  # MUTATED/'
+
+# 711: a change to a version answers without the episodes the caller may not see
+test_mutation 711 "episode visibility: a version change" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def update_cast_version(/,/^update_cast_version\.allow_members = True$/ s/^    return {"version": await version_seen_by(updated, user_id, is_admin)}$/    return {"version": updated}  # MUTATED/'
+
+# 712: a new version answers with its character without the episodes the caller may not see
+test_mutation 712 "episode visibility: a new version's character" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def create_cast_version(/,/^create_cast_version\.allow_members = True$/ s/^            "character": await character_seen_by(character, user_id, is_admin)}$/            "character": _character_out(character)}  # MUTATED/'
+
+# 713: an approved version answers without the episodes the caller may not see
+test_mutation 713 "episode visibility: an approved version" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def approve_sheet(/,/^approve_sheet\.allow_members = True$/ s/^    return {"version": await version_seen_by(locked, user_id, is_admin),$/    return {"version": locked,  # MUTATED/'
+
+# 714: an approved version answers with its character without the episodes the caller may not see
+test_mutation 714 "episode visibility: an approved version's character" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_a_change_to_a_universe_character_names_no_episode_the_caller_may_not_see" \
+    sed -i '/^async def approve_sheet(/,/^approve_sheet\.allow_members = True$/ s/^            "character": await character_seen_by(character, user_id, is_admin)}$/            "character": _character_out(character)}  # MUTATED/'
+
+# 715: a redo on an episode without a run answers the 404 of one that does not exist, not a 500
+test_mutation 715 "episode visibility: a redo without a run" \
+    "api/main.py" \
+    "tests/test_episode_visibility.py::test_a_redo_on_an_episode_without_a_run_answers_as_for_one_that_does_not_exist" \
+    sed -i '/^async def retry_shot(/,/^retry_shot\.allow_members = True$/ s/^                raise  # no run: the 404 below, as for an episode that does not exist$/                pass  # MUTATED/'
+
+# 716: no member read names an episode the caller may not see (the sheet jobs of every character view)
+test_mutation 716 "episode visibility: no read names a hidden episode" \
+    "api/cast_routes.py" \
+    "tests/test_episode_visibility.py::test_no_read_names_an_episode_the_caller_may_not_see" \
+    sed -i 's/^    return named - await visible_episodes(named, user_id, is_admin)$/    return set()  # MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
