@@ -127,7 +127,12 @@ def _env_int(name: str, default: int) -> int:
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
     """A connection with the cast, props and universe tables present (the migrations run if this DB
     never had them)."""
-    from hfvg.migrations import apply_cast_library_sync, apply_props_library_sync, apply_universe_sync
+    from hfvg.migrations import (
+        apply_cast_library_sync,
+        apply_props_library_sync,
+        apply_universe_board_sync,
+        apply_universe_sync,
+    )
     target = path or db_path()
     if target not in (":memory:",) and not target.startswith("file:"):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -137,6 +142,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_cast_library_sync(conn)
         apply_props_library_sync(conn)
         apply_universe_sync(conn)
+        apply_universe_board_sync(conn)
         yield conn
     finally:
         conn.close()
@@ -827,13 +833,14 @@ def delete_image(image_id: str, actor: str | None = None, *, character_id: str |
 
 
 def file_in_use(conn, sha256: str) -> bool:
-    """A cast picture, a prop/place photo, a Universe reference photo or a mood board image still
-    uses the stored file (they share the image store)."""
+    """A cast picture, a prop/place photo, a Universe reference photo, a mood board image or a
+    picture a live mood board job made still uses the stored file (they share the image store)."""
     return conn.execute("SELECT 1 FROM cast_images WHERE sha256 = ? UNION ALL "
                         "SELECT 1 FROM prop_images WHERE sha256 = ? UNION ALL "
                         "SELECT 1 FROM universe_photos WHERE sha256 = ? UNION ALL "
-                        "SELECT 1 FROM universe_board_images WHERE sha256 = ? LIMIT 1",
-                        (sha256, sha256, sha256, sha256)).fetchone() is not None
+                        "SELECT 1 FROM universe_board_images WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM universe_board_jobs WHERE sha256 = ? LIMIT 1",
+                        (sha256, sha256, sha256, sha256, sha256)).fetchone() is not None
 
 
 def _remove_unreferenced_file(conn, sha256: str, ext: str) -> bool:

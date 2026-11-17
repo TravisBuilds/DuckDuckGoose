@@ -42,6 +42,8 @@ NOTE_LABELS = {"premise": "Premise", "characters": "Characters", "places": "Plac
 BOARD_IMAGES = 4
 BOARD_PX = 768
 BOARD_PROMPT_MAX = 2400
+BOARD_BEING_MADE = "A mood board is being made; wait for it to finish"
+BOARD_JOB_STATUSES = ("queued", "running", "completed", "failed", "refused", "skipped", "pending_reconcile")
 
 VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 VOICE_NAME_MAX = 80
@@ -402,6 +404,8 @@ def delete_reference_photo(series_id: str, image_id: str, actor: str | None = No
         if not row:
             raise CastNotFound(f"Image {image_id} not found")
         with _tx(conn):
+            if _making_request(conn, series_id) is not None:
+                raise CastConflict(f"{BOARD_BEING_MADE} from the reference photos; delete this photo after that")
             conn.execute("DELETE FROM universe_photos WHERE image_id = ?", (image_id,))
             conn.execute("UPDATE series_profiles SET cover_image_id = NULL WHERE series_id = ? AND cover_image_id = ?",
                          (series_id, image_id))
@@ -463,8 +467,8 @@ def board_prompt(name: str, profile: dict, notes: list[dict], photos: list[dict]
 
 def plan_board(series_id: str, feedback: Any = "") -> dict:
     """What the next mood board would be: its version, prompt, image count and the references it is
-    made from. Refused once a board is approved, while the latest board waits for a decision and no
-    redo feedback is given, and before there is any reference."""
+    made from. Refused once a board is approved, while a live board is being made, while the latest
+    board waits for a decision and no redo feedback is given, and before there is any reference."""
     feedback = _clean(feedback, "Feedback", FEEDBACK_MAX)
     with connect() as conn:
         series = _series_row(conn, series_id)
@@ -475,8 +479,11 @@ def plan_board(series_id: str, feedback: Any = "") -> dict:
                                                "ORDER BY created_at, note_id", (series_id,))]
         photos = [dict(r) for r in conn.execute("SELECT * FROM universe_photos WHERE series_id = ? AND "
                                                 "status = 'active' ORDER BY created_at, image_id", (series_id,))]
+        making = _making_request(conn, series_id)
     if any(b["status"] == "approved" for b in boards):
         raise CastConflict("The mood board is approved; the next step is the Universe bible")
+    if making is not None:
+        raise CastConflict(BOARD_BEING_MADE)
     latest = boards[-1] if boards else None
     if latest is None and feedback:
         raise CastConflict("There is no mood board to redo yet")
@@ -490,43 +497,46 @@ def plan_board(series_id: str, feedback: Any = "") -> dict:
             "answers_feedback": feedback, "image_count": BOARD_IMAGES,
             "replaces_board_id": latest["board_id"] if latest is not None and feedback else None,
             "sources": {"notes": [n["note_id"] for n in notes], "photos": [p["image_id"] for p in photos]},
-            "photo_files": [str(cast_store.image_file(p["sha256"], p["ext"])) for p in photos]}
+            "photo_files": [str(cast_store.image_file(p["sha256"], p["ext"])) for p in photos],
+            "photo_refs": [{"image_id": p["image_id"], "sha256": p["sha256"], "ext": p["ext"]} for p in photos]}
+
+
+def placeholder_board_image(seed: str, photo_files: list[str], position: int) -> bytes:
+    """One deterministic dry-run stand-in for a mood board picture (no provider call): it frames one
+    of the reference photos (when there are any) on a colour field, with a palette strip taken from it."""
+    from PIL import Image, ImageDraw, ImageOps
+    digest = hashlib.sha256(f"{seed}:{position}".encode()).digest()
+    bg = (60 + digest[0] % 150, 60 + digest[1] % 150, 60 + digest[2] % 150)
+    img = Image.new("RGB", (BOARD_PX, BOARD_PX), bg)
+    draw = ImageDraw.Draw(img)
+    palette = [(digest[3 + 3 * k] % 256, digest[4 + 3 * k] % 256, digest[5 + 3 * k] % 256) for k in range(3)]
+    photo = None
+    if photo_files:
+        try:
+            with Image.open(photo_files[position % len(photo_files)]) as src:
+                photo = ImageOps.fit(ImageOps.exif_transpose(src).convert("RGB"), (BOARD_PX * 2 // 3,) * 2)
+        except (OSError, ValueError):
+            photo = None
+    if photo is not None:
+        img.paste(photo, (BOARD_PX // 6, BOARD_PX // 12))
+        small = photo.resize((3, 1))
+        palette = [small.getpixel((k, 0)) for k in range(3)]
+    else:
+        for k, colour in enumerate(palette):
+            r = BOARD_PX // (4 + k)
+            cx = BOARD_PX * (1 + 2 * k) // 6
+            draw.ellipse((cx - r // 2, BOARD_PX // 3 - r // 2, cx + r // 2, BOARD_PX // 3 + r // 2), fill=colour)
+    band = BOARD_PX // 8
+    for k, colour in enumerate(palette):
+        draw.rectangle((k * BOARD_PX // 3, BOARD_PX - band, (k + 1) * BOARD_PX // 3, BOARD_PX), fill=colour)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
 
 
 def placeholder_board_images(seed: str, photo_files: list[str], count: int = BOARD_IMAGES) -> list[bytes]:
-    """Deterministic dry-run stand-ins for a mood board (no provider call): each tile frames one of
-    the reference photos (when there are any) on a colour field, with a palette strip taken from it."""
-    from PIL import Image, ImageDraw, ImageOps
-    out = []
-    for position in range(count):
-        digest = hashlib.sha256(f"{seed}:{position}".encode()).digest()
-        bg = (60 + digest[0] % 150, 60 + digest[1] % 150, 60 + digest[2] % 150)
-        img = Image.new("RGB", (BOARD_PX, BOARD_PX), bg)
-        draw = ImageDraw.Draw(img)
-        palette = [(digest[3 + 3 * k] % 256, digest[4 + 3 * k] % 256, digest[5 + 3 * k] % 256) for k in range(3)]
-        photo = None
-        if photo_files:
-            try:
-                with Image.open(photo_files[position % len(photo_files)]) as src:
-                    photo = ImageOps.fit(ImageOps.exif_transpose(src).convert("RGB"), (BOARD_PX * 2 // 3,) * 2)
-            except (OSError, ValueError):
-                photo = None
-        if photo is not None:
-            img.paste(photo, (BOARD_PX // 6, BOARD_PX // 12))
-            small = photo.resize((3, 1))
-            palette = [small.getpixel((k, 0)) for k in range(3)]
-        else:
-            for k, colour in enumerate(palette):
-                r = BOARD_PX // (4 + k)
-                cx = BOARD_PX * (1 + 2 * k) // 6
-                draw.ellipse((cx - r // 2, BOARD_PX // 3 - r // 2, cx + r // 2, BOARD_PX // 3 + r // 2), fill=colour)
-        band = BOARD_PX // 8
-        for k, colour in enumerate(palette):
-            draw.rectangle((k * BOARD_PX // 3, BOARD_PX - band, (k + 1) * BOARD_PX // 3, BOARD_PX), fill=colour)
-        buf = io.BytesIO()
-        img.save(buf, "PNG")
-        out.append(buf.getvalue())
-    return out
+    """The dry-run stand-ins of a whole mood board (placeholder_board_image for each position)."""
+    return [placeholder_board_image(seed, photo_files, position) for position in range(count)]
 
 
 def create_board(series_id: str, plan: dict, *, estimate_usd_micros: int, approved_total_usd_micros: int,
@@ -588,6 +598,8 @@ def approve_board(series_id: str, board_id: str, actor: str | None = None) -> di
                 raise CastConflict("This mood board is approved already")
             if row["status"] != "ready" or row["board_id"] != boards[-1]["board_id"]:
                 raise CastConflict("Only the latest mood board can be approved")
+            if _making_request(conn, series_id) is not None:
+                raise CastConflict(f"{BOARD_BEING_MADE} before approving one")
             conn.execute("UPDATE universe_boards SET status = 'approved', decided_by = ?, decided_at = ?, updated_at = ? "
                          "WHERE board_id = ?", (actor, now, now, board_id))
             audit(conn, actor, "universe_board_approve", series_id=series_id,
@@ -605,6 +617,206 @@ def get_board_image(image_id: str) -> dict:
     if not row:
         raise CastNotFound(f"Image {image_id} not found")
     return dict(row)
+
+
+# ------------------------------------------------------------------------------------- live mood boards
+# A live board is a request the worker makes picture by picture (hfvg.activities.universe_board);
+# its pictures become the next board version only when every one of them is made.
+
+def _making_request(conn, series_id: str):
+    return conn.execute("SELECT * FROM universe_board_requests WHERE series_id = ? AND status = 'making' "
+                        "ORDER BY created_at DESC LIMIT 1", (series_id,)).fetchone()
+
+
+def _request_row(conn, request_id: str):
+    row = conn.execute("SELECT * FROM universe_board_requests WHERE request_id = ?", (request_id,)).fetchone()
+    if row is None:
+        raise CastNotFound(f"Mood board request {request_id} not found")
+    return row
+
+
+def _request_view(conn, row) -> dict:
+    out = {k: row[k] for k in ("request_id", "series_id", "status", "answers_feedback", "replaces_board_id",
+                               "image_count", "model_path", "estimate_usd_micros", "approved_total_usd_micros",
+                               "workflow_id", "board_id", "error", "requested_by", "created_at", "updated_at")}
+    jobs = conn.execute("SELECT position, status FROM universe_board_jobs WHERE request_id = ? ORDER BY position",
+                        (row["request_id"],)).fetchall()
+    out["jobs"] = [dict(j) for j in jobs]
+    out["made"] = sum(1 for j in jobs if j["status"] == "completed")
+    return out
+
+
+def board_request(request_id: str) -> dict:
+    with connect() as conn:
+        return _request_view(conn, _request_row(conn, request_id))
+
+
+def open_board_request(series_id: str) -> dict | None:
+    """The live board the owner waits on: the one being made, or the last one that failed after the
+    latest board was made (with its reason). None otherwise."""
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM universe_board_requests WHERE series_id = ? "
+                           "ORDER BY created_at DESC, rowid DESC LIMIT 1", (series_id,)).fetchone()
+        if row is None or row["status"] == "done":
+            return None
+        if row["status"] == "failed":
+            latest = conn.execute("SELECT created_at FROM universe_boards WHERE series_id = ? "
+                                  "ORDER BY version DESC LIMIT 1", (series_id,)).fetchone()
+            if latest is not None and latest["created_at"] > row["updated_at"]:
+                return None
+        return _request_view(conn, row)
+
+
+def making_board_requests(series_id: str) -> list[dict]:
+    """The live boards of a Universe that are being made (request id, workflow id, created at)."""
+    with connect() as conn:
+        rows = conn.execute("SELECT request_id, workflow_id, created_at FROM universe_board_requests "
+                            "WHERE series_id = ? AND status = 'making'", (series_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def start_board_request(series_id: str, plan: dict, jobs: list[dict], *, request_id: str, workflow_id: str,
+                        estimate_usd_micros: int, approved_total_usd_micros: int, model_path: str,
+                        requested_by: str | None) -> dict:
+    """Record a live board whose estimate the owner approved, with its picture jobs (queued), before
+    the worker is asked to make it. Refused when the boards changed since the plan, or while another
+    live board is being made."""
+    now = _now()
+    with connect() as conn:
+        with _tx(conn):
+            _series_row(conn, series_id)
+            boards = _board_rows(conn, series_id)
+            latest = boards[-1] if boards else None
+            if ((latest["version"] + 1) if latest else 1) != plan["version"] or any(
+                    b["status"] == "approved" for b in boards):
+                raise CastConflict("The mood board changed meanwhile; look at it again before asking for another")
+            if _making_request(conn, series_id) is not None:
+                raise CastConflict(BOARD_BEING_MADE)
+            conn.execute(
+                "INSERT INTO universe_board_requests (request_id, series_id, status, prompt, answers_feedback, "
+                "replaces_board_id, sources, image_count, model_path, estimate_usd_micros, approved_total_usd_micros, "
+                "workflow_id, requested_by, created_at, updated_at) "
+                "VALUES (?, ?, 'making', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (request_id, series_id, plan["prompt"], plan["answers_feedback"], plan.get("replaces_board_id"),
+                 json.dumps(plan["sources"], sort_keys=True), len(jobs), model_path, int(estimate_usd_micros),
+                 int(approved_total_usd_micros), workflow_id, requested_by, now, now))
+            for job in jobs:
+                conn.execute(
+                    "INSERT INTO universe_board_jobs (job_id, request_id, position, status, estimate_usd_micros, "
+                    "approved_usd_micros, reference_count, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+                    (job["job_id"], request_id, int(job["position"]), int(job["estimated_usd_micros"]),
+                     int(job["approved_usd_micros"]), len(job["refs"]), now, now))
+            audit(conn, requested_by, "universe_board_request", series_id=series_id,
+                  details={"request_id": request_id, "version": plan["version"], "images": len(jobs),
+                           "estimate_usd_micros": int(estimate_usd_micros),
+                           "approved_total_usd_micros": int(approved_total_usd_micros),
+                           "redo_of": plan.get("replaces_board_id"), "workflow_id": workflow_id,
+                           "model_path": model_path})
+        return _request_view(conn, _request_row(conn, request_id))
+
+
+def board_job(job_id: str) -> dict | None:
+    """A live board picture job, with its request's series id and status (request_status)."""
+    with connect() as conn:
+        row = conn.execute("SELECT j.*, r.series_id, r.status AS request_status FROM universe_board_jobs j "
+                           "JOIN universe_board_requests r ON r.request_id = j.request_id WHERE j.job_id = ?",
+                           (job_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_board_job(job_id: str, status: str, error: str | None = None) -> None:
+    if status not in BOARD_JOB_STATUSES:
+        raise CastError(f"Unknown mood board job status {status!r}")
+    with connect() as conn:
+        conn.execute("UPDATE universe_board_jobs SET status = ?, error = ?, updated_at = ? WHERE job_id = ?",
+                     (status, (error or "")[:1000] or None, _now(), job_id))
+
+
+def store_board_job_picture(job_id: str, data: bytes, *, placeholder: bool) -> dict:
+    """Keep the picture a board job made (the private image store) and complete the job.
+    Idempotent: a job that has its picture keeps the first one."""
+    info = cast_store.inspect_image(data, max_bytes=40 * 1024 * 1024, min_px=256)
+    with connect() as conn:
+        with _tx(conn):
+            row = conn.execute("SELECT * FROM universe_board_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if row is None:
+                raise CastNotFound(f"Mood board job {job_id} not found")
+            if row["sha256"] is None:
+                cast_store._write_once(cast_store.image_file(info["sha256"], info["ext"]), data)
+                conn.execute(
+                    "UPDATE universe_board_jobs SET status = 'completed', sha256 = ?, ext = ?, mime = ?, width = ?, "
+                    "height = ?, bytes = ?, placeholder = ?, error = NULL, updated_at = ? WHERE job_id = ?",
+                    (info["sha256"], info["ext"], info["mime"], info["width"], info["height"], info["bytes"],
+                     int(placeholder), _now(), job_id))
+            else:
+                conn.execute("UPDATE universe_board_jobs SET status = 'completed', error = NULL, updated_at = ? "
+                             "WHERE job_id = ?", (_now(), job_id))
+            sha, ext = conn.execute("SELECT sha256, ext FROM universe_board_jobs WHERE job_id = ?",
+                                    (job_id,)).fetchone()
+    cast_store.ensure_thumb(sha, ext)
+    return board_job(job_id)
+
+
+def finish_board_request(request_id: str, error: str | None = None, actor: str | None = "worker") -> dict:
+    """End a live board request. With every picture made and no error, the pictures become the next
+    mood board version, ``ready`` for the owner (a redo marks the board it answers
+    ``redo_requested``). Otherwise the request is ``failed`` with the reason and its jobs that did
+    not run are ``skipped``. Idempotent: an ended request is returned as it is."""
+    with connect() as conn:
+        with _tx(conn):
+            row = _request_row(conn, request_id)
+            if row["status"] == "making":
+                _end_request(conn, row, error, actor, _now())
+        return _request_view(conn, _request_row(conn, request_id))
+
+
+def _end_request(conn, req, error: str | None, actor: str | None, now: str) -> None:
+    jobs = conn.execute("SELECT * FROM universe_board_jobs WHERE request_id = ? ORDER BY position",
+                        (req["request_id"],)).fetchall()
+    made = [j for j in jobs if j["status"] == "completed" and j["sha256"]]
+    boards = _board_rows(conn, req["series_id"])
+    if error is None and len(made) < req["image_count"]:
+        error = f"The generation stopped after {len(made)} of {req['image_count']} pictures"
+    if error is None and any(b["status"] == "approved" for b in boards):
+        error = "A mood board was approved meanwhile"
+    if error is not None:
+        conn.execute("UPDATE universe_board_jobs SET status = 'skipped', error = ?, updated_at = ? "
+                     "WHERE request_id = ? AND status IN ('queued', 'running')",
+                     (f"Stopped: {error}"[:1000], now, req["request_id"]))
+        conn.execute("UPDATE universe_board_requests SET status = 'failed', error = ?, updated_at = ? "
+                     "WHERE request_id = ?", (error[:1000], now, req["request_id"]))
+        audit(conn, actor, "universe_board_failed", series_id=req["series_id"],
+              details={"request_id": req["request_id"], "made": len(made), "error": error[:300]})
+        return
+    version = (boards[-1]["version"] + 1) if boards else 1
+    board_id = _new_id("mb")
+    placeholder = all(j["placeholder"] for j in made)
+    if req["replaces_board_id"]:
+        conn.execute("UPDATE universe_boards SET status = 'redo_requested', redo_feedback = ?, decided_by = ?, "
+                     "decided_at = ?, updated_at = ? WHERE board_id = ? AND status = 'ready'",
+                     (req["answers_feedback"], req["requested_by"], now, now, req["replaces_board_id"]))
+    conn.execute(
+        "INSERT INTO universe_boards (board_id, series_id, version, status, prompt, answers_feedback, sources, "
+        "image_count, estimate_usd_micros, approved_total_usd_micros, dry_run, requested_by, created_at, "
+        "updated_at) VALUES (?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (board_id, req["series_id"], version, req["prompt"], req["answers_feedback"], req["sources"], len(made),
+         req["estimate_usd_micros"], req["approved_total_usd_micros"], int(placeholder), req["requested_by"], now,
+         now))
+    for job in made:
+        conn.execute(
+            "INSERT INTO universe_board_images (image_id, board_id, position, sha256, ext, mime, width, height, "
+            "bytes, placeholder, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_new_id("bi"), board_id, job["position"], job["sha256"], job["ext"], job["mime"], job["width"],
+             job["height"], job["bytes"], job["placeholder"], "placeholder" if job["placeholder"] else "generated",
+             now))
+    conn.execute("UPDATE universe_board_requests SET status = 'done', board_id = ?, error = NULL, updated_at = ? "
+                 "WHERE request_id = ?", (board_id, now, req["request_id"]))
+    audit(conn, req["requested_by"], "universe_board_create", series_id=req["series_id"],
+          details={"board_id": board_id, "version": version, "images": len(made),
+                   "estimate_usd_micros": req["estimate_usd_micros"],
+                   "approved_total_usd_micros": req["approved_total_usd_micros"], "dry_run": placeholder,
+                   "redo_of": req["replaces_board_id"], "request_id": req["request_id"]})
 
 
 # ------------------------------------------------------------------------------------- the bible

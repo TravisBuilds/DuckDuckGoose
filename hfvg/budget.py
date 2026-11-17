@@ -601,6 +601,32 @@ class BudgetLedger:
                                     cap_usd_micros, stop_usd_micros, replace=True)
             await db.commit()
 
+    async def ensure_line(
+        self, episode_id: str, line_name: str, cap_usd_micros: int,
+        stop_usd_micros: int | None = None, provider: str = "higgsfield",
+    ) -> bool:
+        """
+        Create a budget line when it is missing; an existing line keeps its cap, stop, spend and
+        holds. Stop defaults to EPISODE_STOP_PERCENT of the cap (integer math). True when created.
+        """
+        _require_int("cap_usd_micros", cap_usd_micros, positive=True)
+        if stop_usd_micros is None:
+            stop_usd_micros = compute_stop_usd_micros(
+                cap_usd_micros, get_budget_settings().stop_percent)
+        _require_int("stop_usd_micros", stop_usd_micros)
+        if stop_usd_micros > cap_usd_micros:
+            raise ValueError("stop_usd_micros must be <= cap_usd_micros")
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path, uri=True) as db:
+            async with db.execute("SELECT 1 FROM budget_lines WHERE line_id = ?",
+                                  (f"{episode_id}:{line_name}",)) as cur:
+                exists = await cur.fetchone() is not None
+            if not exists:
+                await self._insert_line(db, episode_id, provider, line_name,
+                                        cap_usd_micros, stop_usd_micros)
+                await db.commit()
+        return not exists
+
     # ------------------------------------------------------------------ manual balance (GC.01)
 
     async def set_manual_balance(self, balance_usd_micros: int, set_by: str, note: str = "") -> dict:

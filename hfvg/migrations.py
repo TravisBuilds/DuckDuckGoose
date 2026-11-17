@@ -10,6 +10,9 @@
   bible, style notes, card, cover, narrator voice), each character's saved voice, the creation flow's
   reference notes and photos, and the mood board versions with their images and approval. New tables
   only; a series without a profile row reads as an empty profile.
+- universe board requests (``UNIVERSE_BOARD_MIGRATION``, docs/WORLDS.md): a live mood board the
+  worker is making (or failed to make) and its paid picture jobs. The board itself lands in the
+  universe tables when every picture is made. New tables only.
 """
 
 import sqlite3
@@ -304,6 +307,57 @@ UNIVERSE_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_universe_board_images_sha ON universe_board_images(sha256)",
 )
 
+UNIVERSE_BOARD_MIGRATION = "2026-11-universe-board-requests-v1"
+
+UNIVERSE_BOARD_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS universe_board_requests (
+        request_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        status TEXT NOT NULL CHECK (status IN ('making', 'done', 'failed')),
+        prompt TEXT NOT NULL,
+        answers_feedback TEXT NOT NULL DEFAULT '',
+        replaces_board_id TEXT REFERENCES universe_boards(board_id),
+        sources TEXT NOT NULL DEFAULT '{}',
+        image_count INTEGER NOT NULL CHECK (image_count >= 1),
+        model_path TEXT NOT NULL,
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_total_usd_micros INTEGER NOT NULL,
+        workflow_id TEXT NOT NULL,
+        board_id TEXT REFERENCES universe_boards(board_id),
+        error TEXT,
+        requested_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_board_requests_series ON universe_board_requests(series_id, created_at)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_board_jobs (
+        job_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL REFERENCES universe_board_requests(request_id),
+        position INTEGER NOT NULL CHECK (position >= 0),
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'refused', 'skipped',
+                                               'pending_reconcile')),
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_usd_micros INTEGER NOT NULL,
+        reference_count INTEGER NOT NULL DEFAULT 0,
+        sha256 TEXT,
+        ext TEXT,
+        mime TEXT,
+        width INTEGER,
+        height INTEGER,
+        bytes INTEGER,
+        placeholder INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (request_id, position)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_board_jobs_sha ON universe_board_jobs(sha256)",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -430,6 +484,12 @@ def apply_universe_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, UNIVERSE_MIGRATION, UNIVERSE_SQL)
 
 
+def apply_universe_board_sync(conn: sqlite3.Connection) -> bool:
+    """The universe board requests migration on an open sqlite3 connection (after the universe
+    migration, whose tables it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -445,9 +505,15 @@ async def migrate_universe(db_path: str) -> bool:
     return await _apply(db_path, UNIVERSE_MIGRATION, UNIVERSE_SQL)
 
 
+async def migrate_universe_board(db_path: str) -> bool:
+    """The universe board request tables (UNIVERSE_BOARD_MIGRATION); True when it ran now."""
+    return await _apply(db_path, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
     await migrate_cast_library(db_path)
     await migrate_props_library(db_path)
     await migrate_universe(db_path)
+    await migrate_universe_board(db_path)

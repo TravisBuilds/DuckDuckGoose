@@ -15,7 +15,7 @@ from hfvg.cast_store import CastConflict, CastError, CastNotFound
 from tests.cast_helpers import attestation, complete_sheet, image_bytes, new_character, new_place, new_prop, upload
 
 UNIVERSE_TABLES = {"series_profiles", "character_voices", "universe_notes", "universe_photos", "universe_boards",
-                   "universe_board_images"}
+                   "universe_board_images", "universe_board_requests", "universe_board_jobs"}
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +69,8 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     does nothing."""
     from hfvg.budget import BudgetLedger
     from hfvg.migrations import (
-        UNIVERSE_MIGRATION, apply_universe_sync, migrate_cast_library, migrate_props_library, run_all_migrations)
+        UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION, apply_universe_board_sync, apply_universe_sync,
+        migrate_cast_library, migrate_props_library, run_all_migrations)
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.users import UserManager
 
@@ -113,9 +114,10 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     assert {name for name in set(schema_after) - set(schema_before) if not name.startswith("idx_")} == UNIVERSE_TABLES
     assert schema_once == schema_after
     with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
-                            (UNIVERSE_MIGRATION,)).fetchone()[0] == 1
-        assert apply_universe_sync(conn) is False
+        for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION):
+            assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
+                                (version,)).fetchone()[0] == 1
+        assert apply_universe_sync(conn) is False and apply_universe_board_sync(conn) is False
     # the series that was there reads with the empty profile
     monkeypatch.setenv("DATABASE_PATH", db)
     profile = world_store.get_profile("sr_0123456789ab")
@@ -140,6 +142,34 @@ def test_a_db_without_the_universe_tables_gets_them_on_first_use(tmp_path, monke
         assert UNIVERSE_TABLES <= tables
         assert conn.execute("SELECT version FROM schema_migrations WHERE version = ?",
                             (UNIVERSE_MIGRATION,)).fetchone()
+
+
+def test_a_db_with_the_first_universe_tables_gets_the_board_request_tables_on_first_use(tmp_path, monkeypatch):
+    """A DB that has the universe tables without the live board request tables (an earlier build)
+    gains them on first use; its boards are kept."""
+    from hfvg.migrations import (
+        UNIVERSE_BOARD_MIGRATION, apply_cast_library_sync, apply_props_library_sync, apply_universe_sync)
+
+    db = tmp_path / "first-universe.db"
+    conn = sqlite3.connect(db, isolation_level=None)
+    apply_cast_library_sync(conn)
+    apply_props_library_sync(conn)
+    apply_universe_sync(conn)
+    conn.execute("INSERT INTO series (series_id, name, owner_user_id, created_at, updated_at) "
+                 "VALUES ('sr_0123456789ab', 'Harbour Tales', 'u1', 'now', 'now')")
+    conn.execute("INSERT INTO universe_boards (board_id, series_id, version, status, prompt, image_count, "
+                 "estimate_usd_micros, approved_total_usd_micros, dry_run, created_at, updated_at) VALUES "
+                 "('mb_0123456789ab', 'sr_0123456789ab', 1, 'ready', 'p', 4, 0, 0, 1, 'now', 'now')")
+    conn.close()
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    assert world_store.making_board_requests("sr_0123456789ab") == []
+    assert world_store.open_board_request("sr_0123456789ab") is None
+    assert [b["board_id"] for b in world_store.list_boards("sr_0123456789ab")] == ["mb_0123456789ab"]
+    with sqlite3.connect(db) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert {"universe_board_requests", "universe_board_jobs"} <= tables
+        assert conn.execute("SELECT version FROM schema_migrations WHERE version = ?",
+                            (UNIVERSE_BOARD_MIGRATION,)).fetchone()
 
 
 # ------------------------------------------------------------------------------------- profile
@@ -379,6 +409,76 @@ def test_a_board_made_meanwhile_refuses_the_older_plan():
                                  images=world_store.placeholder_board_images("x", []), placeholder=True,
                                  requested_by="u-owner")
     assert len(world_store.list_boards(sid)) == 1
+
+
+def _live_request(sid: str, request_id: str, feedback: str = "") -> list[dict]:
+    plan = world_store.plan_board(sid, feedback)
+    jobs = [{"job_id": f"uboard-{request_id[3:]}-{k}", "position": k, "refs": [], "estimated_usd_micros": 100_000,
+             "approved_usd_micros": 120_000} for k in range(world_store.BOARD_IMAGES)]
+    world_store.start_board_request(sid, plan, jobs, request_id=request_id, workflow_id=f"universe-board-{request_id}",
+                                    estimate_usd_micros=400_000, approved_total_usd_micros=480_000, model_path="m/still",
+                                    requested_by="u-owner")
+    return jobs
+
+
+def test_a_live_board_becomes_the_next_version_only_when_every_picture_is_made():
+    sid = _universe()
+    world_store.add_note(sid, "premise", "Lanterns that talk")
+    jobs = _live_request(sid, "mr_0123456789aa")
+    request = world_store.open_board_request(sid)
+    assert (request["status"], request["made"], [j["status"] for j in request["jobs"]]) == (
+        "making", 0, ["queued"] * 4)
+    assert "prompt" not in request
+    # one board at a time: no plan, approval or photo removal meanwhile
+    with pytest.raises(CastConflict, match=world_store.BOARD_BEING_MADE):
+        world_store.plan_board(sid)
+    first = world_store.store_board_job_picture(jobs[0]["job_id"], image_bytes(seed=1), placeholder=False)
+    again = world_store.store_board_job_picture(jobs[0]["job_id"], image_bytes(seed=2), placeholder=False)
+    assert again["sha256"] == first["sha256"] and again["status"] == "completed"  # the first picture is kept
+    for job in jobs[1:3]:
+        world_store.store_board_job_picture(job["job_id"], image_bytes(seed=10 + job["position"]), placeholder=False)
+    failed = world_store.finish_board_request("mr_0123456789aa")
+    assert (failed["status"], failed["error"], failed["made"]) == (
+        "failed", "The generation stopped after 3 of 4 pictures", 3)
+    assert [j["status"] for j in failed["jobs"]] == ["completed"] * 3 + ["skipped"]
+    assert world_store.list_boards(sid) == [] and world_store.open_board_request(sid)["status"] == "failed"
+    assert world_store.finish_board_request("mr_0123456789aa", "later") == failed  # an ended request stays as it is
+    with cast_store.connect() as conn:  # a kept picture keeps its file in the image store
+        assert cast_store.file_in_use(conn, first["sha256"])
+    jobs = _live_request(sid, "mr_0123456789ab")
+    for job in jobs:
+        world_store.store_board_job_picture(job["job_id"], image_bytes(seed=20 + job["position"]), placeholder=False)
+    done = world_store.finish_board_request("mr_0123456789ab")
+    board = world_store.list_boards(sid)[0]
+    assert (done["status"], done["board_id"]) == ("done", board["board_id"])
+    assert (board["version"], board["status"], board["dry_run"], len(board["images"])) == (1, "ready", False, 4)
+    assert [i["source"] for i in board["images"]] == ["generated"] * 4
+    assert world_store.open_board_request(sid) is None
+    assert [a["action"] for a in _audit("universe_board")] == [
+        "universe_board_request", "universe_board_failed", "universe_board_request", "universe_board_create"]
+
+
+def test_a_live_redo_answers_its_feedback_and_a_board_made_meanwhile_refuses_the_request():
+    sid = _universe()
+    world_store.add_note(sid, "premise", "Lanterns that talk")
+    first = _board(sid)
+    plan = world_store.plan_board(sid, "more fog")
+    _board(sid, "warmer")  # another board was made meanwhile
+    with pytest.raises(CastConflict, match="changed meanwhile"):
+        world_store.start_board_request(sid, plan, [], request_id="mr_0123456789ac", workflow_id="w",
+                                        estimate_usd_micros=1, approved_total_usd_micros=1, model_path="m",
+                                        requested_by="u-owner")
+    jobs = _live_request(sid, "mr_0123456789ad", "fewer lanterns")
+    latest = world_store.list_boards(sid)[-1]
+    assert world_store.open_board_request(sid)["replaces_board_id"] == latest["board_id"] != first["board_id"]
+    for job in jobs:
+        world_store.store_board_job_picture(job["job_id"], image_bytes(seed=30 + job["position"]), placeholder=True)
+    world_store.finish_board_request("mr_0123456789ad")
+    boards = world_store.list_boards(sid, with_prompt=True)
+    assert [(b["version"], b["status"]) for b in boards] == [(1, "redo_requested"), (2, "redo_requested"),
+                                                              (3, "ready")]
+    assert (boards[1]["redo_feedback"], boards[2]["answers_feedback"]) == ("fewer lanterns", "fewer lanterns")
+    assert "Change from the last board: fewer lanterns" in boards[2]["prompt"] and boards[2]["dry_run"] is True
 
 
 def test_placeholder_boards_are_deterministic_and_use_the_reference_photos(tmp_path):
