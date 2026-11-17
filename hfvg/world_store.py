@@ -597,10 +597,11 @@ def approve_board(series_id: str, board_id: str, actor: str | None = None) -> di
 
 
 def get_board_image(image_id: str) -> dict:
-    """A mood board image with its board's series id."""
+    """A mood board image with its board's series id and status (board_status)."""
     with connect() as conn:
-        row = conn.execute("SELECT i.*, b.series_id FROM universe_board_images i JOIN universe_boards b "
-                           "ON b.board_id = i.board_id WHERE i.image_id = ?", (image_id,)).fetchone()
+        row = conn.execute("SELECT i.*, b.series_id, b.status AS board_status FROM universe_board_images i "
+                           "JOIN universe_boards b ON b.board_id = i.board_id WHERE i.image_id = ?",
+                           (image_id,)).fetchone()
     if not row:
         raise CastNotFound(f"Image {image_id} not found")
     return dict(row)
@@ -795,51 +796,63 @@ def apply_bible(series_id: str, bible: dict, *, board_id: str, actor: str | None
 
 # ------------------------------------------------------------------------------------- what episodes use
 
+def _cast_entry(entry: Any) -> tuple[str, int | None] | None:
+    """(slug, version named or None) of a shots.json cast entry; None for anything else."""
+    if isinstance(entry, str):
+        slug, version = entry.strip(), None
+    elif isinstance(entry, dict) and isinstance(entry.get("character"), str):
+        slug, version = entry["character"].strip(), entry.get("version")
+        if isinstance(version, bool) or not isinstance(version, int):
+            version = None
+    else:
+        return None
+    return (slug, version) if slug else None
+
+
+def shot_usage(episode_id: str) -> list[dict]:
+    """Each shot's picks in shots.json order: [{"shot_id", "characters": [(slug, version or None)],
+    "place": slug or None, "props": [slugs]}], a cast's ``shot_meta.cast`` versions included.
+    A missing or unreadable file, and odd entries, count as nothing."""
+    try:
+        raw = json.loads((paths.episode_dir(episode_id) / "shots.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    shots = raw.get("shots") if isinstance(raw, dict) else None
+    out: list[dict] = []
+    for shot in shots if isinstance(shots, list) else []:
+        if not isinstance(shot, dict):
+            continue
+        meta = shot.get("shot_meta") if isinstance(shot.get("shot_meta"), dict) else {}
+        characters: list[tuple[str, int | None]] = []
+        for entry in [*(shot.get("cast") if isinstance(shot.get("cast"), list) else []),
+                      *(meta.get("cast") if isinstance(meta.get("cast"), list) else [])]:
+            picked = _cast_entry(entry)
+            if picked is not None and picked not in characters:
+                characters.append(picked)
+        place = shot.get("place").strip() if isinstance(shot.get("place"), str) else ""
+        props = []
+        for prop in shot.get("props") if isinstance(shot.get("props"), list) else []:
+            if isinstance(prop, str) and prop.strip() and prop.strip() not in props:
+                props.append(prop.strip())
+        out.append({"shot_id": shot.get("id") if isinstance(shot.get("id"), str) else None,
+                    "characters": characters, "place": place or None, "props": props})
+    return out
+
+
 def episode_usage(episode_id: str) -> dict:
     """What an episode's shots.json picks: {"characters": {slug: [versions named]}, "places": [...],
     "props": [...]}. Missing, unreadable or odd entries count as nothing."""
     usage: dict[str, Any] = {"characters": {}, "places": [], "props": []}
-    try:
-        raw = json.loads((paths.episode_dir(episode_id) / "shots.json").read_text(encoding="utf-8"))
-        shots = raw.get("shots") if isinstance(raw, dict) else None
-    except (OSError, ValueError):
-        return usage
-    if not isinstance(shots, list):
-        return usage
-    places: list[str] = []
-    props: list[str] = []
-
-    def add_character(entry: Any) -> None:
-        slug, version = None, None
-        if isinstance(entry, str):
-            slug = entry.strip()
-        elif isinstance(entry, dict) and isinstance(entry.get("character"), str):
-            slug = entry["character"].strip()
-            raw_version = entry.get("version")
-            version = raw_version if isinstance(raw_version, int) and not isinstance(raw_version, bool) else None
-        if not slug:
-            return
-        versions = usage["characters"].setdefault(slug, [])
-        if version is not None and version not in versions:
-            versions.append(version)
-
-    for shot in shots:
-        if not isinstance(shot, dict):
-            continue
-        for entry in shot.get("cast") if isinstance(shot.get("cast"), list) else []:
-            add_character(entry)
-        meta = shot.get("shot_meta")
-        if isinstance(meta, dict) and isinstance(meta.get("cast"), list):
-            for entry in meta["cast"]:
-                add_character(entry)
-        place = shot.get("place")
-        if isinstance(place, str) and place.strip() and place.strip() not in places:
-            places.append(place.strip())
-        for prop in shot.get("props") if isinstance(shot.get("props"), list) else []:
-            if isinstance(prop, str) and prop.strip() and prop.strip() not in props:
-                props.append(prop.strip())
-    usage["places"] = places
-    usage["props"] = props
+    for shot in shot_usage(episode_id):
+        for slug, version in shot["characters"]:
+            versions = usage["characters"].setdefault(slug, [])
+            if version is not None and version not in versions:
+                versions.append(version)
+        if shot["place"] and shot["place"] not in usage["places"]:
+            usage["places"].append(shot["place"])
+        for prop in shot["props"]:
+            if prop not in usage["props"]:
+                usage["props"].append(prop)
     return usage
 
 
@@ -860,17 +873,20 @@ def used_in(episode_ids: list[str]) -> dict:
     return {"characters": characters, "items": items}
 
 
-def unlocked_cast(episode_id: str) -> list[dict]:
+def unlocked_cast(episode_id: str, raw: Any = None) -> list[dict]:
     """The characters an episode in a Universe uses whose look is not locked, in the order they
-    first appear: [{"character", "character_id", "name", "version"}]. Empty for an episode outside a
-    Universe and one without a readable shots.json; characters or versions the Universe does not
-    have are left to the run's own cast checks."""
+    first appear: [{"character", "character_id", "name", "version"}]. ``raw``: a shots.json to check
+    instead of the episode's own. Empty for an episode outside a Universe and one without a readable
+    shots.json; characters or versions the Universe does not have are left to the run's own cast
+    checks."""
     from hfvg.shot_data import parse_shots
     library = cast_store.library_for_episode(episode_id)
     if library[0] != "series":
         return []
     try:
-        plans = parse_shots(json.loads((paths.episode_dir(episode_id) / "shots.json").read_text(encoding="utf-8")))
+        if raw is None:
+            raw = json.loads((paths.episode_dir(episode_id) / "shots.json").read_text(encoding="utf-8"))
+        plans = parse_shots(raw)
     except (OSError, ValueError):
         return []
     characters = {c["slug"]: c for c in cast_store.list_characters(library)}
@@ -891,72 +907,125 @@ def unlocked_cast(episode_id: str) -> list[dict]:
     return out
 
 
+LOCK_BEFORE = {"start": "this video starts", "approve": "the shot plan is approved",
+               "pick": "they are put in a shot"}
+
+
+def lock_message(unlocked: list[dict], before: str = "approve") -> str:
+    """Why a Universe episode waits (unlocked_cast is not empty): to start, to have its shot plan
+    approved, or to put the characters in a shot while the run waits at the shot plan."""
+    names = [c["name"] + (f" (look {c['version']})" if c["version"] != 1 else "") for c in unlocked]
+    who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    return (f"Lock the look of {who} before {LOCK_BEFORE[before]}: this video is in a Universe, where every "
+            "character keeps one locked look in every episode. Open Cast on this video's page, make the character "
+            "sheet and lock it.")
+
+
 # ------------------------------------------------------------------------------------- the Universe list
 
-def _primary_cast_image(conn, character_id: str, version: int) -> str | None:
-    row = conn.execute("SELECT image_id FROM cast_images WHERE character_id = ? AND version = ? AND status = 'active' "
-                       "ORDER BY role = 'master' DESC, (role = 'upload' AND is_primary = 1) DESC, created_at, image_id "
-                       "LIMIT 1", (character_id, version)).fetchone()
-    return row[0] if row else None
+COVER_KINDS = {"ci_": "cast", "pi_": "prop", "ui_": "reference", "bi_": "board"}
+_COVER_OWNERS = {  # (image_id, series id) of the active pictures of each kind among "{}"
+    "ci_": "SELECT i.image_id, c.library_id FROM cast_images i JOIN cast_characters c ON c.character_id = i.character_id "
+           "WHERE i.status = 'active' AND c.library_kind = 'series' AND i.image_id IN ({})",
+    "pi_": "SELECT i.image_id, p.library_id FROM prop_images i JOIN prop_items p ON p.prop_id = i.prop_id "
+           "WHERE i.status = 'active' AND p.library_kind = 'series' AND i.image_id IN ({})",
+    "ui_": "SELECT image_id, series_id FROM universe_photos WHERE status = 'active' AND image_id IN ({})",
+    "bi_": "SELECT i.image_id, b.series_id FROM universe_board_images i JOIN universe_boards b "
+           "ON b.board_id = i.board_id WHERE i.image_id IN ({})",
+}
 
 
-def _cover(conn, series_id: str, profile: dict, characters: list, places: list) -> dict | None:
-    """The card's picture: the chosen cover, else the first locked character's main picture, else
-    the first place's main photo, else the approved mood board's first image."""
-    cover = profile.get("cover_image_id")
-    if cover and _image_in_universe(conn, series_id, cover):
-        return {"image_id": cover, "kind": {"ci_": "cast", "pi_": "prop", "ui_": "reference", "bi_": "board"}[cover[:3]]}
-    for character in characters:
-        if character["locked_version"] is not None:
-            image_id = _primary_cast_image(conn, character["character_id"], character["locked_version"])
-            if image_id:
-                return {"image_id": image_id, "kind": "cast"}
-    for place in places:
-        row = conn.execute("SELECT image_id FROM prop_images WHERE prop_id = ? AND status = 'active' "
-                           "ORDER BY is_primary DESC, created_at, image_id LIMIT 1", (place,)).fetchone()
-        if row:
-            return {"image_id": row[0], "kind": "prop"}
-    row = conn.execute("SELECT i.image_id FROM universe_board_images i JOIN universe_boards b ON b.board_id = i.board_id "
-                       "WHERE b.series_id = ? AND b.status = 'approved' ORDER BY b.version DESC, i.position LIMIT 1",
-                       (series_id,)).fetchone()
-    return {"image_id": row[0], "kind": "board"} if row else None
+def _rows_in(conn, sql: str, values: list) -> list:
+    """Rows of ``sql`` with its "{}" filled by placeholders for ``values``, a few hundred at a time
+    (callers group rows by a key that is in one part)."""
+    rows: list = []
+    for start in range(0, len(values), 500):
+        part = list(values[start:start + 500])
+        rows += conn.execute(sql.format(", ".join("?" for _ in part)), part).fetchall()
+    return rows
+
+
+def _first_by_key(rows: list) -> dict:
+    first: dict = {}
+    for *key, value in rows:
+        first.setdefault(tuple(key) if len(key) > 1 else key[0], value)
+    return first
+
+
+def _covers(conn, series_ids: list[str], profiles: dict, characters: dict, places: dict) -> dict[str, dict | None]:
+    """Each card's picture: the chosen cover, else the first locked character's main picture, else
+    the first place's main photo, else the approved mood board's first image. A fixed number of
+    queries for any number of Universes."""
+    chosen = {sid: profiles[sid]["cover_image_id"] for sid in series_ids
+              if profiles[sid]["cover_image_id"] and profiles[sid]["cover_image_id"][:3] in COVER_KINDS}
+    valid: set[tuple[str, str]] = set()
+    for prefix, sql in _COVER_OWNERS.items():
+        ids = sorted({c for c in chosen.values() if c.startswith(prefix)})
+        valid |= {(r[1], r[0]) for r in _rows_in(conn, sql, ids)}
+    locked = sorted({c["character_id"] for sid in series_ids for c in characters[sid] if c["locked_version"] is not None})
+    cast_first = _first_by_key(_rows_in(
+        conn, "SELECT character_id, version, image_id FROM cast_images WHERE status = 'active' AND character_id IN ({}) "
+              "ORDER BY role = 'master' DESC, (role = 'upload' AND is_primary = 1) DESC, created_at, image_id", locked))
+    photo_first = _first_by_key(_rows_in(
+        conn, "SELECT prop_id, image_id FROM prop_images WHERE status = 'active' AND prop_id IN ({}) "
+              "ORDER BY is_primary DESC, created_at, image_id", sorted({p for sid in series_ids for p in places[sid]})))
+    board_first = _first_by_key(_rows_in(
+        conn, "SELECT b.series_id, i.image_id FROM universe_board_images i JOIN universe_boards b "
+              "ON b.board_id = i.board_id WHERE b.status = 'approved' AND b.series_id IN ({}) "
+              "ORDER BY b.version DESC, i.position", list(series_ids)))
+    out: dict[str, dict | None] = {}
+    for sid in series_ids:
+        cover = chosen.get(sid)
+        if cover and (sid, cover) in valid:
+            out[sid] = {"image_id": cover, "kind": COVER_KINDS[cover[:3]]}
+            continue
+        cast = next((cast_first[(c["character_id"], c["locked_version"])] for c in characters[sid]
+                     if (c["character_id"], c["locked_version"]) in cast_first), None)
+        photo = next((photo_first[p] for p in places[sid] if p in photo_first), None)
+        out[sid] = ({"image_id": cast, "kind": "cast"} if cast else {"image_id": photo, "kind": "prop"} if photo
+                    else {"image_id": board_first[sid], "kind": "board"} if sid in board_first else None)
+    return out
 
 
 def summaries(series_ids: list[str]) -> dict[str, dict]:
     """For each series: its profile, counts (characters, characters with a locked look, locked
-    versions, places, props) and cover, in a fixed number of queries plus one per cover lookup."""
+    versions, places, props) and cover, in a fixed number of queries for any number of series."""
     out: dict[str, dict] = {}
     if not series_ids:
         return out
-    marks = ", ".join("?" for _ in series_ids)
+    series_ids = list(series_ids)
     with connect() as conn:
-        profiles = {r["series_id"]: r for r in conn.execute(
-            f"SELECT * FROM series_profiles WHERE series_id IN ({marks})", series_ids)}
-        rows = conn.execute(
-            "SELECT c.library_id, c.character_id, c.created_at, "
-            "(SELECT MIN(v.version) FROM cast_versions v WHERE v.character_id = c.character_id AND v.locked = 1) "
-            "AS locked_version, (SELECT COUNT(*) FROM cast_versions v WHERE v.character_id = c.character_id AND "
-            f"v.locked = 1) AS locked_versions FROM cast_characters c WHERE c.library_kind = 'series' AND c.library_id "
-            f"IN ({marks}) ORDER BY c.created_at, c.slug", series_ids).fetchall()
-        items = conn.execute(
-            f"SELECT library_id, prop_id, kind FROM prop_items WHERE library_kind = 'series' AND library_id IN ({marks}) "
-            "ORDER BY created_at, slug", series_ids).fetchall()
-        boards = {r[0]: r[1] for r in conn.execute(
-            f"SELECT series_id, status FROM universe_boards WHERE series_id IN ({marks}) ORDER BY version", series_ids)}
-        for sid in series_ids:
-            characters = [dict(r) for r in rows if r["library_id"] == sid]
-            places = [r["prop_id"] for r in items if r["library_id"] == sid and r["kind"] == "place"]
-            profile = _profile_view(sid, profiles.get(sid))
-            out[sid] = {
-                "profile": profile,
-                "counts": {"characters": len(characters),
-                           "locked_characters": sum(1 for c in characters if c["locked_version"] is not None),
-                           "locked_versions": sum(c["locked_versions"] for c in characters),
-                           "places": len(places),
-                           "props": sum(1 for r in items if r["library_id"] == sid and r["kind"] == "prop")},
-                "board_status": boards.get(sid),
-                "cover": _cover(conn, sid, profile, characters, places),
-            }
+        profiles = {r["series_id"]: r for r in _rows_in(conn, "SELECT * FROM series_profiles WHERE series_id IN ({})",
+                                                        series_ids)}
+        rows = _rows_in(
+            conn, "SELECT c.library_id, c.character_id, c.created_at, c.slug, "
+                  "(SELECT MIN(v.version) FROM cast_versions v WHERE v.character_id = c.character_id AND v.locked = 1) "
+                  "AS locked_version, (SELECT COUNT(*) FROM cast_versions v WHERE v.character_id = c.character_id AND "
+                  "v.locked = 1) AS locked_versions FROM cast_characters c WHERE c.library_kind = 'series' AND "
+                  "c.library_id IN ({})", series_ids)
+        items = _rows_in(conn, "SELECT library_id, prop_id, kind, created_at, slug FROM prop_items "
+                               "WHERE library_kind = 'series' AND library_id IN ({})", series_ids)
+        latest = _first_by_key(_rows_in(conn, "SELECT series_id, status FROM universe_boards WHERE series_id IN ({}) "
+                                              "ORDER BY version DESC", series_ids))
+        rows = sorted((dict(r) for r in rows), key=lambda r: (r["created_at"], r["slug"]))
+        items = sorted((dict(r) for r in items), key=lambda r: (r["created_at"], r["slug"]))
+        characters = {sid: [r for r in rows if r["library_id"] == sid] for sid in series_ids}
+        places = {sid: [r["prop_id"] for r in items if r["library_id"] == sid and r["kind"] == "place"]
+                  for sid in series_ids}
+        views = {sid: _profile_view(sid, profiles.get(sid)) for sid in series_ids}
+        covers = _covers(conn, series_ids, views, characters, places)
+    for sid in series_ids:
+        mine = characters[sid]
+        out[sid] = {
+            "profile": views[sid],
+            "counts": {"characters": len(mine),
+                       "locked_characters": sum(1 for c in mine if c["locked_version"] is not None),
+                       "locked_versions": sum(c["locked_versions"] for c in mine),
+                       "places": len(places[sid]),
+                       "props": sum(1 for r in items if r["library_id"] == sid and r["kind"] == "prop")},
+            "board_status": latest.get(sid),
+            "cover": covers[sid],
+        }
     return out
 
 
