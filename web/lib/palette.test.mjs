@@ -56,6 +56,44 @@ test('globals.css declares exactly the palette in lib/palette.mjs', () => {
   }
 });
 
+/** Hue (degrees) and HSV saturation (0 to 1) of a #RRGGBB colour. */
+function hueAndSaturation(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  let hue = 0;
+  if (span > 0) {
+    if (max === r) hue = ((g - b) / span) % 6;
+    else if (max === g) hue = (b - r) / span + 2;
+    else hue = (r - g) / span + 4;
+  }
+  return { hue: (hue * 60 + 360) % 360, saturation: max === 0 ? 0 : span / max };
+}
+
+test('a disabled coloured button keeps its hue with less colour, and globals.css uses it', () => {
+  const variants = [
+    { variant: 'primary', live: 'blue-deep', fill: 'off-blue', text: 'off-blue-ink' },
+    { variant: 'soft', live: 'blue-soft', fill: 'off-soft', text: 'off-blue-ink' },
+    { variant: 'go', live: 'green-deep', fill: 'off-green', text: 'off-green-ink' },
+    { variant: 'danger', live: 'coral-deep', fill: 'off-coral', text: 'off-coral-ink' },
+    { variant: 'peach', live: '#F6CFA8', fill: 'off-peach', text: 'off-peach-ink' },
+  ];
+  for (const { variant, live, fill, text } of variants) {
+    const on = hueAndSaturation(live.startsWith('#') ? live : TOKENS[live]);
+    const off = hueAndSaturation(TOKENS[fill]);
+    const turn = Math.min(Math.abs(on.hue - off.hue), 360 - Math.abs(on.hue - off.hue));
+    assert.ok(turn <= 15, `${fill} is ${turn.toFixed(0)}° away from ${variant}'s hue`);
+    assert.ok(off.saturation < on.saturation, `${fill} is no paler in colour than ${variant}`);
+    assert.ok(contrastRatio(TOKENS[text], TOKENS[fill]) >= 4.5, `${text} on ${fill}`);
+    const rule = css.match(new RegExp(`\\.pf-btn-${variant}\\s*\\{([^}]*)\\}`));
+    assert.ok(rule, `.pf-btn-${variant} is missing`);
+    assert.match(rule[1], new RegExp(`--pf-off-bg:\\s*var\\(--${fill}\\);`), `.pf-btn-${variant} off fill`);
+    assert.match(rule[1], new RegExp(`--pf-off-fg:\\s*var\\(--${text}\\);`), `.pf-btn-${variant} off text`);
+  }
+  assert.match(css, /\.pf-btn:disabled,\s*\.pf-btn\[aria-disabled="true"\]\s*\{[^}]*background:\s*var\(--pf-off-bg, var\(--off-fill\)\);[^}]*color:\s*var\(--pf-off-fg, var\(--ink-soft\)\);/);
+});
+
 test('light-first: no dark colour scheme, and dark: utilities never switch on', () => {
   assert.doesNotMatch(css, /prefers-color-scheme:\s*dark/);
   assert.match(css, /@custom-variant dark \(&:where\(\.dark, \.dark \*\)\);/);

@@ -43,6 +43,15 @@
   --wood: #E3A963;
   --wood-dark: #C98942;
   --off-fill: #E7E3DA;
+  --off-blue: #CFDCEC;
+  --off-blue-ink: #2F4B70;
+  --off-soft: #ECF0F5;
+  --off-green: #D0E3D2;
+  --off-green-ink: #2F5434;
+  --off-coral: #F0D6D2;
+  --off-coral-ink: #7E3B35;
+  --off-peach: #F5E3D2;
+  --off-peach-ink: #65503B;
 
   --glass: rgba(255, 255, 255, 0.62);
   --glass-line: rgba(255, 255, 255, 0.85);
@@ -268,18 +277,28 @@
     transform: translateY(2px);
     --pf-drop-y: 2px;
   }
+  /* --pf-off-*: the variant's look while it is off, its own hue with the colour drained out */
   .pf-btn-primary {
     --pf-drop-colour: #234d82;
+    --pf-off-bg: var(--off-blue);
+    --pf-off-fg: var(--off-blue-ink);
+    --pf-off-edge: inset 0 0 0 2px #AFC3DC;
     background: linear-gradient(180deg, #3B73B8, var(--blue-deep));
     color: #fff;
   }
   .pf-btn-go {
     --pf-drop-colour: #1f5a23;
+    --pf-off-bg: var(--off-green);
+    --pf-off-fg: var(--off-green-ink);
+    --pf-off-edge: inset 0 0 0 2px #ADCBB0;
     background: linear-gradient(180deg, #338637, var(--green-deep));
     color: #fff;
   }
   .pf-btn-danger {
     --pf-drop-colour: #8a2b24;
+    --pf-off-bg: var(--off-coral);
+    --pf-off-fg: var(--off-coral-ink);
+    --pf-off-edge: inset 0 0 0 2px #DDB5AF;
     background: linear-gradient(180deg, #C4433A, var(--coral-deep));
     color: #fff;
   }
@@ -287,6 +306,9 @@
     --pf-drop-y: 3px;
     --pf-drop-colour: rgba(31, 42, 68, 0.12);
     --pf-edge: inset 0 0 0 2px var(--ink);
+    --pf-off-bg: #fff;
+    --pf-off-fg: var(--ink-soft);
+    --pf-off-edge: inset 0 0 0 2px #B9BFCC;
     background: #fff;
     color: var(--ink);
   }
@@ -294,6 +316,9 @@
     --pf-drop-y: 3px;
     --pf-drop-colour: rgba(31, 42, 68, 0.1);
     --pf-edge: inset 0 0 0 2px #DCD6CA;
+    --pf-off-bg: #fff;
+    --pf-off-fg: var(--ink-soft);
+    --pf-off-edge: inset 0 0 0 2px var(--line);
     background: #fff;
     color: var(--ink);
   }
@@ -303,12 +328,18 @@
   .pf-btn-soft {
     --pf-drop-y: 3px;
     --pf-drop-colour: #C6D9F0;
+    --pf-off-bg: var(--off-soft);
+    --pf-off-fg: var(--off-blue-ink);
+    --pf-off-edge: inset 0 0 0 2px #D3DDE9;
     background: var(--blue-soft);
     color: var(--blue-deep);
   }
   .pf-btn-peach {
     --pf-drop-y: 3px;
     --pf-drop-colour: #E7B98C;
+    --pf-off-bg: var(--off-peach);
+    --pf-off-fg: var(--off-peach-ink);
+    --pf-off-edge: inset 0 0 0 2px #E3C7AC;
     background: linear-gradient(90deg, #FBE3CF, #F6CFA8);
     color: var(--ink);
   }
@@ -317,14 +348,22 @@
     padding: 7px 14px;
     font-size: 13px;
   }
+  /* off: flat (no drop, so it doesn't look pressable) in the variant's drained hue, with a rim */
   .pf-btn:disabled,
   .pf-btn[aria-disabled="true"] {
-    --pf-edge: 0 0 #0000;
+    --pf-edge: var(--pf-off-edge, 0 0 #0000);
     --pf-drop-colour: transparent;
-    background: var(--off-fill);
-    color: var(--ink-soft);
+    background: var(--pf-off-bg, var(--off-fill));
+    color: var(--pf-off-fg, var(--ink-soft));
     cursor: not-allowed;
     transform: none;
+  }
+  /* why a button is off, under it: a tooltip alone never shows on a phone */
+  .pf-off-why {
+    margin-top: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ink-soft);
   }
 
   /* ---- chips ---- */

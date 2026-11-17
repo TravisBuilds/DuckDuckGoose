@@ -43,8 +43,22 @@ export const TOKENS = {
   wood: '#E3A963',
   'wood-dark': '#C98942',
   white: '#FFFFFF',
-  /** A disabled button's fill; its text is ink-soft (readable, while the flat fill says "off"). */
+  /** A disabled neutral button's fill; its text is ink-soft (readable, while the flat fill says "off"). */
   'off-fill': '#E7E3DA',
+  /**
+   * A disabled coloured button keeps its hue with the colour drained out (globals.css --pf-off-*), so
+   * it reads as "this button, not yet" rather than broken grey: blue for primary (and, lighter, soft),
+   * green for go, coral for danger, peach for peach, each with a dark text shade of the same hue.
+   */
+  'off-blue': '#CFDCEC',
+  'off-blue-ink': '#2F4B70',
+  'off-soft': '#ECF0F5',
+  'off-green': '#D0E3D2',
+  'off-green-ink': '#2F5434',
+  'off-coral': '#F0D6D2',
+  'off-coral-ink': '#7E3B35',
+  'off-peach': '#F5E3D2',
+  'off-peach-ink': '#65503B',
 };
 
 /**
@@ -125,8 +139,10 @@ export const TEXT_PAIRS = [
   ['mustard-ink', 'cream'], ['mustard-ink', 'paper'], ['aqua-ink', 'paper'], ['lilac-deep', 'paper'],
   // the scene: text on the sky, the floor and the glass fallback
   ['ink', 'sky-top'], ['ink', 'sky-bottom'], ['ink-soft', 'sky-bottom'], ['ink', 'wood'],
-  // a disabled button: ink-soft on the flat off fill
-  ['ink-soft', 'off-fill'],
+  // a disabled button: ink-soft on the flat off fill (neutral buttons, and white ones with a rim), and
+  // each coloured variant's drained fill with its text shade
+  ['ink-soft', 'off-fill'], ['off-blue-ink', 'off-blue'], ['off-blue-ink', 'off-soft'], ['off-green-ink', 'off-green'],
+  ['off-coral-ink', 'off-coral'], ['off-peach-ink', 'off-peach'],
   // the remapped Tailwind shades the older panels use
   ['gray/500', 'white'], ['gray/600', 'white'], ['gray/700', 'white'], ['gray/600', 'gray/50'],
   ['gray/700', 'gray/100'], ['gray/600', 'cream'], ['gray/700', 'paper'], ['gray/900', 'gray/100'],

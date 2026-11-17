@@ -91,11 +91,15 @@ function BoardPictures({ board, dropping, testId }: { board: WorldBoard; droppin
   );
 }
 
-function SideNext({ href, children, disabled = false, testId = 'creation-next' }: {
-  href: string; children: ReactNode; disabled?: boolean; testId?: string;
+function SideNext({ href, children, disabled = false, reason = null, testId = 'creation-next' }: {
+  href: string; children: ReactNode; disabled?: boolean; reason?: string | null; testId?: string;
 }) {
   return disabled ? (
-    <button type="button" disabled className="pf-btn pf-btn-primary mt-4 w-full" data-testid={testId}>{children}</button>
+    <>
+      <button type="button" disabled className="pf-btn pf-btn-primary mt-4 w-full" title={reason ?? undefined}
+        aria-describedby={reason ? `${testId}-why` : undefined} data-testid={testId}>{children}</button>
+      {reason && <p id={`${testId}-why`} className="pf-off-why text-center" data-testid={`${testId}-why`}>{reason}</p>}
+    </>
   ) : (
     <Link href={href} className="pf-btn pf-btn-primary mt-4 w-full" data-testid={testId}>{children}</Link>
   );
@@ -509,9 +513,11 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             {file && <RightsQuestions rights={rights} onChange={setRights} group="creation-rights" testId={(w) => `creation-${w}`} />}
             {file && !fileIssue && rightsIssue && <p className="mt-2 text-[12.5px] font-bold text-mustard-ink">{rightsIssue}</p>}
             <button type="button" className="pf-btn pf-btn-primary pf-btn-sm mt-3" disabled={busy || !file || !!fileIssue || !!rightsIssue}
+              title={file ? undefined : 'Turns on once you choose a photo.'} aria-describedby={file ? undefined : 'creation-photo-why'}
               onClick={uploadPhoto} data-testid="creation-photo-send">
               Upload the photo
             </button>
+            {!file && <p id="creation-photo-why" className="pf-off-why" data-testid="creation-photo-why">Turns on once you choose a photo.</p>}
           </div>
         )}
         <Message note={note} where="photos" />
@@ -544,10 +550,13 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               data-testid="creation-note-text" />
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <button type="button" className="pf-btn pf-btn-soft pf-btn-sm" disabled={busy || !text.trim()} onClick={addNote}
+                title={text.trim() ? undefined : 'Turns on once you write a note.'} aria-describedby="creation-note-why"
                 data-testid="creation-note-add">
                 <Icon name="plus" size={13} />Add the note
               </button>
-              {text.trim() && <span className={hint}>Kept on this device until you add it.</span>}
+              <span id="creation-note-why" className={text.trim() ? hint : 'pf-off-why !mt-0'} data-testid="creation-note-why">
+                {text.trim() ? 'Kept on this device until you add it.' : 'Turns on once you write a note.'}
+              </span>
             </div>
           </div>
         )}
@@ -562,7 +571,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                       <textarea value={editing.body} onChange={(e) => setEditing({ id: n.note_id, body: e.target.value })}
                         maxLength={limits.note_max} rows={4} aria-label="Note" className={field} />
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" className="pf-btn pf-btn-primary pf-btn-sm" disabled={busy || !editing.body.trim()} onClick={saveNote}>Save</button>
+                        <button type="button" className="pf-btn pf-btn-primary pf-btn-sm" disabled={busy || !editing.body.trim()} onClick={saveNote}
+                          title={editing.body.trim() ? undefined : 'A note can’t be empty.'}>Save</button>
                         <button type="button" className="pf-btn pf-btn-quiet pf-btn-sm" onClick={() => setEditing(null)}>Cancel</button>
                       </div>
                     </div>
@@ -594,13 +604,13 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         <p className={hint}>
           {journey.boardOpen
             ? `${creation.board.image_count} pictures will mix your photos and notes into one look. You see the price first.`
-            : unlockHint}
+            : 'The mood board mixes your photos and notes into one look.'}
         </p>
         <ul className="mt-3 space-y-1 text-[13px] font-bold">
           <li className="flex justify-between border-b border-dashed border-ink/10 py-1.5">Photos<b>{counts.photos} of {limits.max_photos}</b></li>
           <li className="flex justify-between py-1.5">Notes<b>{counts.notes} of {limits.max_notes}</b></li>
         </ul>
-        <SideNext href={stepHref('moodboard')} disabled={!journey.boardOpen}>Next: Mood board →</SideNext>
+        <SideNext href={stepHref('moodboard')} disabled={!journey.boardOpen} reason={unlockHint}>Next: Mood board →</SideNext>
       </>
     );
   } else if (step === 'moodboard') {
@@ -645,9 +655,14 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                   maxLength={limits.feedback_max} placeholder="e.g. warmer light, fewer people, more of the sea"
                   className={field} data-testid="board-feedback" />
                 <button type="button" className="pf-btn pf-btn-ghost pf-btn-sm mt-2.5" disabled={busy || !feedback.trim()}
+                  title={feedback.trim() ? undefined : 'Turns on once you say what to change.'}
+                  aria-describedby={feedback.trim() ? undefined : 'board-redo-why'}
                   onClick={() => checkPrice(feedback.trim())} data-testid="board-redo-price">
                   Check the price of a redo
                 </button>
+                {!feedback.trim() && (
+                  <p id="board-redo-why" className="pf-off-why" data-testid="board-redo-why">Turns on once you say what to change.</p>
+                )}
                 {estimateBlock(true)}
                 {estimate?.feedback && (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -681,6 +696,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         <Message note={note?.text === BOARD_STARTED && !making ? null : note} where="board" />
       </>
     );
+    const priced = Boolean(estimate && !estimate.feedback);
     if (!latest) {
       side = (
         <>
@@ -694,12 +710,14 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           ) : !making && (
             <>
               <button type="button" className="pf-btn pf-btn-soft mt-3.5 w-full" disabled={busy || !journey.boardOpen}
+                title={unlockHint ?? undefined} aria-describedby={unlockHint ? 'board-unlock-why' : undefined}
                 onClick={() => checkPrice('')} data-testid="board-check-price">
                 Check the price
               </button>
-              {unlockHint && <p className={`${hint} mt-1.5`}>{unlockHint}</p>}
+              {unlockHint && <p id="board-unlock-why" className="pf-off-why text-center">{unlockHint}</p>}
               {estimateBlock(false)}
               <button type="button" className="pf-btn pf-btn-go mt-4 w-full" disabled={busy || !estimate || Boolean(estimate.feedback)}
+                title={priced ? undefined : 'Turns on once the price is on screen.'} aria-describedby="board-make-why"
                 onClick={makeBoard} data-testid="board-make">
                 <Icon name="spark" size={16} />
                 {estimate && !estimate.feedback ? `Make my mood board · ${priceOf(estimate.result)}` : 'Make my mood board'}
@@ -709,8 +727,10 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                   Cancel
                 </button>
               )}
-              <p className="mt-2 text-center text-[12px] text-ink-soft">
-                Nothing is spent until you press this. If we can&apos;t get a price, the button stays off.
+              <p id="board-make-why" className={`${priced ? 'mt-2 text-[12px] text-ink-soft' : 'pf-off-why'} text-center`} data-testid="board-make-why">
+                {priced
+                  ? 'Nothing is spent until you press this.'
+                  : 'Turns on once the price is on screen. If we can’t get a price, it stays off: nothing is spent until you press it.'}
               </p>
             </>
           )}
@@ -826,7 +846,9 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             ? `${plural(counts.characters, 'character')} and ${counts.things} places and props joined ${world.name}. Add photos and voices on the Universe page.`
             : 'Characters, places and props, written once from the approved board. You can change every word afterwards.'}
         </p>
-        <SideNext href={stepHref('lock')} disabled={!bibleDone}>Next: lock the looks →</SideNext>
+        <SideNext href={stepHref('lock')} disabled={!bibleDone} reason="Turns on once the bible is written.">
+          Next: lock the looks →
+        </SideNext>
         <Link href={here} className="pf-btn pf-btn-quiet mt-2 w-full" data-testid="creation-open-universe">Open the Universe</Link>
       </>
     );

@@ -6,7 +6,8 @@ import path from 'node:path';
 /**
  * The guarantees the studio's look must keep (DESIGN-TARGETS-v2 §6.7), against the real dry-run backend
  * (playwright.e2e.config.ts): the mood board's price is on screen before its button turns on; a creation
- * screen is the highlighted stop of its path; at 390 px the mood board decision fits the screen; an
+ * screen is the highlighted stop of its path; a disabled button keeps its colour and says why; on a
+ * phone the top bar shows the Universe's name; at 390 px the mood board decision fits the screen; an
  * episode whose character has no locked look keeps its start button off (and the server refuses it
  * too), and on a phone its start panel is a solid bottom sheet with nothing showing beneath it; a
  * member who may see a Universe without owning it gets no lock or voice controls; at 390 px the
@@ -106,6 +107,29 @@ test.describe.serial('Playful studio guarantees', () => {
     await expectPath(page, { spark: 'done', references: 'done', moodboard: 'now', bible: 'todo', lock: 'todo' }, 'moodboard');
     await page.goto(`/studio/universes/${universeId}/create?step=spark`);
     await expectPath(page, { spark: 'now', references: 'done', moodboard: 'todo', bible: 'todo', lock: 'todo' }, 'spark');
+  });
+
+  test("a disabled button keeps its colour and says why; on a phone the top bar shows the Universe's name", async ({ page }) => {
+    await signIn(page, OWNER);
+    await page.goto(`/studio/universes/${universeId}/create?step=references`);
+    const send = page.getByTestId('creation-photo-send');
+    await expect(send).toBeDisabled();
+    await expect(send).toHaveAttribute('aria-describedby', 'creation-photo-why');
+    await expect(page.getByTestId('creation-photo-why')).toHaveText('Turns on once you choose a photo.');
+    // the primary blue with the colour drained out (globals.css --off-blue / --off-blue-ink), not grey
+    expect(await send.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(207, 220, 236)');
+    expect(await send.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(47, 75, 112)');
+    await expect(page.getByTestId('creation-note-why')).toHaveText('Turns on once you write a note.');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const name = page.getByTestId('studio-focus-name');
+    await expect(name).toBeVisible();
+    await expect(name).toHaveText(UNIVERSE);
+    expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the Universe name is cut short').toBe(true);
+    await expect(page.getByTestId('studio-focus')).toContainText('New Universe');
+    const exit = (await page.getByTestId('studio-save-exit').boundingBox())!;
+    expect(exit.height, 'Save & exit wraps onto two lines').toBeLessThanOrEqual(40);
+    expect(exit.x + exit.width).toBeLessThanOrEqual(390);
   });
 
   test('at 390 px the mood board decision and the goose stay on the screen', async ({ page }) => {

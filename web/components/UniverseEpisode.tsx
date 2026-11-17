@@ -300,10 +300,11 @@ export function StartCard({ episodeId, info, onStarted }: {
           detail: locked ? null : `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` },
       ]} />
       <button type="button" className={`${btnGo} mt-3 w-full`} disabled={busy || !locked} onClick={start}
-        data-testid="start-episode">
+        title={locked ? undefined : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
+        aria-describedby="start-episode-why" data-testid="start-episode">
         {busy ? 'Starting…' : 'Start the video'}
       </button>
-      <p className="mt-2 text-center text-[12px] text-ink-soft">
+      <p id="start-episode-why" className={`${locked ? 'mt-2 text-[12px] text-ink-soft' : 'pf-off-why'} text-center`}>
         {locked
           ? request.dry_run ? 'Nothing is charged in a test run.' : 'The studio checks the price and your balance again before each paid step.'
           : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
