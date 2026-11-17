@@ -198,7 +198,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
             Skip to content
           </a>
           <header className="sticky top-0 z-40 px-3 pt-3 sm:px-6 sm:pt-3.5 lg:px-8" data-testid="studio-shell">
-            <div className="pf-glass mx-auto flex max-w-[1240px] items-center gap-3 !rounded-full py-2 pl-4 pr-2.5 shadow-card sm:gap-4">
+            <div className="pf-glass mx-auto flex max-w-[1240px] items-center gap-2 !rounded-full py-2 pl-4 pr-2.5 shadow-card sm:gap-4">
               <Link href="/studio" className="flex flex-none items-center gap-2 rounded-full font-display text-[19px] font-bold">
                 <GooseArt className="h-[34px] w-[34px]" />
                 <span className={focus ? 'hidden sm:inline' : ''}>
@@ -208,16 +208,27 @@ export default function StudioShell({ children }: { children: ReactNode }) {
               </Link>
               {focus ? (
                 <>
-                  <p className="min-w-0 truncate text-[13px] font-extrabold text-ink-soft" data-testid="studio-focus">
-                    {focus.label} · <span className="text-ink">{focus.name}</span>
+                  {/* on a phone the label sits over the name, so the name gets the bar's whole width */}
+                  <p className="min-w-0 flex-1 leading-tight sm:flex-initial sm:truncate sm:text-[13px] sm:font-extrabold sm:text-ink-soft"
+                    data-testid="studio-focus">
+                    <span className="block truncate text-[11.5px] font-extrabold text-ink-soft sm:inline sm:text-[13px]">
+                      {focus.label}<span className="hidden sm:inline"> · </span>
+                    </span>
+                    <span className="block truncate text-[15px] font-extrabold text-ink sm:inline sm:text-[13px]" data-testid="studio-focus-name">
+                      {focus.name}
+                    </span>
                   </p>
-                  <div className="flex-1" />
-                  <span role="status" className={`${chip} ${focus.saved === 'saving' ? tones.wait : tones.ok} ${focus.saved === 'idle' ? 'invisible' : ''}`}
+                  <div className="hidden flex-1 sm:block" />
+                  <span role="status"
+                    className={`${chip} ${focus.saved === 'saving' ? tones.wait : tones.ok} ${focus.saved === 'idle' ? 'invisible max-sm:hidden' : ''} shrink-0 max-sm:!px-2`}
                     data-testid="studio-saved">
-                    {focus.saved === 'saving' ? 'Saving…' : 'Saved'}
+                    {focus.saved === 'saving'
+                      ? <span aria-hidden="true" className="size-2 rounded-full bg-current motion-safe:animate-pulse sm:hidden" />
+                      : <Icon name="check" size={14} className="sm:hidden" />}
+                    <span className="max-sm:sr-only">{focus.saved === 'saving' ? 'Saving…' : 'Saved'}</span>
                   </span>
                   {balanceChip}
-                  <Link href={focus.exitHref} className="pf-btn pf-btn-ghost pf-btn-sm" data-testid="studio-save-exit">
+                  <Link href={focus.exitHref} className="pf-btn pf-btn-ghost pf-btn-sm shrink-0 whitespace-nowrap" data-testid="studio-save-exit">
                     Save &amp; exit
                   </Link>
                 </>
