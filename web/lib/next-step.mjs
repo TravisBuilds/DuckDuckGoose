@@ -379,19 +379,21 @@ export function stepperSteps(state, story, cast, next) {
 export const PAID_STEPS = ['cast', 'stills', 'final_cut'];
 
 /**
- * The words under a step of the trail. A finished paid step shows the spend recorded for it, "Free"
- * only when its run was a test run (nothing in it was paid for), and in a live run without a recorded
- * spend "Cost not recorded", never "Free". `cost`: the recorded spend in usd_micros, or null when the
- * step has none on record (the budget was not read, or the step has no budget line of its own).
- * `dryRun`: the run's recorded mode, null before a run; `live`: the studio's live mode.
+ * The words under a step of the trail. A finished paid step shows the spend recorded for it: "Free"
+ * only for a recorded $0 in a test run (nothing in it was paid for), "—" while the budget is unread,
+ * and otherwise "Cost not recorded", never "Free". `cost`: the recorded spend in usd_micros, null
+ * when the step has none on record (no budget line of its own: character sheets are charged to the
+ * references line), undefined while the budget is unread. `dryRun`: the run's recorded mode, null
+ * before a run; `live`: the studio's live mode.
  */
-export function stepNote(step, { cost = null, live = false, dryRun = null } = {}) {
+export function stepNote(step, { cost, live = false, dryRun = null } = {}) {
   const paid = PAID_STEPS.includes(step?.key);
   switch (step?.status) {
     case 'done':
       if (!paid) return 'Done';
+      if (cost === undefined) return '—';
       if (typeof cost === 'number' && cost > 0) return formatUsdMicros(cost);
-      return dryRun === true ? 'Free' : 'Cost not recorded';
+      return cost === 0 && dryRun === true ? 'Free' : 'Cost not recorded';
     case 'skipped':
       return 'Skipped';
     case 'stopped':

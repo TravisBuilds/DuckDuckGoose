@@ -375,20 +375,26 @@ test('the stepper marks done, current and skipped steps', () => {
   assert.equal(statuses(stopped).stills, 'stopped');
 });
 
-test('the words under a step: a paid step says "Free" only in a test run, else its recorded cost or that none is recorded', () => {
+test('the words under a step: a paid step says "Free" only for a recorded $0 in a test run, else its recorded cost or that none is recorded', () => {
   const done = (key) => ({ key, status: 'done' });
   assert.equal(stepNote(done('stills'), { cost: 1_240_000, dryRun: false }), '$1.24');
   assert.equal(stepNote(done('final_cut'), { cost: 50_000, dryRun: true }), '$0.05');
-  // a test run makes free stand-ins: nothing in it was paid for
+  // a test run makes free stand-ins: nothing in it was paid for, and its budget lines say $0
   assert.equal(stepNote(done('stills'), { cost: 0, dryRun: true }), 'Free');
-  assert.equal(stepNote(done('cast'), { cost: null, dryRun: true }), 'Free');
+  // a step with no spend on record never reads "Free", not even in a test run (character sheets can
+  // be paid while the run itself is a test run)
+  assert.equal(stepNote(done('cast'), { cost: null, dryRun: true }), 'Cost not recorded');
   // a live run with no spend on record never reads "Free"
-  for (const cost of [0, null, undefined]) {
+  for (const cost of [0, null]) {
     for (const key of PAID_STEPS) assert.equal(stepNote(done(key), { cost, dryRun: false }), 'Cost not recorded');
   }
   // nor when the run does not say which it was
   assert.equal(stepNote(done('stills'), { cost: 0 }), 'Cost not recorded');
   assert.equal(stepNote(done('stills'), { cost: 0, dryRun: null, live: false }), 'Cost not recorded');
+  // while the budget is unread the step claims nothing
+  for (const dryRun of [true, false, null]) {
+    for (const key of PAID_STEPS) assert.equal(stepNote(done(key), { cost: undefined, dryRun }), '—');
+  }
   assert.deepEqual(PAID_STEPS, ['cast', 'stills', 'final_cut']);
   // steps that never spend, and the rest of the trail
   assert.equal(stepNote(done('story'), { dryRun: false }), 'Done');

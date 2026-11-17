@@ -704,12 +704,12 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const runLive = liveRun({ live, dryRun });
   const spent = budget ? budget.lines.reduce((sum, line) => sum + line.spent, 0) : null;
   // a step's spend is on record only when the episode's budget has lines of its own for it
-  const costs = Object.fromEntries(Object.entries(STEP_LINES).map(([key, of]) => {
-    const lines = budget?.lines.filter((line) => of(line.line_name)) ?? [];
+  const costs = budget ? Object.fromEntries(Object.entries(STEP_LINES).map(([key, of]) => {
+    const lines = budget.lines.filter((line) => of(line.line_name));
     return [key, lines.length > 0 ? lines.reduce((sum, line) => sum + line.spent, 0) : null];
-  }));
+  })) : null;
   // a finished live run that recorded no spend says so instead of $0.00
-  const realCost = spent === null || (spent === 0 && dryRun !== true) ? 'Not recorded' : formatUsd(spent);
+  const realCost = spent === null ? '—' : spent === 0 && dryRun !== true ? 'Not recorded' : formatUsd(spent);
   const startHere = notStarted && canAct && Boolean(info?.universe);
   const unlocked = info?.lock?.unlocked ?? [];
   const decision = Boolean(viewer) && !completed && !expired && canAct && !next.waiting && DECISIONS.includes(next.step);

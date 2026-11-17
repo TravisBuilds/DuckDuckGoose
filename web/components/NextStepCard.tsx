@@ -16,10 +16,12 @@ const STATE: Record<StepperStep['status'], { cls: string; words: string }> = {
 /**
  * Story, Cast, Shot plan, Scene pictures, Final cut, Download as the board-game trail: a "$" coin on
  * each step that spends in a live run, and under each done step what it really cost (`costs`, from
- * the episode's budget lines; "Free" only in a test run, `dryRun` being the run's own record).
+ * the episode's budget lines, null while the budget is unread; "Free" only for a recorded $0 in a
+ * test run, `dryRun` being the run's own record).
  */
 export function Stepper({ steps, costs = {}, live = false, dryRun = null, testId = 'stepper' }: {
-  steps: StepperStep[]; costs?: Record<string, number | null>; live?: boolean; dryRun?: boolean | null; testId?: string;
+  steps: StepperStep[]; costs?: Record<string, number | null> | null; live?: boolean; dryRun?: boolean | null;
+  testId?: string;
 }) {
   return (
     <div className="overflow-x-auto pb-1">
@@ -27,7 +29,7 @@ export function Stepper({ steps, costs = {}, live = false, dryRun = null, testId
         {steps.map((step, i) => {
           const state = STATE[step.status];
           const paid = PAID_STEPS.includes(step.key);
-          const note = stepNote(step, { cost: costs[step.key] ?? null, live, dryRun });
+          const note = stepNote(step, { cost: costs === null ? undefined : costs[step.key] ?? null, live, dryRun });
           return (
             <li key={step.key} className={`flex items-start ${i === 0 ? 'flex-none' : 'flex-1'}`}
               data-testid={testId === 'stepper' ? `step-${step.key}` : `${testId}-${step.key}`}

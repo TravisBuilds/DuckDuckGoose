@@ -1,4 +1,4 @@
-import { request as apiRequest, type Page } from '@playwright/test';
+import { request as apiRequest, type Page, type Route } from '@playwright/test';
 import { test, expect } from './e2e-cleanup';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -14,7 +14,8 @@ import path from 'node:path';
  * studio's bottom bar replaces the top tabs; and a finished episode's trail says Download is done and
  * never calls a paid step "Free" without a recorded cost. The Universe is made through the API: nothing
  * here is generated or charged. The only API mocks turn the finished test run's record into a live
- * one's (a live run needs paid providers): dry_run off, then spend on its budget lines.
+ * one's (a live run needs paid providers): dry_run off, then spend on its budget lines. Its budget
+ * response is also held back once, unchanged, to show the trail before the spend is read.
  */
 
 const API = 'http://localhost:8000';
@@ -320,6 +321,24 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(note('stills')).toHaveText('Free');
     await expect(note('final_cut')).toHaveText('Free');
     await expect(page.getByTestId('episode-real-cost')).toHaveText('$0.00');
+
+    // until the budget is read, no paid step claims a cost, "Free" or not recorded
+    let release = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const hold = async (route: Route) => {
+      await held;
+      await route.fallback();
+    };
+    await page.route(`${API}/api/episodes/${FINISHED_EPISODE}/budget`, hold);
+    await page.reload();
+    await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
+    await expect(note('stills')).toHaveText('—');
+    await expect(note('final_cut')).toHaveText('—');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('—');
+    release();
+    await expect(note('stills')).toHaveText('Free');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('$0.00');
+    await page.unroute(`${API}/api/episodes/${FINISHED_EPISODE}/budget`, hold);
 
     // the same run as a live one that recorded no spend (a live run needs paid providers, so its
     // record is the dry run's with dry_run off): no paid step says "Free"
