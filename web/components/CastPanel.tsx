@@ -109,6 +109,31 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
   );
 }
 
+/** A character sheet as a compact grid of thumbnails, each opening the full picture. */
+function SheetGrid({ images }: { images: CastImage[] }) {
+  return (
+    <>
+      <ul className="grid grid-cols-4 gap-1.5">
+        {images.map((image) => {
+          const text = PICTURE_LABELS[image.role] ?? image.role;
+          return (
+            <li key={image.image_id} data-testid={`cast-image-${image.image_id}`}>
+              <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" title={`${text}: open the full picture`}
+                className={`block rounded-[10px] ${focusRing}`}>
+                <img src={`${API_URL}${image.thumb_url}`} alt={text} loading="lazy"
+                  className="aspect-square w-full rounded-[10px] bg-[#F2EEE5] object-cover shadow-card" />
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      {images.some((image) => image.placeholder) && (
+        <p className="mt-1 text-[11.5px] font-bold text-mustard-ink">Stand-in pictures (preview)</p>
+      )}
+    </>
+  );
+}
+
 function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
   apiBase: string; character: CastCharacter; version: CastVersion; view: CastView; busy: boolean; act: Act;
   note: CastNote | null;
@@ -312,9 +337,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
       {pictures.sheet.length > 0 && (
         <div className="mb-3">
           <p className="text-xs font-semibold mb-1">{version.locked ? 'Locked sheet' : 'Sheet so far'}</p>
-          <div className="flex flex-wrap gap-3">
-            {pictures.sheet.map((image) => <PictureTile key={image.image_id} image={image} />)}
-          </div>
+          <SheetGrid images={pictures.sheet} />
         </div>
       )}
 
@@ -907,9 +930,7 @@ function UniverseLook({ character, version, lockEpisode, canEdit }: {
       {sheet.length > 0 && (
         <div className="my-2">
           <p className="text-xs font-semibold mb-1">{version.locked ? 'Locked sheet' : 'Sheet so far'}</p>
-          <div className="flex flex-wrap gap-3">
-            {sheet.map((image) => <PictureTile key={image.image_id} image={image} />)}
-          </div>
+          <SheetGrid images={sheet} />
         </div>
       )}
       {canEdit && !version.locked && (
