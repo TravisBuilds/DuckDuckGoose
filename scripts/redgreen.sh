@@ -4459,6 +4459,114 @@ test_mutation 638 "gate chip: who waits on the owner" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
     sed -i "s/^  return canAct ? null : ownerName || 'the owner';\$/  return null;  \/\/ MUTATED/"
 
+# 639: a Universe only for who may see it: everyone else gets the 404 a missing one gets
+test_mutation 639 "universe: hidden from who may not see it" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_another_member_gets_the_404_a_missing_universe_gets" \
+    sed -i 's/^    if not await cast_api\._may_see_series(series, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 640: ... and changed only by its owner or an admin (an episode editor sees it, nothing more)
+test_mutation 640 "universe: only its owner or an admin changes it" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_episode_editors_see_the_universe_but_do_not_change_it" \
+    sed -i 's/^    if who\["can_edit"\]:$/    if True:  # MUTATED/'
+
+# 641: "Used in N episodes" counts each episode once per item, not each shot
+test_mutation 641 "universe: used-in counts episodes, not shots" \
+    "hfvg/world_store.py" \
+    "tests/test_world_store.py::test_used_in_counts_each_episode_once_per_item_and_tolerates_bad_files" \
+    sed -i 's/^        for slug in {\*usage\["places"\], \*usage\["props"\]}:$/        for slug in [s for shot in shot_usage(episode_id) for s in [shot["place"], *shot["props"]] if s]:  # MUTATED/'
+
+# 642: a draft without a Universe asks the model byte for byte what it asked before
+test_mutation 642 "draft: nothing added without a Universe" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_draft_without_a_universe_asks_the_model_exactly_what_it_asked_before" \
+    sed -i 's/^\( *studio_admin_token) if request\.world_id else \)None)$/\1{"context": "", "names": None})  # MUTATED/'
+
+# 643: a locked look whose pictures changed since the lock reads "Look changed since lock"
+test_mutation 643 "consistency: a changed lock shows" \
+    "web/lib/consistency.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[consistency.test.mjs]" \
+    sed -i "s/^  if (version\.locked && (version\.problems ?? \[\])\.length > 0) return BADGES\.drift;\$/  if (false) return BADGES.drift;  \/\/ MUTATED/"
+
+# 644: a drafted character takes the Universe character of its name, unless two share the name
+test_mutation 644 "consistency: a shared name is not auto-mapped" \
+    "web/lib/consistency.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[consistency.test.mjs]" \
+    sed -i "s/^    byName\.set(key, byName\.has(key) ? null : c\.slug);\$/    byName.set(key, c.slug);  \/\/ MUTATED/"
+
+# 645: a character's saved voice is changed only by the Universe's owner or an admin
+test_mutation 645 "voices: only the owner saves a character's voice" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_saving_a_picked_voice_calls_no_provider_and_only_owners_see_it" \
+    sed -i '/^async def save_character_voice(/,/^save_character_voice\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = await _viewer(series_id, authorization, studio_admin_token)  # MUTATED/'
+
+# 646: in a Universe, a speaker named like one of its characters starts with that character's saved voice
+test_mutation 646 "wizard: speakers start with the saved voice" \
+    "web/lib/wizard.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[wizard.test.mjs]" \
+    sed -i "s/^    const voice = slot\.role === 'narrator' ? narrator : slot\.role === 'speaker' ? byName\.get(sameName(slot\.speaker)) : null;\$/    const voice = slot.role === 'narrator' ? narrator : null;  \/\/ MUTATED/"
+
+# 647: an episode in a Universe does not start before every look it uses is locked
+test_mutation 647 "lock: the start waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_does_not_start_before_every_look_it_uses_is_locked" \
+    sed -i 's/^    await _refuse_unlocked_universe_cast(request\.episode_id, "start")$/    pass  # MUTATED/'
+
+# 648: ... nor starts again
+test_mutation 648 "lock: start again waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_does_not_start_again_before_its_looks_are_locked" \
+    sed -i 's/^    await _refuse_unlocked_universe_cast(episode_id, "start")$/    pass  # MUTATED/'
+
+# 649: ... nor has its shot plan approved
+test_mutation 649 "lock: the shot plan approval waits for locked looks" \
+    "api/main.py" \
+    "tests/test_world_api.py::test_a_universe_episode_waits_for_locked_looks_before_its_shot_plan" \
+    sed -i 's/^                await _refuse_unlocked_universe_cast(episode_id)$/                pass  # MUTATED/'
+
+# 650: ... nor puts a character without a locked look in a shot while the run waits at the shot plan
+test_mutation 650 "lock: picks at the shot plan need a locked look" \
+    "api/shot_plan_routes.py" \
+    "tests/test_world_api.py::test_at_the_shot_plan_a_universe_episode_takes_only_characters_with_a_locked_look" \
+    sed -i 's/^            if unlocked:$/            if False:  # MUTATED/'
+
+# 651: an episode's Universe, strip and locks only for who may see its cast
+test_mutation 651 "episode strip: only for who may see the cast" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the_cast" \
+    sed -i 's/^    if not await cast_api\._may_see(library, user_id, is_admin):$/    if False:  # MUTATED/'
+
+# 652: reference photos and open mood boards only for the Universe's owner and admins
+test_mutation 652 "universe images: references only for the owner" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_universe_images_follow_who_may_see_them" \
+    sed -i 's/^    if who\["can_edit"\] or image\.get("board_status") == "approved":$/    if True:  # MUTATED/'
+
+# 653: a live mood board is refused before any provider is asked or anything charged
+test_mutation 653 "mood board: a live board is refused" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_live_mood_board_is_refused_before_anything_is_asked_or_charged" \
+    sed -i '/^def _board_prices() -> list\[int\]:$/,/^    return \[/ s/^    if not cast_api\._dry_run():$/    if False:  # MUTATED/'
+
+# 654: the story bible and style notes go into a draft only for the Universe's owner and admins
+test_mutation 654 "draft: bible and style notes only for the owner" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_a_draft_in_a_universe_is_written_with_its_context" \
+    sed -i 's/include_private=who\["can_edit"\])$/include_private=True)  # MUTATED/'
+
+# 655: the episode page takes who may act from the episode's Universe view
+test_mutation 655 "episode viewer: may act only when the API says so" \
+    "web/lib/next-step.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[next-step.test.mjs]" \
+    sed -i "s/^    canAct: info\.can_act === true,\$/    canAct: true,  \/\/ MUTATED/"
+
+# 656: the start request kept for an episode that waits for its looks starts only that episode
+test_mutation 656 "kept start: only for its own episode" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

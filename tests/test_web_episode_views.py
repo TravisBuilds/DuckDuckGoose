@@ -2,8 +2,10 @@
 those files are caught by the Python harness too: what the Next step, the stepper, the finish card and
 the status chips say (next-step.mjs), how an ended or archived run reads and when the page stops
 polling (run-outcome.mjs), who gets the Cast panel's add form and what a character with a photo
-needs and sends (cast.mjs), what a picture redo sends and says it costs (redo.mjs), and what a prop or
-place with a photo needs and what a shot plan save sends (props.mjs)."""
+needs and sends (cast.mjs), what a picture redo sends and says it costs (redo.mjs), what a prop or
+place with a photo needs and what a shot plan save sends (props.mjs), the Universe consistency badges
+(consistency.mjs), the home sections, cast auto-mapping and episode viewer (world.mjs), and the voices a
+wizard plan starts with (wizard.mjs)."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,6 +26,6 @@ def _node_tests(name: str) -> str:
 
 
 @pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs",
-                                  "props.test.mjs", "consistency.test.mjs", "world.test.mjs"])
+                                  "props.test.mjs", "consistency.test.mjs", "world.test.mjs", "wizard.test.mjs"])
 def test_episode_view_node_tests(name):
     _node_tests(name)

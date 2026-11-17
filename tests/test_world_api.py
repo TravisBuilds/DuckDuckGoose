@@ -302,7 +302,7 @@ async def test_episode_editors_see_the_universe_but_do_not_change_it(studio):
                       (f"{_base(sid)}/narrator-voice", {"voice_id": "fake-voice-2"}),
                       (f"{_base(sid)}/props", {"kind": "prop", "name": "Oar"})]:
         res = other.post(url, json=body)
-        assert (res.status_code, res.json()["detail"]) == (403, f"Universe Lantern Bay {REFUSED}"), url
+        assert (res.status_code, res.json().get("detail")) == (403, f"Universe Lantern Bay {REFUSED}"), url
     assert world_store.character_voices([wren["character_id"]])[wren["character_id"]]["voice_id"] == "fake-voice-1"
     assert prop_store.list_items(("series", sid)) == []
 
@@ -706,7 +706,7 @@ async def test_saving_a_picked_voice_calls_no_provider_and_only_owners_see_it(st
     assert other.post(base, json={"voice_id": "fake-voice-2"}).status_code == 404
     _link(studio, OTHER_EP, sid)
     res = other.post(base, json={"voice_id": "fake-voice-2"})
-    assert (res.status_code, res.json()["detail"]) == (403, f"Universe Lantern Bay {REFUSED}")
+    assert (res.status_code, res.json().get("detail")) == (403, f"Universe Lantern Bay {REFUSED}")
     assert voice["voice_id"] not in other.get(_base(sid)).text
     # admins may; clearing (null or an empty id) removes it; bad picks are refused
     assert admin.post(base, json={"voice_id": None}).json()["voice"] is None
@@ -808,7 +808,7 @@ async def test_a_live_mood_board_is_refused_before_anything_is_asked_or_charged(
         for url, body in [(f"{_base(sid)}/board/estimate", {}),
                           (f"{_base(sid)}/board", {"approved_total_usd_micros": 10**9})]:
             res = owner.post(url, json=body)
-            assert (res.status_code, res.json()["detail"]) == (409, world_routes.LIVE_BOARD), url
+            assert (res.status_code, res.json().get("detail")) == (409, world_routes.LIVE_BOARD), url
         view = owner.get(_base(sid)).json()
     assert view["creation"]["board"]["available"] is False and view["creation"]["boards"] == []
     assert network.calls.call_count == 0 and _money_rows() == before
@@ -951,7 +951,7 @@ async def test_a_universe_episode_does_not_start_before_every_look_it_uses_is_lo
     owner.post(f"/api/episodes/{EP}/series", json={"series_id": sid})
     _write_shots(EP, [_shot("A01", cast=["wren"]), _shot("A02", cast=["moss"])])
     res = owner.post("/api/episodes", json=START)
-    assert (res.status_code, res.json()["detail"]) == (
+    assert (res.status_code, res.json().get("detail")) == (
         409, world_store.lock_message([{"name": "Moss", "version": 1}], "start"))
     assert res.json()["detail"].startswith("Lock the look of Moss before this video starts: this video is in a Universe")
     studio.temporal_client.start_workflow.assert_not_called()
@@ -978,7 +978,7 @@ async def test_a_universe_episode_does_not_start_again_before_its_looks_are_lock
     studio.temporal_client = _temporal("FAILED")
     _ended_run(studio, EP)
     res = owner.post(f"/api/episodes/{EP}/start-again")
-    assert (res.status_code, res.json()["detail"]) == (
+    assert (res.status_code, res.json().get("detail")) == (
         409, world_store.lock_message([{"name": "Wren", "version": 1}], "start"))
     studio.temporal_client.start_workflow.assert_not_called()
     _lock(wren["character_id"])
@@ -1002,7 +1002,7 @@ async def test_at_the_shot_plan_a_universe_episode_takes_only_characters_with_a_
         "reopen_snapshot": {"attrs": {"reopen_log": [], "_dry_run": True}}, "get_state": state}[name])
     before = (paths.episode_dir(EP) / "shots.json").read_text()
     res = owner.post(f"/api/episodes/{EP}/shot-plan", json={"shots": {"A02": {"cast": ["moss"]}}})
-    assert (res.status_code, res.json()["detail"]) == (
+    assert (res.status_code, res.json().get("detail")) == (
         409, world_store.lock_message([{"name": "Moss", "version": 1}], "pick"))
     assert res.json()["detail"].startswith("Lock the look of Moss before they are put in a shot")
     assert (paths.episode_dir(EP) / "shots.json").read_text() == before
