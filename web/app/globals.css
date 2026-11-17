@@ -4,69 +4,69 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * "Playful Universe" tokens (DESIGN-TARGETS-v2 §1.1). lib/palette.mjs holds the same values and
+ * Studio tokens: a light, airy sky-blue look. lib/palette.mjs holds the same values and
  * lib/palette.test.mjs checks they agree and that every text pair meets WCAG AA. White text goes
- * only on the -deep tokens; the -ink tokens are the text colours on the -soft fills.
+ * only on the -deep tokens; the -ink tokens are the text colours on the -soft fills. The bright
+ * swatches (azure, lime, orange-red, yellow, cyan) are fills, circles, dots and chips.
  */
 :root {
-  --coral: #E8534A;
-  --coral-deep: #B83A31;
-  --coral-soft: #FDE3E0;
-  --mustard: #D9BC6E;
-  --mustard-deep: #8A6A12;
-  --mustard-soft: #FBF1D6;
-  --blue: #4F86C6;
-  --blue-deep: #2F64A8;
-  --blue-soft: #E1ECF8;
-  --aqua: #77C6D3;
-  --aqua-deep: #1F7A88;
-  --aqua-soft: #E2F4F7;
-  --green: #4CAF50;
-  --green-deep: #2E7D32;
-  --green-soft: #E3F3E4;
-  --lilac: #9B7FD1;
-  --lilac-deep: #6A4FB0;
-  --lilac-soft: #EEE8F9;
-  --coral-ink: #B83A31;
-  --mustard-ink: #806311;
-  --blue-ink: #2F64A8;
-  --aqua-ink: #1D717E;
-  --green-ink: #2B742F;
-  --lilac-ink: #6A4FB0;
+  --coral: #FF5A1F;
+  --coral-deep: #C2410C;
+  --coral-soft: #FFE8DE;
+  --mustard: #FFD60A;
+  --mustard-deep: #7D5E00;
+  --mustard-soft: #FFF5C2;
+  --blue: #1E9BF0;
+  --blue-deep: #0A6CC0;
+  --blue-soft: #DCEFFB;
+  --aqua: #BDEBFA;
+  --aqua-deep: #0A6C88;
+  --aqua-soft: #E4F7FD;
+  --green: #C6F432;
+  --green-deep: #3F720C;
+  --green-soft: #EEFBC6;
+  --lilac: #A78BFA;
+  --lilac-deep: #6447CF;
+  --lilac-soft: #EFEBFE;
+  --coral-ink: #B2380A;
+  --mustard-ink: #735600;
+  --blue-ink: #0A62AD;
+  --aqua-ink: #0A627C;
+  --green-ink: #3F6A06;
+  --lilac-ink: #5B3FC0;
   --ink: #1F2A44;
-  --ink-soft: #56607A;
-  --line: #E6E1D6;
-  --cream: #FFF8EC;
-  --paper: #FFFDF8;
-  --sky-top: #9FD3EE;
-  --sky-bottom: #E6F5FC;
-  --wood: #E3A963;
-  --wood-dark: #C98942;
-  --off-fill: #E7E3DA;
-  --off-blue: #CFDCEC;
-  --off-blue-ink: #2F4B70;
-  --off-soft: #ECF0F5;
-  --off-green: #D0E3D2;
-  --off-green-ink: #2F5434;
-  --off-coral: #F0D6D2;
-  --off-coral-ink: #7E3B35;
-  --off-peach: #F5E3D2;
-  --off-peach-ink: #65503B;
+  --ink-soft: #536379;
+  --line: #DCE7F2;
+  --line-strong: #B8CCE0;
+  --page: #EAF6FD;
+  --sky: #DCEFFB;
+  --paper: #FFFFFF;
+  --mist: #EDF3F9;
+  --off-fill: #E6ECF2;
+  --off-blue: #CFE0F0;
+  --off-blue-ink: #28496B;
+  --off-soft: #E9EFF4;
+  --off-green: #E6EDCB;
+  --off-green-ink: #4B5A1E;
+  --off-coral: #F2DCD2;
+  --off-coral-ink: #7A3418;
+  --off-peach: #F3E5DE;
+  --off-peach-ink: #664335;
 
-  --glass: rgba(255, 255, 255, 0.62);
-  --glass-line: rgba(255, 255, 255, 0.85);
-  --glass-solid: rgba(255, 255, 255, 0.92);
+  --glass: rgba(255, 255, 255, 0.8);
+  --glass-line: rgba(255, 255, 255, 0.95);
+  --glass-solid: rgba(255, 255, 255, 0.96);
 
-  --r-sm: 12px;
+  --r-sm: 14px;
   --r-md: 18px;
-  --r-lg: 28px;
-  --r-xl: 36px;
+  --r-lg: 26px;
+  --r-xl: 34px;
   --pill: 999px;
-  --shadow-1: 0 1px 2px rgba(31, 42, 68, 0.06), 0 4px 14px rgba(31, 42, 68, 0.08);
-  --shadow-2: 0 2px 4px rgba(31, 42, 68, 0.06), 0 14px 36px rgba(31, 42, 68, 0.14);
-  --shadow-pop: 0 6px 0 rgba(31, 42, 68, 0.12);
+  --shadow-1: 0 1px 2px rgba(31, 75, 120, 0.05), 0 8px 24px rgba(31, 75, 120, 0.08);
+  --shadow-2: 0 2px 6px rgba(31, 75, 120, 0.06), 0 18px 44px rgba(31, 75, 120, 0.15);
+  --shadow-azure: 0 8px 18px rgba(10, 108, 192, 0.26);
 
-  --font-display-stack: var(--font-fredoka), "Fredoka", "Baloo 2", system-ui, sans-serif;
+  --font-display-stack: var(--font-montserrat), "Montserrat", "Poppins", system-ui, sans-serif;
   --font-body-stack: var(--font-nunito), "Nunito", "Nunito Sans", system-ui, sans-serif;
 }
 
@@ -98,12 +98,11 @@
   --color-ink: var(--ink);
   --color-ink-soft: var(--ink-soft);
   --color-line: var(--line);
-  --color-cream: var(--cream);
+  --color-line-strong: var(--line-strong);
+  --color-page: var(--page);
+  --color-sky: var(--sky);
   --color-paper: var(--paper);
-  --color-sky-top: var(--sky-top);
-  --color-sky-bottom: var(--sky-bottom);
-  --color-wood: var(--wood);
-  --color-wood-dark: var(--wood-dark);
+  --color-mist: var(--mist);
   --color-off-fill: var(--off-fill);
 
   --font-display: var(--font-display-stack);
@@ -125,82 +124,85 @@
   --radius-2xl: 1.75rem;
   --radius-3xl: 2.25rem;
 
-  --color-gray-50: #FBF8F2;
-  --color-gray-100: #F4F0E8;
-  --color-gray-200: #E6E1D6;
-  --color-gray-300: #D7D2C6;
-  --color-gray-400: #A9A396;
-  --color-gray-500: #646B80;
-  --color-gray-600: #56607A;
-  --color-gray-700: #444D66;
-  --color-gray-800: #2E3852;
+  /* the older pages' black buttons and text become the navy ink */
+  --color-black: #1F2A44;
+
+  --color-gray-50: #F5F9FC;
+  --color-gray-100: #EDF3F8;
+  --color-gray-200: #DCE7F2;
+  --color-gray-300: #C3D3E3;
+  --color-gray-400: #93A5BA;
+  --color-gray-500: #5F7088;
+  --color-gray-600: #536379;
+  --color-gray-700: #435269;
+  --color-gray-800: #2E3A52;
   --color-gray-900: #1F2A44;
   --color-gray-950: #141C30;
 
-  --color-blue-50: #F0F5FB;
-  --color-blue-100: #E1ECF8;
-  --color-blue-200: #C6D9F0;
-  --color-blue-300: #9DBDE4;
-  --color-blue-400: #74A0D5;
-  --color-blue-500: #4F86C6;
-  --color-blue-600: #2F64A8;
-  --color-blue-700: #285A99;
-  --color-blue-800: #234D82;
-  --color-blue-900: #1B3B64;
-  --color-blue-950: #12284A;
+  --color-blue-50: #F0F8FE;
+  --color-blue-100: #DCEFFB;
+  --color-blue-200: #BCE1F9;
+  --color-blue-300: #8DCDF6;
+  --color-blue-400: #4DB2F2;
+  --color-blue-500: #1E9BF0;
+  --color-blue-600: #0A6CC0;
+  --color-blue-700: #0A5FA8;
+  --color-blue-800: #0B4F8A;
+  --color-blue-900: #0C3F6C;
+  --color-blue-950: #0A2A47;
 
-  --color-red-50: #FEF2F0;
-  --color-red-100: #FDE3E0;
-  --color-red-200: #F9C9C3;
-  --color-red-300: #F2A49B;
-  --color-red-400: #EC7A70;
-  --color-red-500: #E8534A;
-  --color-red-600: #B83A31;
-  --color-red-700: #A3332B;
-  --color-red-800: #8A2B24;
-  --color-red-900: #6E221D;
-  --color-red-950: #4A1713;
+  --color-red-50: #FFF4EF;
+  --color-red-100: #FFE8DE;
+  --color-red-200: #FFCDB8;
+  --color-red-300: #FFA987;
+  --color-red-400: #FF8053;
+  --color-red-500: #FF5A1F;
+  --color-red-600: #C2410C;
+  --color-red-700: #A8360A;
+  --color-red-800: #8A2D0A;
+  --color-red-900: #6E250B;
+  --color-red-950: #451505;
 
-  --color-green-50: #F1F9F1;
-  --color-green-100: #E3F3E4;
-  --color-green-200: #C5E5C7;
-  --color-green-300: #9CD29F;
-  --color-green-400: #72C076;
-  --color-green-500: #4CAF50;
-  --color-green-600: #2B742F;
-  --color-green-700: #276B2B;
-  --color-green-800: #245F28;
-  --color-green-900: #1C4A1F;
-  --color-green-950: #12321A;
+  --color-green-50: #F8FEE7;
+  --color-green-100: #EEFBC6;
+  --color-green-200: #E2F8A0;
+  --color-green-300: #D6F673;
+  --color-green-400: #CDF552;
+  --color-green-500: #C6F432;
+  --color-green-600: #3F720C;
+  --color-green-700: #36620A;
+  --color-green-800: #2E5309;
+  --color-green-900: #264309;
+  --color-green-950: #162905;
 
-  --color-amber-50: #FDF8EA;
-  --color-amber-100: #FBF1D6;
-  --color-amber-200: #F4E2B2;
-  --color-amber-300: #EACF8A;
-  --color-amber-400: #E2C57C;
-  --color-amber-500: #D9BC6E;
-  --color-amber-600: #8A6A12;
-  --color-amber-700: #7A5D10;
-  --color-amber-800: #6A510E;
-  --color-amber-900: #573F0B;
-  --color-amber-950: #3E3008;
+  --color-amber-50: #FFFBE8;
+  --color-amber-100: #FFF5C2;
+  --color-amber-200: #FFEC8F;
+  --color-amber-300: #FFE45C;
+  --color-amber-400: #FFDD33;
+  --color-amber-500: #FFD60A;
+  --color-amber-600: #7D5E00;
+  --color-amber-700: #6E5300;
+  --color-amber-800: #5E4700;
+  --color-amber-900: #4D3A00;
+  --color-amber-950: #332600;
 
-  --color-yellow-50: #FDF8EA;
-  --color-yellow-100: #FBF1D6;
-  --color-yellow-200: #F4E2B2;
-  --color-yellow-300: #EACF8A;
-  --color-yellow-400: #E2C57C;
-  --color-yellow-500: #D9BC6E;
-  --color-yellow-600: #8A6A12;
-  --color-yellow-700: #7A5D10;
-  --color-yellow-800: #6A510E;
-  --color-yellow-900: #573F0B;
-  --color-yellow-950: #3E3008;
+  --color-yellow-50: #FFFBE8;
+  --color-yellow-100: #FFF5C2;
+  --color-yellow-200: #FFEC8F;
+  --color-yellow-300: #FFE45C;
+  --color-yellow-400: #FFDD33;
+  --color-yellow-500: #FFD60A;
+  --color-yellow-600: #7D5E00;
+  --color-yellow-700: #6E5300;
+  --color-yellow-800: #5E4700;
+  --color-yellow-900: #4D3A00;
+  --color-yellow-950: #332600;
 }
 
 @layer base {
   html {
-    background: var(--cream);
+    background: var(--page);
   }
 
   body {
@@ -209,7 +211,7 @@
     font-size: 15px;
     line-height: 1.5;
     color: var(--ink);
-    background: var(--cream);
+    background: var(--page);
     -webkit-font-smoothing: antialiased;
   }
 
@@ -218,20 +220,20 @@
   h3,
   h4 {
     font-family: var(--font-display-stack);
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     line-height: 1.15;
   }
 
-  /* §1.2: a 3px blue-deep outline with a 2px cream offset on every interactive element. */
+  /* A 3px blue-deep outline with a 2px white offset on every interactive element. */
   :focus-visible {
     outline: 3px solid var(--blue-deep);
     outline-offset: 2px;
-    box-shadow: 0 0 0 2px var(--cream);
+    box-shadow: 0 0 0 2px var(--paper);
   }
 
   ::selection {
-    background: var(--mustard-soft);
+    background: var(--blue-soft);
     color: var(--ink);
   }
 }
@@ -241,11 +243,9 @@
 }
 
 @layer components {
-  /* ---- buttons: pill, 4px solid drop, sink 2px when pressed ---- */
+  /* ---- buttons: pill, a soft shadow in their own colour, lift on hover and sink when pressed ---- */
   .pf-btn {
-    --pf-drop-y: 4px;
-    --pf-drop-colour: rgba(31, 42, 68, 0.14);
-    --pf-drop: 0 var(--pf-drop-y) 0 var(--pf-drop-colour);
+    --pf-shadow: 0 0 #0000;
     --pf-edge: 0 0 #0000;
     display: inline-flex;
     align-items: center;
@@ -255,12 +255,12 @@
     border: 0;
     border-radius: var(--pill);
     padding: 11px 22px;
-    font: 700 15px/1.2 var(--font-body-stack);
+    font: 600 14.5px/1.2 var(--font-display-stack);
     white-space: nowrap;
     cursor: pointer;
     text-decoration: none;
-    box-shadow: var(--pf-edge), var(--pf-drop);
-    transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+    box-shadow: var(--pf-edge), var(--pf-shadow);
+    transition: transform 120ms ease, box-shadow 160ms ease, background-color 120ms ease;
   }
   /* a long label wraps on a phone instead of pushing its card past the screen */
   @media (max-width: 639px) {
@@ -271,76 +271,73 @@
     }
   }
   .pf-btn:focus-visible {
-    box-shadow: var(--pf-edge), 0 0 0 2px var(--cream), var(--pf-drop);
+    box-shadow: var(--pf-edge), 0 0 0 2px var(--paper), var(--pf-shadow);
+  }
+  .pf-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(-1px);
   }
   .pf-btn:active:not(:disabled):not([aria-disabled="true"]) {
-    transform: translateY(2px);
-    --pf-drop-y: 2px;
+    transform: translateY(1px);
+    --pf-shadow: 0 0 #0000;
   }
   /* --pf-off-*: the variant's look while it is off, its own hue with the colour drained out */
   .pf-btn-primary {
-    --pf-drop-colour: #234d82;
+    --pf-shadow: var(--shadow-azure);
     --pf-off-bg: var(--off-blue);
     --pf-off-fg: var(--off-blue-ink);
-    --pf-off-edge: inset 0 0 0 2px #AFC3DC;
-    background: linear-gradient(180deg, #3B73B8, var(--blue-deep));
+    --pf-off-edge: inset 0 0 0 1.5px #A9C6E2;
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
     color: #fff;
   }
   .pf-btn-go {
-    --pf-drop-colour: #1f5a23;
+    --pf-shadow: 0 8px 18px rgba(104, 140, 8, 0.26);
+    --pf-edge: inset 0 0 0 1.5px #A8D61A;
     --pf-off-bg: var(--off-green);
     --pf-off-fg: var(--off-green-ink);
-    --pf-off-edge: inset 0 0 0 2px #ADCBB0;
-    background: linear-gradient(180deg, #338637, var(--green-deep));
-    color: #fff;
+    --pf-off-edge: inset 0 0 0 1.5px #C9D69E;
+    background: var(--green);
+    color: var(--ink);
   }
   .pf-btn-danger {
-    --pf-drop-colour: #8a2b24;
+    --pf-shadow: 0 8px 18px rgba(194, 65, 12, 0.24);
     --pf-off-bg: var(--off-coral);
     --pf-off-fg: var(--off-coral-ink);
-    --pf-off-edge: inset 0 0 0 2px #DDB5AF;
-    background: linear-gradient(180deg, #C4433A, var(--coral-deep));
+    --pf-off-edge: inset 0 0 0 1.5px #E2BBAA;
+    background: linear-gradient(180deg, #C9450E, var(--coral-deep));
     color: #fff;
   }
   .pf-btn-ghost {
-    --pf-drop-y: 3px;
-    --pf-drop-colour: rgba(31, 42, 68, 0.12);
-    --pf-edge: inset 0 0 0 2px var(--ink);
+    --pf-edge: inset 0 0 0 1.5px var(--blue-deep);
     --pf-off-bg: #fff;
     --pf-off-fg: var(--ink-soft);
-    --pf-off-edge: inset 0 0 0 2px #B9BFCC;
+    --pf-off-edge: inset 0 0 0 1.5px var(--line-strong);
     background: #fff;
-    color: var(--ink);
+    color: var(--blue-ink);
   }
   .pf-btn-quiet {
-    --pf-drop-y: 3px;
-    --pf-drop-colour: rgba(31, 42, 68, 0.1);
-    --pf-edge: inset 0 0 0 2px #DCD6CA;
+    --pf-shadow: var(--shadow-1);
+    --pf-edge: inset 0 0 0 1px var(--line);
     --pf-off-bg: #fff;
     --pf-off-fg: var(--ink-soft);
-    --pf-off-edge: inset 0 0 0 2px var(--line);
+    --pf-off-edge: inset 0 0 0 1px var(--line);
     background: #fff;
     color: var(--ink);
   }
   .pf-btn-quiet:hover:not(:disabled) {
-    --pf-edge: inset 0 0 0 2px #C9C2B4;
+    --pf-edge: inset 0 0 0 1px var(--line-strong);
   }
   .pf-btn-soft {
-    --pf-drop-y: 3px;
-    --pf-drop-colour: #C6D9F0;
     --pf-off-bg: var(--off-soft);
     --pf-off-fg: var(--off-blue-ink);
-    --pf-off-edge: inset 0 0 0 2px #D3DDE9;
+    --pf-off-edge: inset 0 0 0 1.5px #D5E0EA;
     background: var(--blue-soft);
-    color: var(--blue-deep);
+    color: var(--blue-ink);
   }
   .pf-btn-peach {
-    --pf-drop-y: 3px;
-    --pf-drop-colour: #E7B98C;
     --pf-off-bg: var(--off-peach);
     --pf-off-fg: var(--off-peach-ink);
-    --pf-off-edge: inset 0 0 0 2px #E3C7AC;
-    background: linear-gradient(90deg, #FBE3CF, #F6CFA8);
+    --pf-off-edge: inset 0 0 0 1.5px #E6CDBF;
+    background: linear-gradient(90deg, #FFE8DE, #FFD0BC);
     color: var(--ink);
   }
   .pf-btn-sm {
@@ -348,11 +345,11 @@
     padding: 7px 14px;
     font-size: 13px;
   }
-  /* off: flat (no drop, so it doesn't look pressable) in the variant's drained hue, with a rim */
+  /* off: flat (no shadow, so it doesn't look pressable) in the variant's drained hue, with a rim */
   .pf-btn:disabled,
   .pf-btn[aria-disabled="true"] {
     --pf-edge: var(--pf-off-edge, 0 0 #0000);
-    --pf-drop-colour: transparent;
+    --pf-shadow: 0 0 #0000;
     background: var(--pf-off-bg, var(--off-fill));
     color: var(--pf-off-fg, var(--ink-soft));
     cursor: not-allowed;
@@ -373,13 +370,11 @@
     gap: 6px;
     border-radius: var(--pill);
     padding: 4px 11px;
-    font-weight: 800;
-    font-size: 12px;
-    line-height: 1.35;
+    font: 600 12px/1.35 var(--font-display-stack);
     white-space: nowrap;
   }
   .pf-chip-lock { background: var(--green-soft); color: var(--green-ink); }
-  .pf-chip-open { background: #EFEDE7; color: var(--ink-soft); }
+  .pf-chip-open { background: var(--mist); color: var(--ink-soft); }
   .pf-chip-warn { background: var(--mustard-soft); color: var(--mustard-ink); }
   .pf-chip-bad { background: var(--coral-soft); color: var(--coral-ink); }
   .pf-chip-info { background: var(--aqua-soft); color: var(--aqua-ink); }
@@ -388,11 +383,13 @@
   .pf-chip-ink { background: var(--ink); color: #fff; }
 
   .pf-dot {
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     display: inline-block;
     flex: none;
+    /* lime, yellow and cyan are pale on white: a thin navy rim keeps the dot visible */
+    box-shadow: inset 0 0 0 1px rgba(31, 42, 68, 0.22);
   }
   .pf-dot-striped {
     background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.85) 0 2px, transparent 2px 4px);
@@ -404,7 +401,7 @@
     background: var(--paper);
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-1);
-    border: 1px solid #F0EADF;
+    border: 1px solid rgba(220, 231, 242, 0.75);
   }
   .pf-lift {
     transition: transform 180ms ease, box-shadow 180ms ease;
@@ -415,8 +412,8 @@
   }
   .pf-glass {
     background: var(--glass);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
     border: 1px solid var(--glass-line);
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-2);
@@ -435,33 +432,31 @@
   .pf-input {
     width: 100%;
     border: 0;
-    background: rgba(255, 255, 255, 0.9);
+    background: #fff;
     border-radius: var(--r-sm);
     padding: 12px 16px;
     font: 600 15px/1.4 var(--font-body-stack);
     color: var(--ink);
-    box-shadow: inset 0 0 0 1.5px #E3DED3;
+    box-shadow: inset 0 0 0 1.5px #CFDDEA;
   }
   .pf-input::placeholder {
-    color: #6E7385;
+    color: #627188;
   }
   .pf-input:disabled {
-    background: #F4F0E8;
+    background: var(--mist);
     color: var(--ink-soft);
   }
   .pf-label {
     display: block;
-    font-weight: 800;
-    font-size: 12px;
-    letter-spacing: 0.04em;
+    font: 700 11.5px/1.3 var(--font-display-stack);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-soft);
     margin: 0 0 6px 4px;
   }
   .pf-eyebrow {
-    font-weight: 800;
-    font-size: 12px;
-    letter-spacing: 0.06em;
+    font: 700 11.5px/1.3 var(--font-display-stack);
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--ink-soft);
   }
@@ -474,70 +469,97 @@
     min-height: 40px;
     padding: 8px 16px;
     border-radius: var(--pill);
-    font-weight: 700;
-    font-size: 14px;
+    font: 600 14px/1.2 var(--font-display-stack);
     color: var(--ink-soft);
     white-space: nowrap;
     text-decoration: none;
   }
   .pf-tab:hover {
-    background: rgba(31, 42, 68, 0.06);
-    color: var(--ink);
+    background: rgba(30, 155, 240, 0.1);
+    color: var(--blue-ink);
   }
   .pf-tab[aria-current="page"],
   .pf-tab[aria-selected="true"],
   .pf-tab.is-on {
-    background: var(--ink);
+    background: var(--blue-deep);
     color: #fff;
+    box-shadow: var(--shadow-azure);
   }
 
-  /* ---- scene: sky, clouds and a wood floor, all CSS ---- */
-  .pf-scene {
+  /* ---- hero band: a light-blue header with two big soft circles, all CSS ---- */
+  .pf-band {
     position: relative;
     border-radius: var(--r-xl);
     overflow: hidden;
     isolation: isolate;
-    background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom) 72%);
+    background: var(--sky);
   }
-  .pf-scene::before {
+  .pf-band::before,
+  .pf-band::after {
     content: "";
     position: absolute;
-    inset: 0;
     z-index: -1;
-    opacity: 0.95;
-    background:
-      radial-gradient(60px 26px at 8% 18%, #fff 98%, transparent),
-      radial-gradient(44px 30px at 12% 14%, #fff 98%, transparent),
-      radial-gradient(40px 22px at 4% 20%, #fff 98%, transparent),
-      radial-gradient(70px 28px at 38% 12%, #fff 98%, transparent),
-      radial-gradient(46px 30px at 42% 8%, #fff 98%, transparent),
-      radial-gradient(56px 24px at 68% 26%, #fff 98%, transparent),
-      radial-gradient(38px 26px at 71% 21%, #fff 98%, transparent),
-      radial-gradient(64px 26px at 92% 10%, #fff 98%, transparent),
-      radial-gradient(40px 28px at 95% 6%, #fff 98%, transparent),
-      radial-gradient(50px 20px at 26% 44%, #fff 98%, transparent),
-      radial-gradient(34px 22px at 29% 40%, #fff 98%, transparent),
-      radial-gradient(54px 22px at 58% 50%, rgba(255, 255, 255, 0.9) 98%, transparent),
-      radial-gradient(36px 22px at 61% 46%, rgba(255, 255, 255, 0.9) 98%, transparent);
+    border-radius: 50%;
+    pointer-events: none;
   }
-  .pf-floor {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 22%;
-    z-index: -1;
-    background: repeating-linear-gradient(90deg, var(--wood) 0 120px, var(--wood-dark) 120px 122px), var(--wood);
-    border-top: 10px solid #F7F1E6;
+  .pf-band::before {
+    width: 300px;
+    height: 300px;
+    right: -110px;
+    top: -150px;
+    background: var(--green);
   }
-  .pf-floor::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent 40%);
+  .pf-band::after {
+    width: 230px;
+    height: 230px;
+    left: -90px;
+    bottom: -140px;
+    background: var(--aqua);
+  }
+  /* the small uppercase title centred at the top of a light-blue header */
+  .pf-band-title {
+    font: 700 12px/1.3 var(--font-display-stack);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-align: center;
   }
 
-  /* ---- consistency seal (wax-seal badge) ---- */
+  /* ---- an avatar: initials on a soft gradient circle ---- */
+  .pf-avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border-radius: 50%;
+    color: var(--ink);
+    font-family: var(--font-display-stack);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  }
+
+  /* ---- a round icon button (play, more) at the end of a list row ---- */
+  .pf-round {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--blue-soft);
+    color: var(--blue-ink);
+    transition: transform 120ms ease, background-color 120ms ease;
+  }
+  .pf-round.is-solid {
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
+    color: #fff;
+    box-shadow: var(--shadow-azure);
+  }
+  .pf-round:hover {
+    transform: translateY(-1px);
+  }
+
+  /* ---- consistency seal (a round badge) ---- */
   .pf-seal {
     width: 64px;
     height: 64px;
@@ -546,20 +568,21 @@
     display: grid;
     place-items: center;
     text-align: center;
-    color: #fff;
-    font: 700 11px/1.05 var(--font-display-stack);
-    background: radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.24), transparent 34%), var(--green-deep);
-    box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--green), var(--shadow-1);
-    transform: rotate(-8deg);
+    color: var(--ink);
+    font: 700 10.5px/1.1 var(--font-display-stack);
+    background: var(--green);
+    box-shadow: 0 0 0 4px #fff, var(--shadow-1);
   }
   .pf-seal.is-open {
-    background: repeating-conic-gradient(#EFEDE7 0 10deg, #E3DFD5 10deg 20deg);
+    background: #fff;
+    border: 2px dashed var(--line-strong);
     color: var(--ink);
-    box-shadow: 0 0 0 4px #fff, 0 0 0 6px #D7D2C6;
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.6), var(--shadow-1);
   }
   .pf-seal.is-drift {
-    background: radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.22), transparent 34%), var(--coral-deep);
-    box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--coral), var(--shadow-1);
+    background: var(--coral-deep);
+    color: #fff;
+    box-shadow: 0 0 0 4px #fff, var(--shadow-1);
   }
   .pf-seal.is-stamping {
     animation: pf-stamp 350ms cubic-bezier(0.3, 1.4, 0.6, 1) both;
@@ -591,29 +614,29 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    font: 700 17px var(--font-display-stack);
+    font: 700 16px var(--font-display-stack);
     background: #fff;
-    border: 3px dashed #CFC8B8;
+    border: 2px dashed var(--line-strong);
     color: var(--ink-soft);
   }
   .pf-stop.is-done .pf-bub {
-    background: var(--green-deep);
-    border: 3px solid #fff;
-    color: #fff;
-    box-shadow: 0 0 0 3px var(--green);
-  }
-  .pf-stop.is-now .pf-bub {
-    background: var(--mustard);
+    background: var(--green);
     border: 3px solid #fff;
     color: var(--ink);
-    box-shadow: 0 0 0 3px var(--mustard), 0 0 0 9px rgba(217, 188, 110, 0.3);
+    box-shadow: 0 0 0 1.5px #A8D61A, var(--shadow-1);
+  }
+  .pf-stop.is-now .pf-bub {
+    background: var(--blue-deep);
+    border: 3px solid #fff;
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--blue), 0 0 0 9px rgba(30, 155, 240, 0.18);
     animation: pf-pulse 2s ease-in-out infinite;
   }
   .pf-stop.is-blocked .pf-bub {
     background: var(--coral-soft);
     border: 3px solid #fff;
     color: var(--coral-ink);
-    box-shadow: 0 0 0 3px var(--coral);
+    box-shadow: 0 0 0 2px var(--coral);
   }
   .pf-path.is-compact .pf-stop {
     width: 92px;
@@ -625,9 +648,7 @@
     transition: transform 160ms ease;
   }
   .pf-stop-name {
-    font-weight: 800;
-    font-size: 13px;
-    line-height: 1.2;
+    font: 600 13px/1.2 var(--font-display-stack);
   }
   .pf-stop-note {
     font-size: 11.5px;
@@ -641,10 +662,10 @@
   .pf-link {
     flex: 1;
     min-width: 24px;
-    height: 5px;
+    height: 4px;
     margin-top: 22px;
-    border-radius: 5px;
-    background: repeating-linear-gradient(90deg, #CFC8B8 0 10px, transparent 10px 18px);
+    border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--line-strong) 0 8px, transparent 8px 15px);
     position: relative;
     overflow: hidden;
   }
@@ -659,43 +680,41 @@
     right: -14px;
     border-radius: var(--pill);
     padding: 1px 6px;
-    font: 800 10px/1.3 var(--font-body-stack);
+    font: 700 10px/1.3 var(--font-display-stack);
     color: var(--ink);
     background: var(--mustard);
     border: 2px solid #fff;
   }
 
-  /* ---- the coral "make something" button in the phone bottom bar (an icon, 3.6:1 like any graphic) ---- */
+  /* ---- the azure "make something" button raised in the phone tab bar ---- */
   .pf-fab {
-    width: 54px;
-    height: 54px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    background: var(--coral);
+    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
     color: #fff;
     display: grid;
     place-items: center;
-    margin-top: -26px;
-    box-shadow: 0 5px 0 #a3352d;
-    transition: transform 120ms ease, box-shadow 120ms ease;
+    margin-top: -30px;
+    box-shadow: 0 0 0 5px #fff, var(--shadow-azure);
+    transition: transform 120ms ease;
   }
   .pf-fab:active {
-    transform: translateY(2px);
-    box-shadow: 0 3px 0 #a3352d;
+    transform: translateY(1px);
   }
 
-  /* ---- paper: cork board, polaroids, sticky notes, stamp ---- */
-  .pf-cork {
-    background: #E9CFA3 radial-gradient(rgba(140, 95, 40, 0.18) 1px, transparent 1.5px) 0 0 / 9px 9px;
+  /* ---- boards: pinned pictures and notes ---- */
+  .pf-board {
+    background: var(--sky) radial-gradient(rgba(10, 108, 192, 0.1) 1px, transparent 1.5px) 0 0 / 14px 14px;
     border-radius: var(--r-lg);
-    padding: 26px;
-    box-shadow: inset 0 0 0 8px #D2AE73, inset 0 0 0 10px #C49A5C;
+    padding: 22px;
     position: relative;
   }
   .pf-polaroid {
     background: #fff;
-    padding: 9px 9px 28px;
-    border-radius: 6px;
-    box-shadow: 0 8px 18px rgba(60, 40, 10, 0.22);
+    padding: 8px 8px 30px;
+    border-radius: 16px;
+    box-shadow: var(--shadow-1);
     position: relative;
   }
   .pf-polaroid.is-dropping {
@@ -703,9 +722,9 @@
   }
   .pf-polaroid-cap {
     position: absolute;
-    bottom: 6px;
-    left: 10px;
-    right: 10px;
+    bottom: 7px;
+    left: 12px;
+    right: 12px;
     font: 600 12px var(--font-display-stack);
     color: var(--ink-soft);
     overflow: hidden;
@@ -714,41 +733,40 @@
   }
   .pf-pin {
     position: absolute;
-    top: -7px;
+    top: -5px;
     left: 50%;
-    width: 16px;
-    height: 16px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     transform: translateX(-50%);
-    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 0 3px #fff;
     z-index: 1;
   }
   .pf-sticky {
-    padding: 14px 14px 18px;
-    border-radius: 4px 4px 16px 4px;
-    box-shadow: 0 6px 14px rgba(60, 40, 10, 0.16);
+    padding: 14px 16px 16px;
+    border-radius: 18px;
+    box-shadow: var(--shadow-1);
     font-size: 13.5px;
     position: relative;
     color: var(--ink);
   }
-  .pf-sticky-yellow { background: #FFE7A8; }
-  .pf-sticky-pink { background: #FCD3CD; }
-  .pf-sticky-blue { background: #CFEAF0; }
-  .pf-sticky-green { background: #D6EDD7; }
+  .pf-sticky-yellow { background: var(--mustard-soft); }
+  .pf-sticky-peach { background: var(--coral-soft); }
+  .pf-sticky-blue { background: var(--aqua-soft); }
+  .pf-sticky-green { background: var(--green-soft); }
   .pf-stamp {
     position: absolute;
-    font: 700 18px var(--font-display-stack);
-    color: var(--green-deep);
-    border: 3px solid var(--green-deep);
-    border-radius: 10px;
-    padding: 4px 12px;
-    transform: rotate(-12deg);
-    background: rgba(255, 255, 255, 0.82);
-    letter-spacing: 0.06em;
+    font: 700 15px var(--font-display-stack);
+    color: var(--green-ink);
+    border: 2.5px solid var(--green-ink);
+    border-radius: var(--pill);
+    padding: 4px 14px;
+    background: var(--green-soft);
+    letter-spacing: 0.1em;
     animation: pf-stamp-land 300ms cubic-bezier(0.3, 1.4, 0.6, 1) both;
   }
   .pf-stitch {
-    border: 2.5px dashed #CFC8B8;
+    border: 2px dashed var(--line-strong);
     border-radius: var(--r-md);
   }
 
@@ -757,40 +775,33 @@
     border-radius: var(--r-md);
     background: #fff;
     padding: 16px 18px;
-    box-shadow: inset 0 0 0 2px var(--mustard);
+    box-shadow: inset 0 0 0 2px var(--mustard), var(--shadow-1);
   }
   .pf-price-big {
-    font: 700 34px/1.1 var(--font-display-stack);
+    font: 700 32px/1.1 var(--font-display-stack);
+    letter-spacing: -0.02em;
     color: var(--ink);
   }
 
-  /* ---- speech bubble (the goose talking) ---- */
+  /* ---- a tip: a white card with an azure dot ---- */
   .pf-bubble {
     position: relative;
     background: #fff;
     border-radius: 18px;
-    padding: 10px 14px;
+    padding: 10px 14px 10px 34px;
     box-shadow: var(--shadow-1);
     font-size: 14px;
   }
-  .pf-bubble::after {
+  .pf-bubble::before {
     content: "";
     position: absolute;
-    left: -8px;
-    bottom: 14px;
-    border: 8px solid transparent;
-    border-right-color: #fff;
-    border-left: 0;
-  }
-
-  .pf-blob {
-    border-radius: 46% 54% 50% 50% / 55% 50% 50% 45%;
-  }
-
-  .pf-nod .pf-goose-head {
-    transform-box: fill-box;
-    transform-origin: 20% 100%;
-    animation: pf-nod 700ms ease-in-out 1;
+    left: 14px;
+    top: 17px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--blue);
+    box-shadow: 0 0 0 4px var(--blue-soft);
   }
 
   /* links that read as links on any light surface */
@@ -800,7 +811,7 @@
     text-decoration: underline;
     text-decoration-thickness: 2px;
     text-underline-offset: 3px;
-    text-decoration-color: rgba(47, 100, 168, 0.35);
+    text-decoration-color: rgba(10, 108, 192, 0.35);
     border-radius: 4px;
   }
   .pf-link-text:hover {
@@ -819,54 +830,54 @@
     top: 50%;
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: 50%;
     animation: pf-confetti 600ms ease-out both;
   }
 }
 
 @keyframes pf-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px var(--mustard), 0 0 0 7px rgba(217, 188, 110, 0.35); }
-  50% { box-shadow: 0 0 0 3px var(--mustard), 0 0 0 12px rgba(217, 188, 110, 0.12); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--blue), 0 0 0 7px rgba(30, 155, 240, 0.22); }
+  50% { box-shadow: 0 0 0 2px var(--blue), 0 0 0 12px rgba(30, 155, 240, 0.08); }
 }
 @keyframes pf-fill {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
 @keyframes pf-stamp {
-  0% { transform: rotate(-98deg) scale(1.3); }
-  60% { transform: rotate(-8deg) scale(0.92, 1.06); }
-  100% { transform: rotate(-8deg) scale(1); }
+  0% { transform: scale(1.35); }
+  60% { transform: scale(0.92); }
+  100% { transform: scale(1); }
 }
 @keyframes pf-stamp-land {
-  0% { opacity: 0; transform: rotate(-12deg) scale(1.6); }
-  100% { opacity: 1; transform: rotate(-12deg) scale(1); }
+  0% { opacity: 0; transform: scale(1.5); }
+  100% { opacity: 1; transform: scale(1); }
 }
 @keyframes pf-drop {
-  0% { opacity: 0; transform: translateY(-24px) rotate(var(--pf-tilt-from, -6deg)); }
-  100% { opacity: 1; transform: translateY(0) rotate(var(--pf-tilt, 0deg)); }
+  0% { opacity: 0; transform: translateY(-20px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 @keyframes pf-confetti {
-  0% { opacity: 1; transform: translate(-50%, -50%) rotate(0); }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) rotate(200deg); }
-}
-@keyframes pf-nod {
-  0%, 100% { transform: rotate(0deg); }
-  30% { transform: rotate(9deg); }
-  60% { transform: rotate(-3deg); }
+  0% { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))); }
 }
 @keyframes pf-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-/* §4: with reduced motion, every movement becomes a short fade. */
+/* With reduced motion, every movement becomes a short fade. */
 @media (prefers-reduced-motion: reduce) {
   .pf-btn,
-  .pf-lift {
+  .pf-lift,
+  .pf-round,
+  .pf-fab {
     transition: none;
   }
+  .pf-btn:hover:not(:disabled),
   .pf-btn:active:not(:disabled),
   .pf-lift:hover,
+  .pf-round:hover,
+  .pf-fab:active,
   a.pf-stop:hover .pf-bub {
     transform: none;
   }
@@ -881,10 +892,5 @@
   }
   .pf-confetti {
     display: none;
-  }
-  .pf-nod .pf-goose-head,
-  .pf-fab {
-    animation: none;
-    transition: none;
   }
 }

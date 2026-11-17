@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TOKENS, REMAP, TEXT_PAIRS, contrastRatio } from './palette.mjs';
+import { TOKENS, REMAP, TEXT_PAIRS, CAST_GRADIENTS, contrastRatio } from './palette.mjs';
+import { CAST_COLOURS } from './castColour.mjs';
 
 const webDir = fileURLToPath(new URL('..', import.meta.url));
 const css = readFileSync(join(webDir, 'app/globals.css'), 'utf8');
@@ -30,14 +31,27 @@ test('each -ink text colour is readable on its -soft fill', () => {
   }
 });
 
-test('the spec contrast numbers hold (DESIGN-TARGETS-v2 §1.2)', () => {
+test('the palette\'s headline contrast numbers hold', () => {
   const close = (a, b, label) => assert.ok(Math.abs(a - b) < 0.06, `${label}: ${a.toFixed(2)} vs ${b}`);
-  close(contrastRatio('#FFFFFF', TOKENS['blue-deep']), 5.98, 'white on blue-deep');
-  close(contrastRatio('#FFFFFF', TOKENS['green-deep']), 5.13, 'white on green-deep');
-  close(contrastRatio('#FFFFFF', TOKENS['coral-deep']), 5.69, 'white on coral-deep');
-  close(contrastRatio(TOKENS.ink, TOKENS.mustard), 7.72, 'ink on mustard');
-  close(contrastRatio(TOKENS.ink, TOKENS.cream), 13.5, 'ink on cream');
-  close(contrastRatio(TOKENS['ink-soft'], TOKENS.cream), 5.94, 'ink-soft on cream');
+  close(contrastRatio('#FFFFFF', TOKENS['blue-deep']), 5.36, 'white on blue-deep');
+  close(contrastRatio('#FFFFFF', TOKENS['green-deep']), 5.8, 'white on green-deep');
+  close(contrastRatio('#FFFFFF', TOKENS['coral-deep']), 5.18, 'white on coral-deep');
+  close(contrastRatio(TOKENS.ink, TOKENS.mustard), 10.1, 'ink on mustard');
+  close(contrastRatio(TOKENS.ink, TOKENS.green), 11.13, 'ink on green');
+  close(contrastRatio(TOKENS.ink, TOKENS.page), 12.97, 'ink on page');
+  close(contrastRatio(TOKENS['ink-soft'], TOKENS.page), 5.57, 'ink-soft on page');
+});
+
+test('every cast colour has a soft gradient its initials and name read on', () => {
+  for (const hue of [...CAST_COLOURS, 'ink']) {
+    const gradient = CAST_GRADIENTS[hue];
+    assert.ok(gradient, `${hue} has no gradient`);
+    for (const stop of gradient) {
+      const ratio = contrastRatio(TOKENS.ink, stop);
+      assert.ok(ratio >= 4.5, `ink on ${hue}'s ${stop} is ${ratio.toFixed(2)}:1`);
+    }
+    assert.ok(contrastRatio('#FFFFFF', gradient[1]) < 4.5, `${hue}'s gradient is a fill, never a white-text background`);
+  }
 });
 
 test('globals.css declares exactly the palette in lib/palette.mjs', () => {
@@ -75,9 +89,9 @@ test('a disabled coloured button keeps its hue with less colour, and globals.css
   const variants = [
     { variant: 'primary', live: 'blue-deep', fill: 'off-blue', text: 'off-blue-ink' },
     { variant: 'soft', live: 'blue-soft', fill: 'off-soft', text: 'off-blue-ink' },
-    { variant: 'go', live: 'green-deep', fill: 'off-green', text: 'off-green-ink' },
+    { variant: 'go', live: 'green', fill: 'off-green', text: 'off-green-ink' },
     { variant: 'danger', live: 'coral-deep', fill: 'off-coral', text: 'off-coral-ink' },
-    { variant: 'peach', live: '#F6CFA8', fill: 'off-peach', text: 'off-peach-ink' },
+    { variant: 'peach', live: '#FFD0BC', fill: 'off-peach', text: 'off-peach-ink' },
   ];
   for (const { variant, live, fill, text } of variants) {
     const on = hueAndSaturation(live.startsWith('#') ? live : TOKENS[live]);
@@ -106,7 +120,7 @@ test('the focus ring is a 3px blue-deep outline with a 2px offset', () => {
 // White text on a fill lighter than the -deep shades fails AA. Scan every class list in the app
 // for an unprefixed text-white next to an unprefixed bright fill or gradient stop.
 const BRIGHT_FILL = new RegExp(
-  `^(bg|from|via|to)-(?:(?:${HUES.join('|')})(?:-soft)?|(?:gray|blue|red|green|amber|yellow|purple|pink|cyan|emerald|orange|sky|teal)-(?:50|100|200|300|400|500)|white)$`,
+  `^(bg|from|via|to)-(?:(?:${HUES.join('|')})(?:-soft)?|(?:gray|blue|red|green|amber|yellow|purple|pink|cyan|emerald|orange|sky|teal)-(?:50|100|200|300|400|500)|page|sky|paper|mist|line|white)$`,
 );
 
 function sourceFiles(dir) {

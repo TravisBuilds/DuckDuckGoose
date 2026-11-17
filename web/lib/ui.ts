@@ -7,19 +7,19 @@ export const focusRing = 'focus-visible:outline-3 focus-visible:outline-offset-2
 
 const button = `pf-btn ${focusRing}`;
 
-/** Go somewhere / do a non-spending thing (blue). */
+/** Go somewhere / do a non-spending thing (azure). */
 export const btnPrimary = `${button} pf-btn-primary`;
 export const btnSecondary = `${button} pf-btn-quiet`;
-/** Destructive, always behind a confirm (coral). */
+/** Destructive, always behind a confirm (orange-red). */
 export const btnDanger = `${button} pf-btn-danger`;
-/** Approve or spend (green). */
+/** Approve or spend (lime). */
 export const btnGo = `${button} pf-btn-go`;
 export const btnGhost = `${button} pf-btn-ghost`;
 export const btnSoft = `${button} pf-btn-soft`;
 export const btnSm = 'pf-btn-sm';
 
 /** A card without padding, for cards with their own header and body sections. */
-export const panel = 'rounded-card border border-[#F0EADF] bg-paper shadow-card';
+export const panel = 'rounded-card border border-line/75 bg-paper shadow-card';
 export const card = `${panel} p-5 sm:p-6`;
 /** The card that needs attention first (the next step, the finished video). */
 export const highlight = 'rounded-card border-2 border-mustard bg-paper p-5 shadow-card sm:p-6';
@@ -38,14 +38,14 @@ export const link = `pf-link-text ${focusRing}`;
 export const chip = 'pf-chip';
 
 /**
- * One meaning per colour (DESIGN-TARGETS-v2 §1.3): green done/locked, mustard a decision waiting
- * for you, aqua the studio working, coral stopped, blue plain information.
+ * One meaning per colour: lime (green) done/locked, yellow (mustard) a decision waiting for you,
+ * cyan (aqua) the studio working, orange-red (coral) stopped, azure (blue) plain information.
  */
 export const tones = {
   ok: 'bg-green-soft text-green-ink',
   todo: 'bg-mustard-soft text-mustard-ink',
   run: 'bg-aqua-soft text-aqua-ink',
-  wait: 'bg-[#EFEDE7] text-ink-soft',
+  wait: 'bg-mist text-ink-soft',
   warn: 'bg-mustard-soft text-mustard-ink',
   bad: 'bg-coral-soft text-coral-ink',
   info: 'bg-blue-soft text-blue-ink',

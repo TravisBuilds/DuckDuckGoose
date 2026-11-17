@@ -47,7 +47,7 @@ export default function PricingPage() {
                   {tier.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm">
                       <svg
-                        className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5"
+                        className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"

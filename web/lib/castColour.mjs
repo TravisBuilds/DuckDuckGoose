@@ -1,7 +1,8 @@
 /**
  * Cast colours (DESIGN-TARGETS-v2 §1.4). Each Universe character gets one by creation order, from
- * blue, mustard, aqua, coral, green and lilac. After six the order repeats with a pattern (a striped
- * dot), so two characters never look alike. The narrator is always ink.
+ * the palette's blue (azure), mustard (yellow), aqua (cyan), coral (orange), green (lime) and lilac.
+ * After six the order repeats with a pattern (a striped dot), so two characters never look alike.
+ * The narrator is always ink.
  *
  * There is no stored colour field yet, so the colour is derived: the same characters in the same
  * creation order always get the same colours, on every screen and for every viewer.
