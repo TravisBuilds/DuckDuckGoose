@@ -429,6 +429,7 @@ test.describe.serial('Universe first', () => {
       await page.goto(`/studio/episodes/${episodeId}`);
       await expect(page.getByTestId('breadcrumb-universe')).toHaveText(UNIVERSE);
       await expect(page.getByTestId('universe-strip')).toBeVisible();
+      await expect(page.getByTestId('ready-video')).toBeVisible();
       await expectNoSidewaysScroll(page);
       await screenshot(page, 'episode-breadcrumb-390');
     });
