@@ -569,7 +569,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
       )}
 
       {universe ? (
-        <UniverseLook character={character} version={version} lockEpisode={universe.lockEpisode} />
+        <UniverseLook character={character} version={version} lockEpisode={universe.lockEpisode} canEdit={canEdit} />
       ) : (
         <SheetSection key={`${character.character_id}-${version.version}`} apiBase={apiBase} view={view}
           character={character} version={version} busy={busy} act={act} note={noteFor('sheet')} />
@@ -897,8 +897,8 @@ interface CastPanelProps {
 }
 
 /** A Universe character's look: a sheet is made and locked from an episode in the Universe. */
-function UniverseLook({ character, version, lockEpisode }: {
-  character: CastCharacter; version: CastVersion; lockEpisode: string | null;
+function UniverseLook({ character, version, lockEpisode, canEdit }: {
+  character: CastCharacter; version: CastVersion; lockEpisode: string | null; canEdit: boolean;
 }) {
   const sheet = versionPictures(version).sheet;
   return (
@@ -912,7 +912,7 @@ function UniverseLook({ character, version, lockEpisode }: {
           </div>
         </div>
       )}
-      {!version.locked && (
+      {canEdit && !version.locked && (
         <p className="text-sm text-gray-700" data-testid={`universe-lock-${character.slug}`}>
           Lock this look from an episode in this Universe
           {lockEpisode ? (
