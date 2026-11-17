@@ -267,7 +267,7 @@ export function draftCastRows(cast) {
 /** What stops the wizard from adding the drafted cast (null when nothing does). */
 export function castRowsProblem(rows) {
   const unnamed = rows.find(r => !r.seriesSlug && !r.name.trim());
-  return unnamed ? `Give character ${unnamed.code} a name, or pick one from the series.` : null;
+  return unnamed ? `Give character ${unnamed.code} a name, or pick one from the Universe.` : null;
 }
 
 /** POST /api/episodes/{id}/cast/import body; a row mapped to a series character reuses it. */

@@ -704,16 +704,16 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
     return (
       <div className="mb-4 text-sm" data-testid="cast-series">
         <p>
-          This cast is shared by the series <strong>{view.series.name}</strong>
-          {others > 0 ? ` with ${others} other video${others === 1 ? '' : 's'}` : ''}. Changes here show up in every video of the series.
+          This cast belongs to the Universe <strong>{view.series.name}</strong>
+          {others > 0 ? ` and is shared with ${others} other video${others === 1 ? '' : 's'}` : ''}. Changes here show up in every video of the Universe.
         </p>
         {view.can_edit && (
           <div className="mt-2">
-            <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Stop using it"
-              question="Stop sharing the series cast? This video starts with an empty cast; the series keeps everyone."
+            <ConfirmButton disabled={busy} className={plainBtn} confirmLabel="Take it out"
+              question="Take this video out of the Universe? It starts with an empty cast; the Universe keeps everyone."
               onConfirm={() => act(() => postJson(`${apiBase}/series`, { series_id: null }),
-                'This video no longer uses the series cast.', 'series')}>
-              Stop using the series cast
+                'This video is no longer in the Universe.', 'series')}>
+              Take this video out of the Universe
             </ConfirmButton>
           </div>
         )}
@@ -724,34 +724,34 @@ function SeriesControl({ episodeId, apiBase, view, busy, act, note }: {
 
   return (
     <div className="mb-4 text-sm" data-testid="cast-series">
-      <p>This cast belongs to this video only. Share it through a series to reuse the same people in later videos.</p>
+      <p>This cast belongs to this video only. Put the video in a Universe to reuse the same people in later videos.</p>
       {view.can_edit && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {list.length > 0 && (
             <>
-              <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Series"
+              <select value={choice} onChange={(e) => setChoice(e.target.value)} aria-label="Universe"
                 className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
-                <option value="">Pick a series…</option>
+                <option value="">Pick a Universe…</option>
                 {list.map((s) => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
               </select>
               <button type="button" disabled={busy || !choice} className={plainBtn}
-                onClick={() => act(() => postJson(`${apiBase}/series`, { series_id: choice }), 'This video now uses the series cast.', 'series')}>
-                Use this series
+                onClick={() => act(() => postJson(`${apiBase}/series`, { series_id: choice }), 'This video is now in the Universe.', 'series')}>
+                Use this Universe
               </button>
               <span className="text-gray-600 dark:text-gray-300">or</span>
             </>
           )}
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New series name"
-            aria-label="New series name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} placeholder="New Universe name"
+            aria-label="New Universe name" className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900" />
           <button type="button" disabled={busy || !newName.trim()} className={plainBtn}
             onClick={async () => {
               const made = await act(async () => {
                 const created = await postJson<{ series: SeriesInfo }>('/api/series', { name: newName.trim() });
                 return postJson(`${apiBase}/series`, { series_id: created.series.series_id });
-              }, 'Series started with this cast.', 'series');
+              }, 'Universe started with this cast.', 'series');
               if (made !== null) setNewName('');
             }}>
-            Start a series with this cast
+            Start a Universe with this cast
           </button>
         </div>
       )}

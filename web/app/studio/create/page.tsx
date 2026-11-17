@@ -788,7 +788,7 @@ function CreateVideoWizard() {
                   )}
                   {!universe && seriesList && seriesList.length > 0 && (
                     <label className="block text-sm mb-4">
-                      <span className="block font-medium mb-1">Series (optional)</span>
+                      <span className="block font-medium mb-1">Universe (optional)</span>
                       <select
                         value={seriesId}
                         onChange={(e) => chooseSeries(e.target.value)}
@@ -799,7 +799,7 @@ function CreateVideoWizard() {
                         {seriesList.map(s => <option key={s.series_id} value={s.series_id}>{s.name}</option>)}
                       </select>
                       <span className="block text-xs text-gray-500 mt-1">
-                        Pick a series to reuse its cast and their locked looks.
+                        Pick a Universe to reuse its cast and their locked looks.
                       </span>
                     </label>
                   )}
@@ -825,7 +825,7 @@ function CreateVideoWizard() {
                           )}
                           {seriesCast.length > 0 && (
                             <label className="block text-sm mb-2">
-                              <span className="block font-medium mb-1">{universe ? 'Same as in the Universe' : 'Same as in the series'}</span>
+                              <span className="block font-medium mb-1">Same as in the Universe</span>
                               <select
                                 value={row.seriesSlug}
                                 onChange={(e) => {

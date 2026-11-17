@@ -400,7 +400,7 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
       </p>
       {!universe && view.series && (
         <p className={`${hint} mb-3`} data-testid="props-series">
-          Shared by every video in the series “{view.series.name}”.
+          Shared by every video in the Universe “{view.series.name}”.
         </p>
       )}
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
@@ -410,7 +410,7 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
           {universe
             ? 'Only the owner of this Universe (or an admin) can change its places and props.'
             : view.series
-            ? 'Only the owner of this series (or an admin) can change its props and places.'
+            ? 'Only the owner of this Universe (or an admin) can change its props and places.'
             : 'Only this video’s owner (or an admin) can change its props and places.'}
         </p>
       )}
