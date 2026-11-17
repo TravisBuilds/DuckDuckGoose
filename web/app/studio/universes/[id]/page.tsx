@@ -38,6 +38,7 @@ function castViewOf(view: WorldView): CastView {
     series: null,
     characters: view.characters as unknown as CastCharacter[],
     shots: { uploaded: false, shots: [], plan: null, error: null },
+    prompts_hidden: false,
     still_max_refs: null,
     sheet: { dry_run: false, live_mode: false, model_path: null, model_error: null, text_options: [0, 0], reference_options: [0, 0] },
     limits: {

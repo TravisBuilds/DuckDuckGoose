@@ -72,10 +72,12 @@ profile.
 | Start a new episode from it (button on its page) | Its owner and admins. An episode editor sees a note instead. |
 | Put an episode in it ("Add to a Universe", `POST /api/episodes/{id}/series`) | Whoever may change the episode, if they also own the Universe (or are an admin). |
 | See an episode's Universe, strip and locks (`GET /api/episodes/{id}/universe`) | Whoever may see the episode's cast. Everyone else gets only who made the episode and that they may not act on it. |
+| Read an episode's prompts (shot, end, clip and still prompts, the text of prompt edits, and the free text that can quote them) | Admins, the Universe's owner and whoever may change that episode. An editor of another episode of the Universe gets that episode's shots, cast and shot plan without them (`prompts_hidden`, `cast_hidden`; docs/AUTHENTICATION.md). |
 | Create a Universe | Any signed-in member (they own it). |
 
-Nobody else receives prompt text: the mood board prompt is in the owner's creation flow only, and the
-episode page reads its "Made with" chips from the shot plan only for whoever may act on the episode.
+Nobody else receives prompt text: the mood board prompt is in the owner's creation flow only, an
+episode's prompts reach only the people in the "Read an episode's prompts" row, and the episode page
+reads its "Made with" chips from the shot plan only for whoever may act on the episode.
 
 ## Routes
 
