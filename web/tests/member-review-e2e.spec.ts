@@ -107,7 +107,7 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   for (const type of ready) {
     await expect(page.getByTestId(`download-${type}`)).toHaveAttribute('href', new RegExp(`/files/${type}\\?download=true$`));
   }
-  await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'current');
+  await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
   await expect(page.getByTestId('approve-final')).toHaveCount(0);
   await expect(page.getByTestId('start-again')).toHaveCount(0);
   await expect(page.getByTestId('story-edit')).toHaveCount(0);
@@ -140,7 +140,7 @@ test('a member sees one scene picture per shot at G2, no admin controls, and fin
   for (const step of ['shot_plan', 'stills', 'final_cut']) {
     await expect(page.getByTestId(`step-${step}`)).toHaveAttribute('data-status', 'done');
   }
-  await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'current');
+  await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
   await expect(page.getByTestId('final-approved')).toBeVisible();
   await expect(page.getByTestId('next-step')).toHaveCount(0);
   await expect(page.getByTestId('stills-error')).toHaveCount(0);

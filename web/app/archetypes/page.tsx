@@ -12,7 +12,7 @@ export default function ArchetypesPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-12">
           <h1 className="text-4xl font-bold mb-4">Video Archetypes</h1>
-          <p className="text-xl text-gray-600 dark:text-gray-400">
+          <p className="text-xl text-gray-600">
             Choose your genre and let our harness handle the rest. 
             All content is original—no named IP or franchises.
           </p>

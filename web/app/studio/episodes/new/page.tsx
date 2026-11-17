@@ -129,28 +129,28 @@ export default function NewEpisodePage() {
         onChange={(e) => { set({ file: null, text: e.target.value }); invalidate(); }}
         placeholder={src.file ? `Using uploaded file ${src.file.name}` : 'or paste the content here'}
         rows={rows}
-        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg font-mono text-xs bg-white dark:bg-gray-900"
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs bg-white"
       />
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href="/studio" className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-2 inline-block">← Studio</Link>
+          <Link href="/studio" className="text-sm text-blue-600 hover:underline mb-2 inline-block">← Studio</Link>
           <h1 className="text-2xl font-bold">New Episode (Advanced)</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-gray-600">
             Upload the episode files, validate them against the model limits, then start the workflow.
           </p>
-          <Link href="/studio/create" className="text-sm text-blue-600 dark:text-blue-400 hover:underline inline-block mt-2">
+          <Link href="/studio/create" className="text-sm text-blue-600 hover:underline inline-block mt-2">
             Looking for the beginner wizard? Try "Make Your Own Video" →
           </Link>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+        <section className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
           <div>
             <label className="block text-sm font-semibold mb-2" htmlFor="episode-id">Episode id</label>
             <input
@@ -159,7 +159,7 @@ export default function NewEpisodePage() {
               value={episodeId}
               onChange={(e) => { setEpisodeId(e.target.value.trim()); invalidate(); }}
               placeholder="ep05"
-              className="w-40 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              className="w-40 px-3 py-2 border border-gray-300 rounded-lg bg-white"
             />
             <p className="text-xs text-gray-500 mt-1">Format: ep + two digits.</p>
           </div>
@@ -170,21 +170,21 @@ export default function NewEpisodePage() {
         </section>
 
         {error && (
-          <div role="alert" data-testid="new-episode-error" className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-sm text-red-800 dark:text-red-200">
+          <div role="alert" data-testid="new-episode-error" className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">
             {error}
           </div>
         )}
 
         {lint && (
-          <section data-testid="lint-report" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <section data-testid="lint-report" className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold mb-2">Episode lint: {lint.status === 'pass' ? 'pass' : 'fail'}</h2>
-            {lint.issues.map((m, i) => <p key={`i${i}`} className="text-sm text-red-700 dark:text-red-300">✗ {m}</p>)}
-            {lint.warnings.map((m, i) => <p key={`w${i}`} className="text-sm text-yellow-700 dark:text-yellow-300">⚠ {m}</p>)}
+            {lint.issues.map((m, i) => <p key={`i${i}`} className="text-sm text-red-700">✗ {m}</p>)}
+            {lint.warnings.map((m, i) => <p key={`w${i}`} className="text-sm text-yellow-700">⚠ {m}</p>)}
           </section>
         )}
 
         {preflight && (
-          <section data-testid="preflight-report" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <section data-testid="preflight-report" className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold mb-2" data-testid="preflight-verdict">
               {preflight.has_errors ? 'Preflight: errors (fix them and validate again)' : 'Preflight: all shots pass'}
             </h2>
@@ -198,12 +198,12 @@ export default function NewEpisodePage() {
               </p>
             )}
             {(preflight.cast_errors ?? []).length > 0 && (
-              <div className="mb-3 text-sm text-red-700 dark:text-red-300" data-testid="preflight-cast-errors">
+              <div className="mb-3 text-sm text-red-700" data-testid="preflight-cast-errors">
                 <p className="font-semibold">Cast (who is in each shot):</p>
                 {(preflight.cast_errors ?? []).map((m, i) => <div key={`c${i}`} className="text-xs ml-4">{m}</div>)}
-                <p className="text-xs text-gray-600 dark:text-gray-400 ml-4 mt-1">
+                <p className="text-xs text-gray-600 ml-4 mt-1">
                   Add the missing people in the Cast panel on{' '}
-                  <Link href={`/studio/episodes/${episodeId}`} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank">
+                  <Link href={`/studio/episodes/${episodeId}`} className="text-blue-600 hover:underline" target="_blank">
                     the episode page
                   </Link>
                   , then validate again.
@@ -250,7 +250,7 @@ export default function NewEpisodePage() {
             data-testid="start-button"
             onClick={handleStart}
             disabled={!canStart || busy !== null}
-            className="px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-semibold disabled:opacity-50"
+            className="px-6 py-3 bg-black text-white rounded-lg font-semibold disabled:opacity-50"
           >
             {busy === 'start' ? 'Starting…' : dryRun ? 'Start dry run' : 'Start live run'}
           </button>

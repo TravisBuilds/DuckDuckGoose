@@ -6,9 +6,10 @@ import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProble
 import type { RightsAnswers } from '@/lib/cast.mjs';
 import { KINDS, KIND_TEXT, addPropProblem, itemPhotos, propAddForm, withPhotoFields } from '@/lib/props.mjs';
 import type { PropItem, PropKind, PropPhoto, PropsView } from '@/lib/props.mjs';
-import { btnPrimary, btnSecondary, card, chip, focusRing, input as field, tones } from '@/lib/ui';
+import { btnPrimary, btnSecondary, card, chip, input as field, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
+import { ThingCard } from './playful';
 
 /**
  * The video's props and places (its series' when it is in one), or with `universe` those of a
@@ -24,8 +25,8 @@ type Note = { tone: 'ok' | 'problem'; text: string; where: string };
 type Act = <T>(fn: () => Promise<T>, done: string, where: string, onDone?: (result: T) => void) => Promise<T | null>;
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
-const hint = 'text-xs text-gray-600 dark:text-gray-300';
-const smallBtn = `inline-flex min-h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 ${focusRing}`;
+const hint = 'text-[12px] text-ink-soft';
+const smallBtn = 'pf-btn pf-btn-quiet pf-btn-sm !min-h-9 !px-3 !text-[12.5px]';
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
@@ -39,7 +40,7 @@ function Message({ note }: { note: Note | null }) {
   if (!note) return null;
   return (
     <p data-testid="props-message" data-tone={note.tone}
-      className={`mt-3 rounded-lg p-3 text-sm ${note.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+      className={`mt-3 rounded-inner p-3 text-[13px] font-bold ${note.tone === 'ok' ? 'bg-green-soft text-green-ink' : 'bg-coral-soft text-coral-ink'}`}>
       {note.text}
     </p>
   );
@@ -48,9 +49,9 @@ function Message({ note }: { note: Note | null }) {
 function Photo({ photo, alt, size = 'h-24 w-24 sm:h-28 sm:w-28' }: { photo: PropPhoto; alt: string; size?: string }) {
   return (
     <a href={`${API_URL}${photo.url}`} target="_blank" rel="noreferrer" title="Open the full photo"
-      className={`block shrink-0 rounded-lg ${focusRing}`}>
+      className="block shrink-0 rounded-[12px]">
       <img src={`${API_URL}${photo.thumb_url}`} alt={alt} loading="lazy"
-        className={`${size} rounded-lg border border-gray-300 bg-gray-100 object-cover dark:border-gray-600 dark:bg-gray-900`} />
+        className={`${size} rounded-[12px] bg-mist object-cover shadow-card`} />
     </a>
   );
 }
@@ -82,9 +83,9 @@ function AddPhoto({ apiBase, view, item, busy, act }: {
   };
   const first = itemPhotos(item).length === 0;
   return (
-    <details className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40" data-testid={`prop-add-photo-${item.slug}`}
+    <details className="mt-3 rounded-inner bg-page p-3 text-left" data-testid={`prop-add-photo-${item.slug}`}
       open={first || undefined}>
-      <summary className={`cursor-pointer rounded text-sm font-semibold ${focusRing}`}>
+      <summary className="cursor-pointer rounded text-[13px] font-extrabold">
         {first ? 'Add a photo' : 'Add another photo'}
       </summary>
       <p className={`${hint} mt-2`} id={`prop-photo-hint-${item.slug}`}>
@@ -92,21 +93,21 @@ function AddPhoto({ apiBase, view, item, busy, act }: {
       </p>
       <input key={inputKey} type="file" accept={PICTURE_ACCEPT} aria-label={`Photo of ${item.name}`}
         aria-describedby={`prop-photo-hint-${item.slug}`} onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className={`mt-2 block w-full text-sm ${focusRing}`} data-testid={`prop-photo-file-${item.slug}`} />
-      {fileIssue && <p className="mt-1 text-xs text-red-700 dark:text-red-300">{fileIssue}</p>}
+        className="mt-2 block w-full text-[13px]" data-testid={`prop-photo-file-${item.slug}`} />
+      {fileIssue && <p className="mt-1 text-[12px] font-bold text-coral-ink">{fileIssue}</p>}
       <RightsQuestions rights={rights} onChange={setRights} group={`prop-rights-${item.slug}`}
         testId={(what) => `prop-${what}-${item.slug}`} />
-      {file && !fileIssue && rightsIssue && <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">{rightsIssue}</p>}
+      {file && !fileIssue && rightsIssue && <p className="mt-2 text-[12px] font-bold text-mustard-ink">{rightsIssue}</p>}
       <button type="button" onClick={send} disabled={busy || !file || !!fileIssue || !!rightsIssue}
-        className={`${btnSecondary} mt-3`} data-testid={`prop-photo-send-${item.slug}`}>
+        className={`${btnSecondary} pf-btn-sm mt-3`} data-testid={`prop-photo-send-${item.slug}`}>
         Upload photo
       </button>
     </details>
   );
 }
 
-function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
-  apiBase: string; view: PropsView; item: PropItem; busy: boolean; act: Act; note: Note | null;
+function ItemCard({ apiBase, view, item, index, busy, act, note, extra }: {
+  apiBase: string; view: PropsView; item: PropItem; index: number; busy: boolean; act: Act; note: Note | null;
   extra?: (item: PropItem) => ReactNode;
 }) {
   const photos = itemPhotos(item);
@@ -123,38 +124,26 @@ function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
     setEditing(true);
   };
   return (
-    <li className="rounded-lg border border-gray-200 p-3 sm:p-4 dark:border-gray-700" data-testid={`prop-${item.slug}`}
-      data-kind={item.kind}>
-      <div className="flex items-start gap-3">
-        {photos[0] ? (
-          <Photo photo={photos[0]} alt={`${item.name}: main photo`} />
-        ) : (
-          <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 p-2 text-center text-xs text-gray-600 sm:h-28 sm:w-28 dark:border-gray-600 dark:text-gray-300">
-            No photo yet
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="break-words font-semibold text-gray-900 dark:text-white">{item.name}</h3>
-            <span className={`${chip} ${item.kind === 'place' ? tones.todo : tones.wait}`}>{kind.label}</span>
-          </div>
-          <p className="mt-1 break-words text-sm text-gray-700 dark:text-gray-200" data-testid={`prop-description-${item.slug}`}>
-            {item.description || 'No description yet: add what it looks like, so every shot gets it right.'}
-          </p>
-          <p className={`${hint} mt-1`}>{photos.length === 1 ? '1 photo' : `${photos.length} photos`}</p>
-          {extra?.(item)}
-        </div>
+    <li className="min-w-0" data-testid={`prop-${item.slug}`} data-kind={item.kind}>
+      <ThingCard kind={item.kind === 'place' ? 'place' : 'prop'} index={index} photos={photos.length}
+        picture={photos[0] ? { src: `${API_URL}${photos[0].thumb_url}`, href: `${API_URL}${photos[0].url}`, alt: `${item.name}: main photo` } : null}
+        title={<h3 className="break-words text-[16px]">{item.name}</h3>}>
+      <div className="mt-2 text-left">
+        <p className="break-words text-[13px]" data-testid={`prop-description-${item.slug}`}>
+          {item.description || 'No description yet: add what it looks like, so every shot gets it right.'}
+        </p>
+        {extra?.(item)}
       </div>
 
       {photos.length > 1 && (
-        <ul className="mt-3 flex flex-wrap gap-3" aria-label={`Photos of ${item.name}`}>
+        <ul className="mt-3 flex flex-wrap gap-3 text-left" aria-label={`Photos of ${item.name}`}>
           {photos.map((photo, i) => (
             <li key={photo.image_id} className="w-24 sm:w-28" data-testid={`prop-photo-${photo.image_id}`}>
               <Photo photo={photo} alt={i === 0 ? `${item.name}: main photo` : `${item.name}: photo ${i + 1}`} />
               {view.can_edit && (
                 <div className="mt-1 flex flex-col gap-1">
                   {photo.is_primary ? (
-                    <span className={`${chip} ${tones.ok} justify-center`}>Main photo</span>
+                    <span className="pf-chip pf-chip-lock justify-center">Main photo</span>
                   ) : (
                     <button type="button" className={smallBtn} disabled={busy}
                       onClick={() => act(() => postJson(`${apiBase}/props/${item.prop_id}/photos/${photo.image_id}/primary`, {}),
@@ -176,7 +165,7 @@ function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
       )}
 
       {view.can_edit && editing && (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-2 text-left">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={view.limits.name_max}
             aria-label="Name" className={field} data-testid={`prop-edit-name-${item.slug}`} />
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -216,6 +205,7 @@ function ItemCard({ apiBase, view, item, busy, act, note, extra }: {
         <AddPhoto apiBase={apiBase} view={view} item={item} busy={busy} act={act} />
       )}
       <Message note={note} />
+      </ThingCard>
     </li>
   );
 }
@@ -261,13 +251,13 @@ function AddItem({ apiBase, view, busy, act, note }: {
   };
   return (
     <div data-testid="props-add" data-first={first ? 'true' : 'false'}
-      className={`mt-4 rounded-lg border p-4 ${first ? 'border-blue-300 bg-blue-50/40 dark:border-blue-700 dark:bg-blue-900/10' : 'border-dashed border-gray-300 dark:border-gray-600'}`}>
-      <h3 className="mb-1 text-sm font-semibold" data-testid="props-add-title">{title}</h3>
+      className={`mt-5 rounded-card border-[3px] border-dashed p-5 ${first ? 'border-blue/40 bg-blue-soft' : 'border-line-strong'}`}>
+      <h3 className="mb-1 text-[17px]" data-testid="props-add-title">{title}</h3>
       <fieldset className="mt-2">
-        <legend className="mb-2 text-sm font-medium">What is it?</legend>
+        <legend className="mb-2 text-[13px] font-extrabold">What is it?</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {KINDS.map((k) => (
-            <label key={k} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${kind === k ? 'border-blue-600 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-600'}`}>
+            <label key={k} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-inner border-2 bg-white p-3 text-[13.5px] ${kind === k ? 'border-blue-deep' : 'border-transparent shadow-card'}`}>
               <input type="radio" name="props-add-kind" value={k} checked={kind === k} onChange={() => setKind(k)}
                 className="mt-0.5" data-testid={`props-add-kind-${k}`} />
               <span>
@@ -278,14 +268,14 @@ function AddItem({ apiBase, view, busy, act, note }: {
           ))}
         </div>
       </fieldset>
-      <label htmlFor="props-add-file" className="mt-3 block text-sm font-medium">{first ? 'Photo' : 'Photo (recommended)'}</label>
+      <label htmlFor="props-add-file" className="mt-3 block text-[13px] font-extrabold">{first ? 'Photo' : 'Photo (recommended)'}</label>
       <p id="props-add-file-hint" className={`${hint} mb-1`}>
         {photoHint(view)} A clear photo of just this {what} works best.
       </p>
       <input id="props-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="props-add-file-hint"
-        className={`block w-full text-sm ${focusRing}`} data-testid="props-add-file" />
-      {fileIssue && <p className="mt-1 text-xs text-red-700 dark:text-red-300">{fileIssue}</p>}
+        className="block w-full text-[13px]" data-testid="props-add-file" />
+      {fileIssue && <p className="mt-1 text-[12px] font-bold text-coral-ink">{fileIssue}</p>}
       <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={view.limits.name_max}
         placeholder={kind === 'place' ? 'Name, e.g. Harbour cabin' : 'Name, e.g. Red umbrella'} aria-label="Name"
         className={`${field} mt-3`} data-testid="props-add-name" />
@@ -299,7 +289,7 @@ function AddItem({ apiBase, view, busy, act, note }: {
         <RightsQuestions rights={rights} onChange={setRights} group="props-rights-add" testId={(w) => `props-add-${w}`} />
       )}
       {file && !fileIssue && photoIssue && (
-        <p className="mt-2 text-xs text-amber-800 dark:text-amber-300" data-testid="props-add-problem">{photoIssue}</p>
+        <p className="mt-2 text-[12px] font-bold text-mustard-ink" data-testid="props-add-problem">{photoIssue}</p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={addWithPhoto} disabled={busy || !!photoIssue} className={btnPrimary}
@@ -373,9 +363,9 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
 
   if (!view) {
     return (
-      <div className={card} data-testid="props-panel">
-        <h2 className="mb-1 text-xl font-semibold">Props &amp; places</h2>
-        <p className="text-sm text-gray-700 dark:text-gray-300">{loadIssue ?? 'Loading the props and places…'}</p>
+      <div className={universe ? 'min-w-0' : card} data-testid="props-panel">
+        <h2 className="mb-1 text-[24px]">{universe ? 'Places & props' : <>Props &amp; places</>}</h2>
+        <p className="text-[13.5px] text-ink-soft">{loadIssue ?? 'Loading the props and places…'}</p>
       </div>
     );
   }
@@ -384,16 +374,16 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
   const shownIn = (where: string) => (message?.where === where ? message : null);
   const placed = Boolean(message) && ((message?.where === 'add' && add.shown) || view.items.some((i) => i.slug === message?.where));
   return (
-    <div className={card} data-testid="props-panel">
+    <div className={universe ? 'min-w-0' : card} data-testid="props-panel">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">{universe ? 'Places & props' : <>Props &amp; places</>}</h2>
+        <h2 className="text-[24px]">{universe ? 'Places & props' : <>Props &amp; places</>}</h2>
         {view.items.length > 0 && (
           <span className={`${chip} ${tones.wait}`} data-testid="props-count">
             {view.items.length} of {view.limits.max_items}
           </span>
         )}
       </div>
-      <p className="mb-3 text-sm text-gray-700 dark:text-gray-300">
+      <p className="mb-4 text-[13.5px] text-ink-soft">
         {universe
           ? 'The places and things of this Universe, with a photo of each. Every episode in it can pick them on a shot in its shot plan: the studio sends their photos with that shot and adds your description to its prompt.'
           : 'The things and settings that have to look right, with a photo of each. Pick them on each shot in the shot plan: the studio sends their photos with that shot and adds your description to its prompt.'}
@@ -406,7 +396,7 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {!placed && <Message note={message} />}
       {!view.can_edit && (
-        <p className="mb-3 text-sm text-gray-700 dark:text-gray-300" data-testid="props-read-only">
+        <p className="mb-3 text-[13.5px] text-ink-soft" data-testid="props-read-only">
           {universe
             ? 'Only the owner of this Universe (or an admin) can change its places and props.'
             : view.series
@@ -415,7 +405,7 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
         </p>
       )}
       {view.items.length === 0 ? (
-        <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 dark:bg-gray-900/40 dark:text-gray-200"
+        <div className="rounded-card border-2 border-dashed border-line-strong p-5 text-[13.5px]"
           data-testid="props-empty">
           <p className="font-semibold">No props or places yet.</p>
           <p className="mt-1">
@@ -429,9 +419,9 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
           <p className="mt-2">Shots you pick nothing for are made just as before.</p>
         </div>
       ) : (
-        <ul className="grid gap-3 lg:grid-cols-2" data-testid="props-list">
-          {view.items.map((item) => (
-            <ItemCard key={item.prop_id} apiBase={base} view={view} item={item} busy={busy} act={act}
+        <ul className={`grid gap-4 sm:grid-cols-2 ${universe ? 'xl:grid-cols-3' : ''}`} data-testid="props-list">
+          {view.items.map((item, i) => (
+            <ItemCard key={item.prop_id} apiBase={base} view={view} item={item} index={i} busy={busy} act={act}
               note={placed ? shownIn(item.slug) : null} extra={extra} />
           ))}
         </ul>

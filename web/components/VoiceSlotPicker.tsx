@@ -50,7 +50,7 @@ export function VoicePreview({ pick, token }: { pick: VoicePick; token: string }
       <button
         type="button"
         onClick={toggle}
-        className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700"
+        className="pf-btn pf-btn-quiet pf-btn-sm"
         data-testid={`voice-play-${token}`}
       >
         {playing ? '■ Stop' : '▶ Play preview'}
@@ -64,7 +64,7 @@ export function VoicePreview({ pick, token }: { pick: VoicePick; token: string }
         onEnded={() => setPlaying(false)}
         data-testid={`voice-audio-${token}`}
       />
-      {playError && <span className="text-xs text-red-700 dark:text-red-300">{playError}</span>}
+      {playError && <span className="text-xs font-bold text-coral-ink">{playError}</span>}
     </>
   );
 }
@@ -89,14 +89,14 @@ export function VoiceSlotPicker({
   const inputId = `voice-description-${token}`;
   const choice = state.choice;
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 first:border-t-0 first:pt-0" data-testid={`voice-slot-${token}`}>
+    <div className="border-t border-gray-200 pt-4 first:border-t-0 first:pt-0" data-testid={`voice-slot-${token}`}>
       <label htmlFor={inputId} className="block text-sm font-semibold">
         {slot.label}: describe the voice
       </label>
       <p className="text-xs text-gray-500 mb-2">
         {note ?? `${slot.lines} voice-over line${slot.lines === 1 ? '' : 's'}`}
       </p>
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           id={inputId}
           type="text"
@@ -107,27 +107,27 @@ export function VoiceSlotPicker({
           }}
           maxLength={300}
           placeholder={`e.g. ${slot.suggestion}`}
-          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+          className="pf-input min-w-[10rem] flex-1 text-sm"
           data-testid={inputId}
         />
         <button
           type="button"
           onClick={onFind}
           disabled={state.busy || state.description.trim().length < 3}
-          className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-semibold disabled:opacity-50"
+          className="pf-btn pf-btn-primary pf-btn-sm shrink-0"
           data-testid={`voice-find-${token}`}
         >
           {state.busy ? 'Finding…' : 'Find a voice'}
         </button>
       </div>
       {state.error && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid={`voice-error-${token}`}>
+        <p className="mt-2 text-sm font-bold text-coral-ink" data-testid={`voice-error-${token}`}>
           {state.error}
         </p>
       )}
       {choice && (
         <div
-          className="mt-3 flex flex-wrap items-center gap-3 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3"
+          className="mt-3 flex flex-wrap items-center gap-3 rounded-inner bg-page p-3"
           data-testid={`voice-choice-${token}`}
           data-voice-id={choice.voice_id}
         >
@@ -139,7 +139,7 @@ export function VoiceSlotPicker({
             type="button"
             onClick={onRetry}
             disabled={state.busy}
-            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+            className="pf-btn pf-btn-quiet pf-btn-sm"
             data-testid={`voice-retry-${token}`}
           >
             Try another voice

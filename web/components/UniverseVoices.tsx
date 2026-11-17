@@ -76,10 +76,10 @@ export function SavedVoiceBlock({ slotKey, label, speaker, saved, saveUrl, onSav
   };
 
   return (
-    <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700" data-testid={`saved-voice-${token}`}>
+    <div className="mt-4 border-t border-gray-200 pt-3" data-testid={`saved-voice-${token}`}>
       <h4 className="text-sm font-semibold">{speaker === null ? 'Narrator voice' : 'Voice'}</h4>
       {saved && !picking ? (
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900/40">
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 p-3">
           <span className="text-sm">
             Saved voice: <strong data-testid={`saved-voice-name-${token}`}>{saved.name}</strong>
           </span>
@@ -93,7 +93,7 @@ export function SavedVoiceBlock({ slotKey, label, speaker, saved, saveUrl, onSav
             className={btnSecondary} onConfirm={() => save(null)} testId={`saved-voice-clear-${token}`}>
             Clear
           </ConfirmButton>
-          {saved.description && <p className="w-full text-xs text-gray-600 dark:text-gray-300">Asked for: {saved.description}</p>}
+          {saved.description && <p className="w-full text-xs text-gray-600">Asked for: {saved.description}</p>}
         </div>
       ) : (
         <div className="mt-2">
@@ -119,7 +119,7 @@ export function SavedVoiceBlock({ slotKey, label, speaker, saved, saveUrl, onSav
         </div>
       )}
       {note && (
-        <p className={`mt-2 text-sm ${note.tone === 'ok' ? 'text-green-800 dark:text-green-200' : 'text-red-700 dark:text-red-300'}`}
+        <p className={`mt-2 text-sm ${note.tone === 'ok' ? 'text-green-800' : 'text-red-700'}`}
           role={note.tone === 'problem' ? 'alert' : 'status'} data-testid={`saved-voice-message-${token}`}>
           {note.text}
         </p>

@@ -1,272 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMe } from '@/components/StudioShell';
 import { UniverseCreateForm } from '@/components/UniverseCreateForm';
-import { getPresetById } from '@/lib/presets';
-import { ApiError, API_URL, apiFetch, postJson } from '@/lib/studio-api';
-import { formatLocalDate } from '@/lib/time';
-import { ownerLabel } from '@/lib/labels';
-import { cardStatus } from '@/lib/next-step.mjs';
-import type { RunStateLike, StoryLike } from '@/lib/next-step.mjs';
-import { countsLine, healthLine } from '@/lib/consistency.mjs';
-import { homeSections, isFinished, isFirstRun, mayChange, posterShot, primaryVideo, universeChoices } from '@/lib/world.mjs';
-import type { UniverseCard } from '@/lib/world.mjs';
-import { btnPrimary, btnSecondary, card, chip, focusRing, input as field, link, tones, type Tone } from '@/lib/ui';
-
-interface Episode {
-  episode_id: string;
-  live_mode: boolean;
-  g108_approved: boolean;
-  created_at: string | null;
-  user_id: string | null;
-  owner_name: string | null;
-}
-
-interface Summary {
-  state: EpisodeState | null; // null: the video has not started
-  story: StoryShape | null;
-  logline: string | null;
-  style: string | null;
-}
+import { EpisodeSections, ScopeToggle, UNREACHABLE, useSummaries, type Episode } from '@/components/EpisodeLists';
+import { EmptyState, GlassPanel, HeroBand, Icon, UniverseCard } from '@/components/playful';
+import { ApiError, API_URL, apiFetch } from '@/lib/studio-api';
+import { homeSections, isFinished, isFirstRun, mayChange, universeChoices } from '@/lib/world.mjs';
+import type { UniverseCard as UniverseCardData } from '@/lib/world.mjs';
+import { card, link } from '@/lib/ui';
 
 interface Health {
   status?: string;
   temporal?: boolean;
 }
 
-type EpisodeState = RunStateLike & {
-  archetype_id?: string | null;
-  shot_outcomes?: Record<string, { still_url?: string | null }>;
-};
-type StoryShape = StoryLike & { story_shape?: { logline?: string } | null };
-
-/** Each status chip costs a run-state read, so only the first cards get one. */
-const STATUS_LIMIT = 20;
-const PARALLEL_READS = 4;
 /** Recently finished shows this many players at first. */
 const FINISHED_SHOWN = 6;
-const UNREACHABLE = 'The studio could not be reached. Check your connection and reload.';
-
-async function loadSummary(id: string): Promise<Summary> {
-  let state: EpisodeState;
-  try {
-    state = await apiFetch<EpisodeState>(`/api/episodes/${id}`);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return { state: null, story: null, logline: null, style: null };
-    throw e;
-  }
-  // the run state carries no story outline: read it for the logline and the story step
-  const story = await apiFetch<StoryShape>(`/api/episodes/${id}/story-shape`).catch(() => null);
-  return {
-    state,
-    story,
-    logline: story?.story_shape?.logline || null,
-    style: state.archetype_id ? getPresetById(state.archetype_id)?.name ?? null : null,
-  };
-}
-
-function episodeUrl(id: string, file: string): string {
-  return `${API_URL}/api/episodes/${encodeURIComponent(id)}/files/${file}`;
-}
-
-/** A remote still as-is; a local one (dry-run stand-in, pre-approved copy) through the API. */
-function posterUrl(id: string, shotId: string, stillUrl: string): string {
-  if (/^https?:\/\//.test(stillUrl)) return stillUrl;
-  return `${API_URL}/api/episodes/${encodeURIComponent(id)}/shots/${encodeURIComponent(shotId)}/still`;
-}
-
-/** The card's status chip. A step only its owner (or an admin) can take says who it waits on. */
-function chipFor(summary: Summary, episode: Episode, myUserId: string | null, isAdmin: boolean): { label: string; tone: Tone } {
-  const mine = episode.user_id === null || episode.user_id === myUserId;
-  return cardStatus(summary.state, summary.story, { mine, canAct: isAdmin || mine, ownerName: episode.owner_name });
-}
-
-function SectionHeading({ title, text, testId }: { title: string; text?: string; testId?: string }) {
-  return (
-    <div className="mb-3">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-white" data-testid={testId}>{title}</h2>
-      {text && <p className="text-sm text-gray-600 dark:text-gray-300">{text}</p>}
-    </div>
-  );
-}
-
-function UniverseTile({ world, myUserId }: { world: UniverseCard; myUserId: string | null }) {
-  const counts = world.counts;
-  const tone: Tone = counts.characters === 0 ? 'wait' : counts.locked_characters >= counts.characters ? 'ok' : 'warn';
-  const owner = ownerLabel(world.owner_user_id, world.owner_name, myUserId);
-  return (
-    <li className="min-w-0">
-      <Link href={`/studio/universes/${encodeURIComponent(world.series_id)}`} data-testid={`universe-card-${world.series_id}`}
-        className={`flex h-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white transition-colors hover:border-blue-400 dark:border-gray-700 dark:bg-gray-800 ${focusRing}`}>
-        {world.cover ? (
-          <img src={`${API_URL}${world.cover.thumb_url}`} alt="" loading="lazy" className="h-32 w-full object-cover"
-            data-testid={`universe-cover-${world.series_id}`} />
-        ) : (
-          <div aria-hidden="true" className="flex h-32 w-full items-center justify-center bg-gradient-to-br from-blue-100 to-purple-100 text-4xl font-bold text-blue-900 dark:from-blue-900/40 dark:to-purple-900/40 dark:text-blue-100">
-            {world.name.trim().charAt(0).toUpperCase() || '?'}
-          </div>
-        )}
-        <div className="flex flex-1 flex-col gap-1 p-4">
-          <h3 className="break-words font-semibold text-gray-900 dark:text-white">{world.name}</h3>
-          {world.profile.logline && (
-            <p className="line-clamp-2 break-words text-sm text-gray-700 dark:text-gray-200">{world.profile.logline}</p>
-          )}
-          <p className="text-xs text-gray-600 dark:text-gray-300" data-testid={`universe-counts-${world.series_id}`}>{countsLine(counts)}</p>
-          <p className="mt-auto pt-2">
-            <span className={`${chip} ${tones[tone]}`} data-testid={`universe-health-${world.series_id}`}>{healthLine(counts)}</span>
-          </p>
-          <p className="text-xs text-gray-600 dark:text-gray-300">{owner === 'You' ? 'By you' : `By ${owner}`}</p>
-        </div>
-      </Link>
-    </li>
-  );
-}
-
-function EpisodeCard({ episode, summary, myUserId, isAdmin, universe, children }: {
-  episode: Episode; summary: Summary | null | undefined; myUserId: string | null; isAdmin: boolean;
-  universe: UniverseCard | null; children?: ReactNode;
-}) {
-  const date = formatLocalDate(episode.created_at);
-  const owner = ownerLabel(episode.user_id, episode.owner_name, myUserId);
-  const status = summary ? chipFor(summary, episode, myUserId, isAdmin) : null;
-  return (
-    <li className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <Link href={`/studio/episodes/${episode.episode_id}`} data-testid={`episode-card-${episode.episode_id}`}
-        className={`block rounded-lg p-4 transition-colors hover:bg-blue-50/40 dark:hover:bg-gray-700 ${focusRing}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="min-w-0 break-words font-semibold text-gray-900 dark:text-white">
-            <span className="font-mono">{episode.episode_id}</span>
-            {summary?.style && <span className="font-normal text-gray-700 dark:text-gray-200"> · {summary.style}</span>}
-          </h3>
-          {status && <span className={`${chip} ${tones[status.tone]}`} data-testid={`episode-status-${episode.episode_id}`}>{status.label}</span>}
-        </div>
-        {summary?.logline && <p className="mt-1 line-clamp-2 text-sm text-gray-700 dark:text-gray-200">{summary.logline}</p>}
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
-          <span data-testid={`episode-owner-${episode.episode_id}`}>{owner === 'You' ? 'By you' : `By ${owner}`}</span>
-          {universe && <span data-testid={`episode-universe-${episode.episode_id}`}>In {universe.name}</span>}
-          {date && <span>{date}</span>}
-          {episode.live_mode && <span className={`${chip} ${tones.warn}`}>Live mode</span>}
-          {isAdmin && episode.g108_approved && <span className={`${chip} ${tones.ok}`}>G1.08 approved</span>}
-        </p>
-      </Link>
-      {children}
-    </li>
-  );
-}
-
-/** A finished episode: its video plays right here (nothing loads until play), with its download. */
-function FinishedCard({ episode, summary, myUserId, isAdmin, universe, children }: {
-  episode: Episode; summary: Summary | null | undefined; myUserId: string | null; isAdmin: boolean;
-  universe: UniverseCard | null; children?: ReactNode;
-}) {
-  const id = episode.episode_id;
-  const [primary, setPrimary] = useState<string | null | undefined>(undefined);
-  useEffect(() => {
-    let alive = true;
-    apiFetch<{ files: Record<string, { available: boolean }> }>(`/api/episodes/${id}/files`)
-      .then((r) => alive && setPrimary(primaryVideo(r.files)))
-      .catch(() => alive && setPrimary(null));
-    return () => {
-      alive = false;
-    };
-  }, [id]);
-  const outcomes = summary?.state?.shot_outcomes ?? null;
-  const shot = posterShot(outcomes);
-  const poster = shot && outcomes ? posterUrl(id, shot, outcomes[shot].still_url ?? '') : undefined;
-  const owner = ownerLabel(episode.user_id, episode.owner_name, myUserId);
-  const status = summary ? chipFor(summary, episode, myUserId, isAdmin) : null;
-  return (
-    <li className="min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-      data-testid={`finished-card-${id}`}>
-      {primary ? (
-        <video controls playsInline preload="none" poster={poster} src={episodeUrl(id, primary)}
-          className="h-64 w-full bg-black object-contain" data-testid={`finished-video-${id}`} />
-      ) : (
-        <div className="flex h-64 w-full items-center justify-center bg-gray-100 p-4 text-center text-sm text-gray-700 dark:bg-gray-900 dark:text-gray-200">
-          {primary === undefined ? 'Loading the video…' : 'No video file is left for this episode.'}
-        </div>
-      )}
-      <div className="p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Link href={`/studio/episodes/${id}`} data-testid={`episode-card-${id}`}
-            className={`min-w-0 break-words font-mono font-semibold text-gray-900 dark:text-white ${link}`}>
-            {id}
-          </Link>
-          {status && <span className={`${chip} ${tones[status.tone]}`} data-testid={`episode-status-${id}`}>{status.label}</span>}
-        </div>
-        {summary?.logline && <p className="mt-1 line-clamp-2 text-sm text-gray-700 dark:text-gray-200">{summary.logline}</p>}
-        <p className="mt-1 flex flex-wrap gap-x-3 text-sm text-gray-600 dark:text-gray-300">
-          <span data-testid={`episode-owner-${id}`}>{owner === 'You' ? 'By you' : `By ${owner}`}</span>
-          {universe && <span data-testid={`episode-universe-${id}`}>In {universe.name}</span>}
-        </p>
-        {primary && (
-          <a href={`${episodeUrl(id, primary)}?download=true`} className={`${btnSecondary} mt-3 w-full`}
-            data-testid={`finished-download-${id}`}>
-            Download
-          </a>
-        )}
-      </div>
-      {children}
-    </li>
-  );
-}
-
-/** Put an episode in one of the reader's Universes (POST /api/episodes/{id}/series); a refusal shows as the API says it. */
-function AddToUniverse({ episodeId, choices, onAdded }: {
-  episodeId: string; choices: { series_id: string; name: string }[]; onAdded: () => void;
-}) {
-  const [choice, setChoice] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const picked = choice || choices[0]?.series_id || '';
-  if (choices.length === 0) {
-    return (
-      <p className="border-t border-gray-200 px-4 py-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-200">
-        Not in a Universe.{' '}
-        <Link href="/studio/universes/new" className={link} data-testid={`add-to-universe-create-${episodeId}`}>
-          Create a Universe
-        </Link>{' '}
-        to keep its characters and places for the next episodes.
-      </p>
-    );
-  }
-  const add = async () => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      await postJson(`/api/episodes/${episodeId}/series`, { series_id: picked });
-      onAdded();
-    } catch (e) {
-      setProblem(e instanceof ApiError ? e.message : UNREACHABLE);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="border-t border-gray-200 px-4 py-3 dark:border-gray-700" data-testid={`add-to-universe-${episodeId}`}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <label htmlFor={`add-to-universe-pick-${episodeId}`} className="text-sm font-medium">Add to a Universe</label>
-        {choices.length > 1 && (
-          <select id={`add-to-universe-pick-${episodeId}`} value={picked} onChange={(e) => setChoice(e.target.value)}
-            className={`${field} sm:w-auto`} data-testid={`add-to-universe-pick-${episodeId}`}>
-            {choices.map((c) => <option key={c.series_id} value={c.series_id}>{c.name}</option>)}
-          </select>
-        )}
-        <button type="button" onClick={add} disabled={busy || !picked} className={btnSecondary}
-          data-testid={`add-to-universe-button-${episodeId}`}>
-          {busy ? 'Adding…' : choices.length > 1 ? 'Add' : `Add to ${choices[0].name}`}
-        </button>
-      </div>
-      {problem && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert" data-testid={`add-to-universe-problem-${episodeId}`}>
-          {problem}
-        </p>
-      )}
-    </div>
-  );
-}
 
 function SystemDetails() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -278,15 +29,15 @@ function SystemDetails() {
 
   const ok = health?.status === 'ok';
   return (
-    <details className={`${card} mt-8`} data-testid="system-details">
-      <summary className={`cursor-pointer rounded text-sm font-semibold ${focusRing}`}>System</summary>
-      <div className="mt-3 space-y-1 text-sm text-gray-700 dark:text-gray-200">
+    <details className={`${card} mt-10`} data-testid="system-details">
+      <summary className="cursor-pointer rounded text-[14px] font-extrabold">System</summary>
+      <div className="mt-3 space-y-1 text-[13.5px]">
         <p>API: {ok ? 'Connected' : problem ? `Disconnected (${problem})` : health ? 'Disconnected' : 'Checking…'}</p>
         <p>Temporal: {health?.temporal ? 'Connected' : 'Disconnected'}</p>
-        <p className="text-xs text-gray-600 dark:text-gray-300">API URL: {API_URL}</p>
+        <p className="text-[12px] text-ink-soft">API URL: {API_URL}</p>
       </div>
-      <h3 className="mt-4 text-sm font-semibold">Production safety</h3>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-200">
+      <h3 className="mt-4 text-[15px]">Production safety</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-[13.5px]">
         <li>Dry-run is the default mode: no charges until an episode is switched to live mode.</li>
         <li>Live mode requires G1.08 credit plan approval before any paid generation.</li>
         <li>Budget stops automatically at 80% of each line&apos;s cap.</li>
@@ -297,18 +48,22 @@ function SystemDetails() {
   );
 }
 
+/**
+ * The studio home, Universes first (DESIGN-TARGETS-v2 §6.1): a sky-and-floor hero with the start
+ * panel (the Spark step), the reader's Universes with their seal, progress and next step, then the
+ * episodes: Keep going (a decision waiting for you first), Recently finished and the ones in no
+ * Universe. A first run (nothing of the reader's own yet) is the hero alone, with a way to just make
+ * one video.
+ */
 export default function StudioHomePage() {
   const { me, isAdmin, loading: meLoading } = useMe();
   const [episodes, setEpisodes] = useState<Episode[] | null>(null);
-  const [worlds, setWorlds] = useState<UniverseCard[] | null>(null);
+  const [worlds, setWorlds] = useState<UniverseCardData[] | null>(null);
   const [worldsIssue, setWorldsIssue] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chosenScope, setChosenScope] = useState<'mine' | 'everyone' | null>(null);
-  const [summaries, setSummaries] = useState<Record<string, Summary | null>>({});
-  const [allFinished, setAllFinished] = useState(false);
-  const requested = useRef(new Set<string>());
 
-  const loadWorlds = useCallback(() => apiFetch<{ worlds: UniverseCard[] }>('/api/worlds')
+  const loadWorlds = useCallback(() => apiFetch<{ worlds: UniverseCardData[] }>('/api/worlds')
     .then((data) => {
       setWorlds(data.worlds ?? []);
       setWorldsIssue(null);
@@ -340,21 +95,7 @@ export default function StudioHomePage() {
     () => (episodes ?? []).filter((ep) => scope === 'everyone' || (myUserId !== null && ep.user_id === myUserId)),
     [episodes, scope, myUserId],
   );
-
-  useEffect(() => {
-    const todo = shown.slice(0, STATUS_LIMIT).map((ep) => ep.episode_id).filter((id) => !requested.current.has(id));
-    if (todo.length === 0) return;
-    todo.forEach((id) => requested.current.add(id));
-    let next = 0;
-    const worker = async () => {
-      while (next < todo.length) {
-        const id = todo[next++];
-        const summary = await loadSummary(id).catch(() => null);
-        setSummaries((prev) => ({ ...prev, [id]: summary }));
-      }
-    };
-    Array.from({ length: Math.min(PARALLEL_READS, todo.length) }, worker);
-  }, [shown]);
+  const summaries = useSummaries(shown);
 
   const viewer = useMemo(() => ({ userId: myUserId, isAdmin }), [myUserId, isAdmin]);
   const finishedIds = useMemo(
@@ -372,177 +113,146 @@ export default function StudioHomePage() {
   const ready = !loading && !meLoading && !error;
   const firstRun = ready && chosenScope === null && !worldsIssue && isFirstRun(worlds, episodes, viewer);
   const othersMade = (episodes ?? []).length > 0;
-  const finishedShown = allFinished ? sections.finished : sections.finished.slice(0, FINISHED_SHOWN);
+
+  const hero = (
+    <section className="relative mt-3 sm:mt-6" aria-labelledby="home-title">
+      <HeroBand className="grid gap-6 px-5 pt-6 sm:px-10 sm:pt-10 lg:min-h-[440px] lg:grid-cols-[1fr_370px] lg:pl-[52px]">
+        <div className="relative z-[2] lg:pb-16">
+          <span className="pf-chip bg-white/75 text-blue-ink"><Icon name="spark" size={12} />Your stories, kept the same</span>
+          <h1 id="home-title" className="mt-3 max-w-[500px] text-[34px] sm:text-[46px]">
+            Make a Universe once. Every episode keeps it.
+          </h1>
+          <p className="mt-2.5 max-w-[470px] text-[15px] text-ink-soft sm:mb-5 sm:mt-3.5 sm:text-[17px]">
+            Bring your characters, places and props. We lock their looks and voices, so they stay the same in every
+            episode you make.
+          </p>
+          {!firstRun && (
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link href="/studio/create" data-testid="make-video-link" className="pf-btn pf-btn-ghost">
+                <Icon name="play" size={14} />New episode
+              </Link>
+              {isAdmin && (
+                <Link href="/studio/episodes/new" className="pf-btn pf-btn-quiet" data-testid="advanced-upload-link">
+                  Advanced upload
+                </Link>
+              )}
+            </div>
+          )}
+          <div aria-hidden="true" className="mt-6 flex items-center -space-x-3">
+            {([['user', 'from-blue-soft to-blue'], ['place', 'from-mustard-soft to-mustard'], ['box', 'from-green-soft to-green']] as const).map(([icon, fill]) => (
+              <span key={icon} className={`grid size-14 place-items-center rounded-full border-4 border-sky bg-gradient-to-br text-ink ${fill}`}>
+                <Icon name={icon} size={22} />
+              </span>
+            ))}
+            <span className="!ml-3 size-4 rounded-full bg-coral" />
+          </div>
+        </div>
+        <GlassPanel className="relative z-[3] -mx-2 mb-5 self-start p-5 sm:mx-0 sm:mb-7 sm:p-[22px]">
+          <UniverseCreateForm heading="h2" />
+          {firstRun ? (
+            <p className="mt-4 text-center text-[13px] text-ink-soft">
+              Just want to try it?{' '}
+              <Link href="/studio/create" data-testid="make-video-link" className={link}>Skip, just make one video</Link>
+              {othersMade && (
+                <>
+                  {' · '}
+                  <button type="button" className={link} onClick={() => setChosenScope('everyone')} data-testid="scope-everyone">
+                    See everyone&apos;s videos
+                  </button>
+                </>
+              )}
+            </p>
+          ) : sections.unfiled.length > 0 && (
+            <>
+              <div className="my-3.5 flex items-center gap-2.5 text-[12px] font-bold text-ink-soft before:h-[1.5px] before:flex-1 before:bg-ink/10 after:h-[1.5px] after:flex-1 after:bg-ink/10">
+                or
+              </div>
+              <a href="#not-in-a-universe" className="pf-btn pf-btn-peach w-full">Add an older episode to a Universe</a>
+            </>
+          )}
+        </GlassPanel>
+      </HeroBand>
+    </section>
+  );
 
   if (firstRun) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8" data-testid="first-run">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome to the studio</h1>
-        <p className="mt-1 text-gray-700 dark:text-gray-200">
-          Create a Universe once. Every episode keeps it: the same characters, places and look, episode after episode.
-        </p>
-        <ol className="mt-4 grid gap-2 text-sm text-gray-700 sm:grid-cols-2 dark:text-gray-200" data-testid="first-run-steps">
-          <li className={`${card} !p-3`}><strong>1. References.</strong> Photos and notes: the premise, the characters, the places, the tone.</li>
-          <li className={`${card} !p-3`}><strong>2. Mood board.</strong> The studio shows the price first, then makes it.</li>
-          <li className={`${card} !p-3`}><strong>3. Approve or redo.</strong> Say what to change until it feels right.</li>
-          <li className={`${card} !p-3`}><strong>4. Bible.</strong> Characters and places are written for you; lock each look once.</li>
+      <div className="mx-auto max-w-[1240px] px-4 pb-12 sm:px-8" data-testid="first-run">
+        {hero}
+        <ol className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="first-run-steps">
+          <li className={`${card} !p-4`}><strong>1. References.</strong> Photos and notes: the premise, the characters, the places, the tone.</li>
+          <li className={`${card} !p-4`}><strong>2. Mood board.</strong> The studio shows the price first, then makes it.</li>
+          <li className={`${card} !p-4`}><strong>3. Approve or redo.</strong> Say what to change until it feels right.</li>
+          <li className={`${card} !p-4`}><strong>4. Bible.</strong> Characters and places are written for you; lock each look once.</li>
         </ol>
-        <div className={`${card} mt-6`}>
-          <UniverseCreateForm />
-        </div>
-        <p className="mt-4 text-sm text-gray-700 dark:text-gray-200">
-          Just want to try it?{' '}
-          <Link href="/studio/create" data-testid="make-video-link" className={link}>Skip, just make one video</Link>
-          {othersMade && (
-            <>
-              {' · '}
-              <button type="button" className={link} onClick={() => setChosenScope('everyone')} data-testid="scope-everyone">
-                See everyone&apos;s videos
-              </button>
-            </>
-          )}
-        </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Universes</h1>
-          <p className="mt-1 text-gray-700 dark:text-gray-200">
-            Create a Universe once. Every episode keeps it.
-          </p>
-        </div>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
-          <div className="flex flex-wrap gap-2">
-            <Link href="/studio/universes/new" data-testid="new-universe-link" className={btnSecondary}>
-              New Universe
-            </Link>
-            <Link href="/studio/create" data-testid="make-video-link" className={btnPrimary}>
-              New episode
-            </Link>
-          </div>
-          {isAdmin && (
-            <Link href="/studio/episodes/new" className={`text-sm ${link}`} data-testid="advanced-upload-link">
-              Advanced upload
-            </Link>
-          )}
-        </div>
-      </div>
+    <div className="mx-auto max-w-[1240px] px-4 pb-12 sm:px-8">
+      {hero}
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
-      {(loading || meLoading) && !error && <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">Loading your studio…</p>}
+      {error && <p role="alert" className="mt-4 text-[13.5px] text-coral-ink">{error}</p>}
+      {(loading || meLoading) && !error && <p className="mt-6 text-[13.5px] text-ink-soft">Loading your studio…</p>}
 
       {ready && (
-        <section className="mt-8" data-testid="universes-section" aria-labelledby="universes-title">
-          <h2 id="universes-title" className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">Your Universes</h2>
+        <section className="mt-10" data-testid="universes-section" aria-labelledby="universes-title">
+          <div className="mb-4">
+            <h2 id="universes-title" className="text-[26px]">Your Universes</h2>
+            <p className="text-[13px] text-ink-soft">Only you and people editing their episodes can see these.</p>
+          </div>
           {worldsIssue && (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-300" data-testid="universes-problem">
+            <p role="alert" className="text-[13.5px] text-coral-ink" data-testid="universes-problem">
               The Universes could not be loaded: {worldsIssue}
             </p>
           )}
           {!worldsIssue && (worlds ?? []).length === 0 && (
-            <div className={`${card} text-sm text-gray-700 dark:text-gray-200`} data-testid="universes-empty">
-              <p>
-                No Universe yet. A Universe keeps your characters, places and look the same in every episode.{' '}
-                <Link href="/studio/universes/new" className={link}>Create a Universe</Link>
-              </p>
-            </div>
+            <EmptyState testId="universes-empty" icon="spark" title="No Universe yet"
+              action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />Create a Universe</Link>}>
+              A Universe keeps your characters, places and look the same in every episode.
+            </EmptyState>
           )}
           {(worlds ?? []).length > 0 && (
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="universe-list">
-              {(worlds ?? []).map((w) => <UniverseTile key={w.series_id} world={w} myUserId={myUserId} />)}
+            <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="universe-list">
+              {(worlds ?? []).map((w) => <UniverseCard key={w.series_id} world={w} myUserId={myUserId} />)}
+              <li className="min-w-0">
+                <EmptyState className="h-full min-h-[150px]" icon="plus" title="Room for another Universe"
+                  action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />New Universe</Link>}>
+                  Start with a name and a spark of an idea.
+                </EmptyState>
+              </li>
             </ul>
           )}
         </section>
       )}
 
       {ready && (
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {scope === 'mine' ? 'Your episodes' : 'Everyone’s episodes'}
-          </h2>
-          <div role="group" aria-label="Show videos" className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-600 dark:bg-gray-800">
-            {(['mine', 'everyone'] as const).map((value) => (
-              <button key={value} type="button" aria-pressed={scope === value} onClick={() => setChosenScope(value)}
-                data-testid={`scope-${value}`}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${focusRing} ${
-                  scope === value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700'
-                }`}>
-                {value === 'mine' ? 'Mine' : 'Everyone'}
-              </button>
-            ))}
+        <div className="mt-12 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[26px]">{scope === 'mine' ? 'Your episodes' : 'Everyone’s episodes'}</h2>
+            <Link href="/studio/episodes" className="text-[13px] font-extrabold text-blue-deep">All episodes →</Link>
           </div>
+          <ScopeToggle scope={scope} onChange={setChosenScope} />
         </div>
       )}
 
       {ready && shown.length === 0 && (
-        <div className={`${card} mt-4 text-center`} data-testid="episodes-empty">
-          <p className="text-lg font-semibold text-gray-900 dark:text-white">
-            {scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}
-          </p>
-          <p className="mt-1 text-gray-700 dark:text-gray-200">
-            Open a Universe and start a new episode in it, or pick a style and describe your idea in a few sentences.
-          </p>
+        <EmptyState className="mt-4" testId="episodes-empty" icon="play"
+          title={scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}>
+          <p>Open a Universe and start a new episode in it, or pick a style and describe your idea in a few sentences.</p>
           {scope === 'mine' && othersMade && (
-            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+            <p className="mt-2">
               Other people&apos;s videos are under{' '}
               <button type="button" className={link} onClick={() => setChosenScope('everyone')}>Everyone</button>.
             </p>
           )}
-        </div>
+        </EmptyState>
       )}
 
       {shown.length > 0 && (
-        <div data-testid="episode-list">
-          {sections.continue.length > 0 && (
-            <section className="mt-6" data-testid="continue-section">
-              <SectionHeading title="Continue" text="Episodes on their way: the next step is on each one's page." />
-              <ul className="space-y-3">
-                {sections.continue.map(({ episode, universe }) => (
-                  <EpisodeCard key={episode.episode_id} episode={episode} summary={summaries[episode.episode_id]}
-                    myUserId={myUserId} isAdmin={isAdmin} universe={universe} />
-                ))}
-              </ul>
-            </section>
-          )}
-          {sections.finished.length > 0 && (
-            <section className="mt-8" data-testid="finished-section">
-              <SectionHeading title="Recently finished" text="Play them here or download them." />
-              <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {finishedShown.map(({ episode, universe }) => (
-                  <FinishedCard key={episode.episode_id} episode={episode} summary={summaries[episode.episode_id]}
-                    myUserId={myUserId} isAdmin={isAdmin} universe={universe}>
-                    {!universe && mayChange(episode, viewer) && (
-                      <AddToUniverse episodeId={episode.episode_id} choices={choices} onAdded={refresh} />
-                    )}
-                  </FinishedCard>
-                ))}
-              </ul>
-              {sections.finished.length > finishedShown.length && (
-                <button type="button" className={`${btnSecondary} mt-3`} onClick={() => setAllFinished(true)}>
-                  Show {sections.finished.length - finishedShown.length} more
-                </button>
-              )}
-            </section>
-          )}
-          {sections.unfiled.length > 0 && (
-            <section className="mt-8" data-testid="unfiled-section">
-              <SectionHeading title="Unfiled"
-                text="Episodes in no Universe. Add one to a Universe to keep its characters and places for the next episodes." />
-              <ul className="space-y-3">
-                {sections.unfiled.map(({ episode }) => (
-                  <EpisodeCard key={episode.episode_id} episode={episode} summary={summaries[episode.episode_id]}
-                    myUserId={myUserId} isAdmin={isAdmin} universe={null}>
-                    <AddToUniverse episodeId={episode.episode_id} choices={choices} onAdded={refresh} />
-                  </EpisodeCard>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
+        <EpisodeSections sections={sections} summaries={summaries} myUserId={myUserId} isAdmin={isAdmin} choices={choices}
+          mayChange={(episode) => mayChange(episode, viewer)} onAdded={refresh} finishedLimit={FINISHED_SHOWN} />
       )}
 
       {isAdmin && <SystemDetails />}

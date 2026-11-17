@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
+import { Montserrat, Nunito } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import MarketingOnly from "@/components/MarketingOnly";
+
+// Self-hosted at build time by next/font: no runtime requests to Google.
+const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
+const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: "swap" });
 
 export const metadata: Metadata = {
   title: "DuckDuckGoose - AI Video Generation",
@@ -15,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${montserrat.variable} ${nunito.variable}`}>
       <body className="flex flex-col min-h-screen">
         <MarketingOnly>
           <Header />

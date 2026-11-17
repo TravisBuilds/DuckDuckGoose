@@ -22,7 +22,7 @@ type Drafts = Record<string, Partial<ShotDraft>>;
 type Note = { tone: 'ok' | 'problem'; text: string };
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
-const hint = 'text-xs text-gray-600 dark:text-gray-300';
+const hint = 'text-xs text-gray-600';
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
@@ -34,8 +34,8 @@ function PickChip({ label, thumb, pressed, disabled, onClick, testId }: {
   return (
     <button type="button" aria-pressed={pressed} disabled={disabled} onClick={onClick} data-testid={testId}
       className={`inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${pressed
-        ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500'
-        : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700'}`}>
+        ? 'border-blue-600 bg-blue-600 text-white'
+        : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'}`}>
       {thumb ? (
         <img src={`${API_URL}${thumb}`} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
       ) : (
@@ -50,7 +50,7 @@ function PickChip({ label, thumb, pressed, disabled, onClick, testId }: {
 function PickRow({ label, note, children }: { label: string; note?: string; children: ReactNode }) {
   return (
     <div className="mt-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
         {label}{note && <span className="ml-1 font-normal normal-case tracking-normal">{note}</span>}
       </p>
       <div className="mt-1 flex flex-wrap gap-2">{children}</div>
@@ -96,7 +96,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
   const disabled = !canEdit || unreadable || saving;
   const facts = [shot.duration ? `${shot.duration} s` : null, shot.model].filter(Boolean).join(' · ');
   return (
-    <li className="rounded-lg border border-gray-200 p-3 sm:p-4 dark:border-gray-700" data-testid={`plan-shot-${sid}`}>
+    <li className="rounded-lg border border-gray-200 p-3 sm:p-4" data-testid={`plan-shot-${sid}`}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-mono text-base font-semibold">{sid}</h3>
         {facts && <span className={hint}>{facts}</span>}
@@ -123,7 +123,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
         </div>
       ) : (
         <div className="mt-2">
-          <p className="whitespace-pre-line break-words text-sm text-gray-800 dark:text-gray-100" data-testid={`plan-prompt-text-${sid}`}>
+          <p className="whitespace-pre-line break-words text-sm text-gray-800" data-testid={`plan-prompt-text-${sid}`}>
             {prompt || 'No picture prompt yet.'}
           </p>
           {canEdit && (
@@ -136,7 +136,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
       )}
 
       {unreadable && (
-        <p className="mt-3 text-sm text-red-700 dark:text-red-300">
+        <p className="mt-3 text-sm text-red-700">
           This shot’s picks in shots.json cannot be read; fix the file (see the problems above) to change them here.
         </p>
       )}
@@ -181,24 +181,24 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
             : 'No reference photos for this shot.'}
       </p>
       {shot.errors.map((e) => (
-        <p key={e} className="mt-1 text-sm text-red-700 dark:text-red-300" data-testid={`plan-shot-error-${sid}`}>{e}</p>
+        <p key={e} className="mt-1 text-sm text-red-700" data-testid={`plan-shot-error-${sid}`}>{e}</p>
       ))}
       {shot.notes.map((n) => <p key={n} className={`mt-1 ${hint}`}>{n}</p>)}
 
       {shot.history.length > 0 && (
         <details className="mt-3" data-testid={`plan-history-${sid}`}>
-          <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 dark:text-gray-100 ${focusRing}`}>
+          <summary className={`cursor-pointer rounded text-sm font-semibold text-gray-800 ${focusRing}`}>
             History ({shot.history.length})
           </summary>
           <ol className="mt-2 space-y-2">
             {shot.history.map((h) => (
-              <li key={h.id} className="rounded-lg bg-gray-50 p-2 text-sm dark:bg-gray-900/40" data-testid={`plan-history-entry-${sid}`}>
+              <li key={h.id} className="rounded-lg bg-gray-50 p-2 text-sm" data-testid={`plan-history-entry-${sid}`}>
                 <p className="font-medium">{historyText(h)}</p>
                 <p className={hint}>{formatLocalDateTime(h.at)}{h.note ? ` · “${h.note}”` : ''}</p>
-                <p className="mt-1 break-words text-xs text-gray-700 dark:text-gray-200">
+                <p className="mt-1 break-words text-xs text-gray-700">
                   <span className="font-semibold">Before:</span> {historyValue(h.field, h.old, names)}
                 </p>
-                <p className="break-words text-xs text-gray-700 dark:text-gray-200">
+                <p className="break-words text-xs text-gray-700">
                   <span className="font-semibold">After:</span> {historyValue(h.field, h.new, names)}
                 </p>
               </li>
@@ -246,7 +246,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
   }, [dirty, onDirty]);
 
   if (!view) {
-    return <p className="mt-3 text-sm text-gray-700 dark:text-gray-200" data-testid="plan-loading">{loadIssue ?? 'Loading the shots…'}</p>;
+    return <p className="mt-3 text-sm text-gray-700" data-testid="plan-loading">{loadIssue ?? 'Loading the shots…'}</p>;
   }
 
   const canEdit = view.can_edit && !view.phase.replanning;
@@ -284,18 +284,18 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
   const changedShots = body ? Object.keys(body.shots).length : 0;
   return (
     <div className="mt-4" data-testid="shot-plan-editor" data-phase={view.phase.state} data-can-edit={view.can_edit ? 'true' : 'false'}>
-      <p className="text-sm text-gray-700 dark:text-gray-200" data-testid="plan-state">{planStateText(view)}</p>
+      <p className="text-sm text-gray-700" data-testid="plan-state">{planStateText(view)}</p>
       {view.phase.replanning && (
-        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">Checking the last change to the shot plan…</p>
+        <p className="mt-2 text-sm text-amber-800" role="status">Checking the last change to the shot plan…</p>
       )}
       {view.uploaded && view.props.length === 0 && view.can_edit && (
-        <p className="mt-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-900/40 dark:text-gray-200" data-testid="plan-no-props">
+        <p className="mt-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-700" data-testid="plan-no-props">
           No props or places to pick yet. Add them under <a href="#props" className={link}>Props &amp; places</a> with a photo,
           then pick them here for each shot.
         </p>
       )}
       {view.errors.length > 0 && (
-        <ul className="mt-3 space-y-1 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200" data-testid="plan-errors">
+        <ul className="mt-3 space-y-1 rounded-lg bg-red-50 p-3 text-sm text-red-800" data-testid="plan-errors">
           {view.errors.map((e) => <li key={e}>{e}</li>)}
         </ul>
       )}
@@ -310,12 +310,12 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
       )}
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {canEdit && (
-        <div className={`mt-4 rounded-lg border p-3 ${dirty ? 'sticky bottom-2 z-10 border-blue-300 bg-white shadow-lg dark:border-blue-700 dark:bg-gray-800' : 'border-gray-200 dark:border-gray-700'}`}
+        <div className={`mt-4 rounded-lg border p-3 ${dirty ? 'sticky bottom-2 z-10 border-blue-300 bg-white shadow-lg' : 'border-gray-200'}`}
           data-testid="plan-save-bar">
           <label htmlFor="plan-note" className="block text-sm font-medium">Why the change (optional)</label>
           <input id="plan-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={view.limits.note_max} disabled={busy}
             placeholder="e.g. the umbrella looked wrong" className={`${field} mt-1`} data-testid="plan-note" />
-          {problem && <p className="mt-2 text-sm text-red-700 dark:text-red-300" data-testid="plan-problem">{problem}</p>}
+          {problem && <p className="mt-2 text-sm text-red-700" data-testid="plan-problem">{problem}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" className={btnPrimary} disabled={busy || !dirty || Boolean(problem)} onClick={save}
               data-testid="plan-save">
@@ -330,7 +330,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
       )}
       {message && (
         <p data-testid="plan-message" data-tone={message.tone}
-          className={`mt-3 rounded-lg p-3 text-sm ${message.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+          className={`mt-3 rounded-lg p-3 text-sm ${message.tone === 'ok' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
           {message.text}
         </p>
       )}
