@@ -1,17 +1,18 @@
 import type { ReactNode } from 'react';
 import type { CastColour } from '@/lib/castColour.mjs';
-import { BeanArt } from './art';
+import Avatar from './Avatar';
 import { CastDot, bandStyle, hueOf } from './castTheme';
 import Seal, { type SealState } from './Seal';
 
 /**
- * A character as a card (DESIGN-TARGETS-v2 §6.2): a band in their cast colour with their figure and
- * seal, then the name with the colour named in words, then whatever the cast panel puts inside
- * (description, outfits, pictures, voice, lock). A card that needs you gets a mustard ring.
+ * A character as a card: a band in their cast colour's soft gradient with their main picture (or
+ * their initials in a circle until they have one) and seal, then the name with the colour named in
+ * words, then whatever the cast panel puts inside (description, outfits, pictures, voice, lock). A
+ * card that needs you gets a yellow ring.
  */
-export default function CharacterCard({ colour, index = 0, picture, seal, needsYou = false, title, testId, children }: {
+export default function CharacterCard({ colour, name, picture, seal, needsYou = false, title, testId, children }: {
   colour: CastColour;
-  index?: number;
+  name: string;
   picture?: { src: string; alt: string } | null;
   seal: { state: SealState; top: string; bottom: string; testId?: string };
   needsYou?: boolean;
@@ -28,7 +29,9 @@ export default function CharacterCard({ colour, index = 0, picture, seal, needsY
           <img src={picture.src} alt={picture.alt} loading="lazy"
             className="absolute bottom-0 left-1/2 h-[120px] w-[104px] -translate-x-1/2 rounded-t-[18px] border-4 border-b-0 border-white object-cover" />
         ) : (
-          <BeanArt variant={index % 2 === 0 ? 1 : 2} className={`absolute -bottom-1.5 left-1/2 h-[140px] w-[110px] -translate-x-1/2 ${hue.fig}`} />
+          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/70 p-1.5 shadow-card">
+            <Avatar name={name} hue={colour.colour} size={84} />
+          </span>
         )}
         <Seal state={seal.state} top={seal.top} bottom={seal.bottom} size={54} testId={seal.testId} className="!absolute right-3 top-3" />
       </div>

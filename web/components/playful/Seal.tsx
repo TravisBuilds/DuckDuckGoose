@@ -11,9 +11,9 @@ const BURST = Array.from({ length: 10 }, (_, i) => {
 });
 
 /**
- * The wax-seal badge for locks (DESIGN-TARGETS-v2 §3): green and stamped when locked, an open
- * striped seal before, coral when a locked look changed. When it turns locked while on screen it
- * plays the seal moment once (a quarter turn, a stamp and a small burst of the five swatches);
+ * The round badge for locks: lime when locked, a dashed open ring before, orange-red when a locked
+ * look changed. When it turns locked while on screen it plays the seal moment once (a stamp and a
+ * small burst of the five swatches);
  * with reduced motion that is a short fade and no burst.
  */
 export default function Seal({ state, top, bottom, size = 64, className = '', testId, title }: {

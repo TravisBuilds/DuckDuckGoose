@@ -2,9 +2,10 @@ import type { ReactNode, SVGProps } from 'react';
 
 export type IconName =
   | 'lock' | 'unlock' | 'play' | 'plus' | 'check' | 'spark' | 'photo' | 'mic' | 'film' | 'user'
-  | 'arrow' | 'back' | 'close' | 'alert' | 'book' | 'note' | 'pin' | 'coins' | 'menu' | 'chevron';
+  | 'arrow' | 'back' | 'close' | 'alert' | 'book' | 'note' | 'pin' | 'coins' | 'menu' | 'chevron'
+  | 'home' | 'search' | 'exit' | 'upload' | 'more' | 'place' | 'box' | 'triangle';
 
-/** Small UI icons (24px grid, currentColor). Decorative unless given a title. */
+/** Small line icons (24px grid, currentColor). Decorative unless given a title. */
 export default function Icon({ name, size = 16, title, ...rest }: Omit<SVGProps<SVGSVGElement>, 'name'> & {
   name: IconName; size?: number; title?: string;
 }) {
@@ -34,8 +35,53 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   play: (
     <>
-      <circle cx="12" cy="12" r="11" fill="#fff" />
-      <path d="M10 7.5v9l7-4.5z" fill="#1F2A44" />
+      <circle cx="12" cy="12" r="9.5" {...stroke} strokeWidth="2" />
+      <path d="M10.3 8.7v6.6l5.2-3.3z" fill="currentColor" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </>
+  ),
+  triangle: <path d="M8.5 6.2v11.6l9.3-5.8z" fill="currentColor" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />,
+  home: (
+    <>
+      <path d="M4 11.2 12 4.5l8 6.7" {...stroke} strokeWidth="2" />
+      <path d="M6.5 9.5v10h11v-10" {...stroke} strokeWidth="2" />
+      <path d="M10 19.5v-5h4v5" {...stroke} strokeWidth="2" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" {...stroke} strokeWidth="2" />
+      <path d="M16 16l4.5 4.5" {...stroke} strokeWidth="2" />
+    </>
+  ),
+  exit: (
+    <>
+      <path d="M13.5 4.5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h6.5" {...stroke} strokeWidth="2" />
+      <path d="M10.5 12h10M17 8.5l3.5 3.5-3.5 3.5" {...stroke} strokeWidth="2" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 15V4.5M7.5 9 12 4.5 16.5 9" {...stroke} strokeWidth="2" />
+      <path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3" {...stroke} strokeWidth="2" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="6" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+    </>
+  ),
+  place: (
+    <>
+      <path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z" {...stroke} strokeWidth="2" />
+      <circle cx="12" cy="10" r="2.4" {...stroke} strokeWidth="2" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M4 8l8-4 8 4v8l-8 4-8-4z" {...stroke} strokeWidth="2" />
+      <path d="M4 8l8 4 8-4M12 12v8" {...stroke} strokeWidth="2" />
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" {...stroke} strokeWidth="3" />,

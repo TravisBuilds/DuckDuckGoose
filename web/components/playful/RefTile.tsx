@@ -13,7 +13,7 @@ const TAGS: Record<RefTag, { label: string; chip: string }> = {
 export default function RefTile({ src, alt, href, tag, caption, testId, children }: {
   src: string; alt: string; href?: string; tag?: RefTag | null; caption?: string | null; testId?: string; children?: ReactNode;
 }) {
-  const img = <img src={src} alt={alt} loading="lazy" className="aspect-square w-full bg-[#F2EEE5] object-cover" />;
+  const img = <img src={src} alt={alt} loading="lazy" className="aspect-square w-full bg-mist object-cover" />;
   return (
     <li className="min-w-0 overflow-hidden rounded-[16px] bg-white shadow-card" data-testid={testId}>
       {href ? <a href={href} target="_blank" rel="noreferrer" className="block" title="Open the full picture">{img}</a> : img}

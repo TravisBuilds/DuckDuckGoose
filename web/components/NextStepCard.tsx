@@ -3,7 +3,7 @@
 import { PAID_STEPS, stepNote, type NextStep, type StepperStep } from '@/lib/next-step.mjs';
 import { formatUsd } from '@/lib/money';
 import { btnPrimary, btnSecondary, link, tones } from '@/lib/ui';
-import { GooseArt, Icon } from './playful';
+import { Icon, IconCircle } from './playful';
 
 const STATE: Record<StepperStep['status'], { cls: string; words: string }> = {
   done: { cls: 'is-done', words: 'done' },
@@ -75,14 +75,14 @@ export default function NextStepCard({ next, steps, canAct, live = false, spent 
   return (
     <section data-testid="next-step" data-step={next.step} aria-labelledby="next-step-title">
       <div className="flex items-center gap-3">
-        <GooseArt className="h-[64px] w-[58px] shrink-0" />
+        <IconCircle icon={next.step === 'failed' ? 'alert' : 'spark'} tone={next.step === 'failed' ? 'blue' : 'sun'} />
         <div className="min-w-0">
           <span className={`pf-chip ${chip.tone}`}>{chip.text}</span>
           <h2 id="next-step-title" className="mt-1 text-[20px] leading-tight" data-testid="next-step-title">{next.title}</h2>
         </div>
       </div>
       <p className="mt-2 text-[14px]" data-testid="next-step-text">{next.text}</p>
-      <dl className="mt-3 space-y-1.5 rounded-inner border-2 border-[#E5DED0] bg-white p-3 text-[13px]">
+      <dl className="mt-3 space-y-1.5 rounded-inner border-2 border-line bg-white p-3 text-[13px]">
         <div className="flex justify-between gap-3">
           <dt>This run</dt>
           <dd className="font-extrabold">{live ? 'Live: paid providers' : 'Test run: free'}</dd>
@@ -112,7 +112,7 @@ export default function NextStepCard({ next, steps, canAct, live = false, spent 
         </p>
       )}
       {coming.length > 0 && next.step !== 'done' && (
-        <p className="mt-3 rounded-inner bg-cream p-3 text-[12.5px]">
+        <p className="mt-3 rounded-inner bg-page p-3 text-[12.5px]">
           <span className="font-extrabold">Coming up:</span> {coming.join(', then ')}.
         </p>
       )}

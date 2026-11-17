@@ -24,7 +24,7 @@ import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
 import { useStudioFocus } from './StudioShell';
 import {
-  CastDot, EmptyState, GlassPanel, GooseArt, Icon, JourneyPath, PinBoard, PriceBlock, RefTile, SceneBackdrop, Seal,
+  CastDot, EmptyState, GlassPanel, HeroBand, Icon, IconCircle, JourneyPath, PinBoard, PriceBlock, RefTile, Seal,
   StickyNote, TOPIC_STICKY,
 } from './playful';
 
@@ -216,8 +216,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     if (problem?.status === 404) {
       return (
         <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="universe-not-found">
-          <GooseArt className="mx-auto h-28 w-28" />
-          <h1 className="mt-2 text-[28px]">This Universe could not be found</h1>
+          <IconCircle icon="search" size={80} className="mx-auto" />
+          <h1 className="mt-4 text-[28px]">This Universe could not be found</h1>
           <p className="mt-2 text-ink-soft">It may have been removed, or you may not have access to it. Ask its owner if you think you should.</p>
           <Link href="/studio" className="pf-btn pf-btn-primary mt-6">Back to the studio</Link>
         </div>
@@ -236,8 +236,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   if (!view.can_edit || !creation) {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="creation-owner-only">
-        <GooseArt className="mx-auto h-28 w-28" />
-        <h1 className="mt-2 text-[28px]">Only its owner builds this Universe</h1>
+        <IconCircle icon="lock" size={80} className="mx-auto" />
+        <h1 className="mt-4 text-[28px]">Only its owner builds this Universe</h1>
         <p className="mt-2 text-ink-soft">The owner of {world.name}, or an admin, adds its references and mood board.</p>
         <Link href={here} className="pf-btn pf-btn-primary mt-6">Open the Universe</Link>
       </div>
@@ -384,10 +384,9 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
 
   const head = (
     <section className="relative mt-3 sm:mt-6" aria-labelledby="creation-title">
-      <GooseArt className="pointer-events-none absolute right-[250px] top-[-30px] z-[2] hidden h-[164px] w-[150px] lg:block" />
-      <p className="pf-bubble absolute right-[46px] top-6 z-[3] hidden max-w-[250px] lg:block" aria-live="polite">{bubble[step]}</p>
-      <SceneBackdrop className="px-5 pb-10 pt-6 sm:px-10 sm:pb-[70px] sm:pt-[26px]" floorHeight={56}>
-        <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-[#2B3654]">
+      <p className="pf-bubble absolute right-[46px] top-6 z-[3] hidden max-w-[270px] lg:block" aria-live="polite">{bubble[step]}</p>
+      <HeroBand className="px-5 pb-8 pt-6 sm:px-10 sm:pb-10 sm:pt-[26px]">
+        <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-ink">
           <Link href="/studio" className="text-blue-deep">Universes</Link>
           <span aria-hidden="true"> › </span>
           <Link href={here} className="text-blue-deep" data-testid="universe-name">{world.name}</Link>
@@ -401,7 +400,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         <div className="mx-auto mt-4 max-w-[860px] rounded-card bg-white/70 px-3 pb-1.5 pt-4 backdrop-blur-md sm:px-[22px]">
           <JourneyPath stops={stops} current={step} label="Steps to make this Universe" testId="creation-path" />
         </div>
-      </SceneBackdrop>
+      </HeroBand>
     </section>
   );
 
@@ -421,15 +420,15 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       {creation.photos.length > 6 && <p className="mt-2 text-[13px] font-bold text-ink-soft">+ {plural(creation.photos.length - 6, 'more photo')}</p>}
       {creation.notes.length > 0 && (
         <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-          {creation.notes.slice(0, 4).map((n, i) => (
-            <StickyNote key={n.note_id} index={i} colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
+          {creation.notes.slice(0, 4).map((n) => (
+            <StickyNote key={n.note_id} colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
               <span className="line-clamp-4 whitespace-pre-line break-words">{n.body}</span>
             </StickyNote>
           ))}
         </div>
       )}
       {counts.notes + counts.photos === 0 && (
-        <EmptyState className="mt-3" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
+        <EmptyState className="mt-3" icon="photo" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
           The mood board is made from them.
         </EmptyState>
       )}
@@ -487,7 +486,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         {creation.photos.length < limits.max_photos && (
           <div data-testid="creation-photo-form" onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)} onDrop={onDrop}
-            className={`mt-3 rounded-card border-[3px] border-dashed p-5 ${dragging ? 'border-blue-deep bg-blue-100' : 'border-[#9DBEE6] bg-blue-soft'}`}>
+            className={`mt-3 rounded-card border-[3px] border-dashed p-5 ${dragging ? 'border-blue-deep bg-blue-100' : 'border-blue/40 bg-blue-soft'}`}>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div aria-hidden="true" className="grid size-16 flex-none place-items-center rounded-[20px] bg-white text-blue-deep">
                 <Icon name="photo" size={32} />
@@ -563,9 +562,9 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         <Message note={note} where="notes" />
         {creation.notes.length > 0 && (
           <ul className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4" data-testid="creation-notes">
-            {creation.notes.map((n, i) => (
+            {creation.notes.map((n) => (
               <li key={n.note_id} data-testid={`creation-note-${n.note_id}`}>
-                <StickyNote index={i} colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
+                <StickyNote colour={TOPIC_STICKY[n.topic] ?? 'yellow'} title={TOPIC_TEXT[n.topic]?.label ?? n.topic}>
                   {editing?.id === n.note_id ? (
                     <div className="space-y-2">
                       <textarea value={editing.body} onChange={(e) => setEditing({ id: n.note_id, body: e.target.value })}
@@ -766,7 +765,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     main = (
       <div data-testid="creation-bible">
         {!approved ? (
-          <EmptyState title="Approve a mood board first" mascot="goose"
+          <EmptyState title="Approve a mood board first" icon="book"
             action={<Link href={stepHref('moodboard')} className="pf-btn pf-btn-soft pf-btn-sm">Go to the mood board</Link>}>
             The bible is written from the approved board and your notes.
           </EmptyState>
@@ -861,7 +860,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           uses exactly that sheet and those photos, and an episode starts once every character in it is locked.
         </p>
         {view.characters.length === 0 ? (
-          <EmptyState className="mt-4" title="No characters yet"
+          <EmptyState className="mt-4" icon="user" title="No characters yet"
             action={<Link href={`${here}#characters`} className="pf-btn pf-btn-soft pf-btn-sm">Add a character</Link>}>
             Write the bible, or add characters on the Universe page.
           </EmptyState>
@@ -904,9 +903,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   return (
     <div className="mx-auto max-w-[1240px] px-4 pb-14 sm:px-8" data-testid="universe-creation" data-step={step}>
       {head}
-      <div className="mt-4 flex items-end gap-3 lg:hidden" data-testid="creation-goose">
-        <GooseArt className="h-14 w-[51px] shrink-0" />
-        <p className="pf-bubble min-w-0 flex-1" data-testid="creation-bubble">{bubble[step]}</p>
+      <div className="mt-4 lg:hidden" data-testid="creation-tip">
+        <p className="pf-bubble" data-testid="creation-bubble">{bubble[step]}</p>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0" data-testid={`creation-step-${stepNumber(step)}`}>{main}</div>

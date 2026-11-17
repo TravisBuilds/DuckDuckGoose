@@ -51,7 +51,7 @@ function Photo({ photo, alt, size = 'h-24 w-24 sm:h-28 sm:w-28' }: { photo: Prop
     <a href={`${API_URL}${photo.url}`} target="_blank" rel="noreferrer" title="Open the full photo"
       className="block shrink-0 rounded-[12px]">
       <img src={`${API_URL}${photo.thumb_url}`} alt={alt} loading="lazy"
-        className={`${size} rounded-[12px] bg-[#F2EEE5] object-cover shadow-card`} />
+        className={`${size} rounded-[12px] bg-mist object-cover shadow-card`} />
     </a>
   );
 }
@@ -83,7 +83,7 @@ function AddPhoto({ apiBase, view, item, busy, act }: {
   };
   const first = itemPhotos(item).length === 0;
   return (
-    <details className="mt-3 rounded-inner bg-cream p-3 text-left" data-testid={`prop-add-photo-${item.slug}`}
+    <details className="mt-3 rounded-inner bg-page p-3 text-left" data-testid={`prop-add-photo-${item.slug}`}
       open={first || undefined}>
       <summary className="cursor-pointer rounded text-[13px] font-extrabold">
         {first ? 'Add a photo' : 'Add another photo'}
@@ -251,7 +251,7 @@ function AddItem({ apiBase, view, busy, act, note }: {
   };
   return (
     <div data-testid="props-add" data-first={first ? 'true' : 'false'}
-      className={`mt-5 rounded-card border-[3px] border-dashed p-5 ${first ? 'border-[#9DBEE6] bg-blue-soft' : 'border-[#D9D1BF]'}`}>
+      className={`mt-5 rounded-card border-[3px] border-dashed p-5 ${first ? 'border-blue/40 bg-blue-soft' : 'border-line-strong'}`}>
       <h3 className="mb-1 text-[17px]" data-testid="props-add-title">{title}</h3>
       <fieldset className="mt-2">
         <legend className="mb-2 text-[13px] font-extrabold">What is it?</legend>
@@ -405,7 +405,7 @@ export default function PropsPanel({ episodeId = '', apiBase, universe = null, e
         </p>
       )}
       {view.items.length === 0 ? (
-        <div className="rounded-card border-[3px] border-dashed border-[#D9D1BF] p-5 text-[13.5px]"
+        <div className="rounded-card border-2 border-dashed border-line-strong p-5 text-[13.5px]"
           data-testid="props-empty">
           <p className="font-semibold">No props or places yet.</p>
           <p className="mt-1">

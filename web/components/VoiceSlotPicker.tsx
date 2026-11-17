@@ -127,7 +127,7 @@ export function VoiceSlotPicker({
       )}
       {choice && (
         <div
-          className="mt-3 flex flex-wrap items-center gap-3 rounded-inner bg-cream p-3"
+          className="mt-3 flex flex-wrap items-center gap-3 rounded-inner bg-page p-3"
           data-testid={`voice-choice-${token}`}
           data-voice-id={choice.voice_id}
         >

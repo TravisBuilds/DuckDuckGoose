@@ -8,7 +8,7 @@ import { ConsistencyBadge } from '@/components/ConsistencyBadge';
 import { SavedVoiceBlock } from '@/components/UniverseVoices';
 import { useMe } from '@/components/StudioShell';
 import {
-  BeanArt, CatArt, GlassPanel, GooseArt, JourneyPath, KilnArt, NextStepPill, Polaroid, SceneBackdrop, Seal, hueOf,
+  Avatar, GlassPanel, HeroBand, Icon, IconCircle, JourneyPath, NextStepPill, Polaroid, Seal,
 } from '@/components/playful';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { getPresetById, presets } from '@/lib/presets';
@@ -230,8 +230,8 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
     if (problem?.status === 404) {
       return (
         <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="universe-not-found">
-          <GooseArt className="mx-auto h-[110px] w-[100px]" />
-          <h1 className="mt-3 text-[28px]">This Universe could not be found</h1>
+          <IconCircle icon="search" size={80} className="mx-auto" />
+          <h1 className="mt-4 text-[28px]">This Universe could not be found</h1>
           <p className="mt-2 text-ink-soft">
             It may have been removed, or you may not have access to it. Ask its owner if you think you should.
           </p>
@@ -261,7 +261,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
   const finished = view.episodes.filter((e) => e.finished);
   const newEpisode = `/studio/create?world=${encodeURIComponent(world.series_id)}`;
   const colours = castColours(view.characters);
-  const figures = view.characters.slice(0, 3);
+  const cast = view.characters.slice(0, 5);
   const withPhotos = view.items.filter((i) => itemPhotos(i).length > 0).length;
   const voices = view.characters.filter((c) => c.voice).length;
   const journey = view.can_edit && view.creation ? creationJourney(view) : null;
@@ -324,10 +324,9 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
   return (
     <div className="mx-auto max-w-[1240px] px-4 pb-12 pt-3 sm:px-8 sm:pt-6" data-testid="universe-page">
       <section id="overview" className="scroll-mt-24" data-testid="universe-header" aria-labelledby="universe-title">
-        <SceneBackdrop className="grid items-start gap-6 px-5 pb-8 pt-6 sm:px-10 sm:pt-8 lg:min-h-[380px] lg:grid-cols-[1fr_340px] lg:pb-[150px]"
-          floorHeight={78}>
+        <HeroBand className="grid items-start gap-6 px-5 pb-8 pt-6 sm:px-10 sm:pt-8 lg:min-h-[360px] lg:grid-cols-[1fr_340px] lg:pb-10">
           <div className="relative z-10 min-w-0">
-            <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-[#2B3654]">
+            <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-ink">
               <Link href="/studio" className="text-blue-deep">Universes</Link>
               <span aria-hidden="true"> › </span>
               <span className="break-words" aria-current="page">{world.name}</span>
@@ -343,6 +342,20 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
               <span className="pf-chip bg-white text-ink shadow-card" data-testid="universe-owner">{owner === 'You' ? 'By you' : `By ${owner}`}</span>
               <span className="pf-chip bg-white text-ink shadow-card">{countsLine(counts)}</span>
             </div>
+            {cast.length > 0 && (
+              <div aria-hidden="true" className="mt-5 flex items-center -space-x-2.5">
+                {cast.map((c, i) => (
+                  <span key={c.character_id} className="rounded-full border-[3px] border-sky">
+                    <Avatar name={c.name} hue={(colours[c.slug] ?? castColourAt(i)).colour} size={46} />
+                  </span>
+                ))}
+                {view.characters.length > cast.length && (
+                  <span className="grid size-[52px] place-items-center rounded-full border-[3px] border-sky bg-white font-display text-[13px] font-bold text-ink">
+                    +{view.characters.length - cast.length}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <GlassPanel as="aside" className="relative z-10 p-5" aria-labelledby="consistency-title">
@@ -356,7 +369,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
             <p className="mt-3">
               <span className={`pf-chip ${tones[healthTone]}`} data-testid="universe-health">{healthLine(counts, drift)}</span>
             </p>
-            <ul className="mt-2 divide-y-2 divide-dashed divide-[#E5DED0] text-[13.5px] font-bold">
+            <ul className="mt-2 divide-y-2 divide-dashed divide-line text-[13.5px] font-bold">
               <li className={row}>
                 <span>Characters</span>
                 <span className={counts.characters > 0 && counts.locked_characters >= counts.characters ? 'text-green-ink' : 'text-mustard-ink'}>
@@ -390,22 +403,14 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
                 New episode in this Universe
               </Link>
             ) : (
-              <p className="mt-3 rounded-inner bg-cream p-3 text-[13px]" data-testid="universe-new-episode-note">
+              <p className="mt-3 rounded-inner bg-page p-3 text-[13px]" data-testid="universe-new-episode-note">
                 Only the owner of this Universe, or an admin, can start episodes in it.
               </p>
             )}
             <p className="mt-2 text-center text-[12px] text-ink-soft">An episode starts once every character in it is locked.</p>
           </GlassPanel>
 
-          <div aria-hidden="true" className="pointer-events-none absolute bottom-[40px] left-[44px] hidden items-end gap-1 lg:flex">
-            <KilnArt className="h-[130px] w-[150px]" />
-            {figures.map((c, i) => (
-              <BeanArt key={c.character_id} variant={i % 2 === 0 ? 1 : 2}
-                className={`h-[112px] w-[84px] ${hueOf(colours[c.slug] ?? castColourAt(i)).fig}`} />
-            ))}
-            <CatArt className="ml-2 h-[60px] w-[60px]" />
-          </div>
-        </SceneBackdrop>
+        </HeroBand>
       </section>
 
       {journey && (
@@ -452,7 +457,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
             <section className="pf-card scroll-mt-24 p-5" id="look" data-testid="universe-look" aria-labelledby="look-title">
               <h2 id="look-title" className="text-[22px]">Mood board</h2>
               <p className="text-[13.5px] text-ink-soft">The approved mood board: every episode in this Universe keeps this look.</p>
-              <div className="pf-cork mt-3">
+              <div className="pf-board mt-3">
                 <ul className="grid grid-cols-2 gap-5">
                   {view.look.images.map((image, i) => (
                     <Polaroid key={image.image_id} index={i} picture={{
@@ -510,14 +515,23 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
                 {view.episodes.map((e) => {
                   const by = ownerLabel(e.owner_user_id, e.owner_name, me?.user_id ?? null);
                   return (
-                    <li key={e.episode_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-inner bg-cream px-3 py-2.5 text-[13px]"
+                    <li key={e.episode_id} className="relative flex items-center gap-3 rounded-[20px] bg-page py-2 pl-2 pr-2.5 text-[13px]"
                       data-testid={`universe-episode-${e.episode_id}`}>
-                      <Link href={`/studio/episodes/${encodeURIComponent(e.episode_id)}`} className="font-mono font-extrabold text-blue-deep underline">
-                        {e.episode_id}
-                      </Link>
-                      <span className={`pf-chip ${e.finished ? tones.ok : tones.info}`}>{e.finished ? 'Finished' : 'In progress'}</span>
-                      <span className="text-ink-soft">{by === 'You' ? 'By you' : `By ${by}`}</span>
-                      {e.created_at && <span className="text-ink-soft">{formatLocalDate(e.created_at)}</span>}
+                      <span aria-hidden="true" className="grid size-11 flex-none place-items-center rounded-full bg-gradient-to-br from-blue-soft to-aqua text-blue-ink">
+                        <Icon name="film" size={20} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <Link href={`/studio/episodes/${encodeURIComponent(e.episode_id)}`}
+                          className="font-mono font-extrabold text-blue-deep underline after:absolute after:inset-0 after:rounded-[20px] after:content-['']">
+                          {e.episode_id}
+                        </Link>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className={`pf-chip ${e.finished ? tones.ok : tones.info}`}>{e.finished ? 'Finished' : 'In progress'}</span>
+                          <span className="text-ink-soft">{by === 'You' ? 'By you' : `By ${by}`}</span>
+                          {e.created_at && <span className="text-ink-soft">{formatLocalDate(e.created_at)}</span>}
+                        </p>
+                      </div>
+                      <span aria-hidden="true" className="pf-round is-solid !size-10"><Icon name="triangle" size={16} /></span>
                     </li>
                   );
                 })}

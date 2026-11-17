@@ -6,7 +6,7 @@ export interface PriceRow {
 }
 
 /**
- * The price shown before anything is spent (DESIGN-TARGETS-v2 §6.7): mustard-ringed white block,
+ * The price shown before anything is spent (DESIGN-TARGETS-v2 §6.7): yellow-ringed white block,
  * the total in big type, the lines it is made of and what is left after. It only shows a price
  * the API gave; with none, the button it guards stays off.
  */

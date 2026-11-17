@@ -90,7 +90,7 @@ function Thumb({ image, label }: { image: CastImage; label?: string }) {
         src={`${API_URL}${image.thumb_url}`}
         alt={text}
         loading="lazy"
-        className="h-36 w-36 rounded-[12px] bg-[#F2EEE5] object-cover shadow-card"
+        className="h-36 w-36 rounded-[12px] bg-mist object-cover shadow-card"
       />
     </a>
   );
@@ -121,7 +121,7 @@ function SheetGrid({ images }: { images: CastImage[] }) {
               <a href={`${API_URL}${image.url}`} target="_blank" rel="noreferrer" title={`${text}: open the full picture`}
                 className={`block rounded-[10px] ${focusRing}`}>
                 <img src={`${API_URL}${image.thumb_url}`} alt={text} loading="lazy"
-                  className="aspect-square w-full rounded-[10px] bg-[#F2EEE5] object-cover shadow-card" />
+                  className="aspect-square w-full rounded-[10px] bg-mist object-cover shadow-card" />
               </a>
             </li>
           );
@@ -498,7 +498,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
   const face = pictures.uploads.find((image) => image.is_primary) ?? pictures.uploads[0] ?? pictures.sheet[0] ?? null;
   return (
-    <PlayfulCharacterCard testId={`cast-character-${character.slug}`} colour={colour} index={index}
+    <PlayfulCharacterCard testId={`cast-character-${character.slug}`} colour={colour} name={character.name}
       picture={face ? { src: `${API_URL}${face.thumb_url}`, alt: '' } : null}
       seal={version.locked ? { state: 'locked', top: 'locked', bottom: `v${version.version}` } : { state: 'open', top: 'not', bottom: 'locked' }}
       needsYou={canEdit && !anyLocked}
@@ -554,7 +554,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
           {character.versions.map((v) => (
             <button key={v.version} type="button" aria-pressed={v.version === version.version}
               onClick={() => setVersionNo(v.version)}
-              className={`pf-chip min-h-9 cursor-pointer ${v.version === version.version ? 'bg-green-deep text-white' : 'bg-[#F2EEE5] text-ink-soft'}`}>
+              className={`pf-chip min-h-9 cursor-pointer ${v.version === version.version ? 'bg-green-deep text-white' : 'bg-mist text-ink-soft'}`}>
               {v.label || `Version ${v.version}`}{v.locked ? ' ✓' : ''}
             </button>
           ))}

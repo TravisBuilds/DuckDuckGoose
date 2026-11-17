@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
-import { GateChecklist, GooseArt, PriceBlock, Seal, hueOf } from '@/components/playful';
+import { GateChecklist, IconCircle, PriceBlock, Seal, hueOf } from '@/components/playful';
 import { castColours } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
@@ -140,7 +140,7 @@ function StripEntry({ name, image, badge, testId, colour, ring = false }: {
       {image ? (
         <img src={`${API_URL}${image.thumb_url}`} alt="" className="h-10 w-10 flex-none rounded-full object-cover" />
       ) : (
-        <span aria-hidden="true" className={`grid h-10 w-10 flex-none place-items-center rounded-full font-display text-[16px] ${hue ? `${hue.soft} ${hue.ink}` : 'bg-[#F2EEE5] text-ink-soft'}`}>
+        <span aria-hidden="true" className={`grid h-10 w-10 flex-none place-items-center rounded-full font-display text-[16px] ${hue ? `${hue.soft} ${hue.ink}` : 'bg-mist text-ink-soft'}`}>
           {name.slice(0, 1)}
         </span>
       )}
@@ -161,7 +161,7 @@ function itemEntries(items: StripItem[], kind: 'place' | 'prop') {
 
 /**
  * "From <Universe>": what the episode uses from its Universe, each with its lock or photo badge and an
- * unlocked character ringed in coral (for a reader who may see its cast). `children` sit at the foot
+ * unlocked character ringed in orange-red (for a reader who may see its cast). `children` sit at the foot
  * (the lock gate).
  */
 export function UniverseStrip({ info, children }: { info: EpisodeUniverse | null; children?: ReactNode }) {
@@ -208,7 +208,7 @@ export function LockGateCard({ info }: { info: EpisodeUniverse }) {
   if (unlocked.length === 0) return null;
   const first = unlocked[0].name.split(' ')[0];
   return (
-    <div className="mt-4 flex flex-col gap-4 rounded-[22px] border-2 border-[#F4B3AB] bg-coral-soft p-4 sm:flex-row sm:items-center"
+    <div className="mt-4 flex flex-col gap-4 rounded-[22px] border-2 border-coral/40 bg-coral-soft p-4 sm:flex-row sm:items-center"
       data-testid="lock-gate">
       <Seal state="open" top="not" bottom="locked" size={64} className="shrink-0" />
       <div className="min-w-0 flex-1">
@@ -273,7 +273,7 @@ export function StartCard({ episodeId, info, onStarted }: {
   return (
     <section data-testid="start-card" aria-labelledby="start-card-title">
       <div className="flex items-center gap-3">
-        <GooseArt className="h-[64px] w-[58px] shrink-0" />
+        <IconCircle icon="triangle" tone={locked ? 'sun' : 'blue'} />
         <div className="min-w-0">
           <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your OK needed' : 'Waiting for a lock'}</span>
           <h2 id="start-card-title" className="mt-1 text-[20px] leading-tight">Start this video</h2>

@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from '@/lib/studio-api';
 import { formatUsdMicros } from '@/lib/balance.mjs';
 import { roleLabel } from '@/lib/labels';
 import { btnPrimary, chip, tones } from '@/lib/ui';
-import { BottomBar, GooseArt, Icon } from './playful';
+import { Avatar, BottomBar, Icon, IconCircle, LogoMark } from './playful';
 import { ToastHost } from './Toast';
 
 export interface Me {
@@ -62,6 +62,18 @@ const NAV: { href: string; label: string; adminOnly?: boolean; active: (path: st
   { href: '/studio/users', label: 'Members', adminOnly: true, active: (p) => p.startsWith('/studio/users') },
 ];
 
+/** The small uppercase title centred in the phone header: which part of the studio this is. */
+function sectionTitle(path: string): string {
+  if (path === '/studio/universes/new') return 'New Universe';
+  if (path.startsWith('/studio/universes/')) return 'Universe';
+  if (path === '/studio/episodes') return 'Episodes';
+  if (path.startsWith('/studio/episodes/')) return 'Episode';
+  if (path.startsWith('/studio/create')) return 'New episode';
+  if (path.startsWith('/studio/users')) return 'Members';
+  if (path.startsWith('/dashboard')) return 'Costs';
+  return path === '/studio' ? 'Universes' : 'Studio';
+}
+
 const NEW_ITEMS = [
   { href: '/studio/universes/new', label: 'New Universe', text: 'Characters, places and a look to keep' },
   { href: '/studio/create', label: 'New episode', text: 'A video, in a Universe or on its own' },
@@ -101,7 +113,7 @@ function NewMenu() {
         <div id="studio-new-menu" className="pf-card absolute right-0 top-[calc(100%+10px)] z-50 w-72 p-2 shadow-float">
           {NEW_ITEMS.map((item) => (
             <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
-              className="block rounded-inner px-3 py-2.5 hover:bg-cream">
+              className="block rounded-inner px-3 py-2.5 hover:bg-page">
               <span className="block text-[14px] font-extrabold">{item.label}</span>
               <span className="block text-[12.5px] text-ink-soft">{item.text}</span>
             </Link>
@@ -112,16 +124,12 @@ function NewMenu() {
   );
 }
 
-function initialOf(me: Me | null): string {
-  const source = (me?.name || me?.email || '?').trim();
-  return source.charAt(0).toUpperCase() || '?';
-}
-
 /**
- * The studio's frame (DESIGN-TARGETS-v2 §4): a glass pill top bar with the logo, the tabs (Costs and
- * Members only for admins), the admin's balance, "+ New" and who is signed in with their role; on
- * phones a bottom bar with the coral "make something" button. Wraps /studio and /dashboard; the
- * marketing header is hidden there (MarketingOnly).
+ * The studio's frame: a white glass pill top bar with the logo, the tabs (Costs and Members only for
+ * admins), the admin's balance, "+ New" and who is signed in with their role; on phones a light-blue
+ * header with the section's title centred and a menu button, and a white tab bar with the azure
+ * "make something" button. Wraps /studio and /dashboard; the marketing header is hidden there
+ * (MarketingOnly).
  */
 export default function StudioShell({ children }: { children: ReactNode }) {
   const path = usePathname() ?? '';
@@ -192,17 +200,18 @@ export default function StudioShell({ children }: { children: ReactNode }) {
   return (
     <MeContext.Provider value={state}>
       <FocusContext.Provider value={setFocus}>
-        <div className="flex flex-1 flex-col bg-cream">
+        <div className="flex flex-1 flex-col bg-page">
           <a href="#studio-main"
             className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-inner focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow-card">
             Skip to content
           </a>
-          <header className="sticky top-0 z-40 px-3 pt-3 sm:px-6 sm:pt-3.5 lg:px-8" data-testid="studio-shell">
-            <div className="pf-glass mx-auto flex max-w-[1240px] items-center gap-2 !rounded-full py-2 pl-4 pr-2.5 shadow-card sm:gap-4">
-              <Link href="/studio" className="flex flex-none items-center gap-2 rounded-full font-display text-[19px] font-bold">
-                <GooseArt className="h-[34px] w-[34px]" />
-                <span className={focus ? 'hidden sm:inline' : ''}>
-                  <span className="text-coral-ink">Duck</span><span className="text-blue-deep">Duck</span>Goose
+          <header className="sticky top-0 z-40 bg-sky/95 px-3 pb-1.5 pt-1.5 backdrop-blur-md sm:bg-transparent sm:px-6 sm:pb-0 sm:pt-3.5 sm:backdrop-blur-none lg:px-8"
+            data-testid="studio-shell">
+            <div className="mx-auto flex max-w-[1240px] items-center gap-2 py-1 sm:gap-4 sm:rounded-full sm:border sm:border-white/95 sm:bg-white/80 sm:py-2 sm:pl-4 sm:pr-2.5 sm:shadow-float sm:backdrop-blur-xl">
+              <Link href="/studio" className="flex min-h-11 flex-none items-center gap-2 rounded-full font-display text-[18px] font-bold tracking-[-0.02em]">
+                <LogoMark className="h-[34px] w-[34px]" />
+                <span className="hidden sm:inline">
+                  DuckDuck<span className="text-blue-deep">Goose</span>
                 </span>
                 <span className="sr-only"> Studio home</span>
               </Link>
@@ -234,6 +243,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                 </>
               ) : (
                 <>
+                  <p className="pf-band-title min-w-0 flex-1 truncate sm:hidden" data-testid="studio-section-title">{sectionTitle(path)}</p>
                   <nav aria-label="Studio" className="ml-2 hidden items-center gap-1 sm:flex">
                     {items.map((item) => {
                       const active = item.active(path);
@@ -245,7 +255,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                       );
                     })}
                   </nav>
-                  <div className="flex-1" />
+                  <div className="hidden flex-1 sm:block" />
                   {balanceChip}
                   <NewMenu />
                 </>
@@ -257,30 +267,35 @@ export default function StudioShell({ children }: { children: ReactNode }) {
               )}
               <div className="relative" ref={you.ref}>
                 <button type="button" onClick={() => you.setOpen((v) => !v)} aria-expanded={you.open} aria-controls="studio-menu"
-                  className="grid size-11 place-items-center rounded-full" data-testid="studio-menu-button">
-                  <span aria-hidden="true" className="grid size-9 place-items-center rounded-full bg-mustard font-display text-[15px] font-bold text-ink">
-                    {initialOf(state.me)}
-                  </span>
+                  className="grid size-11 place-items-center rounded-full text-ink max-sm:bg-white/70 max-sm:shadow-card" data-testid="studio-menu-button">
+                  <Icon name="menu" size={20} className="sm:hidden" />
+                  <Avatar name={who} size={36} className="max-sm:hidden" />
                   <span className="sr-only">{who ? `Signed in as ${who}: open your menu` : 'Open your menu'}</span>
                 </button>
                 {you.open && (
                   <div id="studio-menu" className="pf-card absolute right-0 top-[calc(100%+10px)] z-50 w-[min(18rem,calc(100vw-1.5rem))] p-3 shadow-float">
-                    <p className="break-words px-2 text-[14px] font-extrabold" data-testid="me-name">{who || 'Signed in'}</p>
-                    {state.me && (
-                      <p className="px-2 pt-1">
-                        <span className={`${chip} ${isAdmin ? tones.info : tones.wait}`}>{roleLabel(state.me.role)}</span>
-                      </p>
-                    )}
+                    <div className="flex items-center gap-3 px-2">
+                      <Avatar name={who} size={40} />
+                      <div className="min-w-0">
+                        <p className="break-words text-[14px] font-extrabold" data-testid="me-name">{who || 'Signed in'}</p>
+                        {state.me && (
+                          <p className="pt-1">
+                            <span className={`${chip} ${isAdmin ? tones.info : tones.wait}`}>{roleLabel(state.me.role)}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
                     <nav aria-label="Your menu" className="mt-2 flex flex-col border-t border-line pt-2 sm:hidden">
                       {items.map((item) => (
-                        <Link key={item.href} href={item.href} className="rounded-inner px-2 py-2.5 text-[14px] font-bold hover:bg-cream"
+                        <Link key={item.href} href={item.href} className="rounded-inner px-2 py-2.5 text-[14px] font-bold hover:bg-page"
                           aria-current={item.active(path) ? 'page' : undefined}>
                           {item.label}
                         </Link>
                       ))}
                     </nav>
                     <button type="button" onClick={logout}
-                      className="mt-2 w-full rounded-inner px-2 py-2.5 text-left text-[14px] font-bold hover:bg-cream">
+                      className="mt-2 flex w-full items-center gap-2 rounded-inner px-2 py-2.5 text-left text-[14px] font-bold hover:bg-page">
+                      <Icon name="exit" size={18} className="text-ink-soft" />
                       Log out
                     </button>
                   </div>
@@ -297,16 +312,12 @@ export default function StudioShell({ children }: { children: ReactNode }) {
           {!focus && (
             <BottomBar label="Studio" testId="studio-bottom-bar"
               items={[
-                { key: 'universes', label: 'Universes', href: '/studio', icon: <Icon name="spark" size={22} />, active: NAV[0].active(path) },
+                { key: 'universes', label: 'Universes', href: '/studio', icon: <Icon name="home" size={22} />, active: NAV[0].active(path) },
                 { key: 'episodes', label: 'Episodes', href: '/studio/episodes', icon: <Icon name="play" size={22} />, active: NAV[1].active(path) },
                 ...(isAdmin ? [{ key: 'costs', label: 'Costs', href: '/dashboard', icon: <Icon name="coins" size={22} />, active: NAV[2].active(path) }] : []),
                 {
                   key: 'you', label: 'You', onClick: () => you.setOpen((v) => !v), expanded: you.open, menu: 'you',
-                  icon: (
-                    <span aria-hidden="true" className="grid size-6 place-items-center rounded-full bg-mustard font-display text-[12px] font-bold text-ink">
-                      {initialOf(state.me)}
-                    </span>
-                  ),
+                  icon: <Icon name="user" size={22} />,
                 },
               ]}
               fab={(
@@ -319,7 +330,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                   {make.open && (
                     <div id="studio-make-menu" className="pf-card absolute bottom-[calc(100%+18px)] left-1/2 z-50 w-[min(20rem,calc(100vw-1.5rem))] -translate-x-1/2 p-2 shadow-float">
                       {NEW_ITEMS.map((item) => (
-                        <Link key={item.href} href={item.href} className="block rounded-inner px-3 py-3 hover:bg-cream">
+                        <Link key={item.href} href={item.href} className="block rounded-inner px-3 py-3 hover:bg-page">
                           <span className="block text-[15px] font-extrabold">{item.label}</span>
                           <span className="block text-[13px] text-ink-soft">{item.text}</span>
                         </Link>
@@ -347,8 +358,8 @@ export function AdminOnly({ children }: { children: ReactNode }) {
   if (error) return null;
   return (
     <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="admins-only">
-      <GooseArt className="mx-auto h-28 w-28" />
-      <h1 className="mt-2 text-[28px]">Only admins can open this page</h1>
+      <IconCircle icon="lock" size={80} className="mx-auto" />
+      <h1 className="mt-4 text-[28px]">Only admins can open this page</h1>
       <p className="mt-2 text-ink-soft">
         Your account can make and review videos. Ask an admin if you need something from this page.
       </p>

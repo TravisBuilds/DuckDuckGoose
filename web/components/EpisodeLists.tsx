@@ -12,7 +12,7 @@ import { posterShot, primaryVideo } from '@/lib/world.mjs';
 import type { UniverseCard } from '@/lib/world.mjs';
 import { byNeedsYou } from '@/lib/journey.mjs';
 import { chip, input as field, tones, type Tone } from '@/lib/ui';
-import { BeanArt, Icon } from './playful';
+import { Icon } from './playful';
 
 /**
  * The episode lists of the home and the Episodes page (DESIGN-TARGETS-v2 §6.1): Keep going (a
@@ -108,14 +108,14 @@ export function chipFor(summary: Summary, episode: Episode, myUserId: string | n
   return cardStatus(summary.state, summary.story, { mine, canAct: isAdmin || mine, ownerName: episode.owner_name });
 }
 
-const THUMBS = ['#FCD9C4,#F6B48C', '#CBEAF0,#8FCAD6', '#E1ECF8,#9DBEE6', '#EEE8F9,#C9B8EA'];
+const THUMBS = ['#E3F2FD,#9FD3F7', '#F3FCD6,#D5F76A', '#FFF7D1,#FFE36B', '#E8F8FE,#BDEBFA'];
 
+/** A list row's round thumbnail: the episode's first still, or a soft gradient circle with a film icon. */
 function Thumb({ id, poster, index }: { id: string; poster?: string; index: number }) {
   return (
-    <div aria-hidden="true" className="relative h-[76px] w-[112px] flex-none overflow-hidden rounded-[14px]"
-      style={{ background: `linear-gradient(160deg,${THUMBS[index % THUMBS.length]})` }}>
-      {poster ? <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />
-        : <BeanArt variant={index % 2 === 0 ? 1 : 2} className={`absolute left-[30px] top-2 h-[66px] w-[52px] ${index % 2 === 0 ? 'text-blue' : 'text-mustard'}`} />}
+    <div aria-hidden="true" className="relative grid size-16 flex-none place-items-center overflow-hidden rounded-full text-ink shadow-card"
+      style={{ background: `linear-gradient(145deg,${THUMBS[index % THUMBS.length]})` }}>
+      {poster ? <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Icon name="film" size={24} />}
       <span className="sr-only">{id}</span>
     </div>
   );
@@ -148,7 +148,7 @@ export function EpisodeCard({ episode, summary, myUserId, isAdmin, universe, ind
   const title = summary?.logline || summary?.style || `Episode ${id}`;
   return (
     <li className={`pf-card relative min-w-0 ${needsYou ? 'shadow-[0_0_0_3px_var(--mustard),var(--shadow-1)]' : ''}`}>
-      <div className="flex items-center gap-3.5 p-3.5">
+      <div className="flex items-center gap-3.5 py-3 pl-3 pr-3.5">
         <Thumb id={id} poster={posterOf(id, summary)} index={index} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[11.5px] font-extrabold uppercase tracking-[0.04em] text-ink-soft">
@@ -171,6 +171,7 @@ export function EpisodeCard({ episode, summary, myUserId, isAdmin, universe, ind
             Review
           </Link>
         )}
+        <span aria-hidden="true" className={`pf-round is-solid ${needsYou ? 'sm:hidden' : ''}`}><Icon name="triangle" size={16} /></span>
       </div>
       {children && <div className="relative z-10">{children}</div>}
     </li>
@@ -200,7 +201,7 @@ export function FinishedCard({ episode, summary, myUserId, isAdmin, universe, ch
         <video controls playsInline preload="none" poster={posterOf(id, summary)} src={episodeUrl(id, primary)}
           className="h-56 w-full bg-ink object-contain" data-testid={`finished-video-${id}`} />
       ) : (
-        <div className="flex h-56 w-full items-center justify-center bg-[#F2EEE5] p-4 text-center text-[13px] text-ink-soft">
+        <div className="flex h-56 w-full items-center justify-center bg-mist p-4 text-center text-[13px] text-ink-soft">
           {primary === undefined ? 'Loading the video…' : 'No video file is left for this episode.'}
         </div>
       )}
@@ -294,7 +295,7 @@ export function ScopeToggle({ scope, onChange }: { scope: 'mine' | 'everyone'; o
       {(['mine', 'everyone'] as const).map((value) => (
         <button key={value} type="button" aria-pressed={scope === value} onClick={() => onChange(value)}
           data-testid={`scope-${value}`}
-          className={`min-h-9 rounded-full px-4 text-[13.5px] font-extrabold ${scope === value ? 'bg-ink text-white' : 'text-ink-soft hover:bg-cream'}`}>
+          className={`min-h-9 rounded-full px-4 text-[13.5px] font-extrabold ${scope === value ? 'bg-blue-deep text-white' : 'text-ink-soft hover:bg-page'}`}>
           {value === 'mine' ? 'Mine' : 'Everyone'}
         </button>
       ))}

@@ -29,7 +29,7 @@ import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
 import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip } from '@/components/UniverseEpisode';
-import { GlassPanel, GooseArt } from '@/components/playful';
+import { GlassPanel, IconCircle } from '@/components/playful';
 
 /**
  * The episode page (DESIGN-TARGETS-v2 §6.5): the step trail with a coin on each paid step and the
@@ -102,7 +102,7 @@ type Owner = { userId: string | null; name: string | null };
 type Maker = { from: 'universe'; info: EpisodeUniverse } | { from: 'list'; owner: Owner | null };
 type Load = 'loading' | 'ok' | 'missing' | 'error';
 
-const sub = 'rounded-inner border-2 border-[#EFE8DA] bg-white p-4';
+const sub = 'rounded-inner border-2 border-line bg-white p-4';
 /** The budget lines whose spend each paid step shows under it once done. */
 const STEP_LINES: Record<string, (line: string) => boolean> = {
   stills: (line) => ['L1_refs', 'L2_drafts', 'L3_final_stills', 'L7_revision'].includes(line),
@@ -726,13 +726,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   ) : completed ? (
     <section aria-labelledby="cost-title">
       <div className="flex items-center gap-3">
-        <GooseArt className="h-[64px] w-[58px] shrink-0" />
+        <IconCircle icon="coins" tone="lime" />
         <div>
           <span className={`${chip} ${tones.ok}`}>Finished</span>
           <h2 id="cost-title" className="mt-1 text-[20px]">What it cost</h2>
         </div>
       </div>
-      <dl className="mt-3 rounded-inner border-2 border-[#E5DED0] bg-white p-3 text-[13px]">
+      <dl className="mt-3 rounded-inner border-2 border-line bg-white p-3 text-[13px]">
         <div className="flex justify-between gap-3">
           <dt>Real cost of this episode</dt>
           <dd className="font-extrabold" data-testid="episode-real-cost">{realCost}</dd>

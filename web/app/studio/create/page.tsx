@@ -10,7 +10,7 @@ import { presets, getPresetById } from '@/lib/presets';
 import { chip, tones } from '@/lib/ui';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
 import { castColours, speakerColours } from '@/lib/castColour.mjs';
-import { CastDot, GooseArt, JourneyPath, SceneBackdrop, SpeakerChip } from '@/components/playful';
+import { CastDot, HeroBand, IconCircle, JourneyPath, SpeakerChip } from '@/components/playful';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
@@ -461,7 +461,7 @@ function CreateVideoWizard() {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="max-w-md text-center">
-          <GooseArt className="pf-nod mx-auto mb-4 h-[120px] w-[110px]" />
+          <IconCircle icon="spark" size={80} className="mx-auto mb-4 motion-safe:animate-pulse" />
           <h2 className="mb-2 text-[24px]">Creating your video...</h2>
           <p className="text-ink-soft">
             Our AI is writing the script, planning shots, and setting up characters. This takes about 10-20 seconds.
@@ -501,7 +501,7 @@ function CreateVideoWizard() {
   const filterClass = (active: boolean) =>
     `px-3 py-1 rounded-full border text-sm ${
       active
-        ? 'bg-ink text-white border-ink'
+        ? 'bg-blue-deep text-white border-blue-deep'
         : 'bg-white border-transparent shadow-card hover:border-blue-deep'
     }`;
 
@@ -530,8 +530,7 @@ function CreateVideoWizard() {
   return (
     <div className="min-h-screen pb-12">
       <div className="mx-auto max-w-[1100px] px-4 pt-3 sm:px-8 sm:pt-6">
-        <SceneBackdrop className="px-5 pb-6 pt-5 sm:px-10 sm:pb-8 sm:pt-7" floorHeight={44}>
-          <GooseArt className="pointer-events-none absolute right-8 top-4 hidden h-[120px] w-[110px] md:block" />
+        <HeroBand className="px-5 pb-6 pt-5 sm:px-10 sm:pb-8 sm:pt-7">
           <Link href="/studio" className="text-[13px] font-extrabold text-blue-deep">
             ← Studio
           </Link>
@@ -551,7 +550,7 @@ function CreateVideoWizard() {
           <div className="mx-auto mt-4 max-w-[760px] rounded-card bg-white/75 px-3 pb-1 pt-3 backdrop-blur-md sm:px-5">
             <JourneyPath stops={trail} current={step} label="Steps to make a video" compact />
           </div>
-        </SceneBackdrop>
+        </HeroBand>
       </div>
 
       <div className="mx-auto max-w-[1100px] px-4 py-8 sm:px-8">
@@ -647,7 +646,7 @@ function CreateVideoWizard() {
                 </p>
               </div>
             ) : (
-              <div className="rounded-inner bg-[#EFEDE7] p-4" data-testid="selected-style">
+              <div className="rounded-inner bg-mist p-4" data-testid="selected-style">
                 <p className="text-sm font-semibold">Style: Freeform</p>
                 <p className="text-xs text-gray-600">
                   No video type picked: describe the style in your own words. {FREEFORM_LENGTH_RANGE[0]}–{FREEFORM_LENGTH_RANGE[1]}s · 9:16.
@@ -796,7 +795,7 @@ function CreateVideoWizard() {
                     <span className={`${chip} ${tones.wait}`}>Table read · coming</span>
                   </span>
                 </div>
-                <ol className="mt-3 divide-y divide-[#F0EADF]">
+                <ol className="mt-3 divide-y divide-line">
                   {scriptLines.map((line, i) => (
                     <li key={`${line.id}-${i}`} className="grid grid-cols-[minmax(0,8.5rem)_1fr_auto] items-start gap-3 py-2.5 text-[14px]">
                       <SpeakerChip name={line.speaker} colour={speakers[line.speaker ?? ''] ?? speakers['']} className="w-full" />
@@ -1224,7 +1223,7 @@ function CreateVideoWizard() {
                       )}
                     </>
                   ) : (
-                    <div className="w-full rounded-input border-2 border-dashed border-[#D9D1BF] px-5 py-3">
+                    <div className="w-full rounded-input border-2 border-dashed border-line-strong px-5 py-3">
                       <div className="text-[13px] text-ink-soft">
                         <p className="font-semibold mb-1">Live mode not available</p>
                         <p className="text-xs">Server is in dry-run mode. Use preview to test.</p>

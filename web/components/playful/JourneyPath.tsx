@@ -26,9 +26,9 @@ const STATE_WORDS: Record<StopState, string> = {
 };
 
 /**
- * The board-game path of numbered stops (DESIGN-TARGETS-v2 §3): green check bubbles for done
- * stops, a pulsing mustard bubble for the current one, dashed stops ahead and a coral one when
- * blocked; dashed links fill green behind you. Used for the five Universe steps and the episode
+ * The path of numbered stops: lime check bubbles for done stops, a pulsing azure bubble for the
+ * current one, dashed stops ahead and an orange-red one when blocked; dashed links fill lime
+ * behind you. Used for the five Universe steps and the episode
  * trail (with coins on paid steps). Scrolls sideways inside itself on narrow screens, with the
  * current stop centred.
  */
