@@ -767,7 +767,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                   aria-expanded={sheetOpen} aria-controls="gate-body" onClick={() => setSheetOpen((open) => !open)}
                   data-testid="gate-sheet-toggle">
                   <span className="min-w-0 truncate text-[14px] font-extrabold">{sheetTitle}</span>
-                  <span className="pf-btn pf-btn-go pf-btn-sm shrink-0">{sheetOpen ? 'Close' : 'Open'}</span>
+                  <span className="pf-btn pf-btn-soft pf-btn-sm shrink-0">{sheetOpen ? 'Close' : 'Open'}</span>
                 </button>
               )}
               <div id="gate-body"
