@@ -383,8 +383,7 @@ export const PAID_STEPS = ['cast', 'stills', 'final_cut'];
  * only when its run was a test run (nothing in it was paid for), and in a live run without a recorded
  * spend "Cost not recorded", never "Free". `cost`: the recorded spend in usd_micros, or null when the
  * step has none on record (the budget was not read, or the step has no budget line of its own).
- * `dryRun`: the run's recorded mode, null before a run; `live`: the studio's live mode, which a step
- * to come follows only while no run says otherwise.
+ * `dryRun`: the run's recorded mode, null before a run; `live`: the studio's live mode.
  */
 export function stepNote(step, { cost = null, live = false, dryRun = null } = {}) {
   const paid = PAID_STEPS.includes(step?.key);
@@ -401,8 +400,17 @@ export function stepNote(step, { cost = null, live = false, dryRun = null } = {}
       return 'Now';
     default:
       if (!paid) return '';
-      return (dryRun === null ? live : !dryRun) ? 'Priced first' : 'Free test run';
+      return liveRun({ live, dryRun }) ? 'Priced first' : 'Free test run';
   }
+}
+
+/**
+ * Whether a run pays its providers: the workflow pays only outside a test run while the studio's
+ * live mode is on (hfvg/activities/generation.py), so a test run is free whatever live mode says.
+ * Before a run, whether the next one would.
+ */
+export function liveRun({ live = false, dryRun = null } = {}) {
+  return dryRun !== true && Boolean(live);
 }
 
 /** The status chip on a studio home card. */

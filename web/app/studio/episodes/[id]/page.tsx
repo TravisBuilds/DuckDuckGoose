@@ -8,7 +8,9 @@ import type { ModelView } from '@/lib/model-limits.mjs';
 import type { CastView } from '@/lib/cast.mjs';
 import type { ShotPlanView } from '@/lib/props.mjs';
 import { madeWith, type EpisodeUniverse } from '@/lib/world.mjs';
-import { STEPS, STEP_LABELS, episodeViewer, nextStep, statusChip, stepperSteps, storyDone, storyLocked, waitsOn } from '@/lib/next-step.mjs';
+import {
+  STEPS, STEP_LABELS, episodeViewer, liveRun, nextStep, statusChip, stepperSteps, storyDone, storyLocked, waitsOn,
+} from '@/lib/next-step.mjs';
 import type { StepperStep } from '@/lib/next-step.mjs';
 import { stageLabel } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
@@ -692,6 +694,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
   const live = Boolean(gates?.live_mode);
   const dryRun = state?.run?.dry_run ?? null;
+  const runLive = liveRun({ live, dryRun });
   const spent = budget ? budget.lines.reduce((sum, line) => sum + line.spent, 0) : null;
   // a step's spend is on record only when the episode's budget has lines of its own for it
   const costs = Object.fromEntries(Object.entries(STEP_LINES).map(([key, of]) => {
@@ -712,7 +715,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const gate = startHere && info ? (
     <StartCard episodeId={episodeId} info={info} onStarted={refreshAll} />
   ) : viewer && !completed && !expired ? (
-    <NextStepCard next={next} steps={steps} canAct={canAct} live={live} spent={spent} />
+    <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} />
   ) : completed ? (
     <section aria-labelledby="cost-title">
       <div className="flex items-center gap-3">
@@ -729,7 +732,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         </div>
         <div className="mt-1.5 flex justify-between gap-3">
           <dt>This run</dt>
-          <dd className="font-extrabold">{(dryRun === null ? live : !dryRun) ? 'Live: paid providers' : 'Test run: free'}</dd>
+          <dd className="font-extrabold">{runLive ? 'Live: paid providers' : 'Test run: free'}</dd>
         </div>
       </dl>
     </section>

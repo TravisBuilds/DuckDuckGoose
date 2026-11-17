@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PAID_STEPS, cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, nextStep, openGate, shotIds,
-  statusChip, stepNote, stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
+  PAID_STEPS, cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, liveRun, nextStep, openGate,
+  shotIds, statusChip, stepNote, stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -399,9 +399,19 @@ test('the words under a step: a paid step says "Free" only in a test run, else i
   assert.equal(stepNote({ key: 'stills', status: 'todo' }, { live: true }), 'Priced first');
   assert.equal(stepNote({ key: 'stills', status: 'todo' }, { live: false }), 'Free test run');
   assert.equal(stepNote({ key: 'shot_plan', status: 'todo' }, { live: true }), '');
-  // a step to come follows the run's own mode once there is a run, whatever live mode says now
+  // a step to come in a test run is free, even with live mode on
   assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: true, dryRun: true }), 'Free test run');
-  assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: false, dryRun: false }), 'Priced first');
+  assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: true, dryRun: false }), 'Priced first');
+  assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: false, dryRun: false }), 'Free test run');
+});
+
+test('a run pays its providers only outside a test run with live mode on', () => {
+  assert.equal(liveRun({ live: true, dryRun: false }), true);
+  assert.equal(liveRun({ live: true, dryRun: null }), true);
+  assert.equal(liveRun({ live: true, dryRun: true }), false);
+  assert.equal(liveRun({ live: false, dryRun: false }), false);
+  assert.equal(liveRun({ live: false, dryRun: null }), false);
+  assert.equal(liveRun(), false);
 });
 
 test('studio home chips', () => {
