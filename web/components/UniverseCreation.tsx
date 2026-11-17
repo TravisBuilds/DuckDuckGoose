@@ -180,7 +180,9 @@ export function UniverseCreation({ view, reload }: { view: WorldView; reload: ()
     <div className="mt-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20"
       data-testid="board-estimate">
       <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
-        {estimate.result.summary}: {formatUsd(estimate.result.total_usd_micros)}
+        {estimate.result.dry_run
+          ? `${estimate.result.summary} (a live board would cost ${formatUsd(estimate.result.total_usd_micros)})`
+          : `${estimate.result.summary}: ${formatUsd(estimate.result.total_usd_micros)}`}
       </p>
       {!estimate.result.dry_run && (
         <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-300">
