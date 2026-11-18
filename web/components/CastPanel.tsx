@@ -555,7 +555,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             <button key={v.version} type="button" aria-pressed={v.version === version.version}
               onClick={() => setVersionNo(v.version)}
               className={`pf-chip min-h-9 cursor-pointer ${v.version === version.version ? 'bg-green-deep text-white' : 'bg-mist text-ink-soft'}`}>
-              {v.label || `Version ${v.version}`}{v.locked ? ' ✓' : ''}
+              {v.label || `Version ${v.version}`}{v.locked ? ' · locked' : ''}
             </button>
           ))}
         </div>
@@ -847,7 +847,7 @@ function ShotCast({ apiBase, view, busy, act, note }: {
                         onClick={() => update(toggleCast(current, c.slug))}
                         data-testid={`cast-shot-${shot.shot_id}-${c.slug}`}
                         className={`${btn} border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
-                        {on ? '✓ ' : ''}{c.name}
+                        {c.name}
                       </button>
                     );
                   })}

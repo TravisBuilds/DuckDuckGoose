@@ -123,11 +123,11 @@ export default function NewEpisodePage() {
       />
       <textarea
         data-testid={`${testid}-text`}
-        aria-label={`${label}: or paste the content`}
+        aria-label={`${label}: or paste the text`}
         value={src.text}
         disabled={!!src.file}
         onChange={(e) => { set({ file: null, text: e.target.value }); invalidate(); }}
-        placeholder={src.file ? `Using uploaded file ${src.file.name}` : 'or paste the content here'}
+        placeholder={src.file ? `Using uploaded file ${src.file.name}` : 'or paste the text here'}
         rows={rows}
         className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs bg-white"
       />
@@ -138,13 +138,13 @@ export default function NewEpisodePage() {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href="/studio" className="text-sm text-blue-600 hover:underline mb-2 inline-block">← Studio</Link>
+          <Link href="/studio" className="text-sm text-blue-600 hover:underline mb-2 inline-block">Back to the studio</Link>
           <h1 className="text-2xl font-bold">New Episode (Advanced)</h1>
           <p className="text-sm text-gray-600">
             Upload the episode files, validate them against the model limits, then start the workflow.
           </p>
           <Link href="/studio/create" className="text-sm text-blue-600 hover:underline inline-block mt-2">
-            Looking for the beginner wizard? Try "Make Your Own Video" →
+            Looking for the beginner wizard? Try "Make Your Own Video"
           </Link>
         </div>
       </div>
@@ -178,8 +178,8 @@ export default function NewEpisodePage() {
         {lint && (
           <section data-testid="lint-report" className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold mb-2">Episode lint: {lint.status === 'pass' ? 'pass' : 'fail'}</h2>
-            {lint.issues.map((m, i) => <p key={`i${i}`} className="text-sm text-red-700">✗ {m}</p>)}
-            {lint.warnings.map((m, i) => <p key={`w${i}`} className="text-sm text-yellow-700">⚠ {m}</p>)}
+            {lint.issues.map((m, i) => <p key={`i${i}`} className="text-sm text-red-700">Problem: {m}</p>)}
+            {lint.warnings.map((m, i) => <p key={`w${i}`} className="text-sm text-yellow-700">Warning: {m}</p>)}
           </section>
         )}
 
@@ -213,7 +213,7 @@ export default function NewEpisodePage() {
             <ul className="space-y-1">
               {Object.entries(preflight.shots).map(([sid, shot]) => (
                 <li key={sid} data-testid={`preflight-shot-${sid}`} className="text-sm">
-                  <span className={shot.ok ? 'text-green-700' : 'text-red-700'}>{shot.ok ? '✓' : '✗'} {sid}</span>
+                  <span className={shot.ok ? 'text-green-700' : 'text-red-700'}>{sid}: {shot.ok ? 'passes' : 'breaks a limit'}</span>
                   {preflight.cost_estimate?.per_shot[sid] && (
                     <span className="text-xs text-gray-500 ml-2">
                       stills {formatUsd(preflight.cost_estimate.per_shot[sid].stills_usd_micros)}
@@ -222,7 +222,7 @@ export default function NewEpisodePage() {
                     </span>
                   )}
                   {shot.errors.map((m, i) => <div key={`e${i}`} className="text-xs text-red-700 ml-4">{m}</div>)}
-                  {shot.warnings.map((m, i) => <div key={`w${i}`} className="text-xs text-yellow-700 ml-4">⚠ {m}</div>)}
+                  {shot.warnings.map((m, i) => <div key={`w${i}`} className="text-xs text-yellow-700 ml-4">Warning: {m}</div>)}
                 </li>
               ))}
             </ul>

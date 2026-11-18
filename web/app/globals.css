@@ -557,27 +557,6 @@
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
   }
 
-  /* ---- a round icon button (play, more) at the end of a list row ---- */
-  .pf-round {
-    display: inline-grid;
-    place-items: center;
-    flex: none;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--blue-soft);
-    color: var(--blue-ink);
-    transition: transform 120ms ease, background-color 120ms ease;
-  }
-  .pf-round.is-solid {
-    background: linear-gradient(180deg, #1273CC, var(--blue-deep));
-    color: #fff;
-    box-shadow: var(--shadow-azure);
-  }
-  .pf-round:hover {
-    transform: translateY(-1px);
-  }
-
   /* ---- consistency seal (a round badge) ---- */
   .pf-seal {
     width: 64px;
@@ -705,13 +684,15 @@
     border: 2px solid #fff;
   }
 
-  /* ---- the azure "make something" button raised in the phone tab bar ---- */
+  /* ---- the azure "make something" button raised in the phone tab bar, its word in white ---- */
   .pf-fab {
     width: 56px;
     height: 56px;
     border-radius: 50%;
     background: linear-gradient(180deg, #1273CC, var(--blue-deep));
     color: #fff;
+    font: 800 14px/1 var(--font-display-stack);
+    letter-spacing: -0.01em;
     display: grid;
     place-items: center;
     margin-top: -30px;
@@ -888,14 +869,12 @@
 @media (prefers-reduced-motion: reduce) {
   .pf-btn,
   .pf-lift,
-  .pf-round,
   .pf-fab {
     transition: none;
   }
   .pf-btn:hover:not(:disabled),
   .pf-btn:active:not(:disabled),
   .pf-lift:hover,
-  .pf-round:hover,
   .pf-fab:active,
   a.pf-stop:hover .pf-bub {
     transform: none;

@@ -39,12 +39,12 @@ export function Toast({ notice, onDismiss, testId }: {
     : 'border-green-300 bg-green-50 text-green-900';
   const body = (
     <div className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-lg border px-4 py-3 shadow-lg ${tone}`}>
-      <span aria-hidden="true" className="mt-0.5 text-sm font-bold">{notice.tone === 'bad' ? '!' : '✓'}</span>
+      <span aria-hidden="true" className={`mt-1.5 size-2.5 flex-none rounded-full ${notice.tone === 'bad' ? 'bg-red-600' : 'bg-green-600'}`} />
       <p className="flex-1 text-sm" data-testid={testId} data-tone={notice.tone} data-status={notice.status}>
         {notice.text}
       </p>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`rounded px-1 text-lg leading-none ${focusRing}`}>
-        ×
+      <button type="button" onClick={onDismiss} className={`rounded px-1 text-sm font-bold underline underline-offset-2 ${focusRing}`}>
+        Dismiss
       </button>
     </div>
   );

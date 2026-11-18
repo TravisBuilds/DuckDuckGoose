@@ -29,7 +29,7 @@ import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
 import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip } from '@/components/UniverseEpisode';
-import { GlassPanel, IconCircle } from '@/components/playful';
+import { GlassPanel } from '@/components/playful';
 
 /**
  * The episode page (DESIGN-TARGETS-v2 §6.5): the step trail with a coin on each paid step and the
@@ -220,7 +220,7 @@ function CanaryCard({ episodeId, gates, budget, busy, act, onFinished }: {
     <div className={sub} data-testid="g108-card">
       <h3 className="mb-1 font-semibold">G1.08 credit plan &amp; canary</h3>
       {gates?.g108_approved ? (
-        <p className="text-sm font-semibold text-green-800">✓ G1.08 Approved</p>
+        <p className="text-sm font-semibold text-green-800">G1.08 Approved</p>
       ) : (
         <>
           <p className="mb-3 text-sm text-gray-700">The credit plan must be approved before a canary or paid generation.</p>
@@ -321,14 +321,14 @@ function ModelLimitsCard({ models, capsStale, capsChecked, preflight, preflightE
         <div className="mb-4" data-testid="preflight-results">
           <p className={`mb-2 text-sm font-medium ${summary.failed ? 'text-red-700' : 'text-green-800'}`}>
             {summary.failed
-              ? `✗ ${summary.failed} shot(s) break a model limit, ${summary.passed} pass`
-              : `✓ All ${summary.passed} shot(s) pass preflight`}
+              ? `${summary.failed} shot(s) break a model limit, ${summary.passed} pass`
+              : `All ${summary.passed} shot(s) pass preflight`}
           </p>
           <ul className="space-y-1">
             {Object.keys(preflight).sort().map((sid) => (
               <li key={sid} className="text-sm" data-testid={`preflight-${sid}`}>
                 <span className={preflight[sid].ok ? 'text-green-800' : 'text-red-700'}>
-                  {preflight[sid].ok ? '✓' : '✗'} {sid}
+                  {sid}: {preflight[sid].ok ? 'passes' : 'breaks a limit'}
                 </span>
                 {preflight[sid].errors.map((e, i) => <div key={`e${i}`} className="ml-5 text-xs text-red-700">{e}</div>)}
                 {preflight[sid].warnings.map((w, i) => <div key={`w${i}`} className="ml-5 text-xs text-amber-800">{w}</div>)}
@@ -725,12 +725,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} />
   ) : completed ? (
     <section aria-labelledby="cost-title">
-      <div className="flex items-center gap-3">
-        <IconCircle icon="coins" tone="lime" />
-        <div>
-          <span className={`${chip} ${tones.ok}`}>Finished</span>
-          <h2 id="cost-title" className="mt-1 text-[20px]">What it cost</h2>
-        </div>
+      <div>
+        <span className={`${chip} ${tones.ok}`}>Finished</span>
+        <h2 id="cost-title" className="mt-1 text-[20px]">What it cost</h2>
       </div>
       <dl className="mt-3 rounded-inner border-2 border-line bg-white p-3 text-[13px]">
         <div className="flex justify-between gap-3">

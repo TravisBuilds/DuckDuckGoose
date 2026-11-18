@@ -8,7 +8,7 @@ import { ConsistencyBadge } from '@/components/ConsistencyBadge';
 import { SavedVoiceBlock } from '@/components/UniverseVoices';
 import { useMe } from '@/components/StudioShell';
 import {
-  Avatar, GlassPanel, HeroBand, Icon, IconCircle, JourneyPath, NextStepPill, Polaroid, Seal,
+  Avatar, Dots, GlassPanel, HeroBand, JourneyPath, NextStepPill, Polaroid, Seal,
 } from '@/components/playful';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { getPresetById, presets } from '@/lib/presets';
@@ -230,7 +230,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
     if (problem?.status === 404) {
       return (
         <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="universe-not-found">
-          <IconCircle icon="search" size={80} className="mx-auto" />
+          <Dots />
           <h1 className="mt-4 text-[28px]">This Universe could not be found</h1>
           <p className="mt-2 text-ink-soft">
             It may have been removed, or you may not have access to it. Ask its owner if you think you should.
@@ -328,7 +328,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
           <div className="relative z-10 min-w-0">
             <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-ink">
               <Link href="/studio" className="text-blue-deep">Universes</Link>
-              <span aria-hidden="true"> › </span>
+              <span aria-hidden="true"> / </span>
               <span className="break-words" aria-current="page">{world.name}</span>
             </nav>
             <h1 id="universe-title" className="mt-2 break-words text-[36px] leading-[1.02] sm:text-[54px]" data-testid="universe-name">
@@ -350,8 +350,8 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
                   </span>
                 ))}
                 {view.characters.length > cast.length && (
-                  <span className="grid size-[52px] place-items-center rounded-full border-[3px] border-sky bg-white font-display text-[13px] font-bold text-ink">
-                    +{view.characters.length - cast.length}
+                  <span className="grid h-[52px] place-items-center whitespace-nowrap rounded-full border-[3px] border-sky bg-white px-3 font-display text-[13px] font-bold text-ink">
+                    {view.characters.length - cast.length} more
                   </span>
                 )}
               </div>
@@ -517,9 +517,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
                   return (
                     <li key={e.episode_id} className="relative flex items-center gap-3 rounded-[20px] bg-page py-2 pl-2 pr-2.5 text-[13px]"
                       data-testid={`universe-episode-${e.episode_id}`}>
-                      <span aria-hidden="true" className="grid size-11 flex-none place-items-center rounded-full bg-gradient-to-br from-blue-soft to-aqua text-blue-ink">
-                        <Icon name="film" size={20} />
-                      </span>
+                      <span aria-hidden="true" className="size-11 flex-none rounded-full bg-gradient-to-br from-blue-soft to-aqua" />
                       <div className="min-w-0 flex-1">
                         <Link href={`/studio/episodes/${encodeURIComponent(e.episode_id)}`}
                           className="font-mono font-extrabold text-blue-deep underline after:absolute after:inset-0 after:rounded-[20px] after:content-['']">
@@ -531,7 +529,6 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
                           {e.created_at && <span className="text-ink-soft">{formatLocalDate(e.created_at)}</span>}
                         </p>
                       </div>
-                      <span aria-hidden="true" className="pf-round is-solid !size-10"><Icon name="triangle" size={16} /></span>
                     </li>
                   );
                 })}

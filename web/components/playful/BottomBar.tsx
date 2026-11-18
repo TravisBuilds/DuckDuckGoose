@@ -5,7 +5,6 @@ export interface BottomItem {
   key: string;
   label: string;
   href?: string;
-  icon: ReactNode;
   active?: boolean;
   onClick?: () => void;
   expanded?: boolean;
@@ -14,19 +13,23 @@ export interface BottomItem {
 }
 
 /**
- * The phone navigation: a white rounded tab bar fixed to the bottom with line icons, big targets and
- * the azure "make something" button raised in the middle. Hidden from 640 px up.
+ * The phone navigation: a white rounded tab bar fixed to the bottom, each tab its name in words with
+ * an azure bar under the one you are on, big targets, and the azure "make something" button raised in
+ * the middle. Hidden from 640 px up.
  */
 export default function BottomBar({ items, fab, label = 'Studio', testId }: {
   items: BottomItem[]; fab?: ReactNode; label?: string; testId?: string;
 }) {
   const half = Math.ceil(items.length / 2);
   const render = (item: BottomItem) => {
-    const cls = `group flex min-h-11 min-w-14 flex-col items-center justify-center gap-0.5 rounded-2xl px-2 font-display text-[10.5px] font-semibold ${item.active ? 'text-blue-deep' : 'text-ink-soft'}`;
+    const on = Boolean(item.active || item.expanded);
+    // each tab is as wide as its word plus an even share of the room left, so "Universes" fits beside
+    // "Episodes" on a 320 px phone
+    const cls = `flex min-h-12 min-w-0 flex-auto flex-col items-center justify-center gap-1.5 rounded-2xl px-0.5 pt-1 font-display text-[clamp(10.5px,3.1vw,13px)] font-bold leading-none tracking-[-0.01em] ${on ? 'text-blue-deep' : 'text-ink-soft'}`;
     const body = (
       <>
-        <span className={`grid h-7 w-11 place-items-center rounded-full ${item.active ? 'bg-blue-soft' : ''}`}>{item.icon}</span>
-        {item.label}
+        <span className="whitespace-nowrap">{item.label}</span>
+        <span aria-hidden="true" className={`h-1 w-6 rounded-full ${on ? 'bg-blue-deep' : 'bg-transparent'}`} />
       </>
     );
     return item.href ? (
@@ -43,7 +46,7 @@ export default function BottomBar({ items, fab, label = 'Studio', testId }: {
   };
   return (
     <nav aria-label={label} data-testid={testId}
-      className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[28px] border border-line/70 bg-white px-2 py-1.5 shadow-float sm:hidden">
+      className="fixed inset-x-3 bottom-3 z-40 flex items-center gap-1 rounded-[28px] border border-line/70 bg-white px-2 py-1.5 shadow-float sm:hidden">
       {items.slice(0, half).map(render)}
       {fab}
       {items.slice(half).map(render)}

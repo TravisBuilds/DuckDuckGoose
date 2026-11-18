@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from '@/lib/studio-api';
 import { formatUsdMicros } from '@/lib/balance.mjs';
 import { roleLabel } from '@/lib/labels';
 import { btnPrimary, chip, tones } from '@/lib/ui';
-import { Avatar, BottomBar, Icon, IconCircle, LogoMark } from './playful';
+import { Avatar, BottomBar, Dots, Wordmark } from './playful';
 import { ToastHost } from './Toast';
 
 export interface Me {
@@ -107,7 +107,7 @@ function NewMenu() {
     <div className="relative hidden sm:block" ref={ref}>
       <button type="button" className={`${btnPrimary} pf-btn-sm`} aria-expanded={open} aria-controls="studio-new-menu"
         onClick={() => setOpen((v) => !v)} data-testid="studio-new-button">
-        <Icon name="plus" size={14} />New
+        New
       </button>
       {open && (
         <div id="studio-new-menu" className="pf-card absolute right-0 top-[calc(100%+10px)] z-50 w-72 p-2 shadow-float">
@@ -125,11 +125,11 @@ function NewMenu() {
 }
 
 /**
- * The studio's frame: a white glass pill top bar with the logo, the tabs (Costs and Members only for
- * admins), the admin's balance, "+ New" and who is signed in with their role; on phones a light-blue
- * header with the section's title centred and a menu button, and a white tab bar with the azure
- * "make something" button. Wraps /studio and /dashboard; the marketing header is hidden there
- * (MarketingOnly).
+ * The studio's frame: a white glass pill top bar with the DuckDuckGoose wordmark, the tabs (Costs and
+ * Members only for admins), the admin's balance, "New" and who is signed in with their role; on
+ * phones a light-blue header with the wordmark, the section's title and a menu button, and a white
+ * tab bar of words with the azure "New" button. Wraps /studio and /dashboard; the marketing header is
+ * hidden there (MarketingOnly).
  */
 export default function StudioShell({ children }: { children: ReactNode }) {
   const path = usePathname() ?? '';
@@ -203,16 +203,15 @@ export default function StudioShell({ children }: { children: ReactNode }) {
         <div className="flex flex-1 flex-col bg-page">
           <a href="#studio-main"
             className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-inner focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow-card">
-            Skip to content
+            Skip to main section
           </a>
           <header className="sticky top-0 z-40 bg-sky/95 px-3 pb-1.5 pt-1.5 backdrop-blur-md sm:bg-transparent sm:px-6 sm:pb-0 sm:pt-3.5 sm:backdrop-blur-none lg:px-8"
             data-testid="studio-shell">
             <div className="mx-auto flex max-w-[1240px] items-center gap-2 py-1 sm:gap-4 sm:rounded-full sm:border sm:border-white/95 sm:bg-white/80 sm:py-2 sm:pl-4 sm:pr-2.5 sm:shadow-float sm:backdrop-blur-xl">
-              <Link href="/studio" className="flex min-h-11 flex-none items-center gap-2 rounded-full font-display text-[18px] font-bold tracking-[-0.02em]">
-                <LogoMark className="h-[34px] w-[34px]" />
-                <span className="hidden sm:inline">
-                  DuckDuck<span className="text-blue-deep">Goose</span>
-                </span>
+              {/* making a Universe on a phone, its name needs the room: Save & exit is the way out */}
+              <Link href="/studio" className={`min-h-11 flex-none items-center rounded-full px-1 ${focus ? 'hidden sm:flex' : 'flex'}`}
+                data-testid="studio-home">
+                <Wordmark className="text-[16px] sm:text-[19px]" />
                 <span className="sr-only"> Studio home</span>
               </Link>
               {focus ? (
@@ -229,12 +228,9 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                   </p>
                   <div className="hidden flex-1 sm:block" />
                   <span role="status"
-                    className={`${chip} ${focus.saved === 'saving' ? tones.wait : tones.ok} ${focus.saved === 'idle' ? 'invisible max-sm:hidden' : ''} shrink-0 max-sm:!px-2`}
+                    className={`${chip} ${focus.saved === 'saving' ? tones.wait : tones.ok} ${focus.saved === 'idle' ? 'invisible max-sm:hidden' : ''} shrink-0`}
                     data-testid="studio-saved">
-                    {focus.saved === 'saving'
-                      ? <span aria-hidden="true" className="size-2 rounded-full bg-current motion-safe:animate-pulse sm:hidden" />
-                      : <Icon name="check" size={14} className="sm:hidden" />}
-                    <span className="max-sm:sr-only">{focus.saved === 'saving' ? 'Saving…' : 'Saved'}</span>
+                    {focus.saved === 'saving' ? 'Saving…' : 'Saved'}
                   </span>
                   {balanceChip}
                   <Link href={focus.exitHref} className="pf-btn pf-btn-ghost pf-btn-sm shrink-0 whitespace-nowrap" data-testid="studio-save-exit">
@@ -267,9 +263,8 @@ export default function StudioShell({ children }: { children: ReactNode }) {
               )}
               <div className="relative" ref={you.ref}>
                 <button type="button" onClick={() => you.setOpen((v) => !v)} aria-expanded={you.open} aria-controls="studio-menu"
-                  className="grid size-11 place-items-center rounded-full text-ink max-sm:bg-white/70 max-sm:shadow-card" data-testid="studio-menu-button">
-                  <Icon name="menu" size={20} className="sm:hidden" />
-                  <Avatar name={who} size={36} className="max-sm:hidden" />
+                  className="grid size-11 place-items-center rounded-full text-ink" data-testid="studio-menu-button">
+                  <Avatar name={who} size={36} />
                   <span className="sr-only">{who ? `Signed in as ${who}: open your menu` : 'Open your menu'}</span>
                 </button>
                 {you.open && (
@@ -294,8 +289,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                       ))}
                     </nav>
                     <button type="button" onClick={logout}
-                      className="mt-2 flex w-full items-center gap-2 rounded-inner px-2 py-2.5 text-left text-[14px] font-bold hover:bg-page">
-                      <Icon name="exit" size={18} className="text-ink-soft" />
+                      className="mt-2 flex w-full items-center rounded-inner px-2 py-2.5 text-left text-[14px] font-bold hover:bg-page">
                       Log out
                     </button>
                   </div>
@@ -312,19 +306,16 @@ export default function StudioShell({ children }: { children: ReactNode }) {
           {!focus && (
             <BottomBar label="Studio" testId="studio-bottom-bar"
               items={[
-                { key: 'universes', label: 'Universes', href: '/studio', icon: <Icon name="home" size={22} />, active: NAV[0].active(path) },
-                { key: 'episodes', label: 'Episodes', href: '/studio/episodes', icon: <Icon name="play" size={22} />, active: NAV[1].active(path) },
-                ...(isAdmin ? [{ key: 'costs', label: 'Costs', href: '/dashboard', icon: <Icon name="coins" size={22} />, active: NAV[2].active(path) }] : []),
-                {
-                  key: 'you', label: 'You', onClick: () => you.setOpen((v) => !v), expanded: you.open, menu: 'you',
-                  icon: <Icon name="user" size={22} />,
-                },
+                { key: 'universes', label: 'Universes', href: '/studio', active: NAV[0].active(path) },
+                { key: 'episodes', label: 'Episodes', href: '/studio/episodes', active: NAV[1].active(path) },
+                ...(isAdmin ? [{ key: 'costs', label: 'Costs', href: '/dashboard', active: NAV[2].active(path) }] : []),
+                { key: 'you', label: 'You', onClick: () => you.setOpen((v) => !v), expanded: you.open, menu: 'you' },
               ]}
               fab={(
-                <div className="relative" ref={make.ref}>
+                <div className="relative flex-none" ref={make.ref}>
                   <button type="button" className="pf-fab" aria-expanded={make.open} aria-controls="studio-make-menu"
                     onClick={() => make.setOpen((v) => !v)} data-testid="studio-bottom-bar-new">
-                    <Icon name="plus" size={24} />
+                    <span aria-hidden="true">New</span>
                     <span className="sr-only">Make something new</span>
                   </button>
                   {make.open && (
@@ -358,7 +349,7 @@ export function AdminOnly({ children }: { children: ReactNode }) {
   if (error) return null;
   return (
     <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="admins-only">
-      <IconCircle icon="lock" size={80} className="mx-auto" />
+      <Dots />
       <h1 className="mt-4 text-[28px]">Only admins can open this page</h1>
       <p className="mt-2 text-ink-soft">
         Your account can make and review videos. Ask an admin if you need something from this page.

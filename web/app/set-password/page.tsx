@@ -2,6 +2,7 @@
 
 import { useState, Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Dots } from '@/components/playful';
 
 function SetPasswordForm() {
   const [password, setPassword] = useState('');
@@ -68,9 +69,9 @@ function SetPasswordForm() {
 
   if (validatingToken) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-page">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-deep mx-auto mb-4"></div>
           <p className="text-gray-600">Validating...</p>
         </div>
       </div>
@@ -79,16 +80,16 @@ function SetPasswordForm() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-page px-4">
         <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+          <div className="pf-card p-8 text-center">
             <h1 className="text-2xl font-bold mb-4 text-red-600">Invalid Link</h1>
             <p className="text-gray-600 mb-6">
               This password reset link is invalid or missing. Please contact your administrator.
             </p>
             <button
               onClick={() => router.push('/login')}
-              className="px-6 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
+              className="pf-btn pf-btn-primary"
             >
               Go to Login
             </button>
@@ -100,14 +101,10 @@ function SetPasswordForm() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-page px-4">
         <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
+          <div className="pf-card p-8 text-center">
+            <Dots className="mb-4" />
             <h1 className="text-2xl font-bold mb-2">Password Set!</h1>
             <p className="text-gray-600 mb-6">
               Your password has been set successfully. Redirecting to login...
@@ -119,7 +116,7 @@ function SetPasswordForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-page px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">Set Your Password</h1>
@@ -128,7 +125,7 @@ function SetPasswordForm() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-lg p-8">
+        <form onSubmit={handleSubmit} className="pf-card p-8">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
               {error}
@@ -174,7 +171,7 @@ function SetPasswordForm() {
           <button
             type="submit"
             disabled={loading || !password || !confirmPassword}
-            className="w-full px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="pf-btn pf-btn-primary w-full"
           >
             {loading ? 'Setting Password...' : 'Set Password'}
           </button>
@@ -187,7 +184,7 @@ function SetPasswordForm() {
 export default function SetPasswordPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-page">
         <div className="text-center">
           <p className="text-gray-600">Loading...</p>
         </div>
