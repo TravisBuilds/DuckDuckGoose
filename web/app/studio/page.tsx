@@ -118,7 +118,7 @@ export default function StudioHomePage() {
     <section className="relative mt-3 sm:mt-6" aria-labelledby="home-title">
       <HeroBand className="grid gap-6 px-5 pt-6 sm:px-10 sm:pt-10 lg:min-h-[440px] lg:grid-cols-[1fr_370px] lg:pl-[52px]">
         <div className="relative z-[2] lg:pb-16">
-          <span className="pf-chip bg-white/75 text-blue-ink"><Icon name="spark" size={12} />Your stories, kept the same</span>
+          <span className="pf-chip bg-white/75 text-blue-ink"><Icon name="spark" size={15} />Your stories, kept the same</span>
           <h1 id="home-title" className="mt-3 max-w-[500px] text-[34px] sm:text-[46px]">
             Make a Universe once. Every episode keeps it.
           </h1>
@@ -129,7 +129,7 @@ export default function StudioHomePage() {
           {!firstRun && (
             <div className="mt-4 flex flex-wrap gap-3">
               <Link href="/studio/create" data-testid="make-video-link" className="pf-btn pf-btn-ghost">
-                <Icon name="play" size={14} />New episode
+                <Icon name="episode" size={18} />New episode
               </Link>
               {isAdmin && (
                 <Link href="/studio/episodes/new" className="pf-btn pf-btn-quiet" data-testid="advanced-upload-link">
@@ -139,9 +139,9 @@ export default function StudioHomePage() {
             </div>
           )}
           <div aria-hidden="true" className="mt-6 flex items-center -space-x-3">
-            {([['user', 'from-blue-soft to-blue'], ['place', 'from-mustard-soft to-mustard'], ['box', 'from-green-soft to-green']] as const).map(([icon, fill]) => (
-              <span key={icon} className={`grid size-14 place-items-center rounded-full border-4 border-sky bg-gradient-to-br text-ink ${fill}`}>
-                <Icon name={icon} size={22} />
+            {(['cast', 'place', 'prop'] as const).map((icon, i) => (
+              <span key={icon} className={`grid size-14 place-items-center rounded-full border-4 border-sky bg-white text-ink shadow-card ${i === 1 ? '-translate-y-1.5' : ''}`}>
+                <Icon name={icon} size={28} />
               </span>
             ))}
             <span className="!ml-3 size-4 rounded-full bg-coral" />
@@ -208,7 +208,7 @@ export default function StudioHomePage() {
             </p>
           )}
           {!worldsIssue && (worlds ?? []).length === 0 && (
-            <EmptyState testId="universes-empty" icon="spark" title="No Universe yet"
+            <EmptyState testId="universes-empty" icon="universe" title="No Universe yet"
               action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />Create a Universe</Link>}>
               A Universe keeps your characters, places and look the same in every episode.
             </EmptyState>
@@ -217,7 +217,7 @@ export default function StudioHomePage() {
             <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="universe-list">
               {(worlds ?? []).map((w) => <UniverseCard key={w.series_id} world={w} myUserId={myUserId} />)}
               <li className="min-w-0">
-                <EmptyState className="h-full min-h-[150px]" icon="plus" title="Room for another Universe"
+                <EmptyState className="h-full min-h-[150px]" icon="universe" title="Room for another Universe"
                   action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />New Universe</Link>}>
                   Start with a name and a spark of an idea.
                 </EmptyState>
@@ -238,7 +238,7 @@ export default function StudioHomePage() {
       )}
 
       {ready && shown.length === 0 && (
-        <EmptyState className="mt-4" testId="episodes-empty" icon="play"
+        <EmptyState className="mt-4" testId="episodes-empty" icon="episode"
           title={scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}>
           <p>Open a Universe and start a new episode in it, or pick a style and describe your idea in a few sentences.</p>
           {scope === 'mine' && othersMade && (

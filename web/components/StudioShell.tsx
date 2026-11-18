@@ -107,7 +107,7 @@ function NewMenu() {
     <div className="relative hidden sm:block" ref={ref}>
       <button type="button" className={`${btnPrimary} pf-btn-sm`} aria-expanded={open} aria-controls="studio-new-menu"
         onClick={() => setOpen((v) => !v)} data-testid="studio-new-button">
-        <Icon name="plus" size={14} />New
+        <Icon name="plus" size={16} />New
       </button>
       {open && (
         <div id="studio-new-menu" className="pf-card absolute right-0 top-[calc(100%+10px)] z-50 w-72 p-2 shadow-float">
@@ -268,7 +268,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
               <div className="relative" ref={you.ref}>
                 <button type="button" onClick={() => you.setOpen((v) => !v)} aria-expanded={you.open} aria-controls="studio-menu"
                   className="grid size-11 place-items-center rounded-full text-ink max-sm:bg-white/70 max-sm:shadow-card" data-testid="studio-menu-button">
-                  <Icon name="menu" size={20} className="sm:hidden" />
+                  <Icon name="menu" size={22} className="sm:hidden" />
                   <Avatar name={who} size={36} className="max-sm:hidden" />
                   <span className="sr-only">{who ? `Signed in as ${who}: open your menu` : 'Open your menu'}</span>
                 </button>
@@ -295,7 +295,7 @@ export default function StudioShell({ children }: { children: ReactNode }) {
                     </nav>
                     <button type="button" onClick={logout}
                       className="mt-2 flex w-full items-center gap-2 rounded-inner px-2 py-2.5 text-left text-[14px] font-bold hover:bg-page">
-                      <Icon name="exit" size={18} className="text-ink-soft" />
+                      <Icon name="exit" size={20} />
                       Log out
                     </button>
                   </div>
@@ -312,19 +312,19 @@ export default function StudioShell({ children }: { children: ReactNode }) {
           {!focus && (
             <BottomBar label="Studio" testId="studio-bottom-bar"
               items={[
-                { key: 'universes', label: 'Universes', href: '/studio', icon: <Icon name="home" size={22} />, active: NAV[0].active(path) },
-                { key: 'episodes', label: 'Episodes', href: '/studio/episodes', icon: <Icon name="play" size={22} />, active: NAV[1].active(path) },
-                ...(isAdmin ? [{ key: 'costs', label: 'Costs', href: '/dashboard', icon: <Icon name="coins" size={22} />, active: NAV[2].active(path) }] : []),
+                { key: 'universes', label: 'Universes', href: '/studio', icon: <Icon name="home" size={24} soft={!NAV[0].active(path)} />, active: NAV[0].active(path) },
+                { key: 'episodes', label: 'Episodes', href: '/studio/episodes', icon: <Icon name="episode" size={24} soft={!NAV[1].active(path)} />, active: NAV[1].active(path) },
+                ...(isAdmin ? [{ key: 'costs', label: 'Costs', href: '/dashboard', icon: <Icon name="coins" size={24} soft={!NAV[2].active(path)} />, active: NAV[2].active(path) }] : []),
                 {
                   key: 'you', label: 'You', onClick: () => you.setOpen((v) => !v), expanded: you.open, menu: 'you',
-                  icon: <Icon name="user" size={22} />,
+                  icon: <Avatar name={who} size={26} className={you.open ? 'ring-2 ring-blue' : ''} />,
                 },
               ]}
               fab={(
                 <div className="relative" ref={make.ref}>
                   <button type="button" className="pf-fab" aria-expanded={make.open} aria-controls="studio-make-menu"
                     onClick={() => make.setOpen((v) => !v)} data-testid="studio-bottom-bar-new">
-                    <Icon name="plus" size={24} />
+                    <Icon name="plus" size={28} />
                     <span className="sr-only">Make something new</span>
                   </button>
                   {make.open && (

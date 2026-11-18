@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { IconName } from './Icon';
 import IconCircle from './IconCircle';
 
-/** A dashed "nothing here yet" card with a line icon in a soft circle, one sentence and one way forward. */
+/** A dashed "nothing here yet" card with a duotone icon on a sticker disc, one sentence and one way forward. */
 export default function EmptyState({ icon = 'spark', title, children, action, testId, className = '' }: {
   icon?: IconName; title: ReactNode; children?: ReactNode; action?: ReactNode; testId?: string; className?: string;
 }) {

@@ -25,8 +25,8 @@ export default function ThingCard({ kind, index = 0, picture, title, photos, tes
             </a>
           ) : <img src={picture.src} alt={picture.alt} loading="lazy" className="h-full w-full object-cover" />
         ) : (
-          <span aria-hidden="true" className="mb-4 grid size-12 place-items-center rounded-full bg-white text-blue-ink shadow-card">
-            <Icon name={kind === 'prop' ? 'box' : 'place'} size={24} />
+          <span aria-hidden="true" className="mb-4 grid size-12 place-items-center rounded-full bg-white text-ink shadow-card">
+            <Icon name={kind === 'prop' ? 'prop' : 'place'} size={26} />
           </span>
         )}
         {!picture && (

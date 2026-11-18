@@ -765,7 +765,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     main = (
       <div data-testid="creation-bible">
         {!approved ? (
-          <EmptyState title="Approve a mood board first" icon="book"
+          <EmptyState title="Approve a mood board first" icon="bible"
             action={<Link href={stepHref('moodboard')} className="pf-btn pf-btn-soft pf-btn-sm">Go to the mood board</Link>}>
             The bible is written from the approved board and your notes.
           </EmptyState>
@@ -781,7 +781,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             </p>
             <div className="mt-4"><BoardPictures board={approved} dropping={false} /></div>
             <button type="button" className="pf-btn pf-btn-go mt-5" disabled={busy} onClick={writeBible} data-testid="bible-write">
-              <Icon name="book" size={16} />{busy ? 'Writing…' : 'Write the bible'}
+              <Icon name="bible" size={18} />{busy ? 'Writing…' : 'Write the bible'}
             </button>
           </section>
         ) : (
@@ -860,7 +860,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           uses exactly that sheet and those photos, and an episode starts once every character in it is locked.
         </p>
         {view.characters.length === 0 ? (
-          <EmptyState className="mt-4" icon="user" title="No characters yet"
+          <EmptyState className="mt-4" icon="cast" title="No characters yet"
             action={<Link href={`${here}#characters`} className="pf-btn pf-btn-soft pf-btn-sm">Add a character</Link>}>
             Write the bible, or add characters on the Universe page.
           </EmptyState>

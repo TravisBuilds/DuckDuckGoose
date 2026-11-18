@@ -14,8 +14,9 @@ export interface BottomItem {
 }
 
 /**
- * The phone navigation: a white rounded tab bar fixed to the bottom with line icons, big targets and
- * the azure "make something" button raised in the middle. Hidden from 640 px up.
+ * The phone navigation: a white rounded tab bar fixed to the bottom with duotone icons (soft until
+ * their tab is the one you are on), big targets and the azure "make something" button raised in the
+ * middle. Hidden from 640 px up.
  */
 export default function BottomBar({ items, fab, label = 'Studio', testId }: {
   items: BottomItem[]; fab?: ReactNode; label?: string; testId?: string;
