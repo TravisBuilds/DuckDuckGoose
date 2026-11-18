@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LogoMark } from '@/components/playful';
+import { Wordmark } from '@/components/playful';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -54,7 +54,9 @@ function LoginForm() {
     <div className="min-h-screen flex items-center justify-center bg-page px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <LogoMark className="mx-auto mb-3 size-12" />
+          <p className="mb-3">
+            <Wordmark className="text-[26px]" />
+          </p>
           <h1 className="text-3xl font-bold mb-2">Studio Console</h1>
           <p className="text-gray-600">
             {showAdminLogin ? 'Admin access' : 'Sign in to your account'}
@@ -142,7 +144,7 @@ function LoginForm() {
               }}
               className="text-sm text-gray-600 hover:text-black"
             >
-              {showAdminLogin ? '← Back to email sign in' : 'Sign in with admin secret'}
+              {showAdminLogin ? 'Back to email sign in' : 'Sign in with admin secret'}
             </button>
           </div>
         </form>

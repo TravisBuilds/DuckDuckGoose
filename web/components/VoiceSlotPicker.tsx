@@ -53,7 +53,7 @@ export function VoicePreview({ pick, token }: { pick: VoicePick; token: string }
         className="pf-btn pf-btn-quiet pf-btn-sm"
         data-testid={`voice-play-${token}`}
       >
-        {playing ? '■ Stop' : '▶ Play preview'}
+        {playing ? 'Stop' : 'Play preview'}
       </button>
       <audio
         ref={audioRef}

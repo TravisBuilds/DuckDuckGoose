@@ -73,14 +73,14 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
     // Skip to idea step
     await page.getByText('Skip - I\'ll describe my style').click();
     
-    await expect(page.getByText('✓ Original Content Only')).toBeVisible();
+    await expect(page.getByText('Original work only', { exact: true })).toBeVisible();
     await expect(page.getByText(/No copyrighted characters/i)).toBeVisible();
   });
 
   test('shows link to advanced upload', async ({ page }) => {
     await page.goto('/studio/create');
 
-    await expect(page.getByText('Advanced: Upload files manually →')).toBeVisible();
+    await expect(page.getByText('Advanced: Upload files manually', { exact: true })).toBeVisible();
   });
 
   test('link from studio home navigates to wizard', async ({ page }) => {

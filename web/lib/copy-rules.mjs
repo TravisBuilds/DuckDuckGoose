@@ -1,10 +1,18 @@
 /**
- * The owner's copy rules for public marketing pages, as data. lib/home-copy.test.mjs holds the home
- * page's copy to them, and tests/home-page-e2e.spec.ts checks the rendered page as well.
+ * The owner's copy rules, as data. The home page keeps to all of them (lib/home-copy.test.mjs,
+ * tests/home-page-e2e.spec.ts); sign-in, the password page, the studio and the shared header and
+ * footer keep to the banned words and draw no icons (lib/app-copy.test.mjs, tests/app-pages-e2e.spec.ts),
+ * and may talk about prices.
  *
  * Words are matched case-insensitively, as whole words, with their other forms (plurals, -ing, -ed),
  * so "Creators", "unlocking" and "AI powered" are caught too.
  */
+
+/**
+ * Emoji, arrows, check marks, crosses, stars, play triangles and other symbols that would stand in for
+ * icons, and the private-use characters icon fonts draw with.
+ */
+export const ICON_CHARACTERS = /[\p{Emoji_Presentation}\u2190-\u21FF\u2300-\u23FF\u25A0-\u27BF\u27F0-\u27FF\u2900-\u297F\u2B00-\u2BFF\uE000-\uF8FF\uFE0F]/u;
 
 /** Words that never appear in the copy. */
 export const BANNED_WORDS = [
@@ -29,13 +37,19 @@ export const OFF_LIMITS = [
   { topic: 'contact us', pattern: /\bcontact\b|\bget in touch\b|\breach out\b/i },
 ];
 
-/** Every rule a text breaks: [{ rule, match }] (empty when the text is clean). */
-export function copyProblems(text) {
+/** Every banned word a text uses: [{ rule, match }] (empty when it uses none). */
+export function bannedWords(text) {
   const problems = [];
   for (const { word, pattern } of BANNED_WORDS) {
     const hit = String(text).match(pattern);
     if (hit) problems.push({ rule: `banned word "${word}"`, match: hit[0] });
   }
+  return problems;
+}
+
+/** Every rule a text breaks: [{ rule, match }] (empty when the text is clean). */
+export function copyProblems(text) {
+  const problems = bannedWords(text);
   for (const { topic, pattern } of OFF_LIMITS) {
     const hit = String(text).match(pattern);
     if (hit) problems.push({ rule: `no ${topic} section`, match: hit[0] });

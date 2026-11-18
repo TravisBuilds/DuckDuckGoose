@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import Icon from './Icon';
 
 export type StopState = 'done' | 'now' | 'todo' | 'blocked';
 
@@ -11,7 +10,7 @@ export interface JourneyStop {
   name: string;
   note?: string | null;
   state: StopState;
-  /** Finished, though highlighted as the screen you are on: its bubble shows the check. */
+  /** Finished, though highlighted as the screen you are on: the link after it fills lime. */
   complete?: boolean;
   /** A step that spends money once approved: it wears a "$" coin. */
   paid?: boolean;
@@ -26,7 +25,7 @@ const STATE_WORDS: Record<StopState, string> = {
 };
 
 /**
- * The path of numbered stops: lime check bubbles for done stops, a pulsing azure bubble for the
+ * The path of numbered stops: solid lime bubbles for done stops, a pulsing azure bubble for the
  * current one, dashed stops ahead and an orange-red one when blocked; dashed links fill lime
  * behind you. Used for the five Universe steps and the episode
  * trail (with coins on paid steps). Scrolls sideways inside itself on narrow screens, with the
@@ -64,8 +63,7 @@ export default function JourneyPath({ stops, current, label, compact = false, te
           const body = (
             <>
               <span className="pf-bub" aria-hidden="true">
-                {finished ? <Icon name="check" size={18} />
-                  : stop.state === 'blocked' ? <Icon name="lock" size={17} /> : i + 1}
+                {i + 1}
                 {stop.paid && <span className="pf-coin">$</span>}
               </span>
               <span className="pf-stop-name">{stop.name}</span>

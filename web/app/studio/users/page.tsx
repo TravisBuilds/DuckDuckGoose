@@ -188,7 +188,7 @@ export default function UsersPage() {
               <div className="space-y-4">
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm font-medium text-green-800 mb-2">
-                    ✓ User created successfully!
+                    User created successfully!
                   </p>
                   <p className="text-sm text-green-700 mb-4">
                     Share this invite link with the user (valid for 72 hours):

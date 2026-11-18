@@ -10,7 +10,7 @@ import { presets, getPresetById } from '@/lib/presets';
 import { chip, tones } from '@/lib/ui';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
 import { castColours, speakerColours } from '@/lib/castColour.mjs';
-import { CastDot, HeroBand, IconCircle, JourneyPath, SpeakerChip } from '@/components/playful';
+import { CastDot, Dots, HeroBand, JourneyPath, SpeakerChip } from '@/components/playful';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
@@ -461,7 +461,7 @@ function CreateVideoWizard() {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="max-w-md text-center">
-          <IconCircle icon="spark" size={80} className="mx-auto mb-4 motion-safe:animate-pulse" />
+          <Dots className="mb-4 motion-safe:animate-pulse" />
           <h2 className="mb-2 text-[24px]">Creating your video...</h2>
           <p className="text-ink-soft">
             Our AI is writing the script, planning shots, and setting up characters. This takes about 10-20 seconds.
@@ -532,7 +532,7 @@ function CreateVideoWizard() {
       <div className="mx-auto max-w-[1100px] px-4 pt-3 sm:px-8 sm:pt-6">
         <HeroBand className="px-5 pb-6 pt-5 sm:px-10 sm:pb-8 sm:pt-7">
           <Link href="/studio" className="text-[13px] font-extrabold text-blue-deep">
-            ← Studio
+            Back to the studio
           </Link>
           <h1 className="mt-1 text-[32px] leading-tight sm:text-[44px]">Make Your Own Video</h1>
           <p className="text-[15px] text-ink-soft">
@@ -619,7 +619,7 @@ function CreateVideoWizard() {
               onClick={handleSkipCards}
               className="text-[13.5px] font-extrabold text-blue-deep underline"
             >
-              Skip - I'll describe my style in the next step →
+              Skip - I'll describe my style in the next step
             </button>
           </section>
         )}
@@ -633,7 +633,7 @@ function CreateVideoWizard() {
                 className="text-[13.5px] font-extrabold text-blue-deep underline"
                 data-testid="change-style"
               >
-                ← Change style
+                Change style
               </button>
             </div>
 
@@ -726,7 +726,7 @@ function CreateVideoWizard() {
 
             <div className="rounded-inner bg-mustard-soft p-4 text-sm">
               <p className="font-semibold text-yellow-900 mb-2">
-                ✓ Original Content Only
+                Original work only
               </p>
               <p className="text-yellow-800">
                 Create only original characters and stories. No copyrighted characters, real people, or brand names. 
@@ -740,7 +740,7 @@ function CreateVideoWizard() {
               className="pf-btn pf-btn-primary w-full"
               data-testid="generate-button"
             >
-              Generate Video Plan →
+              Generate Video Plan
             </button>
           </section>
         )}
@@ -1210,7 +1210,7 @@ function CreateVideoWizard() {
                         className="pf-btn pf-btn-go w-full !justify-between"
                         data-testid="make-video-button"
                       >
-                        <span>Make My Video (uses credits) →</span>
+                        <span>Make My Video (uses credits)</span>
                         {draft.cost_estimate && (
                           <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
                         )}
@@ -1290,7 +1290,7 @@ function CreateVideoWizard() {
 
         <div className="mt-8">
           <Link href="/studio/episodes/new" className="text-[13px] font-bold text-ink-soft underline">
-            Advanced: Upload files manually →
+            Advanced: Upload files manually
           </Link>
         </div>
       </div>

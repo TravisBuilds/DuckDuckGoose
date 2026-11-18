@@ -24,7 +24,7 @@ import { ConfirmButton } from './ConfirmButton';
 import { RightsQuestions } from './RightsQuestions';
 import { useStudioFocus } from './StudioShell';
 import {
-  CastDot, EmptyState, GlassPanel, HeroBand, Icon, IconCircle, JourneyPath, PinBoard, PriceBlock, RefTile, Seal,
+  CastDot, Dots, EmptyState, GlassPanel, HeroBand, JourneyPath, PinBoard, PriceBlock, RefTile, Seal,
   StickyNote, TOPIC_STICKY,
 } from './playful';
 
@@ -216,7 +216,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     if (problem?.status === 404) {
       return (
         <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="universe-not-found">
-          <IconCircle icon="search" size={80} className="mx-auto" />
+          <Dots />
           <h1 className="mt-4 text-[28px]">This Universe could not be found</h1>
           <p className="mt-2 text-ink-soft">It may have been removed, or you may not have access to it. Ask its owner if you think you should.</p>
           <Link href="/studio" className="pf-btn pf-btn-primary mt-6">Back to the studio</Link>
@@ -236,7 +236,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   if (!view.can_edit || !creation) {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center" data-testid="creation-owner-only">
-        <IconCircle icon="lock" size={80} className="mx-auto" />
+        <Dots />
         <h1 className="mt-4 text-[28px]">Only its owner builds this Universe</h1>
         <p className="mt-2 text-ink-soft">The owner of {world.name}, or an admin, adds its references and mood board.</p>
         <Link href={here} className="pf-btn pf-btn-primary mt-6">Open the Universe</Link>
@@ -388,7 +388,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       <HeroBand className="px-5 pb-8 pt-6 sm:px-10 sm:pb-10 sm:pt-[26px]">
         <nav aria-label="Breadcrumb" className="text-[13px] font-extrabold text-ink">
           <Link href="/studio" className="text-blue-deep">Universes</Link>
-          <span aria-hidden="true"> › </span>
+          <span aria-hidden="true"> / </span>
           <Link href={here} className="text-blue-deep" data-testid="universe-name">{world.name}</Link>
         </nav>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -408,7 +408,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <h2 className="text-[22px]">Your references</h2>
-        <Link href={stepHref('references')} className="text-[13px] font-extrabold text-blue-deep">Add more →</Link>
+        <Link href={stepHref('references')} className="text-[13px] font-extrabold text-blue-deep">Add more</Link>
       </div>
       {creation.photos.length > 0 && (
         <ul className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
@@ -417,7 +417,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           ))}
         </ul>
       )}
-      {creation.photos.length > 6 && <p className="mt-2 text-[13px] font-bold text-ink-soft">+ {plural(creation.photos.length - 6, 'more photo')}</p>}
+      {creation.photos.length > 6 && <p className="mt-2 text-[13px] font-bold text-ink-soft">And {plural(creation.photos.length - 6, 'more photo')}</p>}
       {creation.notes.length > 0 && (
         <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
           {creation.notes.slice(0, 4).map((n) => (
@@ -428,7 +428,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         </div>
       )}
       {counts.notes + counts.photos === 0 && (
-        <EmptyState className="mt-3" icon="photo" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
+        <EmptyState className="mt-3" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
           The mood board is made from them.
         </EmptyState>
       )}
@@ -473,7 +473,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       <>
         <h3 className="text-[19px]">Next: references</h3>
         <p className={hint}>Photos and a few notes on the premise, the characters, the places and the tone.</p>
-        <SideNext href={stepHref('references')}>Next: References →</SideNext>
+        <SideNext href={stepHref('references')}>Next: References</SideNext>
       </>
     );
   } else if (step === 'references') {
@@ -488,9 +488,6 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             onDragLeave={() => setDragging(false)} onDrop={onDrop}
             className={`mt-3 rounded-card border-[3px] border-dashed p-5 ${dragging ? 'border-blue-deep bg-blue-100' : 'border-blue/40 bg-blue-soft'}`}>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div aria-hidden="true" className="grid size-16 flex-none place-items-center rounded-[20px] bg-white text-blue-deep">
-                <Icon name="photo" size={32} />
-              </div>
               <div className="min-w-0 flex-1">
                 <h3 className="text-[19px]">Drop photos, sketches or screenshots</h3>
                 <p id="creation-photo-hint" className={hint}>
@@ -551,7 +548,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               <button type="button" className="pf-btn pf-btn-soft pf-btn-sm" disabled={busy || !text.trim()} onClick={addNote}
                 title={text.trim() ? undefined : 'Turns on once you write a note.'} aria-describedby="creation-note-why"
                 data-testid="creation-note-add">
-                <Icon name="plus" size={13} />Add the note
+                Add the note
               </button>
               <span id="creation-note-why" className={text.trim() ? hint : 'pf-off-why !mt-0'} data-testid="creation-note-why">
                 {text.trim() ? 'Kept on this device until you add it.' : 'Turns on once you write a note.'}
@@ -609,7 +606,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           <li className="flex justify-between border-b border-dashed border-ink/10 py-1.5">Photos<b>{counts.photos} of {limits.max_photos}</b></li>
           <li className="flex justify-between py-1.5">Notes<b>{counts.notes} of {limits.max_notes}</b></li>
         </ul>
-        <SideNext href={stepHref('moodboard')} disabled={!journey.boardOpen} reason={unlockHint}>Next: Mood board →</SideNext>
+        <SideNext href={stepHref('moodboard')} disabled={!journey.boardOpen} reason={unlockHint}>Next: Mood board</SideNext>
       </>
     );
   } else if (step === 'moodboard') {
@@ -624,7 +621,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               {latest.answers_feedback && <> · asked: {latest.answers_feedback}</>}
             </p>
           </div>
-          {latest.status === 'approved' && <span className="pf-chip pf-chip-lock"><Icon name="check" size={11} />Board {latest.version} approved</span>}
+          {latest.status === 'approved' && <span className="pf-chip pf-chip-lock">Board {latest.version} approved</span>}
         </div>
         <div className="relative">
           <BoardPictures board={latest} dropping={justMade === latest.board_id} testId={`board-images-${latest.version}`} />
@@ -641,7 +638,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                 Approving pins this board as the look of {world.name}. Next we write the character and setting bible from it.
               </p>
               <button type="button" className="pf-btn pf-btn-go" disabled={busy} onClick={() => approve(waiting)} data-testid="board-approve">
-                <Icon name="check" size={16} />Approve board {waiting.version} → write the bible
+                Approve board {waiting.version}, then write the bible
               </button>
             </div>
             {!creation.board.unavailable && (
@@ -666,7 +663,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                 {estimate?.feedback && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" className="pf-btn pf-btn-go" disabled={busy} onClick={makeBoard} data-testid="board-make">
-                      <Icon name="spark" size={16} />Make the new mood board · {priceOf(estimate.result)}
+                      Make the new mood board · {priceOf(estimate.result)}
                     </button>
                     <button type="button" className="pf-btn pf-btn-quiet" disabled={busy} onClick={() => setEstimate(null)}>Cancel</button>
                   </div>
@@ -718,7 +715,6 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               <button type="button" className="pf-btn pf-btn-go mt-4 w-full" disabled={busy || !estimate || Boolean(estimate.feedback)}
                 title={priced ? undefined : 'Turns on once the price is on screen.'} aria-describedby="board-make-why"
                 onClick={makeBoard} data-testid="board-make">
-                <Icon name="spark" size={16} />
                 {estimate && !estimate.feedback ? `Make my mood board · ${priceOf(estimate.result)}` : 'Make my mood board'}
               </button>
               {estimate && !estimate.feedback && (
@@ -736,7 +732,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           <ul className="mt-3 space-y-1 text-[12.5px]">
             {[`Uses your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')}`,
               'Redo as many times as you like, each priced first', 'Nothing else runs until you approve'].map((line) => (
-              <li key={line} className="flex gap-2"><span aria-hidden="true" className="font-black text-green-ink">✓</span>{line}</li>
+              <li key={line} className="flex gap-2"><span aria-hidden="true" className="mt-[0.45em] size-2 flex-none rounded-full bg-green-deep" />{line}</li>
             ))}
           </ul>
         </>
@@ -753,7 +749,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             <p className={hint}>Approve it, or say what to change and see the price of a redo first. Nothing else runs until you approve.</p>
           )}
           {sideStatus}
-          {approved && <SideNext href={stepHref('bible')}>Next: write the bible →</SideNext>}
+          {approved && <SideNext href={stepHref('bible')}>Next: write the bible</SideNext>}
         </>
       );
     }
@@ -765,7 +761,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     main = (
       <div data-testid="creation-bible">
         {!approved ? (
-          <EmptyState title="Approve a mood board first" icon="book"
+          <EmptyState title="Approve a mood board first"
             action={<Link href={stepHref('moodboard')} className="pf-btn pf-btn-soft pf-btn-sm">Go to the mood board</Link>}>
             The bible is written from the approved board and your notes.
           </EmptyState>
@@ -781,7 +777,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             </p>
             <div className="mt-4"><BoardPictures board={approved} dropping={false} /></div>
             <button type="button" className="pf-btn pf-btn-go mt-5" disabled={busy} onClick={writeBible} data-testid="bible-write">
-              <Icon name="book" size={16} />{busy ? 'Writing…' : 'Write the bible'}
+              {busy ? 'Writing…' : 'Write the bible'}
             </button>
           </section>
         ) : (
@@ -807,7 +803,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                 <h3 className="mb-1.5 mt-4 text-[15px]">How this Universe works</h3>
                 <div className="space-y-2 text-[13.5px]">
                   {profile.bible.split(/\n{2,}/).map((para, i) => (
-                    <p key={i} className="flex gap-2 whitespace-pre-line break-words"><span aria-hidden="true" className="text-coral">✦</span><span>{para}</span></p>
+                    <p key={i} className="flex gap-2 whitespace-pre-line break-words"><span aria-hidden="true" className="mt-[0.45em] size-2 flex-none rounded-full bg-coral" /><span>{para}</span></p>
                   ))}
                 </div>
               </>
@@ -846,7 +842,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             : 'Characters, places and props, written once from the approved board. You can change every word afterwards.'}
         </p>
         <SideNext href={stepHref('lock')} disabled={!bibleDone} reason="Turns on once the bible is written.">
-          Next: lock the looks →
+          Next: lock the looks
         </SideNext>
         <Link href={here} className="pf-btn pf-btn-quiet mt-2 w-full" data-testid="creation-open-universe">Open the Universe</Link>
       </>
@@ -860,7 +856,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           uses exactly that sheet and those photos, and an episode starts once every character in it is locked.
         </p>
         {view.characters.length === 0 ? (
-          <EmptyState className="mt-4" icon="user" title="No characters yet"
+          <EmptyState className="mt-4" title="No characters yet"
             action={<Link href={`${here}#characters`} className="pf-btn pf-btn-soft pf-btn-sm">Add a character</Link>}>
             Write the bible, or add characters on the Universe page.
           </EmptyState>

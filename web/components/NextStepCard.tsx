@@ -3,7 +3,6 @@
 import { PAID_STEPS, stepNote, type NextStep, type StepperStep } from '@/lib/next-step.mjs';
 import { formatUsd } from '@/lib/money';
 import { btnPrimary, btnSecondary, link, tones } from '@/lib/ui';
-import { Icon, IconCircle } from './playful';
 
 const STATE: Record<StepperStep['status'], { cls: string; words: string }> = {
   done: { cls: 'is-done', words: 'done' },
@@ -37,7 +36,7 @@ export function Stepper({ steps, costs = {}, live = false, dryRun = null, testId
               {i > 0 && <span aria-hidden="true" className={`pf-link ${steps[i - 1].status === 'done' ? 'is-done' : ''}`} />}
               <span className={`pf-stop ${state.cls}`}>
                 <span className="pf-bub" aria-hidden="true">
-                  {step.status === 'done' ? <Icon name="check" size={18} /> : step.status === 'stopped' ? '!' : step.status === 'skipped' ? '–' : i + 1}
+                  {i + 1}
                   {paid && <span className="pf-coin">$</span>}
                 </span>
                 <span className="pf-stop-name">{step.label}</span>
@@ -74,12 +73,9 @@ export default function NextStepCard({ next, steps, canAct, live = false, spent 
   const coming = (steps ?? []).filter((s) => s.status === 'todo').map((s) => s.label);
   return (
     <section data-testid="next-step" data-step={next.step} aria-labelledby="next-step-title">
-      <div className="flex items-center gap-3">
-        <IconCircle icon={next.step === 'failed' ? 'alert' : 'spark'} tone={next.step === 'failed' ? 'blue' : 'sun'} />
-        <div className="min-w-0">
-          <span className={`pf-chip ${chip.tone}`}>{chip.text}</span>
-          <h2 id="next-step-title" className="mt-1 text-[20px] leading-tight" data-testid="next-step-title">{next.title}</h2>
-        </div>
+      <div className="min-w-0">
+        <span className={`pf-chip ${chip.tone}`}>{chip.text}</span>
+        <h2 id="next-step-title" className="mt-1 text-[20px] leading-tight" data-testid="next-step-title">{next.title}</h2>
       </div>
       <p className="mt-2 text-[14px]" data-testid="next-step-text">{next.text}</p>
       <dl className="mt-3 space-y-1.5 rounded-inner border-2 border-line bg-white p-3 text-[13px]">

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMe } from '@/components/StudioShell';
 import { EpisodeSections, ScopeToggle, UNREACHABLE, useSummaries, type Episode } from '@/components/EpisodeLists';
-import { EmptyState, Icon } from '@/components/playful';
+import { EmptyState } from '@/components/playful';
 import { ApiError, apiFetch } from '@/lib/studio-api';
 import { homeSections, isFinished, mayChange, universeChoices } from '@/lib/world.mjs';
 import type { UniverseCard } from '@/lib/world.mjs';
@@ -57,14 +57,14 @@ export default function EpisodesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ScopeToggle scope={scope} onChange={setChosenScope} />
-          <Link href="/studio/create" className="pf-btn pf-btn-primary pf-btn-sm"><Icon name="plus" size={14} />New episode</Link>
+          <Link href="/studio/create" className="pf-btn pf-btn-primary pf-btn-sm">New episode</Link>
         </div>
       </div>
       {error && <p role="alert" className="mt-4 text-[13.5px] text-coral-ink">{error}</p>}
       {!ready && !error && <p className="mt-6 text-[13.5px] text-ink-soft">Loading the episodes…</p>}
       {ready && shown.length === 0 && (
         <EmptyState className="mt-6" testId="episodes-empty" title={scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}
-          action={<Link href="/studio/create" className="pf-btn pf-btn-soft pf-btn-sm"><Icon name="plus" size={14} />Make one</Link>}>
+          action={<Link href="/studio/create" className="pf-btn pf-btn-soft pf-btn-sm">Make one</Link>}>
           Open a Universe and start a new episode in it, or pick a style and describe your idea.
         </EmptyState>
       )}

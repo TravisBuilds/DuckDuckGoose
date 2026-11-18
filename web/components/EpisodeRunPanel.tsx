@@ -945,7 +945,7 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
               <li key={sid} data-testid={`moderation-${sid}`}>
                 <strong>{sid}</strong>{' '}
                 {Object.entries(shotStates?.[sid]?.moderation ?? {}).map(([phase, m]) => (
-                  m.steps.length ? <span key={phase} className="mr-3">{phase}: {m.steps.join(' → ')}</span> : null
+                  m.steps.length ? <span key={phase} className="mr-3">{phase}: {m.steps.join(', then ')}</span> : null
                 ))}
                 {shotStates?.[sid]?.moderation_escalation
                   ? <span className="text-red-700">escalated: {refusalText(shotStates?.[sid]?.moderation_escalation)}</span>
@@ -991,7 +991,7 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
                 {check && (
                   <span className={check.ok ? 'text-green-800' : 'text-red-700'}
                     title={check.errors.join('\n') || 'Passes model limits'}>
-                    {check.ok ? '✓ limits' : '✗ limits'}
+                    {check.ok ? 'within limits' : 'breaks a limit'}
                   </span>
                 )}
                 {ss?.pre_approved && <span data-testid={`shot-${sid}-pre-approved`} className={`${chip} ${tones.todo}`}>pre-approved still</span>}

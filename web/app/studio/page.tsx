@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMe } from '@/components/StudioShell';
 import { UniverseCreateForm } from '@/components/UniverseCreateForm';
 import { EpisodeSections, ScopeToggle, UNREACHABLE, useSummaries, type Episode } from '@/components/EpisodeLists';
-import { EmptyState, GlassPanel, HeroBand, Icon, UniverseCard } from '@/components/playful';
+import { EmptyState, GlassPanel, HeroBand, UniverseCard } from '@/components/playful';
 import { ApiError, API_URL, apiFetch } from '@/lib/studio-api';
 import { homeSections, isFinished, isFirstRun, mayChange, universeChoices } from '@/lib/world.mjs';
 import type { UniverseCard as UniverseCardData } from '@/lib/world.mjs';
@@ -118,7 +118,7 @@ export default function StudioHomePage() {
     <section className="relative mt-3 sm:mt-6" aria-labelledby="home-title">
       <HeroBand className="grid gap-6 px-5 pt-6 sm:px-10 sm:pt-10 lg:min-h-[440px] lg:grid-cols-[1fr_370px] lg:pl-[52px]">
         <div className="relative z-[2] lg:pb-16">
-          <span className="pf-chip bg-white/75 text-blue-ink"><Icon name="spark" size={12} />Your stories, kept the same</span>
+          <span className="pf-chip bg-white/75 text-blue-ink">Your stories, kept the same</span>
           <h1 id="home-title" className="mt-3 max-w-[500px] text-[34px] sm:text-[46px]">
             Make a Universe once. Every episode keeps it.
           </h1>
@@ -129,7 +129,7 @@ export default function StudioHomePage() {
           {!firstRun && (
             <div className="mt-4 flex flex-wrap gap-3">
               <Link href="/studio/create" data-testid="make-video-link" className="pf-btn pf-btn-ghost">
-                <Icon name="play" size={14} />New episode
+                New episode
               </Link>
               {isAdmin && (
                 <Link href="/studio/episodes/new" className="pf-btn pf-btn-quiet" data-testid="advanced-upload-link">
@@ -138,13 +138,13 @@ export default function StudioHomePage() {
               )}
             </div>
           )}
-          <div aria-hidden="true" className="mt-6 flex items-center -space-x-3">
-            {([['user', 'from-blue-soft to-blue'], ['place', 'from-mustard-soft to-mustard'], ['box', 'from-green-soft to-green']] as const).map(([icon, fill]) => (
-              <span key={icon} className={`grid size-14 place-items-center rounded-full border-4 border-sky bg-gradient-to-br text-ink ${fill}`}>
-                <Icon name={icon} size={22} />
+          <div aria-hidden="true" className="mt-6 flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {([['Characters', 'from-blue-soft to-blue'], ['Places', 'from-mustard-soft to-mustard'], ['Props', 'from-green-soft to-green']] as const).map(([word, fill]) => (
+              <span key={word} className={`rounded-full border-4 border-sky bg-gradient-to-br px-3 py-1.5 font-display text-[13px] font-bold text-ink sm:px-4 sm:py-2 sm:text-[14px] ${fill}`}>
+                {word}
               </span>
             ))}
-            <span className="!ml-3 size-4 rounded-full bg-coral" />
+            <span className="ml-1 hidden size-4 rounded-full bg-coral sm:block" />
           </div>
         </div>
         <GlassPanel className="relative z-[3] -mx-2 mb-5 self-start p-5 sm:mx-0 sm:mb-7 sm:p-[22px]">
@@ -208,8 +208,8 @@ export default function StudioHomePage() {
             </p>
           )}
           {!worldsIssue && (worlds ?? []).length === 0 && (
-            <EmptyState testId="universes-empty" icon="spark" title="No Universe yet"
-              action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />Create a Universe</Link>}>
+            <EmptyState testId="universes-empty" title="No Universe yet"
+              action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link">Create a Universe</Link>}>
               A Universe keeps your characters, places and look the same in every episode.
             </EmptyState>
           )}
@@ -217,8 +217,8 @@ export default function StudioHomePage() {
             <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="universe-list">
               {(worlds ?? []).map((w) => <UniverseCard key={w.series_id} world={w} myUserId={myUserId} />)}
               <li className="min-w-0">
-                <EmptyState className="h-full min-h-[150px]" icon="plus" title="Room for another Universe"
-                  action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link"><Icon name="plus" size={14} />New Universe</Link>}>
+                <EmptyState className="h-full min-h-[150px]" title="Room for another Universe"
+                  action={<Link href="/studio/universes/new" className="pf-btn pf-btn-soft pf-btn-sm" data-testid="new-universe-link">New Universe</Link>}>
                   Start with a name and a spark of an idea.
                 </EmptyState>
               </li>
@@ -231,14 +231,14 @@ export default function StudioHomePage() {
         <div className="mt-12 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-[26px]">{scope === 'mine' ? 'Your episodes' : 'Everyone’s episodes'}</h2>
-            <Link href="/studio/episodes" className="text-[13px] font-extrabold text-blue-deep">All episodes →</Link>
+            <Link href="/studio/episodes" className="text-[13px] font-extrabold text-blue-deep">All episodes</Link>
           </div>
           <ScopeToggle scope={scope} onChange={setChosenScope} />
         </div>
       )}
 
       {ready && shown.length === 0 && (
-        <EmptyState className="mt-4" testId="episodes-empty" icon="play"
+        <EmptyState className="mt-4" testId="episodes-empty"
           title={scope === 'mine' ? 'You have not made a video yet' : 'No videos yet'}>
           <p>Open a Universe and start a new episode in it, or pick a style and describe your idea in a few sentences.</p>
           {scope === 'mine' && othersMade && (

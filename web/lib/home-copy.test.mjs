@@ -2,13 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
-import { BANNED_WORDS, copyProblems } from './copy-rules.mjs';
+import { BANNED_WORDS, ICON_CHARACTERS, copyProblems } from './copy-rules.mjs';
 import { HOME_COPY, copyStrings } from './home-copy.mjs';
 import { HOME_PICTURES, PICTURE_FORMATS, pictureUrl } from './home-pictures.mjs';
-
-const webDir = fileURLToPath(new URL('..', import.meta.url));
+import { literalsIn, webDir } from './source-text.mjs';
 
 /** The home page's source: its route and everything under components/home/. */
 const HOME_SOURCES = [
@@ -17,9 +14,6 @@ const HOME_SOURCES = [
     .filter((file) => /\.tsx?$/.test(file))
     .map((file) => join('components/home', file)),
 ];
-
-/** Emoji, arrows, stars, check marks, play triangles and other symbols that would stand in for icons. */
-const ICON_CHARACTERS = /[\p{Emoji_Presentation}\u2190-\u21FF\u2300-\u23FF\u25A0-\u27BF\u2B00-\u2BFF]/u;
 
 const problemsIn = (strings) =>
   strings.flatMap(({ path, text }) => copyProblems(text).map(({ rule, match }) => `${path}: ${rule} ("${match}")`));
@@ -77,51 +71,6 @@ test('the home page has one call to action, worded the same everywhere', () => {
   const labels = new Set([HOME_COPY.header.cta, HOME_COPY.hero.cta, HOME_COPY.vision.cta]);
   assert.deepEqual([...labels], ['Get early access']);
 });
-
-/**
- * Every string literal in a home source file, outside className attributes, with whether it is
- * visible text written into the component instead of coming from HOME_COPY.
- */
-function literalsIn(file) {
-  const TEXT_ATTRIBUTES = new Set(['alt', 'title', 'label', 'placeholder', 'aria-label', 'aria-description']);
-  const NOT_TEXT_ATTRIBUTES = new Set(['className', 'sizes', 'srcSet', 'd', 'viewBox']);
-  const PROSE = /\p{L}{2,}[\s,.!?]+\p{L}{2,}/u;
-  const source = ts.createSourceFile(file, readFileSync(join(webDir, file), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const found = [];
-  const add = (node, text, visible) => {
-    const { line } = source.getLineAndCharacterOfPosition(node.getStart());
-    found.push({ path: `${file}:${line + 1}`, text, visible });
-  };
-  const textOf = (node) => {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-    if (ts.isTemplateExpression(node)) return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(' ');
-    return null;
-  };
-  const visit = (node, attribute) => {
-    if (ts.isImportDeclaration(node)) return;
-    if (ts.isJsxAttribute(node)) {
-      const name = node.name.getText(source);
-      if (name === 'className') return;
-      ts.forEachChild(node, (child) => visit(child, name));
-      return;
-    }
-    if (ts.isJsxText(node) && /\p{L}/u.test(node.text)) {
-      add(node, node.text.trim(), true);
-      return;
-    }
-    const text = textOf(node);
-    if (text !== null) {
-      const inJsxChildren = ts.isJsxExpression(node.parent) && (ts.isJsxElement(node.parent.parent) || ts.isJsxFragment(node.parent.parent));
-      const visible = (attribute !== undefined && TEXT_ATTRIBUTES.has(attribute) && /\p{L}/u.test(text))
-        || (inJsxChildren && /\p{L}/u.test(text))
-        || (!NOT_TEXT_ATTRIBUTES.has(attribute) && PROSE.test(text));
-      add(node, text, visible);
-    }
-    ts.forEachChild(node, (child) => visit(child, attribute));
-  };
-  visit(source, undefined);
-  return found;
-}
 
 test('the home components write no text of their own: all of it comes from lib/home-copy.mjs', () => {
   assert.ok(HOME_SOURCES.length >= 8, `found only ${HOME_SOURCES.join(', ')}`);

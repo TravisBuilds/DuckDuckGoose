@@ -12,7 +12,6 @@ import { posterShot, primaryVideo } from '@/lib/world.mjs';
 import type { UniverseCard } from '@/lib/world.mjs';
 import { byNeedsYou } from '@/lib/journey.mjs';
 import { chip, input as field, tones, type Tone } from '@/lib/ui';
-import { Icon } from './playful';
 
 /**
  * The episode lists of the home and the Episodes page (DESIGN-TARGETS-v2 §6.1): Keep going (a
@@ -110,12 +109,12 @@ export function chipFor(summary: Summary, episode: Episode, myUserId: string | n
 
 const THUMBS = ['#E3F2FD,#9FD3F7', '#F3FCD6,#D5F76A', '#FFF7D1,#FFE36B', '#E8F8FE,#BDEBFA'];
 
-/** A list row's round thumbnail: the episode's first still, or a soft gradient circle with a film icon. */
+/** A list row's round thumbnail: the episode's first still, or a soft gradient circle until it has one. */
 function Thumb({ id, poster, index }: { id: string; poster?: string; index: number }) {
   return (
     <div aria-hidden="true" className="relative grid size-16 flex-none place-items-center overflow-hidden rounded-full text-ink shadow-card"
       style={{ background: `linear-gradient(145deg,${THUMBS[index % THUMBS.length]})` }}>
-      {poster ? <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Icon name="film" size={24} />}
+      {poster && <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />}
       <span className="sr-only">{id}</span>
     </div>
   );
@@ -171,7 +170,6 @@ export function EpisodeCard({ episode, summary, myUserId, isAdmin, universe, ind
             Review
           </Link>
         )}
-        <span aria-hidden="true" className={`pf-round is-solid ${needsYou ? 'sm:hidden' : ''}`}><Icon name="triangle" size={16} /></span>
       </div>
       {children && <div className="relative z-10">{children}</div>}
     </li>
@@ -216,7 +214,7 @@ export function FinishedCard({ episode, summary, myUserId, isAdmin, universe, ch
           </Link>
           {status && (
             <span className={`${chip} ${tones[status.tone]}`} data-testid={`episode-status-${id}`}>
-              {status.tone === 'ok' && <Icon name="check" size={11} />}{status.label}
+              {status.label}
             </span>
           )}
         </div>

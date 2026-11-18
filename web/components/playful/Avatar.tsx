@@ -2,11 +2,11 @@ import type { CastHue } from '@/lib/castColour.mjs';
 import { CAST_COLOURS } from '@/lib/castColour.mjs';
 import { CAST_GRADIENTS } from '@/lib/palette.mjs';
 
-/** Up to two initials from a name or email ("Mira Vale" → "MV", "wren@x.io" → "W"); "?" when there is nothing. */
+/** Up to two initials from a name or email ("Mira Vale" gives "MV", "wren@x.io" gives "W"); empty when there is nothing. */
 export function initialsOf(name: string | null | undefined): string {
   const words = String(name ?? '').split('@')[0].split(/[\s._-]+/).filter((word) => /\p{L}|\p{N}/u.test(word));
   const letters = words.slice(0, 2).map((word) => Array.from(word.replace(/^[^\p{L}\p{N}]+/u, ''))[0] ?? '');
-  return letters.join('').toUpperCase() || '?';
+  return letters.join('').toUpperCase();
 }
 
 /** A steady gradient for someone without a cast colour (a member, a Universe): the same name always gets the same one. */

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
-import { Avatar, GateChecklist, IconCircle, PriceBlock, Seal } from '@/components/playful';
+import { Avatar, GateChecklist, PriceBlock, Seal } from '@/components/playful';
 import { castColours } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
@@ -94,7 +94,7 @@ function AddToUniverse({ episodeId, onLinked }: { episodeId: string; onLinked: (
 }
 
 /**
- * "<Universe> › <episode>", or "Universes › <episode> · Not in a Universe · Add to a Universe" for a reader
+ * "<Universe> / <episode>", or "Universes / <episode> · Not in a Universe · Add to a Universe" for a reader
  * who may see the episode's cast; the Universe is not named to anyone else.
  */
 export function EpisodeBreadcrumb({ episodeId, info, canAct, onLinked }: {
@@ -112,7 +112,7 @@ export function EpisodeBreadcrumb({ episodeId, info, canAct, onLinked }: {
       ) : (
         <Link href="/studio" className={link}>Universes</Link>
       )}
-      <span aria-hidden="true">›</span>
+      <span aria-hidden="true">/</span>
       <span aria-current="page" className="break-all">{episodeId}</span>
       {info?.linked === false && (
         <>
@@ -269,12 +269,9 @@ export function StartCard({ episodeId, info, onStarted }: {
   const locked = unlocked.length === 0;
   return (
     <section data-testid="start-card" aria-labelledby="start-card-title">
-      <div className="flex items-center gap-3">
-        <IconCircle icon="triangle" tone={locked ? 'sun' : 'blue'} />
-        <div className="min-w-0">
-          <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your OK needed' : 'Waiting for a lock'}</span>
-          <h2 id="start-card-title" className="mt-1 text-[20px] leading-tight">Start this video</h2>
-        </div>
+      <div className="min-w-0">
+        <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your OK needed' : 'Waiting for a lock'}</span>
+        <h2 id="start-card-title" className="mt-1 text-[20px] leading-tight">Start this video</h2>
       </div>
       {locked && (
         <p className="mt-2 text-[14px]" data-testid="start-ready">

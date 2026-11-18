@@ -80,7 +80,7 @@ export function UniverseCreateForm({ heading = 'h2' }: { heading?: 'h1' | 'h2' |
       <button type="submit" disabled={busy || !name.trim()} className="pf-btn pf-btn-primary mt-4 w-full"
         title={name.trim() ? undefined : 'Turns on once your Universe has a name.'}
         aria-describedby={name.trim() ? undefined : 'universe-create-why'} data-testid="universe-create">
-        {busy ? 'Creating…' : 'Start gathering references →'}
+        {busy ? 'Creating…' : 'Start gathering references'}
       </button>
       {!name.trim() && (
         <p id="universe-create-why" className="pf-off-why text-center" data-testid="universe-create-why">
