@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat, Nunito } from "next/font/google";
 import "./globals.css";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { HOME_COPY } from "@/lib/home-copy.mjs";
 
 // Self-hosted at build time by next/font: no runtime requests to Google.
 const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
@@ -9,7 +10,7 @@ const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: 
 
 export const metadata: Metadata = {
   title: "DuckDuckGoose - AI Video Generation",
-  description: "Pick a card, get a finished short video. Create original content with our hands-free AI video harness.",
+  description: HOME_COPY.meta.description,
 };
 
 export default function RootLayout({
