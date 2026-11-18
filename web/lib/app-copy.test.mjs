@@ -1,0 +1,121 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import ts from 'typescript';
+import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
+import { HOME_COPY } from './home-copy.mjs';
+import { importsOf, literalsIn, sourcesFrom, tagsIn, webDir } from './source-text.mjs';
+
+/**
+ * Sign-in, the password page, the studio and the cost dashboard keep to the owner's rules: no icons
+ * of any kind (type, colour and shape only) and none of the banned words. The rules cover every file
+ * those routes are built from, followed through their imports, and the root layout with the shared
+ * header and footer. The home page has its own tests (lib/home-copy.test.mjs).
+ */
+
+const routeFiles = (dir) => readdirSync(join(webDir, dir), { recursive: true })
+  .filter((file) => /(?:^|\/)(?:page|layout)\.tsx$/.test(file))
+  .map((file) => join(dir, file));
+
+const ENTRIES = ['app/layout.tsx', 'app/login/page.tsx', 'app/set-password/page.tsx', ...routeFiles('app/studio'), ...routeFiles('app/dashboard')];
+const SOURCES = sourcesFrom(ENTRIES).filter((file) => !file.startsWith('components/home/'));
+const LITERALS = SOURCES.flatMap(literalsIn);
+
+/** Icon sets from npm, and the studio's own line icons and play-triangle logo, removed for good. */
+const ICON_PACKAGES = /^(?:lucide-react|react-icons|@heroicons\/|@radix-ui\/react-icons|@fortawesome\/|@mui\/icons-material|@phosphor-icons\/|@tabler\/icons|react-feather|@iconify\/|ionicons)/;
+const ICON_FILES = /(?:^|\/)(?:Icon|IconCircle|LogoMark)(?:\.tsx?)?$/;
+
+/**
+ * Punctuation that may stand alone between words: separators, brackets, quotes, the "—" of a missing
+ * value and the "$" on a priced step. A dash or "×" between two values is a range or a multiplication.
+ * Any other lone symbol ("+", "×", "!", "•", "?") would be an icon in disguise.
+ */
+const JOINERS = /^[\s·/:,.()…;“”"'—$]*$/u;
+const BETWEEN_VALUES = /^[–×]$/u;
+
+test('the rules cover the sign-in, password, studio and dashboard routes and everything they are built from', () => {
+  for (const file of ['app/login/page.tsx', 'app/set-password/page.tsx', 'app/studio/page.tsx', 'app/dashboard/page.tsx',
+    'components/StudioShell.tsx', 'components/playful/BottomBar.tsx', 'components/playful/Wordmark.tsx',
+    'components/Header.tsx', 'components/Footer.tsx', 'components/Toast.tsx', 'components/UniverseCreation.tsx']) {
+    assert.ok(SOURCES.includes(file), `${file} is not covered`);
+  }
+  assert.ok(SOURCES.length > 60, `only ${SOURCES.length} files found`);
+  assert.ok(LITERALS.filter(({ visible }) => visible).length > 1000, 'too few visible strings found');
+});
+
+test('the line icons and the play-triangle logo are gone, and nothing imports them or an icon set', () => {
+  for (const name of ['Icon', 'IconCircle', 'LogoMark']) {
+    assert.ok(!existsSync(join(webDir, 'components/playful', `${name}.tsx`)), `components/playful/${name}.tsx is back`);
+  }
+  for (const file of SOURCES) {
+    for (const specifier of importsOf(file)) {
+      assert.doesNotMatch(specifier, ICON_PACKAGES, `${file} imports the icon set ${specifier}`);
+      assert.doesNotMatch(specifier, ICON_FILES, `${file} imports ${specifier}`);
+    }
+    const playful = readFileSync(join(webDir, file), 'utf8').match(/import\s*\{([^}]*)\}\s*from\s*['"](?:@\/components\/playful|\.\/playful|\.)['"]/);
+    if (playful) assert.doesNotMatch(playful[1], /\b(?:Icon|IconCircle|LogoMark)\b/, `${file} imports an icon component`);
+  }
+});
+
+test('these pages draw no icons: no svg, no icon pictures, no symbol characters', () => {
+  const drawn = SOURCES.flatMap(tagsIn).filter(({ tag }) => /^(?:svg|path|use|symbol|Icon|IconCircle|LogoMark)$/.test(tag));
+  assert.deepEqual(drawn.map(({ path, tag }) => `${path}: <${tag}>`), []);
+  const symbols = LITERALS.filter(({ text }) => ICON_CHARACTERS.test(text));
+  assert.deepEqual(symbols.map(({ path, text }) => `${path}: "${text}"`), []);
+  const pictures = LITERALS.filter(({ text }) => /\.svg(?:$|\?)|\/icons?\//i.test(text));
+  assert.deepEqual(pictures.map(({ path, text }) => `${path}: "${text}"`), []);
+});
+
+test('no lone symbol stands in for an icon: no "+" button, "×" close, "!" badge or "✓" mark', () => {
+  const lone = LITERALS.filter(({ text, child, between }) => child && !/[\p{L}\p{N}]/u.test(text)
+    && !JOINERS.test(text) && !(between && BETWEEN_VALUES.test(text.trim())));
+  assert.deepEqual(lone.map(({ path, text }) => `${path}: "${text}"`), []);
+});
+
+test('the lone-symbol rule catches icon stand-ins and lets punctuation through', () => {
+  const isLone = (text, between = false) => !/[\p{L}\p{N}]/u.test(text) && !JOINERS.test(text) && !(between && BETWEEN_VALUES.test(text.trim()));
+  for (const glyph of ['+', '×', '!', '•', '?', '*', '–']) assert.ok(isLone(glyph), `"${glyph}" alone should count as an icon`);
+  for (const text of ['·', ' / ', '—', '$', ':', '(', '…']) assert.ok(!isLone(text), `"${text}" is punctuation`);
+  assert.ok(!isLone('–', true) && !isLone('×', true), 'a range dash or a multiplication between two values is fine');
+  for (const glyph of ['✓', '✗', '→', '←', '▶', '■', '★', '✦', '⚠', '\uE001', '🎬']) assert.match(glyph, ICON_CHARACTERS);
+  for (const text of ['·', '—', '…', '©', '×', '$4.20', 'Pebble Cove']) assert.doesNotMatch(text, ICON_CHARACTERS);
+});
+
+test('no stylesheet draws a glyph with content:', () => {
+  const sheets = ['app/globals.css', ...readdirSync(join(webDir, 'components'), { recursive: true })
+    .filter((file) => file.endsWith('.css')).map((file) => join('components', file))];
+  for (const sheet of sheets) {
+    for (const [, value] of readFileSync(join(webDir, sheet), 'utf8').matchAll(/(?<![\w-])content:\s*([^;]+);/g)) {
+      assert.match(value.trim(), /^(?:""|''|none|normal)$/, `${sheet} draws content: ${value}`);
+    }
+  }
+});
+
+test('no word the owner bans appears on these pages', () => {
+  const visible = LITERALS.filter(({ visible }) => visible);
+  const problems = visible.flatMap(({ path, text }) => bannedWords(text).map(({ rule, match }) => `${path}: ${rule} ("${match}")`));
+  assert.deepEqual(problems, []);
+});
+
+test("the site's default description is plain words: no \"content\", no \"harness\"", () => {
+  const file = 'app/layout.tsx';
+  const source = ts.createSourceFile(file, readFileSync(join(webDir, file), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let description = null;
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'metadata' && node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
+      for (const property of node.initializer.properties) {
+        if (!ts.isPropertyAssignment(property) || property.name.getText(source) !== 'description') continue;
+        const value = property.initializer;
+        if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) description = value.text;
+        else if (value.getText(source) === 'HOME_COPY.meta.description') description = HOME_COPY.meta.description;
+        else assert.fail(`the default description is ${value.getText(source)}: a string or the home page's own`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(description && description.split(/\s+/).length >= 8, `the default description is "${description}"`);
+  assert.deepEqual(bannedWords(description), []);
+  assert.doesNotMatch(description, ICON_CHARACTERS);
+});

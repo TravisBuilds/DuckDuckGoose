@@ -14,7 +14,7 @@ const API_PORT = 8000;
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(full-episode-e2e|beginner-wizard-e2e|run-ended-e2e|wizard-member-e2e|cast-panel-e2e|member-review-e2e|expired-run-e2e|props-shot-plan-e2e|world-first-e2e|universe-live-board-e2e|playful-guards-e2e|home-page-e2e)\.spec\.ts$/,
+  testMatch: /(full-episode-e2e|beginner-wizard-e2e|run-ended-e2e|wizard-member-e2e|cast-panel-e2e|member-review-e2e|expired-run-e2e|props-shot-plan-e2e|world-first-e2e|universe-live-board-e2e|playful-guards-e2e|home-page-e2e|app-pages-e2e)\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
