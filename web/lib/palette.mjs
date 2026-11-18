@@ -40,6 +40,9 @@ export const TOKENS = {
   'lilac-ink': '#5B3FC0',
   ink: '#1F2A44',
   'ink-soft': '#536379',
+  /** The public home page's text, from the direction deck: navy headings and a slate grey for body copy. */
+  navy: '#10263D',
+  'navy-soft': '#4A5B6E',
   line: '#DCE7F2',
   /** Dashed "add something here" borders and the open stops on a path. */
   'line-strong': '#B8CCE0',
@@ -160,6 +163,9 @@ export const TEXT_PAIRS = [
   ['ink', 'green-soft'], ['ink', 'lilac-soft'],
   ['ink-soft', 'coral-soft'], ['ink-soft', 'mustard-soft'], ['ink-soft', 'blue-soft'],
   ['ink-soft', 'aqua-soft'], ['ink-soft', 'green-soft'], ['ink-soft', 'lilac-soft'],
+  // the home page's navy and slate text on the page, its sky bands and white cards
+  ['navy', 'page'], ['navy', 'sky'], ['navy', 'paper'], ['navy-soft', 'page'], ['navy-soft', 'sky'],
+  ['navy-soft', 'paper'],
   // coloured text on the page, headers and cards (links, warnings, prices)
   ['blue-deep', 'page'], ['blue-deep', 'paper'], ['blue-deep', 'white'], ['blue-deep', 'sky'],
   ['blue-ink', 'page'], ['blue-ink', 'sky'], ['coral-deep', 'page'], ['coral-deep', 'paper'],

@@ -36,6 +36,8 @@
   --lilac-ink: #5B3FC0;
   --ink: #1F2A44;
   --ink-soft: #536379;
+  --navy: #10263D;
+  --navy-soft: #4A5B6E;
   --line: #DCE7F2;
   --line-strong: #B8CCE0;
   --page: #EAF6FD;
@@ -97,6 +99,8 @@
   --color-lilac-ink: var(--lilac-ink);
   --color-ink: var(--ink);
   --color-ink-soft: var(--ink-soft);
+  --color-navy: var(--navy);
+  --color-navy-soft: var(--navy-soft);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-page: var(--page);

@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { Montserrat, Nunito } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import MarketingOnly from "@/components/MarketingOnly";
+import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 
 // Self-hosted at build time by next/font: no runtime requests to Google.
 const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
@@ -22,11 +20,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${montserrat.variable} ${nunito.variable}`}>
       <body className="flex flex-col min-h-screen">
-        <MarketingOnly>
-          <Header />
-        </MarketingOnly>
+        <SiteHeader />
         {children}
-        <Footer />
+        <SiteFooter />
       </body>
     </html>
   );
