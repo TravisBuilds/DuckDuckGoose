@@ -124,11 +124,13 @@ for (const [width, height] of [[1440, 900], [1024, 768], [390, 844]]) {
     }
 
     // the cards overlap the photos on purpose, never the words: whatever is drawn at the start, middle
-    // and end of every line of text is that text
+    // and end of every line of text is that text. (window.scrollTo, not scrollIntoView, which would
+    // also move where the next Tab starts from.)
     const covered = await page.evaluate(() => {
       const problems = new Set<string>();
       for (const element of document.querySelectorAll('main :is(h1, h2, h3, p, a), footer :is(p, a, span)')) {
-        element.scrollIntoView({ block: 'center' });
+        const box = element.getBoundingClientRect();
+        window.scrollTo({ top: window.scrollY + box.top + box.height / 2 - window.innerHeight / 2, behavior: 'instant' });
         const range = document.createRange();
         range.selectNodeContents(element);
         for (const line of range.getClientRects()) {
@@ -141,7 +143,7 @@ for (const [width, height] of [[1440, 900], [1024, 768], [390, 844]]) {
           }
         }
       }
-      window.scrollTo(0, 0);
+      window.scrollTo({ top: 0, behavior: 'instant' });
       return [...problems];
     });
     expect(covered, 'nothing is drawn over the text').toEqual([]);
