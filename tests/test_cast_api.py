@@ -148,6 +148,7 @@ async def test_cast_routes_need_a_login(studio):
     assert len(_stored_images()) == 1
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_another_member_cannot_change_the_cast(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     pip = _create(owner)
@@ -163,6 +164,7 @@ async def test_another_member_cannot_change_the_cast(studio):
     assert [c["name"] for c in cast_store.list_characters(("episode", EP))] == ["Pip"]
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_another_member_cannot_see_the_cast_and_admins_can_change_it(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     pip = _create(owner)
@@ -204,7 +206,9 @@ async def test_a_series_cast_needs_the_series_owner(studio):
     # the series' characters (what the create wizard maps drafted characters to)
     seen = other.get(f"/api/series/{series['series_id']}").json()
     assert [c["slug"] for c in seen["characters"]] == ["pip"] and seen["can_edit"] is False
-    assert seen["series"]["episodes"] == sorted([EP, OTHER_EP])
+    # of the series' episodes, only the ones the member may see (tests/test_episode_visibility.py)
+    assert seen["series"]["episodes"] == [OTHER_EP]
+    assert owner.get(f"/api/series/{series['series_id']}").json()["series"]["episodes"] == sorted([EP, OTHER_EP])
     assert owner.get(f"/api/series/{series['series_id']}").json()["can_edit"] is True
     assert other.get("/api/series/sr_000000000000").status_code == 404
     assert _client(studio, None).get(f"/api/series/{series['series_id']}").status_code == 401
@@ -252,6 +256,7 @@ async def test_a_series_without_an_owner_changes_only_through_an_admin(studio, m
     assert admin.post(f"{_base()}/{pip['character_id']}", json={"name": "Pippa"}).json()["character"]["name"] == "Pippa"
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_a_series_cast_is_seen_by_its_owner_and_the_owners_of_its_episodes(studio):
     """Admins, the series' owner and the owners of the episodes that use its cast see it (lists,
     characters, sheet jobs, pictures, thumbnails); everyone else gets what a series, character or
@@ -518,6 +523,7 @@ async def test_a_full_cast_refuses_a_character_with_a_picture(studio, monkeypatc
     assert _cast_rows() == (1, 0) and _stored_images() == []
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_only_those_who_may_change_the_cast_add_a_character_with_a_picture(studio):
     """The episode's owner and admins (session or Bearer); another member gets the owner refusal and an
     anonymous caller a 401, with nothing stored."""
@@ -707,6 +713,7 @@ async def test_an_unknown_cast_is_reported_at_upload_and_refused_at_the_start(st
     assert "cast_errors" in owner.post(f"/api/episodes/{EP}/preflight").json()
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_the_preflight_checks_a_cast_only_for_those_who_may_see_it(studio):
     """The cast check's answers name the cast's characters: another member's preflight of the episode
     leaves the cast out (cast_hidden) instead of telling which characters and versions it has."""

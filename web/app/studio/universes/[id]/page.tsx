@@ -30,8 +30,8 @@ import { btnPrimary, btnSecondary, input as field, tones, type Tone } from '@/li
  * owner beside the consistency panel (seal, what is locked, New episode); how it was made, as the
  * five-step path (owner and admins); then its characters, places and props (the episode panels with
  * apiBase /api/worlds/{id}), story bible (owner and admins), look, narrator voice (owner and admins),
- * episodes and the film placeholder. GET /api/worlds/{id} answers 404 to anyone who may not see it,
- * the same as a Universe that does not exist.
+ * episodes (the ones the reader may see) and the film placeholder. GET /api/worlds/{id} answers 404
+ * to anyone who may not see it, the same as a Universe that does not exist.
  */
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and reload.';
@@ -506,6 +506,11 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
               <h2 id="episodes-title" className="text-[22px]">Episodes</h2>
               {view.can_edit && <Link href={newEpisode} className={`${btnSecondary} pf-btn-sm`}>New episode</Link>}
             </div>
+            {!view.can_edit && (
+              <p className="mt-1 text-[13.5px] text-ink-soft" data-testid="universe-episodes-note">
+                You see the episodes you made in this Universe and the shared ones.
+              </p>
+            )}
             {view.episodes.length === 0 ? (
               <p className="mt-2 text-[13.5px] text-ink-soft" data-testid="universe-episodes-empty">
                 No episodes yet. Start one: its characters, places and look come from this Universe.

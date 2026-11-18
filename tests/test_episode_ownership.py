@@ -3,7 +3,12 @@
 The owner of an episode is episodes.user_id, the session user who created its row (BEATMAP upload,
 start or start again). Members write, approve and start again only their own episodes; admins (admin
 session, Bearer ADMIN_SECRET) any. Episodes without an owner (no row yet, NULL or 'legacy/shared')
-keep the old rule: any member may change them. Reads are unchanged.
+keep the old rule: any member may change them.
+
+Another member does not see the episode at all: every route about it answers as for an episode that
+does not exist (tests/test_episode_visibility.py). The tests of the owner check itself run with every
+member seeing every episode (the rule before), so the check stays pinned as the second line: it
+still refuses the owner of the episode's Universe, who sees it but may not change it.
 """
 from __future__ import annotations
 
@@ -267,6 +272,7 @@ def test_every_member_write_route_is_classified():
     assert member_writes == as_routes | set(BODY_WRITES) | set(NOT_EPISODE_WRITES) | set(WORLD_WRITES)
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 @pytest.mark.parametrize("method,path", PATH_WRITES + BODY_WRITES)
 async def test_another_member_cannot_change_the_episode(studio, method, path):
     draft = _draft(studio)
@@ -312,6 +318,7 @@ async def test_owner_and_admins_upload_start_and_approve(studio, who):
     assert _owner_of(EP) == studio.owner_id
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_the_workflow_id_spelling_is_the_same_episode(studio):
     res = _client(studio, "other").post(f"/api/episodes/{EP}-episode/approve", json={"gate_id": "G1_SHOT_PLAN"})
     assert res.status_code == 403 and REFUSED in res.json()["detail"]
@@ -325,6 +332,7 @@ async def test_members_still_change_episodes_without_an_owner(studio, method, pa
     assert _owner_of(LEGACY) == "legacy/shared"
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_a_new_episode_belongs_to_the_member_who_uploads_its_beatmap(studio):
     draft = _draft(studio)
     other = _client(studio, "other")
@@ -341,6 +349,7 @@ async def test_a_new_episode_belongs_to_the_member_who_uploads_its_beatmap(studi
     assert _owner_of("ep83new") == other_id
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_starting_a_new_episode_records_the_member_as_its_owner(studio):
     draft = _draft(studio)
     res = _write(_client(studio, "owner"), "POST", "/api/episodes", "ep84api", draft)
@@ -388,6 +397,7 @@ async def test_the_owner_check_on_its_own_takes_no_credential_for_an_admin(studi
     await studio.require_episode_owner("ep86none", authorization, cookie)
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_the_upload_token_uploads_only_beatmaps_of_episodes_without_an_owner(studio, monkeypatch):
     """The scoped upload token is member-level and names no user (docs/AUTHENTICATION.md)."""
     token = "upload-token-for-the-ownership-tests-0123456789"
@@ -410,12 +420,26 @@ async def test_the_upload_token_uploads_only_beatmaps_of_episodes_without_an_own
 
 
 async def test_reads_follow_the_existing_visibility_rules(studio):
+    """The owner and admins list and read the episode; another member finds it in no list, and its
+    reads answer as for an episode that does not exist (tests/test_episode_visibility.py)."""
+    shots = _draft(studio)["shots_json"]["shots"]
+    for who in ("owner", "admin", "bearer"):
+        client = _client(studio, who)
+        listed = client.get("/api/episodes")
+        assert listed.status_code == 200 and EP in [e["episode_id"] for e in listed.json()["episodes"]], who
+        assert client.get(f"/api/episodes/{EP}/audit").status_code == 200, who
+        res = client.post(f"/api/episodes/{EP}/preflight", json={"shots": shots})
+        assert res.status_code == 200, (who, res.text)
+
     other = _client(studio, "other")
     listed = other.get("/api/episodes")
-    assert listed.status_code == 200 and EP in [e["episode_id"] for e in listed.json()["episodes"]]
-    assert other.get(f"/api/episodes/{EP}/audit").status_code == 200
-    res = other.post(f"/api/episodes/{EP}/preflight", json={"shots": _draft(studio)["shots_json"]["shots"]})
-    assert res.status_code == 200, res.text
+    assert listed.status_code == 200
+    assert [e["episode_id"] for e in listed.json()["episodes"]] == [LEGACY]
+    hidden = (404, {"detail": f"No workflow found for episode {EP}"})
+    res = other.get(f"/api/episodes/{EP}/audit")
+    assert (res.status_code, res.json()) == hidden
+    res = other.post(f"/api/episodes/{EP}/preflight", json={"shots": shots})
+    assert (res.status_code, res.json()) == hidden
 
 
 # ------------------------------------------------------------------ Universes
@@ -581,6 +605,7 @@ async def test_the_owner_and_admins_start_the_ended_run_again(studio, who):
     assert _owner_of(EP) == studio.owner_id
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_another_member_cannot_start_the_episode_again(studio):
     _ended_run(studio, EP)
     res = _client(studio, "other").post(f"/api/episodes/{EP}/start-again")
@@ -608,6 +633,7 @@ async def test_any_member_starts_an_episode_without_an_owner_again(studio, owner
     assert _owner_of(ep) == owner  # starting it again claims nothing
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 @pytest.mark.parametrize("who,owner", [("other", "the member"), ("admin", "admin"), ("bearer", "legacy/shared")])
 async def test_starting_an_episode_without_a_row_again_records_it_as_a_start_does(studio, who, owner):
     ep = "ep89row"
@@ -656,6 +682,7 @@ async def test_the_upload_token_cannot_start_or_start_again(studio, monkeypatch)
     assert _owner_of(LEGACY) == "legacy/shared"
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_start_again_on_a_temporal_dev_server(monkeypatch):
     """A member's run stopped by the operator: another member's Start again (and approve, and uploads) is
     refused and leaves the ended run as it was; the owner fixes a file and starts it again, its new run

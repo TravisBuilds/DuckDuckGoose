@@ -177,7 +177,8 @@ Every route requires a signed-in studio user and follows
 
   Everyone else gets **404**, the answer a missing item gets: one message for the library or the
   shot plan, and `Image <id> not found` for a photo. The check comes before the file is read or a
-  thumbnail made.
+  thumbnail made. The view of a series library names the series with only the episodes of it the
+  reader may see ([Who sees an episode](AUTHENTICATION.md#who-sees-an-episode)).
 - **Changing the library** needs the episode's owner (or an admin). A series library also needs the
   series' owner (or an admin), and a series without an owner changes only through an admin (**403**).
 - **Changing the shot plan** follows the episode write rule: its owner or an admin, or any member

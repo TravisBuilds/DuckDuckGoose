@@ -155,9 +155,36 @@ Duck swimming.
             # 3. If budget lines weren't initialized correctly, workflow would fail with:
             #    "Budget line ep05:L2_drafts not found" or "Budget initialization failed"
             
-            # Give workflow time to initialize and fail if it will
+            # Give workflow time to initialize and fail if it will: poll (for at most 20 s; on a loaded
+            # CI runner the first activities can take longer than 1 s) until the run has ended or its
+            # budget lines are in the database, the latter not before the 1 s this test used to sleep
+            # so that a run that fails meanwhile is still caught below.
             import asyncio
-            await asyncio.sleep(1)
+            import sqlite3
+
+            import aiosqlite
+
+            async def budget_lines() -> set[str]:
+                try:
+                    async with aiosqlite.connect(db_path, uri=True) as db:
+                        async with db.execute(
+                            "SELECT line_name FROM budget_lines WHERE episode_id = ?", (episode_id,)
+                        ) as cur:
+                            return {row[0] async for row in cur}
+                except sqlite3.OperationalError as e:
+                    if "no such table" not in str(e):
+                        raise
+                    return set()  # the budget ledger has not made its tables yet
+
+            required = {"L1_refs", "L2_drafts", "L3_final_stills", "L4_video", "L7_revision"}
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            while loop.time() - started < 20:
+                if (await handle.describe()).status.name != "RUNNING":
+                    break
+                if loop.time() - started >= 1 and required <= await budget_lines():
+                    break
+                await asyncio.sleep(0.1)
             
             # Check workflow status
             desc = await handle.describe()
@@ -182,7 +209,6 @@ Duck swimming.
             
             # Main verification: budget lines must exist in DB
             # This proves init_episode_budget created them even without policy config for ep05
-            import aiosqlite
             async with aiosqlite.connect(db_path, uri=True) as db:
                 async with db.execute(
                     "SELECT line_name FROM budget_lines WHERE episode_id = ? ORDER BY line_name",

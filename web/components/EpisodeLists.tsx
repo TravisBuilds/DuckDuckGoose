@@ -288,15 +288,22 @@ export function AddToUniverse({ episodeId, choices, onAdded }: {
   );
 }
 
-/** Mine / Everyone for the episode lists (members start with their own, admins with everyone's). */
-export function ScopeToggle({ scope, onChange }: { scope: 'mine' | 'everyone'; onChange: (scope: 'mine' | 'everyone') => void }) {
+/**
+ * Mine / Everyone for the episode lists (members start with their own, admins with everyone's). A
+ * member's second list holds only the episodes they may open, so for them it reads All.
+ */
+export function ScopeToggle({ scope, onChange, isAdmin }: {
+  scope: 'mine' | 'everyone';
+  onChange: (scope: 'mine' | 'everyone') => void;
+  isAdmin: boolean;
+}) {
   return (
     <div role="group" aria-label="Show videos" className="inline-flex gap-1 rounded-full bg-white p-1 shadow-card">
       {(['mine', 'everyone'] as const).map((value) => (
         <button key={value} type="button" aria-pressed={scope === value} onClick={() => onChange(value)}
           data-testid={`scope-${value}`}
           className={`min-h-9 rounded-full px-4 text-[13.5px] font-extrabold ${scope === value ? 'bg-blue-deep text-white' : 'text-ink-soft hover:bg-page'}`}>
-          {value === 'mine' ? 'Mine' : 'Everyone'}
+          {value === 'mine' ? 'Mine' : isAdmin ? 'Everyone' : 'All'}
         </button>
       ))}
     </div>

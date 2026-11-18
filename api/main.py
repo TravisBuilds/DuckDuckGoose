@@ -432,8 +432,13 @@ async def require_admin_auth(
     endpoint = getattr(route, "endpoint", None) if route else None
     allow_members = getattr(endpoint, "allow_members", False) if endpoint else False
     await verify_auth_unified(authorization, studio_admin_token, require_admin=not allow_members)
-    # A member's write to an episode named in the path: only its owner (or an admin). Routes with the
-    # episode id in the form or body (upload, start) check it themselves.
+    # An episode named in the path: the 404 of an episode that does not exist unless the caller may
+    # see it (cast_routes.require_episode_visible). A member's write: only its owner (or an admin).
+    # Routes with the episode id in the form or body (upload, start) check both themselves.
+    if allow_members and "episode_id" in request.path_params:
+        await cast_routes.require_episode_visible(
+            request.path_params["episode_id"], authorization, studio_admin_token,
+            reading=method == "GET" or getattr(endpoint, "read_only", False))
     if (allow_members and method != "GET" and "episode_id" in request.path_params
             and not getattr(endpoint, "read_only", False)):
         await require_episode_owner(request.path_params["episode_id"], authorization, studio_admin_token)
@@ -1251,9 +1256,11 @@ async def upload_beatmap(
     Returns:
         Number of shots parsed, upload hash for deduplication, is_duplicate flag
     """
-    # Auth handled by middleware; the episode id comes in the form, so ownership is checked here
+    # Auth handled by middleware; the episode id comes in the form, so who may see and change it is
+    # checked here
     
     validate_episode_id(episode_id)
+    await cast_routes.require_episode_visible(episode_id, request.headers.get("authorization"), studio_admin_token)
     await require_episode_owner(episode_id, request.headers.get("authorization"), studio_admin_token)
     
     # Return 409 while workflow is running (fail closed: 503 on Temporal errors)
@@ -1727,9 +1734,12 @@ get_me.read_only = True
 
 
 @app.get("/api/episodes")
-async def list_episodes():
+async def list_episodes(
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
     """
-    List all episodes (member or admin).
+    List the 100 newest episodes the caller may see (member or admin; cast_routes.visible_episodes).
     
     Returns episodes from the database with their current status and owner: ``user_id`` and
     ``owner_name`` are None for an episode without an owner (as in episode_owner()).
@@ -1738,6 +1748,7 @@ async def list_episodes():
     import aiosqlite
     from hfvg.users import LEGACY_USER_ID
     
+    user_id, is_admin = await _episode_actor(authorization, studio_admin_token)
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
@@ -1745,10 +1756,11 @@ async def list_episodes():
                    u.name AS owner_name
             FROM episodes e LEFT JOIN users u ON u.user_id = e.user_id
             ORDER BY e.created_at DESC
-            LIMIT 100
         """) as cursor:
+            rows = [row async for row in cursor]
+            visible = await cast_routes.visible_episodes([row["episode_id"] for row in rows], user_id, is_admin)
             episodes = []
-            async for row in cursor:
+            for row in [row for row in rows if row["episode_id"] in visible][:100]:
                 owned = row["user_id"] not in (None, "", LEGACY_USER_ID)
                 episodes.append({
                     "episode_id": row["episode_id"],
@@ -1775,12 +1787,14 @@ async def start_episode(
     Start a new episode workflow.
     
     Requires: Authorization header with admin secret OR session cookie (member or admin); a member
-    starts only an episode of their own or one without an owner. A new episode (no DB row yet) is
-    recorded with the session user as its owner. Refused (409) while the episode has a run in
-    progress, before its beatmap or row is touched.
+    starts only an episode of their own or one without an owner, and gets the 404 of an episode that
+    does not exist for one they may not see. A new episode (no DB row yet) is recorded with the
+    session user as its owner. Refused (409) while the episode has a run in progress, before its
+    beatmap or row is touched.
     """
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(request.episode_id)
+    await cast_routes.require_episode_visible(request.episode_id, authorization, studio_admin_token)
     await require_episode_owner(request.episode_id, authorization, studio_admin_token)
     
     # Initialize studio DB if not exists
@@ -5388,6 +5402,9 @@ async def retry_shot(
             # Direct ApplicationError (shouldn't happen with execute_update, but handle it)
             raise HTTPException(status_code=400, detail=_update_refusal("retry_shot", e))
         except Exception as e:
+            from temporalio.service import RPCError, RPCStatusCode
+            if isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+                raise  # no run: the 404 below, as for an episode that does not exist
             raise HTTPException(status_code=500, detail=f"Retry failed: {str(e)}")
         
         # Audit log

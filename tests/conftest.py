@@ -73,3 +73,23 @@ def _reset_rate_limiter():
         api_main = sys.modules['api.main']
         if hasattr(api_main, '_LOGIN_ATTEMPTS'):
             api_main._LOGIN_ATTEMPTS.clear()
+
+
+@pytest.fixture
+def every_member_sees_every_episode(monkeypatch):
+    """The episode rule before episodes were hidden from the members not working on them: every
+    signed-in member sees every episode, and a read of one that does not exist gets its route's own
+    answer. Only for tests of the checks a route makes once a caller is past the rule
+    (api/cast_routes.visible_episodes): the owner check of a write, the prompts and cast left out for
+    whoever may not read them. They stay as a second line; tests/test_episode_visibility.py pins the
+    rule itself."""
+    from api import cast_routes
+
+    async def every_episode(episode_ids, user_id, is_admin):
+        return set(episode_ids)
+
+    async def exists(episode_id):
+        return True
+
+    monkeypatch.setattr(cast_routes, "visible_episodes", every_episode)
+    monkeypatch.setattr(cast_routes, "episode_exists", exists)

@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
  * character gets a saved voice: still no episode. A new dialogue episode from the Universe comes with
  * its cast matched by name and the saved voice filled in; it waits on its page until every look is
  * locked, then runs to the end, and the home shows the Universe and plays the finished episode. Another
- * member gets the 404 a missing Universe gets, with no names or pictures. The pages are checked at
+ * member gets the 404 a missing Universe or episode gets, with no names or pictures. The pages are checked at
  * 1440 px and at 390 px, where nothing scrolls sideways. Screenshots go to the test's output folder.
  */
 
@@ -24,6 +24,7 @@ const CARD_NAME = 'Back to the 2000s';
 const IDEA = 'Mira Vale and Oskar Brine fix the old pier lantern before the autumn storm';
 const NAMES = [UNIVERSE, 'Mira Vale', 'Oskar Brine', 'Lantern Pier'];
 const MISSING = 'sr_000000000000';
+const MISSING_EPISODE = 'ep00nowhere';
 
 let universeId = '';
 let episodeId = '';
@@ -382,7 +383,7 @@ test.describe.serial('Universe first', () => {
   test.describe('at 390 px', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('another member: a first run of their own, and the 404 a missing Universe gets', async ({ page }) => {
+    test('another member: a first run of their own, and the 404 a missing Universe or episode gets', async ({ page }) => {
       await signIn(page, OUTSIDER);
       await expect(page.getByTestId('first-run')).toBeVisible();
       await expect(page.getByTestId(`universe-card-${universeId}`)).toHaveCount(0);
@@ -405,14 +406,24 @@ test.describe.serial('Universe first', () => {
       await expect(page.locator('main img')).toHaveCount(0);
       await expectNoSidewaysScroll(page);
 
-      // the episode itself is open to members, read-only: its Universe and what it uses are not shown
-      const info = await (await page.request.get(`${API}/api/episodes/${episodeId}/universe`)).json();
-      expect(info).toMatchObject({ can_act: false, linked: null, universe: null, strip: null, lock: null });
+      // the episode is hidden from them too: the 404 an episode that does not exist gets, and nothing of it
+      const listed = await (await page.request.get(`${API}/api/episodes`)).json();
+      expect(listed.episodes.map((e: { episode_id: string }) => e.episode_id)).not.toContain(episodeId);
+      for (const path of ['', '/universe', '/story-shape', '/shots', '/files', '/files/phone']) {
+        const theirsEpisode = await page.request.get(`${API}/api/episodes/${episodeId}${path}`);
+        const missingEpisode = await page.request.get(`${API}/api/episodes/${MISSING_EPISODE}${path}`);
+        expect([theirsEpisode.status(), missingEpisode.status()], path).toEqual([404, 404]);
+        expect((await theirsEpisode.json()).detail.replace(episodeId, '<id>'), path)
+          .toBe((await missingEpisode.json()).detail.replace(MISSING_EPISODE, '<id>'));
+      }
       await page.goto(`/studio/episodes/${episodeId}`);
-      await expect(page.getByTestId('episode-breadcrumb')).toBeVisible();
-      await expect(page.getByTestId('breadcrumb-universe')).toHaveCount(0);
+      await expect(page.getByTestId('episode-not-found')).toBeVisible();
+      await expect(page.getByTestId('episode-breadcrumb')).toHaveCount(0);
       await expect(page.getByTestId('universe-strip')).toHaveCount(0);
-      await expect(page.getByText('Waiting for you')).toHaveCount(0);
+      const episodeShown = await page.locator('main').innerText();
+      for (const name of NAMES) expect(episodeShown).not.toContain(name);
+      await expect(page.locator('main img')).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
     });
 
     test('the owner\'s pages fit a phone', async ({ page }) => {

@@ -249,7 +249,7 @@ UNIVERSE_ROUTE_CASES = [
     ("POST", "/api/worlds/{series_id}/bible", CHANGE),
     ("GET", "/api/worlds/images/{reference_id}", SEE),  # the cover: shown to whoever may see the Universe
     ("GET", "/api/worlds/images/{reference_id}/thumb", SEE),
-    ("GET", "/api/episodes/{episode_id}/universe", ANY_MEMBER),
+    ("GET", "/api/episodes/{episode_id}/universe", SEE),  # the editor's episode: hidden from everyone else
     ("POST", "/api/episodes/draft-from-idea?world", SEE),
 ]
 UNIVERSE_JSON = {
@@ -353,7 +353,9 @@ async def test_universe_route_authorization_matrix(db_path, monkeypatch, tmp_pat
         assert response.status_code == expected, (
             f"{role.upper()} {method} {path}: expected {expected}, got {response.status_code}. Response: {response.text}")
         if role == "other" and expected == 404 and "/images/" not in path:
-            assert response.json()["detail"] == f"Universe {ids['series_id']} not found"
+            missing = (f"No workflow found for episode {ids['episode_id']}" if "{episode_id}" in path
+                       else f"Universe {ids['series_id']} not found")
+            assert response.json()["detail"] == missing
 
 
 def test_upload_endpoints_auth(db_path, tmp_path):

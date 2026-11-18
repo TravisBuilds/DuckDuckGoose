@@ -151,44 +151,9 @@ async def _item_of(series_id: str, prop_id: str) -> dict:
     return item
 
 
-async def _episode_rows(episode_ids: list[str]) -> dict[str, tuple]:
-    """(user_id, created_at) of each episode with a row, by the id the caller passed (the
-    normalization of api.main.episode_owner)."""
-    ids = {e: cast_api._api().episode_workflow_id(e) for e in episode_ids}
-    rows = await _studio_rows_in("SELECT episode_id, user_id, created_at FROM episodes WHERE episode_id IN",
-                                 sorted(set(ids.values())))
-    by_id = {r[0]: (r[1], r[2]) for r in rows}
-    return {e: by_id[ids[e]] for e in episode_ids if ids[e] in by_id}
-
-
-async def _episode_owners(episode_ids: list[str]) -> dict[str, str | None]:
-    """The owner of each episode (None: no owner), the rule of api.main.episode_owner in a fixed
-    number of queries."""
-    from hfvg.users import LEGACY_USER_ID
-    rows = await _episode_rows(episode_ids)
-    owners = {e: row[0] for e, row in rows.items()}
-    return {e: None if owners.get(e) in (None, "", LEGACY_USER_ID) else owners[e] for e in episode_ids}
-
-
-async def _studio_rows_in(sql: str, values: list[str], chunk: int = 500) -> list[tuple]:
-    """Rows of ``sql`` + " (?, ?, ...)" over ``values``, a few hundred at a time."""
-    rows: list[tuple] = []
-    for start in range(0, len(values), chunk):
-        part = values[start:start + chunk]
-        rows += await _studio_rows(f"{sql} ({', '.join('?' for _ in part)})", tuple(part))
-    return rows
-
-
-async def _studio_rows(sql: str, params: tuple) -> list[tuple]:
-    """Rows of the studio DB; none when the table does not exist yet (503 on other DB errors)."""
-    import aiosqlite
-    try:
-        async with aiosqlite.connect(cast_api._api().DATABASE_PATH) as db:
-            return list(await (await db.execute(sql, params)).fetchall())
-    except aiosqlite.OperationalError as e:
-        if "no such table" in str(e):
-            return []
-        raise HTTPException(status_code=503, detail=f"studio database error: {e}") from None
+_episode_rows = cast_api._episode_rows
+_episode_owners = cast_api._episode_owners
+_studio_rows_in = cast_api._studio_rows_in
 
 
 async def _user_names(user_ids: set[str]) -> dict[str, str | None]:
@@ -327,7 +292,10 @@ async def _creation_view(series_id: str) -> dict:
 
 
 async def _world_view(who: dict) -> dict:
-    series, can_edit = who["series"], who["can_edit"]
+    """Of the Universe's episodes only those the caller may see: listed, counted and in the "used
+    in" counts."""
+    series = await cast_api.series_seen_by(who["series"], who["user_id"], who["is_admin"])
+    can_edit = who["can_edit"]
     series_id = series["series_id"]
     library = ("series", series_id)
     characters = await _call(cast_store.list_characters, library)
@@ -345,7 +313,8 @@ async def _world_view(who: dict) -> dict:
     view = {
         "world": card,
         "can_edit": can_edit,
-        "characters": [await _character_view(c, usage, voices, can_edit) for c in characters],
+        "characters": await cast_api._without_hidden_episodes(
+            [await _character_view(c, usage, voices, can_edit) for c in characters], who["user_id"], who["is_admin"]),
         "items": [_item_view(i, usage) for i in items],
         "episodes": episodes,
         "look": ({"board_id": approved["board_id"], "version": approved["version"],
@@ -408,13 +377,15 @@ class BoardGenerateRequest(BoardRequest):
 
 @router.get("/api/worlds")
 async def list_worlds(authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):
-    """The Universes the caller may see: profile, counts, cover and episodes of each (a fixed number
-    of queries for the whole list)."""
+    """The Universes the caller may see: profile, counts, cover and episodes of each, of its episodes
+    only those the caller may see (a fixed number of queries for the whole list)."""
     _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
     rows = await _call(cast_store.list_series)
     owners = await _episode_owners([e for r in rows for e in r["episodes"]])
     visible = [r for r in rows if is_admin or cast_api._owns_series(r, user_id)
                or any(owners.get(e) is None or owners.get(e) == user_id for e in r["episodes"])]
+    seen = await cast_api.visible_episodes([e for r in visible for e in r["episodes"]], user_id, is_admin)
+    visible = [{**r, "episodes": [e for e in r["episodes"] if e in seen]} for r in visible]
     summaries = await _call(world_store.summaries, [r["series_id"] for r in visible])
     files = await asyncio.to_thread(_primary_files, [e for r in visible for e in r["episodes"]])
     names = await _user_names({o for o in (cast_api._series_owner(r) for r in visible) if o})
@@ -478,7 +449,7 @@ async def create_world_character(series_id: str, request: CharacterCreateRequest
     cast_api._check_text(request.name, request.role, request.description, request.outfit)
     character = await _call(cast_store.create_character, ("series", series_id), request.name, request.role,
                             request.description, request.slug or None, who["actor"], outfit=request.outfit)
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 create_world_character.allow_members = True
 
@@ -505,7 +476,7 @@ async def create_world_character_with_picture(
     data = await prop_api._read_photo(image_file)
     character = await _call(cast_store.create_character_with_upload, ("series", series_id), name, role, description,
                             data, filename=image_file.filename, attestation=attestation, actor=who["actor"])
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 create_world_character_with_picture.allow_members = True
 
@@ -520,7 +491,7 @@ async def update_world_character(series_id: str, character_id: str, request: Cha
     cast_api._check_text(request.name, request.role, request.description)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
                             description=request.description, actor=who["actor"])
-    return {"character": cast_api._character_out(character)}
+    return {"character": await cast_api.character_seen_by(character, who["user_id"], who["is_admin"])}
 
 update_world_character.allow_members = True
 

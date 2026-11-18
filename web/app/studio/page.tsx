@@ -157,7 +157,7 @@ export default function StudioHomePage() {
                 <>
                   {' · '}
                   <button type="button" className={link} onClick={() => setChosenScope('everyone')} data-testid="scope-everyone">
-                    See everyone&apos;s videos
+                    See the shared videos
                   </button>
                 </>
               )}
@@ -230,10 +230,15 @@ export default function StudioHomePage() {
       {ready && (
         <div className="mt-12 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-[26px]">{scope === 'mine' ? 'Your episodes' : 'Everyone’s episodes'}</h2>
+            <h2 className="text-[26px]">{scope === 'mine' ? 'Your episodes' : isAdmin ? 'Everyone’s episodes' : 'All episodes you can open'}</h2>
+            {!isAdmin && (
+              <p className="text-[13px] text-ink-soft" data-testid="episodes-scope-note">
+                You see the episodes you made, the ones in your Universes and the shared ones.
+              </p>
+            )}
             <Link href="/studio/episodes" className="text-[13px] font-extrabold text-blue-deep">All episodes →</Link>
           </div>
-          <ScopeToggle scope={scope} onChange={setChosenScope} />
+          <ScopeToggle scope={scope} onChange={setChosenScope} isAdmin={isAdmin} />
         </div>
       )}
 
@@ -243,8 +248,8 @@ export default function StudioHomePage() {
           <p>Open a Universe and start a new episode in it, or pick a style and describe your idea in a few sentences.</p>
           {scope === 'mine' && othersMade && (
             <p className="mt-2">
-              Other people&apos;s videos are under{' '}
-              <button type="button" className={link} onClick={() => setChosenScope('everyone')}>Everyone</button>.
+              Other people&apos;s videos you can open are under{' '}
+              <button type="button" className={link} onClick={() => setChosenScope('everyone')}>{isAdmin ? 'Everyone' : 'All'}</button>.
             </p>
           )}
         </EmptyState>

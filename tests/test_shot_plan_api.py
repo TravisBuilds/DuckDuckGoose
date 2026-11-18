@@ -79,6 +79,7 @@ async def test_the_shot_plan_needs_a_login(studio):  # noqa: F811
     assert _shots_json()["A01"]["prompt"] == PIER
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_another_member_can_neither_see_nor_change_the_shot_plan(studio):  # noqa: F811
     before = _write_shots()
     other = _client(studio, "other")
@@ -127,6 +128,7 @@ async def test_the_owner_picks_props_and_edits_a_prompt_before_a_run(studio):  #
         ("place", "no umbrella here"), ("props", "no umbrella here")]
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_the_owner_of_another_episode_of_the_series_sees_the_plan_but_cannot_change_it(studio):  # noqa: F811
     before = _write_shots()
     owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")

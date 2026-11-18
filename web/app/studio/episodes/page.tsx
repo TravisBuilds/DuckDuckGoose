@@ -54,9 +54,14 @@ export default function EpisodesPage() {
         <div>
           <h1 className="text-[34px] sm:text-[40px]">Episodes</h1>
           <p className="text-[14px] text-ink-soft">Everything on its way and everything finished, the ones waiting for you first.</p>
+          {!isAdmin && (
+            <p className="text-[13px] text-ink-soft" data-testid="episodes-scope-note">
+              You see the episodes you made, the ones in your Universes and the shared ones.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <ScopeToggle scope={scope} onChange={setChosenScope} />
+          <ScopeToggle scope={scope} onChange={setChosenScope} isAdmin={isAdmin} />
           <Link href="/studio/create" className="pf-btn pf-btn-primary pf-btn-sm"><Icon name="plus" size={14} />New episode</Link>
         </div>
       </div>

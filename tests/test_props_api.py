@@ -143,6 +143,7 @@ async def test_props_routes_need_a_login(studio):
     assert len(_stored()) == 1 and _rows() == (1, 1)
 
 
+@pytest.mark.usefixtures("every_member_sees_every_episode")
 async def test_another_member_can_neither_change_nor_see_the_props(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     item = _added(owner)

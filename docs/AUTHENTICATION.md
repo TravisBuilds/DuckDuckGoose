@@ -43,7 +43,9 @@ Creators who make videos end-to-end. Members can:
 
 The episode writes above (uploads, start, start again, approvals, retries, reopen, set-live/set-dry,
 story shape, resync, final-cut reject) apply to **their own episodes** and to episodes without an
-owner; see [Episode ownership](#episode-ownership).
+owner; see [Episode ownership](#episode-ownership). The reads apply to the episodes they may see:
+their own, those without an owner and those in a Universe they own; see
+[Who sees an episode](#who-sees-an-episode).
 
 Members **cannot**:
 - Raise credit caps or resume balance after insufficient funds (financial controls)
@@ -85,9 +87,9 @@ episode's row (the first BEATMAP upload, the create wizard's first upload, `POST
 
 | Caller | Episode it owns | Another member's episode | Episode without an owner |
 |---|---|---|---|
-| Member session | write and approve | **403** | write and approve (old rule) |
+| Member session | write and approve | **404** (hidden, below); **403** in a Universe they own | write and approve (old rule) |
 | Admin session, `Bearer <ADMIN_SECRET>` | write and approve | write and approve | write and approve |
-| `Bearer <UPLOAD_TOKEN>` (upload route only) | — | **403** | upload |
+| `Bearer <UPLOAD_TOKEN>` (upload route only) | — | **404** (hidden) | upload |
 
 - **Without an owner** means no row yet, or a row whose `user_id` is NULL or `legacy/shared`: episodes
   created before owners were recorded, or created with a Bearer token. They keep the behaviour from
@@ -108,10 +110,62 @@ episode's row (the first BEATMAP upload, the create wizard's first upload, `POST
   `require_admin_auth`) plus `POST /api/episodes/upload` and `POST /api/episodes` (checked in the
   handler, the id is in the form/body). Routes that only report (`POST /api/episodes/{id}/preflight`)
   set `read_only = True` and are not checked.
-- Reads are unchanged: every member still lists and views every episode (a cast has its own read
-  rule, below).
+- Reads, and who gets the `403` at all, follow [Who sees an episode](#who-sees-an-episode): whoever
+  may not see the episode gets its `404` before the ownership check, so the `403` reaches only the
+  owner of the episode's Universe (who sees it but may not change it).
 - A refused write answers `403` with `Episode <id> belongs to another member; only its owner or an
   admin can change it` and changes nothing.
+
+## Who sees an episode
+
+An episode, and everything about it, is seen only by the people working on it:
+
+| Caller | Sees |
+|---|---|
+| Admin session, admin user, `Bearer <ADMIN_SECRET>` | every episode |
+| Member session | the episodes they made, every episode without an owner (every member may change those) and every episode in a Universe (series) they own |
+| `Bearer <UPLOAD_TOKEN>` (upload route only) | the episodes without an owner |
+
+- "Everything about it" is every member route with `{episode_id}` in the path (the page and run
+  state, story shape, shots, shot states, still versions, clip plans, gates, audit trail, preflight,
+  budget, credits, stalls, files and the finished video, stills, cast, props and places, shot plan,
+  Universe strip, and every write), plus `POST /api/episodes/upload` and `POST /api/episodes` for the
+  id in their form or body.
+- Whoever may not see an episode gets the `404` an episode that does not exist gets
+  (`No workflow found for episode <id>`) on all of them, reads and writes alike, and nothing changes.
+  A member's read of an episode that does not exist gets the same `404`, so a read does not tell
+  whether an episode exists.
+- A write does: a write to an id that is not taken goes on as before and answers what that route
+  answers for an episode with nothing in it yet, while a hidden episode answers the `404` before the
+  body is read. So a member who writes to an id can tell "taken by an episode I may not see" from
+  "free" (they learn nothing else about it). The upload and the start make the episode (`200`);
+  `set-dry` and taking it out of a Universe answer `200` and change no episode; a body the route
+  refuses gets `422`; a shot, character or prop it does not find, or an episode without a shot list or
+  run, gets that route's own `404`. A redo (`POST /api/episodes/{id}/shots/{shot_id}/retry`) of an
+  id without a run answers `404` `No workflow found for episode <id>` (before, a `500`).
+- Lists leave hidden episodes out entirely: `GET /api/episodes` (and so the studio home and its
+  "Continue" and "Recently finished" sections), the Universe cards and pages (`/api/worlds`,
+  `/api/worlds/{id}`), `GET /api/series`, `GET /api/series/{id}`, and an episode's cast and props
+  views (`GET /api/episodes/{id}/cast`, `GET /api/episodes/{id}/props`: the episodes of its series).
+  Counts are counted after that, so they are scoped too: a Universe's episode and finished counts,
+  `episode_count` of a series, and each character's and place's "Used in N episodes". A Universe
+  character's audit trail leaves out the entries of hidden episodes, and its sheet jobs do not name
+  them (`episode_id: null`) wherever the character or one of its versions is in an answer, the
+  answers to changes included (an episode taken out of the Universe leaves its sheet jobs on the
+  character). Admins' lists and counts, and the cost dashboard (admins only), stay complete.
+- Taking an episode out of its Universe while another episode of the Universe has a run open answers
+  `409`; the message names that episode and its run only to whoever may see it, and reads "Another
+  video of this Universe is being made right now" for everyone else.
+- One helper decides it everywhere: `cast_routes.visible_episodes` (`may_see_episode`,
+  `require_episode_visible`; for answers that carry other episodes' ids, `series_seen_by`,
+  `character_seen_by` and `version_seen_by`). The app-wide guard (`require_admin_auth`) runs it for every
+  member-allowed route with `{episode_id}` in the path, before the ownership check; the upload and the
+  start run it in their handlers. The people it lets in are those who may read the episode's prompts
+  (below), so the prompt stripping (`prompts_hidden`, `cast_hidden`) stays as a second line behind it.
+- Nobody can be invited to edit an episode yet: the people working on an episode are its owner (or
+  every member while it has no owner), the owner of its Universe, and admins. An episode made with the
+  shared admin login (`user_id` `admin`) is seen by admins only, plus the owner of its Universe if it
+  is in one.
 
 ## Cast library and series ownership
 
@@ -197,9 +251,10 @@ see a cast:
   episodes (everyone else gets the `404` a missing Universe gets); changed only by the owner or an
   admin (`403` otherwise). The story bible, style notes, saved voices, creation notes, reference
   photos and open mood boards are shown only to the owner and admins. Universe images are served only
-  by `GET /api/worlds/images/{image_id}` and `.../thumb`, under the same rule. Each episode's prompts
-  follow the prompt rule above, so whoever may change one episode of a Universe does not read the
-  prompts of its other episodes.
+  by `GET /api/worlds/images/{image_id}` and `.../thumb`, under the same rule. Each episode follows
+  [Who sees an episode](#who-sees-an-episode), so whoever may change one episode of a Universe does
+  not see its other episodes at all (nor read their prompts); its page lists and counts only the
+  episodes they may see.
 
 ## Route Permission Matrix
 
@@ -213,7 +268,7 @@ see a cast:
 
 ### Member & Admin Routes
 - `GET /api/me` - Who is signed in: `user_id`, `name`, `email`, `role` (the shared admin login has no user row: `name` `Admin`, `email` null; `Bearer <ADMIN_SECRET>` also `user_id` null)
-- `GET /api/episodes` - List all episodes, each with its owner (`user_id`, `owner_name`; null without an owner)
+- `GET /api/episodes` - List the episodes the caller may see (admins: all), each with its owner (`user_id`, `owner_name`; null without an owner)
 - `POST /api/episodes` - Start a new episode
 - `POST /api/episodes/{id}/start-again` - Start a failed or terminated run again with the same inputs
 - `GET /api/episodes/{id}` - Get episode details (why a scene picture was turned down, the failed shots' errors and the shots' full outcomes only for whoever may read the episode's prompts)
