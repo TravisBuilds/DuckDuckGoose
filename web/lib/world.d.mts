@@ -25,6 +25,8 @@ export interface UniverseCard {
   cover: { kind: string; image_id: string; url: string; thumb_url: string } | null;
   episodes: string[];
   board_status: string | null;
+  /** Owners and admins: whether the Universe's story is written (null for everyone else; absent from older APIs). */
+  story_written?: boolean | null;
 }
 
 /** A voice saved on a Universe character or as its narrator (hfvg/world_store._voice_view). */
@@ -85,6 +87,7 @@ export interface WorldPhoto extends UniverseImage {
   mime: string;
   original_filename: string | null;
   created_at: string;
+  size_note?: string | null;
 }
 
 export interface WorldBoard {
@@ -159,15 +162,65 @@ export declare const BOARD_POLL_MS: number;
 export declare function boardProgress(request: WorldBoardRequest | null | undefined): BoardProgress | null;
 export declare function boardEstimateLines(estimate: BoardEstimate | null | undefined): string[];
 
-/** The creation flow (owner and admins): references, mood boards, and what the next board may be. */
+/** The story a Universe starts from (hfvg/story_refs.story_view). */
+export interface WorldStory {
+  body: string;
+  written: boolean;
+  updated_at: string | null;
+  /** A reference list was made, and made from the story as it reads now. */
+  list_made: boolean;
+  list_current: boolean;
+  list_made_at: string | null;
+}
+
+export type ChecklistKind = 'character' | 'place' | 'prop';
+
+/** One reference the story needs (hfvg/story_refs._item_view): photos are reference photo ids. */
+export interface ChecklistItem {
+  item_id: string;
+  kind: ChecklistKind;
+  name: string;
+  why: string;
+  show: string;
+  ideal_photos: number;
+  min_photos: number;
+  optional: boolean;
+  source: 'story' | 'owner';
+  photos: string[];
+  photo_count: number;
+  ready: boolean;
+}
+
+export interface ChecklistProgress {
+  ready: number;
+  required: number;
+  optional: number;
+  optional_ready: number;
+  photos: number;
+}
+
+export interface WorldChecklist {
+  items: ChecklistItem[];
+  progress: ChecklistProgress;
+}
+
+/** The creation flow (owner and admins): the story and its reference list, references, mood boards,
+ * and what the next board may be. ``story`` and ``checklist`` are absent from APIs before stories. */
 export interface WorldCreation {
+  story?: WorldStory;
+  checklist?: WorldChecklist;
+  item_kinds?: ChecklistKind[];
   notes: WorldNote[];
   photos: WorldPhoto[];
   boards: WorldBoard[];
   board: { available: boolean; image_count: number; dry_run: boolean; unavailable: string | null };
   board_request: WorldBoardRequest | null;
   topics: string[];
-  limits: { max_notes: number; note_max: number; max_photos: number; caption_max: number; feedback_max: number };
+  limits: {
+    max_notes: number; note_max: number; max_photos: number; caption_max: number; feedback_max: number;
+    story_max?: number; story_min?: number; max_items?: number; max_photos_per_item?: number;
+    item_name_max?: number; why_max?: number;
+  };
 }
 
 /** GET /api/worlds/{id}. */
@@ -181,6 +234,8 @@ export interface WorldView {
   limits: {
     max_upload_bytes: number;
     min_image_px: number;
+    small_image_px?: number;
+    sharpen_below_px?: number;
     formats: string[];
     max_uploads_per_version: number;
     max_characters: number;
@@ -260,6 +315,7 @@ export interface StartRequest {
 }
 
 export declare function pendingStartKey(episodeId: string): string;
+export declare function startRequest(body: unknown, episodeId: string): StartRequest | null;
 export declare function pendingStart(text: string | null | undefined, episodeId: string): StartRequest | null;
 
 /** GET /api/episodes/{id}/universe. */
@@ -267,6 +323,8 @@ export interface EpisodeUniverse {
   episode_id: string;
   owner: { user_id: string | null; name: string | null };
   can_act: boolean;
+  /** The start the wizard kept for the episode's Start card (only for a caller who may act on it). */
+  kept_start?: StartRequest | null;
   /** null: the caller may not see this episode's cast. */
   linked: boolean | null;
   universe: { series_id: string; name: string } | null;

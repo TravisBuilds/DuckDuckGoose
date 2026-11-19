@@ -11,9 +11,10 @@ One run:
      (idempotent; a committed job is never released).
    - still running -> left pending for the next scheduled run.
    Character sheet jobs (``castsheet-...``) are settled by ``reconcile_cast_sheet_job_activity``
-   instead (same commit/release rules; the image goes to the cast library, not to a shot), and live
+   instead (same commit/release rules; the image goes to the cast library, not to a shot), live
    mood board pictures (``uboard-...``) by ``reconcile_universe_board_job_activity`` (the picture
-   stays with its board request).
+   stays with its board request) and first frame options (``cframe-...``) by
+   ``reconcile_concept_frame_job_activity`` (the picture stays with its round).
 3. Late assets whose landing failed earlier are re-landed (no re-poll, no second commit).
 
 Schedule: :func:`ensure_reconcile_schedule` creates/updates the Temporal Schedule
@@ -31,6 +32,7 @@ from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from hfvg.activities.cast_sheet import reconcile_cast_sheet_job_activity
+    from hfvg.activities.concept_frame import reconcile_concept_frame_job_activity
     from hfvg.activities.credit_activities import commit_credits_activity, release_credits_activity
     from hfvg.activities.reconcile import (
         MAX_LAND_ATTEMPTS,
@@ -105,6 +107,16 @@ class ReconcilePendingJobsWorkflow:
                     if outcome != "still_pending":
                         await workflow.execute_activity(
                             record_reconcile_outcome, args=[job, outcome, "mood board"],
+                            start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
+                    continue
+                if job["job_type"] == "concept_frame":
+                    outcome = await workflow.execute_activity(
+                        reconcile_concept_frame_job_activity, job,
+                        start_to_close_timeout=timedelta(minutes=5), retry_policy=quick)
+                    summary[outcome] += 1
+                    if outcome != "still_pending":
+                        await workflow.execute_activity(
+                            record_reconcile_outcome, args=[job, outcome, "first frame"],
                             start_to_close_timeout=timedelta(seconds=30), retry_policy=quick)
                     continue
                 status = await workflow.execute_activity(

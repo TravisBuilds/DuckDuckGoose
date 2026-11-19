@@ -10,7 +10,8 @@ import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { btnGo, btnPrimary, btnSecondary, card, input, link, tones } from '@/lib/ui';
 import {
-  pendingStart, pendingStartKey, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem, type UniverseCard,
+  pendingStart, pendingStartKey, startRequest, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem,
+  type UniverseCard,
 } from '@/lib/world.mjs';
 
 function problemText(e: unknown): string {
@@ -225,7 +226,8 @@ export function LockGateCard({ info }: { info: EpisodeUniverse }) {
   );
 }
 
-function keptStart(episodeId: string): StartRequest | null {
+/** A start an earlier wizard kept in this browser (before the studio kept them), or null. */
+function startKeptHere(episodeId: string): StartRequest | null {
   if (typeof window === 'undefined') return null;
   try {
     return pendingStart(window.localStorage.getItem(pendingStartKey(episodeId)), episodeId);
@@ -234,19 +236,35 @@ function keptStart(episodeId: string): StartRequest | null {
   }
 }
 
+/** Whether an earlier wizard left a start for this episode in this browser. */
+export function hasStartKeptHere(episodeId: string): boolean {
+  return startKeptHere(episodeId) !== null;
+}
+
+/** "2 of 5 shots start from a frame you picked", or how to pick them, under the start button. */
+function framesLine(frames: { picked: number; shots: number }): string {
+  if (frames.picked === 0) return 'The studio makes each shot\u2019s first frame while filming, or you can pick them first.';
+  if (frames.picked === frames.shots) return 'Every shot starts from a frame you picked.';
+  return `${frames.picked} of ${frames.shots} shots start from a frame you picked. The studio makes the others while filming.`;
+}
+
 /**
- * Starts an episode in a Universe that has not started yet (the wizard leaves it here while a look is
- * not locked). The start waits until every character it uses has a locked look; it sends the request
- * the wizard kept, else a free test run.
+ * Starts an episode the wizard left on its page before it started: in a Universe until every character
+ * it uses has a locked look, or so its owner can pick its first frames. The start waits for the locks;
+ * it sends the request the wizard kept in the studio (on any device), else one an earlier wizard kept
+ * in this browser, else a free test run.
  */
-export function StartCard({ episodeId, info, onStarted }: {
-  episodeId: string; info: EpisodeUniverse; onStarted: () => Promise<void> | void;
+export function StartCard({ episodeId, info, frames = null, onStarted }: {
+  episodeId: string; info: EpisodeUniverse; frames?: { picked: number; shots: number } | null;
+  onStarted: () => Promise<void> | void;
 }) {
-  const [kept] = useState<StartRequest | null>(() => keptStart(episodeId));
+  const [keptHere] = useState<StartRequest | null>(() => startKeptHere(episodeId));
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const unlocked = info.lock?.unlocked ?? [];
-  const request: StartRequest = kept ?? { episode_id: episodeId, dry_run: true, enable_story_shaping: true };
+  const inUniverse = Boolean(info.universe);
+  const unlocked = inUniverse ? info.lock?.unlocked ?? [] : [];
+  const request: StartRequest = startRequest(info.kept_start, episodeId) ?? keptHere
+    ?? { episode_id: episodeId, dry_run: true, enable_story_shaping: true };
 
   const start = async () => {
     setBusy(true);
@@ -275,7 +293,7 @@ export function StartCard({ episodeId, info, onStarted }: {
       </div>
       {locked && (
         <p className="mt-2 text-[14px]" data-testid="start-ready">
-          Every character in it has a locked look, so it can start.
+          {inUniverse ? 'Every character in it has a locked look, so it can start.' : 'It waits here until you start it.'}
         </p>
       )}
       <PriceBlock className="mt-3" total={request.dry_run ? 'Free' : 'Live run'} status={request.dry_run ? 'Test run' : 'Priced when you made it'}
@@ -290,9 +308,15 @@ export function StartCard({ episodeId, info, onStarted }: {
       </PriceBlock>
       <GateChecklist className="mt-3" testId="start-checklist" items={[
         { key: 'price', label: request.dry_run ? 'Free test run' : 'Price confirmed when you made it', done: true },
-        { key: 'locked', label: 'Every character locked', done: locked,
-          detail: locked ? null : `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` },
+        ...(inUniverse ? [{ key: 'locked', label: 'Every character locked', done: locked,
+          detail: locked ? null : `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` }] : []),
       ]} />
+      {frames && frames.shots > 0 && (
+        <p className="mt-3 text-[13px]" data-testid="start-frames">
+          {framesLine(frames)}{' '}
+          {frames.picked < frames.shots && <a href="#first-frames" className={link}>Go to First frames</a>}
+        </p>
+      )}
       <button type="button" className={`${btnGo} mt-3 w-full`} disabled={busy || !locked} onClick={start}
         title={locked ? undefined : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
         aria-describedby="start-episode-why" data-testid="start-episode">

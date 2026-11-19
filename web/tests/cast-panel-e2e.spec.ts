@@ -103,13 +103,30 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await expect(page.getByTestId('cast-source-text-mara')).toBeChecked();
   await expect(page.getByTestId('cast-source-upload-mara')).toBeDisabled();
 
-  // --- pictures: the rights answer is required, a small picture is refused with the reason ---
+  // --- pictures: the rights answer is required; a small picture gets a plain note, and one under 128 px
+  // is refused with the reason, before it is sent and by the API ---
   await page.getByTestId('cast-upload-file-mara').setInputFiles({
     name: 'small.png', mimeType: 'image/png', buffer: testPicture(200, 200) });
+  await expect(page.getByTestId('cast-upload-size-mara')).toHaveText(
+    "Very small image: we'll sharpen it up, but a bigger one will look sharper.");
   await expect(page.getByTestId('cast-upload-send-mara')).toBeDisabled();
   await page.getByTestId('cast-rights-original-mara').check();
-  await page.getByTestId('cast-upload-send-mara').click();
-  await expect(message).toContainText('at least 512 px');
+  await expect(page.getByTestId('cast-upload-send-mara')).toBeEnabled();
+  await page.getByTestId('cast-upload-file-mara').setInputFiles({
+    name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) });
+  await expect(page.getByTestId('cast-upload-mara')).toContainText(
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
+  await expect(page.getByTestId('cast-upload-size-mara')).toHaveCount(0);
+  await expect(page.getByTestId('cast-upload-send-mara')).toBeDisabled();
+  const maraId = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/cast`)).json()).characters[0].character_id;
+  const tiny = await page.request.post(`${API}/api/episodes/${EPISODE}/cast/${maraId}/versions/1/images`, {
+    multipart: {
+      image_file: { name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) },
+      rights: 'original', depicts_real_person: 'false', likeness_consent: 'false',
+    },
+  });
+  expect(tiny.status()).toBe(400);
+  expect(await tiny.text()).toContain('The image is 100x100 px; each side must be at least 128 px: choose a bigger one');
 
   await page.getByTestId('cast-upload-file-mara').setInputFiles({
     name: 'mara.png', mimeType: 'image/png', buffer: testPicture(640, 800) });
@@ -202,11 +219,31 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await page.getByTestId('cast-add-role').fill('the lead');
   await page.getByTestId('cast-add-description').fill(
     'a small boy with curly red hair, a striped blue jumper, grey shorts and yellow wellies');
+  await expect(page.getByTestId('cast-add-size-note')).toHaveText(
+    "Very small image: we'll sharpen it up, but a bigger one will look sharper.");
   await expect(page.getByTestId('cast-add-photo-problem')).toContainText('whose picture this is');
   await expect(page.getByTestId('cast-add-with-photo')).toBeDisabled();
   await page.getByTestId('cast-add-rights-original').check();
-  await page.getByTestId('cast-add-with-photo').click();
-  await expect(message).toContainText('at least 512 px');
+  await expect(page.getByTestId('cast-add-with-photo')).toBeEnabled();
+  // one under 128 px is refused with the reason, before it is sent and by the API, and adds no one
+  await page.getByTestId('cast-add-file').setInputFiles({
+    name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) });
+  await expect(page.getByTestId('cast-add')).toContainText(
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
+  await expect(page.getByTestId('cast-add-size-note')).toHaveCount(0);
+  await expect(page.getByTestId('cast-add-with-photo')).toBeDisabled();
+  const tinyTheo = await page.request.post(`${API}/api/episodes/${EPISODE}/cast/with-picture`, {
+    multipart: {
+      image_file: { name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) },
+      name: 'Theo', role: 'the lead', description: 'a small boy with curly red hair',
+      rights: 'original', depicts_real_person: 'false', likeness_consent: 'false',
+    },
+  });
+  expect(tinyTheo.status()).toBe(400);
+  expect(await tinyTheo.text()).toContain('The image is 100x100 px; each side must be at least 128 px: choose a bigger one');
+  const slugs = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/cast`)).json())
+    .characters.map((c: { slug: string }) => c.slug);
+  expect(slugs).not.toContain('theo');
   await expect(page.getByTestId('cast-character-theo')).toHaveCount(0);
 
   await page.getByTestId('cast-add-file').setInputFiles({

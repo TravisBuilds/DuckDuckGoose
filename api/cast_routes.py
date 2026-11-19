@@ -88,6 +88,24 @@ def _usd(micros: int) -> str:
     return f"${micros / 1_000_000:.2f}"
 
 
+def _usd_places(micros: int, places: int) -> str:
+    unit = 10 ** (6 - places)
+    whole, rest = divmod(micros, unit)
+    whole += 2 * rest >= unit
+    return f"${whole // 10 ** places}.{whole % 10 ** places:0{places}d}"
+
+
+def _price_above(total: int, approved: int) -> str:
+    """A new price and the one approved, each with the fewest decimals (two to four) that tell them
+    apart: "$0.183 (you approved $0.180)", never "$0.18" twice. Four decimals at most: when they still
+    read the same, the words say so: "$0.1800, just over what you approved ($0.1800)"."""
+    for places in (2, 3, 4):
+        now, then = _usd_places(total, places), _usd_places(approved, places)
+        if now != then or total <= approved:
+            return f"{now} (you approved {then})"
+    return f"{now}, just over what you approved ({then})"
+
+
 # ------------------------------------------------------------------------------------- auth
 
 
@@ -234,6 +252,7 @@ def _image_out(image: dict) -> dict:
                                      "job_id", "original_filename", "attestation", "created_by", "created_at")}
     out["url"] = f"/api/cast/images/{image['image_id']}"
     out["thumb_url"] = f"/api/cast/images/{image['image_id']}/thumb"
+    out["size_note"] = cast_store.size_note(image.get("width"), image.get("height")) if image.get("role") == "upload" else None
     return out
 
 
@@ -587,7 +606,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
         "prompts_hidden": prompts_hidden,
         "still_max_refs": await asyncio.to_thread(_still_cap),
         "sheet": await asyncio.to_thread(_sheet_info, await _live_mode(episode_id)),
-        "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), "min_image_px": cast_store.min_image_px(),
+        "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), **cast_store.size_limits(),
                    "formats": ["PNG", "JPEG", "WebP"], "max_uploads_per_version": cast_store.MAX_UPLOADS_PER_VERSION,
                    "max_characters": cast_store.MAX_CHARACTERS_PER_LIBRARY, "max_cast_per_shot": MAX_CAST_PER_SHOT},
         "attestation": {"rights": list(cast_store.RIGHTS_VALUES), "likeness_gate": cast_store.LIKENESS_CONSENT},
@@ -982,7 +1001,7 @@ async def generate_sheet(episode_id: str, character_id: str, version: int, reque
     approved = request.approved_total_usd_micros
     if total > approved:
         raise HTTPException(status_code=409, detail=(
-            f"The estimate is now {_usd(total)} (you approved {_usd(approved)}); review it and approve again"))
+            f"The estimate is now {_price_above(total, approved)}; review it and approve again"))
     if not dry:
         from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
         passed, reason = await BalanceMonitor(api.DATABASE_PATH).check_preflight_balance(

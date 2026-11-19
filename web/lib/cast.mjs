@@ -58,6 +58,36 @@ export function pictureProblem(file, maxBytes) {
   return null;
 }
 
+export const SMALL_PICTURE_NOTE = "Small image, we'll sharpen it up.";
+export const VERY_SMALL_PICTURE_NOTE = "Very small image: we'll sharpen it up, but a bigger one will look sharper.";
+
+/**
+ * What a picture's width and height mean (hfvg/cast_store.py size_note): a problem under the
+ * smallest size the studio keeps (min_image_px), a plain note when the studio will sharpen it up for
+ * the models (short side under sharpen_below_px), else nothing. Unknown sizes are left to the API.
+ */
+export function pictureSizeCheck(width, height, limits) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return { problem: null, note: null };
+  const short = Math.min(w, h);
+  const floor = limits?.min_image_px ?? 128;
+  if (short < floor) {
+    return {
+      problem: `This picture is ${w}x${h} px; pictures need at least ${floor} px on each side. Choose a bigger one.`,
+      note: null,
+    };
+  }
+  if (short >= (limits?.sharpen_below_px ?? 512)) return { problem: null, note: null };
+  return { problem: null, note: short < (limits?.small_image_px ?? 256) ? VERY_SMALL_PICTURE_NOTE : SMALL_PICTURE_NOTE };
+}
+
+/** The line under a picture upload: the formats, the largest file, and that small pictures are fine. */
+export function pictureHint(limits) {
+  const max = limits?.max_upload_bytes ? `, up to ${megabytes(limits.max_upload_bytes)}` : '';
+  return `PNG, JPG or WebP${max}. Small pictures are fine from ${limits?.min_image_px ?? 128} px: we sharpen them up.`;
+}
+
 export function emptyRights() {
   return { rights: '', realPerson: false, likenessConsent: false };
 }

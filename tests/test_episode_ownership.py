@@ -47,6 +47,7 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/set-dry"),
     ("POST", "/api/episodes/{ep}/final-cut/reject"),
     ("POST", "/api/episodes/{ep}/start-again"),
+    ("POST", "/api/episodes/{ep}/kept-start"),
     # cast library (api/cast_routes.py): a series cast also needs the series' owner (test_cast_api.py)
     ("POST", "/api/episodes/{ep}/series"),
     ("POST", "/api/episodes/{ep}/cast"),
@@ -74,6 +75,11 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/primary"),
     ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/delete"),
     ("POST", "/api/episodes/{ep}/shot-plan"),
+    # first frames (api/concept_frame_routes.py)
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/estimate"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/pick"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/unpick"),
 ]
 # The writes whose episode id is in the form / body check ownership in the handler.
 BODY_WRITES = [("POST", "/api/episodes/upload"), ("POST", "/api/episodes")]
@@ -112,6 +118,10 @@ WORLD_WRITES = [
     ("POST", "/api/worlds/{series_id}/notes/{note_id}/delete"),
     ("POST", "/api/worlds/{series_id}/photos"),
     ("POST", "/api/worlds/{series_id}/photos/{image_id}/delete"),
+    ("POST", "/api/worlds/{series_id}/story"),
+    ("POST", "/api/worlds/{series_id}/checklist"),
+    ("POST", "/api/worlds/{series_id}/checklist/items"),
+    ("POST", "/api/worlds/{series_id}/checklist/items/{item_id}/delete"),
     ("POST", "/api/worlds/{series_id}/board/estimate"),
     ("POST", "/api/worlds/{series_id}/board"),
     ("POST", "/api/worlds/{series_id}/board/{board_id}/approve"),
@@ -429,6 +439,8 @@ WORLD_BODIES = {
     "/api/worlds/{series_id}/props/{prop_id}": {"name": "Long pier"},
     "/api/worlds/{series_id}/notes": {"topic": "tone", "body": "Quiet and warm"},
     "/api/worlds/{series_id}/notes/{note_id}": {"body": "Quieter"},
+    "/api/worlds/{series_id}/story": {"body": "Wren keeps the lamps of the old lighthouse and finds a brass key."},
+    "/api/worlds/{series_id}/checklist/items": {"kind": "prop", "name": "Oar"},
     "/api/worlds/{series_id}/board/estimate": {"feedback": "warmer light"},
     "/api/worlds/{series_id}/board": {"feedback": "warmer light", "approved_total_usd_micros": 10**9},
 }
@@ -437,7 +449,8 @@ WORLD_BODIES = {
 @pytest.fixture
 def universe(studio, tmp_path, monkeypatch):
     """A Universe owned by OWNER with a character (an upload), a place (a photo), a note, a
-    reference photo and a mood board waiting for approval; the ids the write routes take."""
+    reference photo, a story with an item on its reference list and a mood board waiting for
+    approval; the ids the write routes take."""
     from hfvg import world_store
     from tests.cast_helpers import image_bytes
     monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
@@ -454,12 +467,14 @@ def universe(studio, tmp_path, monkeypatch):
     note = owner.post(f"{base}/notes", json={"topic": "premise", "body": "Lanterns that hum"}).json()["note"]
     ref = owner.post(f"{base}/photos", data=png,
                      files={"image_file": ("r.png", io.BytesIO(image_bytes(seed=3)), "image/png")}).json()["photo"]
+    owner.post(f"{base}/story", json={"body": "Wren mends the nets in the harbour town every morning."})
+    item = owner.post(f"{base}/checklist/items", json={"kind": "character", "name": "Wren"}).json()["item"]
     total = owner.post(f"{base}/board/estimate", json={}).json()["total_usd_micros"]
     board = owner.post(f"{base}/board", json={"approved_total_usd_micros": total}).json()["board"]
     ids = {"series_id": sid, "character_id": wren["character_id"], "version": 1,
            "image_id": wren["versions"][0]["images"][0]["image_id"], "prop_id": pier["prop_id"],
            "photo_id": pier["photos"][0]["image_id"], "note_id": note["note_id"], "reference_id": ref["image_id"],
-           "board_id": board["board_id"]}
+           "board_id": board["board_id"], "item_id": item["item_id"]}
     assert all(ids.values()) and world_store.list_boards(sid)[0]["status"] == "ready"
     return ids
 
@@ -470,7 +485,8 @@ def _world_write(client, path: str, ids: dict):
     image = (ids["photo_id"] if "/props/" in path else ids["reference_id"]
              if path.startswith("/api/worlds/{series_id}/photos/") else ids["image_id"])
     url = path.format(series_id=ids["series_id"], character_id=ids["character_id"], version=1, image_id=image,
-                      prop_id=ids["prop_id"], note_id=ids["note_id"], board_id=ids["board_id"])
+                      prop_id=ids["prop_id"], note_id=ids["note_id"], board_id=ids["board_id"],
+                      item_id=ids["item_id"])
     files = {"image_file": ("new.png", io.BytesIO(image_bytes(seed=77)), "image/png")}
     if path.endswith("/with-picture"):
         return client.post(url, data={"rights": "original", "name": "Moss"}, files=files)
@@ -482,7 +498,7 @@ def _world_write(client, path: str, ids: dict):
 
 
 def _universe_state(sid: str) -> str:
-    from hfvg import cast_store, prop_store, world_store
+    from hfvg import cast_store, prop_store, story_refs, world_store
     characters = cast_store.list_characters(("series", sid))
     return json.dumps({
         "profile": world_store.get_profile(sid),
@@ -492,6 +508,8 @@ def _universe_state(sid: str) -> str:
         "notes": world_store.list_notes(sid),
         "photos": world_store.list_reference_photos(sid),
         "boards": world_store.list_boards(sid, with_prompt=True),
+        "story": story_refs.get_story(sid),
+        "checklist": story_refs.checklist(sid),
     }, sort_keys=True, default=str)
 
 

@@ -35,7 +35,14 @@ from hfvg.paths import data_dir
 
 ALLOWED_FORMATS = {"PNG": ("png", "image/png"), "JPEG": ("jpg", "image/jpeg"), "WEBP": ("webp", "image/webp")}
 DEFAULT_MAX_BYTES = 15 * 1024 * 1024
-DEFAULT_MIN_PX = 512
+# The short side below which a picture is refused as unusable. Pictures from here up to
+# SHARPEN_BELOW_PX are accepted with a plain note, and upscaled before a model sees them
+# (hfvg.image_normalize, REF_MIN_SHORT_SIDE).
+DEFAULT_MIN_PX = 128
+SMALL_IMAGE_PX = 256
+SHARPEN_BELOW_PX = 512
+SMALL_IMAGE_NOTE = "Small image, we'll sharpen it up."
+VERY_SMALL_IMAGE_NOTE = "Very small image: we'll sharpen it up, but a bigger one will look sharper."
 MAX_PIXELS = 40_000_000
 MAX_UPLOADS_PER_VERSION = 12
 MAX_CHARACTERS_PER_LIBRARY = 40
@@ -110,6 +117,26 @@ def min_image_px() -> int:
     return _env_int("CAST_MIN_IMAGE_PX", DEFAULT_MIN_PX)
 
 
+def sharpen_below_px() -> int:
+    """The short side under which a reference is upscaled for the models (the normalizer's REF_MIN_SHORT_SIDE)."""
+    return _env_int("REF_MIN_SHORT_SIDE", SHARPEN_BELOW_PX)
+
+
+def size_note(width: Any, height: Any) -> str | None:
+    """The plain note for an accepted picture whose short side is under sharpen_below_px(), else None."""
+    if isinstance(width, bool) or isinstance(height, bool) or not isinstance(width, int) or not isinstance(height, int):
+        return None
+    short = min(width, height)
+    if short <= 0 or short >= sharpen_below_px():
+        return None
+    return VERY_SMALL_IMAGE_NOTE if short < SMALL_IMAGE_PX else SMALL_IMAGE_NOTE
+
+
+def size_limits() -> dict:
+    """The picture size limits the upload forms show."""
+    return {"min_image_px": min_image_px(), "small_image_px": SMALL_IMAGE_PX, "sharpen_below_px": sharpen_below_px()}
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -125,12 +152,15 @@ def _env_int(name: str, default: int) -> int:
 
 @contextmanager
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the cast, props and universe tables present (the migrations run if this DB
-    never had them)."""
+    """A connection with the cast, props, universe, concept frame and kept start tables present (the
+    migrations run if this DB never had them)."""
     from hfvg.migrations import (
         apply_cast_library_sync,
+        apply_concept_frames_sync,
+        apply_kept_starts_sync,
         apply_props_library_sync,
         apply_universe_board_sync,
+        apply_universe_story_sync,
         apply_universe_sync,
     )
     target = path or db_path()
@@ -143,6 +173,9 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_props_library_sync(conn)
         apply_universe_sync(conn)
         apply_universe_board_sync(conn)
+        apply_universe_story_sync(conn)
+        apply_concept_frames_sync(conn)
+        apply_kept_starts_sync(conn)
         yield conn
     finally:
         conn.close()
@@ -614,7 +647,7 @@ def inspect_image(data: bytes, *, max_bytes: int | None = None, min_px: int | No
     except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
         raise CastError(damaged) from None
     if min(width, height) < min_px:
-        raise CastError(f"The image is {width}x{height} px; each side must be at least {min_px} px")
+        raise CastError(f"The image is {width}x{height} px; each side must be at least {min_px} px: choose a bigger one")
     ext, mime = ALLOWED_FORMATS[fmt]
     return {"format": fmt, "ext": ext, "mime": mime, "width": width, "height": height, "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest()}
@@ -833,14 +866,16 @@ def delete_image(image_id: str, actor: str | None = None, *, character_id: str |
 
 
 def file_in_use(conn, sha256: str) -> bool:
-    """A cast picture, a prop/place photo, a Universe reference photo, a mood board image or a
-    picture a live mood board job made still uses the stored file (they share the image store)."""
+    """A cast picture, a prop/place photo, a Universe reference photo, a mood board image, a
+    picture a live mood board job made or a first-frame option still uses the stored file (they
+    share the image store)."""
     return conn.execute("SELECT 1 FROM cast_images WHERE sha256 = ? UNION ALL "
                         "SELECT 1 FROM prop_images WHERE sha256 = ? UNION ALL "
                         "SELECT 1 FROM universe_photos WHERE sha256 = ? UNION ALL "
                         "SELECT 1 FROM universe_board_images WHERE sha256 = ? UNION ALL "
-                        "SELECT 1 FROM universe_board_jobs WHERE sha256 = ? LIMIT 1",
-                        (sha256, sha256, sha256, sha256, sha256)).fetchone() is not None
+                        "SELECT 1 FROM universe_board_jobs WHERE sha256 = ? UNION ALL "
+                        "SELECT 1 FROM concept_frame_options WHERE sha256 = ? LIMIT 1",
+                        (sha256, sha256, sha256, sha256, sha256, sha256)).fetchone() is not None
 
 
 def _remove_unreferenced_file(conn, sha256: str, ext: str) -> bool:

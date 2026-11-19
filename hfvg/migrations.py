@@ -13,6 +13,18 @@
 - universe board requests (``UNIVERSE_BOARD_MIGRATION``, docs/WORLDS.md): a live mood board the
   worker is making (or failed to make) and its paid picture jobs. The board itself lands in the
   universe tables when the request ends with at least one picture made. New tables only.
+- universe story (``UNIVERSE_STORY_MIGRATION``, docs/WORLDS.md): the story a Universe starts from,
+  the reference checklist read from it (each character, place and prop with why it is needed and how
+  many photos) and which reference photos belong to which item. New tables only; a Universe without
+  a story reads as one made before stories (notes and photos only).
+- concept frames (``CONCEPT_FRAMES_MIGRATION``, docs/CONCEPT-FRAMES.md): the rounds of first-frame
+  options made for an episode's shots before filming, each option (a paid still job in live mode)
+  and the option picked as the shot's start frame. New tables only; an episode without them has no
+  first frames and runs as before.
+- kept starts (``KEPT_STARTS_MIGRATION``, docs/CREATION-FLOW-FIXES.md): the start request the new
+  video wizard keeps for an episode that waits on its page (for its first frames or a Universe lock),
+  so its Start card works on any device. A new table only; an episode without a row has nothing kept
+  (the page still reads a start an older wizard kept in the browser).
 """
 
 import sqlite3
@@ -358,6 +370,137 @@ UNIVERSE_BOARD_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_universe_board_jobs_sha ON universe_board_jobs(sha256)",
 )
 
+UNIVERSE_STORY_MIGRATION = "2026-11-universe-story-v1"
+
+UNIVERSE_STORY_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS universe_stories (
+        series_id TEXT PRIMARY KEY REFERENCES series(series_id),
+        body TEXT NOT NULL DEFAULT '',
+        list_story_sha TEXT,
+        list_made_at TEXT,
+        updated_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS universe_checklist_items (
+        item_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        kind TEXT NOT NULL CHECK (kind IN ('character', 'place', 'prop')),
+        name TEXT NOT NULL,
+        why TEXT NOT NULL DEFAULT '',
+        show TEXT NOT NULL DEFAULT '',
+        ideal_photos INTEGER NOT NULL CHECK (ideal_photos BETWEEN 1 AND 6),
+        min_photos INTEGER NOT NULL CHECK (min_photos BETWEEN 0 AND 6),
+        optional INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('story', 'owner')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'removed')),
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_checklist_items_series ON universe_checklist_items(series_id, position)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_checklist_photos (
+        item_id TEXT NOT NULL REFERENCES universe_checklist_items(item_id),
+        image_id TEXT NOT NULL REFERENCES universe_photos(image_id),
+        added_by TEXT,
+        added_at TEXT NOT NULL,
+        PRIMARY KEY (item_id, image_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_checklist_photos_image ON universe_checklist_photos(image_id)",
+)
+
+CONCEPT_FRAMES_MIGRATION = "2026-11-concept-frames-v1"
+
+CONCEPT_FRAMES_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS concept_frame_sets (
+        set_id TEXT PRIMARY KEY,
+        episode_id TEXT NOT NULL,
+        shot_id TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('making', 'ready', 'partial', 'failed')),
+        changes TEXT NOT NULL DEFAULT '[]',
+        prompt TEXT NOT NULL,
+        brief_sha TEXT NOT NULL,
+        adapter TEXT NOT NULL,
+        model_path TEXT NOT NULL,
+        aspect_ratio TEXT NOT NULL,
+        option_count INTEGER NOT NULL CHECK (option_count BETWEEN 1 AND 4),
+        dry_run INTEGER NOT NULL,
+        estimate_usd_micros INTEGER NOT NULL,
+        approved_total_usd_micros INTEGER NOT NULL,
+        workflow_id TEXT,
+        error TEXT,
+        requested_by TEXT,
+        created_at TEXT NOT NULL,
+        finished_at TEXT,
+        UNIQUE (episode_id, shot_id, round)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_concept_frame_sets_shot ON concept_frame_sets(episode_id, shot_id, round)",
+    """
+    CREATE TABLE IF NOT EXISTS concept_frame_options (
+        option_id TEXT PRIMARY KEY,
+        set_id TEXT NOT NULL REFERENCES concept_frame_sets(set_id),
+        position INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'refused',
+                                               'pending_reconcile', 'skipped')),
+        estimated_usd_micros INTEGER,
+        approved_usd_micros INTEGER,
+        sha256 TEXT,
+        ext TEXT,
+        mime TEXT,
+        width INTEGER,
+        height INTEGER,
+        bytes INTEGER,
+        placeholder INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (set_id, position)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_concept_frame_options_sha ON concept_frame_options(sha256)",
+    """
+    CREATE TABLE IF NOT EXISTS concept_frame_picks (
+        pick_id TEXT PRIMARY KEY,
+        episode_id TEXT NOT NULL,
+        shot_id TEXT NOT NULL,
+        option_id TEXT NOT NULL REFERENCES concept_frame_options(option_id),
+        path TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        brief_sha TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('current', 'replaced', 'removed')),
+        picked_by TEXT,
+        picked_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_concept_frame_picks_shot ON concept_frame_picks(episode_id, shot_id)",
+)
+
+KEPT_STARTS_MIGRATION = "2026-11-kept-starts-v1"
+
+KEPT_STARTS_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS episode_kept_starts (
+        episode_id TEXT PRIMARY KEY,
+        request TEXT NOT NULL,
+        kept_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -490,6 +633,22 @@ def apply_universe_board_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
 
 
+def apply_universe_story_sync(conn: sqlite3.Connection) -> bool:
+    """The universe story migration on an open sqlite3 connection (after the universe migration,
+    whose tables it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, UNIVERSE_STORY_MIGRATION, UNIVERSE_STORY_SQL)
+
+
+def apply_concept_frames_sync(conn: sqlite3.Connection) -> bool:
+    """The concept frames migration on an open sqlite3 connection, as apply_cast_library_sync."""
+    return _apply_sync(conn, CONCEPT_FRAMES_MIGRATION, CONCEPT_FRAMES_SQL)
+
+
+def apply_kept_starts_sync(conn: sqlite3.Connection) -> bool:
+    """The kept starts migration on an open sqlite3 connection, as apply_cast_library_sync."""
+    return _apply_sync(conn, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -510,6 +669,21 @@ async def migrate_universe_board(db_path: str) -> bool:
     return await _apply(db_path, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
 
 
+async def migrate_universe_story(db_path: str) -> bool:
+    """The universe story and reference checklist tables (UNIVERSE_STORY_MIGRATION); True when it ran now."""
+    return await _apply(db_path, UNIVERSE_STORY_MIGRATION, UNIVERSE_STORY_SQL)
+
+
+async def migrate_concept_frames(db_path: str) -> bool:
+    """The concept frame tables (CONCEPT_FRAMES_MIGRATION); True when it ran now."""
+    return await _apply(db_path, CONCEPT_FRAMES_MIGRATION, CONCEPT_FRAMES_SQL)
+
+
+async def migrate_kept_starts(db_path: str) -> bool:
+    """The kept start table (KEPT_STARTS_MIGRATION); True when it ran now."""
+    return await _apply(db_path, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
@@ -517,3 +691,6 @@ async def run_all_migrations(db_path: str):
     await migrate_props_library(db_path)
     await migrate_universe(db_path)
     await migrate_universe_board(db_path)
+    await migrate_universe_story(db_path)
+    await migrate_concept_frames(db_path)
+    await migrate_kept_starts(db_path)

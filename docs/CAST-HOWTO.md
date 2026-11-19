@@ -30,7 +30,9 @@ Under the character, choose a picture and answer **Whose picture is this?**:
 
 Then press **Upload picture**. What works:
 
-- PNG, JPG or WebP, at least 512 pixels on each side, up to 15 MB (your studio may set other limits).
+- PNG, JPG or WebP, up to 15 MB (your studio may set other limits). Small pictures are fine: from
+  128 pixels on each side. Under 512 pixels you see "Small image, we'll sharpen it up" and the studio
+  sharpens it up for the models; your file stays as it is.
 - A clear, full-body picture on a plain background works best. The first picture becomes the
   **Main picture**; **Make main** changes it.
 - Your pictures are private: only the people working on this video (and admins) can see them. See
@@ -103,7 +105,7 @@ More about photos:
 
 - **Add another photo** adds another angle or a close-up. **Use as main** picks the photo the studio
   uses first.
-- Photos follow the rules for cast pictures: PNG, JPG or WebP, at least 512 pixels on each side, up
+- Photos follow the rules for cast pictures: PNG, JPG or WebP, at least 128 pixels on each side, up
   to 15 MB. Real people need their permission.
 - Photos are private (see [Who can see and change a cast](#who-can-see-and-change-a-cast)).
 - In a series, every video of the series shares its props and places.
@@ -137,7 +139,8 @@ admin) can change it.
 
 | You see | What to do |
 | --- | --- |
-| "each side must be at least 512 px" | Use a bigger picture. |
+| "each side must be at least 128 px" | Use a bigger picture. |
+| "Small image, we'll sharpen it up" | Nothing: the picture is kept. A bigger one looks sharper. |
 | "not a readable PNG, JPG or WebP image" | The file is damaged or another type. Export it again as PNG or JPG. |
 | "That file is too large" | Save a smaller copy (under 15 MB). |
 | "Confirm the image is yours to use" | Answer **Whose picture is this?** before uploading. |

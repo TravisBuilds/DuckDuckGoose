@@ -11,7 +11,7 @@ import { getPresetById, presets } from '@/lib/presets';
 import { groupByTemplate } from '@/lib/wizard.mjs';
 import { healthLine, driftCount } from '@/lib/consistency.mjs';
 import { castColours } from '@/lib/castColour.mjs';
-import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
+import { PICTURE_ACCEPT, emptyRights, pictureHint, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
 import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
 import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
@@ -19,9 +19,12 @@ import {
   CREATION_NAMES, boardUnlockHint, creationJourney, screenSteps, sealFor, stepFromQuery, stepNumber, toneChips,
   type CreationStep,
 } from '@/lib/journey.mjs';
+import { otherPhotos, progressLine } from '@/lib/checklist.mjs';
 import { input as field, label as fieldLabel, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
+import { StoryChecklist } from './StoryChecklist';
 import { useStudioFocus } from './StudioShell';
 import {
   CastDot, Dots, EmptyState, GlassPanel, HeroBand, JourneyPath, PinBoard, PriceBlock, RefTile, Seal,
@@ -29,12 +32,14 @@ import {
 } from './playful';
 
 /**
- * Making a Universe, one step per screen (DESIGN-TARGETS-v2 §6.3): Spark, References, Mood board,
- * Bible and Lock at /studio/universes/{id}/create?step=…, for its owner and admins. Every step is an
- * API route (api/world_routes.py), which stays the authority: a refused step shows the API's reason.
- * Only pressing Make spends, for the price shown first; the one-liner and kind of video save as you
- * type (free), and an unsent note waits on this device. A live board is made by the worker picture
- * by picture: the page asks again every BOARD_POLL_MS until it is made.
+ * Making a Universe, one step per screen (DESIGN-TARGETS-v2 §6.3): Spark, Story & photos, Mood
+ * board, Bible and Lock at /studio/universes/{id}/create?step=…, for its owner and admins. The
+ * story comes first and the studio lists the reference photos it needs (StoryChecklist); more photos
+ * and notes can be added beside the list, as before. Every step is an API route
+ * (api/world_routes.py), which stays the authority: a refused step shows the API's reason. Only
+ * pressing Make spends, for the price shown first; the one-liner and kind of video save as you type
+ * (free), and an unsent note waits on this device. A live board is made by the worker picture by
+ * picture: the page asks again every BOARD_POLL_MS until it is made.
  */
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
@@ -47,7 +52,7 @@ const TOPIC_TEXT: Record<string, { label: string; placeholder: string }> = {
 };
 const TITLES: Record<CreationStep, string> = {
   spark: 'Name your Universe',
-  references: 'Gather your references',
+  references: 'Your story, then its photos',
   moodboard: 'Make your mood board',
   bible: 'Write the bible',
   lock: 'Lock the looks',
@@ -56,14 +61,12 @@ const CARD_GROUPS = groupByTemplate(presets);
 const hint = 'text-[12.5px] text-ink-soft';
 
 type Note = { tone: 'ok' | 'problem'; text: string; where: string };
-type BibleResult = { created: Record<string, string[]>; skipped: string[]; dropped: string[] };
+type BibleResult = {
+  created: Record<string, string[]>; skipped: string[]; dropped: string[]; attached?: Record<string, number>;
+};
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
-}
-
-function megabytes(bytes: number): number {
-  return Math.round(bytes / 1_048_576);
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -211,6 +214,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     saved: busy || sparkSaving ? 'saving' : 'saved',
     exitHref: '/studio',
   } : null);
+  const fileSize = usePictureCheck(file, view?.limits);
 
   if (!view) {
     if (problem?.status === 404) {
@@ -263,14 +267,17 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
 
   const { counts, latest, approved, bibleDone } = journey;
   const limits = creation.limits;
-  const fileIssue = file ? pictureProblem(file, view.limits.max_upload_bytes) : null;
+  const fileIssue = file ? (pictureProblem(file, view.limits.max_upload_bytes) ?? fileSize.problem) : null;
   const rightsIssue = rightsProblem(rights);
   const waiting = latest?.status === 'ready' ? latest : null;
   const preset = getPresetById(world.profile.preset_id ?? '');
   const drift = driftCount(view.characters);
   const healthTone = drift > 0 ? tones.bad : world.counts.characters === 0 ? tones.wait
     : world.counts.locked_characters >= world.counts.characters ? tones.ok : tones.warn;
-  const unlockHint = boardUnlockHint(counts.notes, counts.photos);
+  const unlockHint = boardUnlockHint(counts.notes, counts.photos, journey.story);
+  const storyKnown = journey.story !== undefined;
+  const listProgress = creation.checklist?.items.length ? creation.checklist.progress : null;
+  const unlisted = otherPhotos(creation.checklist, creation.photos);
   const lockEpisode = view.episodes.find((e) => !e.finished && e.can_change)?.episode_id ?? null;
   const colours = castColours(view.characters);
 
@@ -333,7 +340,9 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   const writeBible = async () => {
     const made = await act('bible', () => postJson<{ bible: BibleResult }>(`${base}/bible`, {}), (r) => {
       const c = r.bible.created;
-      return `Added ${plural(c.characters.length, 'character')}, ${plural(c.places.length, 'place')} and ${plural(c.props.length, 'prop')}.`;
+      const photos = Object.values(r.bible.attached ?? {}).reduce((sum, n) => sum + n, 0);
+      return `Added ${plural(c.characters.length, 'character')}, ${plural(c.places.length, 'place')} and ${plural(c.props.length, 'prop')}.`
+        + (photos > 0 ? ` The ${plural(photos, 'photo')} from your reference list went with them.` : '');
     });
     if (made) setBible(made.bible);
   };
@@ -376,7 +385,10 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   }));
   const bubble: Record<CreationStep, string> = {
     spark: 'Every Universe starts with a spark: a name and a line about it.',
-    references: `The more you show me, the closer the board gets. ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} so far!`,
+    references: !storyKnown || (journey.story && !listProgress)
+      ? `The more you show me, the closer the board gets. ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} so far!`
+      : listProgress ? `${progressLine(listProgress)}. Each photo you add keeps a face or a place the same in every shot.`
+        : 'Tell me your story in plain words. Then I list exactly the photos it needs.',
     moodboard: making ? 'Pictures appear on the board as they are made.' : `I mix your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} into one look.`,
     bible: 'From the approved board I write the characters, places and props.',
     lock: counts.characters === 0 ? 'No characters yet: add them on the Universe page.' : `${counts.locked} of ${plural(counts.characters, 'look')} sealed.`,
@@ -427,8 +439,15 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           ))}
         </div>
       )}
-      {counts.notes + counts.photos === 0 && (
-        <EmptyState className="mt-3" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">Add photos and notes</Link>}>
+      {creation.story?.written && (
+        <div className="pf-card mt-4 p-4" data-testid="references-story">
+          <h3 className="text-[15px]">Your story</h3>
+          <p className="mt-1 line-clamp-4 whitespace-pre-line break-words text-[13.5px]">{creation.story.body}</p>
+          {listProgress && <p className="mt-2 text-[12.5px] font-bold text-ink-soft">Reference list: {progressLine(listProgress)}</p>}
+        </div>
+      )}
+      {counts.notes + counts.photos === 0 && !journey.story && (
+        <EmptyState className="mt-3" title="No references yet" action={<Link href={stepHref('references')} className="pf-btn pf-btn-soft pf-btn-sm">{storyKnown ? 'Write your story' : 'Add photos and notes'}</Link>}>
           The mood board is made from them.
         </EmptyState>
       )}
@@ -471,17 +490,25 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     );
     side = (
       <>
-        <h3 className="text-[19px]">Next: references</h3>
-        <p className={hint}>Photos and a few notes on the premise, the characters, the places and the tone.</p>
-        <SideNext href={stepHref('references')}>Next: References</SideNext>
+        <h3 className="text-[19px]">Next: your story</h3>
+        <p className={hint}>Write the story in plain words. The studio lists the photos it needs: each character, place and prop.</p>
+        <SideNext href={stepHref('references')}>Next: your story</SideNext>
       </>
     );
   } else if (step === 'references') {
     main = (
       <div data-testid="creation-references">
+        {storyKnown && (
+          <div className="mb-7">
+            <StoryChecklist base={base} creation={creation} pictureLimits={view.limits} maxUploadBytes={view.limits.max_upload_bytes}
+              busy={busy} act={act} message={(where) => <Message note={note} where={where} />} />
+          </div>
+        )}
         <div className="flex flex-wrap items-end justify-between gap-2">
-          <h2 className="text-[22px]">Your references</h2>
-          <span className="text-[13px] text-ink-soft">Only you and your episode editors see these.</span>
+          <h2 className="text-[22px]">{storyKnown ? 'More photos and notes' : 'Your references'}</h2>
+          <span className="text-[13px] text-ink-soft">
+            {storyKnown ? 'Optional: anything else that shows the look you want.' : 'Only you and your episode editors see these.'}
+          </span>
         </div>
         {creation.photos.length < limits.max_photos && (
           <div data-testid="creation-photo-form" onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -491,8 +518,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               <div className="min-w-0 flex-1">
                 <h3 className="text-[19px]">Drop photos, sketches or screenshots</h3>
                 <p id="creation-photo-hint" className={hint}>
-                  Up to {limits.max_photos}. PNG, JPG or WebP, at least {view.limits.min_image_px} px on each side, up to{' '}
-                  {megabytes(view.limits.max_upload_bytes)} MB. Your own, or ones you have the rights to.
+                  Up to {limits.max_photos}. {pictureHint(view.limits)} Your own, or ones you have the rights to.
                 </p>
               </div>
               <label htmlFor="creation-photo-file" className="pf-btn pf-btn-primary pf-btn-sm cursor-pointer focus-within:outline-3 focus-within:outline-blue-deep">
@@ -503,6 +529,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             </div>
             {file && <p className="mt-3 break-words text-[13px] font-bold">Chosen: {file.name}</p>}
             {fileIssue && <p className="mt-1 text-[12.5px] font-bold text-coral-ink">{fileIssue}</p>}
+            {!fileIssue && <SizeNote text={fileSize.note} testId="creation-photo-size" className="mt-1" />}
             <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={limits.caption_max}
               aria-label="Caption (optional)" placeholder="Caption (optional), e.g. the harbour at dusk" className={`${field} mt-3`}
               data-testid="creation-photo-caption" />
@@ -517,11 +544,12 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           </div>
         )}
         <Message note={note} where="photos" />
-        {creation.photos.length > 0 && (
+        {unlisted.length > 0 && (
           <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6" data-testid="creation-photos">
-            {creation.photos.map((p) => (
+            {unlisted.map((p) => (
               <RefTile key={p.image_id} testId={`creation-photo-${p.image_id}`} src={`${API_URL}${p.thumb_url}`}
                 href={`${API_URL}${p.url}`} alt={p.caption || 'Reference photo'} caption={p.caption}>
+                <SizeNote text={p.size_note} testId={`creation-photo-size-${p.image_id}`} />
                 <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className="pf-btn pf-btn-quiet pf-btn-sm w-full"
                   onConfirm={() => act('photos', () => postJson(`${base}/photos/${p.image_id}/delete`, {}), 'Photo removed.')}>
                   Remove
@@ -594,15 +622,26 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         )}
       </div>
     );
+    const mixes = storyKnown ? 'your story, photos and notes' : 'your photos and notes';
     side = (
       <>
-        <h3 className="text-[19px]">{journey.boardOpen ? 'Ready for a mood board' : 'Gathering references'}</h3>
+        <h3 className="text-[19px]">{journey.boardOpen ? 'Ready for a mood board' : storyKnown ? 'Story first' : 'Gathering references'}</h3>
         <p className={hint}>
           {journey.boardOpen
-            ? `${creation.board.image_count} pictures will mix your photos and notes into one look. You see the price first.`
-            : 'The mood board mixes your photos and notes into one look.'}
+            ? `${creation.board.image_count} pictures will mix ${mixes} into one look. You see the price first.`
+            : `The mood board mixes ${mixes} into one look.`}
         </p>
-        <ul className="mt-3 space-y-1 text-[13px] font-bold">
+        <ul className="mt-3 space-y-1 text-[13px] font-bold" data-testid="creation-counts">
+          {storyKnown && (
+            <>
+              <li className="flex justify-between gap-3 border-b border-dashed border-ink/10 py-1.5">
+                Story<b data-testid="creation-count-story">{journey.story ? 'Written' : 'Not yet'}</b>
+              </li>
+              <li className="flex justify-between gap-3 border-b border-dashed border-ink/10 py-1.5">
+                Reference list<b className="text-right" data-testid="creation-count-list">{listProgress ? progressLine(listProgress) : 'Not made yet'}</b>
+              </li>
+            </>
+          )}
           <li className="flex justify-between border-b border-dashed border-ink/10 py-1.5">Photos<b>{counts.photos} of {limits.max_photos}</b></li>
           <li className="flex justify-between py-1.5">Notes<b>{counts.notes} of {limits.max_notes}</b></li>
         </ul>
@@ -697,7 +736,9 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       side = (
         <>
           <h3 className="text-[19px]">{making ? 'Making your mood board' : 'Ready for a mood board'}</h3>
-          <p className={hint}>We make {creation.board.image_count} pictures that mix your photos and notes into one look.</p>
+          <p className={hint}>
+            We make {creation.board.image_count} pictures that mix {journey.story ? 'your story, photos and notes' : 'your photos and notes'} into one look.
+          </p>
           {sideStatus}
           {creation.board.unavailable && !making ? (
             <p className="mt-3 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink" data-testid="board-unavailable">
@@ -730,7 +771,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             </>
           )}
           <ul className="mt-3 space-y-1 text-[12.5px]">
-            {[`Uses your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')}`,
+            {[`Uses your ${journey.story ? 'story, ' : ''}${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')}`,
               'Redo as many times as you like, each priced first', 'Nothing else runs until you approve'].map((line) => (
               <li key={line} className="flex gap-2"><span aria-hidden="true" className="mt-[0.45em] size-2 flex-none rounded-full bg-green-deep" />{line}</li>
             ))}

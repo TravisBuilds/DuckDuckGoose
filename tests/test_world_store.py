@@ -15,7 +15,12 @@ from hfvg.cast_store import CastConflict, CastError, CastNotFound
 from tests.cast_helpers import attestation, complete_sheet, image_bytes, new_character, new_place, new_prop, upload
 
 UNIVERSE_TABLES = {"series_profiles", "character_voices", "universe_notes", "universe_photos", "universe_boards",
-                   "universe_board_images", "universe_board_requests", "universe_board_jobs"}
+                   "universe_board_images", "universe_board_requests", "universe_board_jobs", "universe_stories",
+                   "universe_checklist_items", "universe_checklist_photos"}
+# run_all_migrations adds the first frame tables of episodes too (tests/test_concept_frames.py checks them)
+# and the kept starts (tests/test_kept_starts.py)
+CONCEPT_FRAME_TABLES = {"concept_frame_sets", "concept_frame_options", "concept_frame_picks"}
+KEPT_START_TABLES = {"episode_kept_starts"}
 
 
 @pytest.fixture(autouse=True)
@@ -69,8 +74,9 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     does nothing."""
     from hfvg.budget import BudgetLedger
     from hfvg.migrations import (
-        UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION, apply_universe_board_sync, apply_universe_sync,
-        migrate_cast_library, migrate_props_library, run_all_migrations)
+        UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION, UNIVERSE_STORY_MIGRATION, apply_universe_board_sync,
+        apply_universe_story_sync, apply_universe_sync, migrate_cast_library, migrate_props_library,
+        run_all_migrations)
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.users import UserManager
 
@@ -111,13 +117,15 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     schema_after, data_after = snapshot()
     assert data_once == data_after == data_before
     assert {k: v for k, v in schema_after.items() if k in schema_before} == schema_before
-    assert {name for name in set(schema_after) - set(schema_before) if not name.startswith("idx_")} == UNIVERSE_TABLES
+    assert {name for name in set(schema_after) - set(schema_before) if not name.startswith("idx_")} == (
+        UNIVERSE_TABLES | CONCEPT_FRAME_TABLES | KEPT_START_TABLES)
     assert schema_once == schema_after
     with sqlite3.connect(db) as conn:
-        for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION):
+        for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION):
             assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
                                 (version,)).fetchone()[0] == 1
         assert apply_universe_sync(conn) is False and apply_universe_board_sync(conn) is False
+        assert apply_universe_story_sync(conn) is False
     # the series that was there reads with the empty profile
     monkeypatch.setenv("DATABASE_PATH", db)
     profile = world_store.get_profile("sr_0123456789ab")
@@ -320,7 +328,7 @@ def test_reference_photos_get_the_upload_checks_are_deduplicated_and_their_files
     assert (again["image_id"], again["duplicate"]) == (photo["image_id"], True)
     assert len(world_store.list_reference_photos(sid)) == 1
     with pytest.raises(cast_store.CastError):
-        world_store.add_reference_photo(sid, image_bytes(size=(300, 300)), filename="small.png",
+        world_store.add_reference_photo(sid, image_bytes(size=(100, 100)), filename="small.png",
                                         attestation=attestation())
     world_store.update_profile(sid, cover_image_id=photo["image_id"])
     assert world_store.delete_reference_photo(sid, photo["image_id"])["file_removed"] is True

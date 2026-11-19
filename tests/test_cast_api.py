@@ -21,7 +21,7 @@ from temporalio.testing import ActivityEnvironment
 
 from hfvg import cast_store
 from hfvg.paths import episode_dir
-from tests.cast_helpers import image_bytes
+from tests.cast_helpers import image_bytes, just_over
 from tests.ledger_helpers import set_balance
 
 ADMIN = "cast-api-admin-secret-0123456789abcdef-xyz"
@@ -340,8 +340,8 @@ def _gif() -> bytes:
     (_gif(), "pip.png", "image/png", "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
     (b"just some notes, not a picture", "pip.png", "image/png",
      "This file is not a readable PNG, JPG or WebP image"),
-    (image_bytes(size=(400, 900)), "small.png", "image/png",
-     "The image is 400x900 px; each side must be at least 512 px"),
+    (image_bytes(size=(100, 900)), "small.png", "image/png",
+     "The image is 100x900 px; each side must be at least 128 px"),
     (image_bytes()[:3000], "cut.png", "image/png", "damaged or incomplete"),
     (b"", "empty.png", "image/png", "The file is empty"),
 ])
@@ -351,6 +351,23 @@ async def test_bad_uploads_are_refused(studio, data, filename, mime, expected):
     res = _upload(owner, pip, data=data, filename=filename, mime=mime)
     assert res.status_code == 400 and expected in res.json()["detail"], res.text
     assert _stored_images() == []
+
+
+async def test_small_pictures_from_the_web_are_kept_with_a_plain_note(studio):
+    owner = _client(studio, "owner")
+    pip = _create(owner)
+    small = _upload(owner, pip, data=image_bytes(size=(300, 420)), filename="found.png")
+    assert small.status_code == 200, small.text
+    assert small.json()["image"]["size_note"] == "Small image, we'll sharpen it up."
+    tiny = _upload(owner, pip, data=image_bytes(size=(160, 160), seed=3), filename="tiny.png")
+    assert tiny.status_code == 200, tiny.text
+    assert tiny.json()["image"]["size_note"].startswith("Very small image: we'll sharpen it up")
+    images = owner.get(_base()).json()["characters"][0]["versions"][0]["images"]
+    assert sorted(i["size_note"] or "" for i in images) == sorted(
+        [small.json()["image"]["size_note"], tiny.json()["image"]["size_note"]])
+    # the stored file is the picture as uploaded; only the models' copy is upscaled
+    stored = cast_store.image_file(small.json()["image"]["sha256"], "png")
+    assert stored.read_bytes() == image_bytes(size=(300, 420))
 
 
 async def test_an_upload_needs_the_rights_attestation(studio):
@@ -470,7 +487,7 @@ async def test_character_text_with_a_picture_follows_the_content_policy(studio):
     ({"depicts_real_person": "true"}, None, 400, "consent"),
     ({"rights": "owned", "depicts_real_person": "true", "likeness_consent": "false"}, None, 400, "consent"),
     ({}, _gif(), 400, "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
-    ({}, image_bytes(size=(400, 900)), 400, "The image is 400x900 px; each side must be at least 512 px"),
+    ({}, image_bytes(size=(100, 900)), 400, "The image is 100x900 px; each side must be at least 128 px"),
     ({}, b"just some notes, not a picture", 400, "This file is not a readable PNG, JPG or WebP image"),
     ({}, b"", 400, "The file is empty"),
     ({"name": ""}, None, 422, None),
@@ -602,7 +619,9 @@ async def test_upload_list_view_and_delete(studio):
     view = owner.get(_base()).json()
     images = view["characters"][0]["versions"][0]["images"]
     assert [i["image_id"] for i in images] == [image["image_id"]]
-    assert view["limits"]["min_image_px"] == 512 and view["attestation"]["likeness_gate"] == "likeness_consent"
+    assert view["limits"]["min_image_px"] == 128 and view["attestation"]["likeness_gate"] == "likeness_consent"
+    assert (view["limits"]["small_image_px"], view["limits"]["sharpen_below_px"]) == (256, 512)
+    assert image["size_note"] is None
     full = owner.get(image["url"])
     assert full.status_code == 200 and full.content == data
     assert full.headers["cache-control"] == "private, max-age=3600"
@@ -888,11 +907,26 @@ async def test_a_sheet_is_refused_when_the_estimate_is_above_the_approval(studio
     total = owner.post(f"{url}/sheet/estimate", json={"stage": "options", "count": 4}).json()["total_usd_micros"]
     res = owner.post(f"{url}/sheet/generate", json={"stage": "options", "count": 4,
                                                     "approved_total_usd_micros": total - 1})
-    assert res.status_code == 409 and res.json()["detail"].startswith("The estimate is now")
+    assert res.status_code == 409 and res.json()["detail"] == just_over(total)
     res = owner.post(f"{url}/sheet/generate", json={"stage": "options", "count": 4})
     assert res.status_code == 422  # no approval, no generation
     studio.temporal_client.start_workflow.assert_not_called()
     assert _sheet_jobs() == []
+
+
+@pytest.mark.parametrize("now,then,words", [
+    pytest.param(183_000, 180_000, "$0.183 (you approved $0.180)", id="three-decimals"),
+    pytest.param(60_000, 50_000, "$0.06 (you approved $0.05)", id="two-decimals"),
+    pytest.param(185_000, 184_000, "$0.19 (you approved $0.18)", id="two-decimals-rounded"),
+    pytest.param(2_003_000, 2_001_000, "$2.003 (you approved $2.001)", id="dollars"),
+    pytest.param(180_160, 180_040, "$0.1802 (you approved $0.1800)", id="four-decimals"),
+    pytest.param(180_000, 179_999, "$0.1800, just over what you approved ($0.1800)", id="just-over"),
+    pytest.param(90_000, 89_999, "$0.0900, just over what you approved ($0.0900)", id="just-over-small"),
+    pytest.param(1_250_000, 1_250_000, "$1.25 (you approved $1.25)", id="the-same"),
+])
+def test_a_new_price_and_the_approved_one_are_written_so_they_differ(now, then, words):
+    from api import cast_routes
+    assert cast_routes._price_above(now, then) == words
 
 
 async def test_a_second_sheet_request_waits_for_the_first(studio):

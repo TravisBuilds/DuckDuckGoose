@@ -17,6 +17,7 @@ import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, input, link, panel, tones } from '@/lib/ui';
 import CastPanel from '@/components/CastPanel';
+import ConceptFrames from '@/components/ConceptFrames';
 import PropsPanel from '@/components/PropsPanel';
 import { ConfirmButton } from '@/components/ConfirmButton';
 import {
@@ -28,7 +29,7 @@ import NextStepCard, { Stepper } from '@/components/NextStepCard';
 import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
-import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip } from '@/components/UniverseEpisode';
+import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip, hasStartKeptHere } from '@/components/UniverseEpisode';
 import { GlassPanel } from '@/components/playful';
 
 /**
@@ -342,19 +343,21 @@ function ModelLimitsCard({ models, capsStale, capsChecked, preflight, preflightE
       {models.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {models.map((m) => (
-            <div key={m.model_id} className="rounded border border-gray-200 p-3">
-              <p className="mb-2 font-mono text-xs">{m.model_id} <span className="text-gray-700">({m.kind})</span></p>
-              <table className="w-full text-xs">
-                <tbody>
-                  {formatLimits(m).map((row) => (
-                    <tr key={row.label} title={row.note || undefined}>
-                      <td className="pr-2 align-top text-gray-700">{row.label}</td>
-                      <td className="align-top">{row.value}</td>
-                      <td className="pl-2 align-top text-gray-600">{row.source}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div key={m.model_id} className="min-w-0 rounded border border-gray-200 p-3">
+              <p className="mb-2 break-all font-mono text-xs">{m.model_id} <span className="text-gray-700">({m.kind})</span></p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {formatLimits(m).map((row) => (
+                      <tr key={row.label} title={row.note || undefined}>
+                        <td className="pr-2 align-top text-gray-700">{row.label}</td>
+                        <td className="align-top">{row.value}</td>
+                        <td className="pl-2 align-top text-gray-600">{row.source}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </div>
@@ -465,6 +468,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [linked, setLinked] = useState(0);
   const [cast, setCast] = useState<CastView | null>(null);
   const [propsChanges, setPropsChanges] = useState(0);
+  const [planSaves, setPlanSaves] = useState(0);
+  const [frames, setFrames] = useState<{ picked: number; shots: number } | null>(null);
+  const [keptHere, setKeptHere] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelView[]>([]);
@@ -575,6 +581,16 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     loadMaker();
   }, [loadMaker]);
   const onPropsChange = useCallback(() => setPropsChanges((n) => n + 1), []);
+  // a saved shot plan changes what each shot's first frame shows: the first frames load again
+  const onPlanSaved = useCallback(async () => {
+    setPlanSaves((n) => n + 1);
+    await refreshAll();
+  }, [refreshAll]);
+  // the wizard keeps a start for a video that waits on its page (for a lock, or for its first frames) in
+  // the studio (info.kept_start); an earlier wizard kept it in the browser it ran in
+  useEffect(() => {
+    setKeptHere(hasStartKeptHere(episodeId));
+  }, [episodeId]);
   // the shot plan picker reloads when the cast it picks from (or its shots' cast) or the props change
   const castKey = useMemo(() => (cast ? JSON.stringify([
     cast.characters.map((c) => [c.slug, c.name, c.default_version]),
@@ -710,7 +726,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   })) : null;
   // a finished live run that recorded no spend says so instead of $0.00
   const realCost = spent === null ? '—' : spent === 0 && dryRun !== true ? 'Not recorded' : formatUsd(spent);
-  const startHere = notStarted && canAct && Boolean(info?.universe);
+  const kept = Boolean(info?.kept_start) || keptHere;
+  const startHere = notStarted && canAct && Boolean(info) && (Boolean(info?.universe) || kept);
   const unlocked = info?.lock?.unlocked ?? [];
   const decision = Boolean(viewer) && !completed && !expired && canAct && !next.waiting && DECISIONS.includes(next.step);
   const sheet = startHere || decision;
@@ -720,7 +737,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     key, label: STEP_LABELS[key], status: key === 'cast' && unlocked.length > 0 ? 'current' : 'todo',
   })) : null;
   const gate = startHere && info ? (
-    <StartCard episodeId={episodeId} info={info} onStarted={refreshAll} />
+    <StartCard episodeId={episodeId} info={info} frames={frames} onStarted={refreshAll} />
   ) : viewer && !completed && !expired ? (
     <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} />
   ) : completed ? (
@@ -830,7 +847,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
           {(state || notStarted) && !expired && viewer && (
             <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
-              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
+              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={onPlanSaved} />
+          )}
+          {(state || notStarted) && !expired && viewer && (
+            <ConceptFrames episodeId={episodeId} onCount={setFrames}
+              refreshKey={`${planKey}|${planSaves}|${linked}|${state?.run?.run_id ?? ''}|${state?.run?.ended ? 'ended' : ''}`} />
           )}
           {state && !expired && viewer && (
             <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}

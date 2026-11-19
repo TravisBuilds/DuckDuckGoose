@@ -24,6 +24,10 @@ each picture's price, the balance gate and the budget line again before paying. 
 not poll that queue (one older than live boards) gets the owner a plain 409 before anything is asked
 or charged. The bible is written by the language model from the approved board and the references
 (DRAFT_LLM_FAKE=1: a deterministic test bible, dry-run only).
+
+Creation starts from the story (hfvg.story_refs): the owner writes it, the language model reads it
+into a reference checklist (DRAFT_LLM_FAKE=1: deterministic, dry-run only) and reference photos
+upload onto its items. Both are free; the story and the list are the owner's like the notes.
 """
 
 from __future__ import annotations
@@ -31,8 +35,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -40,7 +46,7 @@ from fastapi import APIRouter, Cookie, File, Form, Header, HTTPException, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from hfvg import cast_store, prop_store, universe_boards, world_store
+from hfvg import cast_store, kept_starts, prop_store, story_refs, universe_boards, world_store
 
 try:  # "api.cast_routes" in tests and the e2e backend; "cast_routes" when uvicorn runs from api/
     from api import cast_routes as cast_api
@@ -54,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 CHARACTER_ID_RE = re.compile(r"^ch_[0-9a-f]{12}$")
 NOTE_ID_RE = re.compile(r"^un_[0-9a-f]{12}$")
+CHECKLIST_ITEM_RE = re.compile(r"^rc_[0-9a-f]{12}$")
 BOARD_ID_RE = re.compile(r"^mb_[0-9a-f]{12}$")
 UNIVERSE_IMAGE_RE = re.compile(r"^(?:ui|bi)_[0-9a-f]{12}$")
 VIDEO_FILES = ("phone", "master_subs", "master_nosubs")
@@ -72,6 +79,12 @@ BOARD_NOT_STARTED = ("The studio's worker could not be asked to make the mood bo
                      "charged. Try again in a minute.")
 COVER_ROUTES = {"cast": "/api/cast/images/", "prop": "/api/props/photos/", "reference": "/api/worlds/images/",
                 "board": "/api/worlds/images/"}
+# "Make my reference list" asks the language model each time: each person may ask this many times an
+# hour (REFERENCE_LISTS_PER_HOUR, default 10; 0 turns the limit off). The count is the API process's
+# own, like the login limit: the API runs as one process (docker/Dockerfile.api).
+REFERENCE_LIST_WINDOW_S = 3600
+_reference_lists: dict[str, list[float]] = {}
+_now = time.monotonic
 
 CharacterCreateRequest = cast_api.CharacterCreateRequest
 CharacterUpdateRequest = cast_api.CharacterUpdateRequest
@@ -237,7 +250,8 @@ def _world_card(series: dict, summary: dict, can_edit: bool, owner_names: dict, 
             "can_edit": can_edit, "profile": _profile_out(summary["profile"], can_edit),
             "counts": {**summary["counts"], "episodes": len(series["episodes"]), "finished_episodes": finished},
             "cover": _image_urls(summary["cover"]), "episodes": list(series["episodes"]),
-            "board_status": summary["board_status"] if can_edit else None}
+            "board_status": summary["board_status"] if can_edit else None,
+            "story_written": summary["story_written"] if can_edit else None}
 
 
 def _primary_image(character: dict) -> dict | None:
@@ -288,7 +302,8 @@ def _board_out(board: dict) -> dict:
 def _reference_out(photo: dict) -> dict:
     out = {k: photo.get(k) for k in ("image_id", "caption", "width", "height", "bytes", "mime", "original_filename",
                                      "attestation", "created_by", "created_at")}
-    return {**out, **_universe_image_out(photo["image_id"])}
+    return {**out, **_universe_image_out(photo["image_id"]),
+            "size_note": cast_store.size_note(photo.get("width"), photo.get("height"))}
 
 
 async def _episodes_view(episode_ids: list[str], user_id: str | None, is_admin: bool) -> list[dict]:
@@ -308,6 +323,8 @@ async def _creation_view(series_id: str) -> dict:
     far) or the last one that failed, with its reason. ``board.unavailable``: why a live board
     cannot be started now (the worker), before anything is estimated or charged."""
     await _refresh_board_requests(series_id)
+    story = await _call(story_refs.get_story, series_id)
+    checklist = await _call(story_refs.checklist, series_id)
     notes = await _call(world_store.list_notes, series_id)
     photos = await _call(world_store.list_reference_photos, series_id)
     boards = await _call(world_store.list_boards, series_id, with_prompt=True)
@@ -315,6 +332,7 @@ async def _creation_view(series_id: str) -> dict:
     dry = cast_api._dry_run()
     problem = None if dry else await _board_worker_problem()
     return {
+        "story": story, "checklist": checklist, "item_kinds": list(story_refs.ITEM_KINDS),
         "notes": notes, "photos": [_reference_out(p) for p in photos], "boards": [_board_out(b) for b in boards],
         "board": {"available": problem is None, "image_count": world_store.BOARD_IMAGES, "dry_run": dry,
                   "unavailable": problem[1] if problem else None},
@@ -322,7 +340,10 @@ async def _creation_view(series_id: str) -> dict:
         "topics": list(world_store.NOTE_TOPICS),
         "limits": {"max_notes": world_store.MAX_NOTES, "note_max": world_store.NOTE_MAX,
                    "max_photos": world_store.MAX_REFERENCE_PHOTOS, "caption_max": world_store.CAPTION_MAX,
-                   "feedback_max": world_store.FEEDBACK_MAX},
+                   "feedback_max": world_store.FEEDBACK_MAX, "story_max": story_refs.STORY_MAX,
+                   "story_min": story_refs.STORY_MIN_CHARS, "max_items": story_refs.MAX_ITEMS,
+                   "max_photos_per_item": story_refs.MAX_PHOTOS_PER_ITEM, "item_name_max": story_refs.NAME_MAX,
+                   "why_max": story_refs.WHY_MAX},
     }
 
 
@@ -394,6 +415,20 @@ class NoteRequest(BaseModel):
 
 class NoteUpdateRequest(BaseModel):
     body: str = Field(..., min_length=1, max_length=world_store.NOTE_MAX + 200)
+
+
+class StoryRequest(BaseModel):
+    body: str = Field(..., max_length=story_refs.STORY_MAX + 400)
+
+
+class ChecklistItemRequest(BaseModel):
+    kind: str = Field(..., max_length=20)
+    name: str = Field(..., min_length=1, max_length=story_refs.NAME_MAX + 20)
+    why: str = Field("", max_length=story_refs.WHY_MAX + 50)
+    show: str = Field("", max_length=story_refs.SHOW_MAX + 50)
+    ideal_photos: int | None = Field(None, ge=1, le=story_refs.MAX_PHOTOS_PER_ITEM)
+    min_photos: int | None = Field(None, ge=0, le=story_refs.MAX_PHOTOS_PER_ITEM)
+    optional: bool = False
 
 
 class BoardRequest(BaseModel):
@@ -807,18 +842,22 @@ async def upload_world_reference_photo(
     depicts_real_person: str = Form("false"),
     likeness_consent: str = Form("false"),
     note: str = Form(""),
+    item_id: str = Form(""),
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """A reference photo for the mood board (the cast picture checks and the rights attestation)."""
+    """A reference photo for the mood board (the cast picture checks and the rights attestation);
+    ``item_id`` puts it on that item of the story's reference checklist."""
     who = await _editor(series_id, authorization, studio_admin_token)
+    if item_id and not CHECKLIST_ITEM_RE.match(item_id):
+        raise HTTPException(status_code=404, detail=f"Item {item_id} is not on the reference list")
     cast_api._check_text(caption)
     attestation = await _call(cast_store.validate_attestation, rights, cast_api._flag(depicts_real_person),
                               cast_api._flag(likeness_consent), note)
     data = await prop_api._read_photo(image_file)
     photo = await _call(world_store.add_reference_photo, series_id, data, filename=image_file.filename,
-                        attestation=attestation, caption=caption, actor=who["actor"])
-    return {"photo": _reference_out(photo), "duplicate": photo["duplicate"]}
+                        attestation=attestation, caption=caption, actor=who["actor"], item_id=item_id or None)
+    return {"photo": _reference_out(photo), "duplicate": photo["duplicate"], "item_id": photo["item_id"]}
 
 upload_world_reference_photo.allow_members = True
 
@@ -833,6 +872,103 @@ async def delete_world_reference_photo(series_id: str, image_id: str, authorizat
     return await _call(world_store.delete_reference_photo, series_id, image_id, who["actor"])
 
 delete_world_reference_photo.allow_members = True
+
+
+# ------------------------------------------------------------------------------------- creation: story first
+
+def reference_lists_per_hour() -> int:
+    try:
+        return max(0, int(os.getenv("REFERENCE_LISTS_PER_HOUR", "10")))
+    except ValueError:
+        return 10
+
+
+def _reference_list_wait(who: str) -> int:
+    """Count one reference list for ``who`` and return 0; or, when the hour's lists are used up, the
+    seconds until the next one may be made (nothing counted)."""
+    limit = reference_lists_per_hour()
+    if limit == 0:
+        return 0
+    now = _now()
+    recent = [t for t in _reference_lists.get(who, ()) if now - t < REFERENCE_LIST_WINDOW_S]
+    if len(recent) >= limit:
+        _reference_lists[who] = recent
+        return max(1, math.ceil(recent[0] + REFERENCE_LIST_WINDOW_S - now))
+    _reference_lists[who] = [*recent, now]
+    return 0
+
+
+def _reference_lists_used(wait_s: int) -> HTTPException:
+    minutes = math.ceil(wait_s / 60)
+    return HTTPException(status_code=429, headers={"Retry-After": str(wait_s)}, detail=(
+        f"You can make the reference list {reference_lists_per_hour()} times an hour. Try again in about "
+        f"{minutes} minute{'' if minutes == 1 else 's'}. Your story and your photos are kept."))
+
+
+@router.post("/api/worlds/{series_id}/story")
+async def save_world_story(series_id: str, request: StoryRequest, authorization: str | None = Header(None),
+                           studio_admin_token: str | None = Cookie(None)):
+    """The story the Universe starts from, in plain words (rough is fine). Nothing is made or charged."""
+    who = await _editor(series_id, authorization, studio_admin_token)
+    cast_api._check_text(request.body)
+    return {"story": await _call(story_refs.save_story, series_id, request.body, who["actor"])}
+
+save_world_story.allow_members = True
+
+
+@router.post("/api/worlds/{series_id}/checklist")
+async def make_world_checklist(series_id: str, authorization: str | None = Header(None),
+                               studio_admin_token: str | None = Cookie(None)):
+    """Read the story and list the references it needs: each character, place and prop, why, and
+    how many photos are ideal and the fewest that work. Made again after the story changes, items
+    with photos and items the owner added stay. One language model call; no picture is made. Each
+    person may make it ``reference_lists_per_hour()`` times an hour (429 after that)."""
+    who = await _editor(series_id, authorization, studio_admin_token)
+    inputs = await _call(story_refs.checklist_inputs, series_id)
+    wait = _reference_list_wait(who["user_id"] or who["actor"])
+    if wait:
+        raise _reference_lists_used(wait)
+    raw = await _model_json(inputs, story_refs.fake_checklist, story_refs.checklist_messages,
+                            "make the reference list")
+    items, dropped = [], []
+    for item in story_refs.parse_checklist(raw):
+        (items if _policy_ok(item["name"], item["why"], item["show"]) else dropped).append(item)
+    if not items:
+        raise HTTPException(status_code=409, detail=(
+            "No characters, places or props were found in the story yet. Say who is in it and where it happens, "
+            "then try again."))
+    result = await _call(story_refs.apply_checklist, series_id, items, story=inputs["story_sha"], actor=who["actor"])
+    return {"checklist": {"items": result["items"], "progress": result["progress"]}, "added": result["added"],
+            "kept": result["kept"], "removed": result["removed"], "dropped": [i["name"] for i in dropped]}
+
+make_world_checklist.allow_members = True
+
+
+@router.post("/api/worlds/{series_id}/checklist/items")
+async def add_world_checklist_item(series_id: str, request: ChecklistItemRequest,
+                                   authorization: str | None = Header(None),
+                                   studio_admin_token: str | None = Cookie(None)):
+    """An item the owner adds to the reference list by hand."""
+    who = await _editor(series_id, authorization, studio_admin_token)
+    cast_api._check_text(request.name, request.why, request.show)
+    item = await _call(story_refs.add_item, series_id, request.kind, request.name, why=request.why, show=request.show,
+                       ideal_photos=request.ideal_photos, min_photos=request.min_photos, optional=request.optional,
+                       actor=who["actor"])
+    return {"item": item}
+
+add_world_checklist_item.allow_members = True
+
+
+@router.post("/api/worlds/{series_id}/checklist/items/{item_id}/delete")
+async def remove_world_checklist_item(series_id: str, item_id: str, authorization: str | None = Header(None),
+                                      studio_admin_token: str | None = Cookie(None)):
+    """Take an item off the reference list; its photos stay with the Universe's references."""
+    who = await _editor(series_id, authorization, studio_admin_token)
+    if not CHECKLIST_ITEM_RE.match(item_id):
+        raise HTTPException(status_code=404, detail=f"Item {item_id} is not on the reference list")
+    return await _call(story_refs.remove_item, series_id, item_id, who["actor"])
+
+remove_world_checklist_item.allow_members = True
 
 
 # ------------------------------------------------------------------------------------- creation: mood board
@@ -942,8 +1078,7 @@ def _live_estimate(plan: dict, jobs: list[dict], prices: list[int], budget: dict
 
 def _estimate_above(total: int, approved: int) -> HTTPException:
     return HTTPException(status_code=409, detail=(
-        f"The estimate is now {cast_api._usd(total)} (you approved {cast_api._usd(approved)}); "
-        "review it and approve again"))
+        f"The estimate is now {cast_api._price_above(total, approved)}; review it and approve again"))
 
 
 @router.post("/api/worlds/{series_id}/board/estimate")
@@ -1059,12 +1194,14 @@ approve_world_board.allow_members = True
 
 # ------------------------------------------------------------------------------------- creation: bible
 
-async def _bible_from_model(inputs: dict) -> Any:
+async def _model_json(inputs: dict, fake, messages, what: str) -> Any:
+    """The story writing assistant's JSON answer to ``messages(inputs)`` (``fake(inputs)`` under
+    DRAFT_LLM_FAKE=1, dry-run only). 503 without a key, 502 when the call fails: nothing was changed."""
     if os.getenv("DRAFT_LLM_FAKE", "0") == "1":
         if not cast_api._dry_run():
             raise HTTPException(status_code=500, detail=(
                 "DRAFT_LLM_FAKE is a test-only flag and cannot be used when DRY_RUN=false"))
-        return world_store.fake_bible(inputs)
+        return fake(inputs)
     from hfvg.config import config
     if not config.OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail=(
@@ -1073,12 +1210,16 @@ async def _bible_from_model(inputs: dict) -> Any:
     client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
     try:
         response = await client.chat.completions.create(
-            model=config.STORY_SHAPING_MODEL, messages=world_store.bible_messages(inputs), temperature=0.7,
+            model=config.STORY_SHAPING_MODEL, messages=messages(inputs), temperature=0.7,
             response_format={"type": "json_object"})
         return json.loads(response.choices[0].message.content or "{}")
     except Exception as e:  # noqa: BLE001 - nothing was added; the owner can try again
-        raise HTTPException(status_code=502, detail=f"The story writing assistant could not write the bible: {e}") \
+        raise HTTPException(status_code=502, detail=f"The story writing assistant could not {what}: {e}") \
             from None
+
+
+async def _bible_from_model(inputs: dict) -> Any:
+    return await _model_json(inputs, world_store.fake_bible, world_store.bible_messages, "write the bible")
 
 
 def _policy_ok(*texts: str | None) -> bool:
@@ -1113,12 +1254,14 @@ async def write_world_bible(series_id: str, authorization: str | None = Header(N
                             studio_admin_token: str | None = Cookie(None)):
     """Write the Universe bible from the approved mood board and the references: its characters,
     places and props join the Universe (names it has keep theirs) and fill an empty story bible and
-    style notes. Once per approved board."""
+    style notes. Once per approved board. The photos on the story's reference list go to the
+    characters, places and props made under the same names (``attached``)."""
     who = await _editor(series_id, authorization, studio_admin_token)
     inputs = await _call(world_store.bible_inputs, series_id)
     bible, dropped = _keep_allowed(world_store.parse_bible(await _bible_from_model(inputs)))
     result = await _call(world_store.apply_bible, series_id, bible, board_id=inputs["board_id"], actor=who["actor"])
-    return {"bible": {**result, "dropped": dropped}}
+    attached = await _call(story_refs.attach_to_library, series_id, result["created"], who["actor"])
+    return {"bible": {**result, "dropped": dropped, "attached": attached}}
 
 write_world_bible.allow_members = True
 
@@ -1234,15 +1377,18 @@ def _strip(episode_id: str, series_id: str) -> dict:
 @router.get("/api/episodes/{episode_id}/universe")
 async def get_episode_universe(episode_id: str, authorization: str | None = Header(None),
                                studio_admin_token: str | None = Cookie(None)):
-    """Who made the episode and whether the caller may act on it; for a caller who may see its cast,
-    the Universe it is in (or none), what it uses from it and the characters whose look still has
-    to be locked before it starts (and before its shot plan is approved)."""
+    """Who made the episode and whether the caller may act on it, with the start the wizard kept for
+    its Start card (only for a caller who may act on it); for a caller who may see its cast, the
+    Universe it is in (or none), what it uses from it and the characters whose look still has to be
+    locked before it starts (and before its shot plan is approved)."""
     episode_id = cast_api._episode_id(episode_id)
     _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
     owner = await cast_api._api().episode_owner(episode_id)
     names = await _user_names({owner} if owner else set())
+    can_act = is_admin or owner is None or owner == user_id
+    kept = await _call(kept_starts.get, episode_id) if can_act else None
     out: dict[str, Any] = {"episode_id": episode_id, "owner": {"user_id": owner, "name": names.get(owner)},
-                           "can_act": is_admin or owner is None or owner == user_id,
+                           "can_act": can_act, "kept_start": kept["request"] if kept else None,
                            "linked": None, "universe": None, "strip": None, "lock": None}
     library = await cast_api._library(episode_id)
     if not await cast_api._may_see(library, user_id, is_admin):

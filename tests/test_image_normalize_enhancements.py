@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageCms
 
+import hfvg.image_normalize
 from hfvg.image_normalize import normalize_reference_image, NORMALIZED_CACHE_DIR
 
 
@@ -68,8 +69,11 @@ def _create_image_with_icc(path: Path) -> None:
     Image.new("RGB", (100, 100), (0, 255, 0)).save(path, "PNG", icc_profile=profile)
 
 
-def test_exif_orientation_applied(tmp_path):
+def test_exif_orientation_applied(tmp_path, monkeypatch):
     """Test that EXIF orientation is applied during normalization."""
+    # a 100 px picture: keep its size so only the orientation is checked (the upscale of small
+    # pictures, with orientation, is checked in tests/test_small_references.py)
+    monkeypatch.setattr(hfvg.image_normalize, "REF_MIN_SHORT_SIDE", 0)
     src = tmp_path / "oriented.jpg"
     _create_test_image_with_exif(src, orientation=6)  # 90° CW rotation
     
@@ -84,8 +88,9 @@ def test_exif_orientation_applied(tmp_path):
     assert result.getpixel((190, 10))[2] > 200, "EXIF orientation transformation incorrect"
 
 
-def test_icc_profile_converted_to_srgb(tmp_path):
+def test_icc_profile_converted_to_srgb(tmp_path, monkeypatch):
     """A non-sRGB tagged ref must be converted to sRGB pixel values, not just have its tag stripped."""
+    monkeypatch.setattr(hfvg.image_normalize, "REF_MIN_SHORT_SIDE", 0)  # keep the 100 px size checked below
     src = tmp_path / "with_icc.png"
     _create_image_with_icc(src)
     with Image.open(src) as src_img:

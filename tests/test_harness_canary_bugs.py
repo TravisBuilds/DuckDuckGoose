@@ -788,7 +788,23 @@ async def test_concurrent_uploads_deduplicated(tmp_path, monkeypatch):
     async def upload_task():
         result = await provider.upload_reference(str(ref_path), version=1)
         return result["public_url"]
-    
+
+    # Both callers look in the cache before either claims the upload. Left to the scheduler, a busy
+    # machine can run the second caller's lookup (file hashing in a thread) after the first upload
+    # finished; that caller then checks the CDN, which this test does not answer, and uploads again.
+    both_looked = asyncio.Barrier(2)
+    looked: set = set()
+    lookup = UploadCache.get_cached_url
+
+    async def lookup_together(self, file_path, version):
+        url = await lookup(self, file_path, version)
+        if asyncio.current_task() not in looked:
+            looked.add(asyncio.current_task())
+            await asyncio.wait_for(both_looked.wait(), timeout=10)
+        return url
+
+    monkeypatch.setattr(UploadCache, "get_cached_url", lookup_together)
+
     # Launch two uploads concurrently
     results = await asyncio.gather(upload_task(), upload_task())
     

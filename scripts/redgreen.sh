@@ -4744,6 +4744,225 @@ test_mutation 685 "preflight: no detail of an unreadable shots.json" \
     "tests/test_editor_prompt_isolation.py::test_the_preflight_does_not_quote_another_episode_s_shots_json_that_cannot_be_read" \
     sed -i '/^async def preflight_episode(/,/^preflight_episode\.allow_members = True$/ s/^            if not await cast_routes\.may_see_episode_cast(episode_id, authorization, studio_admin_token):$/            if False:  # MUTATED/'
 
+# ---- Creation flow fixes (docs/CREATION-FLOW-FIXES.md, docs/CONCEPT-FRAMES.md): a shot's first frames
+# pass the estimate, the balance gate and the job ledger, and a pick never replaces what it must not;
+# small reference pictures are kept and upscaled; a Universe's story and its reference list stay the
+# owner's. Ids 686-709
+
+# 686: the worker pays for no first frame above the price the owner approved
+test_mutation 686 "first frames: the provider's estimate within the approval" \
+    "hfvg/activities/concept_frame.py" \
+    "tests/test_concept_frames_activity.py::test_live_estimate_above_the_approved_share_spends_nothing" \
+    sed -i 's/^            if estimated_usd > job\["approved_usd_micros"\]:$/            if False:  # MUTATED/'
+
+# 687: ... nor past the balance gate
+test_mutation 687 "first frames: the balance gate before each picture" \
+    "hfvg/activities/concept_frame.py" \
+    "tests/test_concept_frames_activity.py::test_live_balance_gate_spends_nothing" \
+    sed -i 's/^            if not passed:$/            if False:  # MUTATED/'
+
+# 688: a paid first frame's job ledger row belongs to the episode's owner
+test_mutation 688 "first frames: the ledger row names the episode's owner" \
+    "hfvg/activities/concept_frame.py" \
+    "tests/test_concept_frames_activity.py::test_live_success_reserves_submits_commits_records_the_ledger_and_keeps_the_picture" \
+    sed -i 's/^                                            estimated_usd, user_id=await get_episode_user_id(db_path, episode_id))$/                                            estimated_usd, user_id=None)  # MUTATED/'
+
+# 689: the reconciler settles a first frame option's holds with its own activity
+test_mutation 689 "first frames: the reconciler knows cframe- jobs" \
+    "hfvg/activities/reconcile.py" \
+    "tests/test_concept_frames_activity.py::test_the_reconcile_workflow_settles_first_frame_options" \
+    sed -i '/^    if job_id\.startswith("cframe-"):$/{n;s/^        return "concept_frame"$/        return "universe_board"  # MUTATED/}'
+
+# 690: the API starts no live round above the total the owner approved
+test_mutation 690 "first frames: the round within the approved total" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_above_the_approved_total_make_nothing" \
+    sed -i '/^async def _start_live(/,/^    return {"round": made/ s/^    if total > approved:$/    if False:  # MUTATED/'
+
+# 691: ... nor past the draft pictures budget line
+test_mutation 691 "first frames: the draft budget line before the round" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_stop_at_the_draft_budget_line" \
+    sed -i 's/^    if total > budget\["available_usd_micros"\]:$/    if False:  # MUTATED/'
+
+# 692: ... nor on a stale recorded balance (GC.01)
+test_mutation 692 "first frames: a fresh recorded balance (GC.01)" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_need_a_fresh_balance_and_pass_the_balance_gate" \
+    sed -i 's/^    if not fresh\.get("ok"):$/    if False:  # MUTATED/'
+
+# 693: ... nor past the balance gate
+test_mutation 693 "first frames: the balance gate before the round" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_need_a_fresh_balance_and_pass_the_balance_gate" \
+    sed -i '/^async def _start_live(/,/^    return {"round": made/ s/^    if not passed:$/    if False:  # MUTATED/'
+
+# 694: ... nor while no worker polls the first frames queue
+test_mutation 694 "first frames: a worker polls the first frames queue" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_need_a_worker_that_makes_them" \
+    sed -i 's/^    if problem:$/    if False:  # MUTATED/'
+
+# 695: ... nor for an episode that is not in live mode
+test_mutation 695 "first frames: live rounds need live mode" \
+    "api/concept_frame_routes.py" \
+    "tests/test_concept_frames_api.py::test_live_first_frames_need_live_mode" \
+    sed -i 's/^    if not await cast_api\._live_mode(episode_id):$/    if False:  # MUTATED/'
+
+# 696: an option made from an earlier version of the shot is not picked
+test_mutation 696 "first frames: no pick of an option the shot changed since" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames_api.py::test_a_pick_from_an_earlier_version_of_the_shot_or_over_a_hand_set_frame_is_refused" \
+    sed -i 's/^    if shot_brief(ctx, shot_id, live=live)\.sha() != row\["brief_sha"\]:$/    if False:  # MUTATED/'
+
+# 697: a start frame set in the shot list by hand is never replaced by a pick
+test_mutation 697 "first frames: a hand-set start frame stays" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames_api.py::test_a_pick_from_an_earlier_version_of_the_shot_or_over_a_hand_set_frame_is_refused" \
+    sed -i '/^def pick(/,/^    return shot_view/ s/^    if current is not None and not picked_here(current):$/    if False:  # MUTATED/'
+
+# 698: a live studio never picks a dry-run stand-in
+test_mutation 698 "first frames: no dry-run stand-in picked live" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames_api.py::test_live_never_picks_a_dry_run_stand_in" \
+    sed -i 's/^    if live and row\["placeholder"\]:$/    if False:  # MUTATED/'
+
+# 699: the page turns the make and pick buttons off while a round is being made
+test_mutation 699 "first frames page: nothing new while a round is made" \
+    "web/lib/frames.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[frames.test.mjs]" \
+    sed -i "s/^  if (shot?\.making) return 'Turns on once the options being made are ready\.';\$/  \/\/ MUTATED/"
+
+# 700: ... and checks again until it is ready
+test_mutation 700 "first frames page: polls while a round is made" \
+    "web/lib/frames.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[frames.test.mjs]" \
+    sed -i "s/^  return (view?\.shots ?? \[\])\.some((s) => s\.making);\$/  return false;  \/\/ MUTATED/"
+
+# 701: a picture under the floor (128 px on its short side) is still refused
+test_mutation 701 "small references: the floor stays" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_bad_uploads_are_refused[data3-small.png-image/png-The image is 100x900 px; each side must be at least 128 px]" \
+    sed -i 's/^    if min(width, height) < min_px:$/    if False:  # MUTATED/'
+
+# 702: a small picture is kept with the plain note
+test_mutation 702 "small references: the plain note" \
+    "hfvg/cast_store.py" \
+    "tests/test_cast_api.py::test_small_pictures_from_the_web_are_kept_with_a_plain_note" \
+    sed -i 's/^    if short <= 0 or short >= sharpen_below_px():$/    if True:  # MUTATED/'
+
+# 703: ... and upscaled before a model sees it
+test_mutation 703 "small references: upscaled for the models" \
+    "hfvg/image_normalize.py" \
+    "tests/test_small_references.py::test_a_small_reference_is_upscaled_for_the_models_and_the_original_is_kept[size0-expected0]" \
+    sed -i 's/^        upscale = min(probe\.size) < REF_MIN_SHORT_SIDE$/        upscale = False  # MUTATED/'
+
+# 704: only the Universe's owner (or an admin) writes its story
+test_mutation 704 "story first: the story is the owner's" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_only_the_owner_and_admins_see_and_change_the_story_and_its_list" \
+    sed -i '/^async def save_world_story(/,/^save_world_story\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = {"actor": None}  # MUTATED/'
+
+# 705: ... makes its reference list
+test_mutation 705 "story first: the reference list is the owner's" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_only_the_owner_and_admins_see_and_change_the_story_and_its_list" \
+    sed -i '/^async def make_world_checklist(/,/^make_world_checklist\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = {"actor": None, "user_id": None}  # MUTATED/'
+
+# 706: ... and adds items to it
+test_mutation 706 "story first: list items are the owner's" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_only_the_owner_and_admins_see_and_change_the_story_and_its_list" \
+    sed -i '/^async def add_world_checklist_item(/,/^add_world_checklist_item\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = {"actor": None}  # MUTATED/'
+
+# 707: an item the content policy refuses never reaches the list
+test_mutation 707 "story first: the list follows the content policy" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_the_reference_list_is_read_by_the_story_model_and_leaves_out_what_the_studio_cannot_make" \
+    sed -i 's/^        (items if _policy_ok(item\["name"\], item\["why"\], item\["show"\]) else dropped)\.append(item)$/        items.append(item)  # MUTATED/'
+
+# 708: the list is ready only when every required item has its photos
+test_mutation 708 "story first page: the list is ready when every item is" \
+    "web/lib/checklist.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checklist.test.mjs]" \
+    sed -i "s/^  return (progress?\.required ?? 0) > 0 \&\& (progress\.ready ?? 0) >= progress\.required;\$/  return (progress?.required ?? 0) > 0;  \/\/ MUTATED/"
+
+# 709: a written story opens the mood board
+test_mutation 709 "story first page: the story opens the mood board" \
+    "web/lib/journey.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[journey.test.mjs]" \
+    sed -i "s/^  return Boolean(story) || (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;\$/  return (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;  \/\/ MUTATED/"
+
+# 710: a kept start is shown only to whoever may start the episode
+test_mutation 710 "kept start: only the owner and admins see it" \
+    "api/world_routes.py" \
+    "tests/test_kept_starts.py::test_only_the_owner_or_an_admin_keeps_or_sees_a_start" \
+    sed -i 's/^    kept = await _call(kept_starts\.get, episode_id) if can_act else None$/    kept = await _call(kept_starts.get, episode_id)  # MUTATED/'
+
+# 711: the start uses the kept start up
+test_mutation 711 "kept start: the start clears it" \
+    "api/main.py" \
+    "tests/test_kept_starts.py::test_the_owner_keeps_the_start_and_finds_it_on_another_device_until_it_starts" \
+    sed -i 's/^    await _forget_kept_start(request\.episode_id, authorization, studio_admin_token)$/    pass  # MUTATED/'
+
+# 712: no start is kept while a run is going
+test_mutation 712 "kept start: never while a run is going" \
+    "api/main.py" \
+    "tests/test_kept_starts.py::test_a_start_that_cannot_be_kept_keeps_nothing" \
+    sed -i '/^async def keep_episode_start(/,/^    return {"kept_start": kept}$/ s/^    if run:$/    if False:  # MUTATED/'
+
+# 713: a price above the approved one is written so the two differ
+test_mutation 713 "prices: the new price and the approved one read differently" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[three-decimals]" \
+    sed -i 's/^    for places in (2, 3, 4):$/    for places in (2,):  # MUTATED/'
+
+# 714: the reference list is made at most REFERENCE_LISTS_PER_HOUR times an hour
+test_mutation 714 "story first: the reference list has an hourly limit" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_each_person_makes_the_reference_list_at_most_ten_times_an_hour" \
+    sed -i 's/^    if len(recent) >= limit:$/    if False:  # MUTATED/'
+
+# 715: the limit is each person's own
+test_mutation 715 "story first: the hourly limit is per person" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_each_person_makes_the_reference_list_at_most_ten_times_an_hour" \
+    sed -i 's/^    wait = _reference_list_wait(who\["user_id"\] or who\["actor"\])$/    wait = _reference_list_wait("everyone")  # MUTATED/'
+
+# 716: First frames shows the moment in plain words, never the picture prompt
+test_mutation 716 "first frames: the prompt stays on the server" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames_api.py::test_the_owner_prices_makes_tweaks_and_picks_a_first_frame" \
+    sed -i 's/^            "beat": plain_moment(brief\.beat) if with_words else None,$/            "beat": brief.scene if with_words else None,  # MUTATED/'
+
+# 717: who has no reference photo is named once, not again in a note
+test_mutation 717 "first frames: missing photos are named once" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames.py::test_a_picture_with_no_reference_photo_is_named_once_not_in_a_note" \
+    sed -i 's/^    no_photos, notes = _photo_notes(brief\.notes)$/    no_photos, notes = _photo_notes(brief.notes)[0], brief.notes  # MUTATED/'
+
+# 718: the page sends a kept start only for its own episode
+test_mutation 718 "kept start page: a start for another episode is not sent" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
+
+# 719: two callers uploading the same reference at once upload it once
+test_mutation 719 "uploads: a reference uploaded twice at once goes up once" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_harness_canary_bugs.py::test_concurrent_uploads_deduplicated" \
+    sed -i 's/^        if not claimed:$/        if False:  # MUTATED/'
+
+test_mutation 720 "prices: four decimals at most" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
+    sed -i 's/^    for places in (2, 3, 4):$/    for places in (2, 3, 4, 5, 6):  # MUTATED/'
+
+test_mutation 721 "prices: when four decimals read the same, the words say it is just over" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
+    sed -i 's/^    return f"{now}, just over what you approved ({then})"$/    return f"{now} (you approved {then})"  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

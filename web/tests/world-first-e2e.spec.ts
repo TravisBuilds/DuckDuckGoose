@@ -314,6 +314,10 @@ test.describe.serial('Universe first', () => {
     await page.getByTestId('breadcrumb-universe').scrollIntoViewIfNeeded();
     await screenshot(page, 'episode-breadcrumb-1440');
 
+    // the studio kept the wizard's start (not this browser), so the card works on any device
+    const keptView = await (await page.request.get(`${API}/api/episodes/${episodeId}/universe`)).json();
+    expect(keptView.kept_start).toMatchObject({ episode_id: episodeId, dry_run: true, archetype_id: CARD });
+    expect(await page.evaluate((id) => window.localStorage.getItem(`ddg:start:${id}`), episodeId)).toBeNull();
     // it starts with the request the wizard kept: the card, the idea and the free test run
     const start = page.waitForRequest((req) => req.url() === `${API}/api/episodes` && req.method() === 'POST');
     await page.getByTestId('start-episode').click();
@@ -322,6 +326,8 @@ test.describe.serial('Universe first', () => {
     expect(sent.idea).toContain(IDEA);
     await expect(page.getByTestId('start-card')).toHaveCount(0, { timeout: 60_000 });
     expect(await page.evaluate((id) => window.localStorage.getItem(`ddg:start:${id}`), episodeId)).toBeNull();
+    // the start used it up
+    expect((await (await page.request.get(`${API}/api/episodes/${episodeId}/universe`)).json()).kept_start).toBeNull();
     await expect(page.getByTestId('next-step-title')).toHaveText('Read and approve your story', { timeout: 120_000 });
     await page.getByTestId('story-approve').click();
     await expect(page.getByTestId('story-approved')).toBeVisible();

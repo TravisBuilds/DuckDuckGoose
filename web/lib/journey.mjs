@@ -1,7 +1,11 @@
 /**
- * The five steps of making a Universe (DESIGN-TARGETS-v2 §6.3): Spark, References, Mood board,
- * Bible, Lock. Pure functions over what the API already returns, so the home card, the creation
- * route (/studio/universes/[id]/create?step=…) and the Universe page agree on where a Universe is.
+ * The five steps of making a Universe (DESIGN-TARGETS-v2 §6.3): Spark, Story & photos (the
+ * references), Mood board, Bible, Lock. Pure functions over what the API already returns, so the home card, the
+ * creation route (/studio/universes/[id]/create?step=…) and the Universe page agree on where a
+ * Universe is.
+ *
+ * The story comes first (docs/WORLDS.md): a written story opens the mood board, like a note or three
+ * photos. An API from before stories sends no story; its Universes read exactly as they did.
  *
  * Nothing here spends or asks for anything: opening a step only reads.
  */
@@ -10,26 +14,27 @@ export const CREATION_STEPS = ['spark', 'references', 'moodboard', 'bible', 'loc
 
 export const CREATION_NAMES = {
   spark: 'Spark',
-  references: 'References',
+  references: 'Story & photos',
   moodboard: 'Mood board',
   bible: 'Bible',
   lock: 'Lock',
 };
 
-/** The mood board opens once there are at least three photos or one note (§6.3). */
+/** The mood board opens once there is a story, at least three photos or one note (§6.3). */
 export const BOARD_MIN_PHOTOS = 3;
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function boardUnlocked(notes, photos) {
-  return (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;
+export function boardUnlocked(notes, photos, story = false) {
+  return Boolean(story) || (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;
 }
 
-/** What still opens the mood board, or null once it is open. */
-export function boardUnlockHint(notes, photos) {
-  if (boardUnlocked(notes, photos)) return null;
+/** What still opens the mood board, or null once it is open. `story` is undefined before stories. */
+export function boardUnlockHint(notes, photos, story) {
+  if (boardUnlocked(notes, photos, story)) return null;
   const more = BOARD_MIN_PHOTOS - (photos ?? 0);
-  return `Add a note, or ${plural(more, 'more photo')}, to open the mood board.`;
+  if (story === undefined) return `Add a note, or ${plural(more, 'more photo')}, to open the mood board.`;
+  return 'Write your story first: it opens the mood board.';
 }
 
 /**
@@ -40,6 +45,9 @@ export function creationJourney(view) {
   const creation = view?.creation ?? null;
   const notes = creation?.notes?.length ?? 0;
   const photos = creation?.photos?.length ?? 0;
+  // undefined: an API from before stories
+  const story = creation?.story === undefined ? undefined : Boolean(creation.story?.written);
+  const progress = creation?.checklist?.items?.length ? creation.checklist.progress : null;
   const boards = creation?.boards ?? [];
   const latest = boards.length > 0 ? boards[boards.length - 1] : null;
   const approved = boards.find((b) => b.status === 'approved') ?? null;
@@ -53,15 +61,20 @@ export function creationJourney(view) {
   const done = {
     spark: true,
     // a board made from the references counts them done, even if some were removed since
-    references: boardUnlocked(notes, photos) || latest !== null,
+    references: boardUnlocked(notes, photos, story) || latest !== null,
     moodboard: approved !== null,
     bible: bibleDone,
     lock: characters > 0 && locked >= characters,
   };
   const current = CREATION_STEPS.find((key) => !done[key]) ?? null;
+  const counted = notes + photos > 0 ? `${plural(photos, 'photo')} · ${plural(notes, 'note')}` : 'Photos & notes';
+  const referencesNote = story === undefined ? counted
+    : progress && (progress.required ?? 0) > 0 ? `${progress.ready} of ${progress.required} ready`
+      : story ? 'Story written'
+        : notes + photos > 0 ? counted : 'Story first';
   const notesFor = {
     spark: 'Name & idea',
-    references: notes + photos > 0 ? `${plural(photos, 'photo')} · ${plural(notes, 'note')}` : 'Photos & notes',
+    references: referencesNote,
     moodboard: approved ? `Board ${approved.version} approved`
       : latest ? `Board ${latest.version} to look over` : current === 'moodboard' ? 'Make & approve' : 'After references',
     bible: bibleDone ? `${plural(characters, 'character')} · ${things} places/props`
@@ -81,7 +94,8 @@ export function creationJourney(view) {
     latest,
     approved,
     bibleDone,
-    boardOpen: boardUnlocked(notes, photos),
+    story,
+    boardOpen: boardUnlocked(notes, photos, story),
   };
 }
 
@@ -124,10 +138,12 @@ export function homeJourney(card) {
   const status = card.board_status ?? null;
   const bibleDone = Boolean(card.profile?.bible_board_id);
   const boardDone = status === 'approved' || bibleDone;
+  // undefined or null: an API from before stories
+  const story = typeof card.story_written === 'boolean' ? card.story_written : undefined;
   const done = {
     spark: true,
-    // the list has no reference counts: a board, a bible or a character means references were added
-    references: status !== null || boardDone || characters > 0,
+    // the list has no reference counts: a story, a board, a bible or a character means references were added
+    references: story === true || status !== null || boardDone || characters > 0,
     moodboard: boardDone,
     bible: bibleDone,
     lock: characters > 0 && locked >= characters,
@@ -140,7 +156,8 @@ export function homeJourney(card) {
   let next;
   switch (current) {
     case 'references':
-      next = { text: 'Next: add photos and notes', tone: 'needs', step: 'references' };
+      next = story === undefined ? { text: 'Next: add photos and notes', tone: 'needs', step: 'references' }
+        : { text: 'Next: write your story', tone: 'needs', step: 'references' };
       break;
     case 'moodboard':
       next = status === 'making' ? { text: 'Your mood board is being made', tone: 'working', step: 'moodboard' }

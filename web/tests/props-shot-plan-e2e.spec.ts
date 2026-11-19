@@ -138,11 +138,32 @@ test('props and places: a place with a photo and a prop picked on a shot, a prom
   await page.unroute(`**/api/episodes/${EPISODE}/props`, slowReload);
   await page.getByTestId('props-add-name').fill('');
   await expect(umbrella).toContainText('No photo yet');
+  // a small photo gets a plain note; one under 128 px is refused with the reason, before it is sent and by the API
   await page.getByTestId('prop-photo-file-red-umbrella').setInputFiles({
     name: 'small.png', mimeType: 'image/png', buffer: testPhoto(200, 200, [220, 30, 30]) });
+  await expect(page.getByTestId('prop-photo-size-red-umbrella')).toHaveText(
+    "Very small image: we'll sharpen it up, but a bigger one will look sharper.");
   await page.getByTestId('prop-rights-original-red-umbrella').check();
-  await page.getByTestId('prop-photo-send-red-umbrella').click();
-  await expect(message).toContainText('at least 512 px');
+  await expect(page.getByTestId('prop-photo-send-red-umbrella')).toBeEnabled();
+  await page.getByTestId('prop-photo-file-red-umbrella').setInputFiles({
+    name: 'tiny.png', mimeType: 'image/png', buffer: testPhoto(100, 100, [220, 30, 30]) });
+  await expect(page.getByTestId('prop-add-photo-red-umbrella')).toContainText(
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
+  await expect(page.getByTestId('prop-photo-size-red-umbrella')).toHaveCount(0);
+  await expect(page.getByTestId('prop-photo-send-red-umbrella')).toBeDisabled();
+  const umbrellaId = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/props`)).json())
+    .items.find((i: { slug: string }) => i.slug === 'red-umbrella').prop_id;
+  const tiny = await page.request.post(`${API}/api/episodes/${EPISODE}/props/${umbrellaId}/photos`, {
+    multipart: {
+      image_file: { name: 'tiny.png', mimeType: 'image/png', buffer: testPhoto(100, 100, [220, 30, 30]) },
+      rights: 'original', depicts_real_person: 'false', likeness_consent: 'false',
+    },
+  });
+  expect(tiny.status()).toBe(400);
+  expect(await tiny.text()).toContain('The image is 100x100 px; each side must be at least 128 px: choose a bigger one');
+  const unchanged = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/props`)).json())
+    .items.find((i: { slug: string }) => i.slug === 'red-umbrella');
+  expect(unchanged.photos).toEqual([]);
   await page.getByTestId('prop-photo-file-red-umbrella').setInputFiles({
     name: 'umbrella.png', mimeType: 'image/png', buffer: testPhoto(640, 640, [220, 30, 30]) });
   await page.getByTestId('prop-photo-send-red-umbrella').click();

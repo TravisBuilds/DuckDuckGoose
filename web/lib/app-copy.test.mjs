@@ -37,7 +37,11 @@ const BETWEEN_VALUES = /^[–×]$/u;
 test('the rules cover the sign-in, password, studio and dashboard routes and everything they are built from', () => {
   for (const file of ['app/login/page.tsx', 'app/set-password/page.tsx', 'app/studio/page.tsx', 'app/dashboard/page.tsx',
     'components/StudioShell.tsx', 'components/playful/BottomBar.tsx', 'components/playful/Wordmark.tsx',
-    'components/Header.tsx', 'components/Footer.tsx', 'components/Toast.tsx', 'components/UniverseCreation.tsx']) {
+    'components/Header.tsx', 'components/Footer.tsx', 'components/Toast.tsx', 'components/UniverseCreation.tsx',
+    // the story-first screen, its reference list and the small-picture notes
+    'components/StoryChecklist.tsx', 'lib/checklist.mjs', 'components/PictureSize.tsx', 'lib/cast.mjs',
+    // the first frames of an episode's shots, and the start that waits for them
+    'components/ConceptFrames.tsx', 'lib/frames.mjs', 'components/UniverseEpisode.tsx', 'app/studio/create/page.tsx']) {
     assert.ok(SOURCES.includes(file), `${file} is not covered`);
   }
   assert.ok(SOURCES.length > 60, `only ${SOURCES.length} files found`);

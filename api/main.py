@@ -1879,6 +1879,7 @@ async def start_episode(
     except WorkflowAlreadyStartedError as e:  # Temporal's own check: an open run the one above did not see
         raise HTTPException(status_code=409, detail=_start_refused_during_run(request.episode_id, e.run_id)) from e
     await _record_run_start(request.episode_id, handle.result_run_id, studio_admin_token, "start")
+    await _forget_kept_start(request.episode_id, authorization, studio_admin_token)
     
     return StartEpisodeResponse(
         workflow_id=handle.id,
@@ -1890,6 +1891,69 @@ async def start_episode(
 
 # Mark start_episode to allow members
 start_episode.allow_members = True
+
+
+class KeptStartRequest(BaseModel):
+    """The wizard's part of a start (the fields and limits of StartEpisodeRequest), kept for the
+    episode page's Start card."""
+    episode_id: str = Field(..., pattern=rf"^{EPISODE_ID_PATTERN}$")
+    dry_run: bool = True
+    enable_story_shaping: bool = True
+    archetype_id: str | None = Field(None, max_length=100)
+    idea: str | None = Field(None, max_length=2000)
+    target_duration: int | None = Field(None, ge=DRAFT_MIN_S, le=DRAFT_MAX_S)
+
+
+async def _kept_start_actor(authorization: str | None, studio_admin_token: str | None) -> str:
+    user_id, is_admin = await _episode_actor(authorization, studio_admin_token)
+    return user_id or ("admin" if is_admin else "member")
+
+
+async def _forget_kept_start(episode_id: str, authorization: str | None, studio_admin_token: str | None) -> None:
+    """The episode started, so the start its page kept is used up. Bookkeeping only: a failure is
+    logged and never refuses or undoes the start (the page shows no Start card once it runs)."""
+    from hfvg import kept_starts
+    try:
+        actor = await _kept_start_actor(authorization, studio_admin_token)
+        await asyncio.to_thread(kept_starts.clear, episode_id, actor)
+    except Exception as e:  # noqa: BLE001
+        print(f"Kept start of {episode_id} not cleared: {e}")
+
+
+@app.post("/api/episodes/{episode_id}/kept-start")
+async def keep_episode_start(
+    episode_id: str,
+    request: KeptStartRequest,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """Keep the start of an uploaded episode that waits on its page (while its owner picks its first
+    frames or locks a Universe look): the page's Start card sends it from any device, and the start
+    clears it. Only its owner or an admin (any member while it has no owner), never while a run is
+    going (409). Nothing starts and nothing is charged here; the start runs every check again."""
+    from hfvg import kept_starts
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    if request.episode_id != episode_id:
+        raise HTTPException(status_code=400, detail=f"This start is for episode {request.episode_id}, not {episode_id}")
+    await require_episode_owner(episode_id, authorization, studio_admin_token)
+    if not (paths.episodes_dir() / episode_id / "BEATMAP.md").is_file():
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} has no beatmap yet; upload it first")
+    if request.archetype_id is not None:
+        from hfvg.genre_presets import resolve_profile
+        try:
+            resolve_profile(request.archetype_id)
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Unknown video type {request.archetype_id!r}")
+    run = await _open_episode_run(episode_id)
+    if run:
+        raise HTTPException(status_code=409, detail=_start_refused_during_run(episode_id, run["run_id"]))
+    actor = await _kept_start_actor(authorization, studio_admin_token)
+    kept = await asyncio.to_thread(kept_starts.keep, episode_id, request.model_dump(), actor)
+    return {"kept_start": kept}
+
+
+keep_episode_start.allow_members = True
 
 _FAILED_SHOT_FIELDS = ("shot_id", "status")
 _OUTCOME_FIELDS = ("shot_id", "status", "still_url", "clip_url", "pre_approved")
@@ -5274,7 +5338,7 @@ async def _refuse_unapproved_redo(shot_id: str, plan: dict, approved_usd_micros:
     total = estimate["total_usd_micros"]
     if total > approved_usd_micros:
         raise HTTPException(status_code=409, detail=(
-            f"The redo now costs {cast_routes._usd(total)} (you approved {cast_routes._usd(approved_usd_micros)}); "
+            f"The redo now costs {cast_routes._price_above(total, approved_usd_micros)}; "
             "review the new price and approve again"))
     if not estimate["dry_run"] and total > 0:
         from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
@@ -7463,6 +7527,12 @@ try:
 except ImportError:
     import shot_plan_routes
 shot_plan_routes.register(app)
+# First frames (each shot's start frame options, made and picked before filming): api/concept_frame_routes.py
+try:
+    from api import concept_frame_routes
+except ImportError:
+    import concept_frame_routes
+concept_frame_routes.register(app)
 # Universes (a series with its profile, saved voices, creation flow and library): api/world_routes.py
 try:
     from api import world_routes

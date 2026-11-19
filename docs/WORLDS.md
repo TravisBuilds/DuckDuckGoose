@@ -13,17 +13,18 @@ profile.
 | Piece | Code |
 |---|---|
 | Store: profile, saved voices, creation notes and photos, mood boards and live board requests, bible, used-in, unlocked cast, list summaries | `hfvg/world_store.py` |
-| Migrations `2026-11-world-profile-v1` and `2026-11-universe-board-requests-v1` | `hfvg/migrations.py` (`UNIVERSE_MIGRATION`, `UNIVERSE_BOARD_MIGRATION`) |
+| Store: the story, its reference list (read from the story), photos on its items | `hfvg/story_refs.py` |
+| Migrations `2026-11-world-profile-v1`, `2026-11-universe-board-requests-v1` and `2026-11-universe-story-v1` | `hfvg/migrations.py` (`UNIVERSE_MIGRATION`, `UNIVERSE_BOARD_MIGRATION`, `UNIVERSE_STORY_MIGRATION`) |
 | Live mood boards: the pictures of a board, their reference photos, the budget line and ledger key | `hfvg/universe_boards.py` |
 | Live mood boards: the paid picture, the end of a request, the reconciler's pass | `hfvg/activities/universe_board.py` |
 | Live mood boards: the workflow and its task queue (registered by `production_workers` in `hfvg/worker.py`) | `hfvg/workflows/universe_board.py` |
 | Draft context and the test drafter's Universe names | `hfvg/world_store.py` (`draft_context`), `hfvg/genre_drafts.py` (`fake_draft`) |
 | API routes | `api/world_routes.py` (registered from `api/main.py`) |
 | Required lock (start, start again, shot plan approval, picks at the shot plan) | `api/main.py` (`_refuse_unlocked_universe_cast`), `api/shot_plan_routes.py` |
-| Web pages | `web/app/studio/page.tsx` (home), `web/app/studio/universes/new/page.tsx`, `web/app/studio/universes/[id]/page.tsx`, `web/components/UniverseCreation.tsx` |
+| Web pages | `web/app/studio/page.tsx` (home), `web/app/studio/universes/new/page.tsx`, `web/app/studio/universes/[id]/page.tsx`, `web/components/UniverseCreation.tsx`, `web/components/StoryChecklist.tsx` (story first, the reference list) |
 | Episode page pieces | `web/components/UniverseEpisode.tsx` (breadcrumb, Add to a Universe, strip, Start card) |
 | Wizard (`/studio/create?world=<id>`) | `web/app/studio/create/page.tsx`, `web/components/VoiceSlotPicker.tsx` |
-| Pure views (node tests) | `web/lib/consistency.mjs`, `web/lib/world.mjs`, `web/lib/wizard.mjs` (`savedVoiceChoices`) |
+| Pure views (node tests) | `web/lib/consistency.mjs`, `web/lib/world.mjs`, `web/lib/wizard.mjs` (`savedVoiceChoices`), `web/lib/journey.mjs`, `web/lib/checklist.mjs` |
 
 ## Concepts
 
@@ -39,8 +40,26 @@ profile.
   (`series_profiles.narrator_*`): the voice id, name, description and preview link that
   `POST /api/voices/pick` returned. Saving calls no provider and stores no key. Deleting a character
   deletes its saved voice.
-- **Creation references.** Notes by topic (premise, characters, places, tone; at most 40, 2,000
-  characters each) and reference photos (at most 12, the cast upload checks and rights questions).
+- **Story first.** The owner writes the story in plain words (rough is fine; at most 4,000
+  characters). The language model reads it (`STORY_SHAPING_MODEL`, the bible's path) into a
+  **reference list**: each character, place and key prop, why the story needs it, what the photos
+  should show (a face from the front and the side and the outfit; a wide view and a detail; the whole
+  thing and a close-up), how many photos are ideal, the fewest that work (at least one), and whether
+  it is optional. At most 16 items and 6 photos an item. Photos upload onto an item; they are the
+  Universe's reference photos, so the mood board uses them as before. The owner adds and removes
+  items; making the list again from a changed story keeps the items that have photos and the ones the
+  owner added, and takes off story items that no longer appear and have no photo. A written story
+  opens the mood board, and the story and the names on the list go into the board's prompt and the
+  bible. When the bible makes a character, place or prop under a name on the list, that item's
+  photos go to it (the character's first version, the place's or prop's photos) with the rights
+  answers they were uploaded with. `DRAFT_LLM_FAKE=1` reads the list deterministically (dry run only).
+  Each person may make the list `REFERENCE_LISTS_PER_HOUR` times an hour (default 10; 0 turns the
+  limit off). After that the page says how many minutes until the next one, and keeps the story and
+  the photos (429 with `Retry-After`). A list that cannot be made (no story yet) is not counted. The
+  count is the API process's own, like the login limit, and starts again when the API restarts.
+- **Creation references.** The story and its list (above), notes by topic (premise, characters,
+  places, tone; at most 40, 2,000 characters each) and reference photos (at most 24, the cast upload
+  checks and rights questions; small pictures from 128 px on the short side, docs/CAST.md).
 - **Mood board.** Four pictures made from the references (in live mode, paid pictures the worker
   makes: see [Live mood boards](#live-mood-boards)). Each board is a version: `ready`, then
   `approved` or `redo_requested` (with the creator's feedback, which the next version answers). Only
@@ -96,8 +115,11 @@ Every route allows members and runs under the app-wide guard. "Viewer" means the
 | `POST /api/worlds/{id}/narrator-voice` | Owner |
 | `POST /api/worlds/{id}/props`, `/props/with-photo`, `/props/{prop_id}`, `/props/{prop_id}/delete` | Owner |
 | `POST /api/worlds/{id}/props/{prop_id}/photos` (and `/{image_id}/primary`, `/{image_id}/delete`) | Owner |
+| `POST /api/worlds/{id}/story` (`{"body": ...}`) | Owner |
+| `POST /api/worlds/{id}/checklist` (make the reference list from the story, or again; `REFERENCE_LISTS_PER_HOUR` a person, 429 after) | Owner |
+| `POST /api/worlds/{id}/checklist/items`, `/checklist/items/{item_id}/delete` | Owner |
 | `POST /api/worlds/{id}/notes`, `/notes/{note_id}`, `/notes/{note_id}/delete` | Owner |
-| `POST /api/worlds/{id}/photos`, `/photos/{image_id}/delete` | Owner |
+| `POST /api/worlds/{id}/photos` (with `item_id` for an item of the list), `/photos/{image_id}/delete` | Owner |
 | `POST /api/worlds/{id}/board/estimate` (with `feedback` for a redo) | Owner |
 | `POST /api/worlds/{id}/board` (with `feedback` for a redo) | Owner, with `approved_total_usd_micros` at or above the estimate |
 | `POST /api/worlds/{id}/board/{board_id}/approve` | Owner |
@@ -121,10 +143,15 @@ Changed routes: `POST /api/episodes/draft-from-idea` takes an optional `world_id
 ## Making a Universe
 
 `/studio/universes/new` asks for a name, a genre and a logline. The Universe page then walks its
-owner through four steps: references (notes and photos), the mood board (the price first, then make
-it, then approve it or ask for a redo with feedback), the characters and places (the bible), and the
-pictures and voices of each. A member without a Universe or an episode lands on this from the home
-(first run).
+owner through four steps: the story and its photos (write the story, make the reference list, add
+photos to each item, "4 of 7 ready"; more notes and photos beside it), the mood board (the price
+first, then make it, then approve it or ask for a redo with feedback), the characters and places
+(the bible), and the pictures and voices of each. A member without a Universe or an episode lands on
+this from the home (first run).
+
+**Universes from before stories.** A Universe without a story reads exactly as before: its notes and
+photos open the mood board and its board and bible are untouched. Its owner can write a story any
+time and make a list; the photos it has stay on no item ("More photos and notes").
 
 **Money.** The mood board is the only paid step. Its estimate comes first and the board is refused
 when the estimate is above the approved total; no route uses `override_unavailable_estimates`. In
@@ -225,8 +252,11 @@ The Universe page's "New episode in this Universe" opens `/studio/create?world=<
   this episode"). Without `?world=` nothing is prefilled and the requests are the same as before.
 - When every look the episode uses is locked, the episode starts as before. Otherwise it is set up in
   the Universe and its page opens on Cast, with a Start card that waits for the locks. The start
-  request (card, idea, length, dry run) is kept in the browser (`localStorage`
-  `ddg:start:<episode id>`) for that card; without it the card starts a free test run.
+  request (card, idea, length, dry run) is kept in the studio for that card (POST
+  `/api/episodes/{id}/kept-start`, table `episode_kept_starts`), so the card sends it from any device
+  of the owner; only the owner and admins see it (`kept_start` in GET `/api/episodes/{id}/universe`)
+  and the start clears it. A start an earlier wizard kept in the browser (`localStorage`
+  `ddg:start:<episode id>`) still works there; without either the card starts a free test run.
 
 ## Episode page and home
 
@@ -257,7 +287,15 @@ The Universe page's "New episode in this Universe" opens `/studio/create?world=<
 | `universe_board_requests` | A live board being made or one that ended: its prompt, the estimate and approval, its workflow id, the board it became, and the reason it stopped early or failed |
 | `universe_board_jobs` | Its paid picture jobs: status, estimate, approved share, number of reference photos, and the picture kept (files in `CAST_STORAGE_DIR`) |
 
-Existing tables and rows are not touched and no data is edited. Both run at API startup
+`2026-11-universe-story-v1` (story first) does the same, after those:
+
+| Table | What |
+|---|---|
+| `universe_stories` | One row per Universe with a story: the text, and the hash of the story its reference list was made from |
+| `universe_checklist_items` | The reference list: kind, name, why, what to show, ideal and fewest photos, optional, made from the story or added by the owner, active or removed |
+| `universe_checklist_photos` | Which reference photo is on which item |
+
+Existing tables and rows are not touched and no data is edited. They run at API startup
 (`run_all_migrations`) and on the first cast store connection (worker, tools), after the cast and
 props library migrations whose tables they reference, and are safe to run again. The budget line
 `U1_mood_board` is not a migration: it is created in the ledger when a Universe's first live
