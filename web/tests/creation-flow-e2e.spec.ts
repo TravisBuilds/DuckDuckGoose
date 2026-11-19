@@ -118,7 +118,8 @@ async function onPhone(page: Page, name: string, part?: Locator) {
 
 /**
  * What reads badly in a part of the page (run in the browser): a button or label (`oneLine`) that
- * takes more than one line or is cut off, or a word of any text broken across two lines.
+ * takes more than one line, is cut off or sticks out of a box drawn around it, a field or picture
+ * that sticks out of one, or a word of any text broken across two lines.
  */
 function layoutProblems(root: Element, oneLine: string): string[] {
   const problems: string[] = [];
@@ -127,7 +128,10 @@ function layoutProblems(root: Element, oneLine: string): string[] {
     return tops.filter((top, i) => i === 0 || top - tops[i - 1] > 4).length;
   };
   const shown = (el: Element) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
-  const say = (el: Element) => `"${(el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60)}"`;
+  const say = (el: Element) => {
+    const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    return text ? `"${text}"` : `the ${el.tagName.toLowerCase()} ${el.getAttribute('data-testid') ?? el.getAttribute('alt') ?? ''}`.trim();
+  };
   // the screen and every box around the element that cuts off what overflows it
   const edges = (el: Element) => {
     const out: { left: number; right: number }[] = [{ left: 0, right: window.innerWidth }];
@@ -135,6 +139,30 @@ function layoutProblems(root: Element, oneLine: string): string[] {
       if (getComputedStyle(up).overflowX !== 'visible') out.push(up.getBoundingClientRect());
     }
     return out;
+  };
+  // the boxes drawn around the element inside the part (a background or a border): it stays inside
+  // each one's padding
+  const drawn = (el: Element) => {
+    const out: { left: number; right: number; what: string }[] = [];
+    for (let up = el.parentElement; up && root.contains(up); up = up.parentElement) {
+      const style = getComputedStyle(up);
+      const [borderLeft, borderRight] = [parseFloat(style.borderLeftWidth), parseFloat(style.borderRightWidth)];
+      if (style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.backgroundImage === 'none' && !borderLeft && !borderRight) continue;
+      const box = up.getBoundingClientRect();
+      out.push({
+        left: box.left + borderLeft + parseFloat(style.paddingLeft),
+        right: box.right - borderRight - parseFloat(style.paddingRight),
+        what: up.getAttribute('data-testid') ?? up.tagName.toLowerCase(),
+      });
+    }
+    return out;
+  };
+  const outside = (el: Element) => {
+    const box = el.getBoundingClientRect();
+    for (const around of drawn(el)) {
+      const by = Math.max(around.left - box.left, box.right - around.right);
+      if (by > 0.5) problems.push(`${say(el)} sticks out of ${around.what} by ${Math.round(by)}px`);
+    }
   };
   for (const el of root.querySelectorAll(oneLine)) {
     if (!shown(el) || !(el.textContent ?? '').trim()) continue;
@@ -144,6 +172,19 @@ function layoutProblems(root: Element, oneLine: string): string[] {
     const box = el.getBoundingClientRect();
     const cut = edges(el).some((edge) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
     if (cut || el.scrollWidth > el.clientWidth + 1) problems.push(`${say(el)} is cut off`);
+    outside(el);
+  }
+  for (const el of root.querySelectorAll('input, select, textarea, img')) {
+    if (shown(el)) outside(el);
+  }
+  // an empty field's placeholder fits in it
+  const ruler = document.createElement('canvas').getContext('2d')!;
+  for (const el of root.querySelectorAll<HTMLInputElement>('input[placeholder]')) {
+    if (!shown(el) || el.value) continue;
+    const [field, hint] = [getComputedStyle(el), getComputedStyle(el, '::placeholder')];
+    ruler.font = `${hint.fontStyle} ${hint.fontWeight} ${hint.fontSize} ${hint.fontFamily}`;
+    const room = el.clientWidth - parseFloat(field.paddingLeft) - parseFloat(field.paddingRight);
+    if (ruler.measureText(el.placeholder).width > room + 0.5) problems.push(`the hint "${el.placeholder}" is cut off`);
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -449,6 +490,10 @@ test.describe.serial('Creation flow fixes', () => {
     for (const size of [SMALL_PHONE, PHONE]) {
       await page.setViewportSize(size);
       await expectTidy(page, section, 'First frames');
+      // the ideas and the buttons in the 'Not quite right?' box stay inside its blue box
+      const change = page.getByTestId(`frames-change-${shot}`);
+      await expectTidy(page, change, 'Not quite right?');
+      await screenshot(page, `not-quite-right-${size.width}`, change);
       await oneScreen(page, `first-frames-${size.width}`, section);
       await oneScreen(page, `first-frames-options-${size.width}`, second);
       // on a phone the start card is in the bottom sheet

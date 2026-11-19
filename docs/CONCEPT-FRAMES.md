@@ -38,8 +38,9 @@ In the UI the step is called **First frames**. In the code and the API it is **c
   what is left in the episode's draft pictures budget.
 - **Pick, try again, or say what to change.** "Use this one" locks an option as the shot's start frame.
   "Try again" makes another round of the same shot. A change in plain words ("make it night", the
-  example buttons fill the box) is written into that round and every later one (the last four changes
-  are kept) until "Start over without them". Earlier rounds stay under "Earlier tries".
+  example buttons fill the box), sent with "Try this change", is written into that round and every
+  later one (the last four changes are kept) until "Start over", which goes back to the shot as it is.
+  Earlier rounds stay under "Earlier tries".
 - **The wizard** (`/studio/create`) has "Pick each shot's first frame before filming", off by default.
   On, the video waits on its page (like a Universe video waiting for its locks) and the start card
   there starts it with the request the wizard kept: the same test run or the live run whose price was

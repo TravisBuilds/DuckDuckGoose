@@ -8,7 +8,7 @@
 import { formatUsdMicros } from './balance.mjs';
 
 /** Plain-words changes people ask for most, offered as examples (each one is a button that fills the box). */
-export const CHANGE_EXAMPLES = ['make it night', 'closer on her face', 'wider, show the whole room', 'warmer colours'];
+export const CHANGE_EXAMPLES = ['make it night', 'closer on her face', 'show the whole room', 'warmer colours'];
 
 export const CHANGE_MAX = 200;
 

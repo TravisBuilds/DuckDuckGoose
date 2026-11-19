@@ -380,7 +380,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
             Not quite right? Say what to change
           </label>
           <input id={`frames-change-text-${id}`} value={change} maxLength={CHANGE_MAX + 50}
-            onChange={(e) => setChange(e.target.value)} placeholder="e.g. make it night, closer on her face"
+            onChange={(e) => setChange(e.target.value)} placeholder="e.g. make it rain"
             className={`${input} mt-1`} data-testid={`frames-change-input-${id}`} />
           <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Ideas">
             {CHANGE_EXAMPLES.map((example) => (
@@ -394,7 +394,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
             <button type="button" className={`${btnPrimary} pf-btn-sm ${oneLine}`} disabled={off || Boolean(changeOff)} onClick={tryChange}
               aria-describedby={whyId ?? (changeOff ? `frames-change-why-${id}` : undefined)}
               data-testid={`frames-try-change-${id}`}>
-              Try again with this change
+              Try this change
             </button>
             <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', true)}
               aria-describedby={whyId} data-testid={`frames-try-again-${id}`}>
@@ -411,7 +411,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
               </p>
               <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', false)}
                 aria-describedby={whyId} data-testid={`frames-start-over-${id}`}>
-                Start over without them
+                Start over
               </button>
             </div>
           )}
