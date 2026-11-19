@@ -5337,9 +5337,9 @@ async def _refuse_unapproved_redo(shot_id: str, plan: dict, approved_usd_micros:
     estimate = await _redo_estimate(shot_id, plan)
     total = estimate["total_usd_micros"]
     if total > approved_usd_micros:
-        now, then = cast_routes._usd_pair(total, approved_usd_micros)
         raise HTTPException(status_code=409, detail=(
-            f"The redo now costs {now} (you approved {then}); review the new price and approve again"))
+            f"The redo now costs {cast_routes._price_above(total, approved_usd_micros)}; "
+            "review the new price and approve again"))
     if not estimate["dry_run"] and total > 0:
         from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
         passed, reason = await BalanceMonitor(DATABASE_PATH).check_preflight_balance(

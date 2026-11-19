@@ -22,7 +22,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from hfvg import cast_store, paths, prop_store, world_store
-from tests.cast_helpers import complete_sheet, image_bytes, two_prices
+from tests.cast_helpers import complete_sheet, image_bytes, just_over
 
 ADMIN = "world-api-admin-secret-0123456789abcdef-xyz"
 OWNER = ("wren.owner@world.test", "owner-pass-123")
@@ -765,9 +765,7 @@ async def test_the_creation_flow_runs_on_placeholders_without_a_provider_or_a_le
         total = estimate.json()["total_usd_micros"]
         assert total == world_store.BOARD_IMAGES * still_call_usd_micros() and estimate.json()["dry_run"] is True
         res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total - 1})
-        assert res.status_code == 409 and res.json()["detail"].startswith("The estimate is now")
-        now, then = two_prices(res.json()["detail"])
-        assert now != then  # the two figures tell the prices apart
+        assert res.status_code == 409 and res.json()["detail"] == just_over(total)
         board = owner.post(f"{base}/board", json={"approved_total_usd_micros": total})
         assert board.status_code == 200, board.text
         first = board.json()["board"]
@@ -908,9 +906,7 @@ async def test_a_live_board_is_priced_by_the_provider_checked_and_handed_to_the_
         assert len(_PricedProvider.prompts) == count  # the provider's own price for each picture
         # refused before anything is recorded: above the approval, the budget line, GC.01, the gate
         res = owner.post(f"{base}/board", json={"approved_total_usd_micros": total - 1})
-        assert res.status_code == 409 and res.json()["detail"].startswith("The estimate is now")
-        now, then = two_prices(res.json()["detail"])
-        assert now != then
+        assert res.status_code == 409 and res.json()["detail"] == just_over(total)
         key = f"universe-{sid}"
         await ledger.ensure_line(key, "U1_mood_board", 4_000_000)
         assert await ledger.reserve(key, "U1_mood_board", 2_000_000, "an earlier board", job_id="uboard-earlier-0")

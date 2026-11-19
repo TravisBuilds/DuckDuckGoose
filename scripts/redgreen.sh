@@ -4914,8 +4914,8 @@ test_mutation 712 "kept start: never while a run is going" \
 # 713: a price above the approved one is written so the two differ
 test_mutation 713 "prices: the new price and the approved one read differently" \
     "api/cast_routes.py" \
-    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[183000-180000-words0]" \
-    sed -i 's/^    for places in range(2, 6):$/    for places in range(2, 3):  # MUTATED/'
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[three-decimals]" \
+    sed -i 's/^    for places in (2, 3, 4):$/    for places in (2,):  # MUTATED/'
 
 # 714: the reference list is made at most REFERENCE_LISTS_PER_HOUR times an hour
 test_mutation 714 "story first: the reference list has an hourly limit" \
@@ -4952,6 +4952,16 @@ test_mutation 719 "uploads: a reference uploaded twice at once goes up once" \
     "hfvg/providers/higgsfield_still.py" \
     "tests/test_harness_canary_bugs.py::test_concurrent_uploads_deduplicated" \
     sed -i 's/^        if not claimed:$/        if False:  # MUTATED/'
+
+test_mutation 720 "prices: four decimals at most" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
+    sed -i 's/^    for places in (2, 3, 4):$/    for places in (2, 3, 4, 5, 6):  # MUTATED/'
+
+test_mutation 721 "prices: when four decimals read the same, the words say it is just over" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
+    sed -i 's/^    return f"{now}, just over what you approved ({then})"$/    return f"{now} (you approved {then})"  # MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

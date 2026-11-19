@@ -4,15 +4,16 @@ a plain background): no real people, no named IP, no brand characters."""
 from __future__ import annotations
 
 import io
-import re
 
 from hfvg import cast_store, prop_store
 
 
-def two_prices(text: str) -> tuple[str, str]:
-    """The new price and the approved one an over-approval refusal names, as written."""
-    now, then = re.findall(r"\$\d+\.\d+", text)
-    return now, then
+def just_over(total: int) -> str:
+    """The over-approval refusal when the approval is a millionth of a dollar short of a price in
+    whole hundredths of a cent: both figures at four decimals, and that it is just over."""
+    assert total % 100 == 0, total
+    four = f"${total / 1_000_000:.4f}"
+    return f"The estimate is now {four}, just over what you approved ({four}); review it and approve again"
 
 
 def image_bytes(fmt: str = "PNG", size: tuple[int, int] = (640, 960), color: tuple[int, int, int] = (90, 140, 200),

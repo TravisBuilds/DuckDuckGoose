@@ -95,14 +95,15 @@ def _usd_places(micros: int, places: int) -> str:
     return f"${whole // 10 ** places}.{whole % 10 ** places:0{places}d}"
 
 
-def _usd_pair(a: int, b: int) -> tuple[str, str]:
-    """Two amounts with the fewest decimals (two or more) that tell them apart: "$0.183" and "$0.180",
-    never "$0.18" twice."""
-    for places in range(2, 6):
-        one, two = _usd_places(a, places), _usd_places(b, places)
-        if one != two or a == b:
-            return one, two
-    return _usd_places(a, 6), _usd_places(b, 6)
+def _price_above(total: int, approved: int) -> str:
+    """A new price and the one approved, each with the fewest decimals (two to four) that tell them
+    apart: "$0.183 (you approved $0.180)", never "$0.18" twice. Four decimals at most: when they still
+    read the same, the words say so: "$0.1800, just over what you approved ($0.1800)"."""
+    for places in (2, 3, 4):
+        now, then = _usd_places(total, places), _usd_places(approved, places)
+        if now != then or total <= approved:
+            return f"{now} (you approved {then})"
+    return f"{now}, just over what you approved ({then})"
 
 
 # ------------------------------------------------------------------------------------- auth
@@ -999,9 +1000,8 @@ async def generate_sheet(episode_id: str, character_id: str, version: int, reque
     total = sum(prices)
     approved = request.approved_total_usd_micros
     if total > approved:
-        now, then = _usd_pair(total, approved)
         raise HTTPException(status_code=409, detail=(
-            f"The estimate is now {now} (you approved {then}); review it and approve again"))
+            f"The estimate is now {_price_above(total, approved)}; review it and approve again"))
     if not dry:
         from hfvg.balance_monitor import HIGGSFIELD_AUTO_TOPUP_ENABLED, BalanceMonitor
         passed, reason = await BalanceMonitor(api.DATABASE_PATH).check_preflight_balance(
