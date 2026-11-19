@@ -143,6 +143,63 @@ test('home: after the bible, the looks to lock; then ready for episodes', () => 
   assert.deepEqual(done.next, { text: 'Ready: make an episode', tone: 'ok', step: null });
 });
 
+function storyView({ written = false, items = [], ...rest } = {}) {
+  const base = view(rest);
+  const required = items.filter((i) => !i.optional);
+  base.creation.story = { body: written ? 'Mira finds a lantern.' : '', written, list_made: items.length > 0, list_current: true };
+  base.creation.checklist = {
+    items,
+    progress: {
+      ready: required.filter((i) => i.ready).length, required: required.length,
+      optional: items.length - required.length, optional_ready: items.filter((i) => i.optional && i.ready).length,
+      photos: 0,
+    },
+  };
+  return base;
+}
+
+test('story first: a new Universe asks for its story, and a written story opens the mood board', () => {
+  const fresh = creationJourney(storyView());
+  assert.equal(fresh.current, 'references');
+  assert.equal(fresh.steps[1].name, 'Story & photos');
+  assert.equal(fresh.steps[1].note, 'Story first');
+  assert.equal(fresh.story, false);
+  assert.equal(fresh.boardOpen, false);
+  assert.equal(boardUnlockHint(0, 0, false), 'Write your story first: it opens the mood board.');
+  const written = creationJourney(storyView({ written: true }));
+  assert.equal(written.current, 'moodboard');
+  assert.equal(written.steps[1].note, 'Story written');
+  assert.equal(written.boardOpen, true);
+  assert.equal(boardUnlocked(0, 0, true), true);
+  assert.equal(boardUnlockHint(0, 0, true), null);
+});
+
+test('story first: the reference list shows how many are ready, optional ones aside', () => {
+  const items = [
+    { item_id: 'rc_1', ready: true, optional: false }, { item_id: 'rc_2', ready: false, optional: false },
+    { item_id: 'rc_3', ready: true, optional: false }, { item_id: 'rc_4', ready: false, optional: true },
+  ];
+  assert.equal(creationJourney(storyView({ written: true, items })).steps[1].note, '2 of 3 ready');
+});
+
+test('story first: a Universe from before stories keeps its notes and photos path', () => {
+  const older = creationJourney(storyView({ notes: 1, photos: 2 }));
+  assert.equal(older.current, 'moodboard');
+  assert.equal(older.steps[1].note, '2 photos · 1 note');
+  assert.equal(creationJourney(view({ photos: 2 })).story, undefined);
+  assert.equal(boardUnlockHint(0, 1, false), 'Write your story first: it opens the mood board.');
+});
+
+test('home: a fresh Universe asks for its story once the API knows stories', () => {
+  assert.deepEqual(homeJourney(card({ story_written: false })).next,
+    { text: 'Next: write your story', tone: 'needs', step: 'references' });
+  const written = homeJourney(card({ story_written: true }));
+  assert.equal(written.current, 'moodboard');
+  assert.equal(written.next.text, 'Next: make your mood board');
+  // an API from before stories, or a card someone else sees, reads as before
+  assert.equal(homeJourney(card({ story_written: null })).next.text, 'Next: add photos and notes');
+});
+
 test('home: someone who only sees a Universe gets no progress, just a way in', () => {
   const journey = homeJourney(card({ can_edit: false }));
   assert.equal(journey.steps, null);

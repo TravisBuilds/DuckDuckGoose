@@ -11,13 +11,13 @@ const CARD_GROUPS = groupByTemplate(presets);
 const NAME_MAX = 60;
 const LOGLINE_MAX = 200;
 const STEPS: [string, string][] = [
-  ['Spark', 'bg-coral'], ['References', 'bg-mustard'], ['Board', 'bg-blue'], ['Bible', 'bg-aqua'], ['Lock', 'bg-green'],
+  ['Spark', 'bg-coral'], ['Story', 'bg-mustard'], ['Board', 'bg-blue'], ['Bible', 'bg-aqua'], ['Lock', 'bg-green'],
 ];
 
 /**
  * Start a Universe (the Spark step): its name, what it is about and the kind of video its episodes
  * default to (POST /api/worlds; nothing is generated or charged). Then the creation route opens on
- * the next step: references for the mood board.
+ * the next step: the story, then the reference photos it needs.
  */
 export function UniverseCreateForm({ heading = 'h2' }: { heading?: 'h1' | 'h2' | 'h3' }) {
   const router = useRouter();

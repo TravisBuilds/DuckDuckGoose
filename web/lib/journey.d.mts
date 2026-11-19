@@ -7,8 +7,13 @@ export declare const CREATION_STEPS: CreationStep[];
 export declare const CREATION_NAMES: Record<CreationStep, string>;
 export declare const BOARD_MIN_PHOTOS: number;
 
-export declare function boardUnlocked(notes: number | null | undefined, photos: number | null | undefined): boolean;
-export declare function boardUnlockHint(notes: number | null | undefined, photos: number | null | undefined): string | null;
+export declare function boardUnlocked(
+  notes: number | null | undefined, photos: number | null | undefined, story?: boolean,
+): boolean;
+/** `story` undefined: an API from before stories (the hint asks for a note or photos). */
+export declare function boardUnlockHint(
+  notes: number | null | undefined, photos: number | null | undefined, story?: boolean,
+): string | null;
 
 export interface CreationJourney {
   steps: { key: CreationStep; name: string; note: string; state: StepState }[];
@@ -17,6 +22,8 @@ export interface CreationJourney {
   latest: WorldBoard | null;
   approved: WorldBoard | null;
   bibleDone: boolean;
+  /** Whether the story is written; undefined from an API before stories. */
+  story: boolean | undefined;
   boardOpen: boolean;
 }
 
