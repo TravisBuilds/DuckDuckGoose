@@ -35,8 +35,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -77,6 +79,12 @@ BOARD_NOT_STARTED = ("The studio's worker could not be asked to make the mood bo
                      "charged. Try again in a minute.")
 COVER_ROUTES = {"cast": "/api/cast/images/", "prop": "/api/props/photos/", "reference": "/api/worlds/images/",
                 "board": "/api/worlds/images/"}
+# "Make my reference list" asks the language model each time: each person may ask this many times an
+# hour (REFERENCE_LISTS_PER_HOUR, default 10; 0 turns the limit off). The count is the API process's
+# own, like the login limit: the API runs as one process (docker/Dockerfile.api).
+REFERENCE_LIST_WINDOW_S = 3600
+_reference_lists: dict[str, list[float]] = {}
+_now = time.monotonic
 
 CharacterCreateRequest = cast_api.CharacterCreateRequest
 CharacterUpdateRequest = cast_api.CharacterUpdateRequest
@@ -868,6 +876,35 @@ delete_world_reference_photo.allow_members = True
 
 # ------------------------------------------------------------------------------------- creation: story first
 
+def reference_lists_per_hour() -> int:
+    try:
+        return max(0, int(os.getenv("REFERENCE_LISTS_PER_HOUR", "10")))
+    except ValueError:
+        return 10
+
+
+def _reference_list_wait(who: str) -> int:
+    """Count one reference list for ``who`` and return 0; or, when the hour's lists are used up, the
+    seconds until the next one may be made (nothing counted)."""
+    limit = reference_lists_per_hour()
+    if limit == 0:
+        return 0
+    now = _now()
+    recent = [t for t in _reference_lists.get(who, ()) if now - t < REFERENCE_LIST_WINDOW_S]
+    if len(recent) >= limit:
+        _reference_lists[who] = recent
+        return max(1, math.ceil(recent[0] + REFERENCE_LIST_WINDOW_S - now))
+    _reference_lists[who] = [*recent, now]
+    return 0
+
+
+def _reference_lists_used(wait_s: int) -> HTTPException:
+    minutes = math.ceil(wait_s / 60)
+    return HTTPException(status_code=429, headers={"Retry-After": str(wait_s)}, detail=(
+        f"You can make the reference list {reference_lists_per_hour()} times an hour. Try again in about "
+        f"{minutes} minute{'' if minutes == 1 else 's'}. Your story and your photos are kept."))
+
+
 @router.post("/api/worlds/{series_id}/story")
 async def save_world_story(series_id: str, request: StoryRequest, authorization: str | None = Header(None),
                            studio_admin_token: str | None = Cookie(None)):
@@ -884,9 +921,13 @@ async def make_world_checklist(series_id: str, authorization: str | None = Heade
                                studio_admin_token: str | None = Cookie(None)):
     """Read the story and list the references it needs: each character, place and prop, why, and
     how many photos are ideal and the fewest that work. Made again after the story changes, items
-    with photos and items the owner added stay. One language model call; no picture is made."""
+    with photos and items the owner added stay. One language model call; no picture is made. Each
+    person may make it ``reference_lists_per_hour()`` times an hour (429 after that)."""
     who = await _editor(series_id, authorization, studio_admin_token)
     inputs = await _call(story_refs.checklist_inputs, series_id)
+    wait = _reference_list_wait(who["user_id"] or who["actor"])
+    if wait:
+        raise _reference_lists_used(wait)
     raw = await _model_json(inputs, story_refs.fake_checklist, story_refs.checklist_messages,
                             "make the reference list")
     items, dropped = [], []

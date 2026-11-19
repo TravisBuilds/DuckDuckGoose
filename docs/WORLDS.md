@@ -53,6 +53,10 @@ profile.
   bible. When the bible makes a character, place or prop under a name on the list, that item's
   photos go to it (the character's first version, the place's or prop's photos) with the rights
   answers they were uploaded with. `DRAFT_LLM_FAKE=1` reads the list deterministically (dry run only).
+  Each person may make the list `REFERENCE_LISTS_PER_HOUR` times an hour (default 10; 0 turns the
+  limit off). After that the page says how many minutes until the next one, and keeps the story and
+  the photos (429 with `Retry-After`). A list that cannot be made (no story yet) is not counted. The
+  count is the API process's own, like the login limit, and starts again when the API restarts.
 - **Creation references.** The story and its list (above), notes by topic (premise, characters,
   places, tone; at most 40, 2,000 characters each) and reference photos (at most 24, the cast upload
   checks and rights questions; small pictures from 128 px on the short side, docs/CAST.md).
@@ -112,7 +116,7 @@ Every route allows members and runs under the app-wide guard. "Viewer" means the
 | `POST /api/worlds/{id}/props`, `/props/with-photo`, `/props/{prop_id}`, `/props/{prop_id}/delete` | Owner |
 | `POST /api/worlds/{id}/props/{prop_id}/photos` (and `/{image_id}/primary`, `/{image_id}/delete`) | Owner |
 | `POST /api/worlds/{id}/story` (`{"body": ...}`) | Owner |
-| `POST /api/worlds/{id}/checklist` (make the reference list from the story, or again) | Owner |
+| `POST /api/worlds/{id}/checklist` (make the reference list from the story, or again; `REFERENCE_LISTS_PER_HOUR` a person, 429 after) | Owner |
 | `POST /api/worlds/{id}/checklist/items`, `/checklist/items/{item_id}/delete` | Owner |
 | `POST /api/worlds/{id}/notes`, `/notes/{note_id}`, `/notes/{note_id}/delete` | Owner |
 | `POST /api/worlds/{id}/photos` (with `item_id` for an item of the list), `/photos/{image_id}/delete` | Owner |

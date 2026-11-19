@@ -1210,6 +1210,52 @@ async def test_the_reference_list_is_read_by_the_story_model_and_leaves_out_what
     assert res.status_code == 500 and "DRAFT_LLM_FAKE" in res.json()["detail"]
 
 
+async def test_each_person_makes_the_reference_list_at_most_ten_times_an_hour(studio, monkeypatch):  # noqa: F811
+    from api import world_routes
+    from hfvg import story_refs
+    clock = [1_000.0]
+    monkeypatch.setattr(world_routes, "_now", lambda: clock[0])
+    monkeypatch.setattr(world_routes, "_reference_lists", {})
+    monkeypatch.delenv("REFERENCE_LISTS_PER_HOUR", raising=False)
+    asked = []
+    model = world_routes._model_json
+
+    async def counted(*args, **kwargs):
+        asked.append(args[-1])
+        return await model(*args, **kwargs)
+
+    monkeypatch.setattr(world_routes, "_model_json", counted)
+    owner, admin = _client(studio, "owner"), _client(studio, "admin")
+    sid = _world(owner)
+    base = _base(sid)
+    # a list that cannot be made yet asks nothing and counts nothing
+    assert owner.post(f"{base}/checklist").status_code == 409
+    assert owner.post(f"{base}/story", json={"body": STORY}).status_code == 200
+    for n in range(10):
+        clock[0] += 60
+        assert owner.post(f"{base}/checklist").status_code == 200, n
+    clock[0] += 60
+    res = owner.post(f"{base}/checklist")
+    assert res.status_code == 429 and res.headers["Retry-After"] == "3000"
+    assert res.json()["detail"] == ("You can make the reference list 10 times an hour. Try again in about 50 minutes. "
+                                    "Your story and your photos are kept.")
+    assert len(asked) == 10  # the eleventh asked the model nothing
+    assert [i["name"] for i in story_refs.checklist(sid)["items"]][0] == "Mira"
+    # another person is not held up by it
+    assert admin.post(f"{base}/checklist").status_code == 200 and len(asked) == 11
+    # an hour after the first list, one more may be made
+    clock[0] = 1_060.0 + world_routes.REFERENCE_LIST_WINDOW_S - 1
+    assert owner.post(f"{base}/checklist").status_code == 429
+    clock[0] += 1
+    assert owner.post(f"{base}/checklist").status_code == 200 and len(asked) == 12
+    assert owner.post(f"{base}/checklist").status_code == 429
+    # the limit is configurable; 0 turns it off, a value that is not a number keeps 10
+    monkeypatch.setenv("REFERENCE_LISTS_PER_HOUR", "0")
+    assert owner.post(f"{base}/checklist").status_code == 200
+    monkeypatch.setenv("REFERENCE_LISTS_PER_HOUR", "many")
+    assert owner.post(f"{base}/checklist").status_code == 429
+
+
 async def test_universe_images_follow_who_may_see_them(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     sid = _world(owner)
