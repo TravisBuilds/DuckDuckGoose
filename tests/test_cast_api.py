@@ -21,7 +21,7 @@ from temporalio.testing import ActivityEnvironment
 
 from hfvg import cast_store
 from hfvg.paths import episode_dir
-from tests.cast_helpers import image_bytes
+from tests.cast_helpers import image_bytes, two_prices
 from tests.ledger_helpers import set_balance
 
 ADMIN = "cast-api-admin-secret-0123456789abcdef-xyz"
@@ -908,10 +908,25 @@ async def test_a_sheet_is_refused_when_the_estimate_is_above_the_approval(studio
     res = owner.post(f"{url}/sheet/generate", json={"stage": "options", "count": 4,
                                                     "approved_total_usd_micros": total - 1})
     assert res.status_code == 409 and res.json()["detail"].startswith("The estimate is now")
+    now, then = two_prices(res.json()["detail"])
+    assert now != then  # the two figures tell the prices apart
     res = owner.post(f"{url}/sheet/generate", json={"stage": "options", "count": 4})
     assert res.status_code == 422  # no approval, no generation
     studio.temporal_client.start_workflow.assert_not_called()
     assert _sheet_jobs() == []
+
+
+@pytest.mark.parametrize("now,then,words", [
+    (183_000, 180_000, ("$0.183", "$0.180")),
+    (60_000, 50_000, ("$0.06", "$0.05")),
+    (185_000, 184_000, ("$0.19", "$0.18")),
+    (2_003_000, 2_001_000, ("$2.003", "$2.001")),
+    (90_000, 89_999, ("$0.090000", "$0.089999")),
+    (1_250_000, 1_250_000, ("$1.25", "$1.25")),
+])
+def test_a_new_price_and_the_approved_one_are_written_so_they_differ(now, then, words):
+    from api import cast_routes
+    assert cast_routes._usd_pair(now, then) == words
 
 
 async def test_a_second_sheet_request_waits_for_the_first(studio):

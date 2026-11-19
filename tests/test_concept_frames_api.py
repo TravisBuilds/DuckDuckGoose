@@ -19,7 +19,7 @@ import respx
 
 from hfvg import concept_frames
 from hfvg.paths import episode_dir
-from tests.cast_helpers import image_bytes
+from tests.cast_helpers import image_bytes, two_prices
 from tests.test_props_api import EP, REFUSED, SHARED_EP, _added, _client, _running, studio  # noqa: F401
 
 BASE = f"/api/episodes/{EP}/concept-frames"
@@ -112,6 +112,8 @@ async def test_the_owner_prices_makes_tweaks_and_picks_a_first_frame(studio):  #
 
     res = owner.post(f"{BASE}/A01", json={"approved_total_usd_micros": total - 1})
     assert res.status_code == 409 and "review it and approve again" in res.json()["detail"]
+    now, then = two_prices(res.json()["detail"])
+    assert now != then
     assert owner.get(BASE).json()["shots"][0]["rounds"] == []
 
     res = owner.post(f"{BASE}/A01", json={"approved_total_usd_micros": total})
@@ -333,6 +335,15 @@ async def test_live_first_frames_without_a_provider_price_make_nothing(live, pri
 async def test_live_first_frames_above_the_approved_total_make_nothing(live):
     res = _client(live, "owner").post(f"{BASE}/A01", json={"approved_total_usd_micros": 3 * PRICE - 1})
     assert res.status_code == 409 and "review it and approve again" in res.json()["detail"]
+    assert two_prices(res.json()["detail"]) == ("$0.090000", "$0.089999")
+    _no_round(live)
+
+
+async def test_a_new_price_and_the_approved_one_read_differently(live):
+    Pricer.price = 61_000  # three options: $0.183, where $0.180 was approved
+    res = _client(live, "owner").post(f"{BASE}/A01", json={"approved_total_usd_micros": 180_000})
+    assert res.status_code == 409
+    assert res.json()["detail"] == "The estimate is now $0.183 (you approved $0.180); review it and approve again"
     _no_round(live)
 
 

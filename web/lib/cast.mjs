@@ -73,7 +73,10 @@ export function pictureSizeCheck(width, height, limits) {
   const short = Math.min(w, h);
   const floor = limits?.min_image_px ?? 128;
   if (short < floor) {
-    return { problem: `This picture is ${w}x${h} px; pictures need at least ${floor} px on each side.`, note: null };
+    return {
+      problem: `This picture is ${w}x${h} px; pictures need at least ${floor} px on each side. Choose a bigger one.`,
+      note: null,
+    };
   }
   if (short >= (limits?.sharpen_below_px ?? 512)) return { problem: null, note: null };
   return { problem: null, note: short < (limits?.small_image_px ?? 256) ? VERY_SMALL_PICTURE_NOTE : SMALL_PICTURE_NOTE };

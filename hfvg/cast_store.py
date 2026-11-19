@@ -647,7 +647,7 @@ def inspect_image(data: bytes, *, max_bytes: int | None = None, min_px: int | No
     except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
         raise CastError(damaged) from None
     if min(width, height) < min_px:
-        raise CastError(f"The image is {width}x{height} px; each side must be at least {min_px} px")
+        raise CastError(f"The image is {width}x{height} px; each side must be at least {min_px} px: choose a bigger one")
     ext, mime = ALLOWED_FORMATS[fmt]
     return {"format": fmt, "ext": ext, "mime": mime, "width": width, "height": height, "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest()}

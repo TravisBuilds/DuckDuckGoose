@@ -1036,9 +1036,9 @@ def _live_estimate(plan: dict, jobs: list[dict], prices: list[int], budget: dict
 
 
 def _estimate_above(total: int, approved: int) -> HTTPException:
+    now, then = cast_api._usd_pair(total, approved)
     return HTTPException(status_code=409, detail=(
-        f"The estimate is now {cast_api._usd(total)} (you approved {cast_api._usd(approved)}); "
-        "review it and approve again"))
+        f"The estimate is now {now} (you approved {then}); review it and approve again"))
 
 
 @router.post("/api/worlds/{series_id}/board/estimate")

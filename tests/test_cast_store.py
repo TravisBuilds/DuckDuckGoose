@@ -161,6 +161,12 @@ def test_too_small_images_are_refused_and_the_minimum_is_configurable(monkeypatc
         cast_store.inspect_image(image_bytes(size=(1000, 1400)))
 
 
+def test_a_too_small_image_is_refused_with_what_to_do_next():
+    with pytest.raises(cast_store.CastError) as refused:
+        cast_store.inspect_image(image_bytes(size=(100, 900)))
+    assert str(refused.value) == "The image is 100x900 px; each side must be at least 128 px: choose a bigger one"
+
+
 def test_small_pictures_are_accepted_with_a_plain_note(monkeypatch):
     for size in ((128, 900), (255, 255), (256, 400), (511, 2000), (300, 300)):
         assert cast_store.inspect_image(image_bytes(size=size))["width"] == size[0]

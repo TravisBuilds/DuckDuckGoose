@@ -193,7 +193,7 @@ test.describe.serial('Creation flow fixes', () => {
     await page.getByTestId(`checklist-file-${ids.Tobin}`).setInputFiles({
       name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100, [90, 120, 60]) });
     await expect(page.getByTestId(`checklist-upload-${ids.Tobin}`)).toContainText(
-      'This picture is 100x100 px; pictures need at least 128 px on each side.');
+      'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
     await page.getByTestId(`checklist-rights-original-${ids.Tobin}`).check();
     await expect(page.getByTestId(`checklist-send-${ids.Tobin}`)).toBeDisabled();
     await page.getByTestId(`checklist-upload-${ids.Tobin}`).getByRole('button', { name: 'Cancel' }).click();

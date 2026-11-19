@@ -115,7 +115,7 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await page.getByTestId('cast-upload-file-mara').setInputFiles({
     name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) });
   await expect(page.getByTestId('cast-upload-mara')).toContainText(
-    'This picture is 100x100 px; pictures need at least 128 px on each side.');
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
   await expect(page.getByTestId('cast-upload-size-mara')).toHaveCount(0);
   await expect(page.getByTestId('cast-upload-send-mara')).toBeDisabled();
   const maraId = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/cast`)).json()).characters[0].character_id;
@@ -126,7 +126,7 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
     },
   });
   expect(tiny.status()).toBe(400);
-  expect(await tiny.text()).toContain('The image is 100x100 px; each side must be at least 128 px');
+  expect(await tiny.text()).toContain('The image is 100x100 px; each side must be at least 128 px: choose a bigger one');
 
   await page.getByTestId('cast-upload-file-mara').setInputFiles({
     name: 'mara.png', mimeType: 'image/png', buffer: testPicture(640, 800) });
@@ -229,7 +229,7 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await page.getByTestId('cast-add-file').setInputFiles({
     name: 'tiny.png', mimeType: 'image/png', buffer: testPicture(100, 100) });
   await expect(page.getByTestId('cast-add')).toContainText(
-    'This picture is 100x100 px; pictures need at least 128 px on each side.');
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
   await expect(page.getByTestId('cast-add-size-note')).toHaveCount(0);
   await expect(page.getByTestId('cast-add-with-photo')).toBeDisabled();
   const tinyTheo = await page.request.post(`${API}/api/episodes/${EPISODE}/cast/with-picture`, {
@@ -240,7 +240,7 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
     },
   });
   expect(tinyTheo.status()).toBe(400);
-  expect(await tinyTheo.text()).toContain('The image is 100x100 px; each side must be at least 128 px');
+  expect(await tinyTheo.text()).toContain('The image is 100x100 px; each side must be at least 128 px: choose a bigger one');
   const slugs = (await (await page.request.get(`${API}/api/episodes/${EPISODE}/cast`)).json())
     .characters.map((c: { slug: string }) => c.slug);
   expect(slugs).not.toContain('theo');

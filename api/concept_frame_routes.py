@@ -193,9 +193,9 @@ def _estimate_out(plan: dict, prices: list[int], dry: bool, budget: dict | None 
 
 
 def _estimate_above(total: int, approved: int) -> HTTPException:
+    now, then = cast_api._usd_pair(total, approved)
     return HTTPException(status_code=409, detail=(
-        f"The estimate is now {cast_api._usd(total)} (you approved {cast_api._usd(approved)}); "
-        "review it and approve again"))
+        f"The estimate is now {now} (you approved {then}); review it and approve again"))
 
 
 async def _plan(episode_id: str, shot_id: str, request: FrameRequest) -> dict:

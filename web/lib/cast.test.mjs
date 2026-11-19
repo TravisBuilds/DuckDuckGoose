@@ -73,10 +73,11 @@ test('small pictures are kept with a plain note; only very tiny ones are refused
   assert.deepEqual(pictureSizeCheck(255, 1000, limits), { problem: null, note: VERY_SMALL_PICTURE_NOTE });
   assert.deepEqual(pictureSizeCheck(128, 128, limits), { problem: null, note: VERY_SMALL_PICTURE_NOTE });
   assert.deepEqual(pictureSizeCheck(127, 640, limits),
-    { problem: 'This picture is 127x640 px; pictures need at least 128 px on each side.', note: null });
+    { problem: 'This picture is 127x640 px; pictures need at least 128 px on each side. Choose a bigger one.', note: null });
   // the studio's own limits win; without them the API defaults apply
   assert.equal(pictureSizeCheck(600, 600, { ...limits, sharpen_below_px: 768 }).note, SMALL_PICTURE_NOTE);
-  assert.equal(pictureSizeCheck(100, 100, null).problem, 'This picture is 100x100 px; pictures need at least 128 px on each side.');
+  assert.equal(pictureSizeCheck(100, 100, null).problem,
+    'This picture is 100x100 px; pictures need at least 128 px on each side. Choose a bigger one.');
   assert.equal(pictureSizeCheck(300, 300, undefined).note, SMALL_PICTURE_NOTE);
   // a size the browser could not read is left to the API
   assert.deepEqual(pictureSizeCheck(0, 0, limits), { problem: null, note: null });

@@ -4,8 +4,15 @@ a plain background): no real people, no named IP, no brand characters."""
 from __future__ import annotations
 
 import io
+import re
 
 from hfvg import cast_store, prop_store
+
+
+def two_prices(text: str) -> tuple[str, str]:
+    """The new price and the approved one an over-approval refusal names, as written."""
+    now, then = re.findall(r"\$\d+\.\d+", text)
+    return now, then
 
 
 def image_bytes(fmt: str = "PNG", size: tuple[int, int] = (640, 960), color: tuple[int, int, int] = (90, 140, 200),
