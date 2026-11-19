@@ -7463,6 +7463,12 @@ try:
 except ImportError:
     import shot_plan_routes
 shot_plan_routes.register(app)
+# First frames (each shot's start frame options, made and picked before filming): api/concept_frame_routes.py
+try:
+    from api import concept_frame_routes
+except ImportError:
+    import concept_frame_routes
+concept_frame_routes.register(app)
 # Universes (a series with its profile, saved voices, creation flow and library): api/world_routes.py
 try:
     from api import world_routes

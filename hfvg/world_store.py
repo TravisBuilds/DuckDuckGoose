@@ -1181,12 +1181,13 @@ def unlocked_cast(episode_id: str, raw: Any = None) -> list[dict]:
 
 
 LOCK_BEFORE = {"start": "this video starts", "approve": "the shot plan is approved",
-               "pick": "they are put in a shot"}
+               "pick": "they are put in a shot", "frame": "first frames are made"}
 
 
 def lock_message(unlocked: list[dict], before: str = "approve") -> str:
     """Why a Universe episode waits (unlocked_cast is not empty): to start, to have its shot plan
-    approved, or to put the characters in a shot while the run waits at the shot plan."""
+    approved, to put the characters in a shot while the run waits at the shot plan, or to make a
+    shot's first frames."""
     names = [c["name"] + (f" (look {c['version']})" if c["version"] != 1 else "") for c in unlocked]
     who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
     return (f"Lock the look of {who} before {LOCK_BEFORE[before]}: this video is in a Universe, where every "

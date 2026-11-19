@@ -74,6 +74,11 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/primary"),
     ("POST", "/api/episodes/{ep}/props/{prop_id}/photos/{image_id}/delete"),
     ("POST", "/api/episodes/{ep}/shot-plan"),
+    # first frames (api/concept_frame_routes.py)
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/estimate"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/pick"),
+    ("POST", "/api/episodes/{ep}/concept-frames/{shot_id}/unpick"),
 ]
 # The writes whose episode id is in the form / body check ownership in the handler.
 BODY_WRITES = [("POST", "/api/episodes/upload"), ("POST", "/api/episodes")]

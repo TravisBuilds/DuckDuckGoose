@@ -33,6 +33,11 @@ from hfvg.activities.universe_board import (
     generate_universe_board_image_activity,
     reconcile_universe_board_job_activity,
 )
+from hfvg.activities.concept_frame import (
+    finish_concept_frames_activity,
+    generate_concept_frame_activity,
+    reconcile_concept_frame_job_activity,
+)
 from hfvg.activities.ref_generation import (
     generate_ref_activity,
     generate_ref_edit_activity,
@@ -59,6 +64,7 @@ from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
 from hfvg.workflows.cast_sheet import CastSheetWorkflow
 from hfvg.workflows.balance_check import BalanceCheckWorkflow
 from hfvg.workflows.universe_board import UniverseBoardWorkflow, universe_task_queue
+from hfvg.workflows.concept_frame import ConceptFrameWorkflow, frames_task_queue
 
 logging.basicConfig(level=logging.INFO)
 quiet_http_client_logs()
@@ -133,6 +139,7 @@ PRODUCTION_ACTIVITIES = [
     finish_cast_sheet_jobs_activity,
     reconcile_cast_sheet_job_activity,
     reconcile_universe_board_job_activity,
+    reconcile_concept_frame_job_activity,
     scheduled_balance_check,
 ]
 
@@ -151,14 +158,20 @@ PRODUCTION_WORKFLOWS = [
 # only while a worker polls it, so an older worker never receives a board it cannot make.
 UNIVERSE_WORKFLOWS = [UniverseBoardWorkflow]
 UNIVERSE_ACTIVITIES = [generate_universe_board_image_activity, finish_universe_board_activity]
+# First frames (a shot's start frame options) likewise run on their own task queue
+# (frames_task_queue(TASK_QUEUE)), started only while a worker polls it.
+FRAMES_WORKFLOWS = [ConceptFrameWorkflow]
+FRAMES_ACTIVITIES = [generate_concept_frame_activity, finish_concept_frames_activity]
 
 
 def production_workers(client, task_queue: str) -> list[Worker]:
-    """The worker on the main task queue and the one on its mood board task queue."""
+    """The worker on the main task queue and the ones on its mood board and first frames task queues."""
     return [
         Worker(client, task_queue=task_queue, workflows=PRODUCTION_WORKFLOWS, activities=PRODUCTION_ACTIVITIES),
         Worker(client, task_queue=universe_task_queue(task_queue), workflows=UNIVERSE_WORKFLOWS,
                activities=UNIVERSE_ACTIVITIES),
+        Worker(client, task_queue=frames_task_queue(task_queue), workflows=FRAMES_WORKFLOWS,
+               activities=FRAMES_ACTIVITIES),
     ]
 
 
@@ -209,7 +222,8 @@ async def main():
         data_converter=temporal_data_converter,
     )
 
-    logger.info(f"Starting worker on task queues: {config.TASK_QUEUE}, {universe_task_queue(config.TASK_QUEUE)}")
+    logger.info(f"Starting worker on task queues: {config.TASK_QUEUE}, {universe_task_queue(config.TASK_QUEUE)}, "
+                f"{frames_task_queue(config.TASK_QUEUE)}")
     workers = production_workers(client, config.TASK_QUEUE)
 
     # Reconciler + stall watchdog run on a Temporal Schedule (RECONCILE_INTERVAL_MINUTES)

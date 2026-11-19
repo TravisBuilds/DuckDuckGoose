@@ -48,8 +48,9 @@ async def test_migration_up_on_an_existing_studio_db(tmp_path):
     nothing that was there changes, and running the migrations again is a no-op."""
     from hfvg.budget import BudgetLedger
     from hfvg.migrations import (
-        CAST_LIBRARY_MIGRATION, PROPS_LIBRARY_MIGRATION, UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION,
-        UNIVERSE_STORY_MIGRATION, apply_props_library_sync, migrate_cast_library, run_all_migrations)
+        CAST_LIBRARY_MIGRATION, CONCEPT_FRAMES_MIGRATION, PROPS_LIBRARY_MIGRATION, UNIVERSE_BOARD_MIGRATION,
+        UNIVERSE_MIGRATION, UNIVERSE_STORY_MIGRATION, apply_props_library_sync, migrate_cast_library,
+        run_all_migrations)
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.users import UserManager
 
@@ -76,16 +77,18 @@ async def test_migration_up_on_an_existing_studio_db(tmp_path):
     await run_all_migrations(db)
     tables_after, data_after = snapshot()
     assert data_after == data_before
-    # run_all_migrations also adds the universe tables (tests/test_world_store.py checks them)
+    # run_all_migrations also adds the universe tables (tests/test_world_store.py checks them) and the
+    # concept frame tables (tests/test_concept_frames.py)
     assert tables_after - tables_before == {"prop_items", "prop_images", "shot_plan_edits", "series_profiles",
                                             "character_voices", "universe_notes", "universe_photos",
                                             "universe_boards", "universe_board_images", "universe_board_requests",
                                             "universe_board_jobs", "universe_stories", "universe_checklist_items",
-                                            "universe_checklist_photos"}
+                                            "universe_checklist_photos", "concept_frame_sets",
+                                            "concept_frame_options", "concept_frame_picks"}
     with sqlite3.connect(db) as conn:
         versions = [r[0] for r in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions == sorted([CAST_LIBRARY_MIGRATION, PROPS_LIBRARY_MIGRATION, UNIVERSE_MIGRATION,
-                                   UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION])
+                                   UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION, CONCEPT_FRAMES_MIGRATION])
         assert apply_props_library_sync(conn) is False
 
 
