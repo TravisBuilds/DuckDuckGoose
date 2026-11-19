@@ -193,4 +193,8 @@ test('on a phone the tab bar names every tab in words and keeps every accessible
   await expect(bar.getByRole('link', { name: 'Costs' })).toBeVisible();
   await expectRoomyTabs(bar, 'the admin tab bar at 320 px');
   expect(await page.evaluate(() => document.documentElement.scrollWidth), 'the studio scrolls sideways at 320 px').toBeLessThanOrEqual(320);
+  await bar.getByRole('link', { name: 'Costs' }).click();
+  await expect(page.getByRole('heading', { name: 'Admin Dashboard' })).toBeVisible();
+  await expect(page.getByText(/^Loading/)).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth), 'the cost dashboard scrolls sideways at 320 px').toBeLessThanOrEqual(320);
 });
