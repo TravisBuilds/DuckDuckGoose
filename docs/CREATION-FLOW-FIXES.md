@@ -88,6 +88,19 @@ the user-facing behaviour is described in docs/WORLDS.md, docs/CAST.md and docs/
 - **"Make my reference list" ten times an hour** (N5) for each person (`REFERENCE_LISTS_PER_HOUR`),
   then a plain 429 that says when to try again.
 
+## Follow-ups from the second verification
+
+- **A refused first list says why** (R1). Until a Universe has a reference list, what pressing "Make
+  my reference list" says (the hourly limit, or any other refusal) shows on the story card, by the
+  button; once there is a list it shows with the list, as before.
+- **The 'Not quite right?' box at 320 px** (R2). Its ideas and buttons stay inside the blue box, on one
+  line, with shorter words: "Try this change", the idea "show the whole room", and "Start over" (which
+  ran into the box's padding too). The layout check now also fails a button, field or picture that
+  goes past the padding of a box drawn around it (a background or a border).
+- **Four decimals at most** (R3). Two prices are written with the fewest decimals, two to four, that
+  tell them apart; when four still read the same, both show at four and the words say it: "The estimate
+  is now $0.1800, just over what you approved ($0.1800)".
+
 ## Deploy
 
 API, worker and web. Worker first: the first frames queue (`<TASK_QUEUE>-frames`) and the
