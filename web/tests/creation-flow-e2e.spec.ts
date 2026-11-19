@@ -25,6 +25,8 @@ import zlib from 'node:zlib';
 
 const API = 'http://localhost:8000';
 const OWNER = { name: 'Story Owner', email: 'e2e-story@test.local', password: 'e2e-story-password' };
+// the reference list limit counts each person's lists: this member uses up theirs
+const LIST_MAKER = { name: 'List Maker', email: 'e2e-lists@test.local', password: 'e2e-lists-password' };
 const UNIVERSE = 'Copper Cove';
 const CARD = 'nostalgia-time-travel';
 const STORY = 'Wren mends sails in the harbour town. One windy night she finds a copper bell in the old lighthouse. '
@@ -190,8 +192,10 @@ test.describe.serial('Creation flow fixes', () => {
     const admin = await apiRequest.newContext({
       extraHTTPHeaders: { Authorization: `Bearer ${testInfo.config.metadata.adminSecret}` },
     });
-    const res = await admin.post(`${API}/api/users`, { data: { ...OWNER, role: 'member' } });
-    expect(res.status(), await res.text()).toBe(200);
+    for (const who of [OWNER, LIST_MAKER]) {
+      const res = await admin.post(`${API}/api/users`, { data: { ...who, role: 'member' } });
+      expect(res.status(), await res.text()).toBe(200);
+    }
     await admin.dispose();
   });
 
@@ -309,6 +313,42 @@ test.describe.serial('Creation flow fixes', () => {
     await page.waitForURL(`/studio/universes/${universeId}`);
     await expect(page.getByTestId('cast-character-wren')).toBeVisible();
     await expect(page.getByTestId('prop-copper-bell')).toContainText('1 photo');
+  });
+
+  test('a first reference list that is refused says why on the story card', async ({ page }) => {
+    // ten lists this hour on one Universe: the limit
+    await signIn(page, LIST_MAKER);
+    const made = await page.request.post(`${API}/api/worlds`, { data: { name: 'Lantern Pier' } });
+    expect(made.status(), await made.text()).toBe(200);
+    const first = `${API}/api/worlds/${(await made.json()).world.series_id}`;
+    const story = await page.request.post(`${first}/story`, { data: { body: STORY } });
+    expect(story.status(), await story.text()).toBe(200);
+    for (let n = 1; n <= 10; n++) {
+      const res = await page.request.post(`${first}/checklist`, { data: {} });
+      expect(res.status(), `list ${n}: ${await res.text()}`).toBe(200);
+    }
+
+    // a new Universe has no list yet: the refusal shows on the story card, by the button
+    await page.goto('/studio/universes/new');
+    await page.getByTestId('universe-name').fill('Kite Hill');
+    await page.getByTestId('universe-create').click();
+    await page.waitForURL(/\/studio\/universes\/sr_[0-9a-f]+\/create\?step=references$/);
+    await page.getByTestId('story-text').fill(STORY);
+    await page.getByTestId('checklist-make').click();
+    const refused = page.getByTestId('story-card').getByTestId('creation-message-checklist');
+    await expect(refused).toHaveText(/^You can make the reference list 10 times an hour\. Try again in about \d+ minutes?\. Your story and your photos are kept\.$/);
+    await expect(refused).toHaveAttribute('data-tone', 'problem');
+    await expect(refused).toBeInViewport();
+    await expect(page.getByTestId('checklist')).toHaveCount(0);
+    await expect(page.getByTestId('story-saved')).toHaveText('Saved');
+    await expect(page.getByTestId('creation-count-list')).toHaveText('Not made yet');
+    for (const size of [SMALL_PHONE, PHONE]) {
+      await page.setViewportSize(size);
+      await expect(refused).toBeVisible();
+      await expectNoSidewaysScroll(page);
+    }
+    await page.setViewportSize(DESKTOP);
+    await screenshot(page, 'story-list-refused-1440', page.getByTestId('story-card'));
   });
 
   test('first frames: options for a shot, a change in plain words, the pick, then filming starts from it', async ({ page, browser }) => {

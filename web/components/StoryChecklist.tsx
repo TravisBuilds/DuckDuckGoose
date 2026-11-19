@@ -68,6 +68,7 @@ export function StoryChecklist({ base, creation, pictureLimits, maxUploadBytes, 
     }
   };
   const full = items.length >= (limits.max_items ?? 16);
+  const listShown = items.length > 0 || Boolean(creation.story?.list_made);
 
   return (
     <>
@@ -105,9 +106,11 @@ export function StoryChecklist({ base, creation, pictureLimits, maxUploadBytes, 
           </p>
         )}
         {message('story')}
+        {/* until there is a list, what making the first one says (a refusal too) shows here */}
+        {!listShown && message('checklist')}
       </section>
 
-      {(items.length > 0 || creation.story?.list_made) && (
+      {listShown && (
         <section className="pf-card mt-5 p-5 sm:p-6" data-testid="checklist" aria-labelledby="checklist-title">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
