@@ -36,7 +36,7 @@ the user-facing behaviour is described in docs/WORLDS.md, docs/CAST.md and docs/
 
 ## Fix 3: story first, then a reference checklist
 
-- The References step becomes "Story & refs": first a story box (plain words, rough is fine), then
+- The References step becomes "Story & photos": first a story box (plain words, rough is fine), then
   "Make my reference list". The language model (`STORY_SHAPING_MODEL`, the existing chat path;
   `DRAFT_LLM_FAKE` gives a deterministic list in tests) reads the story and returns the references it
   needs: each character (face and outfit angles), each place, each key prop, why, ideal and minimum
@@ -61,8 +61,8 @@ the user-facing behaviour is described in docs/WORLDS.md, docs/CAST.md and docs/
   episode in live mode, then the provider estimate (fail closed), the approved total, the budget line,
   the balance check, and on the worker (its own task queue, started only while a worker polls it) the
   sheet path's guards: estimate within the approval, balance gate, credit and USD reserves on the
-  episode's still line, idempotent submit, job ledger, commit; stalled jobs go to the reconciler.
-  No override skips the estimate or the balance gate.
+  episode's draft pictures line (`L2_drafts`), idempotent submit, job ledger, commit; stalled jobs go to
+  the reconciler. No override skips the estimate or the balance gate.
 - The pick is copied into the episode (`concept_frames/`) and written as the shot's `pre_approved_still`
   (path, sha256, approved_by), only before the run starts; the run uses it as the start frame and skips that
   still. A pick is refused when the shot changed since its options were made. In a Universe the shot's
@@ -71,8 +71,8 @@ the user-facing behaviour is described in docs/WORLDS.md, docs/CAST.md and docs/
 
 ## Deploy
 
-API, worker and web. Worker first: the concept frames queue (`<TASK_QUEUE>-concept-frames`) and the
-reconciler's new job type ship with it; until a worker polls that queue the API refuses live concept
+API, worker and web. Worker first: the first frames queue (`<TASK_QUEUE>-frames`) and the
+reconciler's new job type ship with it; until a worker polls that queue the API refuses live first
 frames with a plain 409. The migrations are additive and run on first use; no manual database edits.
 
 ## Tests
