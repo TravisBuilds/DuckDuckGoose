@@ -3,8 +3,9 @@ import { test, expect } from './e2e-cleanup';
 
 /**
  * A live mood board on the Universe page (docs/WORLDS.md). Before anything is spent the owner sees
- * the provider's price of each picture, what the pictures are made with and what the Universe's mood
- * board budget has left; Make sends the approved total; the page follows the board while the worker
+ * one price for the board, with each picture's price, what the pictures are made from and what the
+ * Universe's mood board budget has left behind "See the breakdown", and never the model's name
+ * (docs/EASY-CHECKOUT.md); Make sends that price as the approved total; the page follows the board while the worker
  * makes it, then shows its pictures. A board that stopped early keeps the pictures that were paid for
  * and says why; one that made nothing says why and offers the price again; an older worker gets a
  * plain message instead of a price. A live board needs a paid provider, so this is the one e2e spec
@@ -141,16 +142,19 @@ test.describe('A live mood board', () => {
     // the mood board is its own step; the reloads below stay on it
     await page.goto(`/studio/universes/${sid}/create?step=moodboard`);
 
-    // the price first: each picture's provider price, what it is made with, the budget left
+    // the price first, once: each picture's price, what it is made from and the budget left are
+    // behind "See the breakdown", and the model's name is nowhere
     await page.getByTestId('board-check-price').click();
     const estimate = page.getByTestId('board-estimate');
-    await expect(estimate).toContainText(ESTIMATE.summary);
-    await expect(page.getByTestId('board-estimate-lines').locator('li')).toHaveText([
-      "4 pictures at $0.39 each (the provider's price)",
-      `Made from your notes, with ${MODEL}`,
-      "This Universe's mood board budget has $3.20 left (it stops at $3.20 spent of $4.00)",
-    ]);
-    await expect(estimate).toContainText('Nothing is charged until you press Make.');
+    await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board: about $1.56');
+    await expect(page.getByTestId('board-estimate-line')).toHaveText('If the price goes up before we make it, we ask you first.');
+    const breakdown = page.getByTestId('board-estimate-breakdown');
+    await expect(breakdown.locator('dt').first()).toBeHidden();
+    await breakdown.locator('summary').click();
+    await expect(breakdown.locator('dt')).toHaveText(['4 pictures', 'Made from', 'Left in the mood board budget']);
+    await expect(breakdown.locator('dd')).toHaveText(['$0.39 each', 'your notes', '$3.20']);
+    await expect(estimate).not.toContainText(MODEL);
+    await expect(estimate).not.toContainText(/grok|xai/i);
     expect(sent).toEqual([]);
     await screenshot(page, 'live-board-estimate-1440');
 

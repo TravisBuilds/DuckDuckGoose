@@ -331,7 +331,7 @@ test.describe.serial('Creation flow fixes', () => {
     await page.getByTestId('creation-next').click();
     await page.waitForURL(`/studio/universes/${universeId}/create?step=moodboard`);
     await page.getByTestId('board-check-price').click();
-    await expect(page.getByTestId('board-estimate')).toContainText('4 placeholder images, free in dry-run mode');
+    await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board: free');
     await page.getByTestId('board-make').click();
     await expect(page.getByTestId('board-images-1').locator('img')).toHaveCount(4);
     await page.getByTestId('board-approve').click();
@@ -443,8 +443,8 @@ test.describe.serial('Creation flow fixes', () => {
     // the price first (free stand-ins in a test run), then a round of three options
     await page.getByTestId(`frames-start-${shot}`).click();
     const price = page.getByTestId(`frames-price-${shot}`);
-    await expect(price).toContainText('Free');
-    await expect(price).toContainText('3 options');
+    await expect(page.getByTestId(`frames-price-${shot}-price`)).toHaveText('3 options: free');
+    await expect(page.getByTestId(`frames-price-${shot}-line`)).toHaveText('A test run, so nothing is charged.');
     await expect(page.getByTestId(`frames-make-${shot}`)).toHaveText('Make 3 options');
     for (const size of [SMALL_PHONE, PHONE, DESKTOP]) {
       await page.setViewportSize(size);

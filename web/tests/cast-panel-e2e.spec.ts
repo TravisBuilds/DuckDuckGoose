@@ -150,11 +150,11 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await expect(page.getByTestId('cast-source-upload-mara')).toBeChecked();
   await page.getByTestId('cast-source-text-mara').check();
   await page.getByTestId('cast-check-options-mara').click();
-  await expect(page.getByTestId('cast-estimate-mara')).toContainText('3 pictures, free');
+  await expect(page.getByTestId('cast-estimate-mara')).toContainText('3 pictures: free');
   await page.getByTestId('cast-source-upload-mara').check();
   await expect(page.getByTestId('cast-estimate-mara')).toHaveCount(0);
   await page.getByTestId('cast-check-options-mara').click();
-  await expect(page.getByTestId('cast-estimate-mara')).toContainText('2 pictures, free');
+  await expect(page.getByTestId('cast-estimate-mara')).toContainText('2 pictures: free');
   await page.getByTestId('cast-generate-mara').click();
   await expect(sheet).toHaveAttribute('data-step', 'pick', { timeout: 120_000 });
   await expect(sheet.getByRole('button', { name: 'Use this look' })).toHaveCount(2);
@@ -163,7 +163,7 @@ test('cast: a character with a picture, a locked character sheet, in a shot, the
   await expect(sheet).toHaveAttribute('data-step', 'turnaround');
 
   await page.getByTestId('cast-check-turnaround-mara').click();
-  await expect(page.getByTestId('cast-estimate-mara')).toContainText('pictures, free');
+  await expect(page.getByTestId('cast-estimate-mara')).toContainText('pictures: free');
   await page.getByTestId('cast-generate-mara').click();
   await expect(sheet).toHaveAttribute('data-step', 'approve', { timeout: 120_000 });
   for (const view of ['Main look', 'Front', 'Three-quarter', 'Side', 'Back', 'Head close-ups']) {

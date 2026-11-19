@@ -85,7 +85,8 @@ test('full dry-run episode: new episode -> G1 -> per-shot G2 -> clip retry -> ca
   // --- the redo takes that note with it, for a price shown before anything is made ---
   await expect(page.getByTestId('reject-reason-S02')).toHaveValue('framing too loose');
   await page.getByTestId('retry-shot-S02').click();
-  await expect(page.getByTestId('redo-price-S02')).toHaveText('1 new picture, free: preview mode makes simple stand-in pictures');
+  await expect(page.getByTestId('redo-price-S02')).toHaveText('1 new picture: free');
+  await expect(page.getByTestId('redo-estimate-S02-line')).toHaveText('A test run, so nothing is charged.');
   await expect(page.getByTestId('redo-note-S02')).toHaveText('Your note goes with it: “framing too loose”');
   await page.getByTestId('redo-confirm-S02').click();
   await expectMessage(page, /^Making picture S02 again with your note\.$/);
