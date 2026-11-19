@@ -49,7 +49,7 @@ async def test_migration_up_on_an_existing_studio_db(tmp_path):
     from hfvg.budget import BudgetLedger
     from hfvg.migrations import (
         CAST_LIBRARY_MIGRATION, PROPS_LIBRARY_MIGRATION, UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION,
-        apply_props_library_sync, migrate_cast_library, run_all_migrations)
+        UNIVERSE_STORY_MIGRATION, apply_props_library_sync, migrate_cast_library, run_all_migrations)
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.users import UserManager
 
@@ -80,11 +80,12 @@ async def test_migration_up_on_an_existing_studio_db(tmp_path):
     assert tables_after - tables_before == {"prop_items", "prop_images", "shot_plan_edits", "series_profiles",
                                             "character_voices", "universe_notes", "universe_photos",
                                             "universe_boards", "universe_board_images", "universe_board_requests",
-                                            "universe_board_jobs"}
+                                            "universe_board_jobs", "universe_stories", "universe_checklist_items",
+                                            "universe_checklist_photos"}
     with sqlite3.connect(db) as conn:
         versions = [r[0] for r in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions == sorted([CAST_LIBRARY_MIGRATION, PROPS_LIBRARY_MIGRATION, UNIVERSE_MIGRATION,
-                                   UNIVERSE_BOARD_MIGRATION])
+                                   UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION])
         assert apply_props_library_sync(conn) is False
 
 

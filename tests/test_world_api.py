@@ -1056,6 +1056,156 @@ async def test_bible_entries_the_studio_cannot_generate_are_left_out(studio, mon
     assert world_store.get_profile(sid)["style_notes"] == ""
 
 
+# ------------------------------------------------------------------------------------- creation: story first
+
+STORY = ("Mira mends nets in the harbour town. One night she finds a brass lantern in the old lighthouse. "
+         "She carries the lantern to the night market, where Tobin sells kites with a paper moon.")
+
+
+async def test_story_then_reference_list_then_photos_onto_it_without_a_provider_or_a_ledger_row(studio):
+    """The story first, the list read from it, small photos onto its items with a plain note, the
+    owner's own items, then the mood board and the bible as before: the bible's characters, places
+    and props get the photos uploaded for them."""
+    from hfvg import story_refs
+    owner = _client(studio, "owner")
+    before = _money_rows()
+    with respx.mock(assert_all_called=False) as network:
+        sid = _world(owner)
+        base = _base(sid)
+        creation = owner.get(base).json()["creation"]
+        assert (creation["story"]["written"], creation["checklist"]["items"]) == (False, [])
+        assert creation["item_kinds"] == ["character", "place", "prop"]
+        assert (creation["limits"]["story_max"], creation["limits"]["max_items"]) == (story_refs.STORY_MAX,
+                                                                                    story_refs.MAX_ITEMS)
+        res = owner.post(f"{base}/checklist")
+        assert res.status_code == 409 and res.json()["detail"].startswith("Write a few lines of the story first")
+        saved = owner.post(f"{base}/story", json={"body": STORY})
+        assert saved.status_code == 200 and saved.json()["story"]["body"] == STORY
+        made = owner.post(f"{base}/checklist")
+        assert made.status_code == 200, made.text
+        listed = made.json()["checklist"]
+        assert [i["name"] for i in listed["items"]] == ["Mira", "Tobin", "Harbour town", "Old lighthouse",
+                                                        "Night market", "Brass lantern", "Paper moon"]
+        assert (listed["progress"]["ready"], listed["progress"]["required"], made.json()["dropped"]) == (0, 6, [])
+        items = {i["name"]: i for i in listed["items"]}
+        small = owner.post(f"{base}/photos", data={"rights": "original", "item_id": items["Mira"]["item_id"]},
+                           files=_files(image_bytes(size=(300, 400), seed=21)))
+        assert small.status_code == 200, small.text
+        assert small.json()["item_id"] == items["Mira"]["item_id"]
+        assert small.json()["photo"]["size_note"] == cast_store.SMALL_IMAGE_NOTE
+        for name, seed in (("Tobin", 22), ("Night market", 23), ("Brass lantern", 24)):
+            res = owner.post(f"{base}/photos", data={"rights": "original", "item_id": items[name]["item_id"]},
+                             files=_files(image_bytes(seed=seed)))
+            assert res.status_code == 200, res.text
+        for item_id in ("rc_nothere", "rc_000000000000"):
+            res = owner.post(f"{base}/photos", data={"rights": "original", "item_id": item_id},
+                             files=_files(image_bytes(seed=25)))
+            assert res.status_code == 404 and "not on the reference list" in res.json()["detail"]
+        creation = owner.get(base).json()["creation"]
+        assert creation["checklist"]["progress"] == {"ready": 4, "required": 6, "optional": 1, "optional_ready": 0,
+                                                     "photos": 4}
+        assert len(creation["photos"]) == 4 and creation["story"]["list_current"] is True
+        added = owner.post(f"{base}/checklist/items", json={"kind": "prop", "name": "Rain cloak", "why": "Mira wears it"})
+        assert added.status_code == 200 and added.json()["item"]["source"] == "owner"
+        for body, status in [({"kind": "prop", "name": "rain cloak"}, 409), ({"kind": "vehicle", "name": "Tram"}, 400),
+                             ({"kind": "prop", "name": "Kite", "ideal_photos": 9}, 422), ({"kind": "prop"}, 422)]:
+            assert owner.post(f"{base}/checklist/items", json=body).status_code == status, body
+        moon = items["Paper moon"]["item_id"]
+        assert owner.post(f"{base}/checklist/items/{moon}/delete").json() == {"removed": moon}
+        assert owner.post(f"{base}/checklist/items/{moon}/delete").status_code == 404
+        assert owner.post(f"{base}/checklist/items/nope/delete").status_code == 404
+        estimate = owner.post(f"{base}/board/estimate", json={})
+        assert estimate.status_code == 200, estimate.text
+        board = owner.post(f"{base}/board", json={"approved_total_usd_micros": estimate.json()["total_usd_micros"]})
+        assert board.status_code == 200, board.text
+        assert "Characters to show: Mira, Tobin" in world_store.list_boards(sid, with_prompt=True)[0]["prompt"]
+        assert owner.post(f"{base}/board/{board.json()['board']['board_id']}/approve").status_code == 200
+        bible = owner.post(f"{base}/bible")
+        assert bible.status_code == 200, bible.text
+        assert {"Mira", "Tobin"} <= set(bible.json()["bible"]["created"]["characters"])
+        assert bible.json()["bible"]["attached"] == {"Mira": 1, "Tobin": 1, "Night market": 1, "Brass lantern": 1}
+    assert network.calls.call_count == 0 and _money_rows() == before
+    _nothing_started(studio)
+    card = next(w for w in owner.get("/api/worlds").json()["worlds"] if w["series_id"] == sid)
+    assert card["story_written"] is True
+
+
+async def test_only_the_owner_and_admins_see_and_change_the_story_and_its_list(studio):
+    from hfvg import story_refs
+    owner, other = _client(studio, "owner"), _client(studio, "other")
+    sid = _world(owner)
+    assert owner.post(f"{_base(sid)}/story", json={"body": STORY}).status_code == 200
+    _link(studio, OTHER_EP, sid)
+    view = other.get(_base(sid))
+    assert view.status_code == 200 and "creation" not in view.json() and "Mira mends nets" not in view.text
+    [card] = other.get("/api/worlds").json()["worlds"]
+    assert card["story_written"] is None
+    for url, body in [(f"{_base(sid)}/story", {"body": "mine now"}), (f"{_base(sid)}/checklist", None),
+                      (f"{_base(sid)}/checklist/items", {"kind": "prop", "name": "Oar"})]:
+        res = other.post(url, json=body)
+        assert (res.status_code, res.json().get("detail")) == (403, f"Universe Lantern Bay {REFUSED}"), url
+    hidden = _world(_client(studio, "admin"), "Elsewhere")
+    assert other.post(f"{_base(hidden)}/story", json={"body": STORY}).status_code == 404
+    assert _client(studio, None).post(f"{_base(sid)}/story", json={"body": STORY}).status_code == 401
+    assert _client(studio, "admin").post(f"{_base(sid)}/checklist").status_code == 200
+    assert story_refs.get_story(sid)["body"] == STORY
+
+
+async def test_the_reference_list_is_read_by_the_story_model_and_leaves_out_what_the_studio_cannot_make(
+        studio, monkeypatch):
+    import openai
+
+    from hfvg import story_refs
+    from hfvg.config import config
+    from hfvg.content_policy import hard_stop_terms
+    owner = _client(studio, "owner")
+    sid = _world(owner)
+    base = _base(sid)
+    owner.post(f"{base}/story", json={"body": STORY})
+    bad = next(t for t in ("gore", "nude", "blood") if hard_stop_terms(t))
+    res = owner.post(f"{base}/story", json={"body": f"A story covered in {bad}"})
+    assert res.status_code == 400 and res.json()["detail"].startswith("Please reword")
+    assert story_refs.get_story(sid)["body"] == STORY
+    sent: list[dict] = []
+    replies = [{"items": [{"kind": "character", "name": "Mira", "why": "She finds the lantern"},
+                          {"kind": "prop", "name": "Mask", "why": f"covered in {bad}"}]}, {"items": []}]
+
+    class Completions:
+        async def create(self, **kwargs):
+            sent.append(kwargs)
+            return MagicMock(choices=[MagicMock(message=MagicMock(content=json.dumps(replies.pop(0))))])
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = MagicMock(completions=Completions())
+
+    monkeypatch.delenv("DRAFT_LLM_FAKE")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-story-test")
+    monkeypatch.setattr(openai, "AsyncOpenAI", FakeOpenAI)
+    res = owner.post(f"{base}/checklist")
+    assert res.status_code == 200, res.text
+    assert [i["name"] for i in res.json()["checklist"]["items"]] == ["Mira"] and res.json()["dropped"] == ["Mask"]
+    assert sent[0]["model"] == config.STORY_SHAPING_MODEL and sent[0]["response_format"] == {"type": "json_object"}
+    assert STORY in sent[0]["messages"][1]["content"] and "CONTENT POLICY" in sent[0]["messages"][0]["content"]
+    res = owner.post(f"{base}/checklist")
+    assert res.status_code == 409 and res.json()["detail"].startswith("No characters, places or props were found")
+
+    class Broken:
+        def __init__(self, **_kwargs):
+            self.chat = MagicMock(completions=MagicMock(create=AsyncMock(side_effect=RuntimeError("timed out"))))
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", Broken)
+    res = owner.post(f"{base}/checklist")
+    assert res.status_code == 502 and "could not make the reference list" in res.json()["detail"]
+    assert [i["name"] for i in story_refs.checklist(sid)["items"]] == ["Mira"]
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    assert owner.post(f"{base}/checklist").status_code == 503
+    monkeypatch.setenv("DRAFT_LLM_FAKE", "1")
+    monkeypatch.setenv("DRY_RUN", "false")
+    res = owner.post(f"{base}/checklist")
+    assert res.status_code == 500 and "DRAFT_LLM_FAKE" in res.json()["detail"]
+
+
 async def test_universe_images_follow_who_may_see_them(studio):
     owner, other = _client(studio, "owner"), _client(studio, "other")
     sid = _world(owner)

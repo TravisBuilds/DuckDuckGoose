@@ -3,9 +3,10 @@
 A Universe is a series (hfvg.cast_store) with a profile: logline, story bible, style notes, the
 wizard card new episodes default to, a cover picture and the narrator voice. Its characters, props
 and places are the series library of the cast and props stores; nothing here copies them. Each
-character can keep a saved voice. The creation flow keeps the creator's references (notes and
-photos), the mood board versions made from them (with the feedback a redo answered and the
-approval) and which approved board the Universe bible was written from.
+character can keep a saved voice. The creation flow keeps the creator's references (the story and
+its reference checklist from hfvg.story_refs, notes and photos), the mood board versions made from
+them (with the feedback a redo answered and the approval) and which approved board the Universe
+bible was written from.
 
 Tables from the universe migration (hfvg.migrations.UNIVERSE_MIGRATION). A series without a
 profile row reads as the empty profile. Reference photos and mood board images share the cast
@@ -35,7 +36,9 @@ NOTE_MAX = 2000
 CAPTION_MAX = 200
 FEEDBACK_MAX = 600
 MAX_NOTES = 40
-MAX_REFERENCE_PHOTOS = 12
+# Room for a story's reference checklist (hfvg.story_refs): a few photos for each character, place
+# and prop. Each mood board picture still takes at most the still model's reference limit of them.
+MAX_REFERENCE_PHOTOS = 24
 NOTE_TOPICS = ("premise", "characters", "places", "tone")
 NOTE_LABELS = {"premise": "Premise", "characters": "Characters", "places": "Places", "tone": "Tone"}
 
@@ -363,19 +366,26 @@ def _reference_photo_in(conn, image_id: str) -> dict:
 
 
 def add_reference_photo(series_id: str, data: bytes, *, filename: str | None, attestation: dict, caption: Any = "",
-                        actor: str | None = None) -> dict:
+                        actor: str | None = None, item_id: str | None = None) -> dict:
     """A reference photo for the mood board: the cast upload checks and rights attestation, stored
-    privately, deduplicated by content within the Universe."""
+    privately, deduplicated by content within the Universe. ``item_id`` puts it on that item of the
+    story's reference checklist (hfvg.story_refs) in the same transaction."""
+    from hfvg import story_refs
+
     caption = _clean(caption, "Caption", CAPTION_MAX)
     info = cast_store.inspect_image(data)
     with connect() as conn:
         with _tx(conn):
             _series_row(conn, series_id)
+            if item_id:
+                story_refs.item_for_photo(conn, series_id, item_id)
             existing = conn.execute("SELECT image_id FROM universe_photos WHERE series_id = ? AND sha256 = ?",
                                     (series_id, info["sha256"])).fetchone()
             if existing:
                 conn.execute("UPDATE universe_photos SET status = 'active' WHERE image_id = ?", (existing[0],))
-                return {**_reference_photo_in(conn, existing[0]), "duplicate": True}
+                if item_id:
+                    story_refs.link_photo(conn, item_id, existing[0], actor)
+                return {**_reference_photo_in(conn, existing[0]), "duplicate": True, "item_id": item_id or None}
             count = conn.execute("SELECT COUNT(*) FROM universe_photos WHERE series_id = ? AND status = 'active'",
                                  (series_id,)).fetchone()[0]
             if count >= MAX_REFERENCE_PHOTOS:
@@ -390,12 +400,14 @@ def add_reference_photo(series_id: str, data: bytes, *, filename: str | None, at
                 (image_id, series_id, info["sha256"], info["ext"], info["mime"], info["width"], info["height"],
                  info["bytes"], caption, (filename or "")[:200] or None, json.dumps(attestation, sort_keys=True),
                  actor, _now()))
+            if item_id:
+                story_refs.link_photo(conn, item_id, image_id, actor)
             audit(conn, actor, "universe_photo_upload", series_id=series_id, image_id=image_id,
                   details={"sha256": info["sha256"], "bytes": info["bytes"], "width": info["width"],
                            "height": info["height"], "format": info["format"], "filename": (filename or "")[:200],
-                           "attestation": attestation})
+                           "attestation": attestation, **({"item_id": item_id} if item_id else {})})
     cast_store.ensure_thumb(info["sha256"], info["ext"])
-    return {**get_reference_photo(image_id), "duplicate": False}
+    return {**get_reference_photo(image_id), "duplicate": False, "item_id": item_id or None}
 
 
 def delete_reference_photo(series_id: str, image_id: str, actor: str | None = None) -> dict:
@@ -407,6 +419,7 @@ def delete_reference_photo(series_id: str, image_id: str, actor: str | None = No
         with _tx(conn):
             if _making_request(conn, series_id) is not None:
                 raise CastConflict(f"{BOARD_BEING_MADE} from the reference photos; delete this photo after that")
+            conn.execute("DELETE FROM universe_checklist_photos WHERE image_id = ?", (image_id,))
             conn.execute("DELETE FROM universe_photos WHERE image_id = ?", (image_id,))
             conn.execute("UPDATE series_profiles SET cover_image_id = NULL WHERE series_id = ? AND cover_image_id = ?",
                          (series_id, image_id))
@@ -444,13 +457,20 @@ def list_boards(series_id: str, *, with_prompt: bool = False) -> list[dict]:
         return [_board_view(conn, r, with_prompt=with_prompt) for r in _board_rows(conn, series_id)]
 
 
-def board_prompt(name: str, profile: dict, notes: list[dict], photos: list[dict], feedback: str = "") -> str:
-    """The words a mood board is made from: the creator's notes by topic, the photo captions, the
-    style notes and the redo feedback. Deterministic, at most BOARD_PROMPT_MAX characters."""
+def board_prompt(name: str, profile: dict, notes: list[dict], photos: list[dict], feedback: str = "", *,
+                 story: str = "", listed: dict[str, list[str]] | None = None) -> str:
+    """The words a mood board is made from: the story and the names on its reference checklist, the
+    creator's notes by topic, the photo captions, the style notes and the redo feedback.
+    Deterministic, at most BOARD_PROMPT_MAX characters."""
     parts = [f'Mood board for an original story universe called "{name}": {BOARD_IMAGES} images that set its '
              "look (characters, places, light, colour and texture). No words or lettering in the images."]
     if profile.get("logline"):
         parts.append(f"Logline: {_clip(profile['logline'], 200)}")
+    if story:
+        parts.append(f"Story: {_clip(story, 700)}")
+    for kind, label in (("character", "Characters to show"), ("place", "Places to show"), ("prop", "Props to show")):
+        if listed and listed.get(kind):
+            parts.append(f"{label}: {_clip(', '.join(listed[kind]), 200)}")
     for topic in NOTE_TOPICS:
         bodies = [n["body"] for n in notes if n["topic"] == topic]
         if bodies:
@@ -469,7 +489,10 @@ def board_prompt(name: str, profile: dict, notes: list[dict], photos: list[dict]
 def plan_board(series_id: str, feedback: Any = "") -> dict:
     """What the next mood board would be: its version, prompt, image count and the references it is
     made from. Refused once a board is approved, while a live board is being made, while the latest
-    board waits for a decision and no redo feedback is given, and before there is any reference."""
+    board waits for a decision and no redo feedback is given, and before there is any reference (a
+    written story counts as one)."""
+    from hfvg import story_refs
+
     feedback = _clean(feedback, "Feedback", FEEDBACK_MAX)
     with connect() as conn:
         series = _series_row(conn, series_id)
@@ -480,6 +503,8 @@ def plan_board(series_id: str, feedback: Any = "") -> dict:
                                                "ORDER BY created_at, note_id", (series_id,))]
         photos = [dict(r) for r in conn.execute("SELECT * FROM universe_photos WHERE series_id = ? AND "
                                                 "status = 'active' ORDER BY created_at, image_id", (series_id,))]
+        story = story_refs.story_view(conn, series_id)["body"]
+        listed = story_refs.names(conn, series_id)
         making = _making_request(conn, series_id)
     if any(b["status"] == "approved" for b in boards):
         raise CastConflict("The mood board is approved; the next step is the Universe bible")
@@ -490,14 +515,17 @@ def plan_board(series_id: str, feedback: Any = "") -> dict:
         raise CastConflict("There is no mood board to redo yet")
     if latest is not None and latest["status"] == "ready" and not feedback:
         raise CastConflict("Approve this mood board, or say what to change and ask for a redo")
-    if not notes and not photos:
+    if not notes and not photos and not story:
         raise CastConflict("Add a reference first: a few words about the premise, characters, places or tone, "
                            "or a photo")
+    sources: dict[str, Any] = {"notes": [n["note_id"] for n in notes], "photos": [p["image_id"] for p in photos]}
+    if story:
+        sources["story"] = story_refs.story_sha(story)
     return {"version": (latest["version"] + 1) if latest else 1,
-            "prompt": board_prompt(series["name"], profile, notes, photos, feedback),
+            "prompt": board_prompt(series["name"], profile, notes, photos, feedback, story=story, listed=listed),
             "answers_feedback": feedback, "image_count": BOARD_IMAGES,
             "replaces_board_id": latest["board_id"] if latest is not None and feedback else None,
-            "sources": {"notes": [n["note_id"] for n in notes], "photos": [p["image_id"] for p in photos]},
+            "sources": sources,
             "photo_files": [str(cast_store.image_file(p["sha256"], p["ext"])) for p in photos],
             "photo_refs": [{"image_id": p["image_id"], "sha256": p["sha256"], "ext": p["ext"]} for p in photos]}
 
@@ -834,11 +862,15 @@ def _board_from_request(conn, req, made: list, boards: list, error: str | None, 
 # ------------------------------------------------------------------------------------- the bible
 
 def bible_inputs(series_id: str) -> dict:
-    """What the Universe bible is written from: the approved mood board, the references and the
-    names already in the Universe. Refused before a board is approved, and once the bible of the
-    approved board was made."""
+    """What the Universe bible is written from: the approved mood board, the story and its reference
+    checklist, the other references and the names already in the Universe. Refused before a board is
+    approved, and once the bible of the approved board was made."""
+    from hfvg import story_refs
+
     with connect() as conn:
         series = _series_row(conn, series_id)
+        story = story_refs.story_view(conn, series_id)["body"]
+        listed = [{"kind": i["kind"], "name": i["name"], "why": i["why"]} for i in story_refs._items(conn, series_id)]
         profile = _profile_view(series_id, conn.execute("SELECT * FROM series_profiles WHERE series_id = ?",
                                                         (series_id,)).fetchone())
         approved = conn.execute("SELECT * FROM universe_boards WHERE series_id = ? AND status = 'approved' "
@@ -860,6 +892,7 @@ def bible_inputs(series_id: str) -> dict:
     return {"series_id": series_id, "name": series["name"], "logline": profile["logline"],
             "style_notes": profile["style_notes"], "preset_id": profile["preset_id"],
             "notes": {topic: [n["body"] for n in notes if n["topic"] == topic] for topic in NOTE_TOPICS},
+            "story": story, "checklist": listed,
             "photo_captions": captions, "board_id": approved["board_id"], "board_prompt": approved["prompt"],
             "existing": {"characters": characters, "places": [r[1] for r in items if r[0] == "place"],
                          "props": [r[1] for r in items if r[0] == "prop"]}}
@@ -880,6 +913,11 @@ def bible_messages(inputs: dict) -> list[dict]:
     lines = [f"Universe: {inputs['name']}"]
     if inputs.get("logline"):
         lines.append(f"Logline: {inputs['logline']}")
+    if inputs.get("story"):
+        lines.append(f"Story (from the creator):\n{inputs['story']}")
+    if inputs.get("checklist"):
+        lines.append("References the creator is gathering (give each one an entry under the same name): " + "; ".join(
+            f"{i['kind']} {i['name']}" + (f" ({i['why']})" if i.get("why") else "") for i in inputs["checklist"]))
     for topic in NOTE_TOPICS:
         for body in inputs["notes"].get(topic) or []:
             lines.append(f"{NOTE_LABELS[topic]} (from the creator): {body}")
@@ -913,16 +951,27 @@ def _named_lines(bodies: list[str]) -> list[tuple[str, str]]:
 
 def fake_bible(inputs: dict) -> dict:
     """Deterministic DRAFT_LLM_FAKE bible (test/e2e only): the characters and places named in the
-    notes, the premise and tone as the bible, the approved board's look as the style notes."""
-    premise = " ".join(inputs["notes"].get("premise") or []) or inputs.get("logline") or inputs["name"]
+    notes, then those on the story's reference checklist (with its props), the premise (or the
+    story) and tone as the bible, the approved board's look as the style notes."""
+    premise = (" ".join(inputs["notes"].get("premise") or []) or inputs.get("story") or inputs.get("logline")
+               or inputs["name"])
     tone = " ".join(inputs["notes"].get("tone") or [])
     characters = [{"name": n, "role": "", "description": d or f"original character of {inputs['name']}"}
                   for n, d in _named_lines(inputs["notes"].get("characters") or [])]
     places = [{"name": n, "description": d or f"a place in {inputs['name']}"}
               for n, d in _named_lines(inputs["notes"].get("places") or [])]
+    props: list[dict] = []
+    for item in inputs.get("checklist") or []:
+        into = {"character": characters, "place": places, "prop": props}[item["kind"]]
+        if any(e["name"].lower() == item["name"].lower() for e in into):
+            continue
+        if item["kind"] == "character":
+            into.append({"name": item["name"], "role": "", "description": f"original character of {inputs['name']}"})
+        else:
+            into.append({"name": item["name"], "description": f"a {item['kind']} in {inputs['name']}"})
     return {"bible": f"{premise}\n\n{tone}".strip(),
             "style_notes": _clip(f"The approved mood board's look. {tone}".strip(), STYLE_NOTES_MAX),
-            "characters": characters, "places": places, "props": []}
+            "characters": characters, "places": places, "props": props}
 
 
 def parse_bible(raw: Any) -> dict:
@@ -1231,6 +1280,8 @@ def summaries(series_ids: list[str]) -> dict[str, dict]:
                                "WHERE library_kind = 'series' AND library_id IN ({})", series_ids)
         latest = _first_by_key(_rows_in(conn, "SELECT series_id, status FROM universe_boards WHERE series_id IN ({}) "
                                               "ORDER BY version DESC", series_ids))
+        written = {r[0] for r in _rows_in(conn, "SELECT series_id FROM universe_stories WHERE body != '' AND "
+                                                "series_id IN ({})", series_ids)}
         rows = sorted((dict(r) for r in rows), key=lambda r: (r["created_at"], r["slug"]))
         items = sorted((dict(r) for r in items), key=lambda r: (r["created_at"], r["slug"]))
         characters = {sid: [r for r in rows if r["library_id"] == sid] for sid in series_ids}
@@ -1248,6 +1299,7 @@ def summaries(series_ids: list[str]) -> dict[str, dict]:
                        "places": len(places[sid]),
                        "props": sum(1 for r in items if r["library_id"] == sid and r["kind"] == "prop")},
             "board_status": latest.get(sid),
+            "story_written": sid in written,
             "cover": covers[sid],
         }
     return out

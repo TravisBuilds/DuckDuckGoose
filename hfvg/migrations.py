@@ -13,6 +13,10 @@
 - universe board requests (``UNIVERSE_BOARD_MIGRATION``, docs/WORLDS.md): a live mood board the
   worker is making (or failed to make) and its paid picture jobs. The board itself lands in the
   universe tables when the request ends with at least one picture made. New tables only.
+- universe story (``UNIVERSE_STORY_MIGRATION``, docs/WORLDS.md): the story a Universe starts from,
+  the reference checklist read from it (each character, place and prop with why it is needed and how
+  many photos) and which reference photos belong to which item. New tables only; a Universe without
+  a story reads as one made before stories (notes and photos only).
 """
 
 import sqlite3
@@ -358,6 +362,52 @@ UNIVERSE_BOARD_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_universe_board_jobs_sha ON universe_board_jobs(sha256)",
 )
 
+UNIVERSE_STORY_MIGRATION = "2026-11-universe-story-v1"
+
+UNIVERSE_STORY_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS universe_stories (
+        series_id TEXT PRIMARY KEY REFERENCES series(series_id),
+        body TEXT NOT NULL DEFAULT '',
+        list_story_sha TEXT,
+        list_made_at TEXT,
+        updated_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS universe_checklist_items (
+        item_id TEXT PRIMARY KEY,
+        series_id TEXT NOT NULL REFERENCES series(series_id),
+        kind TEXT NOT NULL CHECK (kind IN ('character', 'place', 'prop')),
+        name TEXT NOT NULL,
+        why TEXT NOT NULL DEFAULT '',
+        show TEXT NOT NULL DEFAULT '',
+        ideal_photos INTEGER NOT NULL CHECK (ideal_photos BETWEEN 1 AND 6),
+        min_photos INTEGER NOT NULL CHECK (min_photos BETWEEN 0 AND 6),
+        optional INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('story', 'owner')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'removed')),
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_checklist_items_series ON universe_checklist_items(series_id, position)",
+    """
+    CREATE TABLE IF NOT EXISTS universe_checklist_photos (
+        item_id TEXT NOT NULL REFERENCES universe_checklist_items(item_id),
+        image_id TEXT NOT NULL REFERENCES universe_photos(image_id),
+        added_by TEXT,
+        added_at TEXT NOT NULL,
+        PRIMARY KEY (item_id, image_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_universe_checklist_photos_image ON universe_checklist_photos(image_id)",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -490,6 +540,12 @@ def apply_universe_board_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
 
 
+def apply_universe_story_sync(conn: sqlite3.Connection) -> bool:
+    """The universe story migration on an open sqlite3 connection (after the universe migration,
+    whose tables it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, UNIVERSE_STORY_MIGRATION, UNIVERSE_STORY_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -510,6 +566,11 @@ async def migrate_universe_board(db_path: str) -> bool:
     return await _apply(db_path, UNIVERSE_BOARD_MIGRATION, UNIVERSE_BOARD_SQL)
 
 
+async def migrate_universe_story(db_path: str) -> bool:
+    """The universe story and reference checklist tables (UNIVERSE_STORY_MIGRATION); True when it ran now."""
+    return await _apply(db_path, UNIVERSE_STORY_MIGRATION, UNIVERSE_STORY_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
@@ -517,3 +578,4 @@ async def run_all_migrations(db_path: str):
     await migrate_props_library(db_path)
     await migrate_universe(db_path)
     await migrate_universe_board(db_path)
+    await migrate_universe_story(db_path)

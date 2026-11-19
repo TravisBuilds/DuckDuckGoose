@@ -158,6 +158,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_cast_library_sync,
         apply_props_library_sync,
         apply_universe_board_sync,
+        apply_universe_story_sync,
         apply_universe_sync,
     )
     target = path or db_path()
@@ -170,6 +171,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_props_library_sync(conn)
         apply_universe_sync(conn)
         apply_universe_board_sync(conn)
+        apply_universe_story_sync(conn)
         yield conn
     finally:
         conn.close()

@@ -15,7 +15,8 @@ from hfvg.cast_store import CastConflict, CastError, CastNotFound
 from tests.cast_helpers import attestation, complete_sheet, image_bytes, new_character, new_place, new_prop, upload
 
 UNIVERSE_TABLES = {"series_profiles", "character_voices", "universe_notes", "universe_photos", "universe_boards",
-                   "universe_board_images", "universe_board_requests", "universe_board_jobs"}
+                   "universe_board_images", "universe_board_requests", "universe_board_jobs", "universe_stories",
+                   "universe_checklist_items", "universe_checklist_photos"}
 
 
 @pytest.fixture(autouse=True)
@@ -69,8 +70,9 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     does nothing."""
     from hfvg.budget import BudgetLedger
     from hfvg.migrations import (
-        UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION, apply_universe_board_sync, apply_universe_sync,
-        migrate_cast_library, migrate_props_library, run_all_migrations)
+        UNIVERSE_BOARD_MIGRATION, UNIVERSE_MIGRATION, UNIVERSE_STORY_MIGRATION, apply_universe_board_sync,
+        apply_universe_story_sync, apply_universe_sync, migrate_cast_library, migrate_props_library,
+        run_all_migrations)
     from hfvg.studio_db import create_episode, init_studio_db
     from hfvg.users import UserManager
 
@@ -114,10 +116,11 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     assert {name for name in set(schema_after) - set(schema_before) if not name.startswith("idx_")} == UNIVERSE_TABLES
     assert schema_once == schema_after
     with sqlite3.connect(db) as conn:
-        for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION):
+        for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION):
             assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
                                 (version,)).fetchone()[0] == 1
         assert apply_universe_sync(conn) is False and apply_universe_board_sync(conn) is False
+        assert apply_universe_story_sync(conn) is False
     # the series that was there reads with the empty profile
     monkeypatch.setenv("DATABASE_PATH", db)
     profile = world_store.get_profile("sr_0123456789ab")
