@@ -4893,6 +4893,60 @@ test_mutation 709 "story first page: the story opens the mood board" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[journey.test.mjs]" \
     sed -i "s/^  return Boolean(story) || (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;\$/  return (notes ?? 0) >= 1 || (photos ?? 0) >= BOARD_MIN_PHOTOS;  \/\/ MUTATED/"
 
+# 710: a kept start is shown only to whoever may start the episode
+test_mutation 710 "kept start: only the owner and admins see it" \
+    "api/world_routes.py" \
+    "tests/test_kept_starts.py::test_only_the_owner_or_an_admin_keeps_or_sees_a_start" \
+    sed -i 's/^    kept = await _call(kept_starts\.get, episode_id) if can_act else None$/    kept = await _call(kept_starts.get, episode_id)  # MUTATED/'
+
+# 711: the start uses the kept start up
+test_mutation 711 "kept start: the start clears it" \
+    "api/main.py" \
+    "tests/test_kept_starts.py::test_the_owner_keeps_the_start_and_finds_it_on_another_device_until_it_starts" \
+    sed -i 's/^    await _forget_kept_start(request\.episode_id, authorization, studio_admin_token)$/    pass  # MUTATED/'
+
+# 712: no start is kept while a run is going
+test_mutation 712 "kept start: never while a run is going" \
+    "api/main.py" \
+    "tests/test_kept_starts.py::test_a_start_that_cannot_be_kept_keeps_nothing" \
+    sed -i '/^async def keep_episode_start(/,/^    return {"kept_start": kept}$/ s/^    if run:$/    if False:  # MUTATED/'
+
+# 713: a price above the approved one is written so the two differ
+test_mutation 713 "prices: the new price and the approved one read differently" \
+    "api/cast_routes.py" \
+    "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[183000-180000-words0]" \
+    sed -i 's/^    for places in range(2, 6):$/    for places in range(2, 3):  # MUTATED/'
+
+# 714: the reference list is made at most REFERENCE_LISTS_PER_HOUR times an hour
+test_mutation 714 "story first: the reference list has an hourly limit" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_each_person_makes_the_reference_list_at_most_ten_times_an_hour" \
+    sed -i 's/^    if len(recent) >= limit:$/    if False:  # MUTATED/'
+
+# 715: the limit is each person's own
+test_mutation 715 "story first: the hourly limit is per person" \
+    "api/world_routes.py" \
+    "tests/test_world_api.py::test_each_person_makes_the_reference_list_at_most_ten_times_an_hour" \
+    sed -i 's/^    wait = _reference_list_wait(who\["user_id"\] or who\["actor"\])$/    wait = _reference_list_wait("everyone")  # MUTATED/'
+
+# 716: First frames shows the moment in plain words, never the picture prompt
+test_mutation 716 "first frames: the prompt stays on the server" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames_api.py::test_the_owner_prices_makes_tweaks_and_picks_a_first_frame" \
+    sed -i 's/^            "beat": plain_moment(brief\.beat) if with_words else None,$/            "beat": brief.scene if with_words else None,  # MUTATED/'
+
+# 717: who has no reference photo is named once, not again in a note
+test_mutation 717 "first frames: missing photos are named once" \
+    "hfvg/concept_frames.py" \
+    "tests/test_concept_frames.py::test_a_picture_with_no_reference_photo_is_named_once_not_in_a_note" \
+    sed -i 's/^    no_photos, notes = _photo_notes(brief\.notes)$/    no_photos, notes = _photo_notes(brief.notes)[0], brief.notes  # MUTATED/'
+
+# 718: the page sends a kept start only for its own episode
+test_mutation 718 "kept start page: a start for another episode is not sent" \
+    "web/lib/world.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
+    sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
