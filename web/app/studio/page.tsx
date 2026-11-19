@@ -50,7 +50,7 @@ function SystemDetails() {
 
 /**
  * The studio home, Universes first (DESIGN-TARGETS-v2 §6.1): a sky-and-floor hero with the start
- * panel (the Spark step), the reader's Universes with their seal, progress and next step, then the
+ * panel (the Spark step), the reader's Universes with their progress and next step, then the
  * episodes: Keep going (a decision waiting for you first), Recently finished and the ones in no
  * Universe. A first run (nothing of the reader's own yet) is the hero alone, with a way to just make
  * one video.

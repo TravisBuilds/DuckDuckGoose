@@ -524,7 +524,7 @@ function CreateVideoWizard() {
   const trail: JourneyStop[] = [
     { key: 'archetype', name: 'Style', note: selectedPreset?.name ?? (at > 0 ? 'Freeform' : 'Pick one'), state: at > 0 ? 'done' : 'now' },
     { key: 'idea', name: 'Idea', note: at > 1 ? 'Written' : 'A few sentences', state: at > 1 ? 'done' : at === 1 ? 'now' : 'todo' },
-    { key: 'review', name: 'Review & start', note: 'Price shown first', state: at === 2 ? 'now' : 'todo', paid: true },
+    { key: 'review', name: 'Review & start', note: 'Price shown first', state: at === 2 ? 'now' : 'todo' },
     { key: 'episode', name: 'Episode page', note: 'Approve each step', state: 'todo' },
   ];
 

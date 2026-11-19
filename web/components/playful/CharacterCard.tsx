@@ -2,19 +2,17 @@ import type { ReactNode } from 'react';
 import type { CastColour } from '@/lib/castColour.mjs';
 import Avatar from './Avatar';
 import { CastDot, bandStyle, hueOf } from './castTheme';
-import Seal, { type SealState } from './Seal';
 
 /**
  * A character as a card: a band in their cast colour's soft gradient with their main picture (or
- * their initials in a circle until they have one) and seal, then the name with the colour named in
+ * their initials in a circle until they have one), then the name with the colour named in
  * words, then whatever the cast panel puts inside (description, outfits, pictures, voice, lock). A
  * card that needs you gets a yellow ring.
  */
-export default function CharacterCard({ colour, name, picture, seal, needsYou = false, title, testId, children }: {
+export default function CharacterCard({ colour, name, picture, needsYou = false, title, testId, children }: {
   colour: CastColour;
   name: string;
   picture?: { src: string; alt: string } | null;
-  seal: { state: SealState; top: string; bottom: string; testId?: string };
   needsYou?: boolean;
   title: ReactNode;
   testId?: string;
@@ -33,7 +31,6 @@ export default function CharacterCard({ colour, name, picture, seal, needsYou = 
             <Avatar name={name} hue={colour.colour} size={84} />
           </span>
         )}
-        <Seal state={seal.state} top={seal.top} bottom={seal.bottom} size={54} testId={seal.testId} className="!absolute right-3 top-3" />
       </div>
       <div className="px-[18px] pb-[18px] pt-4">
         <div className="flex flex-wrap items-start justify-between gap-2">

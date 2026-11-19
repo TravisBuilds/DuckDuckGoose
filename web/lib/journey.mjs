@@ -79,7 +79,7 @@ export function creationJourney(view) {
       : latest ? `Board ${latest.version} to look over` : current === 'moodboard' ? 'Make & approve' : 'After references',
     bible: bibleDone ? `${plural(characters, 'character')} · ${things} places/props`
       : current === 'bible' ? 'Write it' : 'After approval',
-    lock: characters === 0 ? 'Seal the looks' : `${locked} of ${characters} sealed`,
+    lock: characters === 0 ? 'Lock the looks' : `${locked} of ${characters} locked`,
   };
   const steps = CREATION_STEPS.map((key) => ({
     key,
@@ -179,7 +179,7 @@ export function homeJourney(card) {
   return { steps, current, step, next };
 }
 
-/** The seal on a card or banner: locked once any look is, open before; the words say how many. */
+/** A Universe's lock chip: locked once any look is, open before; the words say how many. */
 export function sealFor(counts, drift = 0) {
   const characters = counts?.characters ?? 0;
   const locked = counts?.locked_characters ?? 0;

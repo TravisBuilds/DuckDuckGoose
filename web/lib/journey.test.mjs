@@ -64,7 +64,7 @@ test('a board waiting for a look, then approved, then the bible', () => {
   const written = creationJourney(view({ notes: 2, boards: [approved], bibleBoard: 'mb_1', characters, items: [{}, {}, {}] }));
   assert.equal(written.current, 'lock');
   assert.equal(written.steps[3].note, '2 characters · 3 places/props');
-  assert.equal(written.steps[4].note, '1 of 2 sealed');
+  assert.equal(written.steps[4].note, '1 of 2 locked');
 });
 
 test('every look locked: all five steps done and no current step', () => {
@@ -206,7 +206,7 @@ test('home: someone who only sees a Universe gets no progress, just a way in', (
   assert.equal(journey.next.text, 'Open the Universe');
 });
 
-test('the seal: open until a look is locked, then how many, coral when a look changed', () => {
+test('the lock chip: open until a look is locked, then how many, coral when a look changed', () => {
   assert.deepEqual(sealFor({ characters: 0, locked_characters: 0 }), { state: 'open', top: 'not', bottom: 'locked' });
   assert.deepEqual(sealFor({ characters: 3, locked_characters: 0 }), { state: 'open', top: 'not', bottom: 'locked' });
   assert.deepEqual(sealFor({ characters: 3, locked_characters: 2 }), { state: 'locked', top: '2 of 3', bottom: 'locked' });
