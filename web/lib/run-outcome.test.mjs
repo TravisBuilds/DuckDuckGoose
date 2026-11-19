@@ -26,7 +26,7 @@ test('a failed run says so with its reason and offers Start again', () => {
 });
 
 test('starting a live run again asks first', () => {
-  assert.match(runEndedView({ ...failed, dry_run: false }).confirm, /LIVE run/);
+  assert.match(runEndedView({ ...failed, dry_run: false }).confirm, /again, live\?/);
 });
 
 test('terminated, canceled and timed out runs', () => {

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
-import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
+import { ICON_CHARACTERS, MODEL_NAMES, bannedWords } from './copy-rules.mjs';
+import { ledgerWords } from './checkout.mjs';
 import { HOME_COPY } from './home-copy.mjs';
 import { importsOf, literalsIn, sourcesFrom, tagsIn, webDir } from './source-text.mjs';
 
@@ -27,11 +28,11 @@ const ICON_PACKAGES = /^(?:lucide-react|react-icons|@heroicons\/|@radix-ui\/reac
 const ICON_FILES = /(?:^|\/)(?:Icon|IconCircle|LogoMark)(?:\.tsx?)?$/;
 
 /**
- * Punctuation that may stand alone between words: separators, brackets, quotes, the "—" of a missing
- * value and the "$" on a priced step. A dash or "×" between two values is a range or a multiplication.
- * Any other lone symbol ("+", "×", "!", "•", "?") would be an icon in disguise.
+ * Punctuation that may stand alone between words: separators, brackets, quotes and the "—" of a missing
+ * value. A dash or "×" between two values is a range or a multiplication. Any other lone symbol ("+",
+ * "×", "!", "•", "?", or a "$" badge on a step) would be an icon in disguise.
  */
-const JOINERS = /^[\s·/:,.()…;“”"'—$]*$/u;
+const JOINERS = /^[\s·/:,.()…;“”"'—]*$/u;
 const BETWEEN_VALUES = /^[–×]$/u;
 
 test('the rules cover the sign-in, password, studio and dashboard routes and everything they are built from', () => {
@@ -41,7 +42,11 @@ test('the rules cover the sign-in, password, studio and dashboard routes and eve
     // the story-first screen, its reference list and the small-picture notes
     'components/StoryChecklist.tsx', 'lib/checklist.mjs', 'components/PictureSize.tsx', 'lib/cast.mjs',
     // the first frames of an episode's shots, and the start that waits for them
-    'components/ConceptFrames.tsx', 'lib/frames.mjs', 'components/UniverseEpisode.tsx', 'app/studio/create/page.tsx']) {
+    'components/ConceptFrames.tsx', 'lib/frames.mjs', 'components/UniverseEpisode.tsx', 'app/studio/create/page.tsx',
+    // every place someone meets a price or an approval (docs/EASY-CHECKOUT.md)
+    'components/Checkout.tsx', 'lib/checkout.mjs', 'components/CastPanel.tsx', 'lib/world.mjs', 'components/NextStepCard.tsx',
+    'lib/next-step.mjs', 'components/EpisodeRunPanel.tsx', 'lib/redo.mjs', 'lib/run-outcome.mjs', 'components/ShotPlanEditor.tsx',
+    'app/studio/episodes/[id]/page.tsx', 'components/playful/JourneyPath.tsx', 'components/playful/CharacterCard.tsx']) {
     assert.ok(SOURCES.includes(file), `${file} is not covered`);
   }
   assert.ok(SOURCES.length > 60, `only ${SOURCES.length} files found`);
@@ -79,11 +84,79 @@ test('no lone symbol stands in for an icon: no "+" button, "×" close, "!" badge
 
 test('the lone-symbol rule catches icon stand-ins and lets punctuation through', () => {
   const isLone = (text, between = false) => !/[\p{L}\p{N}]/u.test(text) && !JOINERS.test(text) && !(between && BETWEEN_VALUES.test(text.trim()));
-  for (const glyph of ['+', '×', '!', '•', '?', '*', '–']) assert.ok(isLone(glyph), `"${glyph}" alone should count as an icon`);
-  for (const text of ['·', ' / ', '—', '$', ':', '(', '…']) assert.ok(!isLone(text), `"${text}" is punctuation`);
+  for (const glyph of ['+', '×', '!', '•', '?', '*', '–', '$']) assert.ok(isLone(glyph), `"${glyph}" alone should count as an icon`);
+  for (const text of ['·', ' / ', '—', ':', '(', '…']) assert.ok(!isLone(text), `"${text}" is punctuation`);
+  assert.ok(!isLone('$4.20') && !isLone('about $1.56'), 'a price is words, not a badge');
   assert.ok(!isLone('–', true) && !isLone('×', true), 'a range dash or a multiplication between two values is fine');
   for (const glyph of ['✓', '✗', '→', '←', '▶', '■', '★', '✦', '⚠', '\uE001', '🎬']) assert.match(glyph, ICON_CHARACTERS);
   for (const text of ['·', '—', '…', '©', '×', '$4.20', 'Pebble Cove']) assert.doesNotMatch(text, ICON_CHARACTERS);
+});
+
+/** The screens where someone meets a price or an approval (docs/EASY-CHECKOUT.md). */
+const MONEY_SCREENS = ['components/Checkout.tsx', 'components/ConceptFrames.tsx', 'lib/frames.mjs', 'components/CastPanel.tsx',
+  'lib/cast.mjs', 'components/UniverseCreation.tsx', 'lib/world.mjs', 'components/UniverseEpisode.tsx', 'components/NextStepCard.tsx',
+  'lib/next-step.mjs', 'lib/redo.mjs', 'lib/run-outcome.mjs', 'components/EpisodeRunPanel.tsx', 'components/ShotPlanEditor.tsx',
+  'app/studio/create/page.tsx', 'app/studio/episodes/[id]/page.tsx', 'components/playful/JourneyPath.tsx'];
+
+/** Cards in an episode's collapsed Production details (two of them for admins only): they keep the full ledger. */
+const DETAILS_CARDS = new Set(['LiveModeCard', 'BudgetCard', 'ModelLimitsCard', 'CreditsCard']);
+
+/** The first and last line of each named function in a file. */
+function functionLines(file, names) {
+  const source = ts.createSourceFile(file, readFileSync(join(webDir, file), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const lines = [];
+  const visit = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text)) {
+      lines.push({ name: node.name.text, from: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+        to: source.getLineAndCharacterOfPosition(node.getEnd()).line + 1 });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return lines;
+}
+
+test('the money screens say one plain price: no ledger words, no model or provider names', () => {
+  const problems = [];
+  const cards = [];
+  for (const file of MONEY_SCREENS) {
+    assert.ok(SOURCES.includes(file), `${file} is not covered`);
+    const details = functionLines(file, DETAILS_CARDS);
+    cards.push(...details.map(({ name }) => name));
+    for (const { path, text, visible } of literalsIn(file)) {
+      const line = Number(path.slice(path.lastIndexOf(':') + 1));
+      if (!visible || details.some(({ from, to }) => line >= from && line <= to)) continue;
+      for (const word of ledgerWords(text)) problems.push(`${path}: "${word}" in "${text}"`);
+      const name = text.match(MODEL_NAMES);
+      if (name) problems.push(`${path}: "${name[0]}" in "${text}"`);
+    }
+  }
+  assert.deepEqual(problems, []);
+  assert.deepEqual(cards.sort(), [...DETAILS_CARDS].sort(), 'every Production details card is found, and only those');
+});
+
+test('the money rules catch ledger words and model names, and let plain prices through', () => {
+  for (const text of ['Charged to the GC.01 budget line', 'about $1.20, minus the reserve', 'Uses real credits',
+    'The estimate is now $4.20']) assert.ok(ledgerWords(text).length > 0, `"${text}" uses ledger words`);
+  for (const text of ['made with kling-2.6', 'Grok Imagine', 'xai/grok-imagine-image', 'Higgsfield balance', 'Veo 3', 'nano banana pro']) {
+    assert.match(text, MODEL_NAMES);
+  }
+  for (const text of ['This video: about $9', '3 pictures: about $1.17', 'See the breakdown', 'Left in the mood board budget',
+    'If the price goes up before we make it, we ask you first.', 'Pebble Cove', 'Make it']) {
+    assert.deepEqual(ledgerWords(text), [], text);
+    assert.doesNotMatch(text, MODEL_NAMES);
+  }
+});
+
+test('no seals, stamps, coins or price rings: a price is type, colour and shape', () => {
+  for (const name of ['Seal', 'PriceBlock']) {
+    assert.ok(!existsSync(join(webDir, 'components/playful', `${name}.tsx`)), `components/playful/${name}.tsx is back`);
+  }
+  const drawn = /\bpf-(?:seal|stamp|coin|price|confetti)\b/;
+  assert.doesNotMatch(readFileSync(join(webDir, 'app/globals.css'), 'utf8'), drawn);
+  for (const file of SOURCES) assert.doesNotMatch(readFileSync(join(webDir, file), 'utf8'), drawn, file);
+  assert.doesNotMatch(readFileSync(join(webDir, 'components/Checkout.tsx'), 'utf8'),
+    /\b(?:bg|text|border|ring)-(?:mustard|coral|red|yellow|amber|orange)\b/, 'the checkout uses no warning colours');
 });
 
 test('no stylesheet draws a glyph with content:', () => {

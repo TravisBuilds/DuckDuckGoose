@@ -2,7 +2,8 @@
  * The owner's copy rules, as data. The home page keeps to all of them (lib/home-copy.test.mjs,
  * tests/home-page-e2e.spec.ts); sign-in, the password page, the studio and the shared header and
  * footer keep to the banned words and draw no icons (lib/app-copy.test.mjs, tests/app-pages-e2e.spec.ts),
- * and may talk about prices.
+ * and may talk about prices: one plain price per thing, with no ledger words and no model names
+ * (docs/EASY-CHECKOUT.md).
  *
  * Words are matched case-insensitively, as whole words, with their other forms (plurals, -ing, -ed),
  * so "Creators", "unlocking" and "AI powered" are caught too.
@@ -28,6 +29,12 @@ export const BANNED_WORDS = [
   { word: 'AI-powered', pattern: /\bAI[\s\u2010-\u2015-]*powered\b/i },
   { word: 'revolutionize', pattern: /\brevolution(?:i[sz](?:e|es|ed|ing)|ary)\b/i },
 ];
+
+/**
+ * Names of the models and providers that make the pictures, clips and voices. Users never see them; the
+ * admin cost pages and the cards in an episode's collapsed Production details may.
+ */
+export const MODEL_NAMES = /\b(?:kling|seedance|veo|sora|grok|xai|flux|nano[\s-]?banana|imagen|higgsfield|elevenlabs|runway|luma|minimax|hailuo)\b/i;
 
 /** Sections the home page leaves out: pricing, investors, founders and "contact us". */
 export const OFF_LIMITS = [

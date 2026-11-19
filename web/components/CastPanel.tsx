@@ -234,9 +234,9 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
   const problems = requestProblems(version);
   const canEdit = view.can_edit;
   const sheetBlock = view.sheet.model_error
-    ? `Character sheets cannot be made on this server right now: ${view.sheet.model_error}`
+    ? "Character sheets can't be made on this server right now. An admin can check its picture settings."
     : !view.sheet.dry_run && !view.sheet.live_mode
-      ? 'Sheet pictures are paid and charged to this video, so switch it to live mode first (Production details, Live mode, at the bottom of this page).'
+      ? 'Sheet pictures are paid for, so this video needs live mode first. It is under Production details, at the bottom of this page.'
       : null;
 
   useEffect(() => {

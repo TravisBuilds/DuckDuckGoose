@@ -872,8 +872,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
               <span className="text-lg font-semibold">Production details</span>
               <span className="mt-1 block text-sm text-gray-700">
                 {isAdmin
-                  ? 'Credits, live mode, budget, checks, model limits, the shot list and the audit trail.'
-                  : 'Credits, live mode, checks, the shot list and the audit trail.'}
+                  ? 'Spending, live mode, budget, checks, model limits, the shot list and the audit trail.'
+                  : 'Spending, live mode, checks, the shot list and the audit trail.'}
               </span>
             </summary>
             <div className="space-y-4 border-t border-gray-200 p-4 sm:p-6">

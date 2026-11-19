@@ -482,7 +482,7 @@ function FrameRoundGrid({ round, shot, off, busy, whyId, onPick, newest = false 
                 <div className={`flex items-center justify-center p-2 text-center text-[12px] font-bold ${thumb} ${option.status === 'queued' || option.status === 'running' ? 'bg-aqua-soft text-aqua-ink' : 'bg-mist text-ink-soft'}`}
                   style={{ aspectRatio: ratio(shot.aspect_ratio) }}>
                   {option.status === 'queued' ? 'Waiting its turn' : option.status === 'running' ? 'Being made'
-                    : option.status === 'pending_reconcile' ? 'Still with the provider' : 'Not made'}
+                    : option.status === 'pending_reconcile' ? 'Still on its way' : 'Not made'}
                 </div>
               )}
               <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-2.5 @md:gap-1 @md:p-1.5">
