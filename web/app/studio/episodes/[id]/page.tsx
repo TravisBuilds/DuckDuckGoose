@@ -29,7 +29,7 @@ import NextStepCard, { Stepper } from '@/components/NextStepCard';
 import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
-import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip, hasKeptStart } from '@/components/UniverseEpisode';
+import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip, hasStartKeptHere } from '@/components/UniverseEpisode';
 import { GlassPanel } from '@/components/playful';
 
 /**
@@ -468,7 +468,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [propsChanges, setPropsChanges] = useState(0);
   const [planSaves, setPlanSaves] = useState(0);
   const [frames, setFrames] = useState<{ picked: number; shots: number } | null>(null);
-  const [kept, setKept] = useState(false);
+  const [keptHere, setKeptHere] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelView[]>([]);
@@ -584,9 +584,10 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     setPlanSaves((n) => n + 1);
     await refreshAll();
   }, [refreshAll]);
-  // the wizard kept a start for a video that waits on its page (for a lock, or for its first frames)
+  // the wizard keeps a start for a video that waits on its page (for a lock, or for its first frames) in
+  // the studio (info.kept_start); an earlier wizard kept it in the browser it ran in
   useEffect(() => {
-    setKept(hasKeptStart(episodeId));
+    setKeptHere(hasStartKeptHere(episodeId));
   }, [episodeId]);
   // the shot plan picker reloads when the cast it picks from (or its shots' cast) or the props change
   const castKey = useMemo(() => (cast ? JSON.stringify([
@@ -723,6 +724,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   })) : null;
   // a finished live run that recorded no spend says so instead of $0.00
   const realCost = spent === null ? '—' : spent === 0 && dryRun !== true ? 'Not recorded' : formatUsd(spent);
+  const kept = Boolean(info?.kept_start) || keptHere;
   const startHere = notStarted && canAct && Boolean(info) && (Boolean(info?.universe) || kept);
   const unlocked = info?.lock?.unlocked ?? [];
   const decision = Boolean(viewer) && !completed && !expired && canAct && !next.waiting && DECISIONS.includes(next.step);

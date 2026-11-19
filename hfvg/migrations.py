@@ -21,6 +21,10 @@
   options made for an episode's shots before filming, each option (a paid still job in live mode)
   and the option picked as the shot's start frame. New tables only; an episode without them has no
   first frames and runs as before.
+- kept starts (``KEPT_STARTS_MIGRATION``, docs/CREATION-FLOW-FIXES.md): the start request the new
+  video wizard keeps for an episode that waits on its page (for its first frames or a Universe lock),
+  so its Start card works on any device. A new table only; an episode without a row has nothing kept
+  (the page still reads a start an older wizard kept in the browser).
 """
 
 import sqlite3
@@ -483,6 +487,20 @@ CONCEPT_FRAMES_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_concept_frame_picks_shot ON concept_frame_picks(episode_id, shot_id)",
 )
 
+KEPT_STARTS_MIGRATION = "2026-11-kept-starts-v1"
+
+KEPT_STARTS_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS episode_kept_starts (
+        episode_id TEXT PRIMARY KEY,
+        request TEXT NOT NULL,
+        kept_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -626,6 +644,11 @@ def apply_concept_frames_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, CONCEPT_FRAMES_MIGRATION, CONCEPT_FRAMES_SQL)
 
 
+def apply_kept_starts_sync(conn: sqlite3.Connection) -> bool:
+    """The kept starts migration on an open sqlite3 connection, as apply_cast_library_sync."""
+    return _apply_sync(conn, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -656,6 +679,11 @@ async def migrate_concept_frames(db_path: str) -> bool:
     return await _apply(db_path, CONCEPT_FRAMES_MIGRATION, CONCEPT_FRAMES_SQL)
 
 
+async def migrate_kept_starts(db_path: str) -> bool:
+    """The kept start table (KEPT_STARTS_MIGRATION); True when it ran now."""
+    return await _apply(db_path, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
@@ -665,3 +693,4 @@ async def run_all_migrations(db_path: str):
     await migrate_universe_board(db_path)
     await migrate_universe_story(db_path)
     await migrate_concept_frames(db_path)
+    await migrate_kept_starts(db_path)

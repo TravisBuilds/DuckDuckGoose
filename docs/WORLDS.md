@@ -248,8 +248,11 @@ The Universe page's "New episode in this Universe" opens `/studio/create?world=<
   this episode"). Without `?world=` nothing is prefilled and the requests are the same as before.
 - When every look the episode uses is locked, the episode starts as before. Otherwise it is set up in
   the Universe and its page opens on Cast, with a Start card that waits for the locks. The start
-  request (card, idea, length, dry run) is kept in the browser (`localStorage`
-  `ddg:start:<episode id>`) for that card; without it the card starts a free test run.
+  request (card, idea, length, dry run) is kept in the studio for that card (POST
+  `/api/episodes/{id}/kept-start`, table `episode_kept_starts`), so the card sends it from any device
+  of the owner; only the owner and admins see it (`kept_start` in GET `/api/episodes/{id}/universe`)
+  and the start clears it. A start an earlier wizard kept in the browser (`localStorage`
+  `ddg:start:<episode id>`) still works there; without either the card starts a free test run.
 
 ## Episode page and home
 

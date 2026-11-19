@@ -44,7 +44,7 @@ from fastapi import APIRouter, Cookie, File, Form, Header, HTTPException, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from hfvg import cast_store, prop_store, story_refs, universe_boards, world_store
+from hfvg import cast_store, kept_starts, prop_store, story_refs, universe_boards, world_store
 
 try:  # "api.cast_routes" in tests and the e2e backend; "cast_routes" when uvicorn runs from api/
     from api import cast_routes as cast_api
@@ -1337,15 +1337,18 @@ def _strip(episode_id: str, series_id: str) -> dict:
 @router.get("/api/episodes/{episode_id}/universe")
 async def get_episode_universe(episode_id: str, authorization: str | None = Header(None),
                                studio_admin_token: str | None = Cookie(None)):
-    """Who made the episode and whether the caller may act on it; for a caller who may see its cast,
-    the Universe it is in (or none), what it uses from it and the characters whose look still has
-    to be locked before it starts (and before its shot plan is approved)."""
+    """Who made the episode and whether the caller may act on it, with the start the wizard kept for
+    its Start card (only for a caller who may act on it); for a caller who may see its cast, the
+    Universe it is in (or none), what it uses from it and the characters whose look still has to be
+    locked before it starts (and before its shot plan is approved)."""
     episode_id = cast_api._episode_id(episode_id)
     _, user_id, is_admin = await cast_api._actor(authorization, studio_admin_token)
     owner = await cast_api._api().episode_owner(episode_id)
     names = await _user_names({owner} if owner else set())
+    can_act = is_admin or owner is None or owner == user_id
+    kept = await _call(kept_starts.get, episode_id) if can_act else None
     out: dict[str, Any] = {"episode_id": episode_id, "owner": {"user_id": owner, "name": names.get(owner)},
-                           "can_act": is_admin or owner is None or owner == user_id,
+                           "can_act": can_act, "kept_start": kept["request"] if kept else None,
                            "linked": None, "universe": None, "strip": None, "lock": None}
     library = await cast_api._library(episode_id)
     if not await cast_api._may_see(library, user_id, is_admin):

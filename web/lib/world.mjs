@@ -94,7 +94,10 @@ export function madeWith(plan) {
   return out;
 }
 
-/** Where the browser keeps the start request of a Universe episode that waits for its looks to be locked. */
+/**
+ * Where an earlier wizard kept the start request of an episode that waits on its page, in the browser
+ * it ran in (the wizard now keeps it in the studio: POST /api/episodes/{id}/kept-start).
+ */
 export function pendingStartKey(episodeId) {
   return `ddg:start:${episodeId}`;
 }
@@ -151,21 +154,24 @@ export function boardEstimateLines(estimate) {
 }
 
 /**
- * The start request (POST /api/episodes) the wizard kept for this episode, read from its stored text,
- * or null (nothing kept, unreadable, or another episode's). Without a readable dry_run it is a free
- * test run: a live run is only ever the one the wizard confirmed.
+ * The start request (POST /api/episodes) kept for this episode (the studio's kept_start from GET
+ * /api/episodes/{id}/universe), or null (nothing kept, or another episode's). Without a readable
+ * dry_run it is a free test run: a live run is only ever the one the wizard confirmed.
  */
-export function pendingStart(text, episodeId) {
-  let body;
-  try {
-    body = JSON.parse(text ?? '');
-  } catch {
-    return null;
-  }
+export function startRequest(body, episodeId) {
   if (!body || typeof body !== 'object' || body.episode_id !== episodeId) return null;
   const out = { episode_id: episodeId, dry_run: body.dry_run !== false, enable_story_shaping: body.enable_story_shaping !== false };
   if (typeof body.archetype_id === 'string' && body.archetype_id) out.archetype_id = body.archetype_id;
   if (typeof body.idea === 'string' && body.idea) out.idea = body.idea;
   if (typeof body.target_duration === 'number' && Number.isFinite(body.target_duration)) out.target_duration = body.target_duration;
   return out;
+}
+
+/** The start request an earlier wizard kept in this browser (its stored text), as startRequest reads it. */
+export function pendingStart(text, episodeId) {
+  try {
+    return startRequest(JSON.parse(text ?? ''), episodeId);
+  } catch {
+    return null;
+  }
 }

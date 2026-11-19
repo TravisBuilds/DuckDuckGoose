@@ -18,7 +18,9 @@ UNIVERSE_TABLES = {"series_profiles", "character_voices", "universe_notes", "uni
                    "universe_board_images", "universe_board_requests", "universe_board_jobs", "universe_stories",
                    "universe_checklist_items", "universe_checklist_photos"}
 # run_all_migrations adds the first frame tables of episodes too (tests/test_concept_frames.py checks them)
+# and the kept starts (tests/test_kept_starts.py)
 CONCEPT_FRAME_TABLES = {"concept_frame_sets", "concept_frame_options", "concept_frame_picks"}
+KEPT_START_TABLES = {"episode_kept_starts"}
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +118,7 @@ async def test_migration_adds_the_universe_tables_and_changes_nothing_that_was_t
     assert data_once == data_after == data_before
     assert {k: v for k, v in schema_after.items() if k in schema_before} == schema_before
     assert {name for name in set(schema_after) - set(schema_before) if not name.startswith("idx_")} == (
-        UNIVERSE_TABLES | CONCEPT_FRAME_TABLES)
+        UNIVERSE_TABLES | CONCEPT_FRAME_TABLES | KEPT_START_TABLES)
     assert schema_once == schema_after
     with sqlite3.connect(db) as conn:
         for version in (UNIVERSE_MIGRATION, UNIVERSE_BOARD_MIGRATION, UNIVERSE_STORY_MIGRATION):

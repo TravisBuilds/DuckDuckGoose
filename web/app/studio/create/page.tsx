@@ -13,7 +13,7 @@ import { castColours, speakerColours } from '@/lib/castColour.mjs';
 import { CastDot, Dots, HeroBand, JourneyPath, SpeakerChip } from '@/components/playful';
 import { ChosenPictureSize } from '@/components/PictureSize';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
-import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
+import { type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
   FREEFORM_DEFAULT_LENGTH,
   FREEFORM_LENGTH_RANGE,
@@ -438,10 +438,11 @@ function CreateVideoWizard() {
       };
       // in a Universe every character keeps one locked look: until each one is locked the video waits
       // on its page, which starts it with this same request once they are; it waits there too while
-      // its owner picks the shots' first frames
-      const keep = () => {
+      // its owner picks the shots' first frames. The studio keeps the request, so the page's Start
+      // card sends it from any device.
+      const keep = async () => {
         try {
-          window.localStorage.setItem(pendingStartKey(episodeId), JSON.stringify(start));
+          await postJson(`/api/episodes/${episodeId}/kept-start`, start);
           return true;
         } catch {
           return false;
@@ -450,13 +451,13 @@ function CreateVideoWizard() {
       if (seriesId) {
         const info = await apiFetch<EpisodeUniverse>(`/api/episodes/${episodeId}/universe`);
         if ((info.lock?.unlocked ?? []).length > 0) {
-          keep(); // without it the page offers a free test run, and says so
+          await keep(); // without it the page offers a free test run, and says so
           router.push(`/studio/episodes/${episodeId}#cast`);
           return;
         }
       }
       // without a kept start a video outside a Universe could not start from its page: it starts now
-      if (pickFrames && keep()) {
+      if (pickFrames && await keep()) {
         router.push(`/studio/episodes/${episodeId}#first-frames`);
         return;
       }

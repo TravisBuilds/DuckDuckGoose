@@ -10,7 +10,8 @@ import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { btnGo, btnPrimary, btnSecondary, card, input, link, tones } from '@/lib/ui';
 import {
-  pendingStart, pendingStartKey, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem, type UniverseCard,
+  pendingStart, pendingStartKey, startRequest, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem,
+  type UniverseCard,
 } from '@/lib/world.mjs';
 
 function problemText(e: unknown): string {
@@ -225,7 +226,8 @@ export function LockGateCard({ info }: { info: EpisodeUniverse }) {
   );
 }
 
-function keptStart(episodeId: string): StartRequest | null {
+/** A start an earlier wizard kept in this browser (before the studio kept them), or null. */
+function startKeptHere(episodeId: string): StartRequest | null {
   if (typeof window === 'undefined') return null;
   try {
     return pendingStart(window.localStorage.getItem(pendingStartKey(episodeId)), episodeId);
@@ -234,9 +236,9 @@ function keptStart(episodeId: string): StartRequest | null {
   }
 }
 
-/** Whether the wizard left a start for this episode to send from its page. */
-export function hasKeptStart(episodeId: string): boolean {
-  return keptStart(episodeId) !== null;
+/** Whether an earlier wizard left a start for this episode in this browser. */
+export function hasStartKeptHere(episodeId: string): boolean {
+  return startKeptHere(episodeId) !== null;
 }
 
 /** "2 of 5 shots start from a frame you picked", or how to pick them, under the start button. */
@@ -249,18 +251,20 @@ function framesLine(frames: { picked: number; shots: number }): string {
 /**
  * Starts an episode the wizard left on its page before it started: in a Universe until every character
  * it uses has a locked look, or so its owner can pick its first frames. The start waits for the locks;
- * it sends the request the wizard kept, else a free test run.
+ * it sends the request the wizard kept in the studio (on any device), else one an earlier wizard kept
+ * in this browser, else a free test run.
  */
 export function StartCard({ episodeId, info, frames = null, onStarted }: {
   episodeId: string; info: EpisodeUniverse; frames?: { picked: number; shots: number } | null;
   onStarted: () => Promise<void> | void;
 }) {
-  const [kept] = useState<StartRequest | null>(() => keptStart(episodeId));
+  const [keptHere] = useState<StartRequest | null>(() => startKeptHere(episodeId));
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const inUniverse = Boolean(info.universe);
   const unlocked = inUniverse ? info.lock?.unlocked ?? [] : [];
-  const request: StartRequest = kept ?? { episode_id: episodeId, dry_run: true, enable_story_shaping: true };
+  const request: StartRequest = startRequest(info.kept_start, episodeId) ?? keptHere
+    ?? { episode_id: episodeId, dry_run: true, enable_story_shaping: true };
 
   const start = async () => {
     setBusy(true);

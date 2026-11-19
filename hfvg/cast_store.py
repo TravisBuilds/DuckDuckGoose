@@ -152,11 +152,12 @@ def _env_int(name: str, default: int) -> int:
 
 @contextmanager
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the cast, props, universe and concept frame tables present (the migrations
-    run if this DB never had them)."""
+    """A connection with the cast, props, universe, concept frame and kept start tables present (the
+    migrations run if this DB never had them)."""
     from hfvg.migrations import (
         apply_cast_library_sync,
         apply_concept_frames_sync,
+        apply_kept_starts_sync,
         apply_props_library_sync,
         apply_universe_board_sync,
         apply_universe_story_sync,
@@ -174,6 +175,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_universe_board_sync(conn)
         apply_universe_story_sync(conn)
         apply_concept_frames_sync(conn)
+        apply_kept_starts_sync(conn)
         yield conn
     finally:
         conn.close()

@@ -1239,7 +1239,7 @@ async def test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the
     owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
     view = owner.get(f"/api/episodes/{EP}/universe").json()
     assert view == {"episode_id": EP, "owner": {"user_id": studio.owner_id, "name": "Tamsin Owner"}, "can_act": True,
-                    "linked": False, "universe": None, "strip": None, "lock": None}
+                    "kept_start": None, "linked": False, "universe": None, "strip": None, "lock": None}
     sid = _world(owner)
     wren, moss = _character(owner, sid), _character(owner, sid, "Moss")
     _lock(wren["character_id"])
@@ -1260,7 +1260,8 @@ async def test_the_episode_universe_view_shows_the_strip_only_to_who_may_see_the
     # another member who may not see the cast: who made it and that they may not act, nothing else
     theirs = other.get(f"/api/episodes/{EP}/universe")
     assert theirs.json() == {"episode_id": EP, "owner": {"user_id": studio.owner_id, "name": "Tamsin Owner"},
-                             "can_act": False, "linked": None, "universe": None, "strip": None, "lock": None}
+                             "can_act": False, "kept_start": None, "linked": None, "universe": None, "strip": None,
+                             "lock": None}
     for private in ("Wren", "Moss", "Lantern", "Pier", sid, "/api/cast/images"):
         assert private not in theirs.text.replace("Tamsin Owner", ""), private
     assert admin.get(f"/api/episodes/{EP}/universe").json()["can_act"] is True

@@ -315,6 +315,7 @@ export interface StartRequest {
 }
 
 export declare function pendingStartKey(episodeId: string): string;
+export declare function startRequest(body: unknown, episodeId: string): StartRequest | null;
 export declare function pendingStart(text: string | null | undefined, episodeId: string): StartRequest | null;
 
 /** GET /api/episodes/{id}/universe. */
@@ -322,6 +323,8 @@ export interface EpisodeUniverse {
   episode_id: string;
   owner: { user_id: string | null; name: string | null };
   can_act: boolean;
+  /** The start the wizard kept for the episode's Start card (only for a caller who may act on it). */
+  kept_start?: StartRequest | null;
   /** null: the caller may not see this episode's cast. */
   linked: boolean | null;
   universe: { series_id: string; name: string } | null;

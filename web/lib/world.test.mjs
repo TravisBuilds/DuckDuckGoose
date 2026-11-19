@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   BOARD_POLL_MS, boardEstimateLines, boardProgress, homeSections, isFinished, isFirstRun, madeWith, mayChange,
-  pendingStart, pendingStartKey, posterShot, primaryVideo, universeByEpisode, universeChoices,
+  pendingStart, pendingStartKey, posterShot, primaryVideo, startRequest, universeByEpisode, universeChoices,
 } from './world.mjs';
 
 const worlds = [
@@ -160,4 +160,21 @@ test('the start request kept while a Universe episode waits for its looks', () =
   assert.deepEqual(pendingStart(JSON.stringify({ episode_id: 'ep_harbour_01', archetype_id: null, budget: 9 }), 'ep_harbour_01'),
     { episode_id: 'ep_harbour_01', dry_run: true, enable_story_shaping: true });
   assert.equal(pendingStart(JSON.stringify({ ...sent, dry_run: 'no' }), 'ep_harbour_01').dry_run, true);
+});
+
+test('the start request the studio kept reads the same way on any device', () => {
+  const kept = {
+    episode_id: 'ep_harbour_01', dry_run: false, enable_story_shaping: true, archetype_id: 'cozy-slice',
+    idea: 'A lighthouse keeper finds a map', target_duration: 30,
+  };
+  assert.deepEqual(startRequest(kept, 'ep_harbour_01'), kept);
+  assert.deepEqual(startRequest(kept, 'ep_harbour_01'), pendingStart(JSON.stringify(kept), 'ep_harbour_01'));
+  // nothing kept, another episode's, or not a request: nothing to start with
+  assert.equal(startRequest(null, 'ep_harbour_01'), null);
+  assert.equal(startRequest(undefined, 'ep_harbour_01'), null);
+  assert.equal(startRequest(kept, 'ep_other'), null);
+  assert.equal(startRequest('ep_harbour_01', 'ep_harbour_01'), null);
+  // live only when it says so; unknown fields stay behind
+  assert.deepEqual(startRequest({ episode_id: 'ep_harbour_01', dry_run: 'false', budget: 9 }, 'ep_harbour_01'),
+    { episode_id: 'ep_harbour_01', dry_run: true, enable_story_shaping: true });
 });
