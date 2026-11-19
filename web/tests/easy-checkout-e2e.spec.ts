@@ -210,11 +210,39 @@ test.describe.serial('Easy checkout', () => {
     await expect(plan).not.toContainText(/override/i);
     await expect(plan).not.toContainText(MODEL_NAMES);
 
-    // with today's prices: the price on the approval that pays for the video, one calm line, the
-    // breakdown behind a click
+    // today's prices are back, but the video's own price is still on its way and then cannot be read:
+    // the approval stays off and says why until a price is on screen, and "Try again" fetches it
     estimates = true;
+    let answerPrice: () => void = () => undefined;
+    const priceAsked = new Promise<void>((resolve) => {
+      void page.route(`${API}/api/episodes/${EPISODE}/preflight`, async (route) => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors(route) });
+        resolve();
+        await new Promise<void>((answer) => { answerPrice = answer; });
+        return route.fulfill({ status: 503, headers: cors(route), json: { detail: 'Preflight unavailable' } });
+      });
+    });
     await page.reload();
+    await priceAsked;
+    await expect(page.getByTestId('current-gate')).toHaveText('G1_SHOT_PLAN', { timeout: 60_000 });
+    await expect(page.getByTestId('g1-checkout-price')).toHaveText('This video');
+    await expect(page.getByTestId('approve-g1')).toBeDisabled();
+    await expect(page.getByTestId('approve-g1-why')).toHaveText('Turns on once the price is on screen.');
+    await expect(page.getByTestId('g1-checkout-retry')).toHaveCount(0);
+    answerPrice();
+    await expect(page.getByTestId('approve-g1-why')).toHaveText("We couldn't get this video's price, so it can't be approved yet.");
+    await expect(page.getByTestId('approve-g1')).toBeDisabled();
+    await expect(page.getByTestId('g1-checkout-price')).toHaveText('This video');
+    await expect(page.getByTestId('g1-checkout-breakdown')).toHaveCount(0);
+    await expect(plan).not.toContainText(/override/i);
+    await page.unroute(`${API}/api/episodes/${EPISODE}/preflight`);
+    await page.getByTestId('g1-checkout-retry').click();
+
+    // with the price on screen: the price on the approval that pays for the video, one calm line, the
+    // breakdown behind a click
     await expect(page.getByTestId('approve-g1')).toBeEnabled({ timeout: 60_000 });
+    await expect(page.getByTestId('approve-g1-why')).toHaveCount(0);
+    await expect(page.getByTestId('g1-checkout-retry')).toHaveCount(0);
     await expect(page.getByTestId('approve-g1')).toHaveText('Approve the shot plan');
     await expect(page.getByTestId('g1-checkout-price')).toHaveText(`This video: ${price.words}`);
     await expect(page.getByTestId('g1-checkout-line')).toHaveText('This starts the scene pictures. The clips wait for your OK on them.');

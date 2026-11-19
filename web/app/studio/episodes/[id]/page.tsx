@@ -483,6 +483,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [preflight, setPreflight] = useState<Record<string, ShotPreflight> | null>(null);
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const [costEstimate, setCostEstimate] = useState<OfflineEstimate | null>(null);
+  const [priceLoad, setPriceLoad] = useState<'loading' | 'ok' | 'error'>('loading');
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
@@ -517,8 +518,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   }, [episodeId]);
 
   // Model limits (GET /api/models) and per-shot preflight of the uploaded shots.json
-  // (POST /api/episodes/{id}/preflight): the same checks G1 approval and every submit enforce.
+  // (POST /api/episodes/{id}/preflight): the same checks G1 approval and every submit enforce. The
+  // preflight's offline estimate is the video's price: until it is read again no price is shown.
   const loadLimits = useCallback(async () => {
+    setPriceLoad('loading');
+    setCostEstimate(null);
     try {
       const body = await apiFetch<{ models?: ModelView[]; stale?: boolean; checked?: string | null }>('/api/models');
       setModels(body.models || []);
@@ -532,10 +536,12 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
         `/api/episodes/${episodeId}/preflight`, {});
       setPreflight(body.shots || {});
       setCostEstimate(body.cost_estimate ?? null);
+      setPriceLoad(body.cost_estimate ? 'ok' : 'error');
       setPreflightError(null);
     } catch (err) {
       setPreflight(null);
       setCostEstimate(null);
+      setPriceLoad('error');
       setPreflightError(err instanceof ApiError ? err.message : 'Preflight unavailable');
     }
   }, [episodeId]);
@@ -589,11 +595,12 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     loadMaker();
   }, [loadMaker]);
   const onPropsChange = useCallback(() => setPropsChanges((n) => n + 1), []);
-  // a saved shot plan changes what each shot's first frame shows: the first frames load again
+  // a saved shot plan changes what each shot's first frame shows and can change the video's price: the
+  // first frames and the price load again
   const onPlanSaved = useCallback(async () => {
     setPlanSaves((n) => n + 1);
-    await refreshAll();
-  }, [refreshAll]);
+    await Promise.all([refreshAll(), loadLimits()]);
+  }, [refreshAll, loadLimits]);
   // the wizard keeps a start for a video that waits on its page (for a lock, or for its first frames) in
   // the studio (info.kept_start); an earlier wizard kept it in the browser it ran in
   useEffect(() => {
@@ -851,7 +858,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
           {(state || notStarted) && !expired && viewer && (
             <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
               canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={onPlanSaved}
-              price={costEstimate} live={runLive} />
+              price={costEstimate} priceLoad={priceLoad} onRetryPrice={loadLimits} live={runLive} />
           )}
           {(state || notStarted) && !expired && viewer && (
             <ConceptFrames episodeId={episodeId} onCount={setFrames}

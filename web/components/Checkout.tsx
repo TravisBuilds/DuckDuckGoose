@@ -12,11 +12,12 @@ import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
  * pictures and clips are approved with its price at the shot plan). The caller sends that same price as
  * the approved total (lib/checkout.mjs approvedRequest), and the server refuses a higher one. A refused
  * spend shows in calm words with its one next action (moneyProblem) instead of the button and the
- * breakdown, so an old price can never be approved again or read as the current one.
+ * breakdown, so an old price can never be approved again or read as the current one. While the button
+ * is off for want of a price that could not be read, `retry` adds a quiet "Try again".
  */
 export default function Checkout({
   testId, what, title, headlineTestId, price, action, onAction, busy = false, busyAction, off = null, whyTestId,
-  disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, line, lineTestId, note,
+  disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, retry, line, lineTestId, note,
   rows = [], children, problem = null, onProblem, className = '',
 }: {
   testId: string;
@@ -36,6 +37,7 @@ export default function Checkout({
   actionTestId?: string;
   notNow?: () => void;
   notNowTestId?: string;
+  retry?: () => void;
   line?: string | null;
   lineTestId?: string;
   note?: ReactNode;
@@ -77,6 +79,12 @@ export default function Checkout({
               <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={busy} onClick={notNow}
                 data-testid={notNowTestId ?? `${testId}-not-now`}>
                 Not now
+              </button>
+            )}
+            {retry && why && (
+              <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={busy} onClick={retry}
+                data-testid={`${testId}-retry`}>
+                Try again
               </button>
             )}
           </div>

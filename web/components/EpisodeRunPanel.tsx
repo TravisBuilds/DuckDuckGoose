@@ -349,15 +349,17 @@ const FREE_VIDEO: VideoPrice = { free: true, words: 'free', approve: 0, rows: []
  * approves it when the reader may not.
  *
  * Approving it (G1) starts the scene pictures, so in a live run it shows the video's one price
- * (`price`: the offline estimate of its shots, from preflight) next to the button, the same price the
- * start showed; a test run is free. In a live run the API refuses G1 when today's prices could not be
- * read (estimates_available false): then no price is shown, and the button stays off and says why.
+ * (`price`: the offline estimate of its shots, from preflight; `priceLoad`: whether that is still on
+ * its way or could not be read) next to the button, the same price the start showed; a test run is
+ * free. A live run's button stays off, and says why, until that price is on screen; a price that could
+ * not be read offers "Try again" (`onRetryPrice`). The API also refuses G1 in a live run when today's
+ * prices could not be read (estimates_available false): then no price is shown either.
  */
 export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct, waitingOn = null, notStarted = false,
-  planKey, onPlanSaved, price = null, live = false }: {
+  planKey, onPlanSaved, price = null, priceLoad = 'loading', onRetryPrice, live = false }: {
   episodeId: string; state: RunState | null; shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
   waitingOn?: string | null; notStarted?: boolean; planKey?: string; onPlanSaved?: () => void;
-  price?: OfflineEstimate | null; live?: boolean;
+  price?: OfflineEstimate | null; priceLoad?: 'loading' | 'ok' | 'error'; onRetryPrice?: () => void; live?: boolean;
 }) {
   const [unsaved, setUnsaved] = useState(false);
   const atG1 = openGate(state) === 'G1_SHOT_PLAN';
@@ -366,6 +368,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
   const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
   const noPrices = live && state?.estimates_available === false;
   const video = noPrices ? null : live ? videoQuote(price) : videoQuote(price, { free: true }) ?? FREE_VIDEO;
+  const priceFailed = live && !noPrices && !video && priceLoad === 'error';
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
@@ -385,9 +388,11 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
         <Checkout className="mt-4" testId="g1-checkout" what="This video" price={video} action="Approve the shot plan"
           onAction={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
             'Shot plan approved.', "Couldn't approve the shot plan")}
-          busy={busy} needsPrice={false} actionTestId="approve-g1"
+          busy={busy} needsPrice={live} actionTestId="approve-g1"
           off={unsaved ? 'Save or undo your shot changes first.'
-            : noPrices ? "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes." : null}
+            : noPrices ? "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes."
+            : priceFailed ? "We couldn't get this video's price, so it can't be approved yet." : null}
+          retry={!unsaved && priceFailed ? onRetryPrice : undefined}
           whyTestId={unsaved ? 'approve-g1-unsaved' : 'approve-g1-why'}
           line={promise(video, { kept: false, otherwise: PLAN_LINE })}
           rows={video?.rows ?? []}>
