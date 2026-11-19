@@ -998,10 +998,13 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
   );
 }
 
-/** The read-only shot list for Production details: the workflow's view of each shot and the studio database's. */
-export function ShotListDetails({ episodeId, state, shotStates, shots, castHidden, preflight }: {
+/**
+ * The read-only shot list for Production details: the workflow's view of each shot and the studio
+ * database's. The limit checks' own words name the models, so only `detail` (an admin) gets them.
+ */
+export function ShotListDetails({ episodeId, state, shotStates, shots, castHidden, preflight, detail = false }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null; shots: ShotRow[];
-  castHidden: boolean; preflight: Record<string, ShotPreflight> | null;
+  castHidden: boolean; preflight: Record<string, ShotPreflight> | null; detail?: boolean;
 }) {
   const rows = Object.fromEntries(shots.map((s) => [s.shot_id, s]));
   const ids = Array.from(new Set([...runShotIds(state, shotStates), ...shots.map((s) => s.shot_id)])).sort();
@@ -1022,7 +1025,7 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
                 {row?.beat_id && <span className={`${chip} ${tones.info}`} title={row.beat_purpose}>{row.beat_id}</span>}
                 {check && (
                   <span className={check.ok ? 'text-green-800' : 'text-red-700'}
-                    title={check.errors.join('\n') || 'Passes model limits'}>
+                    title={detail ? check.errors.join('\n') || 'Fits what the studio can make' : undefined}>
                     {check.ok ? 'within limits' : 'breaks a limit'}
                   </span>
                 )}

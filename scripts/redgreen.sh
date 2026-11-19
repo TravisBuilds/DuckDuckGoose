@@ -5007,6 +5007,13 @@ test_mutation 728 "easy checkout: override is a ledger word" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
     sed -i "s/ 'GC\.01', 'override',\$/ 'GC.01',  \/\/ MUTATED/"
 
+# 729: a shot plan save that breaks a limit tells a member which shots to change; the checks' own words
+# (model names, where a limit comes from) are only for admins
+test_mutation 729 "shot plan: a member's save line names the shots, not the models" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  if (errors\.length && detail) {$/  if (errors.length) {  \/\/ MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

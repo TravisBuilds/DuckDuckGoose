@@ -9,6 +9,7 @@ import {
 import type { ShotDraft, ShotPlanSaveResponse, ShotPlanShot, ShotPlanView } from '@/lib/props.mjs';
 import { formatLocalDateTime } from '@/lib/time';
 import { btnPrimary, btnSecondary, chip, focusRing, input as field, link, tones } from '@/lib/ui';
+import { useMe } from '@/components/StudioShell';
 
 /**
  * Each shot's place, props and cast, and its prompts, until the shot plan is approved
@@ -219,6 +220,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
 export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved }: {
   episodeId: string; refreshKey?: string; onDirty?: (dirty: boolean) => void; onSaved?: () => void;
 }) {
+  const { isAdmin } = useMe();
   const [view, setView] = useState<ShotPlanView | null>(null);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -272,7 +274,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
       setDrafts({});
       setEditing({});
       setNote('');
-      setMessage(savedText(saved) ?? { tone: 'ok', text: 'Nothing changed.' });
+      setMessage(savedText(saved, { detail: isAdmin }) ?? { tone: 'ok', text: 'Nothing changed.' });
       onSaved?.();
     } catch (e) {
       setMessage({ tone: 'problem', text: problemText(e) });

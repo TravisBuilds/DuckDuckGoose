@@ -932,7 +932,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
                 </>
               )}
               <ShotListDetails episodeId={episodeId} state={state} shotStates={shotStates} shots={shots} castHidden={castHidden}
-                preflight={preflight} />
+                preflight={preflight} detail={isAdmin} />
               <AuditTrail audit={audit} hidden={auditHidden} />
               {canAct && (
                 <UploadFiles episodeId={episodeId} onUploaded={async () => { await loadLimits(); await loadPage(); }} />

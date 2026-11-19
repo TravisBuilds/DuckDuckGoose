@@ -157,14 +157,29 @@ test('the plan says when it can change and who may change it', () => {
     'Saved changes are used when this video starts.');
 });
 
-test('the result line of a save, with the model limits the checked plan breaks', () => {
+test('the result line of a save: members are told which shots to change, admins get the checks\' own words', () => {
   assert.equal(savedText({ changed: [] }), null);
   assert.deepEqual(savedText({ changed: [{ shot_id: 'A01', field: 'prompt' }, { shot_id: 'A01', field: 'place' }],
     result: null }), { tone: 'ok', text: 'Saved 1 shot.' });
   assert.deepEqual(savedText({ changed: [{ shot_id: 'A01', field: 'prompt' }, { shot_id: 'A02', field: 'place' }],
     result: { preflight_errors: [] } }),
   { tone: 'ok', text: 'Saved 2 shots and checked the plan again. Approve it when you are ready.' });
-  assert.deepEqual(savedText({ changed: [{ shot_id: 'A01', field: 'clip_prompt' }],
-    result: { preflight_errors: ['shot A01: kling prompt is 2600 characters (max 2500)'] } }),
-  { tone: 'problem', text: 'Saved 1 shot, but a shot asks for more than the studio can make: shot A01: kling prompt is 2600 characters (max 2500)' });
+  const broken = { changed: [{ shot_id: 'A01', field: 'clip_prompt' }],
+    result: { preflight_errors: ['shot A01: kling prompt is 2600 characters (max 2500)'] } };
+  assert.deepEqual(savedText(broken, { detail: true }),
+    { tone: 'problem', text: 'Saved 1 shot, but a shot asks for more than the studio can make: shot A01: kling prompt is 2600 characters (max 2500)' });
+  assert.deepEqual(savedText(broken), { tone: 'problem',
+    text: 'Saved 1 shot, but shot A01 asks for more than the studio can make. Try a shorter prompt or fewer picks, or ask an admin what to change.' });
+  const both = { changed: [{ shot_id: 'S01', field: 'prompt' }, { shot_id: 'S02', field: 'cast' }], result: { preflight_errors: [
+    'Shot S01 picture prompt is 3100 characters; seedream-v4 accepts 3000. Limit source: docs.example.test, checked 2026-01-05.',
+    'Shot S02 (start frame) uses 6 reference images, but kling-v2.1 accepts 4.',
+    'Shot S02 clip: kling-v2.1 does not support end frames.',
+  ] } };
+  assert.equal(savedText(both)?.text,
+    'Saved 2 shots, but shots S01 and S02 ask for more than the studio can make. Try a shorter prompt or fewer picks, or ask an admin what to change.');
+  assert.equal(savedText({ changed: [{ shot_id: 'S01', field: 'prompt' }], result: { preflight_errors: ['The plan breaks a limit'] } })?.text,
+    'Saved 1 shot, but a shot asks for more than the studio can make. Try a shorter prompt or fewer picks, or ask an admin what to change.');
+  for (const response of [broken, both]) {
+    assert.doesNotMatch(savedText(response)?.text ?? '', /kling|seedream|Limit source|model/i);
+  }
 });
