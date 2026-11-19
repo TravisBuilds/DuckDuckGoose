@@ -2,15 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
 import {
-  CHANGE_EXAMPLES, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, inItLine, listWords, makeLabel,
+  CHANGE_EXAMPLES, aboutLine, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, inItLine, listWords, makeLabel,
   optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle, shotBlocker,
   shotStatus,
 } from './frames.mjs';
 
 const shot = (extra = {}) => ({
-  shot_id: 'A01', beat: 'Wren climbs to the lamp room', scene: 'Wren lifts the storm lamp.', time_of_day: 'dusk',
-  characters: ['Wren'], place: 'Harbour cabin', props: ['Brass key'], references: 3, aspect_ratio: '9:16', notes: [],
-  problems: [], ready: true, changes: [], making: false, changed: false, rounds: [], pick: null, ...extra,
+  shot_id: 'A01', description: 'Wren at Harbour cabin, with Brass key, dusk', beat: 'Wren climbs to the lamp room',
+  time_of_day: 'dusk', characters: ['Wren'], place: 'Harbour cabin', props: ['Brass key'], references: 3, no_photos: [],
+  aspect_ratio: '9:16', notes: [], problems: [], ready: true, changes: [], making: false, changed: false, rounds: [],
+  pick: null, ...extra,
 });
 const round = (extra = {}) => ({
   set_id: 'cf_0123456789ab', shot_id: 'A01', round: 1, status: 'ready', changes: [], option_count: 3, dry_run: true,
@@ -37,6 +38,21 @@ test('the shot says who and what its start frame shows, in plain words', () => {
   assert.equal(referencesLine(1), '1 reference photo guides it');
   assert.equal(referencesLine(3), '3 reference photos guide it');
   assert.match(referencesLine(0), /^No reference photos yet/);
+});
+
+test('the card describes the frame in plain words and names the missing photos once', () => {
+  assert.equal(aboutLine(shot()), 'Wren at Harbour cabin, with Brass key, dusk');
+  assert.equal(aboutLine(shot({ description: 'Mara at the harbour, dusk, close on her face' })),
+    'Mara at the harbour, dusk, close on her face');
+  // a studio that sends no description: who and what is in it
+  assert.equal(aboutLine(shot({ description: '' })), 'Wren at Harbour cabin, with Brass key');
+  assert.equal(aboutLine(shot({ description: undefined, characters: [], place: null, props: [] })),
+    'No character, place or prop named in this shot');
+  assert.equal(referencesLine(0, ['Lead']), 'No reference photos of Lead yet: the words guide it');
+  assert.equal(referencesLine(0, ['Wren', 'Brass key']), 'No reference photos of Wren and Brass key yet: the words guide it');
+  assert.equal(referencesLine(2, ['Pip']), '2 reference photos guide it; none of Pip yet');
+  assert.equal(referencesLine(1, []), '1 reference photo guides it');
+  assert.equal(referencesLine(0, null), 'No reference photos yet: the words guide it');
 });
 
 test('each shot reads where it stands, in the colour that means it', () => {
@@ -117,7 +133,8 @@ test('the buttons say why they are off', () => {
 
 test('the words on this screen keep to the copy rules', () => {
   const words = [
-    inItLine(shot()), referencesLine(3), referencesLine(0), framesSummary({ shots: [shot()] }), priceStatus(dry),
+    inItLine(shot()), aboutLine(shot()), referencesLine(3), referencesLine(0), referencesLine(0, ['Lead']),
+    referencesLine(2, ['Pip']), framesSummary({ shots: [shot()] }), priceStatus(dry),
     priceStatus(live), makeLabel(live), changesLine(['make it night']), roundTitle(round({ round: 2, changes: ['x'] })),
     roundNote(round({ status: 'failed', made: 0 })), changeBlocker(''), shotBlocker(view({ may_change: false }), shot()),
     shotBlocker(view(), shot({ making: true })), ...CHANGE_EXAMPLES,

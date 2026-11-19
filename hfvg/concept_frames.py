@@ -112,6 +112,37 @@ CHANGE_TERMS = (
 TIME_WORDS = re.compile(r"\b(night|midnight|sunset|golden hour|dusk|evening|sunrise|dawn|morning|daytime|"
                         r"daylight|midday|noon)\b", re.IGNORECASE)
 
+# What the owner's changes ask for, in the few words the page's description of a shot uses; for each
+# kind the latest change that names one wins.
+CHANGE_LOOKS = (
+    ("framing", r"\b(closer|close-?up|zoom in|tighter)\b", "close-up"),
+    ("framing", r"\b(wider|zoom out|pull back|further away|wide shot)\b", "wide"),
+    ("angle", r"\b(from above|overhead|top-?down|high angle)\b", "from above"),
+    ("angle", r"\b(from below|low angle|looking up)\b", "from below"),
+    ("weather", r"\b(rain|rainy|raining)\b", "in the rain"),
+    ("weather", r"\b(fog|foggy|mist|misty)\b", "in fog"),
+    ("weather", r"\b(snow|snowy|snowing)\b", "in snow"),
+    ("colour", r"\b(warmer|warm colou?rs?)\b", "warmer colours"),
+    ("colour", r"\b(cooler|colder|cool colou?rs?)\b", "cooler colours"),
+    ("light", r"\b(brighter|lighter)\b", "brighter"),
+    ("light", r"\b(darker|moodier|moody)\b", "darker"),
+    ("expression", r"\b(smil(e|es|ing))\b", "smiling"),
+)
+CLOSE_ON = re.compile(r"\b(?:closer|close-?up|zoom in|tighter)\s+(?:on|of)\s+((?:her|his|their|its|the)\s+[a-z]+)",
+                      re.IGNORECASE)
+# A beat that starts with a camera label ("cinematic shot: ...", "reaction close-up: ...") is picture
+# wording first; the page shows the moment after the label.
+CAMERA_LABEL = re.compile(r"^\s*([^:.!?]{1,48}):\s+(?=\S)")
+CAMERA_WORDS = frozenset((
+    "aerial", "angle", "cinematic", "close", "close-up", "close-ups", "closeup", "coverage", "crane", "dolly",
+    "establishing", "framing", "grade", "handheld", "insert", "inserts", "interiors", "exteriors", "locked-off",
+    "macro", "medium", "mediums", "montage", "ots", "overhead", "pan", "pov", "push-in", "reveal", "shot", "shots",
+    "slow-mo", "static", "still", "tilt", "tracking", "two-shot", "two-shots", "wide", "wides", "zoom"))
+# Beatmap rooms that name no place (the test drafts' "Scene").
+NO_ROOM = frozenset(("", "-", "–", "scene", "set", "location", "n/a", "none", "various", "tbd"))
+NO_PHOTO_NOTE = re.compile(r"^(.+) has no (?:reference images|photo) yet: only the description is used$")
+NAMES_SHOWN = 3
+
 
 class FramePlanError(CastError):
     """First frames that cannot be planned now (the shot or the still model cannot make them)."""
@@ -161,6 +192,7 @@ class Brief:
     shot_id: str
     scene: str
     beat: str = ""
+    action: str = ""
     time_of_day: str = ""
     room: str = ""
     characters: list[dict] = field(default_factory=list)
@@ -307,7 +339,7 @@ def shot_brief(ctx: dict, sid: str, *, live: bool, materialize: bool = False) ->
     tod, room = _one_line(beat.get("tod")), _one_line(beat.get("room"))
     return Brief(
         shot_id=sid, scene=_one_line(plan["prompt"]),
-        beat=_clip(f"{action} ({purpose})" if action and purpose else action or purpose, BEAT_MAX),
+        beat=_clip(f"{action} ({purpose})" if action and purpose else action or purpose, BEAT_MAX), action=action,
         time_of_day="" if tod in ("-", "–") else tod, room="" if room in ("-", "–") else room,
         characters=[{"name": c["name"], "clause": c["clause"]} for c in meta.get("cast") or []],
         place=place, props=[{"name": t["name"], "clause": t["clause"]} for t in things if t.get("kind") == "prop"],
@@ -576,7 +608,7 @@ def plan_round(episode_id: str, shot_id: str, *, change: Any = None, keep_change
     brief_sha = brief.sha()
     model = model or still_model()
     adapter = adapter_for(model)
-    notes = list(brief.notes)
+    _, notes = _photo_notes(brief.notes)  # the shot names who has no photo yet once (no_photos)
     cap = max_refs_for(model)
     if len(brief.refs) > cap:
         notes.append(f"{len(brief.refs) - cap} reference picture(s) did not fit the picture model's limit")
@@ -966,6 +998,76 @@ def unpick(episode_id: str, shot_id: str, *, actor: str | None, live: bool) -> d
     return shot_view(episode_id, shot_id, live=live)
 
 
+# ------------------------------------------------------------------------------------- the page's words
+# The page describes each shot in plain words. The prompt a still model reads stays on the server.
+
+def plain_moment(beat: str) -> str:
+    """The beat without a camera label in front of it ("cinematic shot: A boat sails" -> "A boat sails")."""
+    text = _one_line(beat)
+    label = CAMERA_LABEL.match(text)
+    if label and CAMERA_WORDS & set(label.group(1).lower().split()):
+        text = text[label.end():]
+    return text[:1].upper() + text[1:]
+
+
+def _names(names: list[str]) -> str:
+    names = [n for n in names if n]
+    if len(names) > NAMES_SHOWN:
+        names = names[:NAMES_SHOWN - 1] + [f"{len(names) - NAMES_SHOWN + 1} more"]
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}" if names else ""
+
+
+def _when(brief: Brief, changes: list[str]) -> str:
+    for change in reversed(changes):
+        named = TIME_WORDS.search(change)
+        if named:
+            return named.group(1).lower()
+    return brief.time_of_day.lower()
+
+
+def _looks(changes: list[str]) -> list[str]:
+    chosen: dict[str, str] = {}
+    for change in changes:
+        for kind, pattern, words in CHANGE_LOOKS:
+            if re.search(pattern, change, re.IGNORECASE):
+                if words == "close-up":
+                    on = CLOSE_ON.search(change)
+                    words = f"close on {on.group(1).lower()}" if on else words
+                chosen.pop(kind, None)
+                chosen[kind] = words
+    return list(chosen.values())
+
+
+def describe(brief: Brief, changes: list[str], *, with_words: bool = True) -> str:
+    """A shot's first frame in a few plain words ("Mara at Harbour cabin, dusk, close on her face"):
+    who, where and what is in it, the time of day and what the owner's changes ask for. The beatmap's
+    room, and the moment for a shot that names nobody, are only for whoever may read the shot's words."""
+    room = brief.room if with_words and brief.room.lower() not in NO_ROOM else ""
+    where = brief.place["name"] if brief.place else room
+    head = " at ".join(x for x in (_names([c["name"] for c in brief.characters]), where) if x)
+    things = _names([p["name"] for p in brief.props])
+    if things:
+        head = f"{head}, with {things}" if head else things
+    if not head and with_words:
+        head = _clip(plain_moment(brief.action or brief.beat), 80)
+    text = ", ".join(x for x in (head, _when(brief, changes), *_looks(changes)) if x)
+    return text[:1].upper() + text[1:]
+
+
+def _photo_notes(notes: list[str]) -> tuple[list[str], list[str]]:
+    """(the names with no reference photo yet, the other notes): the page names the first once, in
+    its line about the shot's reference photos."""
+    missing, other = [], []
+    for note in notes:
+        named = NO_PHOTO_NOTE.match(note)
+        if named:
+            if named.group(1) not in missing:
+                missing.append(named.group(1))
+        else:
+            other.append(note)
+    return missing, other
+
+
 # ------------------------------------------------------------------------------------- the view
 
 def _pick_view(spec: Any, pick_row, episode_id: str, sha: str) -> dict | None:
@@ -988,17 +1090,21 @@ def _shot_view(ctx: dict, sid: str, sets: list, picks: dict, conn, *, live: bool
         view["current"] = view.pop("brief_sha") == sha
         rounds.append(view)
     latest = rounds[0] if rounds else None
-    return {"shot_id": sid, "beat": brief.beat if with_words else None, "scene": brief.scene if with_words else None,
-            "time_of_day": brief.time_of_day or None, **_summary(brief), "aspect_ratio": brief.aspect_ratio,
-            "notes": brief.notes, "problems": brief.problems, "ready": not brief.problems,
-            "changes": latest["changes"] if latest else [], "making": bool(latest and latest["status"] == "making"),
+    changes = latest["changes"] if latest else []
+    no_photos, notes = _photo_notes(brief.notes)
+    return {"shot_id": sid, "description": describe(brief, changes, with_words=with_words),
+            "beat": plain_moment(brief.beat) if with_words else None,
+            "time_of_day": brief.time_of_day or None, **_summary(brief), "no_photos": no_photos,
+            "aspect_ratio": brief.aspect_ratio, "notes": notes, "problems": brief.problems, "ready": not brief.problems,
+            "changes": changes, "making": bool(latest and latest["status"] == "making"),
             "changed": bool(latest and not latest["current"]), "rounds": rounds,
             "pick": _pick_view(ctx["items"][sid].get("pre_approved_still"), picks.get(sid), ctx["episode_id"], sha)}
 
 
 def frames_view(episode_id: str, *, live: bool, with_words: bool = True) -> dict:
-    """Every shot with what its first frame shows, its rounds of options and its pick.
-    ``with_words``: the shot's words and beat (only for whoever may read the episode's prompts)."""
+    """Every shot with what its first frame shows in plain words, its rounds of options and its pick
+    (never its prompt). ``with_words``: the beat and the beatmap's room (only for whoever may read the
+    episode's prompts)."""
     base = {"episode_id": episode_id, "options_per_round": options_per_round(), "dry_run": not live,
             "words_hidden": not with_words}
     try:

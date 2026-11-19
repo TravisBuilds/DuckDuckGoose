@@ -31,10 +31,23 @@ export function inItLine(shot) {
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
-/** "3 reference photos guide it" / "No reference photos yet". */
-export function referencesLine(count) {
-  if (count > 0) return `${plural(count, 'reference photo')} ${count === 1 ? 'guides' : 'guide'} it`;
-  return 'No reference photos yet: the words guide it';
+/** The shot's first frame in plain words, as the studio describes it, else who and what is in it. */
+export function aboutLine(shot) {
+  const text = (shot?.description ?? '').trim();
+  return text || inItLine(shot);
+}
+
+/**
+ * The shot's reference photos, said once: "3 reference photos guide it", "2 reference photos guide it;
+ * none of Pip yet", "No reference photos of Lead yet: the words guide it".
+ */
+export function referencesLine(count, missing = []) {
+  const names = listWords(missing);
+  if (count > 0) {
+    const line = `${plural(count, 'reference photo')} ${count === 1 ? 'guides' : 'guide'} it`;
+    return names ? `${line}; none of ${names} yet` : line;
+  }
+  return names ? `No reference photos of ${names} yet: the words guide it` : 'No reference photos yet: the words guide it';
 }
 
 /** The newest round, or null. */

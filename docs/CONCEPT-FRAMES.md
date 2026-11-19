@@ -25,9 +25,14 @@ In the UI the step is called **First frames**. In the code and the API it is **c
 - **Where.** The episode page has a First frames section after the shot plan, while no run is going:
   before the video starts, and after a run ended (for the next run). While a run is filming, the
   section only shows the frames it started from.
-- **Each shot** says what its start frame shows ("Wren at Harbour cabin, with Brass key"), how many
-  reference photos guide it, and where it stands: no start frame yet (optional), options ready, being
-  made, start frame locked, or the shot changed since its options were made.
+- **Each shot** says what its start frame shows in a few plain words ("Wren at Harbour cabin, with
+  Brass key, dusk"; after "make it night" and "closer on her face": "..., night, close on her face"),
+  the story moment (a camera label in front of the beat, such as "cinematic shot:", is left out), how
+  many reference photos guide it, naming once who has no photo yet ("No reference photos of Lead yet:
+  the words guide it"), and where it stands: no start frame yet (optional), options ready, being
+  made, start frame locked, or the shot changed since its options were made. The shot's picture
+  words (shots.json `prompt`) are never sent to the page: the view carries `description`, built on
+  the server (`describe`), and no `scene`.
 - **The price first.** "See 3 options" asks for the price; a test run shows "Free". "Make 3 options"
   makes them; live, the button carries the price ("Make 3 options for $0.09") and the price block shows
   what is left in the episode's draft pictures budget.

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PriceBlock } from '@/components/playful';
 import {
-  CHANGE_EXAMPLES, CHANGE_MAX, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, inItLine, latestRound,
+  CHANGE_EXAMPLES, CHANGE_MAX, aboutLine, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, latestRound,
   makeLabel, optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle,
   shotBlocker, shotStatus,
 } from '@/lib/frames.mjs';
@@ -290,14 +290,14 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
         )}
       </div>
 
+      <p className="mt-2 break-words text-[14px] font-extrabold" data-testid={`frames-in-it-${id}`}>{aboutLine(shot)}</p>
       {shot.beat && (
-        <p className="mt-2 break-words text-[14px]" data-testid={`frames-beat-${id}`}>
-          <span className="font-extrabold">The moment: </span>{shot.beat}
+        <p className="mt-1 break-words text-[13.5px]" data-testid={`frames-beat-${id}`}>
+          <span className="font-bold">The moment: </span>{shot.beat}
         </p>
       )}
-      {shot.scene && <p className="mt-1 break-words text-[13.5px] text-ink-soft">{shot.scene}</p>}
-      <p className="mt-1 break-words text-[13px] font-bold" data-testid={`frames-in-it-${id}`}>
-        {inItLine(shot)}. {referencesLine(shot.references)}.
+      <p className="mt-1 break-words text-[13px] text-ink-soft" data-testid={`frames-refs-${id}`}>
+        {referencesLine(shot.references, shot.no_photos)}.
       </p>
       {shot.problems.map((problem, i) => (
         <p key={problem} id={i === 0 ? `frames-problem-${id}` : undefined} data-testid={`frames-problem-${id}`}

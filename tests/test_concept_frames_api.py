@@ -100,7 +100,8 @@ async def test_the_owner_prices_makes_tweaks_and_picks_a_first_frame(studio):  #
     assert [s["shot_id"] for s in view["shots"]] == ["A01", "A02"]
     a01 = view["shots"][0]
     assert (a01["place"], a01["characters"], a01["references"], a01["ready"]) == ("Harbour cabin", [], 1, True)
-    assert a01["scene"] == "A brass key glints on the cabin table by a storm lamp." and a01["rounds"] == []
+    assert a01["description"] == "Harbour cabin" and a01["rounds"] == []
+    assert "scene" not in a01 and "brass key glints" not in json.dumps(view).lower()  # the prompt stays here
 
     estimate = owner.post(f"{BASE}/A01/estimate", json={}).json()
     total = _dry_total()
@@ -213,7 +214,8 @@ async def test_the_shots_words_are_left_out_for_who_may_not_read_its_prompts(stu
     assert view.status_code == 200, view.text
     body = view.json()
     assert (body["words_hidden"], body["may_change"], body["can_change"]) == (True, False, False)
-    assert body["shots"][0]["scene"] is None and "brass key" not in json.dumps(body).lower()
+    assert "scene" not in body["shots"][0] and body["shots"][0]["beat"] is None
+    assert "brass key" not in json.dumps(body).lower()
 
 
 # ------------------------------------------------------------------------------------- live

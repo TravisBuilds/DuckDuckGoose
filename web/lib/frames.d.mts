@@ -40,13 +40,17 @@ export interface FramePick {
 
 export interface FrameShot {
   shot_id: string;
+  /** The first frame in a few plain words ("Mara at Harbour cabin, dusk, close on her face"); never the prompt. */
+  description: string;
+  /** The story moment (null for a reader who may not read the shot's words). */
   beat: string | null;
-  scene: string | null;
   time_of_day: string | null;
   characters: string[];
   place: string | null;
   props: string[];
   references: number;
+  /** The characters, places and props in it with no reference photo yet. */
+  no_photos: string[];
   aspect_ratio: string;
   notes: string[];
   problems: string[];
@@ -96,7 +100,8 @@ export declare const CHANGE_EXAMPLES: string[];
 export declare const CHANGE_MAX: number;
 export declare function listWords(words: string[] | null | undefined): string;
 export declare function inItLine(shot: Pick<FrameShot, 'characters' | 'place' | 'props'> | null | undefined): string;
-export declare function referencesLine(count: number): string;
+export declare function aboutLine(shot: Pick<FrameShot, 'description' | 'characters' | 'place' | 'props'> | null | undefined): string;
+export declare function referencesLine(count: number, missing?: string[] | null): string;
 export declare function latestRound(shot: FrameShot | null | undefined): FrameRound | null;
 export declare function shotStatus(shot: FrameShot | null | undefined): { tone: FrameTone; text: string };
 export declare function framesSummary(view: Pick<FramesView, 'shots'> | null | undefined): string;

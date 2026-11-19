@@ -427,7 +427,76 @@ def test_the_shots_words_and_beat_are_left_out_for_who_may_not_read_its_prompts(
     _write([_shot("A01")])
     view = concept_frames.frames_view(EP, live=False, with_words=False)
     assert view["words_hidden"] is True
-    assert view["shots"][0]["scene"] is None and view["shots"][0]["beat"] is None
+    assert "scene" not in view["shots"][0] and view["shots"][0]["beat"] is None
+    assert SCENE.lower()[:30] not in json.dumps(view).lower()
+    assert view["shots"][0]["description"] == "Dusk"  # no names in it, so no moment either
+
+
+# ------------------------------------------------------------------------------------- the page's words
+
+def test_the_card_describes_the_frame_in_plain_words_and_keeps_the_prompt_on_the_server():
+    _library()
+    _cast_shots()
+    a01, a02 = concept_frames.frames_view(EP, live=False)["shots"]
+    assert a01["description"] == "Wren at Harbour cabin, with Brass key, dusk"
+    assert a01["beat"] == "Wren climbs to the lamp room (She hears the harbour bell)"
+    assert a02["description"] == "Wren at Harbour, night"
+    assert "scene" not in a01 and "scene" not in a02
+    text = json.dumps(concept_frames.frames_view(EP, live=False)).lower()
+    for words in (SCENE.lower(), "storm lamp", "kneels by the nets", "what we see", "photorealistic", "cinematic"):
+        assert words not in text, words
+    _round(change="make it night")
+    _round(change="closer on her face")
+    a01 = concept_frames.frames_view(EP, live=False)["shots"][0]
+    assert a01["description"] == "Wren at Harbour cabin, with Brass key, night, close on her face"
+
+
+def test_the_description_says_who_where_when_and_what_the_changes_ask_for():
+    brief = _brief(room="Lighthouse stairs")
+    assert concept_frames.describe(brief, []) == "Wren at Harbour cabin, with Brass key, dusk"
+    assert concept_frames.describe(brief, ["make it night", "closer on her face"]) == (
+        "Wren at Harbour cabin, with Brass key, night, close on her face")
+    assert concept_frames.describe(brief, ["closer", "wider, warmer colours", "golden hour please"]) == (
+        "Wren at Harbour cabin, with Brass key, golden hour, wide, warmer colours")
+    assert concept_frames.describe(_brief(place=None), ["from above", "she is smiling"]) == (
+        "Wren, with Brass key, dusk, from above, smiling")
+    stairs = _brief(place=None, room="Lighthouse stairs")
+    assert concept_frames.describe(stairs, []) == "Wren at Lighthouse stairs, with Brass key, dusk"
+    assert concept_frames.describe(stairs, [], with_words=False) == "Wren, with Brass key, dusk"
+    crowd = [{"name": n, "clause": ""} for n in ("Wren", "Pip", "Moss", "Ash")]
+    assert concept_frames.describe(_brief(characters=crowd, place=None, props=[], room="Quay"), []) == (
+        "Wren, Pip and 2 more at Quay, dusk")
+    alone = _brief(characters=[], place=None, props=[], room="Scene", time_of_day="Day",
+                   beat="cinematic shot: A paper boat sails across a puddle (Setup)",
+                   action="cinematic shot: A paper boat sails across a puddle")
+    assert concept_frames.describe(alone, []) == "A paper boat sails across a puddle, day"
+    assert concept_frames.describe(alone, [], with_words=False) == "Day"
+    assert concept_frames.describe(_brief(characters=[], place=None, props=[], time_of_day=""), [],
+                                   with_words=False) == ""
+
+
+@pytest.mark.parametrize("beat,moment", [
+    ("cinematic shot: A small paper boat sails across a puddle (Setup)", "A small paper boat sails across a puddle (Setup)"),
+    ("reaction close-up: she laughs at the gull", "She laughs at the gull"),
+    ("Wren climbs to the lamp room", "Wren climbs to the lamp room"),
+    ("Note: the bell rings twice", "Note: the bell rings twice"),
+    ("", ""),
+])
+def test_a_camera_label_in_front_of_the_moment_is_left_out(beat, moment):
+    assert concept_frames.plain_moment(beat) == moment
+
+
+def test_a_picture_with_no_reference_photo_is_named_once_not_in_a_note():
+    library = ("episode", EP)
+    new_character(library, "Wren", description="a young lighthouse keeper with a red scarf")
+    new_prop(library, "Brass key", description="a small brass key on a red string")
+    _write([_shot("A01", cast=["wren"], props=["brass-key"])])
+    shot = concept_frames.frames_view(EP, live=False)["shots"][0]
+    assert (shot["references"], shot["no_photos"]) == (0, ["Wren", "Brass key"])
+    assert shot["notes"] == []
+    plan = concept_frames.plan_round(EP, "A01", live=False)
+    assert not any("only the description is used" in note for note in plan["notes"])
+    assert "only the description is used" not in json.dumps(concept_frames.frames_view(EP, live=False))
 
 
 # ------------------------------------------------------------------------------------- what was there
