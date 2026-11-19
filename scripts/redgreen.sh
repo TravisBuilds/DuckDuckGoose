@@ -4643,7 +4643,7 @@ test_mutation 668 "mood board: the page follows the board being made" \
 test_mutation 669 "mood board: the estimate shows the budget left" \
     "web/lib/world.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
-    sed -i "s/^  if (budget) {\$/  if (false) {  \/\/ MUTATED/"
+    sed -i "s/^  if (estimate\.budget) {\$/  if (false) {  \/\/ MUTATED/"
 
 # ---- An episode's prompts reach only admins, its Universe's owner and whoever may change it
 # (docs/AUTHENTICATION.md): the editor of another episode of the Universe gets them stripped. Ids 670-685
