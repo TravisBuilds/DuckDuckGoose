@@ -13,11 +13,14 @@ import zlib from 'node:zlib';
  * mood board and the bible follow as before, and the photos on the list go to the characters, places
  * and props the bible made.
  *
- * First frames: the wizard keeps the start while the owner picks the shots' first frames on the
- * episode's page: the price first, a round of options, a change in plain words, the pick. The run
- * then starts with the request the wizard kept, and the picked shot films from its picked frame (its
- * scene picture is the pre-approved one). Each new screen is checked at 1440 px and at 390 px, where
- * nothing scrolls sideways. Screenshots go to the test's output folder.
+ * First frames: the wizard keeps the start (in the studio, not the browser) while the owner picks
+ * the shots' first frames on the episode's page: each shot in plain words, the price first, a round
+ * of options, a change in plain words, the pick. A fresh browser (another device) shows the start
+ * card and the picked frame and starts the run with the request the wizard kept, and the picked shot
+ * films from its picked frame (its scene picture is the pre-approved one). Each new screen is
+ * checked at 1440 px and at 390 px, where nothing scrolls sideways; First frames and the start card
+ * also at 320 px, where every button and label stays on one line, uncut, and no word breaks.
+ * Screenshots go to the test's output folder.
  */
 
 const API = 'http://localhost:8000';
@@ -27,8 +30,12 @@ const CARD = 'nostalgia-time-travel';
 const STORY = 'Wren mends sails in the harbour town. One windy night she finds a copper bell in the old lighthouse. '
   + 'She carries the bell to the night market, where Tobin sells kites with a paper moon.';
 const IDEA = 'A small paper boat sails across a rain puddle to deliver a note to a snail';
+const SMALL_PHONE = { width: 320, height: 720 };
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
+// the buttons and labels of First frames and the start card that stay on one line
+const ONE_LINE = 'button, summary, .pf-chip, [data-testid="first-frames-summary"], [data-testid^="frames-status-"], '
+  + '[data-testid^="frames-option-"] span, [data-testid^="frames-changes-"] > span';
 
 function crc32(data: Buffer): number {
   let c = ~0;
@@ -105,6 +112,56 @@ async function onPhone(page: Page, name: string, part?: Locator) {
   await expectNoSidewaysScroll(page);
   await oneScreen(page, `${name}-390`, part);
   await page.setViewportSize(DESKTOP);
+}
+
+/**
+ * What reads badly in a part of the page (run in the browser): a button or label (`oneLine`) that
+ * takes more than one line or is cut off, or a word of any text broken across two lines.
+ */
+function layoutProblems(root: Element, oneLine: string): string[] {
+  const problems: string[] = [];
+  const lines = (rects: DOMRectList) => {
+    const tops = [...rects].filter((r) => r.width > 0.5 && r.height > 0.5).map((r) => r.top).sort((a, b) => a - b);
+    return tops.filter((top, i) => i === 0 || top - tops[i - 1] > 4).length;
+  };
+  const shown = (el: Element) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  const say = (el: Element) => `"${(el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60)}"`;
+  // the screen and every box around the element that cuts off what overflows it
+  const edges = (el: Element) => {
+    const out: { left: number; right: number }[] = [{ left: 0, right: window.innerWidth }];
+    for (let up = el.parentElement; up && up !== document.body; up = up.parentElement) {
+      if (getComputedStyle(up).overflowX !== 'visible') out.push(up.getBoundingClientRect());
+    }
+    return out;
+  };
+  for (const el of root.querySelectorAll(oneLine)) {
+    if (!shown(el) || !(el.textContent ?? '').trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    if (lines(range.getClientRects()) > 1) problems.push(`${say(el)} takes more than one line`);
+    const box = el.getBoundingClientRect();
+    const cut = edges(el).some((edge) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
+    if (cut || el.scrollWidth > el.clientWidth + 1) problems.push(`${say(el)} is cut off`);
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent ?? '';
+    if (!text.trim() || !node.parentElement || !shown(node.parentElement)) continue;
+    for (const word of text.matchAll(/[^\s\-\u2010-\u2015/]+/g)) {
+      const range = document.createRange();
+      range.setStart(node, word.index!);
+      range.setEnd(node, word.index! + word[0].length);
+      if (lines(range.getClientRects()) > 1) problems.push(`"${word[0]}" breaks across lines in ${say(node.parentElement)}`);
+    }
+  }
+  return problems;
+}
+
+/** The part reads well at this width: nothing scrolls sideways, no button or label wraps or is cut off, no word breaks. */
+async function expectTidy(page: Page, part: Locator, what: string) {
+  await expectNoSidewaysScroll(page);
+  const width = page.viewportSize()!.width;
+  expect(await part.evaluate(layoutProblems, ONE_LINE), `${what} at ${width} px`).toEqual([]);
 }
 
 /** The id of the reference list item with this name. */
@@ -254,7 +311,7 @@ test.describe.serial('Creation flow fixes', () => {
     await expect(page.getByTestId('prop-copper-bell')).toContainText('1 photo');
   });
 
-  test('first frames: options for a shot, a change in plain words, the pick, then filming starts from it', async ({ page }) => {
+  test('first frames: options for a shot, a change in plain words, the pick, then filming starts from it', async ({ page, browser }) => {
     test.slow(); // the dry run goes on to the scene pictures
     await signIn(page, OWNER);
     await page.goto('/studio/create');
@@ -293,12 +350,25 @@ test.describe.serial('Creation flow fixes', () => {
     await expect(page.getByTestId(`frames-in-it-${shot}`)).toBeVisible();
     await expect(section).not.toContainText(/grok|seedream|nano|kling|flux/i);
 
+    // each shot in plain words: what is in it and the moment, never the picture prompt; the
+    // reference photos are named once
+    const card = page.getByTestId(`frames-shot-${shot}`);
+    await expect(page.getByTestId(`frames-in-it-${shot}`)).toHaveText(/, day$/);
+    await expect(page.getByTestId(`frames-beat-${shot}`)).toContainText(`The moment: ${IDEA}`);
+    await expect(page.getByTestId(`frames-refs-${shot}`)).toHaveText(/^No reference photos of .+ yet: the words guide it\.$/);
+    await expect(card.getByText(/reference photo/)).toHaveCount(1);
+    await expect(section).not.toContainText(/cinematic|photorealistic|only the description is used/i);
+
     // the price first (free stand-ins in a test run), then a round of three options
     await page.getByTestId(`frames-start-${shot}`).click();
     const price = page.getByTestId(`frames-price-${shot}`);
     await expect(price).toContainText('Free');
     await expect(price).toContainText('3 options');
     await expect(page.getByTestId(`frames-make-${shot}`)).toHaveText('Make 3 options');
+    for (const size of [SMALL_PHONE, PHONE, DESKTOP]) {
+      await page.setViewportSize(size);
+      await expectTidy(page, card, 'A shot with its price');
+    }
     await page.getByTestId(`frames-make-${shot}`).click();
     await expect(page.getByTestId(`frames-message-${shot}`)).toHaveText('3 options ready. Pick the one this shot starts from.');
     const first = page.getByTestId(`frames-round-${shot}-1`);
@@ -313,8 +383,9 @@ test.describe.serial('Creation flow fixes', () => {
     await page.getByTestId(`frames-make-${shot}`).click();
     const second = page.getByTestId(`frames-round-${shot}-2`);
     await expect(second.locator('[data-testid^="frames-option-"]')).toHaveCount(3);
-    await expect(page.getByTestId(`frames-changes-${shot}`)).toContainText('make it night');
+    await expect(page.getByTestId(`frames-changes-${shot}`)).toHaveText('Changes so far: make it night');
     await expect(page.getByTestId(`frames-earlier-${shot}`)).toContainText('Earlier tries (1)');
+    await expect(page.getByTestId(`frames-in-it-${shot}`)).toHaveText(/, night$/);
 
     // the pick: it becomes the shot's start frame for filming
     const option = (await second.locator('[data-testid^="frames-option-"]').nth(1).getAttribute('data-testid'))!
@@ -330,25 +401,52 @@ test.describe.serial('Creation flow fixes', () => {
     const plan = await (await page.request.get(`${API}/api/episodes/${episodeId}/concept-frames`)).json();
     const picked = plan.shots.find((s: { shot_id: string }) => s.shot_id === shot);
     expect(picked.pick).toMatchObject({ source: 'here', option_id: option, stale: false });
-    await expectNoSidewaysScroll(page);
+    await expectTidy(page, section, 'First frames');
+    await expectTidy(page, page.getByTestId('start-card'), 'The start card');
     await screenshot(page, 'first-frames-1440', section);
     await oneScreen(page, 'first-frames-options-1440', page.getByTestId(`frames-shot-${shot}`), 120);
     await screenshot(page, 'episode-start-1440', page.getByTestId('start-card'));
-    await onPhone(page, 'first-frames', section);
-    await onPhone(page, 'first-frames-options', second);
-    // on a phone the start card is in the bottom sheet
-    await page.setViewportSize(PHONE);
-    await page.getByTestId('gate-sheet-toggle').click();
-    await expect(page.getByTestId('start-frames')).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath('episode-start-390.png') });
-    await page.getByTestId('gate-sheet-toggle').click();
-    await expect(page.getByTestId('start-frames')).toBeHidden();
+    for (const size of [SMALL_PHONE, PHONE]) {
+      await page.setViewportSize(size);
+      await expectTidy(page, section, 'First frames');
+      await oneScreen(page, `first-frames-${size.width}`, section);
+      await oneScreen(page, `first-frames-options-${size.width}`, second);
+      // on a phone the start card is in the bottom sheet
+      await page.getByTestId('gate-sheet-toggle').click();
+      await expect(page.getByTestId('start-frames')).toBeVisible();
+      await expectTidy(page, page.getByTestId('start-card'), 'The start card');
+      await page.screenshot({ path: test.info().outputPath(`episode-start-${size.width}.png`) });
+      await page.getByTestId('gate-sheet-toggle').click();
+      await expect(page.getByTestId('start-frames')).toBeHidden();
+    }
     await page.setViewportSize(DESKTOP);
 
-    // the run starts with the request the wizard kept, and the picked shot films from its frame
-    const start = page.waitForRequest((req) => req.url() === `${API}/api/episodes` && req.method() === 'POST');
-    await page.getByTestId('start-episode').click();
-    expect((await start).postDataJSON()).toMatchObject({ episode_id: episodeId, dry_run: true, enable_story_shaping: true });
+    // the studio keeps the start, not this browser: a fresh browser (another device) shows the start
+    // card and the picked frame, and starts the run with the request the wizard kept
+    expect(await page.evaluate((id) => window.localStorage.getItem(`ddg:start:${id}`), episodeId)).toBeNull();
+    const kept = await (await page.request.get(`${API}/api/episodes/${episodeId}/universe`)).json();
+    expect(kept.kept_start).toMatchObject({ episode_id: episodeId, dry_run: true, enable_story_shaping: true, idea: IDEA });
+    const device = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: DESKTOP });
+    const other = await device.newPage();
+    await signIn(other, OWNER);
+    await other.goto(`/studio/episodes/${episodeId}`);
+    expect(await other.evaluate((id) => window.localStorage.getItem(`ddg:start:${id}`), episodeId)).toBeNull();
+    await expect(other.getByTestId('start-card')).toBeVisible();
+    await expect(other.getByTestId('start-frames')).toContainText(
+      count === 1 ? 'Every shot starts from a frame you picked.' : `1 of ${count} shots start from a frame you picked.`);
+    await expect(other.getByTestId(`frames-status-${shot}`)).toHaveText('Start frame locked');
+    await expect(other.getByTestId(`frames-picked-${shot}`)).toBeVisible();
+    await expect(other.getByTestId(`frames-option-${option}`)).toHaveAttribute('data-picked', 'true');
+    const start = other.waitForRequest((req) => req.url() === `${API}/api/episodes` && req.method() === 'POST');
+    await other.getByTestId('start-episode').click();
+    expect((await start).postDataJSON()).toMatchObject({
+      episode_id: episodeId, dry_run: true, enable_story_shaping: true, idea: IDEA });
+    await expect(other.getByTestId('start-card')).toHaveCount(0, { timeout: 60_000 });
+    await device.close();
+    expect((await (await page.request.get(`${API}/api/episodes/${episodeId}/universe`)).json()).kept_start).toBeNull();
+
+    // the picked shot films from its frame
+    await page.reload();
     await expect(page.getByTestId('start-card')).toHaveCount(0, { timeout: 60_000 });
     await expect(page.getByTestId('next-step-title')).toHaveText('Read and approve your story', { timeout: 120_000 });
     await page.getByTestId('story-approve').click();
