@@ -194,7 +194,8 @@ jobs:
   e2e:
     # ONE full dry-run episode through the studio UI against the REAL backend (no route mocks):
     # scripts/e2e_backend.py = Temporal dev server + production worker + FastAPI app in DRY_RUN.
-    # (universe-live-board-e2e mocks only the live mood board's routes: a live board needs a paid provider.)
+    # (universe-live-board-e2e mocks only the live mood board's routes, and easy-checkout-e2e only the live
+    # flags, the wizard's start request and the live board's routes: a live price needs a paid provider.)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
