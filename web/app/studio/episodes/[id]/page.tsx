@@ -17,6 +17,7 @@ import { formatLocalDateTime } from '@/lib/time';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, input, link, panel, tones } from '@/lib/ui';
 import CastPanel from '@/components/CastPanel';
+import ConceptFrames from '@/components/ConceptFrames';
 import PropsPanel from '@/components/PropsPanel';
 import { ConfirmButton } from '@/components/ConfirmButton';
 import {
@@ -28,7 +29,7 @@ import NextStepCard, { Stepper } from '@/components/NextStepCard';
 import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
-import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip } from '@/components/UniverseEpisode';
+import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip, hasKeptStart } from '@/components/UniverseEpisode';
 import { GlassPanel } from '@/components/playful';
 
 /**
@@ -465,6 +466,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [linked, setLinked] = useState(0);
   const [cast, setCast] = useState<CastView | null>(null);
   const [propsChanges, setPropsChanges] = useState(0);
+  const [planSaves, setPlanSaves] = useState(0);
+  const [frames, setFrames] = useState<{ picked: number; shots: number } | null>(null);
+  const [kept, setKept] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelView[]>([]);
@@ -575,6 +579,15 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     loadMaker();
   }, [loadMaker]);
   const onPropsChange = useCallback(() => setPropsChanges((n) => n + 1), []);
+  // a saved shot plan changes what each shot's first frame shows: the first frames load again
+  const onPlanSaved = useCallback(async () => {
+    setPlanSaves((n) => n + 1);
+    await refreshAll();
+  }, [refreshAll]);
+  // the wizard kept a start for a video that waits on its page (for a lock, or for its first frames)
+  useEffect(() => {
+    setKept(hasKeptStart(episodeId));
+  }, [episodeId]);
   // the shot plan picker reloads when the cast it picks from (or its shots' cast) or the props change
   const castKey = useMemo(() => (cast ? JSON.stringify([
     cast.characters.map((c) => [c.slug, c.name, c.default_version]),
@@ -710,7 +723,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   })) : null;
   // a finished live run that recorded no spend says so instead of $0.00
   const realCost = spent === null ? '—' : spent === 0 && dryRun !== true ? 'Not recorded' : formatUsd(spent);
-  const startHere = notStarted && canAct && Boolean(info?.universe);
+  const startHere = notStarted && canAct && Boolean(info) && (Boolean(info?.universe) || kept);
   const unlocked = info?.lock?.unlocked ?? [];
   const decision = Boolean(viewer) && !completed && !expired && canAct && !next.waiting && DECISIONS.includes(next.step);
   const sheet = startHere || decision;
@@ -720,7 +733,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     key, label: STEP_LABELS[key], status: key === 'cast' && unlocked.length > 0 ? 'current' : 'todo',
   })) : null;
   const gate = startHere && info ? (
-    <StartCard episodeId={episodeId} info={info} onStarted={refreshAll} />
+    <StartCard episodeId={episodeId} info={info} frames={frames} onStarted={refreshAll} />
   ) : viewer && !completed && !expired ? (
     <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} />
   ) : completed ? (
@@ -830,7 +843,11 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
           {(state || notStarted) && !expired && viewer && (
             <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
-              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={refreshAll} />
+              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={onPlanSaved} />
+          )}
+          {(state || notStarted) && !expired && viewer && (
+            <ConceptFrames episodeId={episodeId} onCount={setFrames}
+              refreshKey={`${planKey}|${planSaves}|${linked}|${state?.run?.run_id ?? ''}|${state?.run?.ended ? 'ended' : ''}`} />
           )}
           {state && !expired && viewer && (
             <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}

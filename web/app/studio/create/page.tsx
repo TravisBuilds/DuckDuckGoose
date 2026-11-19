@@ -160,6 +160,8 @@ function CreateVideoWizard() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+  // off: the video starts at once; on: it waits on its page while its owner picks each shot's first frame
+  const [pickFrames, setPickFrames] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [castRows, setCastRows] = useState<DraftCastRow[]>([]);
   const [castPictures, setCastPictures] = useState<Record<string, File | null>>({});
@@ -435,18 +437,28 @@ function CreateVideoWizard() {
         target_duration: draft.target_duration ?? targetDuration,
       };
       // in a Universe every character keeps one locked look: until each one is locked the video waits
-      // on its page, which starts it with this same request once they are
+      // on its page, which starts it with this same request once they are; it waits there too while
+      // its owner picks the shots' first frames
+      const keep = () => {
+        try {
+          window.localStorage.setItem(pendingStartKey(episodeId), JSON.stringify(start));
+          return true;
+        } catch {
+          return false;
+        }
+      };
       if (seriesId) {
         const info = await apiFetch<EpisodeUniverse>(`/api/episodes/${episodeId}/universe`);
         if ((info.lock?.unlocked ?? []).length > 0) {
-          try {
-            window.localStorage.setItem(pendingStartKey(episodeId), JSON.stringify(start));
-          } catch {
-            // without it the page offers a free test run, and says so
-          }
+          keep(); // without it the page offers a free test run, and says so
           router.push(`/studio/episodes/${episodeId}#cast`);
           return;
         }
+      }
+      // without a kept start a video outside a Universe could not start from its page: it starts now
+      if (pickFrames && keep()) {
+        router.push(`/studio/episodes/${episodeId}#first-frames`);
+        return;
       }
       await postJson('/api/episodes', start);
 
@@ -1204,6 +1216,18 @@ function CreateVideoWizard() {
                     If one doesn&apos;t yet, the video waits on its page: make and lock the character sheet there, then start it.
                   </p>
                 )}
+                <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-inner bg-blue-soft p-3"
+                  data-testid="pick-frames-option">
+                  <input type="checkbox" checked={pickFrames} onChange={(e) => setPickFrames(e.target.checked)}
+                    className="mt-0.5 size-5 flex-none accent-blue-deep" data-testid="pick-frames-checkbox" />
+                  <span className="min-w-0 text-[13.5px]">
+                    <span className="block font-extrabold">Pick each shot&apos;s first frame before filming</span>
+                    <span className="mt-0.5 block text-ink-soft">
+                      The video waits on its page while you see a few options for each shot and pick the one filming
+                      starts from, then you start it there. Optional: without it the studio makes them while filming.
+                    </span>
+                  </span>
+                </label>
                 <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
                 
                 <div className="space-y-3">
@@ -1258,6 +1282,7 @@ function CreateVideoWizard() {
                   <h3 id="live-confirm-title" className="mb-3 text-[20px]">Confirm Live Production</h3>
                   <p className="text-sm text-gray-600 mb-4">
                     This will start a live production run that uses real credits and charges you.
+                    {pickFrames && ' It starts from the video\u2019s page once you have picked its first frames.'}
                   </p>
                   {draft.cost_estimate && (
                     <div className="mb-4 rounded-inner border-2 border-mustard bg-mustard-soft p-3">
