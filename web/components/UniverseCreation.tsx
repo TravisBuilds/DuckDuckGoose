@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
-import { calmText, moneyProblem, priceText, quote, type MoneyProblem } from '@/lib/checkout.mjs';
+import { approvedRequest, calmText, moneyProblem, priceText, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import { formatLocalDate } from '@/lib/time';
 import { getPresetById, presets } from '@/lib/presets';
 import { groupByTemplate } from '@/lib/wizard.mjs';
@@ -326,9 +326,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   const makeBoard = async () => {
     if (!estimate) return;
     setRefusal(null);
-    const made = await act('board', () => postJson<{ board: WorldBoard | null; request?: WorldBoardRequest }>(`${base}/board`, {
-      feedback: estimate.feedback, approved_total_usd_micros: estimate.result.total_usd_micros,
-    }), (r) => {
+    const made = await act('board', () => postJson<{ board: WorldBoard | null; request?: WorldBoardRequest }>(`${base}/board`,
+      approvedRequest({ feedback: estimate.feedback }, estimate.result)), (r) => {
       if (!r.board) return BOARD_STARTED;
       return estimate.feedback ? 'The new mood board is ready below.' : 'Your mood board is ready below.';
     }, (message) => {

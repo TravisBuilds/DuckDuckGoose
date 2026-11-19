@@ -4963,8 +4963,9 @@ test_mutation 721 "prices: when four decimals read the same, the words say it is
     "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
     sed -i 's/^    return f"{now}, just over what you approved ({then})"$/    return f"{now} (you approved {then})"  # MUTATED/'
 
-# 722: easy checkout: the button sends the price on screen as the approved total, never another number
-test_mutation 722 "easy checkout: the approved total is the price shown" \
+# 722: every make-it button (mood board, character sheet, first frames, picture redo) sends its request
+# through approvedRequest(), whose approved total is quote().approve: the price on screen, never another number
+test_mutation 722 "easy checkout: every make-it button sends the price shown" \
     "web/lib/checkout.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
     sed -i 's/, approve: estimate\.total_usd_micros };$/, approve: estimate.total_usd_micros + 1 };  \/\/ MUTATED/'

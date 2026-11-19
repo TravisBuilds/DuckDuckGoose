@@ -30,6 +30,8 @@ export interface MoneyProblem {
 export function priceText(micros: number): string;
 export function quote(estimate: { dry_run?: boolean | null; total_usd_micros: number } | null | undefined): Price | null;
 export function headline(what: string, price: Price | null): string;
+export function approvedRequest<T extends object>(body: T, estimate: { dry_run?: boolean | null; total_usd_micros: number } | null | undefined,
+  field?: 'approved_total_usd_micros' | 'approved_usd_micros'): T & Record<string, number>;
 export const PROMISE: string;
 export const FREE_NOTE: string;
 export function promise(price: Price | null, options?: { kept?: boolean }): string | null;

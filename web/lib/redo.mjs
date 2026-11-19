@@ -5,7 +5,7 @@
  * balance gate). Pure functions, shared by the episode page and its tests.
  */
 
-import { headline, promise, quote } from './checkout.mjs';
+import { approvedRequest, headline, promise, quote } from './checkout.mjs';
 
 /** RetryShotRequest.prompt_append's limit, in characters. */
 export const REDO_PROMPT_MAX = 1000;
@@ -40,7 +40,7 @@ export function redoEstimateRequest(note) {
 
 /** The body of POST .../retry: the same note, for the price the owner was shown. */
 export function redoRequest(note, estimate) {
-  return { ...redoEstimateRequest(note), approved_usd_micros: estimate.total_usd_micros };
+  return approvedRequest(redoEstimateRequest(note), estimate, 'approved_usd_micros');
 }
 
 /** What the redo costs, in the checkout's one line, before the owner confirms it. */

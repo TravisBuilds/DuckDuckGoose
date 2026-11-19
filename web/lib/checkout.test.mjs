@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FREE_NOTE, LEDGER_WORDS, PROMISE, calmText, clipPrice, clipsPrice, headline, ledgerWords, moneyProblem, priceText, promise, quote,
-  videoQuote,
+  FREE_NOTE, LEDGER_WORDS, PROMISE, approvedRequest, calmText, clipPrice, clipsPrice, headline, ledgerWords, moneyProblem, priceText,
+  promise, quote, videoQuote,
 } from './checkout.mjs';
 import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
+import { redoRequest } from './redo.mjs';
 
 const live = { dry_run: false, total_usd_micros: 90_000 };
 const dry = { dry_run: true, total_usd_micros: 180_000 };
@@ -44,6 +45,25 @@ test('the calm line: a test run says nothing is charged; the live promise only w
   assert.equal(promise(quote(live), { kept: false }), null);
   assert.equal(promise(quote(dry), { kept: false }), FREE_NOTE);
   assert.equal(promise(null), null);
+});
+
+test('every make-it button sends the price it shows as its approved total, and nothing without a price', () => {
+  // the mood board, a character sheet and a round of first frames send approved_total_usd_micros
+  assert.equal(headline('Your mood board', quote(live)), 'Your mood board: about $0.09');
+  assert.deepEqual(approvedRequest({ feedback: 'warmer light' }, live), { feedback: 'warmer light', approved_total_usd_micros: 90_000 });
+  assert.deepEqual(approvedRequest({ stage: 'options', source: 'text', count: 3 }, live),
+    { stage: 'options', source: 'text', count: 3, approved_total_usd_micros: 90_000 });
+  assert.deepEqual(approvedRequest({ change: 'closer to the boat', keep_changes: true }, dry),
+    { change: 'closer to the boat', keep_changes: true, approved_total_usd_micros: 180_000 });
+  // a picture redo sends approved_usd_micros, with its note
+  assert.deepEqual(redoRequest('the boat closer', { dry_run: false, stills: 1, total_usd_micros: 40_000 }),
+    { prompt_append: 'Change requested: the boat closer.', approved_usd_micros: 40_000 });
+  assert.deepEqual(redoRequest('', { dry_run: true, stills: 1, total_usd_micros: 60_000 }), { approved_usd_micros: 60_000 });
+  // no price on screen, nothing sent
+  for (const none of [null, undefined, {}, { total_usd_micros: Number.NaN }]) {
+    assert.throws(() => approvedRequest({ feedback: '' }, none), /no price to approve/);
+    assert.throws(() => redoRequest('', none), /no price to approve/);
+  }
 });
 
 test('a whole video: the list price of one try of each picture and clip, by kind in the breakdown', () => {

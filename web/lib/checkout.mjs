@@ -35,6 +35,17 @@ export function headline(what, price) {
   return price ? `${what}: ${price.words}` : what;
 }
 
+/**
+ * A make-it button's request: its body plus the approved total, which is always the shown price's own
+ * total (field approved_usd_micros for a picture redo). With no price there is nothing to approve, so
+ * it throws and nothing is sent.
+ */
+export function approvedRequest(body, estimate, field = 'approved_total_usd_micros') {
+  const price = quote(estimate);
+  if (!price) throw new Error('There is no price to approve yet.');
+  return { ...body, [field]: price.approve };
+}
+
 export const PROMISE = 'If the price goes up before we make it, we ask you first.';
 export const FREE_NOTE = 'A test run, so nothing is charged.';
 

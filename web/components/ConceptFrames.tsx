@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Checkout from '@/components/Checkout';
-import { calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
+import { approvedRequest, calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import {
   CHANGE_EXAMPLES, CHANGE_MAX, aboutLine, anyMaking, changeBlocker, changesParts, framesCount, framesSummary, latestRound,
   makeLabel, optionName, pickedOption, priceRows, priceStatus, priceWhat, referencesLine, roundNote, roundTitle,
@@ -155,9 +155,8 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
   const make = (shot: FrameShot) => {
     const plan = pending[shot.shot_id];
     if (!plan) return null;
-    return run(shot.shot_id, () => postJson<{ round: FrameRound; shot: FrameShot }>(`${base}/${shot.shot_id}`, {
-      change: plan.change, keep_changes: plan.keepChanges, approved_total_usd_micros: plan.estimate.total_usd_micros,
-    }), (made) => {
+    return run(shot.shot_id, () => postJson<{ round: FrameRound; shot: FrameShot }>(`${base}/${shot.shot_id}`,
+      approvedRequest({ change: plan.change, keep_changes: plan.keepChanges }, plan.estimate)), (made) => {
       putShot(made.shot);
       setPending((all) => {
         const next = { ...all };

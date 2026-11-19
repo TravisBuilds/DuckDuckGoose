@@ -40,7 +40,7 @@ import type {
 } from '@/lib/cast.mjs';
 import { castColours, castColourAt } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
-import { calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
+import { approvedRequest, calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
 import Checkout from './Checkout';
 import { ConfirmButton } from './ConfirmButton';
@@ -263,10 +263,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
     if (!estimate) return;
     setRefusal(null);
     const started = await act(
-      () => postJson(`${base}/sheet/generate`, {
-        ...estimate.request,
-        approved_total_usd_micros: estimate.result.total_usd_micros,
-      }),
+      () => postJson(`${base}/sheet/generate`, approvedRequest(estimate.request, estimate.result)),
       'Started. The pictures show up here when they are ready.',
       here,
       (message) => {
