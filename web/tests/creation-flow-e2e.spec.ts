@@ -92,11 +92,18 @@ async function screenshot(page: Page, name: string, part?: Locator) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), fullPage: true, clip });
 }
 
-/** The same screen at 390 px: nothing scrolls sideways; then back to 1440 px. */
+/** What one screen shows: from the part given (`gap` px under the top of the screen, below the bar) or from the top. */
+async function oneScreen(page: Page, name: string, part?: Locator, gap = 72) {
+  if (part) await part.evaluate((el, below) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - below), gap);
+  else await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: test.info().outputPath(`${name}.png`) });
+}
+
+/** The same screen at 390 px, where nothing scrolls sideways: one phone screen; then back to 1440 px. */
 async function onPhone(page: Page, name: string, part?: Locator) {
   await page.setViewportSize(PHONE);
   await expectNoSidewaysScroll(page);
-  await screenshot(page, `${name}-390`, part);
+  await oneScreen(page, `${name}-390`, part);
   await page.setViewportSize(DESKTOP);
 }
 
@@ -216,7 +223,7 @@ test.describe.serial('Creation flow fixes', () => {
     await expect(page.getByTestId('creation-count-list')).toHaveText('6 of 7 ready');
     await expectNoSidewaysScroll(page);
     await screenshot(page, 'story-checklist-1440');
-    await onPhone(page, 'story-checklist');
+    await onPhone(page, 'story-checklist', page.getByTestId('checklist'));
 
     // then the mood board and the bible, as before; nothing above was charged
     await page.getByTestId('creation-next').click();
@@ -263,7 +270,7 @@ test.describe.serial('Creation flow fixes', () => {
     await page.getByTestId('pick-frames-checkbox').check();
     await expectNoSidewaysScroll(page);
     await screenshot(page, 'wizard-pick-frames-1440');
-    await onPhone(page, 'wizard-pick-frames');
+    await onPhone(page, 'wizard-pick-frames', page.getByTestId('pick-frames-option'));
     const started: string[] = [];
     page.on('request', (req) => {
       if (req.url() === `${API}/api/episodes` && req.method() === 'POST') started.push(req.url());
@@ -325,9 +332,18 @@ test.describe.serial('Creation flow fixes', () => {
     expect(picked.pick).toMatchObject({ source: 'here', option_id: option, stale: false });
     await expectNoSidewaysScroll(page);
     await screenshot(page, 'first-frames-1440', section);
+    await oneScreen(page, 'first-frames-options-1440', page.getByTestId(`frames-shot-${shot}`), 120);
     await screenshot(page, 'episode-start-1440', page.getByTestId('start-card'));
     await onPhone(page, 'first-frames', section);
-    await onPhone(page, 'episode-start', page.getByTestId('start-card'));
+    await onPhone(page, 'first-frames-options', second);
+    // on a phone the start card is in the bottom sheet
+    await page.setViewportSize(PHONE);
+    await page.getByTestId('gate-sheet-toggle').click();
+    await expect(page.getByTestId('start-frames')).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('episode-start-390.png') });
+    await page.getByTestId('gate-sheet-toggle').click();
+    await expect(page.getByTestId('start-frames')).toBeHidden();
+    await page.setViewportSize(DESKTOP);
 
     // the run starts with the request the wizard kept, and the picked shot films from its frame
     const start = page.waitForRequest((req) => req.url() === `${API}/api/episodes` && req.method() === 'POST');
