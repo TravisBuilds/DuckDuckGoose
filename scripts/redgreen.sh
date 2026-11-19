@@ -4867,7 +4867,7 @@ test_mutation 704 "story first: the story is the owner's" \
 test_mutation 705 "story first: the reference list is the owner's" \
     "api/world_routes.py" \
     "tests/test_world_api.py::test_only_the_owner_and_admins_see_and_change_the_story_and_its_list" \
-    sed -i '/^async def make_world_checklist(/,/^make_world_checklist\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = {"actor": None}  # MUTATED/'
+    sed -i '/^async def make_world_checklist(/,/^make_world_checklist\.allow_members = True$/ s/^    who = await _editor(series_id, authorization, studio_admin_token)$/    who = {"actor": None, "user_id": None}  # MUTATED/'
 
 # 706: ... and adds items to it
 test_mutation 706 "story first: list items are the owner's" \
