@@ -343,19 +343,21 @@ function ModelLimitsCard({ models, capsStale, capsChecked, preflight, preflightE
       {models.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {models.map((m) => (
-            <div key={m.model_id} className="rounded border border-gray-200 p-3">
-              <p className="mb-2 font-mono text-xs">{m.model_id} <span className="text-gray-700">({m.kind})</span></p>
-              <table className="w-full text-xs">
-                <tbody>
-                  {formatLimits(m).map((row) => (
-                    <tr key={row.label} title={row.note || undefined}>
-                      <td className="pr-2 align-top text-gray-700">{row.label}</td>
-                      <td className="align-top">{row.value}</td>
-                      <td className="pl-2 align-top text-gray-600">{row.source}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div key={m.model_id} className="min-w-0 rounded border border-gray-200 p-3">
+              <p className="mb-2 break-all font-mono text-xs">{m.model_id} <span className="text-gray-700">({m.kind})</span></p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {formatLimits(m).map((row) => (
+                      <tr key={row.label} title={row.note || undefined}>
+                        <td className="pr-2 align-top text-gray-700">{row.label}</td>
+                        <td className="align-top">{row.value}</td>
+                        <td className="pl-2 align-top text-gray-600">{row.source}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </div>

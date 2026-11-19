@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
 import {
-  CHANGE_EXAMPLES, aboutLine, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, inItLine, listWords, makeLabel,
+  CHANGE_EXAMPLES, aboutLine, anyMaking, changeBlocker, changesLine, changesParts, framesCount, framesSummary, inItLine,
+  listWords, makeLabel,
   optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle, shotBlocker,
   shotStatus,
 } from './frames.mjs';
@@ -102,6 +103,10 @@ test('the price comes first: free in a test run, the provider price when live', 
 test('changes in plain words: what is kept, each round names the newest, the box says why it is off', () => {
   assert.equal(changesLine([]), null);
   assert.equal(changesLine(['make it night', 'closer on her face']), 'Changes so far: make it night; closer on her face');
+  assert.deepEqual(changesParts(['make it night', '', 'closer on her face']),
+    { label: 'Changes so far:', text: 'make it night; closer on her face' });
+  assert.equal(changesParts(null), null);
+  assert.equal(changesParts(['']), null);
   assert.equal(roundTitle(round()), 'First try');
   assert.equal(roundTitle(round({ round: 3, changes: ['make it night', 'closer on her face'] })), 'Try 3, with closer on her face');
   assert.equal(changeBlocker(''), 'Turns on once you say what to change.');

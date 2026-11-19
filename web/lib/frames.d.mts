@@ -111,6 +111,7 @@ export declare function priceStatus(estimate: FrameEstimate | null | undefined):
 export declare function priceRows(estimate: FrameEstimate | null | undefined): { label: string; value: string }[];
 export declare function makeLabel(estimate: FrameEstimate | null | undefined): string;
 export declare function changesLine(changes: string[] | null | undefined): string | null;
+export declare function changesParts(changes: string[] | null | undefined): { label: string; text: string } | null;
 export declare function roundTitle(round: FrameRound | null | undefined): string;
 export declare function roundNote(round: FrameRound | null | undefined): string | null;
 export declare function changeBlocker(text: string | null | undefined): string | null;

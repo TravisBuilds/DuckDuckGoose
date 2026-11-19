@@ -114,8 +114,14 @@ export function makeLabel(estimate) {
 
 /** "Changes so far: make it night; closer on her face", or null. */
 export function changesLine(changes) {
+  const parts = changesParts(changes);
+  return parts ? `${parts.label} ${parts.text}` : null;
+}
+
+/** The same, as its label and the changes: the page keeps the label on one line. */
+export function changesParts(changes) {
   const list = (changes ?? []).filter(Boolean);
-  return list.length > 0 ? `Changes so far: ${list.join('; ')}` : null;
+  return list.length > 0 ? { label: 'Changes so far:', text: list.join('; ') } : null;
 }
 
 /** A round's heading: "Try 3, with make it night" or "First try". */

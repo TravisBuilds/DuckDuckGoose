@@ -175,7 +175,7 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
         type="file"
         accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className={`text-sm rounded ${focusRing}`}
+        className={`max-w-full text-sm rounded ${focusRing}`}
         aria-label={`Picture of ${character.name}`}
         aria-describedby={`cast-upload-hint-${character.slug}`}
         data-testid={`cast-upload-file-${character.slug}`}
@@ -679,7 +679,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
       </p>
       <input id="cast-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="cast-add-file-hint"
-        className={`text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
+        className={`max-w-full text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
       {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
       {!fileIssue && <SizeNote text={size.note} testId="cast-add-size-note" className="mt-1" />}
       <div className="grid sm:grid-cols-2 gap-2 mt-3">

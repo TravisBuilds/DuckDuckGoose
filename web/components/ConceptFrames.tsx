@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PriceBlock } from '@/components/playful';
 import {
-  CHANGE_EXAMPLES, CHANGE_MAX, aboutLine, anyMaking, changeBlocker, changesLine, framesCount, framesSummary, latestRound,
+  CHANGE_EXAMPLES, CHANGE_MAX, aboutLine, anyMaking, changeBlocker, changesParts, framesCount, framesSummary, latestRound,
   makeLabel, optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle,
   shotBlocker, shotStatus,
 } from '@/lib/frames.mjs';
@@ -25,6 +25,8 @@ type Pending = { estimate: FrameEstimate; change: string; keepChanges: boolean }
 
 const POLL_MS = 3000;
 const hint = 'text-[12.5px] text-ink-soft';
+// buttons and labels here stay on one line, from 320 px up: the layout makes room for them
+const oneLine = 'whitespace-nowrap';
 const TONE_TEXT: Record<FrameTone, string> = {
   ok: 'text-green-ink', todo: 'text-mustard-ink', run: 'text-aqua-ink', bad: 'text-coral-ink', wait: 'text-ink-soft',
 };
@@ -255,7 +257,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
   const off = Boolean(blocker) || anyBusy;
   const latest = latestRound(shot);
   const earlier = shot.rounds.slice(1);
-  const kept = changesLine(shot.changes);
+  const kept = changesParts(shot.changes);
   const changeOff = changeBlocker(change);
   const id = shot.shot_id;
   const lockProblem = shot.problems.some((p) => /lock the look/i.test(p));
@@ -309,7 +311,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
 
       {shot.pick && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-inner bg-green-soft p-3" data-testid={`frames-pick-${id}`}>
-          <p className="min-w-0 flex-1 text-[13.5px] font-bold text-green-ink">
+          <p className="min-w-0 grow basis-60 text-[13.5px] font-bold text-green-ink">
             {shot.pick.source === 'shot_list'
               ? 'This shot starts from a picture set in its shot list.'
               : shot.pick.stale
@@ -317,7 +319,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
                 : 'Filming starts from the frame you picked.'}
           </p>
           {shot.pick.source === 'here' && (
-            <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={off} onClick={onUnpick}
+            <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={off} onClick={onUnpick}
               aria-describedby={whyId} data-testid={`frames-unpick-${id}`}>
               Stop using it
             </button>
@@ -335,11 +337,11 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
           )}
           {pending.estimate.notes.map((note) => <p key={note} className={`${hint} mt-1 break-words`}>{note}</p>)}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={`${btnGo} pf-btn-sm`} disabled={off} onClick={onMake}
+            <button type="button" className={`${btnGo} pf-btn-sm ${oneLine}`} disabled={off} onClick={onMake}
               aria-describedby={whyId} data-testid={`frames-make-${id}`}>
               {busy ? 'Starting…' : makeLabel(pending.estimate)}
             </button>
-            <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={busy} onClick={onCancel}
+            <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={busy} onClick={onCancel}
               data-testid={`frames-cancel-${id}`}>
               Not now
             </button>
@@ -351,7 +353,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
         </PriceBlock>
       ) : !latest ? (
         <div className="mt-3">
-          <button type="button" className={`${btnPrimary} pf-btn-sm`} disabled={off} onClick={() => onPrice('', true)}
+          <button type="button" className={`${btnPrimary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', true)}
             aria-describedby={whyId} data-testid={`frames-start-${id}`}>
             {busy ? 'Checking the price…' : `See ${view.options_per_round} options`}
           </button>
@@ -382,19 +384,19 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
             className={`${input} mt-1`} data-testid={`frames-change-input-${id}`} />
           <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Ideas">
             {CHANGE_EXAMPLES.map((example) => (
-              <button key={example} type="button" className="pf-btn pf-btn-quiet pf-btn-sm !min-h-8 !px-3 !text-[12px]"
+              <button key={example} type="button" className={`pf-btn pf-btn-quiet pf-btn-sm !min-h-8 !px-3 !text-[12px] ${oneLine}`}
                 disabled={off} onClick={() => setChange(example)}>
                 {example}
               </button>
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={`${btnPrimary} pf-btn-sm`} disabled={off || Boolean(changeOff)} onClick={tryChange}
+            <button type="button" className={`${btnPrimary} pf-btn-sm ${oneLine}`} disabled={off || Boolean(changeOff)} onClick={tryChange}
               aria-describedby={whyId ?? (changeOff ? `frames-change-why-${id}` : undefined)}
               data-testid={`frames-try-change-${id}`}>
               Try again with this change
             </button>
-            <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={off} onClick={() => onPrice('', true)}
+            <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', true)}
               aria-describedby={whyId} data-testid={`frames-try-again-${id}`}>
               Try again
             </button>
@@ -404,8 +406,10 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
           )}
           {kept && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <p className="min-w-0 flex-1 break-words text-[12.5px] font-bold" data-testid={`frames-changes-${id}`}>{kept}</p>
-              <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={off} onClick={() => onPrice('', false)}
+              <p className="min-w-0 grow basis-60 break-words text-[12.5px] font-bold" data-testid={`frames-changes-${id}`}>
+                <span className={oneLine}>{kept.label}</span> {kept.text}
+              </p>
+              <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', false)}
                 aria-describedby={whyId} data-testid={`frames-start-over-${id}`}>
                 Start over without them
               </button>
@@ -434,9 +438,12 @@ function FrameRoundGrid({ round, shot, off, busy, whyId, onPick, newest = false 
 }) {
   const note = roundNote(round);
   const picked = pickedOption(shot);
-  const columns = wide(shot.aspect_ratio) ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3 sm:grid-cols-4';
+  const across = wide(shot.aspect_ratio);
+  // a narrow column lists the options, each picture beside its button; from 28rem they make a grid
+  const columns = across ? '@md:grid-cols-2 @2xl:grid-cols-3' : '@md:grid-cols-3 @2xl:grid-cols-4';
+  const thumb = `flex-none @md:w-full ${across ? 'w-1/2' : 'w-24'}`;
   return (
-    <div className="mt-4" data-testid={`frames-round-${shot.shot_id}-${round.round}`} data-status={round.status}>
+    <div className="@container mt-4" data-testid={`frames-round-${shot.shot_id}-${round.round}`} data-status={round.status}>
       <p className="text-[13.5px] font-extrabold">{newest ? `Latest: ${roundTitle(round)}` : roundTitle(round)}</p>
       {!round.current && (
         <p className="text-[12.5px] font-bold text-mustard-ink">Made before the shot last changed, so it cannot be picked.</p>
@@ -447,29 +454,29 @@ function FrameRoundGrid({ round, shot, off, busy, whyId, onPick, newest = false 
           {note}
         </p>
       )}
-      <ul className={`mt-2 grid gap-2 ${columns}`}>
+      <ul className={`mt-2 grid grid-cols-1 gap-2 ${columns}`}>
         {round.options.map((option) => {
           const chosen = picked === option.option_id;
           return (
             <li key={option.option_id} data-testid={`frames-option-${option.option_id}`} data-picked={chosen ? 'true' : 'false'}
-              className={`min-w-0 overflow-hidden rounded-[16px] bg-white ${chosen ? 'shadow-[0_0_0_4px_var(--green)]' : 'shadow-card'}`}>
+              className={`flex min-w-0 items-center overflow-hidden rounded-[16px] bg-white @md:block ${chosen ? 'shadow-[0_0_0_4px_var(--green)]' : 'shadow-card'}`}>
               {option.thumb_url && option.image_url ? (
-                <a href={`${API_URL}${option.image_url}`} target="_blank" rel="noreferrer" className="block"
+                <a href={`${API_URL}${option.image_url}`} target="_blank" rel="noreferrer" className={`block ${thumb}`}
                   title="Open the full picture">
                   <img src={`${API_URL}${option.thumb_url}`} alt={`Shot ${shot.shot_id}, ${optionName(option)}`} loading="lazy"
                     className="w-full bg-mist object-cover" style={{ aspectRatio: ratio(shot.aspect_ratio) }} />
                 </a>
               ) : (
-                <div className={`flex w-full items-center justify-center p-2 text-center text-[12px] font-bold ${option.status === 'queued' || option.status === 'running' ? 'bg-aqua-soft text-aqua-ink' : 'bg-mist text-ink-soft'}`}
+                <div className={`flex items-center justify-center p-2 text-center text-[12px] font-bold ${thumb} ${option.status === 'queued' || option.status === 'running' ? 'bg-aqua-soft text-aqua-ink' : 'bg-mist text-ink-soft'}`}
                   style={{ aspectRatio: ratio(shot.aspect_ratio) }}>
                   {option.status === 'queued' ? 'Waiting its turn' : option.status === 'running' ? 'Being made'
                     : option.status === 'pending_reconcile' ? 'Still with the provider' : 'Not made'}
                 </div>
               )}
-              <div className="flex flex-col gap-1 p-1.5">
-                <span className="px-1 text-[12px] font-extrabold">{chosen ? 'Start frame' : optionName(option)}</span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-2.5 @md:gap-1 @md:p-1.5">
+                <span className={`px-1 text-[12px] font-extrabold ${oneLine}`}>{chosen ? 'Start frame' : optionName(option)}</span>
                 {option.image_url && !chosen && round.current && (
-                  <button type="button" className={`${btnGo} pf-btn-sm w-full !min-h-9 !px-2 !text-[12.5px]`} disabled={off}
+                  <button type="button" className={`${btnGo} pf-btn-sm w-full !min-h-9 !px-2 !text-[12.5px] ${oneLine}`} disabled={off}
                     aria-describedby={whyId} onClick={() => onPick(option)} data-testid={`frames-use-${option.option_id}`}>
                     {busy ? 'Saving…' : 'Use this one'}
                   </button>
