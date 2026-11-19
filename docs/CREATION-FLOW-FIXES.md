@@ -69,15 +69,40 @@ the user-facing behaviour is described in docs/WORLDS.md, docs/CAST.md and docs/
   characters must be locked first, so the frame shows the look the video keeps.
 - New tables: `concept_frame_sets`, `concept_frame_options`, `concept_frame_picks`.
 
+## Follow-ups from the first verification
+
+- **The kept start lives in the studio** (N1). The wizard's start for an episode that waits on its
+  page (First frames, or a Universe look to lock) was kept in the browser, so another device had no
+  Start button. `POST /api/episodes/{id}/kept-start` now keeps it server-side in `episode_kept_starts`
+  (owner or admin only, never while a run is going, nothing starts or is charged), `GET
+  /api/episodes/{id}/universe` returns it as `kept_start` to whoever may start the episode, and the
+  start clears it. A start an older page left in the browser still works on that browser.
+- **Each First frames shot in plain words** (N2). The card shows who and what is in it, the place,
+  the time of day and the changes ("Mara at Harbour, dusk, close on her face"), the moment without the
+  camera wording, and the reference photos once ("No reference photos of Lead yet: the words guide
+  it"). The picture prompt stays on the server; the API no longer sends it.
+- **One line at 320, 390 and 1440 px** (N3). Buttons, option names and "Changes so far:" never wrap
+  or break a word: a narrow column lists the options with each picture beside its button.
+- **Prices that differ read differently** (N4): "The estimate is now $0.183 (you approved $0.180)".
+  A picture under the size floor is refused with "choose a bigger one".
+- **"Make my reference list" ten times an hour** (N5) for each person (`REFERENCE_LISTS_PER_HOUR`),
+  then a plain 429 that says when to try again.
+
 ## Deploy
 
 API, worker and web. Worker first: the first frames queue (`<TASK_QUEUE>-frames`) and the
 reconciler's new job type ship with it; until a worker polls that queue the API refuses live first
 frames with a plain 409. The migrations are additive and run on first use; no manual database edits.
+The follow-ups add one more additive migration, `2026-11-kept-starts-v1` (table
+`episode_kept_starts`), applied by the API and the worker on first use. They need the API and the
+web; deploy the worker with them so all three run the same `hfvg` code (no worker job reads the new
+table or depends on the follow-ups).
 
 ## Tests
 
 pytest for each store, route, guard and adapter (with red-green mutations for the new money and pick
 guards), web unit tests for the journey, checklist and size notes, the copy rules over the new screens,
 and a Playwright run (dry-run backend, fake language model, no credits) through story, checklist, upload
-and a concept pick, with screenshots at 1440 and 390 px.
+and a concept pick, with screenshots at 1440 and 390 px. The follow-ups add a fresh browser (no local
+storage) that finds the start card and the picked frame, and layout checks at 320, 390 and 1440 px:
+no sideways scroll, no button or label on two lines or cut off, no word broken across lines.
