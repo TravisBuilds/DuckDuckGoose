@@ -4947,6 +4947,12 @@ test_mutation 718 "kept start page: a start for another episode is not sent" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
     sed -i "s/^  if (!body || typeof body !== 'object' || body\.episode_id !== episodeId) return null;\$/  if (!body || typeof body !== 'object') return null;  \/\/ MUTATED/"
 
+# 719: two callers uploading the same reference at once upload it once
+test_mutation 719 "uploads: a reference uploaded twice at once goes up once" \
+    "hfvg/providers/higgsfield_still.py" \
+    "tests/test_harness_canary_bugs.py::test_concurrent_uploads_deduplicated" \
+    sed -i 's/^        if not claimed:$/        if False:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
