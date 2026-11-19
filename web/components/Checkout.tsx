@@ -10,8 +10,8 @@ import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
  * It only shows a price the API gave: without one (price null) the button stays off, unless the action
  * spends nothing itself (needsPrice false: starting a video, which is paid for at its shot plan). The caller sends
  * that same price as the approved total, and the server refuses a higher one. A refused spend shows
- * in calm words with its one next action (lib/checkout.mjs moneyProblem) instead of the button, so an
- * old price can never be approved again.
+ * in calm words with its one next action (lib/checkout.mjs moneyProblem) instead of the button and the
+ * breakdown, so an old price can never be approved again or read as the current one.
  */
 export default function Checkout({
   testId, what, title, headlineTestId, price, action, onAction, busy = false, busyAction, off = null, whyTestId,
@@ -84,7 +84,7 @@ export default function Checkout({
           {calm && <p className="mt-2.5 text-[13px] text-ink-soft" data-testid={lineTestId ?? `${testId}-line`}>{calm}</p>}
         </>
       )}
-      {(rows.length > 0 || children) && (
+      {!problem && (rows.length > 0 || children) && (
         <details className="mt-2.5" data-testid={`${testId}-breakdown`}>
           <summary className={`w-fit cursor-pointer rounded text-[13px] font-extrabold text-blue-deep ${focusRing}`}>
             See the breakdown

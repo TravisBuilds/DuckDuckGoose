@@ -199,17 +199,18 @@ test.describe.serial('Easy checkout', () => {
     await page.goto(`/studio/episodes/${EPISODE}`);
     await expect(page.getByTestId('current-gate')).toHaveText('G1_SHOT_PLAN', { timeout: 60_000 });
 
-    // see the price on the approval that pays for the video; with no prices it cannot be approved,
-    // and the override is never offered
+    // with no prices the shot plan shows none and cannot be approved, and the override is never offered
     const plan = page.getByTestId('g1-card');
-    await expect(page.getByTestId('g1-checkout-price')).toHaveText(`This video: ${price.words}`);
+    await expect(page.getByTestId('g1-checkout-price')).toHaveText('This video');
+    await expect(page.getByTestId('g1-checkout-breakdown')).toHaveCount(0);
     await expect(page.getByTestId('approve-g1')).toBeDisabled();
     await expect(page.getByTestId('approve-g1-why')).toHaveText(
       "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes.");
     await expect(plan).not.toContainText(/override/i);
     await expect(plan).not.toContainText(MODEL_NAMES);
 
-    // with today's prices: the same price, one calm line, the breakdown behind a click
+    // with today's prices: the price on the approval that pays for the video, one calm line, the
+    // breakdown behind a click
     estimates = true;
     await page.reload();
     await expect(page.getByTestId('approve-g1')).toBeEnabled({ timeout: 60_000 });
@@ -303,9 +304,12 @@ test.describe.serial('Easy checkout', () => {
       'The price went up to $1.80 since you looked. Nothing was charged.');
     await expect(page.getByTestId('board-make')).toHaveCount(0);
     await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board');
+    await expect(page.getByTestId('board-estimate-breakdown')).toHaveCount(0);
     expect(sent).toEqual([{ feedback: '', approved_total_usd_micros: 1_560_000 }]);
     await page.getByTestId('board-estimate-problem-action').click();
     await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board: about $1.80');
+    await expect((await openBreakdown(page, 'board-estimate-breakdown')).locator('dd'))
+      .toHaveText(['$0.45 each', 'your notes', '$3.20']);
     expect(sent).toHaveLength(1);
 
     // make it at the new price: that price is the approved total

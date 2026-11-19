@@ -343,12 +343,11 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
  * owner or an admin picks each shot's place, props and cast and edits its prompts (ShotPlanEditor);
  * the approval waits for unsaved edits. Otherwise the shots are listed. waitingOn (waitsOn): who
  * approves it when the reader may not.
- */
-/**
- * The shot plan (G1). Approving it starts the scene pictures, so in a live run it shows the video's one
- * price (`price`: the offline estimate of its shots, from preflight) next to the button, the same price
- * the start showed; a test run is free. In a live run the API refuses G1 when today's prices could not
- * be read (estimates_available false): the button stays off and says so in plain words.
+ *
+ * Approving it (G1) starts the scene pictures, so in a live run it shows the video's one price
+ * (`price`: the offline estimate of its shots, from preflight) next to the button, the same price the
+ * start showed; a test run is free. In a live run the API refuses G1 when today's prices could not be
+ * read (estimates_available false): then no price is shown, and the button stays off and says why.
  */
 export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct, waitingOn = null, notStarted = false,
   planKey, onPlanSaved, price = null, live = false }: {
@@ -361,8 +360,8 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
   const approved = Boolean(state?.approvals.g1_shot_plan) || Boolean(state?.passed_gates.includes('G1_SHOT_PLAN'));
   const ended = Boolean(state?.run?.ended);
   const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
-  const video = videoQuote(price, { free: !live });
   const noPrices = live && state?.estimates_available === false;
+  const video = noPrices ? null : videoQuote(price, { free: !live });
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
