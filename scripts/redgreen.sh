@@ -4988,11 +4988,12 @@ test_mutation 725 "easy checkout: the estimates override is never shown" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
     sed -i 's/^const NO_PRICE = \/override_unavailable_estimates|/const NO_PRICE = \//'
 
-# 726: "we ask you first" only where the server checks the approved total again
+# 726: "we ask you first" only where the server checks the approved total again: the wizard, the start
+# card and the shot plan send none, so they pass kept: false and show their own line
 test_mutation 726 "easy checkout: the promise only where the server keeps it" \
     "web/lib/checkout.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
-    sed -i 's/^  return kept ? PROMISE : null;$/  return PROMISE;  \/\/ MUTATED/'
+    sed -i 's/^  if (!kept) return otherwise;$/  if (false) return otherwise;  \/\/ MUTATED/'
 
 # 727: a clip without a price makes a video's price "at least", never a smaller "about"
 test_mutation 727 "easy checkout: an unpriced clip makes the price at least" \

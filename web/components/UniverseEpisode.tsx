@@ -5,7 +5,7 @@ import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
 import Checkout from '@/components/Checkout';
 import { Avatar, GateChecklist } from '@/components/playful';
-import { FREE_NOTE, calmText, videoQuote, type OfflineEstimate, type VideoPrice } from '@/lib/checkout.mjs';
+import { START_LINE, calmText, promise, videoQuote, type OfflineEstimate, type VideoPrice } from '@/lib/checkout.mjs';
 import { castColours } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
@@ -257,8 +257,8 @@ const FREE_START: VideoPrice = { free: true, words: 'free test run', approve: 0,
  * it uses has a locked look, or so its owner can pick its first frames. The start waits for the locks;
  * it sends the request the wizard kept in the studio (on any device), else one an earlier wizard kept
  * in this browser, else a free test run. It shows the video's one price (`price`: the offline estimate
- * of its shots from preflight) next to one button. Starting pays for nothing: a live video is paid for
- * when its shot plan is approved, where the same price is shown again (docs/EASY-CHECKOUT.md).
+ * of its shots from preflight) next to one button. Starting a live video only pays for writing its
+ * story (pennies): its pictures and clips are approved with its price at the shot plan (docs/EASY-CHECKOUT.md).
  */
 export function StartCard({ episodeId, info, frames = null, price = null, onStarted }: {
   episodeId: string; info: EpisodeUniverse; frames?: { picked: number; shots: number } | null;
@@ -319,7 +319,7 @@ export function StartCard({ episodeId, info, frames = null, price = null, onStar
       <Checkout className="mt-3" testId="start-checkout" what="This video" price={video} action="Start the video"
         onAction={start} busy={busy} busyAction="Starting…" needsPrice={false} off={locked ? null : waitFor} actionTestId="start-episode"
         lineTestId="start-mode"
-        line={request.dry_run ? FREE_NOTE : 'Starting is free. Each paid step shows its price first.'}
+        line={promise(video, { kept: false, otherwise: START_LINE })}
         rows={video?.rows ?? []}>
         {!request.dry_run && <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>}
       </Checkout>

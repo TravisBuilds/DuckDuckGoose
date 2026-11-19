@@ -41,7 +41,7 @@ import { GlassPanel } from '@/components/playful';
  * next. Everything an admin or a curious creator may want to check (credits, live mode, G1.08 and
  * canary, the budget lines, the moderation ladder, QC verdicts, model limits, the raw shot list and
  * the audit trail) sits in the collapsed Production details at the bottom; the budget lines, model
- * limits and admin-only controls render only for admins. Each paid step shows one price first, in a
+ * limits and admin-only controls render only for admins. Pictures and clips show one price first, in a
  * checkout, and what the video cost is one figure with its breakdown behind a disclosure
  * (docs/EASY-CHECKOUT.md). The owner (or an admin) acts; anyone else who may open the episode sees it
  * read-only.

@@ -35,7 +35,7 @@ export function runEndedView(run) {
     reason: done ? null : run.reason || null,
     canStartAgain,
     confirm: canStartAgain && run.dry_run === false
-      ? 'Start this video again, live? It is paid for again, and each paid step shows its price first.'
+      ? 'Start this video again, live? Starting costs pennies, and nothing big is made until you approve its price.'
       : null,
   };
 }

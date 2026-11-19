@@ -7,7 +7,7 @@ import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { VoicePreview, VoiceSlotPicker, emptyVoice, type VoiceState } from '@/components/VoiceSlotPicker';
 import { presets, getPresetById } from '@/lib/presets';
 import { btnSecondary, chip, tones } from '@/lib/ui';
-import { calmText, videoQuote, type VideoPrice } from '@/lib/checkout.mjs';
+import { START_LINE, calmText, promise, videoQuote, type VideoPrice } from '@/lib/checkout.mjs';
 import Checkout from '@/components/Checkout';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
 import { castColours, speakerColours } from '@/lib/castColour.mjs';
@@ -1234,7 +1234,7 @@ function CreateVideoWizard() {
                       off={startBlock ?? (livePrice ? null
                         : "We couldn't get a price for this plan, so it can't be made live. Make the plan again, or make a free preview.")}
                       whyTestId={!startBlock && !livePrice ? 'make-video-no-price' : undefined} actionTestId="make-video-button"
-                      line="Starting is free. Each paid step shows its price first." rows={livePrice?.rows ?? []}>
+                      line={promise(livePrice, { kept: false, otherwise: START_LINE })} rows={livePrice?.rows ?? []}>
                       <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>
                     </Checkout>
                     <button type="button" onClick={() => handleStartEpisode(true)} disabled={busy || !!startBlock}

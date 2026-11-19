@@ -11,7 +11,8 @@ import {
   REDO_NOTE_MAX, redoEstimateRequest, redoLine, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
 } from '@/lib/redo.mjs';
 import {
-  FREE_NOTE, calmText, clipPrice, clipsPrice, moneyProblem, quote, videoQuote, type MoneyProblem, type OfflineEstimate,
+  PLAN_LINE, calmText, clipPrice, clipsPrice, moneyProblem, promise, quote, videoQuote, type MoneyProblem, type OfflineEstimate,
+  type VideoPrice,
 } from '@/lib/checkout.mjs';
 import type { RedoEstimate } from '@/lib/redo.mjs';
 import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } from '@/lib/labels';
@@ -27,7 +28,7 @@ import ShotPlanEditor from './ShotPlanEditor';
  * downloads, and, under Production details, the raw run state, credit cap, moderation ladder, QC verdicts
  * and per-shot workflow state. Every action is an existing API route; the API (and behind it the
  * workflow) stays the authority, so a refused action shows the API's reason instead of pretending it
- * worked (a refused spend in calm words). Each paid step shows its one price first, in a checkout
+ * worked (a refused spend in calm words). Pictures and clips show their one price first, in a checkout
  * (docs/EASY-CHECKOUT.md). The page (app/studio/episodes/[id]/page.tsx) lays the sections out and owns
  * the actions.
  */
@@ -338,6 +339,9 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
 
 // ---------------------------------------------------------------- G1: the shot plan
 
+/** A test run's video, when its price has not been read: it is free whatever it holds. */
+const FREE_VIDEO: VideoPrice = { free: true, words: 'free', approve: 0, rows: [] };
+
 /**
  * The shot plan: before the run starts (notStarted) and while the run waits for its approval, the
  * owner or an admin picks each shot's place, props and cast and edits its prompts (ShotPlanEditor);
@@ -361,7 +365,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
   const ended = Boolean(state?.run?.ended);
   const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
   const noPrices = live && state?.estimates_available === false;
-  const video = noPrices ? null : videoQuote(price, { free: !live });
+  const video = noPrices ? null : live ? videoQuote(price) : videoQuote(price, { free: true }) ?? FREE_VIDEO;
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
@@ -385,7 +389,7 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
           off={unsaved ? 'Save or undo your shot changes first.'
             : noPrices ? "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes." : null}
           whyTestId={unsaved ? 'approve-g1-unsaved' : 'approve-g1-why'}
-          line={live ? 'This starts the scene pictures. The clips wait for your OK on them.' : FREE_NOTE}
+          line={promise(video, { kept: false, otherwise: PLAN_LINE })}
           rows={video?.rows ?? []}>
           {video && !video.free && <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>}
         </Checkout>

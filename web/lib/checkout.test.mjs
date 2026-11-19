@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FREE_NOTE, LEDGER_WORDS, PROMISE, approvedRequest, calmText, clipPrice, clipsPrice, headline, ledgerWords, moneyProblem, priceText,
-  promise, quote, videoQuote,
+  FREE_NOTE, LEDGER_WORDS, PLAN_LINE, PROMISE, START_LINE, approvedRequest, calmText, clipPrice, clipsPrice, headline, ledgerWords,
+  moneyProblem, priceText, promise, quote, videoQuote,
 } from './checkout.mjs';
 import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
 import { redoRequest } from './redo.mjs';
@@ -45,6 +45,20 @@ test('the calm line: a test run says nothing is charged; the live promise only w
   assert.equal(promise(quote(live), { kept: false }), null);
   assert.equal(promise(quote(dry), { kept: false }), FREE_NOTE);
   assert.equal(promise(null), null);
+});
+
+test('starting a video and approving its shot plan send no approved total, so they never make the promise', () => {
+  // the wizard, the start card and the shot plan pass kept: false with their own line, price or not
+  assert.equal(promise(videoQuote(offline), { kept: false, otherwise: START_LINE }), START_LINE);
+  assert.equal(promise(null, { kept: false, otherwise: START_LINE }), START_LINE);
+  assert.equal(promise(videoQuote(offline), { kept: false, otherwise: PLAN_LINE }), PLAN_LINE);
+  assert.equal(promise(null, { kept: false, otherwise: PLAN_LINE }), PLAN_LINE);
+  // a test run still says nothing is charged
+  assert.equal(promise(videoQuote(offline, { free: true }), { kept: false, otherwise: START_LINE }), FREE_NOTE);
+  assert.equal(promise(videoQuote(offline, { free: true }), { kept: false, otherwise: PLAN_LINE }), FREE_NOTE);
+  // starting is not free in a live run: its story is written first
+  assert.doesNotMatch(START_LINE, /free/i);
+  assert.match(START_LINE, /pennies/);
 });
 
 test('every make-it button sends the price it shows as its approved total, and nothing without a price', () => {
@@ -161,7 +175,7 @@ test('ledger words are found whole and in any case, and stay off the checkout wo
   assert.deepEqual(ledgerWords('This would go past its budget'), []);
   assert.deepEqual(ledgerWords('preserves'), []);
   assert.ok(LEDGER_WORDS.includes('GC.01') && LEDGER_WORDS.includes('override'));
-  const words = [PROMISE, FREE_NOTE, headline('This video', videoQuote(offline)), headline('3 options', quote(live)),
+  const words = [PROMISE, FREE_NOTE, START_LINE, PLAN_LINE, headline('This video', videoQuote(offline)), headline('3 options', quote(live)),
     ...videoQuote(offline).rows.map((r) => r.label), ...videoQuote(offline, { free: true }).rows.map((r) => r.label)];
   for (const text of words) {
     assert.deepEqual(ledgerWords(text), [], text);

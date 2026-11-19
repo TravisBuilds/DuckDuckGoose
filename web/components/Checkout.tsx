@@ -8,14 +8,15 @@ import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
  * Easy checkout (docs/EASY-CHECKOUT.md): the one price of a paid thing in big friendly type, one
  * button, an optional quiet "Not now", one calm line, and the details behind "See the breakdown".
  * It only shows a price the API gave: without one (price null) the button stays off, unless the action
- * spends nothing itself (needsPrice false: starting a video, which is paid for at its shot plan). The caller sends
- * that same price as the approved total, and the server refuses a higher one. A refused spend shows
- * in calm words with its one next action (lib/checkout.mjs moneyProblem) instead of the button and the
+ * spends almost nothing itself (needsPrice false: starting a video, whose story costs pennies and whose
+ * pictures and clips are approved with its price at the shot plan). The caller sends that same price as
+ * the approved total (lib/checkout.mjs approvedRequest), and the server refuses a higher one. A refused
+ * spend shows in calm words with its one next action (moneyProblem) instead of the button and the
  * breakdown, so an old price can never be approved again or read as the current one.
  */
 export default function Checkout({
   testId, what, title, headlineTestId, price, action, onAction, busy = false, busyAction, off = null, whyTestId,
-  disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, line, lineTestId, kept = true, note,
+  disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, line, lineTestId, note,
   rows = [], children, problem = null, onProblem, className = '',
 }: {
   testId: string;
@@ -37,7 +38,6 @@ export default function Checkout({
   notNowTestId?: string;
   line?: string | null;
   lineTestId?: string;
-  kept?: boolean;
   note?: ReactNode;
   rows?: PriceRow[];
   children?: ReactNode;
@@ -46,7 +46,7 @@ export default function Checkout({
   className?: string;
 }) {
   const whyId = useId();
-  const calm = line === undefined ? promise(price, { kept }) : line;
+  const calm = line === undefined ? promise(price) : line;
   const why = off ?? (price || !needsPrice ? null : 'Turns on once the price is on screen.');
   return (
     <div className={`rounded-card border-2 border-sky bg-white p-4 sm:p-5 ${className}`} data-testid={testId}

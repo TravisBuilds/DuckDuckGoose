@@ -425,8 +425,8 @@ test('the next-step card says a test run is free, even with live mode on, and a 
   assert.equal(runLine({ live: false }), 'A test run, so nothing is charged.');
   assert.equal(runLine({ live: true, dryRun: true }), 'A test run, so nothing is charged.');
   assert.equal(runLine({ live: false, dryRun: false }), 'A test run, so nothing is charged.');
-  assert.equal(runLine({ live: true, dryRun: false }), 'Every paid step shows its price first.');
-  assert.equal(runLine({ live: true }), 'Every paid step shows its price first.');
+  assert.equal(runLine({ live: true, dryRun: false }), 'Pictures and clips show their price first.');
+  assert.equal(runLine({ live: true }), 'Pictures and clips show their price first.');
 });
 
 test('a run pays its providers only outside a test run with live mode on', () => {

@@ -130,7 +130,8 @@ test.describe.serial('Easy checkout', () => {
     await expect(page.getByText(/Estimated cost/)).toHaveCount(0);
     await expect(page.getByTestId('make-video-button')).toHaveText('Make it');
     await expect(page.getByTestId('make-video-button')).toBeEnabled();
-    await expect(page.getByTestId('wizard-checkout-line')).toHaveText('Starting is free. Each paid step shows its price first.');
+    await expect(page.getByTestId('wizard-checkout-line')).toHaveText(
+      "Starting costs pennies. Nothing big is made until you approve the video's price.");
     await expect(page.getByTestId('preview-button')).toHaveText('Make a free preview first');
     const checkout = page.getByTestId('wizard-checkout');
     await expect(checkout).not.toContainText(/credits|live mode|providers|budget line|reserve/i);
@@ -145,7 +146,7 @@ test.describe.serial('Easy checkout', () => {
     await expect(breakdown).toContainText('The list price for one try of each picture and clip.');
 
     // make it: one press starts it, with no confirm dialog (the start request is answered here, so
-    // nothing runs; the video is paid for at its shot plan, with its price shown again)
+    // nothing runs; its pictures and clips are approved at its shot plan, with its price shown again)
     const starts: Record<string, unknown>[] = [];
     await page.route(`${API}/api/episodes`, async (route) => {
       if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors(route) });

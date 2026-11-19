@@ -34,7 +34,9 @@ export function approvedRequest<T extends object>(body: T, estimate: { dry_run?:
   field?: 'approved_total_usd_micros' | 'approved_usd_micros'): T & Record<string, number>;
 export const PROMISE: string;
 export const FREE_NOTE: string;
-export function promise(price: Price | null, options?: { kept?: boolean }): string | null;
+export const START_LINE: string;
+export const PLAN_LINE: string;
+export function promise(price: Price | null, options?: { kept?: boolean; otherwise?: string | null }): string | null;
 export function videoQuote(estimate: OfflineEstimate | null | undefined, options?: { free?: boolean }): VideoPrice | null;
 export function clipsPrice(estimate: OfflineEstimate | null | undefined): string | null;
 export function clipPrice(estimate: OfflineEstimate | null | undefined, shotId: string): string | null;

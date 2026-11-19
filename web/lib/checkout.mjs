@@ -48,16 +48,21 @@ export function approvedRequest(body, estimate, field = 'approved_total_usd_micr
 
 export const PROMISE = 'If the price goes up before we make it, we ask you first.';
 export const FREE_NOTE = 'A test run, so nothing is charged.';
+/** Starting a live video: its story is written first, for pennies; the shot plan carries its price. */
+export const START_LINE = "Starting costs pennies. Nothing big is made until you approve the video's price.";
+/** Approving a live video's shot plan. */
+export const PLAN_LINE = 'This starts the scene pictures. The clips wait for your OK on them.';
 
 /**
  * The calm line under the button: a test run's, or the live promise. The promise is only made where
  * the server keeps it (it checks the approved total again when it makes the thing and refuses a higher
- * price), so a caller without that check passes kept: false and gets no promise.
+ * price). Starting a video and approving its shot plan send no approved total, so they pass kept: false
+ * and get their own line (`otherwise`), price or not.
  */
-export function promise(price, { kept = true } = {}) {
-  if (!price) return null;
-  if (price.free) return FREE_NOTE;
-  return kept ? PROMISE : null;
+export function promise(price, { kept = true, otherwise = null } = {}) {
+  if (price?.free) return FREE_NOTE;
+  if (!kept) return otherwise;
+  return price ? PROMISE : null;
 }
 
 function plural(n, word) {

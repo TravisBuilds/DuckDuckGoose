@@ -423,9 +423,12 @@ export function stepNote(step, { cost, live = false, dryRun = null } = {}) {
   }
 }
 
-/** The one money line of the next-step card: a test run is free; a live one shows each price first. */
+/**
+ * The one money line of the next-step card: a test run is free; a live one shows the price of its
+ * pictures and clips first (its story is written for pennies, without a price of its own).
+ */
 export function runLine({ live = false, dryRun = null } = {}) {
-  return liveRun({ live, dryRun }) ? 'Every paid step shows its price first.' : FREE_NOTE;
+  return liveRun({ live, dryRun }) ? 'Pictures and clips show their price first.' : FREE_NOTE;
 }
 
 /**
