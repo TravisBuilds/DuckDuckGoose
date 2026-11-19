@@ -478,8 +478,12 @@ def test_the_description_says_who_where_when_and_what_the_changes_ask_for():
 @pytest.mark.parametrize("beat,moment", [
     ("cinematic shot: A small paper boat sails across a puddle (Setup)", "A small paper boat sails across a puddle (Setup)"),
     ("reaction close-up: she laughs at the gull", "She laughs at the gull"),
+    ("Slow-mo reveal: the kite lifts off", "The kite lifts off"),
+    ("whip pans: Tobin runs for the kite", "Tobin runs for the kite"),
+    ("3-4 calm setups: the tide comes in", "The tide comes in"),
     ("Wren climbs to the lamp room", "Wren climbs to the lamp room"),
     ("Note: the bell rings twice", "Note: the bell rings twice"),
+    ("Wren: we have to go now", "Wren: we have to go now"),
     ("", ""),
 ])
 def test_a_camera_label_in_front_of_the_moment_is_left_out(beat, moment):

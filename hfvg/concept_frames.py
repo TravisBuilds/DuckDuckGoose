@@ -130,8 +130,9 @@ CHANGE_LOOKS = (
 )
 CLOSE_ON = re.compile(r"\b(?:closer|close-?up|zoom in|tighter)\s+(?:on|of)\s+((?:her|his|their|its|the)\s+[a-z]+)",
                       re.IGNORECASE)
-# A beat that starts with a camera label ("cinematic shot: ...", "reaction close-up: ...") is picture
-# wording first; the page shows the moment after the label.
+# A beat that starts with a camera label ("cinematic shot: ...", "reaction close-up: ...", "whip pans:
+# ...") is picture wording first; the page shows the moment after the label. A label of camera words,
+# or one in lower case (a name or "Note:" is capitalised), is left out.
 CAMERA_LABEL = re.compile(r"^\s*([^:.!?]{1,48}):\s+(?=\S)")
 CAMERA_WORDS = frozenset((
     "aerial", "angle", "cinematic", "close", "close-up", "close-ups", "closeup", "coverage", "crane", "dolly",
@@ -1005,7 +1006,7 @@ def plain_moment(beat: str) -> str:
     """The beat without a camera label in front of it ("cinematic shot: A boat sails" -> "A boat sails")."""
     text = _one_line(beat)
     label = CAMERA_LABEL.match(text)
-    if label and CAMERA_WORDS & set(label.group(1).lower().split()):
+    if label and (not label.group(1)[:1].isupper() or CAMERA_WORDS & set(label.group(1).lower().split())):
         text = text[label.end():]
     return text[:1].upper() + text[1:]
 
