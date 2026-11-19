@@ -4963,6 +4963,48 @@ test_mutation 721 "prices: when four decimals read the same, the words say it is
     "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
     sed -i 's/^    return f"{now}, just over what you approved ({then})"$/    return f"{now} (you approved {then})"  # MUTATED/'
 
+# 722: easy checkout: the button sends the price on screen as the approved total, never another number
+test_mutation 722 "easy checkout: the approved total is the price shown" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/, approve: estimate\.total_usd_micros };$/, approve: estimate.total_usd_micros + 1 };  \/\/ MUTATED/'
+
+# 723: only an estimate that says it is a test run is free
+test_mutation 723 "easy checkout: only a test run is free" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^  const free = estimate\.dry_run === true;$/  const free = estimate.dry_run !== false;  \/\/ MUTATED/'
+
+# 724: a price that went up asks again with the new price (a picture redo says "now costs")
+test_mutation 724 "easy checkout: the price going up asks again" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/(?:estimate is now|now costs) (/(?:estimate is now) (/'
+
+# 725: the estimates override never reaches the screen, even alone in a refusal
+test_mutation 725 "easy checkout: the estimates override is never shown" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^const NO_PRICE = \/override_unavailable_estimates|/const NO_PRICE = \//'
+
+# 726: "we ask you first" only where the server checks the approved total again
+test_mutation 726 "easy checkout: the promise only where the server keeps it" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^  return kept ? PROMISE : null;$/  return PROMISE;  \/\/ MUTATED/'
+
+# 727: a clip without a price makes a video's price "at least", never a smaller "about"
+test_mutation 727 "easy checkout: an unpriced clip makes the price at least" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i "s/^  const live = \`\${unpriced > 0 ? 'at least' : 'about'} \${priceText(total)}\`;\$/  const live = \`about \${priceText(total)}\`;  \/\/ MUTATED/"
+
+# 728: "override" stays a ledger word, kept off the face of a money screen
+test_mutation 728 "easy checkout: override is a ledger word" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i "s/ 'GC\.01', 'override',\$/ 'GC.01',  \/\/ MUTATED/"
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
