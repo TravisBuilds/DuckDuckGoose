@@ -77,6 +77,14 @@ export function videoQuote(estimate, { free = false } = {}) {
   return { free: false, words: live, approve: total, rows };
 }
 
+/** All the clips of a video, at list price, from the same estimate ("about $5.34"), or null without one. */
+export function clipsPrice(estimate) {
+  if (!estimate || !usable(estimate.total_usd_micros)) return null;
+  const clips = Object.values(estimate.per_shot ?? {})
+    .reduce((sum, s) => sum + (usable(s?.clip_usd_micros) ? s.clip_usd_micros : 0), 0);
+  return `${(estimate.unpriced ?? []).length > 0 ? 'at least' : 'about'} ${priceText(clips)}`;
+}
+
 /** One shot's clip, at list price, from the same estimate ("about $1.20"), or null when it has none. */
 export function clipPrice(estimate, shotId) {
   const micros = estimate?.per_shot?.[shotId]?.clip_usd_micros;

@@ -34,6 +34,7 @@ export const PROMISE: string;
 export const FREE_NOTE: string;
 export function promise(price: Price | null, options?: { kept?: boolean }): string | null;
 export function videoQuote(estimate: OfflineEstimate | null | undefined, options?: { free?: boolean }): VideoPrice | null;
+export function clipsPrice(estimate: OfflineEstimate | null | undefined): string | null;
 export function clipPrice(estimate: OfflineEstimate | null | undefined, shotId: string): string | null;
 export function moneyProblem(message: unknown): MoneyProblem | null;
 export function calmText(message: unknown): string;

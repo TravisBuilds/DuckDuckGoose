@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FREE_NOTE, LEDGER_WORDS, PROMISE, calmText, clipPrice, headline, ledgerWords, moneyProblem, priceText, promise, quote,
+  FREE_NOTE, LEDGER_WORDS, PROMISE, calmText, clipPrice, clipsPrice, headline, ledgerWords, moneyProblem, priceText, promise, quote,
   videoQuote,
 } from './checkout.mjs';
 import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
@@ -65,6 +65,10 @@ test('a whole video: the list price of one try of each picture and clip, by kind
   assert.equal(clipPrice(offline, 'S09'), null);
   assert.equal(clipPrice({ per_shot: { S01: { clip_usd_micros: null } } }, 'S01'), null);
   assert.equal(clipPrice(null, 'S01'), null);
+  // all the clips, for the line under the scene pictures' approval
+  assert.equal(clipsPrice(offline), 'about $7.20');
+  assert.equal(clipsPrice(partial), 'at least $7.20');
+  assert.equal(clipsPrice(null), null);
 });
 
 test('the price going up asks again, with the new price, and says nothing was charged', () => {

@@ -3,19 +3,21 @@
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { ConsistencyBadge } from '@/components/ConsistencyBadge';
-import { Avatar, GateChecklist, PriceBlock, Seal } from '@/components/playful';
+import Checkout from '@/components/Checkout';
+import { Avatar, GateChecklist } from '@/components/playful';
+import { FREE_NOTE, calmText, videoQuote, type OfflineEstimate, type VideoPrice } from '@/lib/checkout.mjs';
 import { castColours } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { itemBadge, stripBadge, type Badge } from '@/lib/consistency.mjs';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
-import { btnGo, btnPrimary, btnSecondary, card, input, link, tones } from '@/lib/ui';
+import { btnPrimary, btnSecondary, card, input, link, tones } from '@/lib/ui';
 import {
   pendingStart, pendingStartKey, startRequest, universeChoices, type EpisodeUniverse, type StartRequest, type StripItem,
   type UniverseCard,
 } from '@/lib/world.mjs';
 
 function problemText(e: unknown): string {
-  return e instanceof ApiError ? e.message : 'The studio could not be reached. Try again in a moment.';
+  return e instanceof ApiError ? calmText(e.message) : 'The studio could not be reached. Try again in a moment.';
 }
 
 /** "Mira Vale", "Mira Vale and Oskar (look 2)", "A, B and C". */
@@ -208,7 +210,6 @@ export function LockGateCard({ info }: { info: EpisodeUniverse }) {
   return (
     <div className="mt-4 flex flex-col gap-4 rounded-[22px] border-2 border-coral/40 bg-coral-soft p-4 sm:flex-row sm:items-center"
       data-testid="lock-gate">
-      <Seal state="open" top="not" bottom="locked" size={64} className="shrink-0" />
       <div className="min-w-0 flex-1">
         <h3 className="text-[18px]">
           {unlocked.length === 1 ? `Lock ${first}’s look before this video starts` : 'Lock these looks before this video starts'}
@@ -248,15 +249,20 @@ function framesLine(frames: { picked: number; shots: number }): string {
   return `${frames.picked} of ${frames.shots} shots start from a frame you picked. The studio makes the others while filming.`;
 }
 
+/** A test run's start, when the episode's price has not been read: it is free whatever it holds. */
+const FREE_START: VideoPrice = { free: true, words: 'free test run', approve: 0, rows: [] };
+
 /**
  * Starts an episode the wizard left on its page before it started: in a Universe until every character
  * it uses has a locked look, or so its owner can pick its first frames. The start waits for the locks;
  * it sends the request the wizard kept in the studio (on any device), else one an earlier wizard kept
- * in this browser, else a free test run.
+ * in this browser, else a free test run. It shows the video's one price (`price`: the offline estimate
+ * of its shots from preflight) next to one button. Starting pays for nothing: a live video is paid for
+ * when its shot plan is approved, where the same price is shown again (docs/EASY-CHECKOUT.md).
  */
-export function StartCard({ episodeId, info, frames = null, onStarted }: {
+export function StartCard({ episodeId, info, frames = null, price = null, onStarted }: {
   episodeId: string; info: EpisodeUniverse; frames?: { picked: number; shots: number } | null;
-  onStarted: () => Promise<void> | void;
+  price?: OfflineEstimate | null; onStarted: () => Promise<void> | void;
 }) {
   const [keptHere] = useState<StartRequest | null>(() => startKeptHere(episodeId));
   const [busy, setBusy] = useState(false);
@@ -265,6 +271,7 @@ export function StartCard({ episodeId, info, frames = null, onStarted }: {
   const unlocked = inUniverse ? info.lock?.unlocked ?? [] : [];
   const request: StartRequest = startRequest(info.kept_start, episodeId) ?? keptHere
     ?? { episode_id: episodeId, dry_run: true, enable_story_shaping: true };
+  const video = videoQuote(price, { free: request.dry_run }) ?? (request.dry_run ? FREE_START : null);
 
   const start = async () => {
     setBusy(true);
@@ -285,10 +292,11 @@ export function StartCard({ episodeId, info, frames = null, onStarted }: {
   };
 
   const locked = unlocked.length === 0;
+  const waitFor = `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`;
   return (
     <section data-testid="start-card" aria-labelledby="start-card-title">
       <div className="min-w-0">
-        <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your OK needed' : 'Waiting for a lock'}</span>
+        <span className={`pf-chip ${locked ? tones.todo : tones.bad}`}>{locked ? 'Your turn' : 'Waiting for a lock'}</span>
         <h2 id="start-card-title" className="mt-1 text-[20px] leading-tight">Start this video</h2>
       </div>
       {locked && (
@@ -296,37 +304,25 @@ export function StartCard({ episodeId, info, frames = null, onStarted }: {
           {inUniverse ? 'Every character in it has a locked look, so it can start.' : 'It waits here until you start it.'}
         </p>
       )}
-      <PriceBlock className="mt-3" total={request.dry_run ? 'Free' : 'Live run'} status={request.dry_run ? 'Test run' : 'Priced when you made it'}
-        rows={request.dry_run
-          ? [{ label: 'Pictures and clips', value: 'Free stand-ins' }]
-          : [{ label: 'Pictures, clips and voices', value: 'The price you confirmed' }]}>
-        <p className="mt-2 text-[12.5px]" data-testid="start-mode">
-          {request.dry_run
-            ? 'It starts as a free test run: no credits are used.'
-            : 'It starts as the live run you confirmed when you made it: it uses credits.'}
-        </p>
-      </PriceBlock>
-      <GateChecklist className="mt-3" testId="start-checklist" items={[
-        { key: 'price', label: request.dry_run ? 'Free test run' : 'Price confirmed when you made it', done: true },
-        ...(inUniverse ? [{ key: 'locked', label: 'Every character locked', done: locked,
-          detail: locked ? null : `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` }] : []),
-      ]} />
+      {!locked && (
+        <GateChecklist className="mt-3" testId="start-checklist" items={[
+          { key: 'locked', label: 'Every character locked', done: false,
+            detail: `${lockNames(unlocked)} ${unlocked.length === 1 ? 'isn\u2019t' : 'aren\u2019t'} yet` },
+        ]} />
+      )}
       {frames && frames.shots > 0 && (
         <p className="mt-3 text-[13px]" data-testid="start-frames">
           {framesLine(frames)}{' '}
           {frames.picked < frames.shots && <a href="#first-frames" className={link}>Go to First frames</a>}
         </p>
       )}
-      <button type="button" className={`${btnGo} mt-3 w-full`} disabled={busy || !locked} onClick={start}
-        title={locked ? undefined : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
-        aria-describedby="start-episode-why" data-testid="start-episode">
-        {busy ? 'Starting…' : 'Start the video'}
-      </button>
-      <p id="start-episode-why" className={`${locked ? 'mt-2 text-[12px] text-ink-soft' : 'pf-off-why'} text-center`}>
-        {locked
-          ? request.dry_run ? 'Nothing is charged in a test run.' : 'The studio checks the price and your balance again before each paid step.'
-          : `Turns on once ${lockNames(unlocked)} ${unlocked.length === 1 ? 'is' : 'are'} locked.`}
-      </p>
+      <Checkout className="mt-3" testId="start-checkout" what="This video" price={video} action="Start the video"
+        onAction={start} busy={busy} busyAction="Starting…" needsPrice={false} off={locked ? null : waitFor} actionTestId="start-episode"
+        lineTestId="start-mode"
+        line={request.dry_run ? FREE_NOTE : 'Starting is free. The video is paid for when you approve its shot plan.'}
+        rows={video?.rows ?? []}>
+        {!request.dry_run && <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>}
+      </Checkout>
       {problem && (
         <p role="alert" className="mt-2 text-[13px] font-bold text-coral-ink" data-testid="start-problem">{problem}</p>
       )}

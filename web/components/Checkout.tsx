@@ -14,19 +14,21 @@ import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
  * old price can never be approved again.
  */
 export default function Checkout({
-  testId, what, title, price, action, onAction, busy = false, busyAction = 'Starting…', off = null, disabled = false,
-  describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, line, lineTestId, kept = true, note, rows = [],
-  children, problem = null, onProblem, className = '',
+  testId, what, title, headlineTestId, price, action, onAction, busy = false, busyAction, off = null, whyTestId,
+  disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, line, lineTestId, kept = true, note,
+  rows = [], children, problem = null, onProblem, className = '',
 }: {
   testId: string;
   what: string;
   title?: string;
+  headlineTestId?: string;
   price: Price | null;
   action: string;
   onAction: () => void;
   busy?: boolean;
   busyAction?: string;
   off?: string | null;
+  whyTestId?: string;
   disabled?: boolean;
   describedBy?: string;
   needsPrice?: boolean;
@@ -50,7 +52,7 @@ export default function Checkout({
     <div className={`rounded-card border-2 border-sky bg-white p-4 sm:p-5 ${className}`} data-testid={testId}
       data-free={price ? String(price.free) : undefined}>
       <p className="font-display text-[22px] font-bold leading-tight tracking-[-0.01em] text-ink sm:text-[26px]"
-        data-testid={`${testId}-price`}>
+        data-testid={headlineTestId ?? `${testId}-price`}>
         {problem ? what : title ?? headline(what, price)}
       </p>
       {note && <div className="mt-1.5 break-words text-[13.5px] text-ink-soft">{note}</div>}
@@ -69,7 +71,7 @@ export default function Checkout({
           <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
             <button type="button" className={btnPrimary} disabled={busy || disabled || Boolean(why)} onClick={onAction}
               aria-describedby={why ? whyId : describedBy} data-testid={actionTestId ?? `${testId}-action`}>
-              {busy ? busyAction : action}
+              {busy && busyAction ? busyAction : action}
             </button>
             {notNow && (
               <button type="button" className={`${btnSecondary} pf-btn-sm`} disabled={busy} onClick={notNow}
@@ -78,7 +80,7 @@ export default function Checkout({
               </button>
             )}
           </div>
-          {why && <p id={whyId} className="pf-off-why">{why}</p>}
+          {why && <p id={whyId} className="pf-off-why" data-testid={whyTestId}>{why}</p>}
           {calm && <p className="mt-2.5 text-[13px] text-ink-soft" data-testid={lineTestId ?? `${testId}-line`}>{calm}</p>}
         </>
       )}

@@ -25,7 +25,8 @@ import {
   StallBanner, problemText, useEpisodeRun,
 } from '@/components/EpisodeRunPanel';
 import type { Act, ShotPreflight, ShotRow } from '@/components/EpisodeRunPanel';
-import NextStepCard, { Stepper } from '@/components/NextStepCard';
+import NextStepCard, { CostBreakdown, Stepper } from '@/components/NextStepCard';
+import { FREE_NOTE, type OfflineEstimate } from '@/lib/checkout.mjs';
 import { useMe } from '@/components/StudioShell';
 import StoryShapePanel from '@/components/StoryShapePanel';
 import { Toast, type Notice } from '@/components/Toast';
@@ -33,14 +34,17 @@ import { EpisodeBreadcrumb, LockGateCard, StartCard, UniverseStrip, hasStartKept
 import { GlassPanel } from '@/components/playful';
 
 /**
- * The episode page (DESIGN-TARGETS-v2 §6.5): the step trail with a coin on each paid step and the
- * real cost under each done one, then, in the order a creator works, what it uses from its Universe
- * (with the lock gate), the story, the cast, the shot plan (G1), the scene pictures (G2), the final cut
+ * The episode page (DESIGN-TARGETS-v2 §6.5): the step trail (done, now), then, in the order a creator
+ * works, what it uses from its Universe (with the lock gate), the story, the cast, the shot plan (G1),
+ * the scene pictures (G2), the final cut
  * and the download, beside the gate panel (sticky; a bottom sheet on a phone) that says what happens
  * next. Everything an admin or a curious creator may want to check (credits, live mode, G1.08 and
  * canary, the budget lines, the moderation ladder, QC verdicts, model limits, the raw shot list and
- * the audit trail) sits in the collapsed Production details at the bottom; admin-only controls render
- * only for admins. The owner (or an admin) acts; anyone else who may open the episode sees it read-only.
+ * the audit trail) sits in the collapsed Production details at the bottom; the budget lines, model
+ * limits and admin-only controls render only for admins. Each paid step shows one price first, in a
+ * checkout, and what the video cost is one figure with its breakdown behind a disclosure
+ * (docs/EASY-CHECKOUT.md). The owner (or an admin) acts; anyone else who may open the episode sees it
+ * read-only.
  */
 
 // All budget amounts are integer usd_micros (1 USD = 1_000_000); display with formatUsd()
@@ -104,7 +108,7 @@ type Maker = { from: 'universe'; info: EpisodeUniverse } | { from: 'list'; owner
 type Load = 'loading' | 'ok' | 'missing' | 'error';
 
 const sub = 'rounded-inner border-2 border-line bg-white p-4';
-/** The budget lines whose spend each paid step shows under it once done. */
+/** The budget lines behind each paid step's row in the cost breakdown. */
 const STEP_LINES: Record<string, (line: string) => boolean> = {
   stills: (line) => ['L1_refs', 'L2_drafts', 'L3_final_stills', 'L7_revision'].includes(line),
   final_cut: (line) => line === 'L4_video' || line.startsWith('el_'),
@@ -478,6 +482,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [capsChecked, setCapsChecked] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<Record<string, ShotPreflight> | null>(null);
   const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [costEstimate, setCostEstimate] = useState<OfflineEstimate | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
@@ -523,11 +528,14 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       // the limits card stays empty; preflight still enforces server-side
     }
     try {
-      const body = await postJson<{ shots?: Record<string, ShotPreflight> }>(`/api/episodes/${episodeId}/preflight`, {});
+      const body = await postJson<{ shots?: Record<string, ShotPreflight>; cost_estimate?: OfflineEstimate }>(
+        `/api/episodes/${episodeId}/preflight`, {});
       setPreflight(body.shots || {});
+      setCostEstimate(body.cost_estimate ?? null);
       setPreflightError(null);
     } catch (err) {
       setPreflight(null);
+      setCostEstimate(null);
       setPreflightError(err instanceof ApiError ? err.message : 'Preflight unavailable');
     }
   }, [episodeId]);
@@ -598,7 +606,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   ]) : ''), [cast]);
   const planKey = `${castKey}|${propsChanges}`;
 
-  const act: Act = useCallback(async (fn, done, failed) => {
+  const act: Act = useCallback(async (fn, done, failed, refused) => {
     setBusy(true);
     setNotice(null);
     let ok = false;
@@ -607,7 +615,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
       setNotice({ tone: 'ok', text: done });
       ok = true;
     } catch (e) {
-      setNotice({ tone: 'bad', text: `${failed}: ${problemText(e)}`, status: e instanceof ApiError ? e.status : undefined });
+      if (!(e instanceof ApiError && refused?.(e.message))) {
+        setNotice({ tone: 'bad', text: `${failed}: ${problemText(e)}`, status: e instanceof ApiError ? e.status : undefined });
+      }
     } finally {
       setBusy(false);
     }
@@ -724,8 +734,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     const lines = budget.lines.filter((line) => of(line.line_name));
     return [key, lines.length > 0 ? lines.reduce((sum, line) => sum + line.spent, 0) : null];
   })) : null;
-  // a finished live run that recorded no spend says so instead of $0.00
-  const realCost = spent === null ? '—' : spent === 0 && dryRun !== true ? 'Not recorded' : formatUsd(spent);
+  // a finished live run that recorded no spend says so; "Free" only for a recorded $0 in a test run
+  const realCost = spent === null ? '—' : spent === 0 ? (dryRun === true ? 'Free' : 'Not recorded') : formatUsd(spent);
   const kept = Boolean(info?.kept_start) || keptHere;
   const startHere = notStarted && canAct && Boolean(info) && (Boolean(info?.universe) || kept);
   const unlocked = info?.lock?.unlocked ?? [];
@@ -737,25 +747,18 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
     key, label: STEP_LABELS[key], status: key === 'cast' && unlocked.length > 0 ? 'current' : 'todo',
   })) : null;
   const gate = startHere && info ? (
-    <StartCard episodeId={episodeId} info={info} frames={frames} onStarted={refreshAll} />
+    <StartCard episodeId={episodeId} info={info} frames={frames} price={costEstimate} onStarted={refreshAll} />
   ) : viewer && !completed && !expired ? (
-    <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} />
+    <NextStepCard next={next} steps={steps} canAct={canAct} live={runLive} spent={spent} costs={costs} dryRun={dryRun} />
   ) : completed ? (
     <section aria-labelledby="cost-title">
       <div>
         <span className={`${chip} ${tones.ok}`}>Finished</span>
         <h2 id="cost-title" className="mt-1 text-[20px]">What it cost</h2>
       </div>
-      <dl className="mt-3 rounded-inner border-2 border-line bg-white p-3 text-[13px]">
-        <div className="flex justify-between gap-3">
-          <dt>Real cost of this episode</dt>
-          <dd className="font-extrabold" data-testid="episode-real-cost">{realCost}</dd>
-        </div>
-        <div className="mt-1.5 flex justify-between gap-3">
-          <dt>This run</dt>
-          <dd className="font-extrabold">{runLive ? 'Live: paid providers' : 'Test run: free'}</dd>
-        </div>
-      </dl>
+      <p className="mt-2 font-display text-[28px] font-bold leading-tight text-ink" data-testid="episode-real-cost">{realCost}</p>
+      {!runLive && <p className="mt-1 text-[13px] text-ink-soft">{FREE_NOTE}</p>}
+      <CostBreakdown steps={steps} costs={costs} live={live} dryRun={dryRun} />
     </section>
   ) : null;
 
@@ -781,8 +784,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
       {(steps || preStart) && (
         <section className="pf-card mt-4 px-3 pb-2 pt-4 sm:px-6" aria-label="Steps of this video">
-          {steps ? <Stepper steps={steps} costs={costs} live={live} dryRun={dryRun} />
-            : preStart && <Stepper steps={preStart} live={live} testId="stepper-before-start" />}
+          {steps ? <Stepper steps={steps} />
+            : preStart && <Stepper steps={preStart} testId="stepper-before-start" />}
         </section>
       )}
 
@@ -847,7 +850,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
 
           {(state || notStarted) && !expired && viewer && (
             <ShotPlanSection episodeId={episodeId} state={state} shots={shots} castHidden={castHidden} busy={busy} act={act}
-              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={onPlanSaved} />
+              canAct={canAct} waitingOn={waitingOn} notStarted={notStarted} planKey={planKey} onPlanSaved={onPlanSaved}
+              price={costEstimate} live={runLive} />
           )}
           {(state || notStarted) && !expired && viewer && (
             <ConceptFrames episodeId={episodeId} onCount={setFrames}
@@ -856,18 +860,20 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
           {state && !expired && viewer && (
             <SceneStillsSection episodeId={episodeId} state={state} shotStates={shotStates} shotStatesError={shotStatesError}
               shots={shots} castHidden={castHidden} busy={busy} act={act} canAct={canAct} waitingOn={waitingOn}
-              madeWith={canAct ? made : null} />
+              madeWith={canAct ? made : null} price={costEstimate} live={runLive} />
           )}
           {state && !expired && viewer && (
             <FinalCutSection episodeId={episodeId} state={state} shotStates={shotStates} files={files} busy={busy} act={act}
-              canAct={canAct} waitingOn={waitingOn} />
+              canAct={canAct} waitingOn={waitingOn} price={costEstimate} live={runLive} />
           )}
 
           <details id="production-details" data-testid="production-details" className={`${panel} scroll-mt-4`}>
             <summary className={`cursor-pointer list-none rounded-lg p-4 sm:p-6 ${focusRing}`}>
               <span className="text-lg font-semibold">Production details</span>
               <span className="mt-1 block text-sm text-gray-700">
-                Credits, live mode, budget, checks, model limits, the shot list and the audit trail.
+                {isAdmin
+                  ? 'Credits, live mode, budget, checks, model limits, the shot list and the audit trail.'
+                  : 'Credits, live mode, checks, the shot list and the audit trail.'}
               </span>
             </summary>
             <div className="space-y-4 border-t border-gray-200 p-4 sm:p-6">
@@ -883,9 +889,13 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
               {isAdmin && (
                 <CanaryCard episodeId={episodeId} gates={gates} budget={budget} busy={busy} act={act} onFinished={loadPage} />
               )}
-              <BudgetCard budget={budget} />
-              <ModelLimitsCard models={models} capsStale={capsStale} capsChecked={capsChecked} preflight={preflight}
-                preflightError={preflightError} />
+              {isAdmin && (
+                <>
+                  <BudgetCard budget={budget} />
+                  <ModelLimitsCard models={models} capsStale={capsStale} capsChecked={capsChecked} preflight={preflight}
+                    preflightError={preflightError} />
+                </>
+              )}
               <ShotListDetails episodeId={episodeId} state={state} shotStates={shotStates} shots={shots} castHidden={castHidden}
                 preflight={preflight} />
               <AuditTrail audit={audit} hidden={auditHidden} />

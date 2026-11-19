@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   PAID_STEPS, cardStatus, charactersToLock, episodeViewer, finishLine, gateChip, listNames, liveRun, nextStep, openGate,
-  shotIds, statusChip, stepNote, stepperSteps, stillsToReview, storyDone, storyLocked, waitsOn,
+  runLine, shotIds, statusChip, stepNote, stepperSteps, stillsToReview, storyDone, storyLocked, trailWord, waitsOn,
 } from './next-step.mjs';
 
 const OPEN_RUN = { ended: false, outcome: null, dry_run: true, can_start_again: false };
@@ -409,6 +409,24 @@ test('the words under a step: a paid step says "Free" only for a recorded $0 in 
   assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: true, dryRun: true }), 'Free test run');
   assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: true, dryRun: false }), 'Priced first');
   assert.equal(stepNote({ key: 'final_cut', status: 'todo' }, { live: false, dryRun: false }), 'Free test run');
+});
+
+test('the trail says only where a step is: no prices, coins or costs on it', () => {
+  assert.equal(trailWord({ key: 'stills', status: 'done' }), 'Done');
+  assert.equal(trailWord({ key: 'story', status: 'done' }), 'Done');
+  assert.equal(trailWord({ key: 'stills', status: 'current' }), 'Now');
+  assert.equal(trailWord({ key: 'cast', status: 'skipped' }), 'Skipped');
+  assert.equal(trailWord({ key: 'stills', status: 'stopped' }), 'Stopped here');
+  for (const key of PAID_STEPS) assert.equal(trailWord({ key, status: 'todo' }), '');
+  assert.equal(trailWord(null), '');
+});
+
+test('the next-step card says a test run is free, even with live mode on, and a live run shows each price first', () => {
+  assert.equal(runLine({ live: false }), 'A test run, so nothing is charged.');
+  assert.equal(runLine({ live: true, dryRun: true }), 'A test run, so nothing is charged.');
+  assert.equal(runLine({ live: false, dryRun: false }), 'A test run, so nothing is charged.');
+  assert.equal(runLine({ live: true, dryRun: false }), 'Every paid step shows its price first.');
+  assert.equal(runLine({ live: true }), 'Every paid step shows its price first.');
 });
 
 test('a run pays its providers only outside a test run with live mode on', () => {

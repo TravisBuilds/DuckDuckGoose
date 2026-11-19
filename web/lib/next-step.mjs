@@ -8,6 +8,7 @@
  */
 
 import { formatUsdMicros } from './balance.mjs';
+import { FREE_NOTE } from './checkout.mjs';
 
 export const STEPS = ['story', 'cast', 'shot_plan', 'stills', 'final_cut', 'download'];
 
@@ -378,13 +379,29 @@ export function stepperSteps(state, story, cast, next) {
 /** The steps that spend money in a live run: character sheets, scene pictures, then the clips and voices. */
 export const PAID_STEPS = ['cast', 'stills', 'final_cut'];
 
+/** The word under a step of the trail: what it cost is in the episode's breakdown (stepNote), not here. */
+export function trailWord(step) {
+  switch (step?.status) {
+    case 'done':
+      return 'Done';
+    case 'skipped':
+      return 'Skipped';
+    case 'stopped':
+      return 'Stopped here';
+    case 'current':
+      return 'Now';
+    default:
+      return '';
+  }
+}
+
 /**
- * The words under a step of the trail. A finished paid step shows the spend recorded for it: "Free"
- * only for a recorded $0 in a test run (nothing in it was paid for), "—" while the budget is unread,
- * and otherwise "Cost not recorded", never "Free". `cost`: the recorded spend in usd_micros, null
- * when the step has none on record (no budget line of its own: character sheets are charged to the
- * references line), undefined while the budget is unread. `dryRun`: the run's recorded mode, null
- * before a run; `live`: the studio's live mode.
+ * The words for a step in the episode's cost breakdown. A finished paid step shows the spend recorded
+ * for it: "Free" only for a recorded $0 in a test run (nothing in it was paid for), "—" while the
+ * budget is unread, and otherwise "Cost not recorded", never "Free". `cost`: the recorded spend in
+ * usd_micros, null when the step has none on record (no budget line of its own: character sheets are
+ * charged to the references line), undefined while the budget is unread. `dryRun`: the run's recorded
+ * mode, null before a run; `live`: the studio's live mode.
  */
 export function stepNote(step, { cost, live = false, dryRun = null } = {}) {
   const paid = PAID_STEPS.includes(step?.key);
@@ -404,6 +421,11 @@ export function stepNote(step, { cost, live = false, dryRun = null } = {}) {
       if (!paid) return '';
       return liveRun({ live, dryRun }) ? 'Priced first' : 'Free test run';
   }
+}
+
+/** The one money line of the next-step card: a test run is free; a live one shows each price first. */
+export function runLine({ live = false, dryRun = null } = {}) {
+  return liveRun({ live, dryRun }) ? 'Every paid step shows its price first.' : FREE_NOTE;
 }
 
 /**

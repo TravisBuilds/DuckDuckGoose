@@ -20,5 +20,6 @@ export declare function redoPromptAppend(note: string | null | undefined): strin
 export declare function redoEstimateRequest(note: string | null | undefined): RedoEstimateBody;
 export declare function redoRequest(note: string | null | undefined, estimate: Pick<RedoEstimate, 'total_usd_micros'>): RedoBody;
 export declare function redoPriceText(estimate: Pick<RedoEstimate, 'stills' | 'dry_run' | 'total_usd_micros'>): string;
+export declare function redoLine(estimate: Pick<RedoEstimate, 'stills' | 'dry_run' | 'total_usd_micros'>): string | null;
 export declare function redoNoteText(note: string | null | undefined): string;
 export declare function redoStartedText(shotId: string, note: string | null | undefined): string;
