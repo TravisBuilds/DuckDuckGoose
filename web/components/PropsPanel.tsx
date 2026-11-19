@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
-import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
+import { PICTURE_ACCEPT, emptyRights, pictureHint, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
 import { KINDS, KIND_TEXT, addPropProblem, itemPhotos, propAddForm, withPhotoFields } from '@/lib/props.mjs';
 import type { PropItem, PropKind, PropPhoto, PropsView } from '@/lib/props.mjs';
 import { btnPrimary, btnSecondary, card, chip, input as field, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
 import { ThingCard } from './playful';
 
@@ -32,10 +33,6 @@ function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
 }
 
-function megabytes(bytes: number): number {
-  return Math.round(bytes / 1_048_576);
-}
-
 function Message({ note }: { note: Note | null }) {
   if (!note) return null;
   return (
@@ -57,7 +54,7 @@ function Photo({ photo, alt, size = 'h-24 w-24 sm:h-28 sm:w-28' }: { photo: Prop
 }
 
 function photoHint(view: PropsView) {
-  return `PNG, JPG or WebP, at least ${view.limits.min_image_px} px on each side, up to ${megabytes(view.limits.max_upload_bytes)} MB.`;
+  return pictureHint(view.limits);
 }
 
 /** Another photo of the same prop or place (another angle, a close-up), with the rights questions. */
@@ -67,7 +64,8 @@ function AddPhoto({ apiBase, view, item, busy, act }: {
   const [file, setFile] = useState<File | null>(null);
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
   const [inputKey, setInputKey] = useState(0);
-  const fileIssue = file ? pictureProblem(file, view.limits.max_upload_bytes) : null;
+  const size = usePictureCheck(file, view.limits);
+  const fileIssue = file ? (pictureProblem(file, view.limits.max_upload_bytes) ?? size.problem) : null;
   const rightsIssue = rightsProblem(rights);
   const send = async () => {
     if (!file) return;
@@ -95,6 +93,7 @@ function AddPhoto({ apiBase, view, item, busy, act }: {
         aria-describedby={`prop-photo-hint-${item.slug}`} onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         className="mt-2 block w-full text-[13px]" data-testid={`prop-photo-file-${item.slug}`} />
       {fileIssue && <p className="mt-1 text-[12px] font-bold text-coral-ink">{fileIssue}</p>}
+      {!fileIssue && <SizeNote text={size.note} testId={`prop-photo-size-${item.slug}`} className="mt-1" />}
       <RightsQuestions rights={rights} onChange={setRights} group={`prop-rights-${item.slug}`}
         testId={(what) => `prop-${what}-${item.slug}`} />
       {file && !fileIssue && rightsIssue && <p className="mt-2 text-[12px] font-bold text-mustard-ink">{rightsIssue}</p>}
@@ -132,6 +131,9 @@ function ItemCard({ apiBase, view, item, index, busy, act, note, extra }: {
         <p className="break-words text-[13px]" data-testid={`prop-description-${item.slug}`}>
           {item.description || 'No description yet: add what it looks like, so every shot gets it right.'}
         </p>
+        {photos.length === 1 && (
+          <SizeNote text={photos[0].size_note} testId={`prop-photo-size-${photos[0].image_id}`} className="mt-1" />
+        )}
         {extra?.(item)}
       </div>
 
@@ -140,6 +142,7 @@ function ItemCard({ apiBase, view, item, index, busy, act, note, extra }: {
           {photos.map((photo, i) => (
             <li key={photo.image_id} className="w-24 sm:w-28" data-testid={`prop-photo-${photo.image_id}`}>
               <Photo photo={photo} alt={i === 0 ? `${item.name}: main photo` : `${item.name}: photo ${i + 1}`} />
+              <SizeNote text={photo.size_note} testId={`prop-photo-size-${photo.image_id}`} className="mt-1" />
               {view.can_edit && (
                 <div className="mt-1 flex flex-col gap-1">
                   {photo.is_primary ? (
@@ -225,8 +228,9 @@ function AddItem({ apiBase, view, busy, act, note }: {
   const [inputKey, setInputKey] = useState(0);
   const { first, title } = propAddForm(view);
   const name = form.name.trim();
-  const fileIssue = file ? pictureProblem(file, view.limits.max_upload_bytes) : null;
-  const photoIssue = addPropProblem(kind, name, file, rights, view.limits.max_upload_bytes);
+  const size = usePictureCheck(file, view.limits);
+  const fileIssue = file ? (pictureProblem(file, view.limits.max_upload_bytes) ?? size.problem) : null;
+  const photoIssue = addPropProblem(kind, name, file, rights, view.limits.max_upload_bytes) ?? size.problem;
   const what = kind || 'prop or place';
 
   const added = () => {
@@ -276,6 +280,7 @@ function AddItem({ apiBase, view, busy, act, note }: {
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="props-add-file-hint"
         className="block w-full text-[13px]" data-testid="props-add-file" />
       {fileIssue && <p className="mt-1 text-[12px] font-bold text-coral-ink">{fileIssue}</p>}
+      {!fileIssue && <SizeNote text={size.note} testId="props-add-size-note" className="mt-1" />}
       <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={view.limits.name_max}
         placeholder={kind === 'place' ? 'Name, e.g. Harbour cabin' : 'Name, e.g. Red umbrella'} aria-label="Name"
         className={`${field} mt-3`} data-testid="props-add-name" />

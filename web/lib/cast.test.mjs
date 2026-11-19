@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   MAX_CAST_PER_SHOT,
   SHEET_STEP_TEXT,
+  SMALL_PICTURE_NOTE,
+  VERY_SMALL_PICTURE_NOTE,
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
@@ -17,7 +19,9 @@ import {
   kitWithCast,
   latestRequest,
   optionCounts,
+  pictureHint,
   pictureProblem,
+  pictureSizeCheck,
   requestProblems,
   rightsFields,
   rightsProblem,
@@ -56,6 +60,33 @@ test('a picture must be PNG, JPG or WebP, not empty and under the size limit', (
   assert.equal(pictureProblem({ name: 'big.png', type: 'image/png', size: 20.5 * MB }, 15 * MB),
     'This picture is 20.5 MB; pictures can be at most 15 MB.');
   assert.equal(pictureProblem({ name: 'big.png', type: 'image/png', size: 20 * MB }, null), null);
+});
+
+test('small pictures are kept with a plain note; only very tiny ones are refused', () => {
+  const limits = { min_image_px: 128, small_image_px: 256, sharpen_below_px: 512 };
+  assert.deepEqual(pictureSizeCheck(1024, 768, limits), { problem: null, note: null });
+  assert.deepEqual(pictureSizeCheck(512, 512, limits), { problem: null, note: null });
+  assert.deepEqual(pictureSizeCheck(511, 900, limits), { problem: null, note: SMALL_PICTURE_NOTE });
+  assert.equal(SMALL_PICTURE_NOTE, "Small image, we'll sharpen it up.");
+  assert.deepEqual(pictureSizeCheck(300, 300, limits), { problem: null, note: SMALL_PICTURE_NOTE });
+  assert.deepEqual(pictureSizeCheck(256, 1000, limits), { problem: null, note: SMALL_PICTURE_NOTE });
+  assert.deepEqual(pictureSizeCheck(255, 1000, limits), { problem: null, note: VERY_SMALL_PICTURE_NOTE });
+  assert.deepEqual(pictureSizeCheck(128, 128, limits), { problem: null, note: VERY_SMALL_PICTURE_NOTE });
+  assert.deepEqual(pictureSizeCheck(127, 640, limits),
+    { problem: 'This picture is 127x640 px; pictures need at least 128 px on each side.', note: null });
+  // the studio's own limits win; without them the API defaults apply
+  assert.equal(pictureSizeCheck(600, 600, { ...limits, sharpen_below_px: 768 }).note, SMALL_PICTURE_NOTE);
+  assert.equal(pictureSizeCheck(100, 100, null).problem, 'This picture is 100x100 px; pictures need at least 128 px on each side.');
+  assert.equal(pictureSizeCheck(300, 300, undefined).note, SMALL_PICTURE_NOTE);
+  // a size the browser could not read is left to the API
+  assert.deepEqual(pictureSizeCheck(0, 0, limits), { problem: null, note: null });
+  assert.deepEqual(pictureSizeCheck(undefined, 300, limits), { problem: null, note: null });
+});
+
+test('the upload hint says small pictures are fine, with the largest file', () => {
+  assert.equal(pictureHint({ min_image_px: 128, max_upload_bytes: 15 * MB }),
+    'PNG, JPG or WebP, up to 15 MB. Small pictures are fine from 128 px: we sharpen them up.');
+  assert.equal(pictureHint(null), 'PNG, JPG or WebP. Small pictures are fine from 128 px: we sharpen them up.');
 });
 
 test('every upload needs the rights answer, and a real person needs their consent', () => {

@@ -20,6 +20,8 @@ export interface CastImage {
   created_at: string;
   url: string;
   thumb_url: string;
+  /** A plain note for an upload the studio sharpens up for the models (short side under 512 px). */
+  size_note?: string | null;
 }
 
 export interface SheetJob {
@@ -125,6 +127,8 @@ export interface CastView {
   limits: {
     max_upload_bytes: number;
     min_image_px: number;
+    small_image_px?: number;
+    sharpen_below_px?: number;
     formats: string[];
     max_uploads_per_version: number;
     max_characters: number;
@@ -181,6 +185,22 @@ export declare function pictureProblem(
   file: { name?: string; type?: string; size?: number } | null | undefined,
   maxBytes?: number | null,
 ): string | null;
+
+/** The picture size limits every upload form gets (hfvg/cast_store.py size_limits). */
+export interface PictureSizeLimits {
+  max_upload_bytes?: number;
+  min_image_px: number;
+  small_image_px?: number;
+  sharpen_below_px?: number;
+}
+export declare const SMALL_PICTURE_NOTE: string;
+export declare const VERY_SMALL_PICTURE_NOTE: string;
+export declare function pictureSizeCheck(
+  width: number | null | undefined,
+  height: number | null | undefined,
+  limits: PictureSizeLimits | null | undefined,
+): { problem: string | null; note: string | null };
+export declare function pictureHint(limits: PictureSizeLimits | null | undefined): string;
 export declare function emptyRights(): RightsAnswers;
 export declare function rightsProblem(answers: RightsAnswers | null | undefined): string | null;
 export declare function rightsFields(answers: RightsAnswers): [string, string][];

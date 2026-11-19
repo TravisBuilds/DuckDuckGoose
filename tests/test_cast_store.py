@@ -153,12 +153,28 @@ def test_corrupt_and_truncated_images_are_refused():
 
 
 def test_too_small_images_are_refused_and_the_minimum_is_configurable(monkeypatch):
-    with pytest.raises(cast_store.CastError, match="at least 512 px"):
-        cast_store.inspect_image(image_bytes(size=(511, 900)))
-    assert cast_store.inspect_image(image_bytes(size=(512, 512)))["width"] == 512
+    with pytest.raises(cast_store.CastError, match="at least 128 px"):
+        cast_store.inspect_image(image_bytes(size=(127, 900)))
+    assert cast_store.inspect_image(image_bytes(size=(128, 128)))["width"] == 128
     monkeypatch.setenv("CAST_MIN_IMAGE_PX", "1024")
     with pytest.raises(cast_store.CastError, match="at least 1024 px"):
         cast_store.inspect_image(image_bytes(size=(1000, 1400)))
+
+
+def test_small_pictures_are_accepted_with_a_plain_note(monkeypatch):
+    for size in ((128, 900), (255, 255), (256, 400), (511, 2000), (300, 300)):
+        assert cast_store.inspect_image(image_bytes(size=size))["width"] == size[0]
+    assert cast_store.size_note(128, 900) == cast_store.VERY_SMALL_IMAGE_NOTE
+    assert cast_store.size_note(900, 255) == cast_store.VERY_SMALL_IMAGE_NOTE
+    assert cast_store.size_note(256, 400) == "Small image, we'll sharpen it up."
+    assert cast_store.size_note(511, 2000) == "Small image, we'll sharpen it up."
+    assert cast_store.size_note(512, 512) is None and cast_store.size_note(4000, 3000) is None
+    assert cast_store.size_note(None, 300) is None and cast_store.size_note(True, 300) is None
+    assert cast_store.size_limits() == {"min_image_px": 128, "small_image_px": 256, "sharpen_below_px": 512}
+    # the note follows the size the normalizer upscales to
+    monkeypatch.setenv("REF_MIN_SHORT_SIDE", "768")
+    assert cast_store.size_note(600, 900) == "Small image, we'll sharpen it up."
+    assert cast_store.size_limits()["sharpen_below_px"] == 768
 
 
 def test_oversize_images_are_refused_with_413(monkeypatch):
@@ -290,7 +306,7 @@ def test_a_character_starts_from_a_reference_picture_in_one_step(cast_dir):
 @pytest.mark.parametrize("name,description,data,error", [
     ("   ", "", image_bytes(), "Name is required"),
     ("Pip", "x" * (cast_store.DESCRIPTION_MAX + 1), image_bytes(), "Description"),
-    ("Pip", "", image_bytes(size=(400, 900)), "each side must be at least 512 px"),
+    ("Pip", "", image_bytes(size=(100, 900)), "each side must be at least 128 px"),
     ("Pip", "", b"just some notes, not a picture", "not a readable PNG, JPG or WebP image"),
 ])
 def test_a_refused_character_from_a_picture_leaves_nothing(cast_dir, name, description, data, error):

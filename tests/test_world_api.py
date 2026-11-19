@@ -411,7 +411,7 @@ async def test_universe_library_writes_mirror_the_episode_routes(studio):
     # pictures need the rights attestation; a real person needs consent; small or odd files are refused
     for form, data, status in [({}, image_bytes(seed=5), 400),
                                ({"rights": "original", "depicts_real_person": "true"}, image_bytes(seed=6), 400),
-                               ({"rights": "original"}, image_bytes(size=(300, 300), seed=7), 400),
+                               ({"rights": "original"}, image_bytes(size=(100, 100), seed=7), 400),
                                ({"rights": "original"}, b"not an image", 400)]:
         res = owner.post(f"{base}/cast/{cid}/versions/1/images", data=form, files=_files(data))
         assert res.status_code == status, (form, res.text)

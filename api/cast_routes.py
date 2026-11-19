@@ -234,6 +234,7 @@ def _image_out(image: dict) -> dict:
                                      "job_id", "original_filename", "attestation", "created_by", "created_at")}
     out["url"] = f"/api/cast/images/{image['image_id']}"
     out["thumb_url"] = f"/api/cast/images/{image['image_id']}/thumb"
+    out["size_note"] = cast_store.size_note(image.get("width"), image.get("height")) if image.get("role") == "upload" else None
     return out
 
 
@@ -587,7 +588,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
         "prompts_hidden": prompts_hidden,
         "still_max_refs": await asyncio.to_thread(_still_cap),
         "sheet": await asyncio.to_thread(_sheet_info, await _live_mode(episode_id)),
-        "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), "min_image_px": cast_store.min_image_px(),
+        "limits": {"max_upload_bytes": cast_store.max_upload_bytes(), **cast_store.size_limits(),
                    "formats": ["PNG", "JPEG", "WebP"], "max_uploads_per_version": cast_store.MAX_UPLOADS_PER_VERSION,
                    "max_characters": cast_store.MAX_CHARACTERS_PER_LIBRARY, "max_cast_per_shot": MAX_CAST_PER_SHOT},
         "attestation": {"rights": list(cast_store.RIGHTS_VALUES), "likeness_gate": cast_store.LIKENESS_CONSENT},

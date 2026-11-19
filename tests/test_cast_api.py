@@ -340,8 +340,8 @@ def _gif() -> bytes:
     (_gif(), "pip.png", "image/png", "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
     (b"just some notes, not a picture", "pip.png", "image/png",
      "This file is not a readable PNG, JPG or WebP image"),
-    (image_bytes(size=(400, 900)), "small.png", "image/png",
-     "The image is 400x900 px; each side must be at least 512 px"),
+    (image_bytes(size=(100, 900)), "small.png", "image/png",
+     "The image is 100x900 px; each side must be at least 128 px"),
     (image_bytes()[:3000], "cut.png", "image/png", "damaged or incomplete"),
     (b"", "empty.png", "image/png", "The file is empty"),
 ])
@@ -351,6 +351,23 @@ async def test_bad_uploads_are_refused(studio, data, filename, mime, expected):
     res = _upload(owner, pip, data=data, filename=filename, mime=mime)
     assert res.status_code == 400 and expected in res.json()["detail"], res.text
     assert _stored_images() == []
+
+
+async def test_small_pictures_from_the_web_are_kept_with_a_plain_note(studio):
+    owner = _client(studio, "owner")
+    pip = _create(owner)
+    small = _upload(owner, pip, data=image_bytes(size=(300, 420)), filename="found.png")
+    assert small.status_code == 200, small.text
+    assert small.json()["image"]["size_note"] == "Small image, we'll sharpen it up."
+    tiny = _upload(owner, pip, data=image_bytes(size=(160, 160), seed=3), filename="tiny.png")
+    assert tiny.status_code == 200, tiny.text
+    assert tiny.json()["image"]["size_note"].startswith("Very small image: we'll sharpen it up")
+    images = owner.get(_base()).json()["characters"][0]["versions"][0]["images"]
+    assert sorted(i["size_note"] or "" for i in images) == sorted(
+        [small.json()["image"]["size_note"], tiny.json()["image"]["size_note"]])
+    # the stored file is the picture as uploaded; only the models' copy is upscaled
+    stored = cast_store.image_file(small.json()["image"]["sha256"], "png")
+    assert stored.read_bytes() == image_bytes(size=(300, 420))
 
 
 async def test_an_upload_needs_the_rights_attestation(studio):
@@ -470,7 +487,7 @@ async def test_character_text_with_a_picture_follows_the_content_policy(studio):
     ({"depicts_real_person": "true"}, None, 400, "consent"),
     ({"rights": "owned", "depicts_real_person": "true", "likeness_consent": "false"}, None, 400, "consent"),
     ({}, _gif(), 400, "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
-    ({}, image_bytes(size=(400, 900)), 400, "The image is 400x900 px; each side must be at least 512 px"),
+    ({}, image_bytes(size=(100, 900)), 400, "The image is 100x900 px; each side must be at least 128 px"),
     ({}, b"just some notes, not a picture", 400, "This file is not a readable PNG, JPG or WebP image"),
     ({}, b"", 400, "The file is empty"),
     ({"name": ""}, None, 422, None),
@@ -602,7 +619,9 @@ async def test_upload_list_view_and_delete(studio):
     view = owner.get(_base()).json()
     images = view["characters"][0]["versions"][0]["images"]
     assert [i["image_id"] for i in images] == [image["image_id"]]
-    assert view["limits"]["min_image_px"] == 512 and view["attestation"]["likeness_gate"] == "likeness_consent"
+    assert view["limits"]["min_image_px"] == 128 and view["attestation"]["likeness_gate"] == "likeness_consent"
+    assert (view["limits"]["small_image_px"], view["limits"]["sharpen_below_px"]) == (256, 512)
+    assert image["size_note"] is None
     full = owner.get(image["url"])
     assert full.status_code == 200 and full.content == data
     assert full.headers["cache-control"] == "private, max-age=3600"

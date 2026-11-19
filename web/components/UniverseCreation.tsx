@@ -11,7 +11,7 @@ import { getPresetById, presets } from '@/lib/presets';
 import { groupByTemplate } from '@/lib/wizard.mjs';
 import { healthLine, driftCount } from '@/lib/consistency.mjs';
 import { castColours } from '@/lib/castColour.mjs';
-import { PICTURE_ACCEPT, emptyRights, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
+import { PICTURE_ACCEPT, emptyRights, pictureHint, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
 import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
 import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
@@ -21,6 +21,7 @@ import {
 } from '@/lib/journey.mjs';
 import { input as field, label as fieldLabel, tones } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
 import { useStudioFocus } from './StudioShell';
 import {
@@ -60,10 +61,6 @@ type BibleResult = { created: Record<string, string[]>; skipped: string[]; dropp
 
 function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
-}
-
-function megabytes(bytes: number): number {
-  return Math.round(bytes / 1_048_576);
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -211,6 +208,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     saved: busy || sparkSaving ? 'saving' : 'saved',
     exitHref: '/studio',
   } : null);
+  const fileSize = usePictureCheck(file, view?.limits);
 
   if (!view) {
     if (problem?.status === 404) {
@@ -263,7 +261,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
 
   const { counts, latest, approved, bibleDone } = journey;
   const limits = creation.limits;
-  const fileIssue = file ? pictureProblem(file, view.limits.max_upload_bytes) : null;
+  const fileIssue = file ? (pictureProblem(file, view.limits.max_upload_bytes) ?? fileSize.problem) : null;
   const rightsIssue = rightsProblem(rights);
   const waiting = latest?.status === 'ready' ? latest : null;
   const preset = getPresetById(world.profile.preset_id ?? '');
@@ -491,8 +489,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
               <div className="min-w-0 flex-1">
                 <h3 className="text-[19px]">Drop photos, sketches or screenshots</h3>
                 <p id="creation-photo-hint" className={hint}>
-                  Up to {limits.max_photos}. PNG, JPG or WebP, at least {view.limits.min_image_px} px on each side, up to{' '}
-                  {megabytes(view.limits.max_upload_bytes)} MB. Your own, or ones you have the rights to.
+                  Up to {limits.max_photos}. {pictureHint(view.limits)} Your own, or ones you have the rights to.
                 </p>
               </div>
               <label htmlFor="creation-photo-file" className="pf-btn pf-btn-primary pf-btn-sm cursor-pointer focus-within:outline-3 focus-within:outline-blue-deep">
@@ -503,6 +500,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             </div>
             {file && <p className="mt-3 break-words text-[13px] font-bold">Chosen: {file.name}</p>}
             {fileIssue && <p className="mt-1 text-[12.5px] font-bold text-coral-ink">{fileIssue}</p>}
+            {!fileIssue && <SizeNote text={fileSize.note} testId="creation-photo-size" className="mt-1" />}
             <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={limits.caption_max}
               aria-label="Caption (optional)" placeholder="Caption (optional), e.g. the harbour at dusk" className={`${field} mt-3`}
               data-testid="creation-photo-caption" />
@@ -522,6 +520,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             {creation.photos.map((p) => (
               <RefTile key={p.image_id} testId={`creation-photo-${p.image_id}`} src={`${API_URL}${p.thumb_url}`}
                 href={`${API_URL}${p.url}`} alt={p.caption || 'Reference photo'} caption={p.caption}>
+                <SizeNote text={p.size_note} testId={`creation-photo-size-${p.image_id}`} />
                 <ConfirmButton question="Remove this photo?" confirmLabel="Remove" disabled={busy} className="pf-btn pf-btn-quiet pf-btn-sm w-full"
                   onConfirm={() => act('photos', () => postJson(`${base}/photos/${p.image_id}/delete`, {}), 'Photo removed.')}>
                   Remove

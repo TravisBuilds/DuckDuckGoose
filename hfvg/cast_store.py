@@ -35,7 +35,14 @@ from hfvg.paths import data_dir
 
 ALLOWED_FORMATS = {"PNG": ("png", "image/png"), "JPEG": ("jpg", "image/jpeg"), "WEBP": ("webp", "image/webp")}
 DEFAULT_MAX_BYTES = 15 * 1024 * 1024
-DEFAULT_MIN_PX = 512
+# The short side below which a picture is refused as unusable. Pictures from here up to
+# SHARPEN_BELOW_PX are accepted with a plain note, and upscaled before a model sees them
+# (hfvg.image_normalize, REF_MIN_SHORT_SIDE).
+DEFAULT_MIN_PX = 128
+SMALL_IMAGE_PX = 256
+SHARPEN_BELOW_PX = 512
+SMALL_IMAGE_NOTE = "Small image, we'll sharpen it up."
+VERY_SMALL_IMAGE_NOTE = "Very small image: we'll sharpen it up, but a bigger one will look sharper."
 MAX_PIXELS = 40_000_000
 MAX_UPLOADS_PER_VERSION = 12
 MAX_CHARACTERS_PER_LIBRARY = 40
@@ -108,6 +115,26 @@ def max_upload_bytes() -> int:
 
 def min_image_px() -> int:
     return _env_int("CAST_MIN_IMAGE_PX", DEFAULT_MIN_PX)
+
+
+def sharpen_below_px() -> int:
+    """The short side under which a reference is upscaled for the models (the normalizer's REF_MIN_SHORT_SIDE)."""
+    return _env_int("REF_MIN_SHORT_SIDE", SHARPEN_BELOW_PX)
+
+
+def size_note(width: Any, height: Any) -> str | None:
+    """The plain note for an accepted picture whose short side is under sharpen_below_px(), else None."""
+    if isinstance(width, bool) or isinstance(height, bool) or not isinstance(width, int) or not isinstance(height, int):
+        return None
+    short = min(width, height)
+    if short <= 0 or short >= sharpen_below_px():
+        return None
+    return VERY_SMALL_IMAGE_NOTE if short < SMALL_IMAGE_PX else SMALL_IMAGE_NOTE
+
+
+def size_limits() -> dict:
+    """The picture size limits the upload forms show."""
+    return {"min_image_px": min_image_px(), "small_image_px": SMALL_IMAGE_PX, "sharpen_below_px": sharpen_below_px()}
 
 
 def _env_int(name: str, default: int) -> int:

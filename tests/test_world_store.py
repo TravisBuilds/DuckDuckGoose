@@ -320,7 +320,7 @@ def test_reference_photos_get_the_upload_checks_are_deduplicated_and_their_files
     assert (again["image_id"], again["duplicate"]) == (photo["image_id"], True)
     assert len(world_store.list_reference_photos(sid)) == 1
     with pytest.raises(cast_store.CastError):
-        world_store.add_reference_photo(sid, image_bytes(size=(300, 300)), filename="small.png",
+        world_store.add_reference_photo(sid, image_bytes(size=(100, 100)), filename="small.png",
                                         attestation=attestation())
     world_store.update_profile(sid, cover_image_id=photo["image_id"])
     assert world_store.delete_reference_photo(sid, photo["image_id"])["file_removed"] is True

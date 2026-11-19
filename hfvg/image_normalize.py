@@ -4,6 +4,9 @@ Normalizes reference images (still, _end, anchor) before upload:
 - Apply EXIF orientation and convert ICC to sRGB
 - Convert to JPEG (quality ~88, strip metadata, flatten alpha onto white)
 - Downscale so long side <= REF_MAX_LONG_SIDE (default 1280)
+- Upscale (Lanczos) a small image so its short side reaches REF_MIN_SHORT_SIDE (default 512), within
+  the long-side limit: references copied from the web are often 512 px or smaller, under what the
+  models handle well. The stored original is never changed; only this copy is.
 - Compress to <= REF_MAX_BYTES (default ~1 MB, lowering quality stepwise if needed)
 - Cache normalized files by source SHA256 + size limits for idempotency
 """
@@ -26,6 +29,7 @@ except ImportError:
 
 # Normalization limits (configurable via env)
 REF_MAX_LONG_SIDE = int(os.getenv("REF_MAX_LONG_SIDE", "1280"))
+REF_MIN_SHORT_SIDE = int(os.getenv("REF_MIN_SHORT_SIDE", "512"))
 REF_MAX_BYTES = int(os.getenv("REF_MAX_BYTES", "1048576"))  # ~1 MB
 JPEG_QUALITY_START = int(os.getenv("JPEG_QUALITY_START", "88"))
 JPEG_QUALITY_MIN = int(os.getenv("JPEG_QUALITY_MIN", "65"))
@@ -50,13 +54,15 @@ def normalize_reference_image(
     - Apply EXIF orientation and convert ICC to sRGB
     - Convert to JPEG (flatten alpha onto white, strip metadata)
     - Downscale so long side <= REF_MAX_LONG_SIDE
+    - Upscale (Lanczos) so a short side under REF_MIN_SHORT_SIDE reaches it, within REF_MAX_LONG_SIDE
     - Compress to <= REF_MAX_BYTES (lowering quality stepwise if needed)
     
     Returns:
         (normalized_path, original_sha256)
         
     The normalized file is cached by original SHA256 + size limits, so repeated calls with
-    the same source and limits return the same normalized file.
+    the same source and limits return the same normalized file. An upscaled file's key also names
+    REF_MIN_SHORT_SIDE; the key of an image that needs no upscale is the same as before upscaling existed.
     
     Never skippable: there is no env/config switch to bypass it (tests that upload fake
     bytes replace this function in-process via tests/fake_image_passthrough.py).
@@ -76,8 +82,11 @@ def normalize_reference_image(
         cache_dir = Path(NORMALIZED_CACHE_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
     
+    with Image.open(source_path) as probe:
+        upscale = min(probe.size) < REF_MIN_SHORT_SIDE
+
     # Cache key includes source SHA + size limits (changing limits invalidates cache)
-    cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}"
+    cache_key = f"{source_sha}_{REF_MAX_LONG_SIDE}_{REF_MAX_BYTES}" + (f"_up{REF_MIN_SHORT_SIDE}" if upscale else "")
     normalized_path = cache_dir / f"{cache_key}.jpg"
     
     # Return cached file if it exists
@@ -133,6 +142,12 @@ def normalize_reference_image(
         scale_factor = REF_MAX_LONG_SIDE / long_side
         new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+    if upscale:
+        scale_factor = min(REF_MIN_SHORT_SIDE / min(img.size), REF_MAX_LONG_SIDE / max(img.size))
+        if scale_factor > 1:
+            new_size = (round(img.width * scale_factor), round(img.height * scale_factor))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
     
     # Save as JPEG with quality compression to meet size target
     # Write to a temp file unique to this call, then rename atomically: two workers normalizing the

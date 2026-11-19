@@ -14,6 +14,7 @@ import {
   emptyRights,
   estimateText,
   optionCounts,
+  pictureHint,
   pictureProblem,
   requestProblems,
   rightsFields,
@@ -40,6 +41,7 @@ import { castColours, castColourAt } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
 import { ConfirmButton } from './ConfirmButton';
+import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
 import { CharacterCard as PlayfulCharacterCard } from './playful';
 
@@ -78,10 +80,6 @@ function problemText(e: unknown): string {
   return e instanceof ApiError ? e.message : UNREACHABLE;
 }
 
-function megabytes(bytes: number): number {
-  return Math.round(bytes / 1_048_576);
-}
-
 function Thumb({ image, label }: { image: CastImage; label?: string }) {
   const text = label ?? PICTURE_LABELS[image.role] ?? image.role;
   return (
@@ -104,6 +102,7 @@ function PictureTile({ image, label, children }: { image: CastImage; label?: str
         {label ?? PICTURE_LABELS[image.role] ?? image.role}
         {image.placeholder && <span className="block text-mustard-ink">stand-in (preview)</span>}
       </figcaption>
+      <SizeNote text={image.size_note} testId={`cast-image-size-${image.image_id}`} />
       {children && <div className="mt-1 flex flex-col gap-1">{children}</div>}
     </figure>
   );
@@ -142,7 +141,8 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
   const [inputKey, setInputKey] = useState(0);
   const limits = view.limits;
-  const fileIssue = file ? pictureProblem(file, limits.max_upload_bytes) : null;
+  const size = usePictureCheck(file, limits);
+  const fileIssue = file ? (pictureProblem(file, limits.max_upload_bytes) ?? size.problem) : null;
   const rightsIssue = rightsProblem(rights);
   const group = `rights-${character.slug}-${version.version}`;
 
@@ -168,8 +168,7 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
     <div className="mt-3 p-3 rounded-lg bg-gray-50" data-testid={`cast-upload-${character.slug}`}>
       <p className="text-sm font-semibold">Add a picture of {character.name}</p>
       <p className="text-xs text-gray-600 mb-2" id={`cast-upload-hint-${character.slug}`}>
-        PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
-        A clear full-body picture on a plain background works best.
+        {pictureHint(limits)} A clear full-body picture on a plain background works best.
       </p>
       <input
         key={inputKey}
@@ -182,6 +181,7 @@ function PictureUpload({ apiBase, character, version, view, busy, act, note }: {
         data-testid={`cast-upload-file-${character.slug}`}
       />
       {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
+      {!fileIssue && <SizeNote text={size.note} testId={`cast-upload-size-${character.slug}`} className="mt-1" />}
       <RightsQuestions rights={rights} onChange={setRights} group={group} testId={(what) => `cast-${what}-${character.slug}`} />
       {file && !fileIssue && rightsIssue && (
         <p className="text-xs text-amber-800 mt-2">{rightsIssue}</p>
@@ -639,8 +639,9 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
   const { first, title } = addForm(view);
   const limits = view.limits;
   const name = form.name.trim();
-  const fileIssue = file ? pictureProblem(file, limits.max_upload_bytes) : null;
-  const photoIssue = addWithPhotoProblem(name, file, rights, limits.max_upload_bytes);
+  const size = usePictureCheck(file, limits);
+  const fileIssue = file ? (pictureProblem(file, limits.max_upload_bytes) ?? size.problem) : null;
+  const photoIssue = addWithPhotoProblem(name, file, rights, limits.max_upload_bytes) ?? size.problem;
 
   const added = (result: unknown) => {
     if (result === null) return;
@@ -674,13 +675,13 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
       )}
       <label htmlFor="cast-add-file" className="block text-sm font-medium">{first ? 'Photo' : 'Photo (optional)'}</label>
       <p id="cast-add-file-hint" className="text-xs text-gray-600 mb-1">
-        PNG, JPG or WebP, at least {limits.min_image_px} px on each side, up to {megabytes(limits.max_upload_bytes)} MB.
-        A clear full-body picture on a plain background works best.
+        {pictureHint(limits)} A clear full-body picture on a plain background works best.
       </p>
       <input id="cast-add-file" key={inputKey} type="file" accept={PICTURE_ACCEPT}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="cast-add-file-hint"
         className={`text-sm rounded ${focusRing}`} data-testid="cast-add-file" />
       {fileIssue && <p className="text-xs text-red-700 mt-1">{fileIssue}</p>}
+      {!fileIssue && <SizeNote text={size.note} testId="cast-add-size-note" className="mt-1" />}
       <div className="grid sm:grid-cols-2 gap-2 mt-3">
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={60}
           placeholder="Name, e.g. Mara" aria-label="Name" className={field} data-testid="cast-add-name" />

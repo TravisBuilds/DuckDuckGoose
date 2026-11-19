@@ -85,6 +85,7 @@ export interface WorldPhoto extends UniverseImage {
   mime: string;
   original_filename: string | null;
   created_at: string;
+  size_note?: string | null;
 }
 
 export interface WorldBoard {
@@ -181,6 +182,8 @@ export interface WorldView {
   limits: {
     max_upload_bytes: number;
     min_image_px: number;
+    small_image_px?: number;
+    sharpen_below_px?: number;
     formats: string[];
     max_uploads_per_version: number;
     max_characters: number;

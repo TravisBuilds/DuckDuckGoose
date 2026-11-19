@@ -19,6 +19,7 @@ export interface PropPhoto {
   created_at: string;
   url: string;
   thumb_url: string;
+  size_note?: string | null;
 }
 
 export interface PropItem {
@@ -41,6 +42,8 @@ export interface PropsView {
   limits: {
     max_upload_bytes: number;
     min_image_px: number;
+    small_image_px?: number;
+    sharpen_below_px?: number;
     formats: string[];
     max_photos_per_item: number;
     max_items: number;

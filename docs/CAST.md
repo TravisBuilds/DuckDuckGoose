@@ -53,8 +53,11 @@ before it starts: see [WORLDS.md](WORLDS.md).
 Checks, in order: a body over `CAST_UPLOAD_MAX_BYTES` (default 15 MiB) gets **413** before the form is
 parsed (`CastUploadLimit` middleware: Content-Length first, then the body is counted as it arrives).
 Then the rights answers (**400** without them), a real decode with Pillow (format from the file's
-content, not its name or content type), at least `CAST_MIN_IMAGE_PX` (default 512) px on each side, at
-most 40 MP, at most 12 uploads per version. Identical bytes in the same version are de-duplicated by
+content, not its name or content type), at least `CAST_MIN_IMAGE_PX` (default 128) px on each side, at
+most 40 MP, at most 12 uploads per version. A picture whose short side is under `REF_MIN_SHORT_SIDE`
+(default 512) is kept as uploaded with a `size_note` ("Small image, we'll sharpen it up."; under 256 px
+the note asks for a bigger one), and the copy a model gets is upscaled with Lanczos
+(`hfvg/image_normalize.py`). Identical bytes in the same version are de-duplicated by
 sha256 (the existing picture is returned with `duplicate: true`). A locked version refuses uploads
 (**409**). Every upload, delete, sheet step, lock and series change is written to `cast_audit_log`
 with the actor and the attestation.
@@ -221,7 +224,8 @@ hand it to whoever comes first. The owners of its episodes still see it. Respons
 |---|---|---|
 | `CAST_STORAGE_DIR` | `<DATA_DIR>/cast` | Private image storage; the API and the worker must see the same directory |
 | `CAST_UPLOAD_MAX_BYTES` | `15728640` | Largest upload (413 above it) |
-| `CAST_MIN_IMAGE_PX` | `512` | Smallest width and height of an upload |
+| `CAST_MIN_IMAGE_PX` | `128` | Smallest width and height of an upload |
+| `REF_MIN_SHORT_SIDE` | `512` | Short side a smaller reference is upscaled to before a model sees it; uploads under it get a `size_note` |
 
 Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PATH_STILL`,
 `MODEL_MAX_REFS_JSON`, the dollar budget and balance settings.

@@ -288,7 +288,8 @@ def _board_out(board: dict) -> dict:
 def _reference_out(photo: dict) -> dict:
     out = {k: photo.get(k) for k in ("image_id", "caption", "width", "height", "bytes", "mime", "original_filename",
                                      "attestation", "created_by", "created_at")}
-    return {**out, **_universe_image_out(photo["image_id"])}
+    return {**out, **_universe_image_out(photo["image_id"]),
+            "size_note": cast_store.size_note(photo.get("width"), photo.get("height"))}
 
 
 async def _episodes_view(episode_ids: list[str], user_id: str | None, is_admin: bool) -> list[dict]:

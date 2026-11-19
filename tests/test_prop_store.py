@@ -127,7 +127,7 @@ def test_a_prop_starts_from_a_photo_in_one_step(cast_dir):
 @pytest.mark.parametrize("data,message", [
     (b"definitely not a picture", "not a readable PNG, JPG or WebP"),
     (_gif(), "Only PNG, JPG and WebP"),
-    (image_bytes(size=(300, 900)), "at least 512 px"),
+    (image_bytes(size=(100, 900)), "at least 128 px"),
     (b"", "empty"),
 ])
 def test_a_refused_photo_leaves_no_prop_behind(data, message):

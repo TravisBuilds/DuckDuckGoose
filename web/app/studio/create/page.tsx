@@ -11,6 +11,7 @@ import { chip, tones } from '@/lib/ui';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
 import { castColours, speakerColours } from '@/lib/castColour.mjs';
 import { CastDot, Dots, HeroBand, JourneyPath, SpeakerChip } from '@/components/playful';
+import { ChosenPictureSize } from '@/components/PictureSize';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { pendingStartKey, type EpisodeUniverse, type StartRequest, type WorldView } from '@/lib/world.mjs';
 import {
@@ -972,6 +973,10 @@ function CreateVideoWizard() {
                                 />
                               </label>
                               {pictureIssue && <p className="sm:col-span-2 text-xs text-red-700">{pictureIssue}</p>}
+                              {picture && !pictureIssue && (
+                                <ChosenPictureSize file={picture} limits={null} testId={`cast-picture-size-${row.code}`}
+                                  className="sm:col-span-2" />
+                              )}
                             </div>
                           )}
                           {row.shots.length > 0 && (

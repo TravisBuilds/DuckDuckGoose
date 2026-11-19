@@ -270,7 +270,7 @@ def _gif() -> bytes:
     (_gif(), "cabin.gif", "image/gif", "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
     (_gif(), "cabin.png", "image/png", "Only PNG, JPG and WebP images are accepted (this file is GIF)"),
     (b"just some notes, not a picture", "cabin.png", "image/png", "This file is not a readable PNG, JPG or WebP image"),
-    (image_bytes(size=(400, 900)), "small.png", "image/png", "The image is 400x900 px; each side must be at least 512 px"),
+    (image_bytes(size=(100, 900)), "small.png", "image/png", "The image is 100x900 px; each side must be at least 128 px"),
     (image_bytes()[:3000], "cut.png", "image/png", "damaged or incomplete"),
     (b"", "empty.png", "image/png", "The file is empty"),
 ])
