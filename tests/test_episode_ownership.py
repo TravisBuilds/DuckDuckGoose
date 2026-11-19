@@ -47,6 +47,7 @@ PATH_WRITES = [
     ("POST", "/api/episodes/{ep}/set-dry"),
     ("POST", "/api/episodes/{ep}/final-cut/reject"),
     ("POST", "/api/episodes/{ep}/start-again"),
+    ("POST", "/api/episodes/{ep}/kept-start"),
     # cast library (api/cast_routes.py): a series cast also needs the series' owner (test_cast_api.py)
     ("POST", "/api/episodes/{ep}/series"),
     ("POST", "/api/episodes/{ep}/cast"),
