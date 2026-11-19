@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PriceBlock } from '@/components/playful';
+import Checkout from '@/components/Checkout';
+import { calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import {
   CHANGE_EXAMPLES, CHANGE_MAX, aboutLine, anyMaking, changeBlocker, changesParts, framesCount, framesSummary, latestRound,
-  makeLabel, optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle,
+  makeLabel, optionName, pickedOption, priceRows, priceStatus, priceWhat, referencesLine, roundNote, roundTitle,
   shotBlocker, shotStatus,
 } from '@/lib/frames.mjs';
 import type { FrameEstimate, FrameOption, FrameRound, FrameShot, FrameTone, FramesView } from '@/lib/frames.mjs';
@@ -17,7 +18,8 @@ import { btnGo, btnPrimary, btnSecondary, card, input, link } from '@/lib/ui';
  * and their reference photos, makes a few options (the price first; free stand-ins in a test run), and
  * a change in plain words ("make it night") reaches every later try. The pick becomes the shot's start
  * frame in its shot list. GET/POST /api/episodes/{id}/concept-frames...; the API stays the authority:
- * a refused step shows its reason.
+ * a refused step shows its reason, a refused spend in calm words, and a price that went up is shown
+ * again before anything is made (docs/EASY-CHECKOUT.md).
  */
 
 type Message = { tone: 'ok' | 'bad'; text: string };
@@ -35,7 +37,7 @@ const TONE_EDGE: Record<FrameTone, string> = {
 };
 
 function problemText(e: unknown): string {
-  return e instanceof ApiError ? e.message : 'The studio could not be reached. Try again in a moment.';
+  return e instanceof ApiError ? calmText(e.message) : 'The studio could not be reached. Try again in a moment.';
 }
 
 function ratio(aspect: string): string {
@@ -60,6 +62,7 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, Pending>>({});
   const [messages, setMessages] = useState<Record<string, Message>>({});
+  const [problems, setProblems] = useState<Record<string, MoneyProblem>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -114,16 +117,28 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
   const putShot = (shot: FrameShot) => setView((was) => (was ? {
     ...was, shots: was.shots.map((s) => (s.shot_id === shot.shot_id ? shot : s)),
   } : was));
-  const run = async <T,>(shotId: string, fn: () => Promise<T>, done: (result: T) => string | null): Promise<T | null> => {
+  const setProblem = (shotId: string, problem: MoneyProblem | null) => setProblems((all) => {
+    const next = { ...all };
+    if (problem) next[shotId] = problem;
+    else delete next[shotId];
+    return next;
+  });
+  // a spend the server refused for money reasons stays in its checkout, in calm words: the price that
+  // went up is fetched again from there, so the old one can never be approved twice
+  const run = async <T,>(shotId: string, fn: () => Promise<T>, done: (result: T) => string | null,
+    spends = false): Promise<T | null> => {
     setBusy(shotId);
     say(shotId, null);
+    setProblem(shotId, null);
     try {
       const result = await fn();
       const text = done(result);
       if (text) say(shotId, { tone: 'ok', text });
       return result;
     } catch (e) {
-      say(shotId, { tone: 'bad', text: problemText(e) });
+      const money = spends && e instanceof ApiError ? moneyProblem(e.message) : null;
+      if (money) setProblem(shotId, money);
+      else say(shotId, { tone: 'bad', text: problemText(e) });
       await reload();
       return null;
     } finally {
@@ -152,13 +167,20 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
       return made.round.status === 'making'
         ? 'The studio is making the options now. They show up here as they are made.'
         : `${made.round.made === 1 ? '1 option' : `${made.round.made} options`} ready. Pick the one this shot starts from.`;
+    }, true);
+  };
+  const reprice = (shot: FrameShot) => {
+    const plan = pending[shot.shot_id];
+    return plan ? priceIt(shot, plan.change, plan.keepChanges) : null;
+  };
+  const cancel = (shotId: string) => {
+    setProblem(shotId, null);
+    setPending((all) => {
+      const next = { ...all };
+      delete next[shotId];
+      return next;
     });
   };
-  const cancel = (shotId: string) => setPending((all) => {
-    const next = { ...all };
-    delete next[shotId];
-    return next;
-  });
   const pick = (shot: FrameShot, option: FrameOption) => run(shot.shot_id,
     () => postJson<{ shot: FrameShot }>(`${base}/${shot.shot_id}/pick`, { option_id: option.option_id }),
     (done) => {
@@ -230,6 +252,7 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
         {view.shots.map((shot) => (
           <ShotFrames key={shot.shot_id} shot={shot} view={view} busy={busy === shot.shot_id} anyBusy={busy !== null}
             pending={pending[shot.shot_id] ?? null} message={messages[shot.shot_id] ?? null}
+            problem={problems[shot.shot_id] ?? null} onReprice={() => reprice(shot)}
             onPrice={(change, keep) => priceIt(shot, change, keep)} onMake={() => make(shot)}
             onCancel={() => cancel(shot.shot_id)} onPick={(option) => pick(shot, option)} onUnpick={() => unpick(shot)} />
         ))}
@@ -238,13 +261,16 @@ export default function ConceptFrames({ episodeId, refreshKey, onCount }: {
   );
 }
 
-function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMake, onCancel, onPick, onUnpick }: {
+function ShotFrames({ shot, view, busy, anyBusy, pending, message, problem, onReprice, onPrice, onMake, onCancel, onPick,
+  onUnpick }: {
   shot: FrameShot;
   view: FramesView;
   busy: boolean;
   anyBusy: boolean;
   pending: Pending | null;
   message: Message | null;
+  problem: MoneyProblem | null;
+  onReprice: () => void;
   onPrice: (change: string, keepChanges: boolean) => void;
   onMake: () => void;
   onCancel: () => void;
@@ -328,29 +354,15 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, onPrice, onMa
       )}
 
       {pending ? (
-        <PriceBlock className="mt-3" testId={`frames-price-${id}`} total={priceTotal(pending.estimate)}
-          status={priceStatus(pending.estimate)} rows={priceRows(pending.estimate)}>
-          {(pending.change || !pending.keepChanges) && (
-            <p className="mt-2 break-words text-[12.5px]">
-              {pending.change ? `With your change: ${pending.change}.` : 'Starting over from the shot as it is.'}
-            </p>
-          )}
-          {pending.estimate.notes.map((note) => <p key={note} className={`${hint} mt-1 break-words`}>{note}</p>)}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={`${btnGo} pf-btn-sm ${oneLine}`} disabled={off} onClick={onMake}
-              aria-describedby={whyId} data-testid={`frames-make-${id}`}>
-              {busy ? 'Starting…' : makeLabel(pending.estimate)}
-            </button>
-            <button type="button" className={`${btnSecondary} pf-btn-sm ${oneLine}`} disabled={busy} onClick={onCancel}
-              data-testid={`frames-cancel-${id}`}>
-              Not now
-            </button>
-          </div>
-          <p className={`${hint} mt-2`}>
-            {pending.estimate.dry_run ? 'Nothing is charged in a test run.'
-              : 'The studio checks the price and your balance again before each picture.'}
-          </p>
-        </PriceBlock>
+        <Checkout className="mt-3" testId={`frames-price-${id}`} what={priceWhat(pending.estimate)}
+          price={quote(pending.estimate)} action={makeLabel(pending.estimate)} onAction={onMake} busy={busy}
+          disabled={off} describedBy={whyId} actionTestId={`frames-make-${id}`} notNow={onCancel} notNowTestId={`frames-cancel-${id}`}
+          line={priceStatus(pending.estimate)} problem={problem} onProblem={onReprice} rows={priceRows(pending.estimate)}
+          note={(pending.change || !pending.keepChanges)
+            ? (pending.change ? `With your change: ${pending.change}.` : 'Starting over from the shot as it is.') : null}>
+          {pending.estimate.notes.length > 0
+            ? pending.estimate.notes.map((note) => <p key={note}>{note}</p>) : null}
+        </Checkout>
       ) : !latest ? (
         <div className="mt-3">
           <button type="button" className={`${btnPrimary} pf-btn-sm ${oneLine}`} disabled={off} onClick={() => onPrice('', true)}

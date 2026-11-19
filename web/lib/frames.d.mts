@@ -108,6 +108,7 @@ export declare function framesSummary(view: Pick<FramesView, 'shots'> | null | u
 export declare function framesCount(view: Pick<FramesView, 'shots'> | null | undefined): { picked: number; shots: number };
 export declare function priceTotal(estimate: FrameEstimate | null | undefined): string;
 export declare function priceStatus(estimate: FrameEstimate | null | undefined): string;
+export declare function priceWhat(estimate: FrameEstimate | null | undefined): string;
 export declare function priceRows(estimate: FrameEstimate | null | undefined): { label: string; value: string }[];
 export declare function makeLabel(estimate: FrameEstimate | null | undefined): string;
 export declare function changesLine(changes: string[] | null | undefined): string | null;

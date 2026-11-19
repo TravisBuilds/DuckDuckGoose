@@ -13,6 +13,7 @@ import {
   defaultOptionCount,
   emptyRights,
   estimateText,
+  estimateWhat,
   optionCounts,
   pictureHint,
   pictureProblem,
@@ -39,7 +40,9 @@ import type {
 } from '@/lib/cast.mjs';
 import { castColours, castColourAt } from '@/lib/castColour.mjs';
 import type { CastColour } from '@/lib/castColour.mjs';
+import { calmText, moneyProblem, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import { card, focusRing, input as field } from '@/lib/ui';
+import Checkout from './Checkout';
 import { ConfirmButton } from './ConfirmButton';
 import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
@@ -50,8 +53,9 @@ import { CharacterCard as PlayfulCharacterCard } from './playful';
  * in each shot; or, with `universe`, the characters of a Universe (api/world_routes.py), whose looks
  * are locked from an episode in it. Every action is an API route under `apiBase`
  * (/api/episodes/{id} or /api/worlds/{id}; api/cast_routes.py), which stays the authority: a
- * refused action shows the API's reason. Paid sheet pictures show their estimate first and are made
- * only for the amount the creator approved (the worker checks the estimate, balance and caps again).
+ * refused action shows the API's reason (a refused spend in calm words). Paid sheet pictures show
+ * their price first, in a checkout (docs/EASY-CHECKOUT.md), and are made only for the amount approved
+ * there (the worker checks the estimate, balance and caps again); a price that went up is shown again.
  * The result of an action shows next to it: in the character's card (by the picture upload, the sheet
  * or the outfit when those are on screen), by the add form, the shots or the series.
  */
@@ -61,8 +65,11 @@ const plainBtn = `${btn} pf-btn-quiet`;
 const darkBtn = `${btn} pf-btn-primary`;
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
-/** Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series". */
-type Act = <T>(fn: () => Promise<T>, done?: string, where?: string) => Promise<T | null>;
+/**
+ * Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series".
+ * `refused` may take a refusal's words and show them itself (true), instead of the result line.
+ */
+type Act = <T>(fn: () => Promise<T>, done?: string, where?: string, refused?: (message: string) => boolean) => Promise<T | null>;
 type CastNote = { tone: 'ok' | 'problem'; text: string; where: string };
 
 /** The one visible result line (data-testid="cast-message"); the panel's live region announces it. */
@@ -77,7 +84,7 @@ function CastMessage({ note }: { note: CastNote | null | undefined }) {
 }
 
 function problemText(e: unknown): string {
-  return e instanceof ApiError ? e.message : UNREACHABLE;
+  return e instanceof ApiError ? calmText(e.message) : UNREACHABLE;
 }
 
 function Thumb({ image, label }: { image: CastImage; label?: string }) {
@@ -222,6 +229,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
   const [estimate, setEstimate] = useState<{ request: SheetRequestBody; result: SheetEstimate } | null>(null);
   const [checking, setChecking] = useState(false);
   const [estimateIssue, setEstimateIssue] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<MoneyProblem | null>(null);
   const base = `${apiBase}/cast/${character.character_id}/versions/${version.version}`;
   const problems = requestProblems(version);
   const canEdit = view.can_edit;
@@ -234,12 +242,14 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
   useEffect(() => {
     setEstimate(null);
     setEstimateIssue(null);
+    setRefusal(null);
   }, [step, version.version, fromPicture]);
 
   const checkPrice = async (request: SheetRequestBody) => {
     setChecking(true);
     setEstimate(null);
     setEstimateIssue(null);
+    setRefusal(null);
     try {
       setEstimate({ request, result: await postJson<SheetEstimate>(`${base}/sheet/estimate`, request) });
     } catch (e) {
@@ -251,6 +261,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
 
   const make = async () => {
     if (!estimate) return;
+    setRefusal(null);
     const started = await act(
       () => postJson(`${base}/sheet/generate`, {
         ...estimate.request,
@@ -258,6 +269,11 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
       }),
       'Started. The pictures show up here when they are ready.',
       here,
+      (message) => {
+        const money = moneyProblem(message);
+        setRefusal(money);
+        return money !== null;
+      },
     );
     if (started !== null) setEstimate(null);
   };
@@ -282,22 +298,10 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
     <div className="mt-2">
       {estimateIssue && <p className="text-sm text-red-700" role="alert">{estimateIssue}</p>}
       {estimate && (
-        <div className="p-3 rounded-lg border border-yellow-200 bg-yellow-50"
-          data-testid={`cast-estimate-${character.slug}`}>
-          <p className="text-sm font-semibold text-yellow-900">{estimateText(estimate.result)}</p>
-          {!estimate.result.dry_run && (
-            <p className="text-xs text-yellow-800 mt-1">
-              The studio checks the price, your balance and this video&apos;s budget again before each picture.
-            </p>
-          )}
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={make} disabled={busy} className={darkBtn}
-              data-testid={`cast-generate-${character.slug}`}>
-              {label}
-            </button>
-            <button type="button" onClick={() => setEstimate(null)} disabled={busy} className={plainBtn}>Cancel</button>
-          </div>
-        </div>
+        <Checkout testId={`cast-estimate-${character.slug}`} what={estimateWhat(estimate.result)}
+          title={estimateText(estimate.result)} price={quote(estimate.result)} action={label} onAction={make} busy={busy}
+          actionTestId={`cast-generate-${character.slug}`} notNow={() => setEstimate(null)}
+          notNowTestId={`cast-not-now-${character.slug}`} problem={refusal} onProblem={() => checkPrice(estimate.request)} />
       )}
     </div>
   );
@@ -500,7 +504,6 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   return (
     <PlayfulCharacterCard testId={`cast-character-${character.slug}`} colour={colour} name={character.name}
       picture={face ? { src: `${API_URL}${face.thumb_url}`, alt: '' } : null}
-      seal={version.locked ? { state: 'locked', top: 'locked', bottom: `v${version.version}` } : { state: 'open', top: 'not', bottom: 'locked' }}
       needsYou={canEdit && !anyLocked}
       title={(
         <>
@@ -994,7 +997,7 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
     return () => clearInterval(timer);
   }, [working, load]);
 
-  const act: Act = async (fn, done, where = 'panel') => {
+  const act: Act = async (fn, done, where = 'panel', refused) => {
     setBusy(true);
     setMessage(null);
     try {
@@ -1002,7 +1005,7 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
       if (done) setMessage({ tone: 'ok', text: done, where });
       return result;
     } catch (e) {
-      setMessage({ tone: 'problem', text: problemText(e), where });
+      if (!(e instanceof ApiError && refused?.(e.message))) setMessage({ tone: 'problem', text: problemText(e), where });
       return null;
     } finally {
       setBusy(false);
