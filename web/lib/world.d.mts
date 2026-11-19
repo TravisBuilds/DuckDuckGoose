@@ -1,3 +1,4 @@
+import type { PriceRow } from './checkout.mjs';
 import type { UniverseCounts } from './consistency.mjs';
 import type { CastCharacter, CastVersion } from './cast.mjs';
 import type { PropItem } from './props.mjs';
@@ -160,7 +161,7 @@ export interface BoardProgress {
 
 export declare const BOARD_POLL_MS: number;
 export declare function boardProgress(request: WorldBoardRequest | null | undefined): BoardProgress | null;
-export declare function boardEstimateLines(estimate: BoardEstimate | null | undefined): string[];
+export declare function boardRows(estimate: BoardEstimate | null | undefined): PriceRow[];
 
 /** The story a Universe starts from (hfvg/story_refs.story_view). */
 export interface WorldStory {

@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
-import { formatUsd } from '@/lib/money';
-import { formatUsdMicros } from '@/lib/balance.mjs';
+import { calmText, moneyProblem, priceText, quote, type MoneyProblem } from '@/lib/checkout.mjs';
 import { formatLocalDate } from '@/lib/time';
 import { getPresetById, presets } from '@/lib/presets';
 import { groupByTemplate } from '@/lib/wizard.mjs';
@@ -13,21 +12,22 @@ import { healthLine, driftCount } from '@/lib/consistency.mjs';
 import { castColours } from '@/lib/castColour.mjs';
 import { PICTURE_ACCEPT, emptyRights, pictureHint, pictureProblem, rightsFields, rightsProblem } from '@/lib/cast.mjs';
 import type { RightsAnswers } from '@/lib/cast.mjs';
-import { BOARD_POLL_MS, boardEstimateLines, boardProgress } from '@/lib/world.mjs';
+import { BOARD_POLL_MS, boardProgress, boardRows } from '@/lib/world.mjs';
 import type { BoardEstimate, WorldBoard, WorldBoardRequest, WorldView } from '@/lib/world.mjs';
 import {
-  CREATION_NAMES, boardUnlockHint, creationJourney, screenSteps, sealFor, stepFromQuery, stepNumber, toneChips,
+  CREATION_NAMES, boardUnlockHint, creationJourney, screenSteps, stepFromQuery, stepNumber, toneChips,
   type CreationStep,
 } from '@/lib/journey.mjs';
 import { otherPhotos, progressLine } from '@/lib/checklist.mjs';
 import { input as field, label as fieldLabel, tones } from '@/lib/ui';
+import Checkout from './Checkout';
 import { ConfirmButton } from './ConfirmButton';
 import { SizeNote, usePictureCheck } from './PictureSize';
 import { RightsQuestions } from './RightsQuestions';
 import { StoryChecklist } from './StoryChecklist';
 import { useStudioFocus } from './StudioShell';
 import {
-  CastDot, Dots, EmptyState, GlassPanel, HeroBand, JourneyPath, PinBoard, PriceBlock, RefTile, Seal,
+  CastDot, Dots, EmptyState, GlassPanel, HeroBand, JourneyPath, PinBoard, RefTile,
   StickyNote, TOPIC_STICKY,
 } from './playful';
 
@@ -36,8 +36,9 @@ import {
  * board, Bible and Lock at /studio/universes/{id}/create?step=…, for its owner and admins. The
  * story comes first and the studio lists the reference photos it needs (StoryChecklist); more photos
  * and notes can be added beside the list, as before. Every step is an API route
- * (api/world_routes.py), which stays the authority: a refused step shows the API's reason. Only
- * pressing Make spends, for the price shown first; the one-liner and kind of video save as you type
+ * (api/world_routes.py), which stays the authority: a refused step shows the API's reason (a refused
+ * spend in calm words, and a price that went up is shown again). Only pressing Make spends, for the
+ * price shown first in a checkout (docs/EASY-CHECKOUT.md); the one-liner and kind of video save as you type
  * (free), and an unsent note waits on this device. A live board is made by the worker picture by
  * picture: the page asks again every BOARD_POLL_MS until it is made.
  */
@@ -66,7 +67,7 @@ type BibleResult = {
 };
 
 function problemText(e: unknown): string {
-  return e instanceof ApiError ? e.message : UNREACHABLE;
+  return e instanceof ApiError ? calmText(e.message) : UNREACHABLE;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -127,6 +128,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   const [dragging, setDragging] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [estimate, setEstimate] = useState<{ feedback: string; result: BoardEstimate } | null>(null);
+  const [refusal, setRefusal] = useState<MoneyProblem | null>(null);
   const [bible, setBible] = useState<BibleResult | null>(null);
   const [justMade, setJustMade] = useState<string | null>(null);
   const [spark, setSpark] = useState<{ logline: string; preset: string } | null>(null);
@@ -248,7 +250,8 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     );
   }
 
-  const act = async <T,>(where: string, fn: () => Promise<T>, done: string | ((result: T) => string)): Promise<T | null> => {
+  const act = async <T,>(where: string, fn: () => Promise<T>, done: string | ((result: T) => string),
+    refused?: (message: string) => boolean): Promise<T | null> => {
     setBusy(true);
     setNote(null);
     try {
@@ -257,7 +260,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       await load();
       return result;
     } catch (e) {
-      setNote({ tone: 'problem', text: problemText(e), where });
+      if (!(e instanceof ApiError && refused?.(e.message))) setNote({ tone: 'problem', text: problemText(e), where });
       await load().catch(() => undefined);
       return null;
     } finally {
@@ -311,6 +314,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     setBusy(true);
     setNote(null);
     setEstimate(null);
+    setRefusal(null);
     try {
       setEstimate({ feedback: redo, result: await postJson<BoardEstimate>(`${base}/board/estimate`, { feedback: redo }) });
     } catch (e) {
@@ -321,11 +325,16 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   };
   const makeBoard = async () => {
     if (!estimate) return;
+    setRefusal(null);
     const made = await act('board', () => postJson<{ board: WorldBoard | null; request?: WorldBoardRequest }>(`${base}/board`, {
       feedback: estimate.feedback, approved_total_usd_micros: estimate.result.total_usd_micros,
     }), (r) => {
       if (!r.board) return BOARD_STARTED;
       return estimate.feedback ? 'The new mood board is ready below.' : 'Your mood board is ready below.';
+    }, (message) => {
+      const money = moneyProblem(message);
+      setRefusal(money);
+      return money !== null;
     });
     if (made) {
       setJustMade(made.board?.board_id ?? 'making');
@@ -347,31 +356,16 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
     if (made) setBible(made.bible);
   };
 
-  const priceOf = (result: BoardEstimate) => (result.dry_run ? 'Free' : formatUsd(result.total_usd_micros));
-  const estimateBlock = (forRedo: boolean) => {
+  const checkout = (forRedo: boolean) => {
     if (!estimate || Boolean(estimate.feedback) !== forRedo) return null;
     const result = estimate.result;
-    const budget = result.dry_run ? null : result.budget ?? null;
     return (
-      <PriceBlock testId="board-estimate" className="mt-3.5" total={priceOf(result)}
-        rows={budget ? [{ label: 'Mood board budget left now', value: formatUsdMicros(budget.available_usd_micros) }] : []}
-        after={budget ? { label: 'Left after this board', value: formatUsdMicros(budget.available_usd_micros - result.total_usd_micros) } : null}>
-        <p className="mt-2 text-[13px] font-bold">
-          {result.dry_run ? `${result.summary} (a live board would cost ${formatUsd(result.total_usd_micros)})` : result.summary}
-        </p>
-        {!result.dry_run && (
-          <>
-            <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]" data-testid="board-estimate-lines">
-              {boardEstimateLines(result).map((line) => <li key={line}>{line}</li>)}
-            </ul>
-            <p className="mt-1.5 text-[12px] text-ink-soft">
-              Nothing is charged until you press Make. Before each picture the studio checks its price against
-              this estimate, the balance and the budget again, and stops (keeping the pictures already made) if
-              one of them changed.
-            </p>
-          </>
-        )}
-      </PriceBlock>
+      <Checkout className="mt-3.5" testId="board-estimate" what={forRedo ? 'The new mood board' : 'Your mood board'}
+        price={quote(result)} action={forRedo ? 'Make the new mood board' : 'Make my mood board'} onAction={makeBoard}
+        busy={busy} actionTestId="board-make" notNow={() => setEstimate(null)} notNowTestId="board-not-now"
+        problem={refusal} onProblem={() => checkPrice(estimate.feedback)} rows={boardRows(result)}>
+        {!result.dry_run && <p>We check the price again before each picture, and stop rather than go over.</p>}
+      </Checkout>
     );
   };
 
@@ -391,7 +385,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
         : 'Tell me your story in plain words. Then I list exactly the photos it needs.',
     moodboard: making ? 'Pictures appear on the board as they are made.' : `I mix your ${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')} into one look.`,
     bible: 'From the approved board I write the characters, places and props.',
-    lock: counts.characters === 0 ? 'No characters yet: add them on the Universe page.' : `${counts.locked} of ${plural(counts.characters, 'look')} sealed.`,
+    lock: counts.characters === 0 ? 'No characters yet: add them on the Universe page.' : `${counts.locked} of ${plural(counts.characters, 'look')} locked.`,
   };
 
   const head = (
@@ -656,16 +650,13 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           <div>
             <h2 id="board-title" className="text-[22px]">Mood board {latest.version}</h2>
             <p className={hint}>
-              Made {formatLocalDate(latest.created_at)} · {latest.dry_run ? 'free stand-in pictures (dry run)' : `priced at ${formatUsdMicros(latest.estimate_usd_micros)} before it ran`}
+              Made {formatLocalDate(latest.created_at)} · {latest.dry_run ? 'free test pictures' : `priced at about ${priceText(latest.estimate_usd_micros)}`}
               {latest.answers_feedback && <> · asked: {latest.answers_feedback}</>}
             </p>
           </div>
           {latest.status === 'approved' && <span className="pf-chip pf-chip-lock">Board {latest.version} approved</span>}
         </div>
-        <div className="relative">
-          <BoardPictures board={latest} dropping={justMade === latest.board_id} testId={`board-images-${latest.version}`} />
-          {latest.status === 'approved' && <span className="pf-stamp right-6 top-6" aria-hidden="true">APPROVED</span>}
-        </div>
+        <BoardPictures board={latest} dropping={justMade === latest.board_id} testId={`board-images-${latest.version}`} />
         {progress?.kind === 'short' && creation.board_request?.board_id === latest.board_id && (
           <p className={`${hint} mt-3`} data-testid="board-short">{progress.text}</p>
         )}
@@ -698,15 +689,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                 {!feedback.trim() && (
                   <p id="board-redo-why" className="pf-off-why" data-testid="board-redo-why">Turns on once you say what to change.</p>
                 )}
-                {estimateBlock(true)}
-                {estimate?.feedback && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" className="pf-btn pf-btn-go" disabled={busy} onClick={makeBoard} data-testid="board-make">
-                      Make the new mood board · {priceOf(estimate.result)}
-                    </button>
-                    <button type="button" className="pf-btn pf-btn-quiet" disabled={busy} onClick={() => setEstimate(null)}>Cancel</button>
-                  </div>
-                )}
+                {checkout(true)}
               </div>
             )}
           </div>
@@ -744,7 +727,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
             <p className="mt-3 rounded-inner bg-mustard-soft p-3 text-[13.5px] font-bold text-mustard-ink" data-testid="board-unavailable">
               {creation.board.unavailable}
             </p>
-          ) : !making && (
+          ) : !making && (priced ? checkout(false) : (
             <>
               <button type="button" className="pf-btn pf-btn-soft mt-3.5 w-full" disabled={busy || !journey.boardOpen}
                 title={unlockHint ?? undefined} aria-describedby={unlockHint ? 'board-unlock-why' : undefined}
@@ -752,24 +735,15 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
                 Check the price
               </button>
               {unlockHint && <p id="board-unlock-why" className="pf-off-why text-center">{unlockHint}</p>}
-              {estimateBlock(false)}
-              <button type="button" className="pf-btn pf-btn-go mt-4 w-full" disabled={busy || !estimate || Boolean(estimate.feedback)}
-                title={priced ? undefined : 'Turns on once the price is on screen.'} aria-describedby="board-make-why"
-                onClick={makeBoard} data-testid="board-make">
-                {estimate && !estimate.feedback ? `Make my mood board · ${priceOf(estimate.result)}` : 'Make my mood board'}
+              <button type="button" className="pf-btn pf-btn-primary mt-4 w-full" disabled title="Turns on once the price is on screen."
+                aria-describedby="board-make-why" data-testid="board-make">
+                Make my mood board
               </button>
-              {estimate && !estimate.feedback && (
-                <button type="button" className="pf-btn pf-btn-quiet pf-btn-sm mt-2 w-full" disabled={busy} onClick={() => setEstimate(null)}>
-                  Cancel
-                </button>
-              )}
-              <p id="board-make-why" className={`${priced ? 'mt-2 text-[12px] text-ink-soft' : 'pf-off-why'} text-center`} data-testid="board-make-why">
-                {priced
-                  ? 'Nothing is spent until you press this.'
-                  : 'Turns on once the price is on screen. If we can’t get a price, it stays off: nothing is spent until you press it.'}
+              <p id="board-make-why" className="pf-off-why text-center" data-testid="board-make-why">
+                Turns on once the price is on screen. Nothing is spent until you press it.
               </p>
             </>
-          )}
+          ))}
           <ul className="mt-3 space-y-1 text-[12.5px]">
             {[`Uses your ${journey.story ? 'story, ' : ''}${plural(counts.photos, 'photo')} and ${plural(counts.notes, 'note')}`,
               'Redo as many times as you like, each priced first', 'Nothing else runs until you approve'].map((line) => (
@@ -891,7 +865,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
   } else {
     main = (
       <section className="pf-card p-6" data-testid="creation-lock" aria-labelledby="lock-title">
-        <h2 id="lock-title" className="text-[22px]">Seal each look</h2>
+        <h2 id="lock-title" className="text-[22px]">Lock each look</h2>
         <p className="mt-1 text-[13.5px]">
           A look is locked from an episode in this Universe: make the character sheet there and lock it. Every episode after
           uses exactly that sheet and those photos, and an episode starts once every character in it is locked.
@@ -903,25 +877,21 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
           </EmptyState>
         ) : (
           <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-            {view.characters.map((c) => {
-              const seal = sealFor({ characters: 1, locked_characters: c.locked_versions.length > 0 ? 1 : 0 });
-              return (
-                <li key={c.character_id} className="flex items-center gap-3 rounded-inner bg-white p-3 shadow-card" data-testid={`creation-look-${c.slug}`}>
-                  <Seal state={seal.state} top={c.locked_versions.length > 0 ? 'locked' : 'not'} bottom={c.locked_versions.length > 0 ? `v${Math.max(...c.locked_versions)}` : 'locked'} size={54} />
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 font-extrabold"><CastDot colour={colours[c.slug]} />{c.name}</p>
-                    <p className={hint}>{c.locked_versions.length > 0 ? 'Look locked' : 'Not locked yet'}</p>
-                  </div>
-                </li>
-              );
-            })}
+            {view.characters.map((c) => (
+              <li key={c.character_id} className="flex items-center justify-between gap-3 rounded-inner bg-white p-3 shadow-card" data-testid={`creation-look-${c.slug}`}>
+                <p className="flex min-w-0 items-center gap-1.5 font-extrabold"><CastDot colour={colours[c.slug]} />{c.name}</p>
+                <span className={`pf-chip ${c.locked_versions.length > 0 ? tones.ok : tones.todo}`}>
+                  {c.locked_versions.length > 0 ? 'Look locked' : 'Not locked yet'}
+                </span>
+              </li>
+            ))}
           </ul>
         )}
       </section>
     );
     side = (
       <>
-        <h3 className="text-[19px]">{journey.current === null ? 'Every look is sealed' : 'Lock from an episode'}</h3>
+        <h3 className="text-[19px]">{journey.current === null ? 'Every look is locked' : 'Lock from an episode'}</h3>
         <p className={hint}>{counts.locked} of {plural(counts.characters, 'look')} locked. Locking itself is free; a character sheet is priced before it is made.</p>
         {lockEpisode ? (
           <Link href={`/studio/episodes/${encodeURIComponent(lockEpisode)}#cast`} className="pf-btn pf-btn-primary mt-4 w-full" data-testid="creation-lock-episode">

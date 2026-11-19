@@ -6,6 +6,7 @@
  */
 
 import { formatUsdMicros } from './balance.mjs';
+import { priceText } from './checkout.mjs';
 import { VIDEO_FILES } from './next-step.mjs';
 
 /** Episode id -> the Universe card it is in, for the Universes the reader may see. */
@@ -129,28 +130,31 @@ export function boardProgress(request) {
 }
 
 /**
- * What a live mood board estimate (POST /api/worlds/{id}/board/estimate) shows before anything is
- * spent, after its summary: the price of each picture, what the pictures are made with, and what the
- * Universe's mood board budget has left before its stop. A dry-run estimate: none.
+ * The breakdown under a mood board's price (POST /api/worlds/{id}/board/estimate), before anything is
+ * spent: the price of each picture, what they are made from and what the Universe's mood board budget
+ * has left. A test run's: its free pictures and the same board's live price. Never the model's name.
  */
-export function boardEstimateLines(estimate) {
-  if (!estimate || estimate.dry_run) return [];
+export function boardRows(estimate) {
+  if (!estimate) return [];
+  if (estimate.dry_run) {
+    return [
+      { label: `${estimate.count} test picture${estimate.count === 1 ? '' : 's'}`, value: 'free' },
+      { label: 'The same board, live', value: `about ${priceText(estimate.total_usd_micros)}` },
+    ];
+  }
   const prices = estimate.per_image_usd_micros ?? [];
-  const lines = [];
+  const rows = [];
   if (prices.length > 0) {
-    lines.push(prices.every((p) => p === prices[0])
-      ? `${prices.length} picture${prices.length === 1 ? '' : 's'} at ${formatUsdMicros(prices[0])} each (the provider's price)`
-      : `The provider's price of each picture: ${prices.map(formatUsdMicros).join(', ')}`);
+    rows.push(prices.every((p) => p === prices[0])
+      ? { label: `${prices.length} picture${prices.length === 1 ? '' : 's'}`, value: `${formatUsdMicros(prices[0])} each` }
+      : { label: 'Each picture', value: prices.map(formatUsdMicros).join(', ') });
   }
   const refs = Number.isInteger(estimate.references_per_picture) ? estimate.references_per_picture : 0;
-  const madeFrom = refs > 0 ? `your notes and ${refs} of your reference photos` : 'your notes';
-  lines.push(estimate.model_path ? `Made from ${madeFrom}, with ${estimate.model_path}` : `Made from ${madeFrom}`);
-  const budget = estimate.budget;
-  if (budget) {
-    lines.push(`This Universe's mood board budget has ${formatUsdMicros(budget.available_usd_micros)} left `
-      + `(it stops at ${formatUsdMicros(budget.stop_usd_micros)} spent of ${formatUsdMicros(budget.cap_usd_micros)})`);
+  rows.push({ label: 'Made from', value: refs > 0 ? `your notes and ${refs} of your reference photos` : 'your notes' });
+  if (estimate.budget) {
+    rows.push({ label: 'Left in the mood board budget', value: formatUsdMicros(estimate.budget.available_usd_micros) });
   }
-  return lines;
+  return rows;
 }
 
 /**
