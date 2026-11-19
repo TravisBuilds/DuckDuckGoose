@@ -94,7 +94,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
   const maxCast = view.limits.max_cast_per_shot;
   const unreadable = shot.cast === null || shot.props === null;
   const disabled = !canEdit || unreadable || saving;
-  const facts = [shot.duration ? `${shot.duration} s` : null, shot.model].filter(Boolean).join(' · ');
+  const facts = shot.duration ? `${shot.duration} s` : '';
   return (
     <li className="rounded-lg border border-gray-200 p-3 sm:p-4" data-testid={`plan-shot-${sid}`}>
       <div className="flex flex-wrap items-center gap-2">

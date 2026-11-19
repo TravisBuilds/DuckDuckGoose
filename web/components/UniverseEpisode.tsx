@@ -319,7 +319,7 @@ export function StartCard({ episodeId, info, frames = null, price = null, onStar
       <Checkout className="mt-3" testId="start-checkout" what="This video" price={video} action="Start the video"
         onAction={start} busy={busy} busyAction="Starting…" needsPrice={false} off={locked ? null : waitFor} actionTestId="start-episode"
         lineTestId="start-mode"
-        line={request.dry_run ? FREE_NOTE : 'Starting is free. The video is paid for when you approve its shot plan.'}
+        line={request.dry_run ? FREE_NOTE : 'Starting is free. Each paid step shows its price first.'}
         rows={video?.rows ?? []}>
         {!request.dry_run && <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>}
       </Checkout>
