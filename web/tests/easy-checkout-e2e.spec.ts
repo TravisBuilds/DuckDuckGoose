@@ -251,6 +251,21 @@ test.describe.serial('Easy checkout', () => {
     await expect(breakdown.locator('dd')).toHaveText(price.values);
     await expect(plan).not.toContainText(MODEL_NAMES);
 
+    // on a phone the next step is a sheet pinned over the bottom of the screen: the approve button,
+    // reached by keyboard while the sheet covers its lower half, comes up above it
+    const desk = page.viewportSize()!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    const approve = page.getByTestId('approve-g1');
+    const sheetTop = () => page.getByTestId('gate-panel').evaluate((el) => el.getBoundingClientRect().top);
+    await expect.poll(sheetTop).toBeLessThan(844);
+    await approve.evaluate((el, top) => window.scrollBy(0, el.getBoundingClientRect().bottom - top - 30), await sheetTop());
+    expect(await approve.evaluate((el) => el.getBoundingClientRect().bottom), 'the sheet starts over the button')
+      .toBeGreaterThan(await sheetTop());
+    await approve.focus();
+    await expect.poll(async () => await approve.evaluate((el) => el.getBoundingClientRect().bottom) <= await sheetTop(),
+      { message: 'the sheet covers the focused approve button' }).toBe(true);
+    await page.setViewportSize(desk);
+
     // approve once: one press, one approval, no dialog and no override
     const approvals: Record<string, unknown>[] = [];
     page.on('request', (request) => {

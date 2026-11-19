@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { headline, promise, type MoneyProblem, type Price, type PriceRow } from '@/lib/checkout.mjs';
 import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
 
@@ -13,12 +13,13 @@ import { btnPrimary, btnSecondary, focusRing } from '@/lib/ui';
  * the approved total (lib/checkout.mjs approvedRequest), and the server refuses a higher one. A refused
  * spend shows in calm words with its one next action (moneyProblem) instead of the button and the
  * breakdown, so an old price can never be approved again or read as the current one. While the button
- * is off for want of a price that could not be read, `retry` adds a quiet "Try again".
+ * is off for want of a price that could not be read, `retry` adds a quiet "Try again". A card opened by
+ * a tap (`reveal`) scrolls itself fully into view, above whatever is pinned over the bottom of a phone.
  */
 export default function Checkout({
   testId, what, title, headlineTestId, price, action, onAction, busy = false, busyAction, off = null, whyTestId,
   disabled = false, describedBy, needsPrice = true, actionTestId, notNow, notNowTestId, retry, line, lineTestId, note,
-  rows = [], children, problem = null, onProblem, className = '',
+  rows = [], children, problem = null, onProblem, reveal = false, className = '',
 }: {
   testId: string;
   what: string;
@@ -45,13 +46,18 @@ export default function Checkout({
   children?: ReactNode;
   problem?: Pick<MoneyProblem, 'text' | 'action'> | null;
   onProblem?: () => void;
+  reveal?: boolean;
   className?: string;
 }) {
   const whyId = useId();
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (reveal) box.current?.scrollIntoView({ block: 'nearest' });
+  }, [reveal]);
   const calm = line === undefined ? promise(price) : line;
   const why = off ?? (price || !needsPrice ? null : 'Turns on once the price is on screen.');
   return (
-    <div className={`rounded-card border-2 border-sky bg-white p-4 sm:p-5 ${className}`} data-testid={testId}
+    <div ref={box} className={`rounded-card border-2 border-sky bg-white p-4 sm:p-5 ${className}`} data-testid={testId}
       data-free={price ? String(price.free) : undefined}>
       <p className="font-display text-[22px] font-bold leading-tight tracking-[-0.01em] text-ink sm:text-[26px]"
         data-testid={headlineTestId ?? `${testId}-price`}>

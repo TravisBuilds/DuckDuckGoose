@@ -362,7 +362,7 @@ export function UniverseCreation({ seriesId, stepParam }: { seriesId: string; st
       <Checkout className="mt-3.5" testId="board-estimate" what={forRedo ? 'The new mood board' : 'Your mood board'}
         price={quote(result)} action={forRedo ? 'Make the new mood board' : 'Make my mood board'} onAction={makeBoard}
         busy={busy} actionTestId="board-make" notNow={() => setEstimate(null)} notNowTestId="board-not-now"
-        problem={refusal} onProblem={() => checkPrice(estimate.feedback)} rows={boardRows(result)}>
+        problem={refusal} onProblem={() => checkPrice(estimate.feedback)} rows={boardRows(result)} reveal>
         {!result.dry_run && <p>We check the price again before each picture, and stop rather than go over.</p>}
       </Checkout>
     );

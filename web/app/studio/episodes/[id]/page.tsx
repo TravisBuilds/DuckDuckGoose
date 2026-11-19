@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useMemo, useState, type ComponentProps, type FormEvent } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type FormEvent, type RefObject } from 'react';
 import Link from 'next/link';
 import { DEFAULT_EPISODE_CAP_USD_MICROS, formatUsd } from '@/lib/money';
 import { formatLimits, summarizePreflight } from '@/lib/model-limits.mjs';
@@ -454,6 +454,32 @@ function UploadFiles({ episodeId, onUploaded }: { episodeId: string; onUploaded:
   );
 }
 
+/**
+ * Below lg the next step is a sheet fixed over the bottom of the screen: while it is there, whatever the
+ * page scrolls to (a focused button, a price card, a link to a section) stops above it, not under it.
+ */
+function ClearOfSheet({ sheet }: { sheet: RefObject<HTMLElement | null> }) {
+  useEffect(() => {
+    const panel = sheet.current;
+    if (!panel) return;
+    const root = document.documentElement;
+    const below = window.matchMedia('(max-width: 1023.98px)');
+    const pad = () => {
+      root.style.scrollPaddingBottom = below.matches ? `${Math.ceil(panel.getBoundingClientRect().height) + 16}px` : '';
+    };
+    pad();
+    const resized = new ResizeObserver(pad);
+    resized.observe(panel);
+    below.addEventListener('change', pad);
+    return () => {
+      resized.disconnect();
+      below.removeEventListener('change', pad);
+      root.style.scrollPaddingBottom = '';
+    };
+  }, [sheet]);
+  return null;
+}
+
 export default function EpisodePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: episodeId } = use(params);
   const { me, isAdmin } = useMe();
@@ -485,6 +511,7 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   const [costEstimate, setCostEstimate] = useState<OfflineEstimate | null>(null);
   const [priceLoad, setPriceLoad] = useState<'loading' | 'ok' | 'error'>('loading');
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!sheetOpen) return;
@@ -802,8 +829,9 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
             data-testid="gate-sheet-scrim" />
         )}
         {gate && (
-          <aside aria-label="What happens next" data-testid="gate-panel"
+          <aside aria-label="What happens next" data-testid="gate-panel" ref={sheetRef}
             className={`lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1 ${sheet ? 'fixed inset-x-0 bottom-0 z-30 lg:inset-auto lg:z-auto' : ''}`}>
+            {sheet && <ClearOfSheet sheet={sheetRef} />}
             {/* below lg the sheet is solid and reaches the screen's bottom edge, under the phone's bottom
                 bar (hidden from 640 px): pb-[88px] keeps its content above that bar */}
             <GlassPanel className={`p-4 sm:p-5 ${sheet ? 'max-lg:rounded-b-none max-lg:border-x-0 max-lg:border-b-0 max-lg:bg-paper max-lg:pb-[88px] max-lg:shadow-[0_-10px_30px_rgba(29,35,48,0.18)] sm:max-lg:pb-5' : ''}`}

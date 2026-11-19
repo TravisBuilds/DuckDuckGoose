@@ -662,6 +662,13 @@
   .pf-fab:active {
     transform: translateY(1px);
   }
+  /* the tab bar is pinned over the bottom of a phone screen: whatever the page scrolls to (a focused
+     button, a price card) stops above it and its raised button */
+  @media (max-width: 639px) {
+    html:has(.pf-tabbar) {
+      scroll-padding-bottom: 7rem;
+    }
+  }
 
   /* ---- boards: pinned pictures and notes ---- */
   .pf-board {

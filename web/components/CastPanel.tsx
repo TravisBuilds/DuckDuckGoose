@@ -298,7 +298,7 @@ function SheetSection({ apiBase, view, character, version, busy, act, note }: {
         <Checkout testId={`cast-estimate-${character.slug}`} what={estimateWhat(estimate.result)}
           title={estimateText(estimate.result)} price={quote(estimate.result)} action={label} onAction={make} busy={busy}
           actionTestId={`cast-generate-${character.slug}`} notNow={() => setEstimate(null)}
-          notNowTestId={`cast-not-now-${character.slug}`} problem={refusal} onProblem={() => checkPrice(estimate.request)} />
+          notNowTestId={`cast-not-now-${character.slug}`} problem={refusal} onProblem={() => checkPrice(estimate.request)} reveal />
       )}
     </div>
   );

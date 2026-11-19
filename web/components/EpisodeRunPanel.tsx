@@ -616,7 +616,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                         onAction={makeRedo} busy={busy} actionTestId={`redo-confirm-${sid}`} describedBy={`redo-note-${sid}`}
                         notNow={() => setRedo(null)} notNowTestId={`redo-cancel-${sid}`} line={redoLine(confirming.estimate)}
                         note={<span id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}>{redoNoteText(confirming.note)}</span>}
-                        problem={refusal} onProblem={() => priceRedo(sid, confirming.note)} />
+                        problem={refusal} onProblem={() => priceRedo(sid, confirming.note)} reveal />
                     )}
                   </div>
                 )}

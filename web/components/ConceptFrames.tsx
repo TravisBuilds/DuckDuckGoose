@@ -356,7 +356,7 @@ function ShotFrames({ shot, view, busy, anyBusy, pending, message, problem, onRe
         <Checkout className="mt-3" testId={`frames-price-${id}`} what={priceWhat(pending.estimate)}
           price={quote(pending.estimate)} action={makeLabel(pending.estimate)} onAction={onMake} busy={busy} busyAction="Starting…"
           disabled={off} describedBy={whyId} actionTestId={`frames-make-${id}`} notNow={onCancel} notNowTestId={`frames-cancel-${id}`}
-          line={priceStatus(pending.estimate)} problem={problem} onProblem={onReprice} rows={priceRows(pending.estimate)}
+          line={priceStatus(pending.estimate)} problem={problem} onProblem={onReprice} rows={priceRows(pending.estimate)} reveal
           note={(pending.change || !pending.keepChanges)
             ? (pending.change ? `With your change: ${pending.change}.` : 'Starting over from the shot as it is.') : null}>
           {pending.estimate.notes.length > 0
