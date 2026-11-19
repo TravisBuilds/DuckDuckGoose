@@ -148,6 +148,26 @@ async def test_the_owner_prices_makes_tweaks_and_picks_a_first_frame(studio):  #
         assert "grok" not in text.lower() and "model_path" not in text and "adapter" not in text
 
 
+async def test_a_pick_from_an_earlier_version_of_the_shot_or_over_a_hand_set_frame_is_refused(studio):  # noqa: F811
+    owner = _client(studio, "owner")
+    _write_shots()
+    res = owner.post(f"{BASE}/A01", json={"approved_total_usd_micros": _dry_total()})
+    assert res.status_code == 200, res.text
+    option_id = res.json()["round"]["options"][0]["option_id"]
+    shots = json.loads((episode_dir(EP) / "shots.json").read_text())
+    shots["shots"][0]["prompt"] = "The brass key lies on the cabin floor under a broken lamp."
+    (episode_dir(EP) / "shots.json").write_text(json.dumps(shots), encoding="utf-8")
+    res = owner.post(f"{BASE}/A01/pick", json={"option_id": option_id})
+    assert res.status_code == 409 and "changed since these options were made" in res.json()["detail"], res.text
+    assert "pre_approved_still" not in _shots()["A01"]
+
+    hand = {"path": "stills/a01_owner.png", "approved_by": "owner"}
+    _write_shots(pre_approved_still=hand)
+    res = owner.post(f"{BASE}/A01/pick", json={"option_id": option_id})
+    assert res.status_code == 409 and "set in its shot list" in res.json()["detail"], res.text
+    assert _shots()["A01"]["pre_approved_still"] == hand
+
+
 async def test_bad_requests_change_nothing(studio):  # noqa: F811
     _write_shots()
     owner = _client(studio, "owner")
@@ -329,6 +349,7 @@ async def test_live_first_frames_stop_at_the_draft_budget_line(live):
 
 
 async def test_live_first_frames_need_a_fresh_balance_and_pass_the_balance_gate(live, monkeypatch):
+    import hfvg.balance_monitor  # noqa: F401 - it reads HFVG_BALANCE_MAX_AGE_HOURS as a whole number once, on import
     from hfvg.budget import BudgetLedger
     from tests.ledger_helpers import set_balance
     db = os.environ["DATABASE_PATH"]
