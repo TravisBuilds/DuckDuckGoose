@@ -437,6 +437,7 @@ test.describe.serial('Creation flow fixes', () => {
     await expect(other.getByTestId(`frames-status-${shot}`)).toHaveText('Start frame locked');
     await expect(other.getByTestId(`frames-picked-${shot}`)).toBeVisible();
     await expect(other.getByTestId(`frames-option-${option}`)).toHaveAttribute('data-picked', 'true');
+    await screenshot(other, 'episode-start-another-device-1440', other.getByTestId('start-card'));
     const start = other.waitForRequest((req) => req.url() === `${API}/api/episodes` && req.method() === 'POST');
     await other.getByTestId('start-episode').click();
     expect((await start).postDataJSON()).toMatchObject({
