@@ -166,5 +166,5 @@ test('the result line of a save, with the model limits the checked plan breaks',
   { tone: 'ok', text: 'Saved 2 shots and checked the plan again. Approve it when you are ready.' });
   assert.deepEqual(savedText({ changed: [{ shot_id: 'A01', field: 'clip_prompt' }],
     result: { preflight_errors: ['shot A01: kling prompt is 2600 characters (max 2500)'] } }),
-  { tone: 'problem', text: 'Saved 1 shot, but the plan breaks a model limit: shot A01: kling prompt is 2600 characters (max 2500)' });
+  { tone: 'problem', text: 'Saved 1 shot, but a shot asks for more than the studio can make: shot A01: kling prompt is 2600 characters (max 2500)' });
 });

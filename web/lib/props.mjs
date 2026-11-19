@@ -176,7 +176,7 @@ export function planStateText(view) {
   const state = view.phase?.state;
   if (state === 'locked') return view.phase?.reason || 'The shot plan cannot change right now.';
   if (!view.may_change) return 'Only this video’s owner (or an admin) can change the shot plan.';
-  if (state === 'g1') return 'Saved changes are checked again (model limits and prices) before you approve the plan.';
+  if (state === 'g1') return 'Saved changes are checked again, and priced again, before you approve the plan.';
   return 'Saved changes are used when this video starts.';
 }
 
@@ -187,7 +187,7 @@ export function savedText(response) {
   const what = `${shots} shot${shots === 1 ? '' : 's'}`;
   const errors = response.result?.preflight_errors ?? [];
   if (errors.length) {
-    return { tone: 'problem', text: `Saved ${what}, but the plan breaks a model limit: ${errors.join(' ')}` };
+    return { tone: 'problem', text: `Saved ${what}, but a shot asks for more than the studio can make: ${errors.join(' ')}` };
   }
   if (response.result) return { tone: 'ok', text: `Saved ${what} and checked the plan again. Approve it when you are ready.` };
   return { tone: 'ok', text: `Saved ${what}.` };

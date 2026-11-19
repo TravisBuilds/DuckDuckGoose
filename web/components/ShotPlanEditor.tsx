@@ -14,7 +14,8 @@ import { btnPrimary, btnSecondary, chip, focusRing, input as field, link, tones 
  * Each shot's place, props and cast, and its prompts, until the shot plan is approved
  * (api/shot_plan_routes.py): a picked prop or place sends its photos with the shot and adds its
  * description to the shot's prompt. While the run waits for the shot plan approval, a save is checked
- * again by the run (model limits, prices) before it counts; after the approval the plan is locked.
+ * again by the run (what each shot asks for, and its price) before it counts; after the approval the
+ * plan is locked.
  * Every saved change is kept in the shot's history. Only the episode's owner or an admin may save.
  */
 
