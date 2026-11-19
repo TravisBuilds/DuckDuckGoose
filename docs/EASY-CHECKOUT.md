@@ -2,13 +2,15 @@
 
 Paying for and approving things in the studio should feel like checking out in a good online shop: one
 clear price for each thing, in plain words, next to one button. This file is the audit of every place a
-user meets money or an approval today (with screenshots), and the plan for making each one calm and
-simple. It is a web-only change: the server's money rules stay exactly as they are.
+user meets money or an approval (with screenshots), the plan for making each one calm and simple
+(written before the change), and what was built. It is a web-only change: the server's money rules
+stay exactly as they are.
 
-Screenshots of today's flow are in `docs/easy-checkout/before/` at 1440 px and 390 px wide. They come
-from the end-to-end test backend (a test-run server, so no real generation). A live studio's answers
-were simulated by changing only what the API returned to the browser (for example `dry_run: false` on
-an estimate), never by changing the server.
+Screenshots are in `docs/easy-checkout/before/` (the flow before the change) and
+`docs/easy-checkout/after/` (after it), at 1440 px and 390 px wide. They come from the end-to-end test
+backend (a test-run server, so no real generation). A live studio's answers were simulated by changing
+only what the API returned to the browser (for example `dry_run: false` on an estimate, or a 409 when
+the price went up), never by changing the server.
 
 ## What does not change
 
@@ -20,12 +22,12 @@ These are the money safety rules. The plan only changes how they are shown.
   With no estimate, there is nothing to approve and the button stays off.
 - **The balance gate stays** (a fresh balance, the floor, GC.01). So do reserves, the job ledger and the
   owner checks. The web never sends `override_unavailable_estimates`, and the flag's name never shows up
-  on a screen. Today it does: see "Shot plan" below.
+  on a screen. Before this change it did: see "Shot plan" below.
 - **A live run pays for nothing before its shot plan is approved.** That approval (G1) also gives the
   credit plan approval (G1.08). In a live run, G1 is refused when the provider estimates are unavailable.
 - **The admin costs page (`/dashboard`) keeps its full detail.**
 
-## Today: every place a user meets money or an approval
+## Before: every place a user met money or an approval
 
 | # | Where | What the user sees today | What is wrong with it |
 |---|---|---|---|
@@ -199,6 +201,135 @@ So the gates stay, and each one becomes a single calm line. The video's price sh
 actually approved (the shot plan), and "we ask you first if it would cost more" only appears where the
 server enforces it.
 
+## After: what was built
+
+The plan above, as built. Every paid thing now has one checkout: one price in big type, one primary
+button, an optional quiet "Not now", one calm line, and "See the breakdown" (closed) for the rest.
+
+| # | Moment | The words on screen now |
+|---|---|---|
+| 1 | Wizard trail | "Review & start", with "See the price" under it. No coin. |
+| 2 to 5 | Wizard checkout | Live: "This video: about $7.44", "Make it", "Starting is free. Each paid step shows its price first.", and a quiet "Make a free preview first" under the card. Live off: "This video: free", "Make a free preview", "Live videos are off right now, so this is a free test run." The breakdown: scene pictures and clips, and "The list price for one try of each picture and clip. A redo is priced on its own." No confirm dialog, no price in the overview. |
+| 3, 14 | Shot lists | "5 s". No model names. |
+| 6 | Start card | "This video: about $7.44" (live) or "This video: free" (test run), "Start the video", and one line: "Starting is free. Each paid step shows its price first." or "A test run, so nothing is charged." |
+| 7 | Next step card | The chip "Your turn", the step, "Show me", and one quiet line: "Every paid step shows its price first. Spent so far: $0." in a live run, "A test run, so nothing is charged." in a test run. |
+| 8 | Step trail | Only "Now", "Done", "Skipped" or "Stopped here" under each step. |
+| 9 | Character sheet | "3 pictures: about $0.12", "Make the options", "Not now", and "If the price goes up before we make it, we ask you first." The turnaround is the same with "Make the turnaround". |
+| 10 | First frames | "3 options: about $0.09", "Make 3 options", "Not now", the same promise. The breakdown: "3 options: $0.03 each" and "Left in the budget for first frames: $1.60". |
+| 11 | The price went up | The headline loses its old price ("3 options"), and a calm blue box says "The price went up to $0.12 since you looked. Nothing was charged." with one button, "See the new price". The old breakdown is hidden too. One press shows the new checkout; one more press makes it at the new price. |
+| 12 | Balance refusal | "The studio's balance is too low for this right now. Nothing was charged. An admin can top it up." with "Try again". No provider name, no "floor". |
+| 14 | Shot plan (G1) | Live: "This video: about $7.44", "Approve the shot plan", "This starts the scene pictures. The clips wait for your OK on them." Without today's prices: "This video" (no price), the button off, and "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes." Test run: "This video: free". The override flag is never shown. |
+| 15 | Picture redo | "1 new picture: about $0.04", the note ("Your note goes with it: ..."), "Make it again", "Not now", the promise, and the same re-ask when the price goes up. |
+| 15b | Clip redo | "Redo this clip" with the clip's list price next to it ("about $1.20", or "free" in a test run). No promise, because the server has no approved total for a clip redo. |
+| 17 | What it cost | "What it cost", then "$4.24" (or "Free" for a test run, "Not recorded" when nothing is on record), and "See the breakdown" with each step's cost. |
+| 18 | Mood board | "Your mood board: about $1.56", "Make my mood board", "Not now", the promise. The breakdown: "4 pictures: $0.39 each", "Made from: your notes", "Left in the mood board budget: $3.20", and "We check the price again before each picture, and stop rather than go over." No model name, stop or cap. |
+| 19 | Mood board approved | The chip "Board 1 approved". No stamp. |
+| 20 | Locks | "Lock each look", and the chips "Look locked" or "Not locked yet". No seals. |
+| 22 | Production details | The budget and model limits cards are for admins only. |
+| 23 | Admin costs page | Unchanged. |
+
+### Where the build differs from the plan
+
+- **The shot plan's line** says what the approval does, "This starts the scene pictures. The clips wait
+  for your OK on them.", instead of "This is when the video is paid for". The clips are only made after
+  the scene pictures are approved, so the old wording claimed too much.
+- **A live shot plan without today's prices shows no price at all**, not the list price, so the card
+  never shows a price next to "We couldn't get today's prices".
+- **A refused price hides its breakdown** as well as its button, so a stale per-picture price can't be
+  read as the current one.
+- **Headlines:** "Your mood board: about $1.56" (not "Mood board: ..."), "3 pictures: ..." on character
+  sheets, and "This video: free" (not "free preview") when live videos are off.
+- **The start card and the wizard** say "Starting is free. Each paid step shows its price first." in a
+  live run. The promise "we ask you first" is kept for the four places where the server checks the
+  approved total again (character sheets, first frames, the mood board, a picture redo).
+
+### Before and after
+
+Each pair is the same moment, before on the left and after on the right. All of them, at both widths,
+are in `docs/easy-checkout/before/` and `docs/easy-checkout/after/`.
+
+**Wizard checkout** (the confirm dialog is gone; the breakdown is closed until asked for):
+
+| Before | After |
+|---|---|
+| ![Wizard checkout, before](easy-checkout/before/04-wizard-checkout-1440.webp) | ![Wizard checkout, after](easy-checkout/after/04-wizard-checkout-1440.webp) |
+| ![Wizard confirm dialog, before](easy-checkout/before/05-wizard-confirm-1440.webp) | ![Wizard checkout with the breakdown open, after](easy-checkout/after/04b-wizard-checkout-breakdown-1440.webp) |
+| ![Wizard checkout at 390 px, before](easy-checkout/before/04-wizard-checkout-390.webp) | ![Wizard checkout at 390 px, after](easy-checkout/after/04b-wizard-checkout-breakdown-390.webp) |
+| | ![Wizard checkout with live videos off, after](easy-checkout/after/05-wizard-checkout-test-run-390.webp) |
+
+**Start card and next step card:**
+
+| Before | After |
+|---|---|
+| ![Start card, before](easy-checkout/before/07-start-card-1440.webp) | ![Start card, live, after](easy-checkout/after/07b-start-card-live-1440.webp) |
+| ![Start card at 390 px, before](easy-checkout/before/07-start-card-390.webp) | ![Start card at 390 px, test run, after](easy-checkout/after/07-start-card-390.webp) |
+| ![Next step card, live, before](easy-checkout/before/16-next-step-story-live-1440.webp) | ![Next step card, live, after](easy-checkout/after/16-next-step-story-live-1440.webp) |
+| ![Next step card at 390 px, before](easy-checkout/before/16-next-step-story-live-390.webp) | ![Next step card at 390 px, after](easy-checkout/after/16-next-step-story-live-390.webp) |
+| ![Step trail, before](easy-checkout/before/15-stepper-1440.webp) | ![Step trail, after](easy-checkout/after/15-stepper-1440.webp) |
+
+**Character sheet:**
+
+| Before | After |
+|---|---|
+| ![Character sheet price, before](easy-checkout/before/13-sheet-price-live-1440.webp) | ![Character sheet price, after](easy-checkout/after/13-sheet-price-live-1440.webp) |
+| ![Character sheet price at 390 px, before](easy-checkout/before/13-sheet-price-live-390.webp) | ![Character sheet price at 390 px, after](easy-checkout/after/13-sheet-price-live-390.webp) |
+
+**First frames: the price, the price going up, a balance refusal:**
+
+| Before | After |
+|---|---|
+| ![First frames price, before](easy-checkout/before/09-frames-price-live-1440.webp) | ![First frames price, after](easy-checkout/after/09-frames-price-live-1440.webp) |
+| ![First frames price at 390 px, before](easy-checkout/before/09-frames-price-live-390.webp) | ![First frames price with the breakdown at 390 px, after](easy-checkout/after/09b-frames-breakdown-390.webp) |
+| ![First frames, price went up, before](easy-checkout/before/10-frames-price-went-up-1440.webp) | ![First frames, price went up, after](easy-checkout/after/10-frames-price-went-up-1440.webp) |
+| ![First frames, price went up at 390 px, before](easy-checkout/before/10-frames-price-went-up-390.webp) | ![First frames, the new price at 390 px, after](easy-checkout/after/10b-frames-new-price-390.webp) |
+| ![First frames, balance refusal, before](easy-checkout/before/11-frames-balance-refused-1440.webp) | ![First frames, balance refusal, after](easy-checkout/after/11-frames-balance-refused-1440.webp) |
+| ![First frames, balance refusal at 390 px, before](easy-checkout/before/11-frames-balance-refused-390.webp) | ![First frames, balance refusal at 390 px, after](easy-checkout/after/11-frames-balance-refused-390.webp) |
+
+**Shot plan (G1):** before, no price on the approval that pays for the video; after, the price, and no
+price and no approval without today's prices:
+
+| Before | After |
+|---|---|
+| ![Shot plan, before](easy-checkout/before/18-g1-1440.webp) | ![Shot plan, live, after](easy-checkout/after/18b-g1-live-1440.webp) |
+| ![Shot plan at 390 px, before](easy-checkout/before/18-g1-390.webp) | ![Shot plan, live, at 390 px, after](easy-checkout/after/18b-g1-live-390.webp) |
+| | ![Shot plan with the breakdown, after](easy-checkout/after/18c-g1-live-breakdown-1440.webp) |
+| | ![Shot plan without today's prices, after](easy-checkout/after/18d-g1-live-no-prices-1440.webp) |
+
+**Picture redo:**
+
+| Before | After |
+|---|---|
+| ![Picture redo price, before](easy-checkout/before/20-redo-price-live-1440.webp) | ![Picture redo price, after](easy-checkout/after/20-redo-price-live-1440.webp) |
+| ![Picture redo price at 390 px, before](easy-checkout/before/20-redo-price-live-390.webp) | ![Picture redo price at 390 px, after](easy-checkout/after/20-redo-price-live-390.webp) |
+| | ![Picture redo, price went up, after](easy-checkout/after/20b-redo-price-went-up-390.webp) |
+| | ![Picture redo, the new price, after](easy-checkout/after/20c-redo-new-price-390.webp) |
+
+**What it cost:**
+
+| Before | After |
+|---|---|
+| ![What it cost, before](easy-checkout/before/24-what-it-cost-1440.webp) | ![What it cost, test run, after](easy-checkout/after/24-what-it-cost-1440.webp) |
+| ![What it cost at 390 px, before](easy-checkout/before/24-what-it-cost-390.webp) | ![What it cost, live, at 390 px, after](easy-checkout/after/24d-what-it-cost-live-breakdown-390.webp) |
+
+**Mood board: the price, the price going up, approved:**
+
+| Before | After |
+|---|---|
+| ![Mood board price, before](easy-checkout/before/31-board-price-live-1440.webp) | ![Mood board price, after](easy-checkout/after/31-board-price-live-1440.webp) |
+| ![Mood board price at 390 px, before](easy-checkout/before/31-board-price-live-390.webp) | ![Mood board breakdown at 390 px, after](easy-checkout/after/31b-board-breakdown-390.webp) |
+| | ![Mood board, price went up, after](easy-checkout/after/31c-board-price-went-up-1440.webp) |
+| | ![Mood board, the new price, after](easy-checkout/after/31d-board-new-price-1440.webp) |
+| ![Mood board approved stamp, before](easy-checkout/before/34-board-approved-stamp-1440.webp) | ![Mood board approved, after](easy-checkout/after/34-board-approved-1440.webp) |
+
+**Locks:**
+
+| Before | After |
+|---|---|
+| ![Lock step, before](easy-checkout/before/42-lock-step-one-sealed-1440.webp) | ![Lock step, after](easy-checkout/after/42-lock-step-one-locked-1440.webp) |
+| ![Universe character card, before](easy-checkout/before/41-universe-character-card-390.webp) | ![Universe character card, after](easy-checkout/after/41-universe-character-card-390.webp) |
+
+**Admin costs page** (unchanged): `before/50-admin-costs-1440.webp` and `after/50-admin-costs-1440.webp`.
+
 ## Copy
 
 - Plain words, short sentences, one decision per screen, bigger type for the one decision.
@@ -209,18 +340,30 @@ server enforces it.
 - New check: the money screens must not use ledger words (budget line, reserve, floor, credits,
   providers, GC.01, override) up front. Those words may only appear inside a breakdown.
 
+The copy checks (`web/lib/app-copy.test.mjs`) now cover the checkout, every money screen and their
+helpers. On the money screens they also fail on ledger words and on model or provider names, on a "$"
+standing alone as a badge, and on any seal, stamp, coin or price-ring style coming back.
+
 ## Tests
 
-- Unit (`web/lib/checkout.test.mjs`): the headline, the promise, the breakdown rows, the money-problem
-  translator (every server refusal above, and that it never shows the override flag), and the copy
-  rules on every string.
-- The existing unit and e2e tests that assert the old words are updated to assert the new ones. None
-  are removed or skipped.
-- New e2e (`web/tests/easy-checkout-e2e.spec.ts`), against the dry-run backend (no real generation): see
-  the price, open the breakdown, approve once, make it, and the re-ask when the price goes up (the real
-  server refuses a lower approved total, and the screen shows the new price before anything is made).
-- Red-green mutations for the new guards: the price shown is the approved total sent, the override
-  flag is never shown or sent, and the re-ask happens.
+- Unit (`web/lib/checkout.test.mjs`, also run by `tests/test_web_episode_views.py`): the headline, the
+  promise, the breakdown rows, the money-problem translator (every server refusal above, and that it
+  never shows the override flag), and the copy rules on every string.
+- The existing unit and e2e tests that asserted the old words now assert the new ones. None are removed
+  or skipped.
+- New e2e (`web/tests/easy-checkout-e2e.spec.ts`, in CI), against the dry-run backend (no real
+  generation):
+  - a video: see the price, open the breakdown, and one press of "Make it" starts it, with no dialog,
+    no model names and no override flag sent;
+  - a live shot plan: no price and no approval without today's prices, then the price, the breakdown
+    and one approval;
+  - a live mood board: the price went up between looking and pressing, so nothing is made, the old
+    price and its breakdown are gone, and one press shows the new price, which is the approved total
+    sent with the next press.
+- Red-green mutations 722 to 728 (`scripts/redgreen.sh`): the approved total is the price shown, only a
+  test run is free, a price that went up asks again (both server wordings), the estimates override is
+  never shown, the promise only where the server keeps it, an unpriced clip makes the price "at least",
+  and "override" stays a ledger word.
 
 ## Decisions for the owner
 
@@ -236,6 +379,13 @@ server enforces it.
    starting pays for nothing and the shot plan approval (with the price) is the real approval. Keep it
    that way?
 5. **Budget and model limits cards are admin-only** on the episode page. Is anyone else relying on them?
+6. **Production details** (collapsed, at the bottom of the episode page) still shows the owner the
+   live-mode switch, with its typed "ENABLE LIVE MODE" confirmation in a red box, and the run's credit
+   plan card. They were left as they were: they are a safety switch and run details, not a checkout.
+   Make them admin-only too, or give the switch the same calm look?
+7. **The public pricing page** (`/pricing`, linked from the home page header) still sells monthly
+   plans with credits, check-mark icons and "AI video generation". It is outside the studio and was not
+   changed. Rewrite it in the same plain words, or remove it until there are plans to sell?
 
 ## Deploy
 
