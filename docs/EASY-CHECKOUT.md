@@ -16,15 +16,18 @@ the price went up), never by changing the server.
 
 These are the money safety rules. The plan only changes how they are shown.
 
-- **Every paid step has an estimate and an approved total.** The price on screen only ever comes from
-  the API's estimate. Pressing the button sends that estimate as the approved total. When the server
-  prices the job again at make time and the price is higher, it refuses (409) and nothing is paid.
-  With no estimate, there is nothing to approve and the button stays off.
+- **The estimates and approved totals stay as they are.** The price on screen only ever comes from the
+  API's estimate. Where the server takes an approved total (character sheets, first frames, the mood
+  board, a picture redo), pressing the button sends that estimate as the approved total. When the
+  server prices the job again at make time and the price is higher, it refuses (409) and nothing is
+  paid. With no estimate, there is nothing to approve and the button stays off.
 - **The balance gate stays** (a fresh balance, the floor, GC.01). So do reserves, the job ledger and the
   owner checks. The web never sends `override_unavailable_estimates`, and the flag's name never shows up
   on a screen. Before this change it did: see "Shot plan" below.
-- **A live run pays for nothing before its shot plan is approved.** That approval (G1) also gives the
-  credit plan approval (G1.08). In a live run, G1 is refused when the provider estimates are unavailable.
+- **A live run makes no pictures or clips before its shot plan is approved.** Before that it only writes
+  its story (a few text calls, pennies). That approval (G1) also gives the credit plan approval (G1.08),
+  and the run's spending stays capped by its budget lines. In a live run, G1 is refused when the
+  provider estimates are unavailable.
 - **The admin costs page (`/dashboard`) keeps its full detail.**
 
 ## Before: every place a user met money or an approval
@@ -35,7 +38,7 @@ These are the money safety rules. The plan only changes how they are shown.
 | 2 | Wizard review, overview | "Estimated cost: $7.44" | The first of three prices on one screen |
 | 3 | Wizard review, shot list | Every shot says "5s · kling" | Model names |
 | 4 | Wizard review, checkout | "Choose how to proceed:", a lime "Make My Video (uses credits) $7.44", a blue "Preview Only (free test run)" and "Live mode uses real credits and charges you. Preview mode is always free." | Two big buttons fighting each other; "credits" and "live mode" jargon |
-| 5 | Wizard confirm dialog | "Confirm Live Production", "This will start a live production run that uses real credits and charges you.", a yellow box "Estimated cost: $7.44. This is an estimate. Actual cost may vary based on retries and model usage.", "Confirm & Start" | A second approval in a row, even though starting a live run pays for nothing. The money is approved later, at the shot plan |
+| 5 | Wizard confirm dialog | "Confirm Live Production", "This will start a live production run that uses real credits and charges you.", a yellow box "Estimated cost: $7.44. This is an estimate. Actual cost may vary based on retries and model usage.", "Confirm & Start" | A second approval in a row, for a start that only pays for writing the story (pennies). The pictures and clips are approved later, at the shot plan |
 | 6 | Episode page, start card (`StartCard`) | A yellow-ringed "Price" block with a "Test run" chip, "Free" in big type, "Pictures and clips: Free stand-ins", "It starts as a free test run: no credits are used.", a checklist ("Free test run"), "Start the video", "Nothing is charged in a test run." | The same fact ("free") four times. In a live run, the price of the video is never shown here |
 | 7 | Next step card (`NextStepCard.tsx`) | The "Your OK needed" chip, a table with "This run: Live: paid providers" and "Spent on this episode so far: $0.00", the fine print "Every paid step shows its price first, and the studio checks it and your balance again before it spends." | Ledger words on every screen, with or without a decision to make |
 | 8 | Step trail (`Stepper`) | Yellow "$" coins on Cast, Scene pictures and Final cut, with "Free test run" or "Priced first" under each, and each step's cost once it is done | Coin badges and the cost breakdown are on show all the time |
@@ -157,10 +160,10 @@ The override flag's name is never shown, and the web still never sends it.
 | # | Moment | After |
 |---|---|---|
 | 1 | Wizard trail | No coin. The note under "Review & start" says "See the price". |
-| 2, 4, 5 | Wizard review, checkout and confirm dialog | One checkout at the bottom: "This video: about $7.44" with "Make it", and a quiet "Make a free preview first". When live is not available: "This video: free preview" with "Make a free preview". The confirm dialog is gone. Starting a live run pays for nothing; the video is paid for when its shot plan is approved, and the price is shown again there. The breakdown lists scene pictures and clips, and says the price is the list price for one try of each (a redo is priced on its own). The overview no longer repeats the price. |
+| 2, 4, 5 | Wizard review, checkout and confirm dialog | One checkout at the bottom: "This video: about $7.44" with "Make it", and a quiet "Make a free preview first". When live is not available: "This video: free preview" with "Make a free preview". The confirm dialog is gone. Starting a live run only pays for writing its story (pennies); its pictures and clips wait for the shot plan's approval, and the price is shown again there. The breakdown lists scene pictures and clips, and says the price is the list price for one try of each (a redo is priced on its own). The overview no longer repeats the price. |
 | 3, 14 | Shot lists (wizard and shot plan) | No model names: "5 s" only. |
 | 6 | Start card | The checkout: "This video: about $7.44" (live, from the episode's own preflight estimate) or "This video: free test run", then "Start the video". The checklist only lists the looks still to lock, when there are any. |
-| 7 | Next step card | No table and no fine print. One quiet line: "Test run: nothing is charged." or "Live: each paid step shows its price first.", plus "Spent so far: $3.20" once a live run has spent something. The chip says "Your turn". |
+| 7 | Next step card | No table and no fine print. One quiet line: "Test run: nothing is charged." or "Live: pictures and clips show their price first.", plus "Spent so far: $3.20" once a live run has spent something. The chip says "Your turn". |
 | 8 | Step trail | No coins. Each step says only "Done", "Now", "Skipped" or "Stopped here". The cost of each step moves into "What it cost", behind "See the breakdown", with the same honesty rules: a paid step says "Free" only for a recorded $0 in a test run, and "Not recorded" when nothing is on record. |
 | 9 | Character sheet | The checkout: "3 options: about $0.12" with "Make 3 options", and the same for the turnaround. Approving says "Approve and lock this look" (no change). |
 | 10 to 12 | First frames | The checkout: "3 options: about $0.09" with "Make 3 options" and "Not now". The price going up gets the re-ask above, and other money refusals get calm words. |
@@ -209,16 +212,16 @@ button, an optional quiet "Not now", one calm line, and "See the breakdown" (clo
 | # | Moment | The words on screen now |
 |---|---|---|
 | 1 | Wizard trail | "Review & start", with "See the price" under it. No coin. |
-| 2 to 5 | Wizard checkout | Live: "This video: about $7.44", "Make it", "Starting is free. Each paid step shows its price first.", and a quiet "Make a free preview first" under the card. Live off: "This video: free", "Make a free preview", "Live videos are off right now, so this is a free test run." The breakdown: scene pictures and clips, and "The list price for one try of each picture and clip. A redo is priced on its own." No confirm dialog, no price in the overview. |
+| 2 to 5 | Wizard checkout | Live: "This video: about $7.44", "Make it", "Starting costs pennies. Nothing big is made until you approve the video's price.", and a quiet "Make a free preview first" under the card. Live off: "This video: free", "Make a free preview", "Live videos are off right now, so this is a free test run." The breakdown: scene pictures and clips, and "The list price for one try of each picture and clip. A redo is priced on its own." No confirm dialog, no price in the overview. |
 | 3, 14 | Shot lists | "5 s". No model names. |
-| 6 | Start card | "This video: about $7.44" (live) or "This video: free" (test run), "Start the video", and one line: "Starting is free. Each paid step shows its price first." or "A test run, so nothing is charged." |
-| 7 | Next step card | The chip "Your turn", the step, "Show me", and one quiet line: "Every paid step shows its price first. Spent so far: $0." in a live run, "A test run, so nothing is charged." in a test run. |
+| 6 | Start card | "This video: about $7.44" (live) or "This video: free" (test run), "Start the video", and one line: "Starting costs pennies. Nothing big is made until you approve the video's price." or "A test run, so nothing is charged." |
+| 7 | Next step card | The chip "Your turn", the step, "Show me", and one quiet line: "Pictures and clips show their price first. Spent so far: $0." in a live run, "A test run, so nothing is charged." in a test run. |
 | 8 | Step trail | Only "Now", "Done", "Skipped" or "Stopped here" under each step. |
 | 9 | Character sheet | "3 pictures: about $0.12", "Make the options", "Not now", and "If the price goes up before we make it, we ask you first." The turnaround is the same with "Make the turnaround". |
 | 10 | First frames | "3 options: about $0.09", "Make 3 options", "Not now", the same promise. The breakdown: "3 options: $0.03 each" and "Left in the budget for first frames: $1.60". |
 | 11 | The price went up | The headline loses its old price ("3 options"), and a calm blue box says "The price went up to $0.12 since you looked. Nothing was charged." with one button, "See the new price". The old breakdown is hidden too. One press shows the new checkout; one more press makes it at the new price. |
 | 12 | Balance refusal | "The studio's balance is too low for this right now. Nothing was charged. An admin can top it up." with "Try again". No provider name, no "floor". |
-| 14 | Shot plan (G1) | Live: "This video: about $7.44", "Approve the shot plan", "This starts the scene pictures. The clips wait for your OK on them." Without today's prices: "This video" (no price), the button off, and "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes." Test run: "This video: free". The override flag is never shown. |
+| 14 | Shot plan (G1) | Live: "This video: about $7.44", "Approve the shot plan", "This starts the scene pictures. The clips wait for your OK on them." Until the price is on screen the button is off: "Turns on once the price is on screen." while it loads, and "We couldn't get this video's price, so it can't be approved yet." with "Try again" when it can't be read. Without today's prices: "This video" (no price), the button off, and "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes." Test run: "This video: free". Saving a change to the plan says "Saved changes are checked again, and priced again, before you approve the plan." and loads the price again. The override flag is never shown. |
 | 15 | Picture redo | "1 new picture: about $0.04", the note ("Your note goes with it: ..."), "Make it again", "Not now", the promise, and the same re-ask when the price goes up. |
 | 15b | Clip redo | "Redo this clip" with the clip's list price next to it ("about $1.20", or "free" in a test run). No promise, because the server has no approved total for a clip redo. |
 | 17 | What it cost | "What it cost", then "$4.24" (or "Free" for a test run, "Not recorded" when nothing is on record), and "See the breakdown" with each step's cost. |
@@ -226,7 +229,7 @@ button, an optional quiet "Not now", one calm line, and "See the breakdown" (clo
 | 19 | Mood board approved | The chip "Board 1 approved". No stamp. |
 | 20 | Locks | "Lock each look", and the chips "Look locked" or "Not locked yet". No seals. |
 | 22 | Production details | The budget and model limits cards are for admins only. |
-| 23 | Admin costs page | Unchanged. |
+| 23 | Admin costs page | Unchanged, except that its header wraps on a 320 px phone instead of scrolling sideways. |
 
 ### Where the build differs from the plan
 
@@ -239,9 +242,28 @@ button, an optional quiet "Not now", one calm line, and "See the breakdown" (clo
   read as the current one.
 - **Headlines:** "Your mood board: about $1.56" (not "Mood board: ..."), "3 pictures: ..." on character
   sheets, and "This video: free" (not "free preview") when live videos are off.
-- **The start card and the wizard** say "Starting is free. Each paid step shows its price first." in a
-  live run. The promise "we ask you first" is kept for the four places where the server checks the
-  approved total again (character sheets, first frames, the mood board, a picture redo).
+- **The start card and the wizard** say "Starting costs pennies. Nothing big is made until you approve
+  the video's price." in a live run: a live start writes the story first (a few text calls), and its
+  pictures and clips wait for the shot plan, where the price is shown. The promise "we ask you first"
+  is kept for the four places where the server checks the approved total again (character sheets,
+  first frames, the mood board, a picture redo). The wizard, the start card and the shot plan send no
+  approved total, so they show their own line instead (`promise(price, { kept: false, otherwise })`).
+- **One way to send an approved total.** The four make-it buttons build their request with
+  `approvedRequest` (`web/lib/checkout.mjs`), which sends the price on the card (`quote().approve`)
+  and refuses to build a request with no price.
+- **A live shot plan's approve button waits for the price.** The price comes from the episode's
+  preflight; while it loads, or when it can't be read, the button is off with a calm reason (and
+  "Try again" when it failed). A saved change to the plan loads the price again.
+- **The shot plan's limits are in plain words:** "a shot asks for more than the studio can make",
+  never "model limits". When a save breaks a limit, a member reads which shots to change ("Try a
+  shorter prompt or fewer picks, or ask an admin what to change."). The checks' own words name the
+  models and where a limit comes from, so only admins see them, there and in the shot list under
+  Production details.
+- **On a phone, nothing pinned to the bottom hides a price.** The episode's next-step sheet and the
+  tab bar are pinned over the bottom of the screen, so the page's scroll padding matches them: a
+  focused button or a linked section stops above them. A price card opened by a tap (a picture redo,
+  first frames, a character sheet, the mood board) scrolls itself fully into view. The admin costs
+  page's header wraps at 320 px instead of scrolling sideways.
 
 ### Before and after
 
@@ -347,23 +369,31 @@ standing alone as a badge, and on any seal, stamp, coin or price-ring style comi
 ## Tests
 
 - Unit (`web/lib/checkout.test.mjs`, also run by `tests/test_web_episode_views.py`): the headline, the
-  promise, the breakdown rows, the money-problem translator (every server refusal above, and that it
-  never shows the override flag), and the copy rules on every string.
+  promise and the start and shot plan lines that replace it, the approved total each make-it button
+  sends (and that none is built without a price), the breakdown rows, the money-problem translator
+  (every server refusal above, and that it never shows the override flag), and the copy rules on every
+  string.
 - The existing unit and e2e tests that asserted the old words now assert the new ones. None are removed
   or skipped.
 - New e2e (`web/tests/easy-checkout-e2e.spec.ts`, in CI), against the dry-run backend (no real
   generation):
   - a video: see the price, open the breakdown, and one press of "Make it" starts it, with no dialog,
     no model names and no override flag sent;
-  - a live shot plan: no price and no approval without today's prices, then the price, the breakdown
-    and one approval;
+  - a live shot plan: no price and no approval without today's prices; the button stays off while the
+    price loads and when it can't be read (then "Try again" brings it); then the price, the breakdown
+    and one approval. At 390 px, the approve button reached by keyboard while the sheet covers it
+    comes up above the sheet;
   - a live mood board: the price went up between looking and pressing, so nothing is made, the old
     price and its breakdown are gone, and one press shows the new price, which is the approved total
     sent with the next press.
-- Red-green mutations 722 to 728 (`scripts/redgreen.sh`): the approved total is the price shown, only a
-  test run is free, a price that went up asks again (both server wordings), the estimates override is
-  never shown, the promise only where the server keeps it, an unpriced clip makes the price "at least",
-  and "override" stays a ledger word.
+- The app pages e2e also opens the admin costs page at 320 px and checks it does not scroll sideways.
+- Red-green mutations 722 to 728 (`scripts/redgreen.sh`): every make-it button sends the price shown
+  as its approved total (`approvedRequest`, through `quote().approve`), only a test run is free, a
+  price that went up asks again (both server wordings), the estimates override is never shown, the
+  promise only where the server keeps it (the wizard, the start card and the shot plan pass
+  `kept: false` and show their own line), an unpriced clip makes the price "at least", and "override"
+  stays a ledger word. Mutation 729: a member's shot plan save line names the shots, never the models.
+  Mutation 669 (the mood board breakdown's budget row) follows the breakdown's new code.
 
 ## Decisions for the owner
 
@@ -376,8 +406,9 @@ standing alone as a badge, and on any seal, stamp, coin or price-ring style comi
    without retries. It is shown as "about $X". Is that the price you want users to see, or should the
    headline add a margin for retries?
 4. **No confirm dialog before a live run.** "Make it" now starts a live run in one press, because
-   starting pays for nothing and the shot plan approval (with the price) is the real approval. Keep it
-   that way?
+   starting only pays for writing the story (a few text calls, pennies) and the shot plan approval
+   (with the price) is where the pictures and clips are approved. Keep it that way, or price the story
+   writing too?
 5. **Budget and model limits cards are admin-only** on the episode page. Is anyone else relying on them?
 6. **Production details** (collapsed, at the bottom of the episode page) still shows the owner the
    live-mode switch, with its typed "ENABLE LIVE MODE" confirmation in a red box, and the run's credit
