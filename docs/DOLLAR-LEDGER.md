@@ -24,6 +24,11 @@ refused by the ledger (`TypeError`). Credits are no longer a cap currency.
   balances and 403 stops. See [BALANCE-ALERTS.md](./BALANCE-ALERTS.md) for setup and configuration.
 * **Revision reserve** (`L7_revision`) is outside the episode cap/stop and can only be reserved with the
   approval tag `revision` (`tier="revision"` on the submit activities). It has no 80 % stop (stop == cap).
+* **QC judges** (`qc_judges`, provider `openai`, [QC-JUDGES.md](./QC-JUDGES.md)): created at an episode's
+  first judge call with `HFVG_QC_LINE_CAP_USD` (default 0.50, stop 0.40), the room left by the default
+  line caps ($44.00 Higgsfield + $3.50 ElevenLabs) under the $48.00 episode stop. Each judge call holds
+  its estimate, then commits the cost from the token usage or releases the hold. Like the ElevenLabs
+  lines it is left out of the Higgsfield spend that draws the manual balance down.
 * Reserve / commit / release are atomic (`BEGIN IMMEDIATE`), never drive a hold negative, and commit/release
   are idempotent per provider job id (`job_ledger.status`).
 * Commit on overage spends the **actual** cost and logs an `overage_warning`.

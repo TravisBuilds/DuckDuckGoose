@@ -37,7 +37,9 @@ Optional:
 - `TEMPORAL_ADDRESS`: Temporal server address (default: `localhost:7233`)
 - `TEMPORAL_NAMESPACE`: Temporal namespace (default: `default`)
 - `DATABASE_PATH`: SQLite database path (default: `./data/studio.db`)
-- `OPENAI_API_KEY`: OpenAI API key for vision judge (if missing, gates escalate)
+- `OPENAI_API_KEY`: OpenAI API key, also the QC judges' key (if missing, judged checks escalate)
+- `HFVG_QC_JUDGES_ENABLED`: `true` registers the headcount judge for the G2 and recompose
+  headcount (default `false`; see [docs/QC-JUDGES.md](../docs/QC-JUDGES.md))
 - `DRY_RUN`: Default dry-run mode (default: `true`)
 - `PORT`: API server port (default: `8000`)
 

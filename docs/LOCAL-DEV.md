@@ -88,7 +88,8 @@ ADMIN_SECRET=<your-generated-secret>  # Min 32 chars, REQUIRED
 HIGGSFIELD_API_KEY=id:secret  # Format: id:secret
 ELEVENLABS_API_KEY=...
 G1_ESTIMATE_PLACEHOLDER_IMAGE_URL=https://example.com/placeholder-1080x1920.jpg
-# OPENAI_API_KEY is not read by the current code
+OPENAI_API_KEY=...  # story shaping, draft from idea, voice picker; QC judges when enabled
+# HFVG_QC_JUDGES_ENABLED=true  # automated QC judges, off by default (docs/QC-JUDGES.md)
 ```
 
 ### 5. Create Data Directories
@@ -659,7 +660,14 @@ pytest -m "not slow"
 
 - `HIGGSFIELD_API_KEY` - Higgsfield API key (format: `id:secret`)
 - `ELEVENLABS_API_KEY` - ElevenLabs API key (read by the ElevenLabs SDK)
-- `OPENAI_API_KEY` - not read by the current code (no OpenAI judge wired)
+- `OPENAI_API_KEY` - story shaping, draft from idea, the voice picker, and the QC judges when
+  `HFVG_QC_JUDGES_ENABLED=true`
+
+### Automated QC judges
+
+- `HFVG_QC_JUDGES_ENABLED` - `true` registers the vision judges in the worker and the API (default
+  `false`: live QC escalates to human review). The model, prices, the `qc_judges` budget line cap
+  and the time limits are in [QC-JUDGES.md](QC-JUDGES.md). `DRY_RUN` makes no judge call.
 
 ### Model Configuration
 

@@ -169,7 +169,10 @@ outcome `qc_constraints` and `qc_constraints_by_clip` in the ShotWorkflow state)
   silent pass.
 - Dry-run placeholder clips are recorded as `DRY_RUN` (not checked).
 - Constraints are checked after motion QC passes.
-- No real checker ships in this package.
+- The vision checker of the automated QC judges ([QC-JUDGES.md](QC-JUDGES.md)) answers every
+  condition of a clip in one call from six frames across the clip. It is registered only with
+  `HFVG_QC_JUDGES_ENABLED=true` (default off: no checker, so every condition of a live clip is
+  `NEEDS_REVIEW`).
 
 ### Continuity hard vs advisory checks (`continuity_hard_checks`, top level)
 

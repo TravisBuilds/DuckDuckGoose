@@ -247,9 +247,12 @@ Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PAT
 
 ## Extension points (later PRs)
 
-- **Vision identity judge with auto-retry.** Compare a still with the shot's identity refs after
-  generation. The refs per shot are in the plan (`ref_keys` with the `cast:` prefix, `shot_meta.cast`),
-  and the still QC (`precheck_still_qc` / `review_still`) is where a verdict and a retry would go.
+- **Vision identity judge.** Built behind `HFVG_QC_JUDGES_ENABLED` (off by default,
+  [QC-JUDGES.md](QC-JUDGES.md)): `review_still` and `review_clip` check every `locked: true` entry of
+  `shot_meta.cast` against its lock (locked description, master, turnaround and head sheet,
+  `lock_hash`). Drift fails the still or clip, which is re-rolled only through the bounded
+  `retry_shot` / `retry_clip`; an unsure check or a lock that changed on disk goes to a person. An
+  automatic retry is not part of it.
 - **Seedance reference-to-video.** `shot_meta.cast` and the cast ref keys can be passed to a clip
   route. Clip planning ignores the cast today.
 - **Higgsfield Elements / Soul ID.** A locked version (master + turnaround + `lock_hash`) is the input
