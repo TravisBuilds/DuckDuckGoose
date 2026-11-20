@@ -283,14 +283,16 @@ jobs:
 
   redgreen:
     # G-CI-1: every probe/mutation declared in scripts/redgreen.sh gets an ordinal; shard N runs
-    # the ordinals with ordinal % 4 == N-1 and writes one result row per id. redgreen-summary
+    # the ordinals with ordinal % 6 == N-1 and writes one result row per id. redgreen-summary
     # checks that the union of the shards ran every declared id exactly once.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # A shard's mutations take about 12 minutes; the rest is room for a slow apt mirror, where
+    # installing ffmpeg has taken up to 10 minutes.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
 
     steps:
     - uses: actions/checkout@v4
@@ -323,12 +325,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Run red-green mutation tests (shard ${{ matrix.shard }}/4)
+    - name: Run red-green mutation tests (shard ${{ matrix.shard }}/6)
       env:
         REQUIRE_FFMPEG: "1"
         REDGREEN_SHARD: ${{ matrix.shard }}
-        REDGREEN_TOTAL_SHARDS: "4"
-        REDGREEN_RESULTS_FILE: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
+        REDGREEN_TOTAL_SHARDS: "6"
+        REDGREEN_RESULTS_FILE: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-6.tsv
         REDGREEN_ARTIFACTS_DIR: ${{ runner.temp }}/redgreen-artifacts-shard-${{ matrix.shard }}
       run: |
         find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -340,7 +342,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: redgreen-results-shard-${{ matrix.shard }}
-        path: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-4.tsv
+        path: ${{ runner.temp }}/redgreen-results-shard-${{ matrix.shard }}-of-6.tsv
         if-no-files-found: error
 
     - name: Upload pytest artifacts on failure
@@ -380,7 +382,7 @@ jobs:
         files=(redgreen-results/*.tsv)
         status=0
         python scripts/redgreen_coverage.py --markdown redgreen-status.md \
-          --expect-commit "$EXPECTED_SHA" --expect-shards 4 "${files[@]:-/nonexistent}" || status=$?
+          --expect-commit "$EXPECTED_SHA" --expect-shards 6 "${files[@]:-/nonexistent}" || status=$?
         cat redgreen-status.md >> "$GITHUB_STEP_SUMMARY" || true
         exit $status
 

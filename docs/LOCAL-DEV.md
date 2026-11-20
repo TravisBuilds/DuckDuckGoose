@@ -215,8 +215,8 @@ REQUIRE_FFMPEG=1 ./scripts/redgreen.sh
 # Without REQUIRE_FFMPEG=1 the motion QC tests are skipped
 ./scripts/redgreen.sh
 
-# One shard, the way CI runs it (4 shards; each writes one result row per id)
-REQUIRE_FFMPEG=1 REDGREEN_SHARD=2 REDGREEN_TOTAL_SHARDS=4 \
+# One shard, the way CI runs it (6 shards; each writes one result row per id)
+REQUIRE_FFMPEG=1 REDGREEN_SHARD=2 REDGREEN_TOTAL_SHARDS=6 \
   REDGREEN_RESULTS_FILE=/tmp/rg-2.tsv ./scripts/redgreen.sh
 
 # The CI summary check: the union of all shard files must run every declared id once

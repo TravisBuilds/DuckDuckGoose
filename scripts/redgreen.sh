@@ -6,7 +6,7 @@
 # Treats syntax errors, SQL errors, and network failures as INVALID mutations.
 # Prints a summary table at the end.
 #
-# Sharding (CI runs 4 shards in parallel, see .github/workflows/test.yml):
+# Sharding (CI runs 6 shards in parallel, see .github/workflows/test.yml):
 #   REDGREEN_SHARD=N REDGREEN_TOTAL_SHARDS=M bash scripts/redgreen.sh
 #   Every declared probe/mutation gets a 0-based ordinal in declaration order; shard N runs the
 #   ones with (ordinal % M) == N - 1 (round-robin, so shards stay balanced as mutations are added).
