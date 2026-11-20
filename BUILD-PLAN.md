@@ -155,6 +155,8 @@ These are the recommended next steps to build toward a production harness:
 ### Slice 2: QC Agent + Contact Sheet UI
 **Goal:** Agent-based `still_review` with a visual contact sheet for human approval.
 
+> Now the top roadmap priority: [ROADMAP.md, High Priority 1: Automated QC judges](docs/ROADMAP.md#1-automated-qc-judges-top-priority-approved-nov-19-2026).
+
 - Implement `review_still` as an OpenAI Agents SDK Activity (or LiteLLM for vision models)
 - QC rubric: character drift (A/B crop), height ratios, headcount, role, props
 - Generate contact sheet (HTML or simple image grid) per scene
