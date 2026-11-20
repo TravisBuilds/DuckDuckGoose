@@ -26,7 +26,8 @@ Planned features and improvements for the Hands-Free Video Generator.
 #### 1. Automated QC judges (top priority, approved Nov 19 2026)
 
 **Status:** Built, off by default (`HFVG_QC_JUDGES_ENABLED=false`, [QC-JUDGES.md](QC-JUDGES.md)).
-With the flag off nothing is registered and QC works as the **Now** notes below describe. With it on:
+With the flag off nothing is registered and every check gives the result the **Now** notes below
+describe (new runs already send the still rubric, which nothing reads without a judge). With it on:
 
 - (a) the still reviewer judges each live still against its prompt and references, which
   `ShotWorkflow` now sends in the rubric behind `workflow.patched("qc-still-rubric")`; a FAIL
