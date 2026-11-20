@@ -99,7 +99,8 @@ async def test_an_unsure_answer_is_needs_review_even_when_it_says_violated(db, t
     {"conditions": [{"n": n, "violated": "no", "confidence": 0.9} for n in (1, 2, 3)]},
     {"conditions": [{"n": n, "violated": False, "confidence": 1.4} for n in (1, 2, 3)]},
     {"conditions": [{"n": n, "violated": False} for n in (1, 2, 3)]},
-])
+], ids=["upstream-error", "not-json", "no-conditions", "condition-left-out", "condition-twice", "unknown-condition",
+        "violated-not-bool", "confidence-above-1", "no-confidence"])
 async def test_a_judge_that_cannot_answer_is_needs_review_for_every_condition_and_asked_once(db, tmp_path, answer):
     checker, client = _checker(answer)
     res = await _evaluate(checker, _clip(tmp_path))

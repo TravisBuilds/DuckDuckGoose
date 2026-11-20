@@ -85,7 +85,7 @@ async def test_low_confidence_is_needs_review(db, tmp_path):
 @pytest.mark.parametrize("answer", [
     RuntimeError("upstream broke"), "{not json", _counts(cast=-1), _counts(duck=1.5), _counts(confidence=2),
     {"cast": 3, "duck": 0, "confidence": 0.9},
-])
+], ids=["upstream-error", "not-json", "negative-cast", "fractional-duck", "confidence-above-1", "no-animal-count"])
 async def test_a_counter_that_cannot_answer_is_needs_review_and_asked_once(db, tmp_path, answer):
     counter, client = _counter(answer)
     res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())

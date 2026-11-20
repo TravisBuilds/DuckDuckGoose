@@ -59,6 +59,15 @@ def _estimate() -> int:
     return call_estimate_usd_micros(1, len(SYSTEM) + len(TEXT), judges.DEFAULT_MAX_OUTPUT_TOKENS)
 
 
+async def _refusal(service: JudgeService) -> str:
+    """Why the service refused the call ("" when it answered)."""
+    try:
+        await service.ask(_call())
+    except JudgeUnavailable as e:
+        return str(e)
+    return ""
+
+
 # 1000 tokens in at $0.40 / M + 100 tokens out at $1.60 / M (FakeJudgeClient's usage)
 TOKEN_COST = 560
 
@@ -215,12 +224,13 @@ async def test_a_call_without_an_episode_is_refused(db):
     ("HFVG_QC_JUDGE_USD_PER_MTOK_IN", "abc"), ("HFVG_QC_JUDGE_USD_PER_MTOK_OUT", "0"),
     ("HFVG_QC_JUDGE_USD_PER_MTOK_IN", "-1"), ("HFVG_QC_JUDGE_IMAGE_TOKENS", "0"),
     ("HFVG_QC_JUDGE_MAX_OUTPUT_TOKENS", "many"), ("HFVG_QC_LINE_CAP_USD", "0"), ("HFVG_QC_JUDGE_TIMEOUT_S", "-5"),
-])
+], ids=["input-price-not-a-number", "free-output", "negative-input-price", "no-image-tokens",
+        "output-tokens-not-a-number", "no-line-cap", "negative-timeout"])
 async def test_an_unpriced_or_unbounded_call_is_never_made(db, monkeypatch, env, value):
     monkeypatch.setenv(env, value)
     client = FakeJudgeClient({"ok": True})
-    with pytest.raises(JudgeUnavailable, match="QC judge settings invalid, no cost estimate or time limit"):
-        await JudgeService(client).ask(_call())
+    reason = await _refusal(JudgeService(client))
+    assert reason.startswith("QC judge settings invalid, no cost estimate or time limit"), reason
     assert client.calls == [] and qc_line(db, EP) is None
 
 
@@ -412,8 +422,8 @@ async def test_the_balance_gate_is_asked_for_openai_and_its_refusal_holds_nothin
 
     monkeypatch.setattr(BalanceMonitor, "check_preflight_balance", refuse)
     client = FakeJudgeClient({"ok": True})
-    with pytest.raises(JudgeUnavailable, match="balance check refused the judge call: openai balance insufficient"):
-        await JudgeService(client).ask(_call())
+    reason = await _refusal(JudgeService(client))
+    assert reason.startswith("balance check refused the judge call: openai balance insufficient"), reason
     assert asked == [("openai", _estimate(), False)]
     assert client.calls == [] and qc_transactions(db, EP) == []
 

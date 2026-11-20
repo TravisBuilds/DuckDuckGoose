@@ -216,7 +216,8 @@ BAD_DETECTIONS = [
 ]
 
 
-@pytest.mark.parametrize("answer", BAD_DETECTIONS)
+@pytest.mark.parametrize("answer", BAD_DETECTIONS, ids=["upstream-error", "not-json", "no-character",
+                                                        "found-not-bool", "no-box", "box-outside", "empty-box"])
 async def test_a_broken_or_malformed_detection_escalates(db, tmp_path, answer):
     pip = locked_character(EP)
     if isinstance(answer, dict):
@@ -236,7 +237,8 @@ async def test_a_broken_or_malformed_detection_escalates(db, tmp_path, answer):
     identity_answer({"face": True}),
     identity_answer(verdict="MAYBE"),
     identity_answer(confidence=1.5),
-])
+], ids=["upstream-error", "not-an-object", "no-signs", "score-3", "score-bool", "unknown-verdict",
+        "confidence-above-1"])
 async def test_a_broken_or_malformed_identity_answer_escalates(db, tmp_path, answer):
     pip = locked_character(EP)
     client = routed_client(detect=[detect_answer(pip["character"])], identity=[answer])

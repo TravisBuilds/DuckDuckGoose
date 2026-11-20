@@ -100,7 +100,7 @@ async def test_a_fail_is_a_reroll_with_the_judges_reasons(db, tmp_path):
     ({**STILL_FAIL, "confidence": 0.5}, "unsure (confidence 0.50 < 0.7)"),
     ({**STILL_PASS, "confidence": 0.69}, "unsure (confidence 0.69 < 0.7)"),
     ({"verdict": "unsure", "confidence": 0.95, "issues": ["the robot is too small to judge"]}, "could not decide"),
-])
+], ids=["low-confidence-fail", "low-confidence-pass", "unsure"])
 async def test_low_confidence_or_unsure_needs_review(db, tmp_path, answer, reason):
     out = await _judged(FakeJudgeClient(answer), _rubric(tmp_path))
     assert out["passed"] is False and out["escalate"] is True
@@ -128,7 +128,8 @@ async def test_a_judge_timeout_needs_review(db, tmp_path, monkeypatch):
     {"verdict": "pass", "confidence": True, "issues": []},
     {"verdict": "pass", "issues": []},
     {"verdict": "fail", "confidence": 0.9, "issues": "a string, not a list"},
-])
+], ids=["not-json", "unknown-verdict", "fail-without-issues", "confidence-above-1", "confidence-bool",
+        "no-confidence", "issues-not-a-list"])
 async def test_a_malformed_answer_needs_review(db, tmp_path, answer):
     out = await _judged(FakeJudgeClient(answer), _rubric(tmp_path))
     assert out["passed"] is False and out["escalate"] is True
@@ -291,7 +292,7 @@ async def test_the_episode_checks_come_before_any_judge_call(db, tmp_path):
 
 @pytest.mark.parametrize("answer, passed, escalate", [
     (STILL_PASS, True, False), (STILL_FAIL, False, False), ({**STILL_PASS, "confidence": 0.2}, False, True),
-])
+], ids=["pass", "fail", "unsure"])
 async def test_review_still_returns_the_judges_verdict(db, tmp_path, answer, passed, escalate):
     set_still_reviewer(VisionStillReviewer(JudgeService(FakeJudgeClient(answer))))
     out = await HB().run(review_still, URL, _rubric(tmp_path), EP, "A01")
