@@ -171,7 +171,10 @@ def qc_line_cap_usd_micros() -> int:
 
 
 def _price_micros_per_mtok(env: str, default: str) -> int:
-    return usd_to_micros(os.getenv(env, "").strip() or default)
+    price = usd_to_micros(os.getenv(env, "").strip() or default)
+    if price <= 0:
+        raise ValueError(f"{env} must be more than 0")
+    return price
 
 
 def call_estimate_usd_micros(n_images: int, text_chars: int, output_tokens: int) -> int:
@@ -332,8 +335,9 @@ class JudgeClient(ABC):
 class OpenAIJudgeClient(JudgeClient):
     """OpenAI chat completions with images (the OPENAI_API_KEY the app already has)."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, http_client: Any = None):
         self._api_key = api_key
+        self._http_client = http_client  # the SDK's own HTTP client by default
 
     async def complete(self, *, model, system, text, images, max_output_tokens):
         from openai import AsyncOpenAI
@@ -346,7 +350,8 @@ class OpenAIJudgeClient(JudgeClient):
         temperature = os.getenv(TEMPERATURE_ENV, "0").strip()
         if temperature and temperature.lower() != "none":  # empty / none: models without a temperature
             extra["temperature"] = float(temperature)
-        async with AsyncOpenAI(api_key=self._api_key, max_retries=0) as client:
+        options: dict[str, Any] = {"http_client": self._http_client} if self._http_client is not None else {}
+        async with AsyncOpenAI(api_key=self._api_key, max_retries=0, **options) as client:
             response = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": content}],
@@ -529,13 +534,13 @@ class JudgeService:
         if not call.episode_id:
             raise JudgeUnavailable("a judge call needs an episode budget line (no episode id)")
         client = self.client()
-        out_tokens = call.max_output_tokens or max_output_tokens()
         try:
+            out_tokens = call.max_output_tokens or max_output_tokens()
             estimate = call_estimate_usd_micros(len(call.images), len(call.system) + len(call.text), out_tokens)
             cap = qc_line_cap_usd_micros()
             timeout = judge_timeout_s()
         except (TypeError, ValueError) as e:
-            raise JudgeUnavailable(f"QC judge cost estimate unavailable: {e}") from None
+            raise JudgeUnavailable(f"QC judge settings invalid, no cost estimate or time limit: {e}") from None
         ledger = BudgetLedger(self.db_path)
         try:
             await ledger.ensure_line(call.episode_id, QC_LINE, cap, provider=QC_PROVIDER)
