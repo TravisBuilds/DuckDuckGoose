@@ -12,19 +12,183 @@ Planned features and improvements for the Hands-Free Video Generator.
 - End-frame generation
 - Web UI (basic)
 - CLI tools
-- Red-green mutation testing (219 tests: 215 mutations + 4 probes)
+- Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
+- Red-green mutation testing (727 tests: 722 mutations + 5 probes, as of 2026-11-20)
 
 **🚧 In Progress:**
-- Audio stage (PR #8)
 - Improved error messages
 
 ## Upcoming Features
 
 ### High Priority
 
-#### 1. Audio Pipeline (PR #8)
+#### 1. Automated QC judges (top priority, approved Nov 19 2026)
 
-**Status:** In development
+**Status:** Not started.
+
+**Why:** Live QC has no vision judge yet. Motion QC and the stillgate measure each clip, but the
+still reviewer, the counter and the clip checker below are interfaces with fail-closed wiring and
+no real implementation, so every live still, every headcount and every live clip with `qc_fail_if`
+conditions waits for a human. The identity gate is a duck-only scaffold that nothing calls.
+
+**Rule for every judge:** a judge that is missing, unsure (below its confidence threshold), refused
+by the budget or broken gives NEEDS_REVIEW (escalate to a human), never PASS. `DRY_RUN` calls no
+model.
+
+##### a. Still reviewer
+
+- **Now:** `review_still` in `hfvg/activities/qc.py` passes every still in `DRY_RUN`. Live, it
+  escalates when the episode can't be verified (no `episode_id`, unknown episode, not in live mode
+  or G1.08 not approved, DB error), and otherwise escalates every still with "Real QC agent not
+  implemented - escalate to human review". `hfvg/workflows/shot.py` then records the still as
+  `needs_review` and waits for the human G2 approval. The workflow calls `review_still` with an
+  empty rubric (`{}`), so the prompt and the references never reach the review.
+- **Interface:** `review_still(asset_url, rubric, episode_id, shot_id)` returns `passed`, `issues`
+  and `escalate`. The references are already in the shot plan (`hfvg/cast_plan.py`): the locked
+  cast sheets as `cast:` ref keys plus `shot_meta.cast` (each character's locked description), and
+  the place and prop photos with `shot_meta.props`. [CAST.md](CAST.md#extension-points-later-prs)
+  names `review_still` as the place for this verdict.
+- **Done when:**
+  - a vision judge scores each live still against the shot's still prompt (after any moderation
+    reword) and those character and setting references. The workflow passes them in the rubric,
+    behind `workflow.patched(...)` so runs parked at review replay unchanged;
+  - PASS is recorded as `still_complete`, like today's pass branch;
+  - FAIL returns `escalate: False` with the judge's reasons, so the shot ends `failed` and is
+    re-rolled through the bounded `retry_shot` (`MAX_SHOT_RETRIES`, the G2 round budget). Commit
+    10e9fd2 (P0.1b) removed the automatic QC retry loop on purpose; bringing one back is a separate
+    decision and must go through the guarded submit;
+  - low confidence, no judge or key, a judge error or timeout, a malformed answer, or a missing
+    still or reference escalates. The fail-closed episode checks stay in front of the judge.
+- **Tests:**
+  - fake-judge unit tests: PASS, FAIL, low confidence, error, timeout, malformed answer;
+  - `tests/test_shot_live.py::test_qc_escalates_in_live_mode` (red-green M-31) keeps proving that
+    live review without a judge escalates;
+  - a workflow test that the rubric carries the prompt and references, and that a FAIL can be
+    re-rolled with `retry_shot`; a replay test for a run parked at review before the patch;
+  - red-green mutations for the new branches (a low-confidence verdict must never pass).
+
+##### b. Character and animal counter
+
+- **Now:** no real counter ships and production registers none (`get_animal_counter()` is
+  `None`), so counts come from a reviewer or the check is NEEDS_REVIEW. Two places use it:
+  - `hfvg/qc/g2_headcount.py` counts `cast`, `duck` and every `animal` in each kept still against
+    `shot_meta`. A FAIL blocks G2 approval (409) unless it is overridden with a reason. Without a
+    counter it uses a reviewer's recorded headcount, else NEEDS_REVIEW. It runs on
+    `GET /api/episodes/{id}/g2-headcount`, on every G2 approval and on the recompose headcount
+    route.
+  - `hfvg/qc/continuity.py` lists it as the `headcount` continuity check (hard by default), which
+    `check_assembly_qc` runs on each shot of the mute edit. Without a counter it is NEEDS_REVIEW
+    and holds `G_FINAL_CUT` until a passing rebuild or `accept_assembly_qc`.
+- **Interface:** `AnimalCounter.count_animals(media_path, expected_type)` in
+  `hfvg/qc/animal_count.py` returns `count`, `confidence`, `type_match` and `method`;
+  `FakeAnimalCounter` is for tests only; `set_animal_counter()` registers one per process.
+- **Done when:**
+  - a real counter implements `AnimalCounter` and is registered at startup in both processes that
+    read it: the worker (assembly QC) and the API (G2 and recompose headcount);
+  - a count below `DEFAULT_CONFIDENCE_THRESHOLD` (0.7) stays NEEDS_REVIEW, as all three callers
+    already do, and a counter error is NEEDS_REVIEW for that shot. Today an exception from
+    `count_animals` is not caught: the headcount routes would return 500, and assembly QC retries
+    the whole activity up to 3 times, repeating every paid count;
+  - a reviewer's recorded headcount still wins over the model (`ReviewerHeadcountCounter`);
+  - the counter knows who `cast` is. `count_animals` gets no shot context today, so the interface
+    needs the shot's declared characters and references, and should count characters that are not
+    animals.
+- **Tests:**
+  - registration: a counter when one is configured, NEEDS_REVIEW (as now) when not;
+  - low confidence and counter errors are NEEDS_REVIEW in the G2 headcount, the recompose
+    headcount and assembly QC; a reviewer count beats the model;
+  - pin what `type_match: false` means (FAIL in assembly QC, NEEDS_REVIEW at G2 today);
+  - keep `tests/test_g2_headcount.py` and `tests/test_picture_assembly_round3.py::TestAnimalChecks`
+    (M-273) passing; add mutations for low confidence or an error turning into PASS.
+
+##### c. Clip "fail if" checker
+
+- **Now:** no production checker ships or is registered (`get_constraint_checker()` is `None`),
+  so every live clip of a shot that declares `qc_fail_if` in shots.json is NEEDS_REVIEW once
+  motion QC and the stillgate pass. A reviewer keeps it (`accept_clip_review`) or re-rolls it
+  (`retry_clip`). Dry-run clips record their conditions as DRY_RUN rows.
+- **Interface:** `ClipConstraintChecker.check(media_path, constraint, shot_context)` in
+  `hfvg/qc/clip_constraints.py` returns `violated`, `confidence` and `detail`;
+  `FakeClipConstraintChecker` is for tests only. `review_clip` (`hfvg/activities/qc.py`) downloads
+  the clip and calls `evaluate_clip_constraints` with the shot's prompt and duration, one checker
+  call per declared condition.
+- **Done when:**
+  - a real vision checker answers each condition from frames sampled across the whole clip, and
+    is registered at worker startup;
+  - it keeps `DEFAULT_CONFIDENCE_THRESHOLD` (0.7) and the fail-closed rules of
+    `evaluate_clip_constraints`: no checker, a missing file, a checker error or low confidence is
+    NEEDS_REVIEW; a violated condition is FAIL, re-rolled only through the bounded `retry_clip`;
+  - frames are extracted through `hfvg.subproc`, like `review_clip`'s other ffmpeg calls, not with
+    a blocking `subprocess.run`.
+- **Tests:** checker tests on small synthetic clips with a fake model client (violated, clean, low
+  confidence, error, malformed answer, frames taken across the clip); registration; keep
+  `tests/test_round7_qc_constraints.py` and M-384 to M-386 passing; a mutation for low confidence
+  turning into PASS.
+
+##### d. Identity gate for any locked character
+
+- **Now:** `hfvg/qc/duck_identity.py` is written for one series' duck host: fixed signs (bill,
+  head, neck ring, body, too small), fixed apparel (tuque, vest), a tuft rule for "B" shots and a
+  0.12 height floor. The composite is a placeholder (it copies the frame), `check_clip` assumes a
+  duration instead of probing it, and frames come from a blocking `subprocess.run`. `create_gate()`
+  defaults to fakes that always pass. No production code calls it; only
+  `tests/test_qc_duck_identity.py` and `tests/test_e2e_dryrun.py` do.
+- **Interface:** `DuckIdentityGate` with `DuckDetector.detect` and `VisionJudge.judge_identity`;
+  `create_gate()`.
+- **Done when:** one gate works for any locked character, with its criteria taken from the
+  character's lock in the cast library (locked description, master, turnaround and head sheet,
+  `lock_hash`) instead of code. A live gate without a judge escalates (the always-pass fakes are
+  for dry run only). The composite uses real crops of the locked sheet. It runs as part of the
+  still and clip review, and low confidence escalates (below 0.6 today).
+- **Tests:** criteria built from a locked version; live without a judge escalates; low confidence
+  escalates; the current duck rules as one configured character, so the existing
+  `tests/test_qc_duck_identity.py` cases keep passing; `test_create_gate_default` and
+  `test_e2e_duck_identity_gate` stay as dry-run tests, with live tests added next to them.
+
+##### Cost and credits
+
+Every judge verdict is a paid model call: QC spends nothing today and will spend on every still and
+clip attempt.
+The existing OpenAI text calls (story shaping, draft from idea, the voice picker) are not on the
+ledger. The judges must be:
+
+- **Budget ledger** (`hfvg/budget.py`, [DOLLAR-LEDGER.md](DOLLAR-LEDGER.md)): estimate in integer
+  micro-dollars, reserve before the call, commit the real cost or release on failure, idempotent
+  per call, as `hfvg/activities/audio.py` does for ElevenLabs. There is no QC budget line yet, and
+  the default line caps already add up to $47.50 of the default $48.00 episode stop, so a QC line
+  needs room made for it.
+- **Balance gate** (`BalanceMonitor.check_preflight_balance`,
+  [BALANCE-ALERTS.md](BALANCE-ALERTS.md)): checked before each paid call. It only knows
+  `higgsfield` and `elevenlabs` and is a no-op for any other provider, so a judge provider needs a
+  balance source (or a written decision) first.
+- **Refusals:** a refused reserve, a failed balance check or a missing key makes the verdict
+  NEEDS_REVIEW, never PASS.
+- **Volume:** one still can take several calls (review, identity, three headcount counts at G2),
+  and each clip takes one call per `qc_fail_if` condition, on every attempt, moderation resubmit
+  and retry. The G2 headcount is recomputed on every `GET /g2-headcount` and every G2 approval, and
+  assembly QC on every edit rebuild. Cache verdicts by media content hash (the edit manifest
+  already records each clip's `source_sha256`) so a re-read or a retried activity does not pay
+  twice.
+- **Credits:** judge calls only use Higgsfield or ElevenLabs credits if the judge runs there. A
+  stricter judge does mean more paid re-rolls; those stay bounded by `MAX_SHOT_RETRIES`,
+  `MAX_PAID_RETRIES_PER_SHOT_PER_ROUND` and the per-round caps.
+- **Dry run and CI:** no model calls in `DRY_RUN`; CI keeps spending nothing and has no keys.
+- **Provider:** not chosen yet. `api/README.md` calls `OPENAI_API_KEY` the vision judge key, but
+  no QC code reads it.
+
+**Files:**
+- `hfvg/activities/qc.py`, `hfvg/workflows/shot.py` (still and clip review)
+- `hfvg/qc/animal_count.py`, `hfvg/qc/g2_headcount.py`, `hfvg/qc/continuity.py` (counter)
+- `hfvg/qc/clip_constraints.py` (clip conditions)
+- `hfvg/qc/duck_identity.py` (identity gate)
+- `hfvg/worker.py`, `api/main.py` (registering the judges at startup)
+- `hfvg/budget.py`, `hfvg/balance_monitor.py` (spend)
+
+#### 2. Audio Pipeline
+
+**Status:** Shipped. The audio round (voiceover, SFX, music, mix, delivery QC) came in
+PRs #17 and #18 (merged 2026-10-25) and runs on the picture locked by the mute-edit QC.
+PR #8 was not merged.
 **Scope:**
 - Voiceover generation (ElevenLabs)
 - Music generation
@@ -33,10 +197,10 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Picture lock gate
 
 **Files:**
-- `hfvg/activities/audio.py` (stubs exist)
-- `hfvg/workflows/episode_v2.py` (placeholder comments)
+- `hfvg/activities/audio.py` (voiceover, SFX, music, mix and delivery QC)
+- `hfvg/workflows/episode_v2.py` (audio round on the locked picture, before `G_FINAL_CUT`)
 
-#### 2. CORS Tests
+#### 3. CORS Tests
 
 **Status:** CORS is already implemented: `api/main.py` adds `CORSMiddleware` from `CORS_ORIGINS`
 (default `http://localhost:3000,http://localhost:3001`), listed in `.env.example`.
@@ -47,7 +211,7 @@ Planned features and improvements for the Hands-Free Video Generator.
 **Tests:**
 - `tests/test_api_cors.py` (new)
 
-#### 3. 500 Error Handling
+#### 4. 500 Error Handling
 
 **Status:** Not started
 **Issue:** API returns generic 500 errors without details
@@ -68,7 +232,7 @@ async def generic_exception_handler(request, exc):
 - `api/main.py` (add exception handlers)
 - Tests for error responses
 
-#### 4. Per-User Spend Caps
+#### 5. Per-User Spend Caps
 
 **Status:** Not started
 **Issue:** Only episode-level caps exist
@@ -88,7 +252,7 @@ async def generic_exception_handler(request, exc):
 
 ### Medium Priority
 
-#### 5. Authentication System
+#### 6. Authentication System
 
 **Status:** Not started
 **Scope:**
@@ -104,7 +268,7 @@ async def generic_exception_handler(request, exc):
 - `hfvg/models.py` (User model)
 - Web UI login page
 
-#### 6. PostgreSQL Support
+#### 7. PostgreSQL Support
 
 **Status:** Not started
 **Issue:** SQLite doesn't support concurrent writes
@@ -121,7 +285,7 @@ async def generic_exception_handler(request, exc):
 - `pyproject.toml` (add asyncpg)
 - Migration scripts
 
-#### 7. Webhook Notifications
+#### 8. Webhook Notifications
 
 **Status:** Not started
 **Scope:**
@@ -154,7 +318,7 @@ async def generic_exception_handler(request, exc):
 - `hfvg/config.py` (webhook config)
 - Tests
 
-#### 8. OpenTelemetry Tracing
+#### 9. OpenTelemetry Tracing
 
 **Status:** Not started
 **Scope:**
@@ -177,7 +341,7 @@ async def generic_exception_handler(request, exc):
 
 ### Low Priority
 
-#### 9. Multi-Account Support
+#### 10. Multi-Account Support
 
 **Status:** Not started
 **Scope:**
@@ -185,16 +349,17 @@ async def generic_exception_handler(request, exc):
 - Shared budgets
 - Member roles (owner, admin, contributor)
 
-#### 10. Advanced QC
+#### 11. Advanced QC
 
 **Status:** Not started
+**Note:** prompt adherence for stills is now part of item 1 (still reviewer).
 **Scope:**
 - Automated motion analysis (enhanced)
 - Style consistency checks
 - Prompt adherence scoring
 - Audio sync validation
 
-#### 11. Batch Processing
+#### 12. Batch Processing
 
 **Status:** Not started
 **Scope:**
@@ -202,7 +367,7 @@ async def generic_exception_handler(request, exc):
 - Batch retry (multiple shots at once)
 - Scheduled processing
 
-#### 12. API Rate Limiting
+#### 13. API Rate Limiting
 
 **Status:** Not started
 **Scope:**
@@ -368,4 +533,4 @@ Have an idea not on the roadmap?
 
 ---
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-11-20
