@@ -12,19 +12,21 @@ Planned features and improvements for the Hands-Free Video Generator.
 - End-frame generation
 - Web UI (basic)
 - CLI tools
-- Red-green mutation testing (219 tests: 215 mutations + 4 probes)
+- Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
+- Red-green mutation testing (727 tests: 722 mutations + 5 probes, as of 2026-11-20)
 
 **🚧 In Progress:**
-- Audio stage (PR #8)
 - Improved error messages
 
 ## Upcoming Features
 
 ### High Priority
 
-#### 1. Audio Pipeline (PR #8)
+#### 1. Audio Pipeline
 
-**Status:** In development
+**Status:** Shipped. The audio round (voiceover, SFX, music, mix, delivery QC) came in
+PRs #17 and #18 (merged 2026-10-25) and runs on the picture locked by the mute-edit QC.
+PR #8 was not merged.
 **Scope:**
 - Voiceover generation (ElevenLabs)
 - Music generation
@@ -33,8 +35,8 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Picture lock gate
 
 **Files:**
-- `hfvg/activities/audio.py` (stubs exist)
-- `hfvg/workflows/episode_v2.py` (placeholder comments)
+- `hfvg/activities/audio.py` (voiceover, SFX, music, mix and delivery QC)
+- `hfvg/workflows/episode_v2.py` (audio round on the locked picture, before `G_FINAL_CUT`)
 
 #### 2. CORS Tests
 
@@ -368,4 +370,4 @@ Have an idea not on the roadmap?
 
 ---
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-11-20
