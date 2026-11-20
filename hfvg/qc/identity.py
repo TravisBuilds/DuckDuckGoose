@@ -657,6 +657,10 @@ async def identity_review(media_path: str | Path, *, kind: str, episode_id: str 
         rows.append({"character": crit.slug, "name": crit.name, "version": crit.version,
                      "verdict": result["verdict"], "reason": result["reason"]})
     status = _status({r["verdict"] for r in rows})
-    reason = "; ".join(f"{r['name'] or r['character']}: {r['reason']}" for r in rows if r["verdict"] != PASS) \
+    reason = "; ".join(_named(r["name"] or r["character"], r["reason"]) for r in rows if r["verdict"] != PASS) \
         or "every locked character matches its sheet"
     return {"status": status, "characters": rows, "reason": reason}
+
+
+def _named(name: str, reason: str) -> str:
+    return reason if reason.startswith(name) else f"{name}: {reason}"

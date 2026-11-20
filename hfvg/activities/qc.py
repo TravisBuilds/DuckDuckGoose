@@ -577,7 +577,7 @@ async def _with_clip_identity(result: dict, clip_path: Path, rubric: dict | None
             max(remaining, 1.0))
     except asyncio.TimeoutError:
         check = {"status": "NEEDS_REVIEW", "characters": [],
-                 "reason": f"the QC judges took longer than {review_deadline_s():.0f} s"}
+                 "reason": f"the QC judges took longer than {review_deadline_s():g} s"}
     if check is None:
         return result
     if check["status"] == "FAIL":

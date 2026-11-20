@@ -200,7 +200,7 @@ async def judged_still_review(reviewer: StillReviewer, asset_url: str, rubric: d
         try:
             return await asyncio.wait_for(run(), review_deadline_s())
         except asyncio.TimeoutError:
-            reason = f"the QC judges took longer than {review_deadline_s():.0f} s"
+            reason = f"the QC judges took longer than {review_deadline_s():g} s"
         except Exception as e:  # noqa: BLE001 - a broken judge is a person's call, not an activity retry
             reason = f"the QC judges failed ({type(e).__name__}: {str(e)[:120]})"
         return _result(NEEDS_REVIEW, [f"QC judge needs review: {reason}"],
