@@ -160,16 +160,17 @@ async def check_shot_animals(counter: AnimalCounter | None, media_path: str | Pa
     meta = shot_meta or {}
     checker = DuckPresenceCheck(counter, confidence_threshold)
     checks: list[dict[str, Any]] = []
+    context = {"shot_meta": meta, **(shot_context or {})}
     count = meta.get("count")
     if isinstance(count, int) and not isinstance(count, bool):
-        count_context = {**(shot_context or {}), "exclude_duck_host": bool(meta.get("duck"))}
+        count_context = {**context, "exclude_duck_host": bool(meta.get("duck"))}
         res = await checker._check(media_path, "animal", count, "animal count", count_context)
         checks.append({"check": "animal_count", **res})
     else:
         checks.append({"check": "animal_count", "status": NEEDS_REVIEW, "passed": False, "escalate": True,
                        "reason": "shot has no animal count to verify against", "details": {}})
     if meta.get("duck"):
-        res = await checker._check(media_path, "duck", 1, "duck presence", shot_context)
+        res = await checker._check(media_path, "duck", 1, "duck presence", context)
         checks.append({"check": "duck_presence", **res})
     statuses = {c["status"] for c in checks}
     status = FAIL if FAIL in statuses else (NEEDS_REVIEW if NEEDS_REVIEW in statuses else PASS)
