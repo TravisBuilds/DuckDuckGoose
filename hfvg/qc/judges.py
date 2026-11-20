@@ -34,6 +34,7 @@ import logging
 import math
 import os
 import uuid
+import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -428,14 +429,16 @@ _VERDICTS_TABLE = """CREATE TABLE IF NOT EXISTS qc_judge_verdicts (
     created_at TEXT NOT NULL
 )"""
 
-_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
+# Weak: a lock disappears once no check holds it, so the registry does not grow with every judged input.
+_LOCKS: weakref.WeakValueDictionary[tuple[int, str], asyncio.Lock] = weakref.WeakValueDictionary()
 
 
 def _lock_for(key: str) -> asyncio.Lock:
     slot = (id(asyncio.get_running_loop()), key)
     lock = _LOCKS.get(slot)
     if lock is None:
-        lock = _LOCKS[slot] = asyncio.Lock()
+        lock = asyncio.Lock()
+        _LOCKS[slot] = lock
     return lock
 
 

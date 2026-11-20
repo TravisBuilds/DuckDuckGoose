@@ -303,6 +303,18 @@ async def test_concurrent_identical_calls_pay_once(db):
     assert answers == [{"ok": True}] * 3 and len(client.calls) == 1
 
 
+async def test_the_lock_of_a_judged_input_is_dropped_once_no_call_holds_it(db):
+    slot = (id(asyncio.get_running_loop()), judges.cache_key("test_judge", judges.judge_model(), {"media": "lk"}))
+    held_during_the_call = []
+
+    def answer(request):
+        held_during_the_call.append(slot in judges._LOCKS)
+        return {"ok": True}
+
+    assert await JudgeService(FakeJudgeClient(answer)).ask(_call(media="lk")) == {"ok": True}
+    assert held_during_the_call == [True] and slot not in judges._LOCKS
+
+
 async def test_a_failed_call_is_not_repaid_within_the_retry_window_then_is_asked_again(db, monkeypatch):
     client = FakeJudgeClient(RuntimeError("upstream broke"), {"ok": True})
     service = JudgeService(client)
