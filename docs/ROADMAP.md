@@ -13,7 +13,8 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Web UI (basic)
 - CLI tools
 - Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
-- Red-green mutation testing (727 tests: 722 mutations + 5 probes, as of 2026-11-20)
+- Red-green mutation testing (756 tests: 751 mutations + 5 probes, as of 2026-11-20)
+- Automated QC judges, off by default behind `HFVG_QC_JUDGES_ENABLED` ([QC-JUDGES.md](QC-JUDGES.md))
 
 **🚧 In Progress:**
 - Improved error messages
@@ -24,7 +25,25 @@ Planned features and improvements for the Hands-Free Video Generator.
 
 #### 1. Automated QC judges (top priority, approved Nov 19 2026)
 
-**Status:** Not started.
+**Status:** Built, off by default (`HFVG_QC_JUDGES_ENABLED=false`, [QC-JUDGES.md](QC-JUDGES.md)).
+With the flag off nothing is registered and QC works as the **Now** notes below describe. With it on:
+
+- (a) the still reviewer judges each live still against its prompt and references, which
+  `ShotWorkflow` now sends in the rubric behind `workflow.patched("qc-still-rubric")`; a FAIL
+  fails the shot for the bounded `retry_shot`, anything unsure goes to a person;
+- (b) one headcount call per still or clip counts cast, ducks and animals, knowing the shot's
+  declared cast; a counter error is NEEDS_REVIEW at G2, at recompose and in assembly QC;
+- (c) one call per clip answers every `qc_fail_if` condition from six frames across the clip;
+- (d) `hfvg/qc/identity.py` is one identity gate for every locked character, with criteria from the
+  lock and real crops; the duck host is one configured profile of it;
+- cost: OpenAI through `OPENAI_API_KEY` (model id from `HFVG_QC_JUDGE_MODEL`), a `qc_judges` budget
+  line ($0.50, configurable) with reserve and commit around every call inside the $48 stop, the
+  balance gate for `openai` (unknown balance: the line bounds the spend), verdicts cached by content;
+- tests: fake-judge unit tests for every path, a workflow test, a replay test of a run parked at
+  review before the patch, red-green M-730 to M-758.
+
+Left: turning the flag on after a look at the first live verdicts, with the chosen model's prices in
+`HFVG_QC_JUDGE_USD_PER_MTOK_IN` / `_OUT`.
 
 **Why:** Live QC has no vision judge yet. Motion QC and the stillgate measure each clip, but the
 still reviewer, the counter and the clip checker below are interfaces with fail-closed wiring and
