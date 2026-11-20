@@ -35,7 +35,14 @@ from typing import Any
 
 from hfvg.qc import judges
 from hfvg.qc.judges import (
-    MEDIA_PX, NEEDS_REVIEW, JudgeCall, JudgeInputError, JudgeService, confidence_of, file_sha256, prepare_image,
+    MEDIA_PX,
+    NEEDS_REVIEW,
+    JudgeCall,
+    JudgeInputError,
+    JudgeService,
+    confidence_of,
+    file_sha256,
+    prepare_image,
 )
 
 PASS = "PASS"
@@ -125,13 +132,18 @@ def criteria_from_lock(character: dict, version: dict, episode_id: str | None = 
         lock_hash=version.get("lock_hash"), sheet=sheet, episode_id=episode_id)
 
 
+def locked_entries(shot_meta: dict | None) -> list[dict]:
+    """The shot's locked cast entries (shot_meta["cast"]), with or without a prompt clause."""
+    cast = (shot_meta or {}).get("cast") if isinstance(shot_meta, dict) else None
+    return [c for c in cast if isinstance(c, dict) and c.get("locked")] if isinstance(cast, list) else []
+
+
 def locked_cast_criteria(episode_id: str | None, shot_meta: dict | None) -> tuple[list[IdentityCriteria], list[dict]]:
     """(criteria of every locked character the shot declares, [{character, name, reason}] that cannot be
     judged). Blocking (sqlite, file hashes): call it in a thread from async code."""
     from hfvg import cast_store
-    from hfvg.cast_prompt import cast_entries
 
-    entries = [c for c in cast_entries(shot_meta) if c.get("locked")]
+    entries = locked_entries(shot_meta)
     if not entries:
         return [], []
     criteria: list[IdentityCriteria] = []
@@ -640,11 +652,7 @@ async def identity_review(media_path: str | Path, *, kind: str, episode_id: str 
     no identity judge is registered or the shot has no locked character.
     {"status": PASS|FAIL|NEEDS_REVIEW, "characters": [{character, name, version, verdict, reason}], "reason"}."""
     components = get_identity_judge()
-    if components is None:
-        return None
-    from hfvg.cast_prompt import cast_entries
-
-    if not any(c.get("locked") for c in cast_entries(shot_meta)):
+    if components is None or not locked_entries(shot_meta):
         return None
     criteria, problems = await asyncio.to_thread(locked_cast_criteria, episode_id, shot_meta)
     rows = [{"character": p["character"], "name": p["name"], "version": None, "verdict": ESCALATE,

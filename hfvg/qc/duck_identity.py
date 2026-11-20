@@ -146,7 +146,8 @@ class DuckIdentityGate(IdentityGate):
     def __init__(self, 
                  detector: DuckDetector | None = None,
                  judge: VisionJudge | None = None,
-                 refs_path: str | Path | None = None):
+                 refs_path: str | Path | None = None,
+                 episode_id: str | None = None):
         """
         Initialize duck identity gate.
         
@@ -154,13 +155,15 @@ class DuckIdentityGate(IdentityGate):
             detector: Duck detector (default: FakeDuckDetector for dry-run)
             judge: Vision judge (default: FakeVisionJudge for dry-run)
             refs_path: Directory of reference images (the composite's sheet panels; default: none)
+            episode_id: Episode whose qc_judges budget line pays for the vision judges' calls
         """
         self.refs_path = Path(refs_path) if refs_path else None
         super().__init__(
             detector or FakeDuckDetector(),
             judge or FakeVisionJudge(),
             IdentityCriteria(slug="duck", name="Duck", description="the duck host",
-                             sheet=_ref_images(self.refs_path), profile=DUCK_HOST_PROFILE),
+                             sheet=_ref_images(self.refs_path), profile=DUCK_HOST_PROFILE,
+                             episode_id=episode_id),
         )
 
 
