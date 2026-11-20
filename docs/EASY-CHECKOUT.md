@@ -393,7 +393,8 @@ standing alone as a badge, and on any seal, stamp, coin or price-ring style comi
   promise only where the server keeps it (the wizard, the start card and the shot plan pass
   `kept: false` and show their own line), an unpriced clip makes the price "at least", and "override"
   stays a ledger word. Mutation 729: a member's shot plan save line names the shots, never the models.
-  Mutation 669 (the mood board breakdown's budget row) follows the breakdown's new code.
+  Mutations 669 (the mood board breakdown's budget row) and 597 (the picture redo sends the price the
+  owner was shown) follow the new code.
 
 ## Decisions for the owner
 
