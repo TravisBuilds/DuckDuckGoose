@@ -136,9 +136,11 @@ what the ledger commits.
 **Per episode (estimate).** A shot with one locked character and `qc_fail_if` conditions, with one
 still and one clip attempt, takes 12 calls (still review, 2 for the still's identity, G2 headcount,
 clip check, 6 for the clip's identity, assembly headcount): about $0.016. A 20-shot episode is about
-240 calls and about $0.32, inside the line's $0.40 stop. Each extra still attempt adds about $0.005,
-each extra clip attempt about $0.009, and each further locked character one identity call per still
-and three per clip (the finding call is shared).
+240 calls and about $0.32, inside the line's $0.40 stop. If every call cost its full hold, the same
+shot would be about $0.033 and the stop would cover about 12 such shots; the checks after that are
+NEEDS_REVIEW, and the first live episodes show which is closer. Each extra still attempt adds about
+$0.005, each extra clip attempt about $0.009, and each further locked character one identity call
+per still and three per clip (the finding call is shared).
 
 **Paid once.** A verdict is cached by the content hashes of the media and the references plus every
 text input, the model id and the judge version, so page loads, G2 approvals, retried activities and
