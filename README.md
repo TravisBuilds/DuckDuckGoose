@@ -340,7 +340,9 @@ See [api/README.md](api/README.md) for full API documentation.
 
 ## License
 
-[LICENSE](LICENSE) - License TBD by owner
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Yellow Duck Lab Inc
 
 ## Contributing
 

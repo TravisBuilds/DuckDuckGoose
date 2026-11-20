@@ -1,23 +1,21 @@
-LICENSE - TBD by Owner
+MIT License
 
-This project's license has not yet been determined.
+Copyright (c) 2026 Yellow Duck Lab Inc
 
-Please contact the repository owner for licensing information before:
-- Using this code in production
-- Distributing modified versions
-- Creating derivative works
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Copyright (c) 2026 Repository Owner
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-All rights reserved pending license selection.
-
----
-
-Common open source licenses to consider:
-- MIT License (permissive, allows commercial use)
-- Apache License 2.0 (permissive with patent grant)
-- GNU GPL v3 (copyleft, requires derivatives to be open source)
-- BSD 3-Clause (permissive, similar to MIT)
-- Mozilla Public License 2.0 (weak copyleft)
-
-Contact: [Owner email/contact TBD]
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
