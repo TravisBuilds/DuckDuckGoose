@@ -5,6 +5,7 @@ pays for one. Images are flat shapes on a plain background (no real people, no n
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -42,6 +43,108 @@ async def live_ledger(tmp_path: Path, monkeypatch) -> str:
     await init_studio_db(db)
     await BudgetLedger(db).init_db()
     return db
+
+
+async def live_episode(tmp_path: Path, monkeypatch, episode_id: str) -> str:
+    """live_ledger plus the episode row in live mode with G1.08 approved (review_still / review_clip
+    then reach their judges) and a private cast store in the tmp dir."""
+    import aiosqlite
+
+    from hfvg.studio_db import create_episode
+
+    db = await live_ledger(tmp_path, monkeypatch)
+    monkeypatch.setenv("SMOKE_TEST_OVERRIDE", "true")
+    monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
+    await create_episode(db, episode_id)
+    async with aiosqlite.connect(db) as conn:
+        await conn.execute("UPDATE episodes SET live_mode = 1, g108_approved = 1 WHERE episode_id = ?", (episode_id,))
+        await conn.commit()
+    return db
+
+
+def locked_character(episode_id: str, name: str = "Pip", seed: int = 100,
+                     description: str = "a small round robot with a teal shell and one yellow antenna") -> dict:
+    """A character of the episode's cast library with a complete, locked sheet; returns the shot_meta
+    cast entry the shot planner writes for it."""
+    from hfvg import cast_store
+    from tests.cast_helpers import complete_sheet, new_character
+
+    character = new_character(("episode", episode_id), name=name, description=description)
+    complete_sheet(character, 1, seed=seed)
+    cast_store.approve_version(character["character_id"], 1, "tester")
+    character = cast_store.get_character(character["character_id"])
+    version = next(v for v in character["versions"] if v["version"] == 1)
+    return {"character": character["slug"], "version": 1, "name": character["name"],
+            "clause": cast_store.version_clause(character, version), "locked": True}
+
+
+STILL_PASS = {"verdict": "pass", "confidence": 0.93, "issues": []}
+STILL_FAIL = {"verdict": "fail", "confidence": 0.9, "issues": ["two robots in frame, the prompt has one"]}
+
+
+def detect_answer(*slugs: str, found: bool = True, confidence: float = 0.9,
+                  box: dict | None = None) -> dict:
+    """The detector's answer for the given characters (fractions of the image size)."""
+    box = box or {"x": 0.3, "y": 0.1, "w": 0.4, "h": 0.8}
+    head = {"x": box["x"] + box["w"] * 0.15, "y": box["y"], "w": box["w"] * 0.7, "h": box["h"] * 0.25}
+    return {"characters": {s: {"found": found, "confidence": confidence, "box": box if found else None,
+                               "head": head if found else None} for s in slugs}}
+
+
+def identity_answer(scores: dict | None = None, verdict: str = "PASS", confidence: float = 0.9,
+                    signs: tuple[str, ...] | None = None, **extra) -> dict:
+    """The identity judge's answer: every sign of the generic profile at 0 unless ``scores`` says."""
+    from hfvg.qc.identity import GENERIC_PROFILE
+
+    signs = signs or tuple(GENERIC_PROFILE.signs)
+    return {"signs": {s: {"score": (scores or {}).get(s, 0), "confidence": confidence, "evidence": "as on the sheet"}
+                      for s in signs},
+            "verdict": verdict, "reason": "compared with the sheet", "confidence": confidence, **extra}
+
+
+def judge_of(system: str) -> str:
+    """Which judge a request is for (by its instructions)."""
+    from hfvg.qc import identity, still_review, vision_constraints, vision_counter
+
+    if system == still_review.SYSTEM:
+        return "still"
+    if system == identity.DETECT_SYSTEM:
+        return "detect"
+    if system.startswith("You check that a character"):
+        return "identity"
+    if system == vision_counter.SYSTEM:
+        return "headcount"
+    if system == vision_constraints.SYSTEM:
+        return "fail_if"
+    raise AssertionError(f"unknown judge request: {system[:60]!r}")
+
+
+def routed_client(**answers):
+    """A FakeJudgeClient whose answers are per judge (still, detect, identity, headcount, fail_if),
+    each a list consumed in order; ``client.calls[i]["judge"]`` says which judge was asked."""
+    from hfvg.qc.judges import FakeJudgeClient, JudgeReply
+
+    class RoutedJudgeClient(FakeJudgeClient):
+        def __init__(self):
+            super().__init__()
+            self.queues = {k: list(v) if isinstance(v, list) else [v] for k, v in answers.items()}
+
+        async def complete(self, *, model, system, text, images, max_output_tokens):
+            judge = judge_of(system)
+            self.calls.append({"judge": judge, "model": model, "system": system, "text": text,
+                               "images": list(images), "max_output_tokens": max_output_tokens})
+            queue = self.queues.get(judge) or []
+            if not queue:
+                raise RuntimeError(f"no {judge} answer left")
+            answer = queue.pop(0)
+            if isinstance(answer, BaseException) or (isinstance(answer, type) and issubclass(answer, BaseException)):
+                raise answer
+            return JudgeReply(answer if isinstance(answer, str) else json.dumps(answer), 1000, 100)
+
+        def asked(self) -> list[str]:
+            return [c["judge"] for c in self.calls]
+
+    return RoutedJudgeClient()
 
 
 def image(path: Path, color: tuple[int, int, int] = (90, 140, 200), size: tuple[int, int] = (640, 960),
