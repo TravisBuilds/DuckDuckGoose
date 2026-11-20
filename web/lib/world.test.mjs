@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  BOARD_POLL_MS, boardEstimateLines, boardProgress, homeSections, isFinished, isFirstRun, madeWith, mayChange,
+  BOARD_POLL_MS, boardProgress, boardRows, homeSections, isFinished, isFirstRun, madeWith, mayChange,
   pendingStart, pendingStartKey, posterShot, primaryVideo, startRequest, universeByEpisode, universeChoices,
 } from './world.mjs';
 
@@ -122,26 +122,33 @@ test('what the page says while a live mood board is made, and when it stopped', 
     'Making the mood board: 0 of 0 pictures made. This page updates by itself.');
 });
 
-test('a live mood board estimate shows each picture\'s price, what it is made with and the budget left', () => {
+test('a mood board\'s breakdown shows each picture\'s price, what it is made from and the budget left, never the model', () => {
   const live = {
-    dry_run: false, per_image_usd_micros: [390_000, 390_000, 390_000, 390_000], total_usd_micros: 1_560_000,
+    dry_run: false, count: 4, per_image_usd_micros: [390_000, 390_000, 390_000, 390_000], total_usd_micros: 1_560_000,
     model_path: 'xai/grok-imagine-image-2.0', references_per_picture: 2,
     budget: { line: 'U1_mood_board', cap_usd_micros: 4_000_000, stop_usd_micros: 3_200_000, spent_usd_micros: 390_000,
       reserved_usd_micros: 0, available_usd_micros: 2_810_000 },
   };
-  assert.deepEqual(boardEstimateLines(live), [
-    "4 pictures at $0.39 each (the provider's price)",
-    'Made from your notes and 2 of your reference photos, with xai/grok-imagine-image-2.0',
-    "This Universe's mood board budget has $2.81 left (it stops at $3.20 spent of $4.00)",
+  assert.deepEqual(boardRows(live), [
+    { label: '4 pictures', value: '$0.39 each' },
+    { label: 'Made from', value: 'your notes and 2 of your reference photos' },
+    { label: 'Left in the mood board budget', value: '$2.81' },
   ]);
-  assert.deepEqual(boardEstimateLines({ ...live, per_image_usd_micros: [390_000, 410_000], references_per_picture: 1, budget: undefined }), [
-    "The provider's price of each picture: $0.39, $0.41",
-    'Made from your notes and 1 of your reference photos, with xai/grok-imagine-image-2.0',
+  assert.deepEqual(boardRows({ ...live, per_image_usd_micros: [390_000, 410_000], references_per_picture: 1, budget: undefined }), [
+    { label: 'Each picture', value: '$0.39, $0.41' },
+    { label: 'Made from', value: 'your notes and 1 of your reference photos' },
   ]);
-  assert.deepEqual(boardEstimateLines({ ...live, per_image_usd_micros: [], references_per_picture: 0, model_path: undefined,
-    budget: undefined }), ['Made from your notes']);
-  assert.deepEqual(boardEstimateLines({ ...live, dry_run: true }), []);
-  assert.deepEqual(boardEstimateLines(null), []);
+  assert.deepEqual(boardRows({ ...live, per_image_usd_micros: [], references_per_picture: 0, model_path: undefined,
+    budget: undefined }), [{ label: 'Made from', value: 'your notes' }]);
+  assert.deepEqual(boardRows({ ...live, dry_run: true }), [
+    { label: '4 test pictures', value: 'free' },
+    { label: 'The same board, live', value: 'about $1.56' },
+  ]);
+  assert.deepEqual(boardRows(null), []);
+  for (const rows of [boardRows(live), boardRows({ ...live, dry_run: true })]) {
+    const words = JSON.stringify(rows);
+    assert.doesNotMatch(words, /grok|xai|provider|stops at|cap/i);
+  }
 });
 
 test('the start request kept while a Universe episode waits for its looks', () => {

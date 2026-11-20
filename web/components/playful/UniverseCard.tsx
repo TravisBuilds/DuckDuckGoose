@@ -3,11 +3,10 @@ import type { UniverseCard as UniverseCardData } from '@/lib/world.mjs';
 import { API_URL } from '@/lib/studio-api';
 import { countsLine, healthLine } from '@/lib/consistency.mjs';
 import { CAST_COLOURS } from '@/lib/castColour.mjs';
-import { CREATION_NAMES, homeJourney, sealFor } from '@/lib/journey.mjs';
+import { CREATION_NAMES, homeJourney } from '@/lib/journey.mjs';
 import { ownerLabel } from '@/lib/labels';
 import { bandStyle } from './castTheme';
 import NextStepPill from './NextStepPill';
-import Seal from './Seal';
 
 const COVERS = ['#E3F2FD,#A9DAF8', '#E8F8FE,#BDEBFA', '#F3FCD6,#DDF78A', '#FFF7D1,#FFE680', '#FFEDE5,#FFC4A8', '#F2EEFE,#D5C9FC'];
 const CIRCLES = ['var(--green)', 'var(--mustard)', 'var(--blue)', 'var(--aqua)', 'var(--green)', 'var(--aqua)'];
@@ -19,8 +18,8 @@ function coverIndex(id: string): number {
 }
 
 /**
- * A Universe on the home: its cover with the consistency seal, name and one-line idea, the five-step
- * progress, what it keeps, and a "Next" pill to the step that waits. Without a mood board yet, the
+ * A Universe on the home: its cover, name and one-line idea, the five-step progress, what it keeps,
+ * and a "Next" pill to the step that waits. Without a mood board yet, the
  * cover is a soft gradient with a big accent circle and one soft circle per character (up to three).
  * The whole card opens the Universe; the pill opens the step.
  */
@@ -28,7 +27,6 @@ export default function UniverseCard({ world, myUserId }: { world: UniverseCardD
   const id = world.series_id;
   const counts = world.counts;
   const journey = homeJourney(world);
-  const seal = sealFor(counts);
   const owner = ownerLabel(world.owner_user_id, world.owner_name, myUserId);
   const href = `/studio/universes/${encodeURIComponent(id)}`;
   const nextHref = journey.next.step ? `${href}/create?step=${journey.next.step}`
@@ -57,7 +55,6 @@ export default function UniverseCard({ world, myUserId }: { world: UniverseCardD
               </span>
             </div>
           )}
-          <Seal state={seal.state} top={seal.top} bottom={seal.bottom} className="!absolute right-4 top-3.5" />
         </div>
         <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
           <h3 className="break-words text-[18px]">

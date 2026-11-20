@@ -5,7 +5,7 @@
  * character sheet is and what comes next, who is in each shot, and the drafted cast the wizard adds
  * to a new episode.
  */
-import { formatUsdMicros } from './balance.mjs';
+import { headline, quote } from './checkout.mjs';
 
 export const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 export const PICTURE_ACCEPT = '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp';
@@ -222,12 +222,15 @@ export function defaultOptionCount(fromPicture) {
   return fromPicture ? 2 : 3;
 }
 
-/** "3 pictures, about $1.17, charged to this video's budget" (or free stand-ins in preview mode). */
+/** The sheet checkout's one line: "3 pictures: about $1.17", or "3 pictures: free" in preview mode. */
 export function estimateText(estimate) {
+  return headline(estimateWhat(estimate), quote(estimate));
+}
+
+/** What the checkout prices: "3 pictures". */
+export function estimateWhat(estimate) {
   const n = estimate.count;
-  const pictures = `${n} picture${n === 1 ? '' : 's'}`;
-  if (estimate.dry_run) return `${pictures}, free: preview mode makes simple stand-in pictures`;
-  return `${pictures}, about ${formatUsdMicros(estimate.total_usd_micros)}, charged to this video's budget`;
+  return `${n} picture${n === 1 ? '' : 's'}`;
 }
 
 /** The sheet still needs placeholder approval (dry-run stand-ins) to be locked. */

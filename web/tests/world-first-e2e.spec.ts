@@ -171,7 +171,7 @@ test.describe.serial('Universe first', () => {
     await page.getByTestId('creation-next').click();
     await page.waitForURL(`/studio/universes/${universeId}/create?step=moodboard`);
     await page.getByTestId('board-check-price').click();
-    await expect(page.getByTestId('board-estimate')).toContainText('4 placeholder images, free in dry-run mode');
+    await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board: free');
     await page.getByTestId('board-make').click();
     await expect(page.getByTestId('board-images-1').locator('img')).toHaveCount(4);
     // 3. approved, nothing downstream ran before
@@ -293,7 +293,7 @@ test.describe.serial('Universe first', () => {
     await expect(page.getByTestId('breadcrumb-universe')).toHaveAttribute('href', `/studio/universes/${universeId}`);
     await expect(page.getByTestId('start-lock')).toContainText(
       `Lock the look of Mira Vale and Oskar Brine before this video starts: it is in ${UNIVERSE}`);
-    await expect(page.getByTestId('start-mode')).toHaveText('It starts as a free test run: no credits are used.');
+    await expect(page.getByTestId('start-mode')).toHaveText('A test run, so nothing is charged.');
     await expect(page.getByTestId('start-episode')).toBeDisabled();
     await expect(page.getByTestId('strip-character-mira-vale-badge')).toHaveText('Not locked yet');
     await expect(page.getByTestId('strip-character-oskar-brine-badge')).toHaveText('Not locked yet');

@@ -93,7 +93,7 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(page.getByTestId('board-estimate')).toHaveCount(0);
     await expect(page.getByTestId('board-make')).toBeDisabled();
     await page.getByTestId('board-check-price').click();
-    await expect(page.getByTestId('board-estimate')).toContainText('4 placeholder images, free in dry-run mode');
+    await expect(page.getByTestId('board-estimate-price')).toHaveText('Your mood board: free');
     await expect(page.getByTestId('board-make')).toBeEnabled();
   });
 
@@ -311,14 +311,19 @@ test.describe.serial('Playful studio guarantees', () => {
     await page.getByTestId('approve-final').click();
     await expect(page.getByTestId('run-finished')).toHaveText('Finished', { timeout: 120_000 });
 
-    // finished: Download is done, nothing on the trail is "now", and a test run's paid steps were free
-    const note = (key: string) => page.getByTestId(`step-${key}`).locator('.pf-stop-note');
+    // finished: Download is done, nothing on the trail is "now", and a test run's paid steps were free;
+    // what each step cost is behind "See the breakdown", and the trail only says where each step is
+    const note = (key: string) => page.getByTestId(`cost-${key}`);
     await page.reload();
     await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
     await expect(page.getByTestId('stepper').locator('[aria-current="step"]')).toHaveCount(0);
+    await expect(page.getByTestId('step-stills').locator('.pf-stop-note')).toHaveText('Done');
+    await expect(note('stills')).toBeHidden();
+    await page.getByTestId('cost-breakdown').locator('summary').click();
+    await expect(note('stills')).toBeVisible();
     await expect(note('stills')).toHaveText('Free');
     await expect(note('final_cut')).toHaveText('Free');
-    await expect(page.getByTestId('episode-real-cost')).toHaveText('$0.00');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('Free');
 
     // until the budget is read, no paid step claims a cost, "Free" or not recorded
     let release = () => {};
@@ -335,7 +340,7 @@ test.describe.serial('Playful studio guarantees', () => {
     await expect(page.getByTestId('episode-real-cost')).toHaveText('—');
     release();
     await expect(note('stills')).toHaveText('Free');
-    await expect(page.getByTestId('episode-real-cost')).toHaveText('$0.00');
+    await expect(page.getByTestId('episode-real-cost')).toHaveText('Free');
     await page.unroute(`${API}/api/episodes/${FINISHED_EPISODE}/budget`, hold);
 
     // the same run as a live one that recorded no spend (a live run needs paid providers, so its
@@ -353,7 +358,7 @@ test.describe.serial('Playful studio guarantees', () => {
     await page.reload();
     await expect(note('stills')).toHaveText('Cost not recorded');
     await expect(note('final_cut')).toHaveText('Cost not recorded');
-    await expect(page.getByTestId('stepper')).not.toContainText('Free');
+    await expect(page.getByTestId('cost-breakdown')).not.toContainText('Free');
     await expect(page.getByTestId('episode-real-cost')).toHaveText('Not recorded');
     await expect(page.getByTestId('step-download')).toHaveAttribute('data-status', 'done');
 

@@ -46,7 +46,7 @@ export default function BottomBar({ items, fab, label = 'Studio', testId }: {
   };
   return (
     <nav aria-label={label} data-testid={testId}
-      className="fixed inset-x-3 bottom-3 z-40 flex items-center gap-1 rounded-[28px] border border-line/70 bg-white px-2 py-1.5 shadow-float sm:hidden">
+      className="pf-tabbar fixed inset-x-3 bottom-3 z-40 flex items-center gap-1 rounded-[28px] border border-line/70 bg-white px-2 py-1.5 shadow-float sm:hidden">
       {items.slice(0, half).map(render)}
       {fab}
       {items.slice(half).map(render)}

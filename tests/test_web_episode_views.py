@@ -6,8 +6,10 @@ needs and sends (cast.mjs), what a picture redo sends and says it costs (redo.mj
 place with a photo needs and what a shot plan save sends (props.mjs), the Universe consistency badges
 (consistency.mjs), the home sections, cast auto-mapping and episode viewer (world.mjs), the voices a
 wizard plan starts with (wizard.mjs), the reference list a Universe's story asks for and how ready it
-is (checklist.mjs), the Universe creation steps (journey.mjs), and a shot's first frames: what is in
-them, their price and what stops a round or a pick (frames.mjs)."""
+is (checklist.mjs), the Universe creation steps (journey.mjs), a shot's first frames: what is in
+them, their price and what stops a round or a pick (frames.mjs), and the easy checkout: the one price
+of a paid thing, the approved total it sends, its breakdown and the calm words for a refused spend,
+which never show the estimates override (checkout.mjs)."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,6 +31,6 @@ def _node_tests(name: str) -> str:
 
 @pytest.mark.parametrize("name", ["next-step.test.mjs", "run-outcome.test.mjs", "cast.test.mjs", "redo.test.mjs",
                                   "props.test.mjs", "consistency.test.mjs", "world.test.mjs", "wizard.test.mjs",
-                                  "checklist.test.mjs", "journey.test.mjs", "frames.test.mjs"])
+                                  "checklist.test.mjs", "journey.test.mjs", "frames.test.mjs", "checkout.test.mjs"])
 def test_episode_view_node_tests(name):
     _node_tests(name)

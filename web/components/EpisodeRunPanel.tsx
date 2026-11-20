@@ -8,12 +8,17 @@ import { keepPolling, runEndedView } from '@/lib/run-outcome.mjs';
 import type { RunInfo } from '@/lib/run-outcome.mjs';
 import { finishLine, gateChip, openGate } from '@/lib/next-step.mjs';
 import {
-  REDO_NOTE_MAX, redoEstimateRequest, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
+  REDO_NOTE_MAX, redoEstimateRequest, redoLine, redoNote, redoNoteText, redoPriceText, redoRequest, redoStartedText,
 } from '@/lib/redo.mjs';
+import {
+  PLAN_LINE, calmText, clipPrice, clipsPrice, moneyProblem, promise, quote, videoQuote, type MoneyProblem, type OfflineEstimate,
+  type VideoPrice,
+} from '@/lib/checkout.mjs';
 import type { RedoEstimate } from '@/lib/redo.mjs';
 import { FILE_LABELS, fileLabel, gateLabel, qcLabel, stageLabel, stillChip } from '@/lib/labels';
 import { formatLocalDateTime } from '@/lib/time';
 import { btnDanger, btnPrimary, btnSecondary, card, chip, focusRing, highlight, input, tones } from '@/lib/ui';
+import Checkout from './Checkout';
 import { ConfirmButton } from './ConfirmButton';
 import ShotPlanEditor from './ShotPlanEditor';
 
@@ -23,7 +28,9 @@ import ShotPlanEditor from './ShotPlanEditor';
  * downloads, and, under Production details, the raw run state, credit cap, moderation ladder, QC verdicts
  * and per-shot workflow state. Every action is an existing API route; the API (and behind it the
  * workflow) stays the authority, so a refused action shows the API's reason instead of pretending it
- * worked. The page (app/studio/episodes/[id]/page.tsx) lays the sections out and owns the actions.
+ * worked (a refused spend in calm words). Pictures and clips show their one price first, in a checkout
+ * (docs/EASY-CHECKOUT.md). The page (app/studio/episodes/[id]/page.tsx) lays the sections out and owns
+ * the actions.
  */
 
 interface QcView { verdict?: string; blocking?: boolean; reason?: string; checks?: unknown }
@@ -57,6 +64,8 @@ export interface RunState {
   delivery: StageView | null;
   archetype_id: string | null;
   run: RunInfo | null;
+  /** From the G1 plan: false when the live prices could not be read (the API then refuses G1 in a live run). */
+  estimates_available: boolean | null;
 }
 export interface ShotState {
   available: boolean;
@@ -92,12 +101,13 @@ export interface FileInfo { available: boolean; size_bytes?: number; url?: strin
 export interface ShotPreflight { ok: boolean; errors: string[]; warnings: string[] }
 
 /** Runs an action: the result shows as a notice, then everything reloads. False when it was refused. */
-export type Act = (fn: () => Promise<unknown>, done: string, failed: string) => Promise<boolean>;
+/** `refused` may take a refusal's words and show them itself (true), instead of the page's notice. */
+export type Act = (fn: () => Promise<unknown>, done: string, failed: string, refused?: (message: string) => boolean) => Promise<boolean>;
 
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
 export function problemText(e: unknown): string {
-  return e instanceof ApiError ? e.message : UNREACHABLE;
+  return e instanceof ApiError ? calmText(e.message) : UNREACHABLE;
 }
 
 /** Older API builds omit the run-control fields: default them instead of crashing the page. */
@@ -123,6 +133,7 @@ function normalizeRunState(episodeId: string, raw: Partial<RunState>): RunState 
     delivery: raw.delivery ?? null,
     archetype_id: raw.archetype_id ?? null,
     run: raw.run ?? null,
+    estimates_available: raw.estimates_available ?? null,
   };
 }
 
@@ -328,22 +339,36 @@ export function StallBanner({ state, stalls }: { state: RunState | null; stalls:
 
 // ---------------------------------------------------------------- G1: the shot plan
 
+/** A test run's video, when its price has not been read: it is free whatever it holds. */
+const FREE_VIDEO: VideoPrice = { free: true, words: 'free', approve: 0, rows: [] };
+
 /**
  * The shot plan: before the run starts (notStarted) and while the run waits for its approval, the
  * owner or an admin picks each shot's place, props and cast and edits its prompts (ShotPlanEditor);
  * the approval waits for unsaved edits. Otherwise the shots are listed. waitingOn (waitsOn): who
  * approves it when the reader may not.
+ *
+ * Approving it (G1) starts the scene pictures, so in a live run it shows the video's one price
+ * (`price`: the offline estimate of its shots, from preflight; `priceLoad`: whether that is still on
+ * its way or could not be read) next to the button, the same price the start showed; a test run is
+ * free. A live run's button stays off, and says why, until that price is on screen; a price that could
+ * not be read offers "Try again" (`onRetryPrice`). The API also refuses G1 in a live run when today's
+ * prices could not be read (estimates_available false): then no price is shown either.
  */
 export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act, canAct, waitingOn = null, notStarted = false,
-  planKey, onPlanSaved }: {
+  planKey, onPlanSaved, price = null, priceLoad = 'loading', onRetryPrice, live = false }: {
   episodeId: string; state: RunState | null; shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean;
   waitingOn?: string | null; notStarted?: boolean; planKey?: string; onPlanSaved?: () => void;
+  price?: OfflineEstimate | null; priceLoad?: 'loading' | 'ok' | 'error'; onRetryPrice?: () => void; live?: boolean;
 }) {
   const [unsaved, setUnsaved] = useState(false);
   const atG1 = openGate(state) === 'G1_SHOT_PLAN';
   const approved = Boolean(state?.approvals.g1_shot_plan) || Boolean(state?.passed_gates.includes('G1_SHOT_PLAN'));
   const ended = Boolean(state?.run?.ended);
   const editable = canAct && !castHidden && !approved && (notStarted || (atG1 && !ended));
+  const noPrices = live && state?.estimates_available === false;
+  const video = noPrices ? null : live ? videoQuote(price) : videoQuote(price, { free: true }) ?? FREE_VIDEO;
+  const priceFailed = live && !noPrices && !video && priceLoad === 'error';
   return (
     <section id="shot-plan" className={`${card} scroll-mt-4`} data-testid="g1-card" aria-labelledby="shot-plan-title">
       <SectionTitle id="shot-plan-title" title="Shot plan" status={gateChip(approved, atG1 && !ended, waitingOn)} />
@@ -360,18 +385,19 @@ export function ShotPlanSection({ episodeId, state, shots, castHidden, busy, act
               : 'The shot plan is ready to review once your story is approved.'}
       </p>
       {atG1 && !ended && (canAct ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button data-testid="approve-g1" disabled={busy || unsaved} className={btnPrimary}
-            onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
-              'Shot plan approved.', "Couldn't approve the shot plan")}>
-            Approve the shot plan
-          </button>
-          {unsaved && (
-            <span className="text-sm text-amber-800" data-testid="approve-g1-unsaved">
-              Save or undo your shot changes first.
-            </span>
-          )}
-        </div>
+        <Checkout className="mt-4" testId="g1-checkout" what="This video" price={video} action="Approve the shot plan"
+          onAction={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g1_shot_plan' }),
+            'Shot plan approved.', "Couldn't approve the shot plan")}
+          busy={busy} needsPrice={live} actionTestId="approve-g1"
+          off={unsaved ? 'Save or undo your shot changes first.'
+            : noPrices ? "We couldn't get today's prices for this video, so it can't be approved yet. Try again in a few minutes."
+            : priceFailed ? "We couldn't get this video's price, so it can't be approved yet." : null}
+          retry={!unsaved && priceFailed ? onRetryPrice : undefined}
+          whyTestId={unsaved ? 'approve-g1-unsaved' : 'approve-g1-why'}
+          line={promise(video, { kept: false, otherwise: PLAN_LINE })}
+          rows={video?.rows ?? []}>
+          {video && !video.free && <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>}
+        </Checkout>
       ) : <div className="mt-3"><NotYours /></div>)}
       {editable && <ShotPlanEditor episodeId={episodeId} refreshKey={planKey} onDirty={setUnsaved} onSaved={onPlanSaved} />}
       {!editable && shots.length > 0 && (
@@ -418,16 +444,21 @@ function StillThumb({ src, alt, testId }: { src: string; alt: string; testId: st
 }
 
 export function SceneStillsSection({ episodeId, state, shotStates, shotStatesError, shots, castHidden, busy, act, canAct,
-  waitingOn = null, madeWith = null }: {
+  waitingOn = null, madeWith = null, price = null, live = false }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null; shotStatesError: string | null;
   shots: ShotRow[]; castHidden: boolean; busy: boolean; act: Act; canAct: boolean; waitingOn?: string | null;
   /** Per shot, the characters, place and props its picture was made with (the owner's view only). */
   madeWith?: Record<string, string[]> | null;
+  /** The video's offline estimate: approving the pictures starts the clips, at about this list price. */
+  price?: OfflineEstimate | null;
+  live?: boolean;
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [pricing, setPricing] = useState<string | null>(null);
   const [redo, setRedo] = useState<{ sid: string; note: string; estimate: RedoEstimate } | null>(null);
   const [redoIssue, setRedoIssue] = useState<{ sid: string; text: string } | null>(null);
+  const [refusal, setRefusal] = useState<MoneyProblem | null>(null);
+  const clips = live ? clipsPrice(price) : null;
   const atG2 = openGate(state) === 'G2_SCENE_STILLS';
   const ended = Boolean(state?.run?.ended);
   const approvedAll = Boolean(state?.approvals.g2_scene_stills) || Boolean(state?.passed_gates.includes('G2_SCENE_STILLS'));
@@ -440,6 +471,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   const priceRedo = async (sid: string, note: string) => {
     setRedo(null);
     setRedoIssue(null);
+    setRefusal(null);
     setPricing(sid);
     try {
       const estimate = await postJson<RedoEstimate>(`/api/episodes/${episodeId}/shots/${sid}/retry/estimate`,
@@ -455,8 +487,17 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   const makeRedo = async () => {
     if (!redo) return;
     const { sid, note, estimate } = redo;
+    setRefusal(null);
+    const said: { problem: MoneyProblem | null } = { problem: null };
     const ok = await act(() => postJson(`/api/episodes/${episodeId}/shots/${sid}/retry`, redoRequest(note, estimate)),
-      redoStartedText(sid, note), `Couldn't make picture ${sid} again`);
+      redoStartedText(sid, note), `Couldn't make picture ${sid} again`, (message) => {
+        said.problem = moneyProblem(message);
+        return said.problem !== null;
+      });
+    if (said.problem) {
+      setRefusal(said.problem);
+      return;
+    }
     setRedo(null);
     if (ok) {
       setReasons((prev) => {
@@ -570,32 +611,12 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       </p>
                     )}
                     {confirming && (
-                      <div data-testid={`redo-estimate-${sid}`}
-                        className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-                        <p id={`redo-price-${sid}`} data-testid={`redo-price-${sid}`}
-                          className="text-sm font-semibold text-yellow-900">
-                          {redoPriceText(confirming.estimate)}
-                        </p>
-                        <p id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}
-                          className="mt-1 text-xs text-yellow-900">
-                          {redoNoteText(confirming.note)}
-                        </p>
-                        {!confirming.estimate.dry_run && (
-                          <p className="mt-1 text-xs text-yellow-900">
-                            The studio checks the price, your balance and this video&apos;s budget again before the picture is made.
-                          </p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button type="button" data-testid={`redo-confirm-${sid}`} disabled={busy} className={btnPrimary}
-                            aria-describedby={`redo-price-${sid} redo-note-${sid}`} onClick={makeRedo}>
-                            Make it again
-                          </button>
-                          <button type="button" data-testid={`redo-cancel-${sid}`} disabled={busy} className={btnSecondary}
-                            onClick={() => setRedo(null)}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
+                      <Checkout testId={`redo-estimate-${sid}`} headlineTestId={`redo-price-${sid}`} what={`Picture ${sid}`}
+                        title={redoPriceText(confirming.estimate)} price={quote(confirming.estimate)} action="Make it again"
+                        onAction={makeRedo} busy={busy} actionTestId={`redo-confirm-${sid}`} describedBy={`redo-note-${sid}`}
+                        notNow={() => setRedo(null)} notNowTestId={`redo-cancel-${sid}`} line={redoLine(confirming.estimate)}
+                        note={<span id={`redo-note-${sid}`} data-testid={`redo-note-${sid}`}>{redoNoteText(confirming.note)}</span>}
+                        problem={refusal} onProblem={() => priceRedo(sid, confirming.note)} reveal />
                     )}
                   </div>
                 )}
@@ -612,7 +633,10 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
               'Scene pictures approved. Making the clips now.', "Couldn't approve the scene pictures")}>
             Approve all scene pictures
           </button>
-          <span className="text-sm text-gray-700">Approve once every picture has your decision.</span>
+          <span className="text-sm text-gray-700" data-testid="approve-g2-line">
+            {clips ? `Approve once every picture has your decision. Then the clips are made, ${clips}.`
+              : 'Approve once every picture has your decision.'}
+          </span>
         </div>
       )}
     </section>
@@ -630,9 +654,13 @@ function finalBlockers(state: RunState): string[] {
   return out;
 }
 
-export function FinalCutSection({ episodeId, state, shotStates, files, busy, act, canAct, waitingOn = null }: {
+export function FinalCutSection({ episodeId, state, shotStates, files, busy, act, canAct, waitingOn = null, price = null,
+  live = false }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null;
   files: Record<string, FileInfo> | null; busy: boolean; act: Act; canAct: boolean; waitingOn?: string | null;
+  /** The video's offline estimate: a clip redo shows its clip's list price (a redo of a clip is not priced first). */
+  price?: OfflineEstimate | null;
+  live?: boolean;
 }) {
   const [finalReason, setFinalReason] = useState('');
   const [clipReasons, setClipReasons] = useState<Record<string, string>>({});
@@ -707,6 +735,7 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
                 <ul className="mt-2 space-y-2">
                   {runShotIds(state, shotStates).map((sid) => {
                     const reason = clipReasons[sid] ?? '';
+                    const listPrice = live ? clipPrice(price, sid) : 'free';
                     return (
                       <li key={sid} className="flex flex-wrap items-center gap-2">
                         <span className="w-10 font-mono text-sm font-semibold">{sid}</span>
@@ -718,6 +747,9 @@ export function FinalCutSection({ episodeId, state, shotStates, files, busy, act
                             `Making the clip for ${sid} again.`, `Couldn't redo the clip for ${sid}`)}>
                           Redo this clip
                         </button>
+                        {listPrice && (
+                          <span className="text-sm text-gray-700" data-testid={`clip-price-${sid}`}>{listPrice}</span>
+                        )}
                         {state.pending_clip_retries.includes(sid) && <span className={`${chip} ${tones.wait}`}>Being made again</span>}
                       </li>
                     );
@@ -966,10 +998,13 @@ export function RunDetails({ episodeId, state, shotStates, credits, stalls, busy
   );
 }
 
-/** The read-only shot list for Production details: the workflow's view of each shot and the studio database's. */
-export function ShotListDetails({ episodeId, state, shotStates, shots, castHidden, preflight }: {
+/**
+ * The read-only shot list for Production details: the workflow's view of each shot and the studio
+ * database's. The limit checks' own words name the models, so only `detail` (an admin) gets them.
+ */
+export function ShotListDetails({ episodeId, state, shotStates, shots, castHidden, preflight, detail = false }: {
   episodeId: string; state: RunState | null; shotStates: Record<string, ShotState> | null; shots: ShotRow[];
-  castHidden: boolean; preflight: Record<string, ShotPreflight> | null;
+  castHidden: boolean; preflight: Record<string, ShotPreflight> | null; detail?: boolean;
 }) {
   const rows = Object.fromEntries(shots.map((s) => [s.shot_id, s]));
   const ids = Array.from(new Set([...runShotIds(state, shotStates), ...shots.map((s) => s.shot_id)])).sort();
@@ -990,7 +1025,7 @@ export function ShotListDetails({ episodeId, state, shotStates, shots, castHidde
                 {row?.beat_id && <span className={`${chip} ${tones.info}`} title={row.beat_purpose}>{row.beat_id}</span>}
                 {check && (
                   <span className={check.ok ? 'text-green-800' : 'text-red-700'}
-                    title={check.errors.join('\n') || 'Passes model limits'}>
+                    title={detail ? check.errors.join('\n') || 'Fits what the studio can make' : undefined}>
                     {check.ok ? 'within limits' : 'breaks a limit'}
                   </span>
                 )}

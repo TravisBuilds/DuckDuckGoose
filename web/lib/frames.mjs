@@ -6,6 +6,7 @@
  */
 
 import { formatUsdMicros } from './balance.mjs';
+import { promise, quote } from './checkout.mjs';
 
 /** Plain-words changes people ask for most, offered as examples (each one is a button that fills the box). */
 export const CHANGE_EXAMPLES = ['make it night', 'closer on her face', 'show the whole room', 'warmer colours'];
@@ -84,32 +85,36 @@ export function framesSummary(view) {
   return shots === 0 ? 'No shots yet' : `Start frames picked: ${picked} of ${plural(shots, 'shot')}`;
 }
 
-/** The price block's big line: "Free" in a test run, else the provider's price. */
+/** The price after "3 options:" in the checkout: "free" in a test run, else "about" the provider's price. */
 export function priceTotal(estimate) {
-  if (!estimate) return '';
-  return estimate.dry_run ? 'Free' : formatUsdMicros(estimate.total_usd_micros);
+  return quote(estimate)?.words ?? '';
 }
 
+/** The one calm line under the make button (the server re-checks the approved total when it makes them). */
 export function priceStatus(estimate) {
-  return estimate?.dry_run ? 'Test run' : 'Checked just now';
+  return promise(quote(estimate)) ?? '';
 }
 
-/** The lines of the price block. */
+/** "3 options", what the checkout prices. */
+export function priceWhat(estimate) {
+  return plural(estimate?.count ?? 0, 'option');
+}
+
+/** The lines behind "See the breakdown". */
 export function priceRows(estimate) {
   if (!estimate) return [];
   const each = estimate.per_image_usd_micros?.[0] ?? 0;
   const rows = [{ label: plural(estimate.count, 'option'), value: estimate.dry_run ? 'Free stand-ins' : `${formatUsdMicros(each)} each` }];
   if (!estimate.dry_run && estimate.budget) {
-    rows.push({ label: 'Left in the draft pictures budget', value: formatUsdMicros(estimate.budget.available_usd_micros) });
+    rows.push({ label: 'Left in the budget for first frames', value: formatUsdMicros(estimate.budget.available_usd_micros) });
   }
   return rows;
 }
 
-/** The make button's words: "Make 3 options" / "Make 3 options for $0.09". */
+/** The make button's words: "Make 3 options" (the price is said once, above it). */
 export function makeLabel(estimate) {
   if (!estimate) return 'Make options';
-  const what = `Make ${plural(estimate.count, 'option')}`;
-  return estimate.dry_run ? what : `${what} for ${formatUsdMicros(estimate.total_usd_micros)}`;
+  return `Make ${plural(estimate.count, 'option')}`;
 }
 
 /** "Changes so far: make it night; closer on her face", or null. */

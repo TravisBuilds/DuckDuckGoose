@@ -12,8 +12,6 @@ export interface JourneyStop {
   state: StopState;
   /** Finished, though highlighted as the screen you are on: the link after it fills lime. */
   complete?: boolean;
-  /** A step that spends money once approved: it wears a "$" coin. */
-  paid?: boolean;
   href?: string | null;
 }
 
@@ -27,9 +25,8 @@ const STATE_WORDS: Record<StopState, string> = {
 /**
  * The path of numbered stops: solid lime bubbles for done stops, a pulsing azure bubble for the
  * current one, dashed stops ahead and an orange-red one when blocked; dashed links fill lime
- * behind you. Used for the five Universe steps and the episode
- * trail (with coins on paid steps). Scrolls sideways inside itself on narrow screens, with the
- * current stop centred.
+ * behind you. Used for the five Universe steps and the episode trail. Scrolls sideways inside itself
+ * on narrow screens, with the current stop centred.
  */
 export default function JourneyPath({ stops, current, label, compact = false, testId, className = '' }: {
   stops: JourneyStop[];
@@ -62,14 +59,11 @@ export default function JourneyPath({ stops, current, label, compact = false, te
           const before = stops[i - 1];
           const body = (
             <>
-              <span className="pf-bub" aria-hidden="true">
-                {i + 1}
-                {stop.paid && <span className="pf-coin">$</span>}
-              </span>
+              <span className="pf-bub" aria-hidden="true">{i + 1}</span>
               <span className="pf-stop-name">{stop.name}</span>
               {stop.note && <span className="pf-stop-note">{stop.note}</span>}
               <span className="sr-only">
-                {`, step ${i + 1} of ${stops.length}, ${STATE_WORDS[stop.state]}${finished && stop.state !== 'done' ? ', done' : ''}${stop.paid ? ', costs money' : ''}`}
+                {`, step ${i + 1} of ${stops.length}, ${STATE_WORDS[stop.state]}${finished && stop.state !== 'done' ? ', done' : ''}`}
               </span>
             </>
           );

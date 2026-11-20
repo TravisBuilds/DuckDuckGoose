@@ -6,6 +6,7 @@ import {
   REDO_PREFIX,
   REDO_PROMPT_MAX,
   redoEstimateRequest,
+  redoLine,
   redoNote,
   redoNoteText,
   redoPriceText,
@@ -65,14 +66,16 @@ test('the estimate and the redo send the same note, and the redo the price that 
 });
 
 test('the price is shown before anything is spent', () => {
-  assert.equal(redoPriceText({ stills: 1, dry_run: false, total_usd_micros: 70_000 }),
-    "1 new picture, about $0.07, charged to this video's budget");
-  assert.equal(redoPriceText({ stills: 2, dry_run: false, total_usd_micros: 1_250_000 }),
-    "2 new pictures, about $1.25, charged to this video's budget");
-  assert.equal(redoPriceText({ stills: 1, dry_run: true, total_usd_micros: 60_000 }),
-    '1 new picture, free: preview mode makes simple stand-in pictures');
-  assert.equal(redoPriceText({ stills: 0, dry_run: false, total_usd_micros: 0 }),
-    'Free: the start picture you uploaded is used again');
+  assert.equal(redoPriceText({ stills: 1, dry_run: false, total_usd_micros: 70_000 }), '1 new picture: about $0.07');
+  assert.equal(redoPriceText({ stills: 2, dry_run: false, total_usd_micros: 1_250_000 }), '2 new pictures: about $1.25');
+  assert.equal(redoPriceText({ stills: 1, dry_run: true, total_usd_micros: 60_000 }), '1 new picture: free');
+  assert.equal(redoPriceText({ stills: 0, dry_run: false, total_usd_micros: 0 }), 'This picture: free');
+  // the line under the button: the live promise (the API refuses a higher price), free in a test run
+  assert.equal(redoLine({ stills: 1, dry_run: false, total_usd_micros: 70_000 }),
+    'If the price goes up before we make it, we ask you first.');
+  assert.equal(redoLine({ stills: 1, dry_run: true, total_usd_micros: 60_000 }), 'A test run, so nothing is charged.');
+  assert.equal(redoLine({ stills: 0, dry_run: false, total_usd_micros: 0 }),
+    'Your uploaded start picture is used again, so nothing is charged.');
 });
 
 test('the confirmation says what goes with the redo, and the notice says it went', () => {

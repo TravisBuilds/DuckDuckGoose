@@ -16,6 +16,7 @@ import {
   draftCastRows,
   emptyRights,
   estimateText,
+  estimateWhat,
   kitWithCast,
   latestRequest,
   optionCounts,
@@ -216,12 +217,10 @@ test('look options: 2-4 from the description, 1-4 from a picture', () => {
 });
 
 test('the estimate is shown before anything is made, free in preview mode', () => {
-  assert.equal(estimateText({ count: 3, dry_run: false, total_usd_micros: 1_170_000 }),
-    "3 pictures, about $1.17, charged to this video's budget");
-  assert.equal(estimateText({ count: 1, dry_run: false, total_usd_micros: 390_000 }),
-    "1 picture, about $0.39, charged to this video's budget");
-  assert.equal(estimateText({ count: 5, dry_run: true, total_usd_micros: 0 }),
-    '5 pictures, free: preview mode makes simple stand-in pictures');
+  assert.equal(estimateText({ count: 3, dry_run: false, total_usd_micros: 1_170_000 }), '3 pictures: about $1.17');
+  assert.equal(estimateText({ count: 1, dry_run: false, total_usd_micros: 390_000 }), '1 picture: about $0.39');
+  assert.equal(estimateText({ count: 5, dry_run: true, total_usd_micros: 0 }), '5 pictures: free');
+  assert.equal(estimateWhat({ count: 1 }), '1 picture');
 });
 
 test('a sheet of stand-in pictures is flagged', () => {

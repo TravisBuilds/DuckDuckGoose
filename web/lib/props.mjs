@@ -176,18 +176,32 @@ export function planStateText(view) {
   const state = view.phase?.state;
   if (state === 'locked') return view.phase?.reason || 'The shot plan cannot change right now.';
   if (!view.may_change) return 'Only this video’s owner (or an admin) can change the shot plan.';
-  if (state === 'g1') return 'Saved changes are checked again (model limits and prices) before you approve the plan.';
+  if (state === 'g1') return 'Saved changes are checked again, and priced again, before you approve the plan.';
   return 'Saved changes are used when this video starts.';
 }
 
-/** The result line after a save (null for a save that changed nothing). */
-export function savedText(response) {
+/**
+ * The result line after a save (null for a save that changed nothing). The checks' own words name the
+ * models and where their limits come from, so only `detail` (an admin) gets them; everyone else is told
+ * which shots to change.
+ */
+export function savedText(response, { detail = false } = {}) {
   if (!response?.changed?.length) return null;
   const shots = new Set(response.changed.map(c => c.shot_id)).size;
   const what = `${shots} shot${shots === 1 ? '' : 's'}`;
   const errors = response.result?.preflight_errors ?? [];
+  if (errors.length && detail) {
+    return { tone: 'problem', text: `Saved ${what}, but a shot asks for more than the studio can make: ${errors.join(' ')}` };
+  }
   if (errors.length) {
-    return { tone: 'problem', text: `Saved ${what}, but the plan breaks a model limit: ${errors.join(' ')}` };
+    const ids = [...new Set(errors.map(e => /^shot\s+([\w.-]+)/i.exec(e)?.[1]).filter(Boolean))];
+    const which = ids.length === 0 ? 'a shot asks'
+      : ids.length === 1 ? `shot ${ids[0]} asks`
+        : `shots ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]} ask`;
+    return {
+      tone: 'problem',
+      text: `Saved ${what}, but ${which} for more than the studio can make. Try a shorter prompt or fewer picks, or ask an admin what to change.`,
+    };
   }
   if (response.result) return { tone: 'ok', text: `Saved ${what} and checked the plan again. Approve it when you are ready.` };
   return { tone: 'ok', text: `Saved ${what}.` };

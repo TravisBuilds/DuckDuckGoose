@@ -112,9 +112,9 @@ test.describe('Beginner Video Creation Wizard E2E', () => {
     
     // Check if server is in dry run mode (always true in e2e tests with DRAFT_LLM_FAKE)
     // In e2e, server is always in DRY_RUN=true mode, so live should not be available
-    const notAvailableMessage = page.getByText('Live mode not available');
-    await expect(notAvailableMessage).toBeVisible();
-    await expect(page.getByText('Server is in dry-run mode')).toBeVisible();
+    await expect(page.getByTestId('estimated-cost')).toHaveText('This video: free');
+    await expect(page.getByTestId('wizard-checkout-line')).toHaveText('Live videos are off right now, so this is a free test run.');
+    await expect(page.getByTestId('make-video-button')).toHaveCount(0);
     
     // Preview button should still be visible
     await expect(page.getByTestId('preview-button')).toBeVisible();

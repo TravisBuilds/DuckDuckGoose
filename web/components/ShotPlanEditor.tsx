@@ -9,12 +9,14 @@ import {
 import type { ShotDraft, ShotPlanSaveResponse, ShotPlanShot, ShotPlanView } from '@/lib/props.mjs';
 import { formatLocalDateTime } from '@/lib/time';
 import { btnPrimary, btnSecondary, chip, focusRing, input as field, link, tones } from '@/lib/ui';
+import { useMe } from '@/components/StudioShell';
 
 /**
  * Each shot's place, props and cast, and its prompts, until the shot plan is approved
  * (api/shot_plan_routes.py): a picked prop or place sends its photos with the shot and adds its
  * description to the shot's prompt. While the run waits for the shot plan approval, a save is checked
- * again by the run (model limits, prices) before it counts; after the approval the plan is locked.
+ * again by the run (what each shot asks for, and its price) before it counts; after the approval the
+ * plan is locked.
  * Every saved change is kept in the shot's history. Only the episode's owner or an admin may save.
  */
 
@@ -94,7 +96,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
   const maxCast = view.limits.max_cast_per_shot;
   const unreadable = shot.cast === null || shot.props === null;
   const disabled = !canEdit || unreadable || saving;
-  const facts = [shot.duration ? `${shot.duration} s` : null, shot.model].filter(Boolean).join(' · ');
+  const facts = shot.duration ? `${shot.duration} s` : '';
   return (
     <li className="rounded-lg border border-gray-200 p-3 sm:p-4" data-testid={`plan-shot-${sid}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -218,6 +220,7 @@ function ShotCard({ view, shot, draft, canEdit, saving, editing, onEditing, onCh
 export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved }: {
   episodeId: string; refreshKey?: string; onDirty?: (dirty: boolean) => void; onSaved?: () => void;
 }) {
+  const { isAdmin } = useMe();
   const [view, setView] = useState<ShotPlanView | null>(null);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -271,7 +274,7 @@ export default function ShotPlanEditor({ episodeId, refreshKey, onDirty, onSaved
       setDrafts({});
       setEditing({});
       setNote('');
-      setMessage(savedText(saved) ?? { tone: 'ok', text: 'Nothing changed.' });
+      setMessage(savedText(saved, { detail: isAdmin }) ?? { tone: 'ok', text: 'Nothing changed.' });
       onSaved?.();
     } catch (e) {
       setMessage({ tone: 'problem', text: problemText(e) });

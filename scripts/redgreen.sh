@@ -6,7 +6,7 @@
 # Treats syntax errors, SQL errors, and network failures as INVALID mutations.
 # Prints a summary table at the end.
 #
-# Sharding (CI runs 4 shards in parallel, see .github/workflows/test.yml):
+# Sharding (CI runs 6 shards in parallel, see .github/workflows/test.yml):
 #   REDGREEN_SHARD=N REDGREEN_TOTAL_SHARDS=M bash scripts/redgreen.sh
 #   Every declared probe/mutation gets a 0-based ordinal in declaration order; shard N runs the
 #   ones with (ordinal % M) == N - 1 (round-robin, so shards stay balanced as mutations are added).
@@ -4205,11 +4205,11 @@ test_mutation 596 "redo note fits the prompt_append limit" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
     sed -i 's/^  const fitted = chars\.length > REDO_NOTE_MAX ? .*$/  const fitted = text;  \/\/ MUTATED/'
 
-# 597: the redo sends the price the owner was shown
+# 597: the redo sends the price the owner was shown (its approved total, through approvedRequest)
 test_mutation 597 "redo sends the approved price" \
     "web/lib/redo.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
-    sed -i 's/^  return { \.\.\.redoEstimateRequest(note), approved_usd_micros: estimate\.total_usd_micros };$/  return { ...redoEstimateRequest(note) };  \/\/ MUTATED/'
+    sed -i "s/^  return approvedRequest(redoEstimateRequest(note), estimate, 'approved_usd_micros');\$/  return redoEstimateRequest(note);  \/\/ MUTATED/"
 
 # 598: the estimate and the redo send the note
 test_mutation 598 "redo sends the note" \
@@ -4643,7 +4643,7 @@ test_mutation 668 "mood board: the page follows the board being made" \
 test_mutation 669 "mood board: the estimate shows the budget left" \
     "web/lib/world.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[world.test.mjs]" \
-    sed -i "s/^  if (budget) {\$/  if (false) {  \/\/ MUTATED/"
+    sed -i "s/^  if (estimate\.budget) {\$/  if (false) {  \/\/ MUTATED/"
 
 # ---- An episode's prompts reach only admins, its Universe's owner and whoever may change it
 # (docs/AUTHENTICATION.md): the editor of another episode of the Universe gets them stripped. Ids 670-685
@@ -4962,6 +4962,57 @@ test_mutation 721 "prices: when four decimals read the same, the words say it is
     "api/cast_routes.py" \
     "tests/test_cast_api.py::test_a_new_price_and_the_approved_one_are_written_so_they_differ[just-over]" \
     sed -i 's/^    return f"{now}, just over what you approved ({then})"$/    return f"{now} (you approved {then})"  # MUTATED/'
+
+# 722: every make-it button (mood board, character sheet, first frames, picture redo) sends its request
+# through approvedRequest(), whose approved total is quote().approve: the price on screen, never another number
+test_mutation 722 "easy checkout: every make-it button sends the price shown" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/, approve: estimate\.total_usd_micros };$/, approve: estimate.total_usd_micros + 1 };  \/\/ MUTATED/'
+
+# 723: only an estimate that says it is a test run is free
+test_mutation 723 "easy checkout: only a test run is free" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^  const free = estimate\.dry_run === true;$/  const free = estimate.dry_run !== false;  \/\/ MUTATED/'
+
+# 724: a price that went up asks again with the new price (a picture redo says "now costs")
+test_mutation 724 "easy checkout: the price going up asks again" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/(?:estimate is now|now costs) (/(?:estimate is now) (/'
+
+# 725: the estimates override never reaches the screen, even alone in a refusal
+test_mutation 725 "easy checkout: the estimates override is never shown" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^const NO_PRICE = \/override_unavailable_estimates|/const NO_PRICE = \//'
+
+# 726: "we ask you first" only where the server checks the approved total again: the wizard, the start
+# card and the shot plan send none, so they pass kept: false and show their own line
+test_mutation 726 "easy checkout: the promise only where the server keeps it" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i 's/^  if (!kept) return otherwise;$/  if (false) return otherwise;  \/\/ MUTATED/'
+
+# 727: a clip without a price makes a video's price "at least", never a smaller "about"
+test_mutation 727 "easy checkout: an unpriced clip makes the price at least" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i "s/^  const live = \`\${unpriced > 0 ? 'at least' : 'about'} \${priceText(total)}\`;\$/  const live = \`about \${priceText(total)}\`;  \/\/ MUTATED/"
+
+# 728: "override" stays a ledger word, kept off the face of a money screen
+test_mutation 728 "easy checkout: override is a ledger word" \
+    "web/lib/checkout.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[checkout.test.mjs]" \
+    sed -i "s/ 'GC\.01', 'override',\$/ 'GC.01',  \/\/ MUTATED/"
+
+# 729: a shot plan save that breaks a limit tells a member which shots to change; the checks' own words
+# (model names, where a limit comes from) are only for admins
+test_mutation 729 "shot plan: a member's save line names the shots, not the models" \
+    "web/lib/props.mjs" \
+    "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
+    sed -i 's/^  if (errors\.length && detail) {$/  if (errors.length) {  \/\/ MUTATED/'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

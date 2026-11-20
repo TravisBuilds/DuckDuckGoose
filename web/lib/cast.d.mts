@@ -231,6 +231,7 @@ export declare function sheetStep(version: CastVersion | null | undefined): Shee
 export declare function optionCounts(fromPicture: boolean): number[];
 export declare function defaultOptionCount(fromPicture: boolean): number;
 export declare function estimateText(estimate: Pick<SheetEstimate, 'count' | 'dry_run' | 'total_usd_micros'>): string;
+export declare function estimateWhat(estimate: Pick<SheetEstimate, 'count'>): string;
 export declare function sheetHasPlaceholders(version: CastVersion | null | undefined): boolean;
 
 export declare function castPicks(cast: (string | { character: string; version?: number | null })[] | null | undefined): CastPick[];

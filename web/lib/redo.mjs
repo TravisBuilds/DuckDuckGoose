@@ -5,7 +5,7 @@
  * balance gate). Pure functions, shared by the episode page and its tests.
  */
 
-import { formatUsdMicros } from './balance.mjs';
+import { approvedRequest, headline, promise, quote } from './checkout.mjs';
 
 /** RetryShotRequest.prompt_append's limit, in characters. */
 export const REDO_PROMPT_MAX = 1000;
@@ -40,16 +40,20 @@ export function redoEstimateRequest(note) {
 
 /** The body of POST .../retry: the same note, for the price the owner was shown. */
 export function redoRequest(note, estimate) {
-  return { ...redoEstimateRequest(note), approved_usd_micros: estimate.total_usd_micros };
+  return approvedRequest(redoEstimateRequest(note), estimate, 'approved_usd_micros');
 }
 
-/** What the redo costs, shown before the owner confirms it. */
+/** What the redo costs, in the checkout's one line, before the owner confirms it. */
 export function redoPriceText(estimate) {
   const n = estimate.stills;
-  if (n === 0) return 'Free: the start picture you uploaded is used again';
-  const pictures = `${n} new picture${n === 1 ? '' : 's'}`;
-  if (estimate.dry_run) return `${pictures}, free: preview mode makes simple stand-in pictures`;
-  return `${pictures}, about ${formatUsdMicros(estimate.total_usd_micros)}, charged to this video's budget`;
+  if (n === 0) return 'This picture: free';
+  return headline(`${n} new picture${n === 1 ? '' : 's'}`, quote(estimate));
+}
+
+/** The calm line under the redo's button. */
+export function redoLine(estimate) {
+  if (estimate.stills === 0) return 'Your uploaded start picture is used again, so nothing is charged.';
+  return promise(quote(estimate));
 }
 
 /** What goes with the redo. */

@@ -144,4 +144,7 @@ export function draftProblem(shots: ShotPlanShot[], drafts: Record<string, Parti
 export function historyText(entry: ShotPlanEdit): string;
 export function historyValue(field: string, value: unknown, names?: Record<string, string>): string;
 export function planStateText(view: ShotPlanView | null | undefined): string;
-export function savedText(response: ShotPlanSaveResponse | null | undefined): { tone: 'ok' | 'problem'; text: string } | null;
+export function savedText(
+  response: ShotPlanSaveResponse | null | undefined,
+  options?: { detail?: boolean },
+): { tone: 'ok' | 'problem'; text: string } | null;

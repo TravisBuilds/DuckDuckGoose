@@ -4,7 +4,7 @@ import { ICON_CHARACTERS, bannedWords } from './copy-rules.mjs';
 import {
   CHANGE_EXAMPLES, aboutLine, anyMaking, changeBlocker, changesLine, changesParts, framesCount, framesSummary, inItLine,
   listWords, makeLabel,
-  optionName, pickedOption, priceRows, priceStatus, priceTotal, referencesLine, roundNote, roundTitle, shotBlocker,
+  optionName, pickedOption, priceRows, priceStatus, priceTotal, priceWhat, referencesLine, roundNote, roundTitle, shotBlocker,
   shotStatus,
 } from './frames.mjs';
 
@@ -87,17 +87,19 @@ test('the section counts the shots with a start frame', () => {
 });
 
 test('the price comes first: free in a test run, the provider price when live', () => {
-  assert.equal(priceTotal(dry), 'Free');
-  assert.equal(priceStatus(dry), 'Test run');
+  assert.equal(priceTotal(dry), 'free');
+  assert.equal(priceStatus(dry), 'A test run, so nothing is charged.');
+  assert.equal(priceWhat(dry), '3 options');
   assert.deepEqual(priceRows(dry), [{ label: '3 options', value: 'Free stand-ins' }]);
   assert.equal(makeLabel(dry), 'Make 3 options');
-  assert.equal(priceTotal(live), '$0.09');
-  assert.equal(priceStatus(live), 'Checked just now');
+  assert.equal(priceTotal(live), 'about $0.09');
+  assert.equal(priceStatus(live), 'If the price goes up before we make it, we ask you first.');
   assert.deepEqual(priceRows(live), [{ label: '3 options', value: '$0.03 each' },
-    { label: 'Left in the draft pictures budget', value: '$6.40' }]);
-  assert.equal(makeLabel(live), 'Make 3 options for $0.09');
+    { label: 'Left in the budget for first frames', value: '$6.40' }]);
+  assert.equal(makeLabel(live), 'Make 3 options');
   assert.equal(makeLabel({ ...dry, count: 1 }), 'Make 1 option');
   assert.equal(makeLabel(null), 'Make options');
+  assert.equal(priceTotal(null), '');
 });
 
 test('changes in plain words: what is kept, each round names the newest, the box says why it is off', () => {

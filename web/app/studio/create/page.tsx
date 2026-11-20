@@ -3,11 +3,12 @@
 import React, { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { formatUsd } from '@/lib/money';
 import { ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { VoicePreview, VoiceSlotPicker, emptyVoice, type VoiceState } from '@/components/VoiceSlotPicker';
 import { presets, getPresetById } from '@/lib/presets';
-import { chip, tones } from '@/lib/ui';
+import { btnSecondary, chip, tones } from '@/lib/ui';
+import { START_LINE, calmText, promise, videoQuote, type VideoPrice } from '@/lib/checkout.mjs';
+import Checkout from '@/components/Checkout';
 import { autoMapCast, castMatchText } from '@/lib/consistency.mjs';
 import { castColours, speakerColours } from '@/lib/castColour.mjs';
 import { CastDot, Dots, HeroBand, JourneyPath, SpeakerChip } from '@/components/playful';
@@ -99,6 +100,7 @@ type WizardStep = 'archetype' | 'idea' | 'review' | 'loading';
 const CARD_GROUPS = groupByTemplate(presets);
 
 function errorText(e: unknown): string {
+  if (e instanceof ApiError) return calmText(e.message);
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -159,7 +161,6 @@ function CreateVideoWizard() {
   const [textOnScreen, setTextOnScreen] = useState<OnScreenTextChoices | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   // off: the video starts at once; on: it waits on its page while its owner picks each shot's first frame
   const [pickFrames, setPickFrames] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
@@ -191,6 +192,8 @@ function CreateVideoWizard() {
       ?? (chosenPictures.length > 0 ? rightsProblem(castRights) : null)
     : null;
   const startBlock = voiceBlock ?? textBlock ?? castBlock;
+  const livePrice = videoQuote(draft?.cost_estimate);
+  const freePrice: VideoPrice = videoQuote(draft?.cost_estimate, { free: true }) ?? { free: true, words: 'free', approve: 0, rows: [] };
   const draftSeconds = (draft?.shots_json.shots ?? []).reduce((total, shot) => total + (Number(shot.duration) || 0), 0);
 
   // Check if live mode is available on mount
@@ -524,7 +527,7 @@ function CreateVideoWizard() {
   const trail: JourneyStop[] = [
     { key: 'archetype', name: 'Style', note: selectedPreset?.name ?? (at > 0 ? 'Freeform' : 'Pick one'), state: at > 0 ? 'done' : 'now' },
     { key: 'idea', name: 'Idea', note: at > 1 ? 'Written' : 'A few sentences', state: at > 1 ? 'done' : at === 1 ? 'now' : 'todo' },
-    { key: 'review', name: 'Review & start', note: 'Price shown first', state: at === 2 ? 'now' : 'todo', paid: true },
+    { key: 'review', name: 'Review & start', note: 'See the price', state: at === 2 ? 'now' : 'todo' },
     { key: 'episode', name: 'Episode page', note: 'Approve each step', state: 'todo' },
   ];
 
@@ -849,11 +852,6 @@ function CreateVideoWizard() {
                 <p>
                   <span className="font-medium">Shots:</span> {draft.shots_json.shots.length}
                 </p>
-                {draft.cost_estimate && (
-                  <p className="text-lg font-semibold mt-2" data-testid="estimated-cost">
-                    Estimated cost: {formatUsd(draft.cost_estimate.total_usd_micros)}
-                  </p>
-                )}
               </div>
             </div>
 
@@ -1169,7 +1167,7 @@ function CreateVideoWizard() {
                   <div key={shot.id} className="border-l-4 border-blue-500 pl-4 py-2">
                     <p className="font-semibold text-sm">Shot {i + 1}: {shot.id}</p>
                     <p className="text-sm text-gray-600">{shot.prompt}</p>
-                    <p className="text-xs text-gray-500 mt-1">{shot.duration}s · {shot.model}</p>
+                    <p className="text-xs text-gray-500 mt-1">{shot.duration}s</p>
                   </div>
                 ))}
               </div>
@@ -1229,93 +1227,29 @@ function CreateVideoWizard() {
                     </span>
                   </span>
                 </label>
-                <p className="text-sm font-semibold mb-3">Choose how to proceed:</p>
-                
-                <div className="space-y-3">
-                  {liveAvailable ? (
-                    <>
-                      <button
-                        onClick={() => setShowLiveConfirm(true)}
-                        disabled={busy || !!startBlock || !draft.cost_estimate}
-                        className="pf-btn pf-btn-go w-full !justify-between"
-                        data-testid="make-video-button"
-                      >
-                        <span>Make My Video (uses credits)</span>
-                        {draft.cost_estimate && (
-                          <span className="text-sm">{formatUsd(draft.cost_estimate.total_usd_micros)}</span>
-                        )}
-                      </button>
-                      {!draft.cost_estimate && (
-                        <p className="text-[12.5px] text-ink-soft" data-testid="make-video-no-price">
-                          We couldn&apos;t get a price for this plan, so a live run stays off. Regenerate the plan to try
-                          again, or preview it for free.
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <div className="w-full rounded-input border-2 border-dashed border-line-strong px-5 py-3">
-                      <div className="text-[13px] text-ink-soft">
-                        <p className="font-semibold mb-1">Live mode not available</p>
-                        <p className="text-xs">Server is in dry-run mode. Use preview to test.</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => handleStartEpisode(true)}
-                    disabled={busy || !!startBlock}
-                    className="pf-btn pf-btn-primary w-full"
-                    data-testid="preview-button"
-                  >
-                    Preview Only (free test run)
-                  </button>
-                </div>
-
-                <p className="text-xs text-gray-500 mt-3">
-                  Live mode uses real credits and charges you. Preview mode is always free.
-                </p>
+                {liveAvailable ? (
+                  <>
+                    <Checkout testId="wizard-checkout" headlineTestId="estimated-cost" what="This video" price={livePrice}
+                      action="Make it" onAction={() => handleStartEpisode(false)} busy={busy} busyAction="Starting…"
+                      off={startBlock ?? (livePrice ? null
+                        : "We couldn't get a price for this plan, so it can't be made live. Make the plan again, or make a free preview.")}
+                      whyTestId={!startBlock && !livePrice ? 'make-video-no-price' : undefined} actionTestId="make-video-button"
+                      line={promise(livePrice, { kept: false, otherwise: START_LINE })} rows={livePrice?.rows ?? []}>
+                      <p>The list price for one try of each picture and clip. A redo is priced on its own.</p>
+                    </Checkout>
+                    <button type="button" onClick={() => handleStartEpisode(true)} disabled={busy || !!startBlock}
+                      className={`${btnSecondary} mt-3 w-full`} data-testid="preview-button">
+                      Make a free preview first
+                    </button>
+                  </>
+                ) : (
+                  <Checkout testId="wizard-checkout" headlineTestId="estimated-cost" what="This video" price={freePrice}
+                    action="Make a free preview" onAction={() => handleStartEpisode(true)} busy={busy} busyAction="Starting…"
+                    off={startBlock} actionTestId="preview-button" line="Live videos are off right now, so this is a free test run."
+                    rows={freePrice.rows} />
+                )}
               </div>
             </div>
-
-            {showLiveConfirm && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
-                <div className="pf-card w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="live-confirm-title">
-                  <h3 id="live-confirm-title" className="mb-3 text-[20px]">Confirm Live Production</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    This will start a live production run that uses real credits and charges you.
-                    {pickFrames && ' It starts from the video\u2019s page once you have picked its first frames.'}
-                  </p>
-                  {draft.cost_estimate && (
-                    <div className="mb-4 rounded-inner border-2 border-mustard bg-mustard-soft p-3">
-                      <p className="text-sm font-extrabold text-ink">
-                        Estimated cost: {formatUsd(draft.cost_estimate.total_usd_micros)}
-                      </p>
-                      <p className="mt-1 text-xs text-ink-soft">
-                        This is an estimate. Actual cost may vary based on retries and model usage.
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setShowLiveConfirm(false)}
-                      className="pf-btn pf-btn-quiet flex-1"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowLiveConfirm(false);
-                        handleStartEpisode(false);
-                      }}
-                      className="pf-btn pf-btn-go flex-1"
-                      data-testid="confirm-live-button"
-                    >
-                      Confirm & Start
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </section>
         )}
 

@@ -8,14 +8,14 @@ import { ConsistencyBadge } from '@/components/ConsistencyBadge';
 import { SavedVoiceBlock } from '@/components/UniverseVoices';
 import { useMe } from '@/components/StudioShell';
 import {
-  Avatar, Dots, GlassPanel, HeroBand, JourneyPath, NextStepPill, Polaroid, Seal,
+  Avatar, Dots, GlassPanel, HeroBand, JourneyPath, NextStepPill, Polaroid,
 } from '@/components/playful';
 import type { JourneyStop } from '@/components/playful/JourneyPath';
 import { getPresetById, presets } from '@/lib/presets';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import { characterBadge, countsLine, driftCount, healthLine, itemBadge, usedInLabel } from '@/lib/consistency.mjs';
 import { castColours, castColourAt } from '@/lib/castColour.mjs';
-import { creationJourney, sealFor, toneChips } from '@/lib/journey.mjs';
+import { creationJourney, toneChips } from '@/lib/journey.mjs';
 import type { CastCharacter, CastVersion, CastView } from '@/lib/cast.mjs';
 import { itemPhotos } from '@/lib/props.mjs';
 import type { PropItem, PropsView } from '@/lib/props.mjs';
@@ -27,7 +27,7 @@ import { btnPrimary, btnSecondary, input as field, tones, type Tone } from '@/li
 
 /**
  * A Universe (DESIGN-TARGETS-v2 §6.1): a scene banner with its name, one line, kind of video and
- * owner beside the consistency panel (seal, what is locked, New episode); how it was made, as the
+ * owner beside the consistency panel (what is locked, New episode); how it was made, as the
  * five-step path (owner and admins); then its characters, places and props (the episode panels with
  * apiBase /api/worlds/{id}), story bible (owner and admins), look, narrator voice (owner and admins),
  * episodes and the film placeholder. GET /api/worlds/{id} answers 404 to anyone who may not see it,
@@ -253,7 +253,6 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
   const drift = driftCount(view.characters);
   const healthTone: Tone = drift > 0 ? 'bad' : counts.characters === 0 ? 'wait'
     : counts.locked_characters >= counts.characters ? 'ok' : 'warn';
-  const seal = sealFor(counts, drift);
   const preset = getPresetById(world.profile.preset_id ?? '');
   const owner = ownerLabel(world.owner_user_id, world.owner_name, me?.user_id ?? null);
   const byId = new Map(view.characters.map((c) => [c.character_id, c]));
@@ -269,7 +268,7 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
   const unfinished = journey?.steps.find((s) => s.state !== 'done') ?? null;
   const stops: JourneyStop[] = journey ? [
     ...journey.steps.map((s) => ({
-      key: s.key, name: s.name, note: s.note, state: s.state, paid: s.key === 'moodboard', href: stepHref(s.key),
+      key: s.key, name: s.name, note: s.note, state: s.state, href: stepHref(s.key),
     })),
     {
       key: 'episodes', name: 'Episodes', note: view.episodes.length ? `${plural(view.episodes.length, 'episode')} made` : 'None yet',
@@ -359,12 +358,9 @@ export default function UniversePage({ params }: { params: Promise<{ id: string 
           </div>
 
           <GlassPanel as="aside" className="relative z-10 p-5" aria-labelledby="consistency-title">
-            <div className="flex items-center gap-3.5">
-              <Seal state={seal.state} top={seal.top} bottom={seal.bottom} size={64} />
-              <div className="min-w-0">
-                <h2 id="consistency-title" className="text-[20px]">Consistency</h2>
-                <p className="text-[12.5px] text-ink-soft">What every episode will reuse, exactly.</p>
-              </div>
+            <div className="min-w-0">
+              <h2 id="consistency-title" className="text-[20px]">Consistency</h2>
+              <p className="text-[12.5px] text-ink-soft">What every episode will reuse, exactly.</p>
             </div>
             <p className="mt-3">
               <span className={`pf-chip ${tones[healthTone]}`} data-testid="universe-health">{healthLine(counts, drift)}</span>
