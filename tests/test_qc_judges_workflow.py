@@ -16,9 +16,9 @@ from temporalio.worker import Replayer, Worker
 from hfvg.temporal_converter import temporal_data_converter
 from hfvg.worker import PRODUCTION_WORKFLOWS
 
-PROMPT = "Exactly 1 animals in frame. Pip the capybara sits on a dock. Real-time, no slow motion."
+PROMPT = "Exactly 1 animals in frame. Pip the otter sits on a dock. Real-time, no slow motion."
 META = {"count": 1, "characters": ["Pip"], "duck": False}
-JUDGE_FAIL = "QC judge: two capybaras in frame, the prompt has one"
+JUDGE_FAIL = "QC judge: two otters in frame, the prompt has one"
 
 
 def _patch_markers(history) -> list[str]:
