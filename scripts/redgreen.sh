@@ -4205,11 +4205,11 @@ test_mutation 596 "redo note fits the prompt_append limit" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
     sed -i 's/^  const fitted = chars\.length > REDO_NOTE_MAX ? .*$/  const fitted = text;  \/\/ MUTATED/'
 
-# 597: the redo sends the price the owner was shown
+# 597: the redo sends the price the owner was shown (its approved total, through approvedRequest)
 test_mutation 597 "redo sends the approved price" \
     "web/lib/redo.mjs" \
     "tests/test_web_episode_views.py::test_episode_view_node_tests[redo.test.mjs]" \
-    sed -i 's/^  return { \.\.\.redoEstimateRequest(note), approved_usd_micros: estimate\.total_usd_micros };$/  return { ...redoEstimateRequest(note) };  \/\/ MUTATED/'
+    sed -i "s/^  return approvedRequest(redoEstimateRequest(note), estimate, 'approved_usd_micros');\$/  return redoEstimateRequest(note);  \/\/ MUTATED/"
 
 # 598: the estimate and the redo send the note
 test_mutation 598 "redo sends the note" \
