@@ -5014,6 +5014,184 @@ test_mutation 729 "shot plan: a member's save line names the shots, not the mode
     "tests/test_web_episode_views.py::test_episode_view_node_tests[props.test.mjs]" \
     sed -i 's/^  if (errors\.length && detail) {$/  if (errors.length) {  \/\/ MUTATED/'
 
+# ---------------------------------------------------------------------------------------------------
+# Automated QC judges (docs/QC-JUDGES.md): every judge that is unsure, refused, broken or missing gives
+# NEEDS_REVIEW (a person decides), never PASS; the money rules hold around every paid call.
+
+# 730: a still verdict below the confidence threshold is NEEDS_REVIEW, even when it says pass
+test_mutation 730 "qc judges: a low-confidence still verdict never passes" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_low_confidence_or_unsure_needs_review[low-confidence-pass]" \
+    sed -i 's/^    if conf < threshold:$/    if False:  # MUTATED/'
+
+# 731: a still reviewer that answers "unsure" sends the still to a person
+test_mutation 731 "qc judges: an unsure still verdict never passes" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_low_confidence_or_unsure_needs_review[unsure]" \
+    sed -i 's/^    if answer\["verdict"\] == "unsure":$/    if False:  # MUTATED/'
+
+# 732: a still reviewer whose judge is unavailable (error, refusal, timeout) is NEEDS_REVIEW
+test_mutation 732 "qc judges: an unavailable still judge is needs review" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_a_judge_error_needs_review" \
+    sed -i 's/^            return _needs_review(str(e))$/            return {"status": PASS, "issues": [], "reason": str(e), "confidence": None}  # MUTATED/'
+
+# 733: the still review never turns the reviewer's NEEDS_REVIEW into a pass
+test_mutation 733 "qc judges: a reviewer that needs review never passes the still" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_a_judge_timeout_needs_review" \
+    sed -i 's/^            if verdict\["status"\] != PASS:$/            if False:  # MUTATED/'
+
+# 734: an identity check that cannot decide keeps a passed still from passing
+test_mutation 734 "qc judges: an unsure identity check needs review" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_an_unsure_identity_check_needs_review" \
+    sed -i 's/^            if check\["status"\] != PASS:$/            if False:  # MUTATED/'
+
+# 735: NEEDS_REVIEW escalates to a person (only a judged FAIL is a plain failed still)
+test_mutation 735 "qc judges: a still that needs review escalates" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_still_review.py::test_review_still_returns_the_judges_verdict[unsure]" \
+    sed -i 's/^    return {"passed": False, "issues": issues, "escalate": status != FAIL, "qc_judges": judges}$/    return {"passed": False, "issues": issues, "escalate": False, "qc_judges": judges}  # MUTATED/'
+
+# 736: in dry run the judges make no model call (and pay nothing)
+test_mutation 736 "qc judges: dry run makes no judge call" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_still_review.py::test_dry_run_reviewer_needs_review_without_a_call" \
+    sed -i 's/^        if dry_run():$/        if False:  # MUTATED/'
+
+# 737: a judge call the qc_judges line (or the episode stop) refuses is never made
+test_mutation 737 "qc judges: a budget refusal makes no call" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_still_review.py::test_a_budget_refusal_needs_review_without_a_call" \
+    sed -i 's/^        if not reserved:$/        if False:  # MUTATED/'
+
+# 738: a judge call the balance gate refuses is never made
+test_mutation 738 "qc judges: a balance gate refusal makes no call" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_the_balance_gate_is_asked_for_openai_and_its_refusal_holds_nothing" \
+    sed -i 's/^        if not passed:$/        if False:  # MUTATED/'
+
+# 739: no judge call without a real price (a free price would hold nothing on the line)
+test_mutation 739 "qc judges: an unpriced call is never made" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_an_unpriced_or_unbounded_call_is_never_made[free-output]" \
+    sed -i 's/^    if price <= 0:$/    if price < 0:  # MUTATED/'
+
+# 740: HFVG_QC_JUDGES_ENABLED is off unless set
+test_mutation 740 "qc judges: the flag is off by default" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_flag_is_off_by_default_and_registers_nothing" \
+    sed -i 's/^    return os\.getenv(FLAG_ENV, "false")\.strip()\.lower() in _TRUE$/    return os.getenv(FLAG_ENV, "true").strip().lower() in _TRUE  # MUTATED/'
+
+# 741: with the flag off nothing is registered, so every check behaves as before
+test_mutation 741 "qc judges: the flag off registers nothing" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_flag_is_off_by_default_and_registers_nothing" \
+    sed -i 's/^    if not judges_enabled():$/    if False:  # MUTATED/'
+
+# 742: a verdict already paid for (same media and inputs) is read from the cache, not bought again
+test_mutation 742 "qc judges: a cached verdict is not paid again" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_still_review.py::test_the_same_still_and_inputs_are_not_paid_twice" \
+    sed -i 's/^            if answer is not None:$/            if False:  # MUTATED/'
+
+# 743: a call that just failed is not paid again at once (the other counts of the still reuse the failure)
+test_mutation 743 "qc judges: a failed call is not retried at once" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_vision_counter.py::test_a_counter_that_cannot_answer_is_needs_review_and_asked_once[upstream-error]" \
+    sed -i 's/^            if recent_error is not None:$/            if False:  # MUTATED/'
+
+# 744: the headcount cache is keyed by the still's content: a re-rolled still with the same name is counted again
+test_mutation 744 "qc judges: the counter cache follows the still's content" \
+    "hfvg/qc/vision_counter.py" \
+    "tests/test_qc_vision_counter.py::test_a_reload_of_the_g2_page_does_not_pay_again" \
+    sed -i 's/^            key_parts = {"media": file_sha256(media), "times": times, "cast": described,$/            key_parts = {"media": media.name, "times": times, "cast": described,  # MUTATED/'
+
+# 745: a counter that cannot answer at G2 is NEEDS_REVIEW for that species
+test_mutation 745 "qc judges: a G2 counter error is needs review" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_qc_vision_counter.py::test_a_counter_that_cannot_answer_is_needs_review_and_asked_once[upstream-error]" \
+    sed -i 's/^\(                           "status": \)NEEDS_REVIEW\(, "reason": f"{species}: counter error: {str(e)\[:200\]}",\)$/\1PASS\2  # MUTATED/'
+
+# 746: an unsure G2 count is NEEDS_REVIEW, never a pass or a fail
+test_mutation 746 "qc judges: a low-confidence G2 count is needs review" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_qc_vision_counter.py::test_low_confidence_is_needs_review" \
+    sed -i 's/^        if conf < confidence_threshold:$/        if False:  # MUTATED/'
+
+# 747: a counter error in the assembly QC is NEEDS_REVIEW for the shot (not a crash and an assembly retry)
+test_mutation 747 "qc judges: an assembly counter error is needs review" \
+    "hfvg/qc/animal_count.py" \
+    "tests/test_qc_vision_counter.py::test_a_counter_error_in_the_assembly_is_needs_review_not_a_retry" \
+    sed -i '/a counter that cannot answer is a person.s call$/{n;s/^            return {"status": NEEDS_REVIEW, "passed": False, "escalate": True,$/            return {"status": PASS, "passed": True, "escalate": False,  # MUTATED/}'
+
+# 748: an unsure count in the assembly QC is NEEDS_REVIEW
+test_mutation 748 "qc judges: a low-confidence assembly count is needs review" \
+    "hfvg/qc/animal_count.py" \
+    "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_deterministic_counter" \
+    sed -i 's/^        if confidence < self\.confidence_threshold:$/        if False:  # MUTATED/'
+
+# 749: the judge model's name never reaches a screen (the counter reports its method, not the model)
+test_mutation 749 "qc judges: no model name in a headcount" \
+    "hfvg/qc/vision_counter.py" \
+    "tests/test_qc_vision_counter.py::test_the_g2_headcount_route_with_a_working_counter_and_no_model_name" \
+    sed -i 's/^                "method": "vision_judge"}$/                "method": self.service.model}  # MUTATED/'
+
+# 750: an unsure "fail if" answer is NEEDS_REVIEW even when it says not violated
+test_mutation 750 "qc judges: a low-confidence clip condition never passes" \
+    "hfvg/qc/clip_constraints.py" \
+    "tests/test_qc_vision_constraints.py::test_an_unsure_answer_is_needs_review_even_when_it_says_violated" \
+    sed -i 's/^        if conf < confidence_threshold:$/        if False:  # MUTATED/'
+
+# 751: a "violated" that is not true/false is a malformed answer (NEEDS_REVIEW), not a verdict
+test_mutation 751 "qc judges: a clip answer that is not true or false needs review" \
+    "hfvg/qc/vision_constraints.py" \
+    "tests/test_qc_vision_constraints.py::test_a_judge_that_cannot_answer_is_needs_review_for_every_condition_and_asked_once[violated-not-bool]" \
+    sed -i 's/^            by_n\[n\] = {"violated": bool_of(row\.get("violated"), f"condition {n} violated"),$/            by_n[n] = {"violated": bool(row.get("violated")),  # MUTATED/'
+
+# 752: the always-pass identity fakes never pass a live check
+test_mutation 752 "qc judges: the identity fakes never pass live" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_identity.py::test_the_always_pass_fakes_escalate_live_and_pass_in_dry_run" \
+    sed -i 's/^            if not judges\.dry_run():$/            if False:  # MUTATED/'
+
+# 753: an unsure detection escalates the identity check (no composite, no judge call)
+test_mutation 753 "qc judges: an unsure character detection escalates" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_identity.py::test_an_unsure_judge_or_detector_escalates" \
+    sed -i 's/^        if found_conf is not None and found_conf < LOW_CONFIDENCE:$/        if False:  # MUTATED/'
+
+# 754: an unsure identity judge escalates, whatever its scores say
+test_mutation 754 "qc judges: a low-confidence identity verdict escalates" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_identity.py::test_an_unsure_judge_or_detector_escalates" \
+    sed -i 's/^        if confidence is None or confidence < LOW_CONFIDENCE:$/        if confidence is None:  # MUTATED/'
+
+# 755: a locked character whose lock cannot be used (changed on disk, missing) escalates
+test_mutation 755 "qc judges: an unusable character lock escalates" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_identity.py::test_a_lock_that_changed_escalates_without_a_call" \
+    sed -i 's/^    rows = \[{"character": p\["character"\], "name": p\["name"\], "version": None, "verdict": ESCALATE,$/    rows = [{"character": p["character"], "name": p["name"], "version": None, "verdict": PASS,  # MUTATED/'
+
+# 756: a detector box outside the frame is a broken answer, never cropped and judged
+test_mutation 756 "qc judges: a detection box outside the frame is refused" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_identity.py::test_a_broken_or_malformed_detection_escalates[box-outside]" \
+    sed -i 's/^                    if box\["x"\] + box\["w"\] > 1\.001 or box\["y"\] + box\["h"\] > 1\.001:$/                    if False:  # MUTATED/'
+
+# 757: a clip whose identity check cannot decide escalates (only identity drift is a plain clip failure)
+test_mutation 757 "qc judges: an unsure clip identity escalates" \
+    "hfvg/activities/qc.py" \
+    "tests/test_qc_identity.py::test_review_clip_fails_on_drift_and_escalates_an_unsure_identity" \
+    sed -i 's/^        return dict(result, passed=False, escalate=True, identity=check,$/        return dict(result, passed=False, escalate=False, identity=check,  # MUTATED/'
+
+# 758: the shot workflow hands the still review its rubric (behind workflow.patched)
+test_mutation 758 "qc judges: the still review gets the judges' rubric" \
+    "hfvg/workflows/shot.py" \
+    "tests/test_qc_judges_workflow.py::test_a_judged_fail_is_rerolled_only_by_retry_shot_and_the_review_gets_the_rubric" \
+    sed -i 's/^                if workflow\.patched("qc-still-rubric"):$/                if False:  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
