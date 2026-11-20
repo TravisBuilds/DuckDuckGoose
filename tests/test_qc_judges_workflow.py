@@ -3,17 +3,32 @@ rubric (the still's prompt, references, cast and local file), and a judge's FAIL
 automatically: the shot fails, and only the bounded ``retry_shot`` makes another still (the QC retry
 loop removed in 10e9fd2 stays gone). Every activity is stubbed by name: no network, no spend."""
 import asyncio
+import base64
+import json
 import time
 from datetime import timedelta
 
 import pytest
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
+
+from hfvg.temporal_converter import temporal_data_converter
+from hfvg.worker import PRODUCTION_WORKFLOWS
 
 PROMPT = "Exactly 1 animals in frame. Pip the capybara sits on a dock. Real-time, no slow motion."
 META = {"count": 1, "characters": ["Pip"], "duck": False}
 JUDGE_FAIL = "QC judge: two capybaras in frame, the prompt has one"
+
+
+def _patch_markers(history) -> list[str]:
+    """The patch ids recorded in a workflow history."""
+    ids = []
+    for event in json.loads(history.to_json())["events"]:
+        marker = event.get("markerRecordedEventAttributes") or {}
+        for payload in (marker.get("details", {}).get("patch-data", {}).get("payloads") or []):
+            ids.append(json.loads(base64.b64decode(payload["data"])).get("id"))
+    return ids
 
 
 def _activities(log, still_dir):
@@ -136,6 +151,13 @@ async def test_a_judged_fail_is_rerolled_only_by_retry_shot_and_the_review_gets_
                 st, ok = await wait(h, lambda s: not s.get("pending_retries"), budget=30.0)
                 assert ok, f"the retried still passed review but the retry never finished: {st}"
                 assert len(stills()) == 2, f"a passing review re-rolled again: {log}"
+
+                # A history recorded with the patch carries its marker and replays on this code
+                history = await env.client.get_workflow_handle("ep05-shot-A02").fetch_history()
+                assert "qc-still-rubric" in _patch_markers(history), _patch_markers(history)
+                replay = await Replayer(workflows=PRODUCTION_WORKFLOWS,
+                                        data_converter=temporal_data_converter).replay_workflow(history)
+                assert replay.replay_failure is None
             finally:
                 for wid in ("ep05", "ep05-shot-A02-retry1"):
                     try:
