@@ -23,8 +23,20 @@ from typing import Any
 
 from hfvg.cast_prompt import inject_cast_prompt
 from hfvg.qc.judges import (
-    FAIL, MEDIA_PX, NEEDS_REVIEW, PASS, REF_PX, JudgeCall, JudgeInputError, JudgeService, JudgeUnavailable,
-    confidence_of, file_sha256, prepare_image, review_deadline_s, text_list,
+    FAIL,
+    MEDIA_PX,
+    NEEDS_REVIEW,
+    PASS,
+    REF_PX,
+    JudgeCall,
+    JudgeInputError,
+    JudgeService,
+    JudgeUnavailable,
+    confidence_of,
+    file_sha256,
+    prepare_image,
+    review_deadline_s,
+    text_list,
 )
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7

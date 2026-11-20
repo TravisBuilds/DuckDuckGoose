@@ -23,8 +23,19 @@ from typing import Any
 
 from hfvg.qc.animal_count import AnimalCounter
 from hfvg.qc.judges import (
-    MEDIA_PX, REF_PX, JudgeCall, JudgeService, JudgeUnavailable, confidence_of, count_of, extract_frames,
-    file_sha256, is_video, prepare_image, probe_duration, spread_times,
+    MEDIA_PX,
+    REF_PX,
+    JudgeCall,
+    JudgeService,
+    JudgeUnavailable,
+    confidence_of,
+    count_of,
+    extract_frames,
+    file_sha256,
+    is_video,
+    prepare_image,
+    probe_duration,
+    spread_times,
 )
 
 FRAMES_PER_CLIP = 3

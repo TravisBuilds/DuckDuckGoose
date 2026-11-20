@@ -16,10 +16,24 @@ import respx
 from hfvg.activities.qc import review_still
 from hfvg.qc.identity import VisionCharacterDetector, VisionIdentityJudge, set_identity_judge
 from hfvg.qc.judges import FakeJudgeClient, JudgeService
-from hfvg.qc.still_review import MAX_REFS, StillReviewer, VisionStillReviewer, judged_still_review, set_still_reviewer
+from hfvg.qc.still_review import (
+    MAX_REFS,
+    StillReviewer,
+    VisionStillReviewer,
+    judged_still_review,
+    set_still_reviewer,
+)
 from tests.qc_judge_helpers import (
-    STILL_FAIL, STILL_PASS, detect_answer, identity_answer, image, live_episode, locked_character, qc_line,
-    reset_registries, routed_client,
+    STILL_FAIL,
+    STILL_PASS,
+    detect_answer,
+    identity_answer,
+    image,
+    live_episode,
+    locked_character,
+    qc_line,
+    reset_registries,
+    routed_client,
 )
 from tests.test_picture_assembly_round3 import HB
 

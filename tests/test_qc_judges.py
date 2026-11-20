@@ -19,10 +19,22 @@ import pytest
 
 from hfvg.qc import judges
 from hfvg.qc.judges import (
-    DEFAULT_MODEL, FakeJudgeClient, JudgeCall, JudgeService, JudgeUnavailable, OpenAIJudgeClient,
-    call_estimate_usd_micros, register_qc_judges,
+    DEFAULT_MODEL,
+    FakeJudgeClient,
+    JudgeCall,
+    JudgeService,
+    JudgeUnavailable,
+    OpenAIJudgeClient,
+    call_estimate_usd_micros,
+    register_qc_judges,
 )
-from tests.qc_judge_helpers import live_ledger, qc_line, qc_transactions, reset_registries, verdict_rows
+from tests.qc_judge_helpers import (
+    live_ledger,
+    qc_line,
+    qc_transactions,
+    reset_registries,
+    verdict_rows,
+)
 
 EP = "ep-qcj"
 SYSTEM = "Answer with a JSON object."

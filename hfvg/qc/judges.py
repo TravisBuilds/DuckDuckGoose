@@ -605,7 +605,11 @@ def register_qc_judges(process: str = "worker", service: JudgeService | None = N
     set_animal_counter(VisionAnimalCounter(service))
     if process == "worker":
         from hfvg.qc.clip_constraints import set_constraint_checker
-        from hfvg.qc.identity import VisionCharacterDetector, VisionIdentityJudge, set_identity_judge
+        from hfvg.qc.identity import (
+            VisionCharacterDetector,
+            VisionIdentityJudge,
+            set_identity_judge,
+        )
         from hfvg.qc.still_review import VisionStillReviewer, set_still_reviewer
         from hfvg.qc.vision_constraints import VisionClipConstraintChecker
 

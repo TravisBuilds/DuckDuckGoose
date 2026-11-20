@@ -11,7 +11,12 @@ import pytest
 
 from hfvg.activities.qc import check_assembly_qc
 from hfvg.qc.animal_count import check_shot_animals, set_animal_counter
-from hfvg.qc.g2_headcount import ReviewerHeadcountCounter, check_still_headcount, g2_headcount_report, record_headcount
+from hfvg.qc.g2_headcount import (
+    ReviewerHeadcountCounter,
+    check_still_headcount,
+    g2_headcount_report,
+    record_headcount,
+)
 from hfvg.qc.judges import FakeJudgeClient, JudgeService, JudgeUnavailable
 from hfvg.qc.vision_counter import VisionAnimalCounter
 from tests.lint_helpers import lint_meta

@@ -15,8 +15,17 @@ from typing import Any
 
 from hfvg.qc.clip_constraints import ClipConstraintChecker
 from hfvg.qc.judges import (
-    REF_PX, JudgeCall, JudgeService, JudgeUnavailable, bool_of, confidence_of, extract_frames, file_sha256,
-    prepare_image, probe_duration, spread_times,
+    REF_PX,
+    JudgeCall,
+    JudgeService,
+    JudgeUnavailable,
+    bool_of,
+    confidence_of,
+    extract_frames,
+    file_sha256,
+    prepare_image,
+    probe_duration,
+    spread_times,
 )
 
 FRAMES_PER_CLIP = 6
