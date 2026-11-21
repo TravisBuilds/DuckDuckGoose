@@ -215,6 +215,10 @@ async def main():
     ledger = Ledger()
     await ledger.init_db()
 
+    # Automated QC judges (HFVG_QC_JUDGES_ENABLED, default off: nothing registered, live QC escalates)
+    from hfvg.qc.judges import register_qc_judges
+    register_qc_judges("worker")
+
     logger.info(f"Connecting to Temporal at {config.TEMPORAL_HOST}...")
     client = await Client.connect(
         config.TEMPORAL_HOST,

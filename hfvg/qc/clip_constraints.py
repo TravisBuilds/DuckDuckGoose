@@ -10,8 +10,9 @@ recorded per clip (``clip_qc["constraints"]``) with one row per declared constra
 
 Fail closed: no checker configured, a missing clip file, a checker error or a low-confidence answer
 is NEEDS_REVIEW (the clip is escalated to a human), never a silent pass. A violated constraint is a
-FAIL. No real checker ships in this package. DRY_RUN placeholder clips are not footage: their rows
-are recorded as DRY_RUN ("not checked"), which is neither a pass nor a block.
+FAIL. The vision checker (hfvg.qc.vision_constraints, docs/QC-JUDGES.md) is registered only when
+``HFVG_QC_JUDGES_ENABLED`` is on; otherwise no checker is configured. DRY_RUN placeholder clips are
+not footage: their rows are recorded as DRY_RUN ("not checked"), which is neither a pass nor a block.
 """
 
 from __future__ import annotations

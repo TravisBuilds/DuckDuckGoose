@@ -81,7 +81,7 @@ set -a; source .env; set +a
 **Optional (for live mode):**
 - `HIGGSFIELD_API_KEY`: Format `id:secret`
 - `ELEVENLABS_API_KEY`: For audio generation
-- `OPENAI_API_KEY`: listed in `.env.example` but not read by the current code (no OpenAI judge is wired; live QC escalates to human review)
+- `OPENAI_API_KEY`: draft from idea, story shaping and the voice picker, and the automated QC judges when `HFVG_QC_JUDGES_ENABLED=true` (off by default: live QC escalates to human review; see [docs/QC-JUDGES.md](docs/QC-JUDGES.md))
 
 ### 3. Start Temporal Dev Server
 
@@ -281,7 +281,10 @@ See [`.env.example`](.env.example) for all available environment variables.
 **Provider API Keys:**
 - `HIGGSFIELD_API_KEY`: Format `id:secret`
 - `ELEVENLABS_API_KEY`: For audio generation (read by the ElevenLabs SDK)
-- `OPENAI_API_KEY`: not read by the current code
+- `OPENAI_API_KEY`: draft from idea, story shaping, the voice picker and the QC judges
+
+**Automated QC judges** ([docs/QC-JUDGES.md](docs/QC-JUDGES.md)):
+- `HFVG_QC_JUDGES_ENABLED` (default false), `HFVG_QC_JUDGE_MODEL`, `HFVG_QC_LINE_CAP_USD` (default 0.50, the episode's `qc_judges` budget line)
 
 **Budget (USD decimal strings):**
 - `EPISODE_CAP_USD` (default 60.00), `EPISODE_STOP_PERCENT` (default 80 -> $48.00), `GC01_HEADROOM_USD` (default 5.00), `REVISION_RESERVE_USD` (default 10.00)

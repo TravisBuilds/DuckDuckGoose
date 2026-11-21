@@ -56,7 +56,7 @@ CHECK_SCHEDULE_ENABLED_ENV = "BALANCE_CHECK_SCHEDULE_ENABLED"
 UNCHANGED_ENTRY_MIN_SPEND_MICROS = 1_000_000
 
 
-BalanceSource = Literal["live", "derived", "manual"]
+BalanceSource = Literal["live", "derived", "manual", "none"]
 
 
 @dataclass
@@ -308,6 +308,7 @@ class BalanceMonitor:
         
         # Get committed spend since manual entry  
         # Defect 14: only Higgsfield spend (L1-L4 video lines, L7_revision), NOT ElevenLabs (el_*)
+        # or the QC judges (qc_judges, OpenAI)
         # The after_txn_id in manual_balance tells us which transactions were already accounted for
         async with aiosqlite.connect(self.db_path) as db:
             # Get transactions after the manual entry's after_txn_id
@@ -320,7 +321,8 @@ class BalanceMonitor:
                 "SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt "
                 "JOIN budget_lines bl ON bt.line_id = bl.line_id "
                 "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? "
-                "AND bl.line_name NOT LIKE 'el_%'",
+                "AND bl.line_name NOT LIKE 'el_%'"
+                " AND bl.line_name != 'qc_judges'",
                 (after_txn_id,)
             )).fetchone()
             ledger_spend_micros = ledger_row[0] if ledger_row else 0
@@ -426,8 +428,21 @@ class BalanceMonitor:
                 return await self._check_higgsfield_balance()
             except Exception:
                 return None
+        elif provider == "openai":
+            return self._openai_balance()
         else:
             return None
+
+    @staticmethod
+    def _openai_balance() -> ProviderBalance:
+        """The QC judges' provider. An API key has no balance endpoint, so the balance is unknown
+        and the gate passes (as for any unknown balance); judge spend is bounded by the episode's
+        qc_judges budget line instead (hfvg.qc.judges)."""
+        return ProviderBalance(
+            provider="openai", balance_usd=None, source="none", age_seconds=0.0,
+            details={"error": "OpenAI has no balance endpoint for an API key; QC judge spend is bounded "
+                              "by the episode's qc_judges budget line"},
+        )
     
     async def check_preflight_balance(
         self,
@@ -581,7 +596,8 @@ async def manual_balance_consistency(db_path: str) -> dict[str, Any]:
         spent = (await (await db.execute(
             "SELECT COALESCE(SUM(bt.amount), 0) FROM budget_transactions bt "
             "JOIN budget_lines bl ON bt.line_id = bl.line_id "
-            "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? AND bt.txn_id <= ? AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'",
+            "WHERE bt.txn_type = 'commit' AND bt.txn_id > ? AND bt.txn_id <= ? AND bl.line_name NOT LIKE 'el|_%' ESCAPE '|'"
+            " AND bl.line_name != 'qc_judges'",
             (prev_txn, latest_txn))).fetchone())[0]
     unchanged = latest_bal == prev_bal and spent >= UNCHANGED_ENTRY_MIN_SPEND_MICROS
     return {"entries": 2, "unchanged_despite_spend": unchanged, "latest_entry_id": latest_id,

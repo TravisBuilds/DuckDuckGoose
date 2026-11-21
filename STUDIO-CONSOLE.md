@@ -61,19 +61,18 @@ This document tracks the implementation of the studio console for Episode 4 prod
 - ✅ `hfvg/ledger.py`: Idempotent job tracking
 - ✅ `hfvg/workflows/episode_v2.py`: EpisodeWorkflowV2 with approval signals
 - ✅ `hfvg/qc/motion.py`: G4.10 motion check (stillgate thresholds, implemented in-repo)
-- ✅ `hfvg/qc/duck_identity.py`: Duck identity gate scaffold
+- ✅ `hfvg/qc/identity.py`: identity gate for any locked character (the duck host is one profile in `hfvg/qc/duck_identity.py`), with the other vision judges behind `HFVG_QC_JUDGES_ENABLED` ([docs/QC-JUDGES.md](docs/QC-JUDGES.md))
 - ✅ `hfvg/qc/prompt_validation.py`: Prompt validation rules
 
 ## 🚧 What Needs Implementation
 
 ### Critical for Ep04 Dry Run
 
-1. **Real Vision Judge** (`hfvg/qc/duck_identity.py`)
-   - Replace `FakeVisionJudge` with OpenAI vision implementation
-   - Read `OPENAI_API_KEY` from env
-   - If key missing: ESCALATE (fail-closed), never silently pass
-   - Temperature 0, structured output
-   - See existing interface in `duck_identity.py:30-60`
+1. **Real Vision Judge**: done, off by default (`HFVG_QC_JUDGES_ENABLED`,
+   [docs/QC-JUDGES.md](docs/QC-JUDGES.md))
+   - OpenAI vision judges in `hfvg/qc/` (still review, headcount, clip conditions, identity)
+   - Read `OPENAI_API_KEY` from env; if it is missing every judged check escalates, never passes
+   - Temperature 0, JSON answers checked before use
 
 2. **Episode Data Loading** (NOT committed to public repo)
    - Upload via console UI or mount path
@@ -164,7 +163,7 @@ Already implemented in `hfvg/ledger.py`:
 - `TEMPORAL_ADDRESS`: Temporal server (default: `localhost:7233`)
 - `TEMPORAL_NAMESPACE`: Temporal namespace (default: `default`)
 - `DATABASE_PATH`: SQLite path (default: `./data/studio.db`)
-- `OPENAI_API_KEY`: OpenAI API key for vision judge (escalates if missing)
+- `OPENAI_API_KEY`: OpenAI API key, used by the vision judges when `HFVG_QC_JUDGES_ENABLED=true` (escalates if missing)
 - `DRY_RUN`: Default dry-run mode (default: `true`)
 - `PORT`: API port (default: `8000`)
 
@@ -249,13 +248,13 @@ From `CREDIT-PLAN_4753.md`:
 
 1. **Still model**: Which Higgsfield still model to use? (GPT Image 2 not available)
 2. **Episode data upload**: Console UI upload or mount from private path? (NOT committed to repo)
-3. **Paid services**: OK to use OpenAI vision API for duck identity judge? (~$0.01/image)
+3. **Paid services**: the OpenAI vision judges are built behind `HFVG_QC_JUDGES_ENABLED` (off); turned on, they spend from each episode's `qc_judges` budget line (estimates in [docs/QC-JUDGES.md](docs/QC-JUDGES.md))
 4. **Temporal hosting**: Use Temporal Cloud or self-host dev server for now?
 5. **API deployment**: Container host recommendation or run on persistent Linux machine?
 
 ## 🚀 Next Steps
 
-1. Implement real vision judge with OpenAI (or escalate path if key missing)
+1. ~~Implement real vision judge with OpenAI (or escalate path if key missing)~~ built behind `HFVG_QC_JUDGES_ENABLED`
 2. Wire shot status tracking from ShotWorkflow to console
 3. Build still strip and clip review UIs
 4. Add canary action endpoint

@@ -364,6 +364,10 @@ async def lifespan(app: FastAPI):
         user_mgr = UserManager(DATABASE_PATH)
         await user_mgr.init_db()
         await run_all_migrations(DATABASE_PATH)
+
+        # The G2 / recompose headcount counter (HFVG_QC_JUDGES_ENABLED; off: nothing registered)
+        from hfvg.qc.judges import register_qc_judges
+        register_qc_judges("api")
         
         # Connect to Temporal
         temporal_client = await TemporalClient.connect(
@@ -4102,7 +4106,8 @@ async def get_g2_headcount(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only, no spend)."""
+    """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only; no spend
+    unless the QC judges are on, then one cached judge call per still, never repaid on reload)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4860,8 +4865,9 @@ async def get_recompose_headcount(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-32: the GAP-27 headcount check on each shot's latest RECOMPOSE still (not a G2 still version,
-    so /g2-headcount never saw it) against the cast that recompose declared. Read-only, no spend. Record
-    a reviewer count first with POST /shots/{shot}/headcount {version: <recompose version>}."""
+    so /g2-headcount never saw it) against the cast that recompose declared. Read-only; no spend unless
+    the QC judges are on (one cached judge call per still). Record a reviewer count first with
+    POST /shots/{shot}/headcount {version: <recompose version>}."""
     from hfvg.qc.g2_headcount import (
         FAIL as _FAIL, NEEDS_REVIEW as _NR, ReviewerHeadcountCounter, _still_for, check_still_headcount,
         load_headcounts,
@@ -4884,7 +4890,8 @@ async def get_recompose_headcount(
         row = plans[sid] or {}
         v = row.get("version")
         path = _still_for(out_root / sid, v)
-        res = await check_still_headcount(reviewer, path, row.get("shot_meta"))
+        res = await check_still_headcount(reviewer, path, row.get("shot_meta"),
+                                          shot_context={"episode_id": episode_id, "shot_id": sid})
         res.update({"version": v, "still": str(path) if path else None, "decision": row.get("decision"),
                     "still_ready": row.get("still_ready")})
         shots[sid] = res

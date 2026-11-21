@@ -2,6 +2,12 @@
 
 Extract frames → detect duck → crop/composite → vision judge → auto-fail logic.
 
+The duck host is one configured character of the generic identity gate (hfvg.qc.identity):
+``DUCK_HOST_PROFILE`` holds its rules (signs bill, head, neck ring, body, too small; apparel tuque
+and vest; the tuft in "B" shots; the 0.12 height floor for the host). Locked cast characters use the
+same gate with criteria from their lock. ``create_gate()`` defaults to the always-pass fakes, which
+are for dry run only: a live check with them escalates.
+
 Privacy: Reference images and media-ids.json must NOT be in the public repo.
 Refs are resolved from SERIES_PATH at runtime, never committed.
 """
@@ -9,8 +15,10 @@ Refs are resolved from SERIES_PATH at runtime, never committed.
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
-import subprocess
-import json
+
+from hfvg.qc.identity import IdentityCriteria, IdentityGate, IdentityProfile
+
+REF_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 
 class DuckDetector(ABC):
@@ -61,7 +69,9 @@ class VisionJudge(ABC):
 
 class FakeDuckDetector(DuckDetector):
     """Fake detector for dry-run testing."""
-    
+
+    dry_run_only = True  # a live gate with it escalates
+
     async def detect(self, image_path: str | Path) -> dict[str, Any]:
         """Always returns a fake detection."""
         return {
@@ -74,7 +84,9 @@ class FakeDuckDetector(DuckDetector):
 
 class FakeVisionJudge(VisionJudge):
     """Fake judge for dry-run testing. Always returns PASS."""
-    
+
+    dry_run_only = True  # a live gate with it escalates
+
     async def judge_identity(self, composite_path: str | Path,
                            shot_context: dict[str, Any]) -> dict[str, Any]:
         """Fake judge always passes."""
@@ -97,7 +109,33 @@ class FakeVisionJudge(VisionJudge):
         }
 
 
-class DuckIdentityGate:
+DUCK_HOST_PROFILE = IdentityProfile(
+    name="duck_host",
+    label="Duck",
+    signs={
+        "bill": "bill shape and length",
+        "head": "head shape",
+        "neck_ring": "a white neck ring (0 absent, 2 clearly present)",
+        "body": "body shape",
+        "too_small": "is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)",
+    },
+    apparel={"tuque": "cream tuque with a pom", "vest": "vest fading from cream to olive"},
+    hint_signs=("neck_ring",),
+    state_key="duck_state",
+    state_features={"B": ("tuft", "3-lobe tuft at a quarter of the head height")},
+    min_height_fraction=0.12,
+    presence=("duck_role", "host"),
+    presence_note="host role",
+)
+
+
+def _ref_images(refs_path: Path | None) -> tuple[tuple[str, str], ...]:
+    if refs_path is None or not refs_path.is_dir():
+        return ()
+    return tuple(("ref", str(p)) for p in sorted(refs_path.iterdir()) if p.suffix.lower() in REF_SUFFIXES)
+
+
+class DuckIdentityGate(IdentityGate):
     """
     Duck identity gate (G2.03 / G3.03 / G4.02).
     
@@ -108,267 +146,25 @@ class DuckIdentityGate:
     def __init__(self, 
                  detector: DuckDetector | None = None,
                  judge: VisionJudge | None = None,
-                 refs_path: str | Path | None = None):
+                 refs_path: str | Path | None = None,
+                 episode_id: str | None = None):
         """
         Initialize duck identity gate.
         
         Args:
             detector: Duck detector (default: FakeDuckDetector for dry-run)
             judge: Vision judge (default: FakeVisionJudge for dry-run)
-            refs_path: Path to reference images (default: from config)
+            refs_path: Directory of reference images (the composite's sheet panels; default: none)
+            episode_id: Episode whose qc_judges budget line pays for the vision judges' calls
         """
-        self.detector = detector or FakeDuckDetector()
-        self.judge = judge or FakeVisionJudge()
         self.refs_path = Path(refs_path) if refs_path else None
-    
-    async def extract_frames(self, video_path: str | Path, 
-                           frame_times: list[float]) -> list[Path]:
-        """
-        Extract frames from video at specified times.
-        
-        Args:
-            video_path: Path to video file
-            frame_times: List of times in seconds (e.g., [0, duration/2, duration-0.1])
-        
-        Returns:
-            List of paths to extracted frame images
-        """
-        video_path = Path(video_path)
-        output_dir = video_path.parent / f"{video_path.stem}_frames"
-        output_dir.mkdir(exist_ok=True)
-        
-        frame_paths = []
-        for i, t in enumerate(frame_times):
-            output_path = output_dir / f"frame_{i:03d}_{t:.2f}s.jpg"
-            
-            # Use ffmpeg to extract frame
-            subprocess.run([
-                "ffmpeg", "-y",
-                "-ss", str(t),
-                "-i", str(video_path),
-                "-vframes", "1",
-                "-q:v", "2",
-                str(output_path)
-            ], capture_output=True, check=True)
-            
-            frame_paths.append(output_path)
-        
-        return frame_paths
-    
-    async def create_composite(self, frame_path: str | Path,
-                             duck_bbox: dict[str, float],
-                             shot_context: dict[str, Any],
-                             output_path: str | Path) -> Path:
-        """
-        Create composite: [AB02 head | AB03 head | frame body crop | frame head crop].
-        
-        Args:
-            frame_path: Path to extracted frame
-            duck_bbox: Duck bounding box {x, y, w, h}
-            shot_context: Shot metadata (for selecting refs)
-            output_path: Where to save composite
-        
-        Returns:
-            Path to composite image
-        """
-        # For now, just copy the frame as a placeholder
-        # Real implementation would use PIL/OpenCV to create the 4-panel composite
-        import shutil
-        shutil.copy(frame_path, output_path)
-        return Path(output_path)
-    
-    async def check_frame(self, frame_path: str | Path,
-                        shot_context: dict[str, Any]) -> dict[str, Any]:
-        """
-        Check one frame for duck identity.
-        
-        Args:
-            frame_path: Path to frame image
-            shot_context: Shot metadata
-        
-        Returns:
-            Frame check result with detection, composite, and judge verdict
-        """
-        # 1. Detect duck
-        detection = await self.detector.detect(frame_path)
-        
-        if not detection["found"]:
-            if shot_context.get("duck_role") == "host":
-                # Duck expected but not found → ESCALATE
-                return {
-                    "frame": str(frame_path),
-                    "detection": detection,
-                    "verdict": "ESCALATE",
-                    "reason": "Duck expected (host role) but not found",
-                }
-            else:
-                # Duck absent, expected
-                return {
-                    "frame": str(frame_path),
-                    "detection": detection,
-                    "verdict": "PASS",
-                    "reason": "Duck absent (expected)",
-                }
-        
-        # 2. Check height fraction
-        height_frac = detection.get("height_fraction", 0)
-        if height_frac < 0.12 and shot_context.get("duck_role") == "host":
-            return {
-                "frame": str(frame_path),
-                "detection": detection,
-                "verdict": "FAIL",
-                "reason": f"Duck too small: height fraction {height_frac:.3f} < 0.12",
-            }
-        
-        # 3. Create composite
-        output_dir = Path(frame_path).parent / "composites"
-        output_dir.mkdir(exist_ok=True)
-        composite_path = output_dir / f"{Path(frame_path).stem}_composite.jpg"
-        
-        await self.create_composite(
-            frame_path, 
-            detection["bbox"],
-            shot_context,
-            composite_path
+        super().__init__(
+            detector or FakeDuckDetector(),
+            judge or FakeVisionJudge(),
+            IdentityCriteria(slug="duck", name="Duck", description="the duck host",
+                             sheet=_ref_images(self.refs_path), profile=DUCK_HOST_PROFILE,
+                             episode_id=episode_id),
         )
-        
-        # 4. Run vision judge
-        judge_result = await self.judge.judge_identity(composite_path, shot_context)
-        
-        # 5. Apply auto-fail logic
-        verdict, reason = self._apply_auto_fail_logic(judge_result, shot_context)
-        
-        return {
-            "frame": str(frame_path),
-            "detection": detection,
-            "composite": str(composite_path),
-            "judge": judge_result,
-            "verdict": verdict,
-            "reason": reason,
-        }
-    
-    def _apply_auto_fail_logic(self, judge_result: dict[str, Any],
-                              shot_context: dict[str, Any]) -> tuple[str, str]:
-        """
-        Apply auto-fail logic to judge results.
-        
-        Auto-fail conditions:
-        - Any sign = 2 (drift) on any frame
-        - Neck ring at confidence ≥ 0.5
-        - Tuque/vest mismatch
-        - Sum of minor scores ≥ 3 across frame set
-        - Confidence < 0.6 → ESCALATE (fail-closed)
-        
-        Returns:
-            (verdict, reason) tuple
-        """
-        signs = judge_result.get("signs", {})
-        apparel = judge_result.get("apparel", {})
-        confidence = judge_result.get("confidence", 0)
-        
-        # Check confidence threshold
-        if confidence < 0.6:
-            return ("ESCALATE", f"Low confidence {confidence:.2f} < 0.6")
-        
-        # Check for drift (score = 2)
-        for sign_name, sign_data in signs.items():
-            if sign_data.get("score") == 2:
-                evidence = sign_data.get("evidence", "")
-                return ("FAIL", f"Drift detected: {sign_name} (score 2) - {evidence}")
-        
-        # Check neck ring
-        neck_ring = signs.get("neck_ring", {})
-        if neck_ring.get("score") >= 1 and neck_ring.get("confidence", 0) >= 0.5:
-            return ("FAIL", "Neck ring detected (confidence ≥ 0.5)")
-        
-        # Check apparel
-        tuque = apparel.get("tuque", {})
-        if tuque.get("present") and not tuque.get("correct"):
-            return ("FAIL", "Tuque mismatch (present but incorrect)")
-        
-        vest = apparel.get("vest", {})
-        if vest.get("present") and not vest.get("correct"):
-            return ("FAIL", "Vest mismatch (present but incorrect)")
-        
-        # Check for B shots: tuft required
-        if shot_context.get("duck_state") == "B":
-            tuft = judge_result.get("tuft", {})
-            if not tuft.get("present") or not tuft.get("correct"):
-                return ("FAIL", "B shot: tuft missing or incorrect")
-        
-        # Check total minor score
-        total_minor = judge_result.get("total_minor_score", 0)
-        if total_minor >= 3:
-            return ("FAIL", f"Total minor score {total_minor} ≥ 3")
-        
-        # If judge already decided FAIL/ESCALATE, respect it
-        if judge_result.get("verdict") in ["FAIL", "ESCALATE"]:
-            return (judge_result["verdict"], judge_result.get("reason", "Judge decision"))
-        
-        return ("PASS", "Identity check passed")
-    
-    async def check_still(self, image_path: str | Path,
-                        shot_context: dict[str, Any]) -> dict[str, Any]:
-        """
-        Check a still image for duck identity.
-        
-        Args:
-            image_path: Path to still image
-            shot_context: Shot metadata
-        
-        Returns:
-            Check result with verdict
-        """
-        return await self.check_frame(image_path, shot_context)
-    
-    async def check_clip(self, video_path: str | Path,
-                       shot_context: dict[str, Any]) -> dict[str, Any]:
-        """
-        Check a video clip for duck identity.
-        
-        Extracts first/mid/last frames and checks each.
-        
-        Args:
-            video_path: Path to video file
-            shot_context: Shot metadata
-        
-        Returns:
-            Check result with per-frame verdicts and overall verdict
-        """
-        # Get video duration (stub - real impl would use ffprobe)
-        duration = shot_context.get("duration", 5.0)
-        
-        # Extract first/mid/last frames
-        frame_times = [0.1, duration / 2, duration - 0.1]
-        frame_paths = await self.extract_frames(video_path, frame_times)
-        
-        # Check each frame
-        frame_results = []
-        for i, frame_path in enumerate(frame_paths):
-            frame_result = await self.check_frame(frame_path, shot_context)
-            frame_result["frame_index"] = i
-            frame_result["frame_time"] = frame_times[i]
-            frame_results.append(frame_result)
-        
-        # Overall verdict: FAIL if any frame fails
-        overall_verdict = "PASS"
-        overall_reason = "All frames passed"
-        
-        for result in frame_results:
-            if result["verdict"] == "FAIL":
-                overall_verdict = "FAIL"
-                overall_reason = f"Frame {result['frame_index']} failed: {result['reason']}"
-                break
-            elif result["verdict"] == "ESCALATE":
-                overall_verdict = "ESCALATE"
-                overall_reason = f"Frame {result['frame_index']} escalated: {result['reason']}"
-        
-        return {
-            "video": str(video_path),
-            "frames": frame_results,
-            "verdict": overall_verdict,
-            "reason": overall_reason,
-        }
 
 
 def create_gate(detector: DuckDetector | None = None,

@@ -10,11 +10,14 @@ will actually animate (the latest re-roll or the version kept with select_still_
 Any mismatch is FAIL and BLOCKS G2 approval (API, 409) unless the reviewer overrides that shot with
 an audited reason. Counts come from, in order: a reviewer headcount recorded for that exact still
 (POST /api/episodes/{ep}/shots/{shot}/headcount, stored in <EPISODES_DIR>/<ep>/g2_headcounts.json),
-then the registered AnimalCounter. With neither the shot is NEEDS_REVIEW - never a silent PASS.
+then the registered AnimalCounter (the vision counter when the QC judges are on, docs/QC-JUDGES.md:
+one cached call per still). With neither the shot is NEEDS_REVIEW - never a silent PASS; a counter
+error is NEEDS_REVIEW for that shot.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -23,10 +26,11 @@ from typing import Any
 
 from hfvg import paths
 from hfvg.qc.animal_count import (
-    DEFAULT_CONFIDENCE_THRESHOLD, FAIL, NEEDS_REVIEW, PASS, AnimalCounter, get_animal_counter,
+    DEFAULT_CONFIDENCE_THRESHOLD, FAIL, NEEDS_REVIEW, PASS, AnimalCounter, count_with_context, get_animal_counter,
 )
 
 SPECIES = ("cast", "duck", "animal")
+REPORT_CONCURRENCY = 4  # shots counted at once (each may be one judge call)
 _STILL_RE = re.compile(r"^still_v(\d+)(_end)?\.(?:jpe?g|png|webp)$", re.IGNORECASE)
 
 
@@ -92,13 +96,14 @@ class ReviewerHeadcountCounter(AnimalCounter):
             return None
         return (self.headcounts.get(p.parent.name) or {}).get(str(int(m.group(1))))
 
-    async def count_animals(self, media_path, expected_type: str = "duck") -> dict[str, Any]:
+    async def count_animals(self, media_path, expected_type: str = "duck",
+                            shot_context: dict[str, Any] | None = None) -> dict[str, Any]:
         row = self.lookup(media_path)
         if row is not None and expected_type in row:
             return {"found": row[expected_type] > 0, "count": int(row[expected_type]), "confidence": 1.0,
                     "type_match": True, "method": f"reviewer_headcount ({row.get('by') or 'reviewer'})"}
         if self.fallback is not None:
-            return await self.fallback.count_animals(media_path, expected_type)
+            return await count_with_context(self.fallback, media_path, expected_type, shot_context)
         return {"found": False, "count": -1, "confidence": 0.0, "type_match": False, "method": "none"}
 
     def has_source(self, media_path) -> bool:
@@ -107,8 +112,10 @@ class ReviewerHeadcountCounter(AnimalCounter):
 
 async def check_still_headcount(counter: AnimalCounter | None, image_path: str | Path | None,
                                 shot_meta: dict | None,
-                                confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD) -> dict[str, Any]:
-    """Count main-cast animals, ducks and every animal in one still vs the declared cast. Worst status wins."""
+                                confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+                                shot_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Count main-cast animals, ducks and every animal in one still vs the declared cast. Worst status wins.
+    A counter error is NEEDS_REVIEW for that species. ``shot_context`` goes to the counter."""
     expected = expected_cast(shot_meta)
     if expected is None:
         return {"status": NEEDS_REVIEW, "checks": [], "expected": None,
@@ -121,10 +128,18 @@ async def check_still_headcount(counter: AnimalCounter | None, image_path: str |
         return {"status": NEEDS_REVIEW, "checks": [], "expected": expected,
                 "reason": f"still not found on disk: {image_path}"}
     checks = []
+    context = {"shot_meta": shot_meta, **(shot_context or {})}
     for species in SPECIES:
-        res = await counter.count_animals(image_path, species)
-        conf = float(res.get("confidence", 0.0))
-        got = res.get("count")
+        try:
+            res = await count_with_context(counter, image_path, species, context)
+            conf = float(res.get("confidence", 0.0))
+            got = res.get("count")
+            int(got if got is not None else -1)
+        except Exception as e:  # noqa: BLE001 - a counter that cannot answer is a person's call
+            checks.append({"species": species, "expected": expected[species], "counted": None,
+                           "status": NEEDS_REVIEW, "reason": f"{species}: counter error: {str(e)[:200]}",
+                           "method": None, "confidence": None})
+            continue
         if conf < confidence_threshold:
             status, why = NEEDS_REVIEW, f"{species}: low confidence {conf:.2f} < {confidence_threshold}"
         elif not res.get("type_match", False):
@@ -165,19 +180,25 @@ async def g2_headcount_report(episode_id: str, versions: dict, plans: dict[str, 
     data_root = Path(data_dir) if data_dir is not None else paths.data_dir()
     reviewer = ReviewerHeadcountCounter(load_headcounts(episode_id, episodes_dir),
                                         counter if counter is not None else get_animal_counter())
-    shots: dict[str, Any] = {}
-    for shot_id in sorted(versions or {}):
+    gate = asyncio.Semaphore(REPORT_CONCURRENCY)
+
+    async def shot_report(shot_id: str) -> dict[str, Any]:
         if decisions.get(shot_id) == "rejected":
-            shots[shot_id] = {"status": "SKIPPED", "reason": "rejected at G2 (never animated)"}
-            continue
+            return {"status": "SKIPPED", "reason": "rejected at G2 (never animated)"}
         v = (versions[shot_id] or {}).get("current_version")
         plan = plans.get(shot_id) or {}
         path = _still_for(data_root / "episodes" / episode_id / "outputs" / shot_id, v)
-        res = await check_still_headcount(reviewer, path, plan.get("shot_meta"))
+        async with gate:
+            res = await check_still_headcount(
+                reviewer, path, plan.get("shot_meta"),
+                shot_context={"episode_id": episode_id, "shot_id": shot_id, "refs": plan.get("refs")})
         res.update({"version": v, "still": str(path) if path else None})
         if res["status"] == FAIL and shot_id in overrides:
             res["override"] = overrides[shot_id]
-        shots[shot_id] = res
+        return res
+
+    ordered = sorted(versions or {})
+    shots: dict[str, Any] = dict(zip(ordered, await asyncio.gather(*(shot_report(s) for s in ordered))))
     blocking = sorted(s for s, r in shots.items() if r.get("status") == FAIL and s not in overrides)
     statuses = {r.get("status") for r in shots.values()}
     status = FAIL if blocking else (NEEDS_REVIEW if NEEDS_REVIEW in statuses or FAIL in statuses else PASS)

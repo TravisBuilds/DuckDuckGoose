@@ -19,6 +19,9 @@ from hfvg.qc.clip_constraints import (
     evaluate_clip_constraints,
     get_constraint_checker,
 )
+from hfvg.qc.identity import identity_review
+from hfvg.qc.judges import review_deadline_s
+from hfvg.qc.still_review import get_still_reviewer, judged_still_review
 
 # Resolution tolerance: providers round output dims to codec-friendly multiples
 # (live Seedance 2.5 720p 9:16 returns 720x1276 for 720x1280)
@@ -202,7 +205,16 @@ async def review_still(asset_url: str, rubric: dict, episode_id: str = None, sho
             "issues": [f"DB error: {str(e)[:100]}"],
             "escalate": True,
         }
-    
+
+    # Automated QC judges: registered at worker startup only when HFVG_QC_JUDGES_ENABLED is on
+    reviewer = get_still_reviewer()
+    if reviewer is not None:
+        verdict = await judged_still_review(reviewer, asset_url, rubric, episode_id, shot_id)
+        activity.logger.info(
+            f"[LIVE MODE] Still QC judges for {episode_id}/{shot_id}: {verdict['qc_judges']['status']}"
+        )
+        return verdict
+
     # Live mode confirmed: always escalate to human review (real QC not implemented)
     activity.logger.info(
         f"[LIVE MODE] Still review for {episode_id}/{shot_id}. "
@@ -503,13 +515,15 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
             activity.logger.info(f"Motion QC passed for {shot_id} (stillgate {motion['verdict']})")
             issues = [f"stillgate WATCH: low motion (peak_fd={motion['peak_fd']}, mean_fd={motion['mean_fd']})"] \
                 if motion["verdict"] == "WATCH" else []
+            judges_started = asyncio.get_running_loop().time()
             if constraints:
                 # Fail closed: no checker / no file / low confidence -> NEEDS_REVIEW (escalate),
                 # a violated condition -> FAIL; never a silent pass.
                 checked = await evaluate_clip_constraints(
                     get_constraint_checker(), str(temp_video), constraints,
                     {"episode_id": episode_id, "shot_id": shot_id,
-                     "prompt": (rubric or {}).get("prompt"), "duration": expected_duration},
+                     "prompt": (rubric or {}).get("prompt"), "duration": expected_duration,
+                     "constraints": constraints},
                 )
                 if checked["status"] == CONSTRAINT_FAIL:
                     activity.logger.warning(f"qc_fail_if FAIL for {shot_id}: {checked['reason']}")
@@ -520,8 +534,11 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
                     return {"passed": False, "issues": issues + [f"qc_fail_if needs review: {checked['reason']}"],
                             "escalate": True,
                             "motion": motion, "constraints": checked}
-                return {"passed": True, "issues": issues, "motion": motion, "constraints": checked}
-            return {"passed": True, "issues": issues, "motion": motion}
+                return await _with_clip_identity(
+                    {"passed": True, "issues": issues, "motion": motion, "constraints": checked},
+                    temp_video, rubric, episode_id, shot_id, judges_started)
+            return await _with_clip_identity({"passed": True, "issues": issues, "motion": motion},
+                                             temp_video, rubric, episode_id, shot_id, judges_started)
         else:
             activity.logger.warning(f"Motion QC failed for {shot_id}: {qc_result['issues']}")
             return {
@@ -545,6 +562,33 @@ async def review_clip(asset_url: str, rubric: dict, episode_id: str = None, shot
             Path(temp_dir).rmdir()
         except:
             pass
+
+
+async def _with_clip_identity(result: dict, clip_path: Path, rubric: dict | None, episode_id: str | None,
+                              shot_id: str | None, judges_started: float) -> dict:
+    """A clip that passed every other check, with the identity gate of each locked character the
+    shot declares (QC judges). Unchanged when no identity judge is registered or the shot has no
+    locked character. FAIL -> re-roll (escalate False); not judged -> NEEDS_REVIEW (escalate)."""
+    remaining = review_deadline_s() - (asyncio.get_running_loop().time() - judges_started)
+    try:
+        check = await asyncio.wait_for(
+            identity_review(clip_path, kind="clip", episode_id=episode_id, shot_id=shot_id,
+                            shot_meta=(rubric or {}).get("shot_meta")),
+            max(remaining, 1.0))
+    except asyncio.TimeoutError:
+        check = {"status": "NEEDS_REVIEW", "characters": [],
+                 "reason": f"the QC judges took longer than {review_deadline_s():g} s"}
+    if check is None:
+        return result
+    if check["status"] == "FAIL":
+        activity.logger.warning(f"Identity FAIL for {shot_id}: {check['reason']}")
+        return dict(result, passed=False, escalate=False, identity=check,
+                    issues=result["issues"] + [f"identity: {check['reason']}"])
+    if check["status"] != "PASS":
+        activity.logger.warning(f"Identity NEEDS_REVIEW for {shot_id}: {check['reason']}")
+        return dict(result, passed=False, escalate=True, identity=check,
+                    issues=result["issues"] + [f"identity needs review: {check['reason']}"])
+    return dict(result, identity=check)
 
 
 def clip_stillgate(clip_path: str, shot_id: str, seg_s: float) -> dict:
@@ -638,12 +682,16 @@ async def check_assembly_qc(
     activity.heartbeat({"stage": "assembly_qc_animals", "episode": episode_id})
     counter = get_animal_counter()
     metas = shot_meta_by_id or {}
+    edit_windows = {m["shot_id"]: (m["t0"], m["t1"]) for m in motion}
     animals = []
     for clip in clips:
         sid = clip["id"]
         # Reused locked clips (edit plan) carry their own shot_meta in the manifest
-        res = await check_shot_animals(counter, clip.get("source") or assembly_path,
-                                       metas.get(sid) or clip.get("shot_meta"))
+        meta = metas.get(sid) or clip.get("shot_meta")
+        window = (clip.get("trim_in"), clip.get("trim_out")) if clip.get("source") else edit_windows.get(sid)
+        res = await check_shot_animals(counter, clip.get("source") or assembly_path, meta,
+                                       shot_context={"episode_id": episode_id, "shot_id": sid,
+                                                     "shot_meta": meta, "window": window})
         animals.append({"shot_id": sid, **res})
 
     # Size / order continuity checks: only when the episode declares continuity_hard_checks.

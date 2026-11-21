@@ -812,6 +812,7 @@ class ShotWorkflow:
                 workflow.logger.info(f"Still generated: {self.still_asset['url']}")
                 
                 # Save still locally
+                still_local_path = None
                 try:
                     still_local_path = await workflow.execute_activity(
                         save_asset_locally,
@@ -823,9 +824,15 @@ class ShotWorkflow:
                 except Exception as e:
                     workflow.logger.warning(f"Failed to save still locally: {e}, continuing")
 
+                # The QC judges' rubric (docs/QC-JUDGES.md); without a judge review_still ignores it.
+                # patched(): a history that already scheduled this review replays with the empty rubric.
+                still_rubric = {}
+                if workflow.patched("qc-still-rubric"):
+                    still_rubric = {"prompt": still_prompt, "refs": list(refs),
+                                    "shot_meta": shot_plan.get("shot_meta"), "still_path": still_local_path}
                 review_result = await workflow.execute_activity(
                     review_still,
-                    args=[self.still_asset["url"], {}, self.episode_id, self.shot_id],
+                    args=[self.still_asset["url"], still_rubric, self.episode_id, self.shot_id],
                     start_to_close_timeout=timedelta(minutes=5),
                     heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=retry_policy,
@@ -1282,6 +1289,9 @@ class ShotWorkflow:
                 if shot_plan.get("qc_fail_if"):
                     clip_rubric["qc_fail_if"] = list(shot_plan["qc_fail_if"])
                     clip_rubric["prompt"] = clip_prompt
+                # The locked cast for the identity gate (QC judges); patched() as for the still rubric
+                if shot_plan.get("shot_meta") and workflow.patched("qc-judges-clip-rubric"):
+                    clip_rubric["shot_meta"] = shot_plan.get("shot_meta")
                 
                 clip_qc = await workflow.execute_activity(
                     review_clip,
