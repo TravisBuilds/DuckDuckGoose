@@ -9,6 +9,7 @@ activities) and ``poll_job_status`` is wrapped to return a provider content bloc
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import re
 from pathlib import Path
@@ -325,6 +326,31 @@ class TestLadderDecisions:
         assert "moderation_budget_refused" in actions and "moderation_reword" not in actions
 
     @pytest.mark.asyncio
+    async def test_a_moderation_resubmit_does_not_use_the_owners_paid_retry(self, ladder_db):
+        """The original was blocked and resubmitted reworded (m1, held in the round): the owner's paid
+        retry of the shot (r1 in G2, c1 in G3) is still authorized at the default limit of 1, the next
+        one is refused. The ladder's pre-check for another resubmit still counts every paid retry."""
+        from hfvg.budget import BudgetLedger, RoundBudgetError
+
+        ledger = BudgetLedger(ladder_db)
+
+        async def refusal(round_id, retry_key, **kw):
+            try:
+                await ledger.authorize_round_spend("ep99", round_id, "A01", f"{round_id}-{retry_key}", 60_000,
+                                                   retry_key=retry_key, **kw)
+            except RoundBudgetError as e:
+                return str(e)
+            return None
+
+        for round_id, owner in (("G2_STILLS", "r"), ("G3_CLIPS", "c")):
+            assert await refusal(round_id, "m1") is None
+            assert await refusal(round_id, f"{owner}1") is None, "the moderation resubmit used the owner's retry"
+            refused = await refusal(round_id, f"{owner}2")
+            assert refused and "already used 1 paid retry (max 1 per shot per round)" in refused, refused
+            refused = await refusal(round_id, "m2", dry_check=True)
+            assert refused and "already used 2 paid retries (max 1 per shot per round)" in refused, refused
+
+    @pytest.mark.asyncio
     async def test_round_ledger_refuses_over_round_budget(self, ladder_db, monkeypatch):
         from hfvg.activities.moderation_recovery import decide_next_step
 
@@ -382,6 +408,17 @@ def _live_routes(router):
         return_value=httpx.Response(200, json={"request_id": "prov-m1"}))
 
 
+def _still_routes(router):
+    """Still estimate, ref upload and submit; each submit gets its own provider request id."""
+    request_ids = (f"prov-still-{n}" for n in itertools.count(1))
+    router.route(method="GET").mock(return_value=httpx.Response(200, content=b"\x89PNG\r\n\x1a\n" + b"0" * 64))
+    router.put("https://upload.example.com/r").mock(return_value=httpx.Response(200))
+    return router.route(method="POST").mock(side_effect=lambda request: httpx.Response(200, json={
+        "credits": "0.96", "usd": "0.06", "request_id": next(request_ids),
+        "public_url": "https://cdn.example.com/r.png", "upload_url": "https://upload.example.com/r",
+        "upload_headers": {}}))
+
+
 class TestLiveModerationSubmit:
     @pytest.mark.asyncio
     async def test_moderation_resubmit_gets_own_job_id_and_round_hold(self, tmp_path, monkeypatch):
@@ -425,6 +462,45 @@ class TestLiveModerationSubmit:
         assert (await ledger.get_line_status("ep99", "L4_video"))["reserved"] == before["reserved"]
         assert (await credits.get_episode_status("ep99"))["reserved_credits"] == credits_before["reserved_credits"]
         assert await ledger.get_round_hold("clip-ep99-A01-v1-m1") is None
+
+    @pytest.mark.asyncio
+    async def test_owner_still_retry_after_the_original_was_resubmitted_for_moderation(self, tmp_path, monkeypatch):
+        """The original still was blocked and resubmitted reworded (round hold m1): the owner's first
+        retry of the shot (r1) is submitted at the default limit of 1 paid retry per shot per round,
+        the second one (r2) is refused before the provider call."""
+        from temporalio.exceptions import ApplicationError
+        from hfvg.activities.studio_generation import submit_still_job_enforced
+        from tests.ledger_helpers import insert_line
+
+        db_path, ledger, _ = await _live_episode(tmp_path, monkeypatch)
+        async with aiosqlite.connect(db_path) as db:
+            await insert_line(db, "ep99", "L2_drafts", 2_000_000, 1_600_000)
+            await db.commit()
+        ref = tmp_path / "character1.png"
+        ref.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+        async def submit(attempt, moderation_retry=None):
+            return await submit_still_job_enforced(
+                "ep99", "A01", lint_ok("A duck waddles through the snow"), attempt, [str(ref)], "1k", "medium",
+                "9:16", None, lint_meta(), [], attempt, None, moderation_retry, None)
+
+        err = None
+        with respx.mock(assert_all_called=False) as router:
+            post = _still_routes(router)
+            resubmit = await submit(1, {"n": 1, "step": "reword"})
+            retry = await submit(2)
+            try:
+                await submit(3)
+            except ApplicationError as e:
+                err = e
+            submitted = [c for c in post.calls if "estimate" not in str(c.request.url)
+                         and "upload" not in str(c.request.url)]
+        assert (await ledger.get_round_hold(resubmit["job_id"]))["retry_key"] == "m1", resubmit
+        hold = await ledger.get_round_hold(retry["job_id"])
+        assert hold["round_id"] == "G2_STILLS" and hold["retry_key"] == "r1", hold
+        assert len(submitted) == 2, [str(c.request.url) for c in submitted]
+        assert err is not None and err.type == "RoundBudgetError", err
+        assert "already used 1 paid retry (max 1 per shot per round)" in str(err), err
 
 
 # ─────────────────────────────────────────────────────────────────────────────

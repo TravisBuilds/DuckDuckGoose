@@ -5192,6 +5192,37 @@ test_mutation 758 "qc judges: the still review gets the judges' rubric" \
     "tests/test_qc_judges_workflow.py::test_a_judged_fail_is_rerolled_only_by_retry_shot_and_the_review_gets_the_rubric" \
     sed -i 's/^                if workflow\.patched("qc-still-rubric"):$/                if False:  # MUTATED/'
 
+# 759: MAX_SHOT_RETRIES is checked in the retry_shot validator, whose refusal leaves no history
+test_mutation 759 "retry_shot: the validator refuses a retry over MAX_SHOT_RETRIES" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_retry_limit.py::test_limit_1_accepts_one_retry_and_refuses_the_next_outside_the_history" \
+    sed -i 's/^    @retry_shot\.validator$/    # MUTATED: no validator/'
+
+# 760: a retry recorded before the validator replays against LEGACY_MAX_SHOT_RETRIES, not the live limit
+test_mutation 760 "retry_shot: a recorded refusal replays against the old workers' limit" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_retry_limit_replay.py::test_the_parked_run_replays_with_the_raised_limit[2]" \
+    sed -i 's/config\.LEGACY_MAX_SHOT_RETRIES if recorded_before_validator else None)$/config.MAX_SHOT_RETRIES if recorded_before_validator else None)  # MUTATED/'
+
+# 761: one patch marker per retry_shot update: patched() is memoized per run, so one fixed id would
+#      answer False for every retry after one recorded without it (GAP-69)
+test_mutation 761 "retry_shot: the limit patch is keyed by update id" \
+    "hfvg/workflows/episode_v2.py" \
+    "tests/test_shot_retry_limit_replay.py::test_the_whole_run_with_the_retry_after_the_deploy_replays[2]" \
+    sed -i 's/^            f"{RETRY_SHOT_LIMIT_PATCH}:{workflow\.current_update_info()\.id}")$/            RETRY_SHOT_LIMIT_PATCH)  # MUTATED/'
+
+# 762: an owner retry (r, c, rc) does not count the shot's moderation resubmits (m{n}) as paid retries
+test_mutation 762 "round ledger: a moderation resubmit does not use the owner's paid retry" \
+    "hfvg/budget.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_a_moderation_resubmit_does_not_use_the_owners_paid_retry" \
+    sed -i 's/(episode_id, round_id, shot_id, retry_key, is_moderation_retry_key(retry_key))) as cur:$/(episode_id, round_id, shot_id, retry_key, True)) as cur:  # MUTATED/'
+
+# 763: a moderation resubmit (and the ladder's pre-check) still counts every other paid retry of the shot
+test_mutation 763 "round ledger: a moderation resubmit counts the earlier resubmits" \
+    "hfvg/budget.py" \
+    "tests/test_moderation_recovery.py::TestLadderDecisions::test_a_moderation_resubmit_does_not_use_the_owners_paid_retry" \
+    sed -i 's/^    return bool(retry_key) and retry_key\[0\] == "m" and retry_key\[1:\]\.isdigit()$/    return False  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 

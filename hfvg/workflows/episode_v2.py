@@ -47,6 +47,11 @@ def amend_prompt(base: str, prompt_append: str) -> tuple[str, str]:
 # GAP-68: start_to_close cap (minutes) for assemble_mute_edit; RIFE retimes run on the CPU.
 ASSEMBLY_RIFE_CAP_MIN = 180
 
+# retry_shot records one marker per update, "<this>:<update id>": patched() is memoized per run
+# (GAP-69), so one fixed id would answer False for every later retry of a run that replayed a
+# retry recorded without it.
+RETRY_SHOT_LIMIT_PATCH = "retry-shot-limit-in-validator"
+
 
 def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
     """
@@ -2259,9 +2264,9 @@ class EpisodeWorkflowV2:
         plan as ``prompt_amendments`` and in the update result.
         
         Re-runs only that shot's still child, respects credit/USD cap and smoke gate,
-        enforces MAX_SHOT_RETRIES from config, uses NEW idempotency key per attempt,
-        moves shot from failed_shots back to running then to done or failed,
-        and records attempts in episode state.
+        enforces MAX_SHOT_RETRIES from config (in the validator, see validate_retry_shot),
+        uses NEW idempotency key per attempt, moves shot from failed_shots back to running
+        then to done or failed, and records attempts in episode state.
         
         Args:
             shot_id: Shot ID to retry
@@ -2272,73 +2277,25 @@ class EpisodeWorkflowV2:
         Raises:
             ApplicationError: If retry is refused (validation failed)
         """
-        if prompt_append is not None:
-            if not isinstance(prompt_append, str) or not prompt_append.strip():
-                raise ApplicationError(f"Cannot retry {shot_id}: prompt_append must be non-empty text",
-                                       non_retryable=True)
-            if len(prompt_append) > 1000:
-                raise ApplicationError(f"Cannot retry {shot_id}: prompt_append over 1000 characters",
-                                       non_retryable=True)
-        # Validate: must be parked at G1 or G2, and G2 must not be approved yet
-        if self.state.current_gate not in ("G1_SHOT_PLAN", "G2_SCENE_STILLS"):
-            workflow.logger.error(f"Cannot retry {shot_id}: not at G1/G2 gate (current: {self.state.current_gate})")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: not at G1 or G2 gate (current: {self.state.current_gate})",
-                non_retryable=True
-            )
-        
-        # Block retries once G2 is approved (clips have started)
-        if "G2_SCENE_STILLS" in self.passed_gates:
-            workflow.logger.error(f"Cannot retry {shot_id}: G2 already approved, clips in progress")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: G2 already approved, too late to retry stills",
-                non_retryable=True
-            )
-        
-        # Block retries while a retry is already pending for this shot (check immediate duplicates FIRST)
-        if shot_id in self.state.pending_retries:
-            workflow.logger.error(f"Cannot retry {shot_id}: retry already pending")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: retry already in progress",
-                non_retryable=True
-            )
-        
-        # Check retry limit (so error message is about max retries when budget is exhausted)
-        # shot_attempts tracks total attempts (original + retries)
-        # MAX_SHOT_RETRIES is max number of retries (not including original)
-        # So max total attempts = MAX_SHOT_RETRIES + 1
+        # Workers before the validator applied MAX_SHOT_RETRIES here, inside the history: an update
+        # they recorded (no marker) replays against the limit of that time. A newer update passed
+        # the validator, so its replay does not depend on MAX_SHOT_RETRIES at all.
+        recorded_before_validator = not workflow.patched(
+            f"{RETRY_SHOT_LIMIT_PATCH}:{workflow.current_update_info().id}")
+        refusal = self._retry_shot_refusal(
+            shot_id, prompt_append, config.LEGACY_MAX_SHOT_RETRIES if recorded_before_validator else None)
+        if refusal:  # re-check: state may have moved since the validator ran
+            workflow.logger.error(refusal)
+            raise ApplicationError(refusal, non_retryable=True)
+
         attempt_count = self.state.shot_attempts.get(shot_id, 0)
-        max_retries = config.MAX_SHOT_RETRIES
-        if attempt_count > max_retries:  # Already exceeded retry limit
-            workflow.logger.error(
-                f"Cannot retry {shot_id}: already attempted {attempt_count} times (max {max_retries} retries = {max_retries + 1} total attempts)"
-            )
-            raise ApplicationError(
-                f"Max retries ({max_retries}) exceeded for shot {shot_id}",
-                non_retryable=True
-            )
-        
-        # Validate: shot must be in failed_shots OR have been retried before
-        failed_shot = None
-        for fs in self.state.failed_shots:
-            if fs["shot_id"] == shot_id:
-                failed_shot = fs
-                break
-        
-        if not failed_shot and shot_id not in self.state.shot_attempts:
-            workflow.logger.error(f"Cannot retry {shot_id}: not in failed_shots")
-            raise ApplicationError(
-                f"Cannot retry {shot_id}: shot not in failed_shots",
-                non_retryable=True
-            )
+        failed_shot = next((fs for fs in self.state.failed_shots if fs["shot_id"] == shot_id), None)
         
         # Remove from failed_shots and increment attempt count
         self.state.failed_shots = [fs for fs in self.state.failed_shots if fs["shot_id"] != shot_id]
         self.state.shot_attempts[shot_id] = attempt_count + 1
         
-        workflow.logger.info(
-            f"Retrying {shot_id} (attempt {self.state.shot_attempts[shot_id]}/{max_retries})"
-        )
+        workflow.logger.info(f"Retrying {shot_id} (attempt {self.state.shot_attempts[shot_id]})")
         
         # Find the shot plan from parsed beatmap
         shot_plan = None
@@ -2465,6 +2422,42 @@ class EpisodeWorkflowV2:
                 f"Failed to start retry for {shot_id}: {str(e)}",
                 non_retryable=True
             )
+
+    @retry_shot.validator
+    def validate_retry_shot(self, shot_id: str, prompt_append: str | None = None):
+        # A refusal here is not recorded in the history, so MAX_SHOT_RETRIES can change for running
+        # episodes: the limit of the worker that receives the update applies.
+        refusal = self._retry_shot_refusal(shot_id, prompt_append, config.MAX_SHOT_RETRIES)
+        if refusal:
+            raise ApplicationError(refusal, non_retryable=True)
+
+    def _retry_shot_refusal(self, shot_id: str, prompt_append: str | None,
+                            max_retries: int | None) -> str | None:
+        """Why retry_shot(shot_id, prompt_append) is refused right now (None = allowed), checked in the
+        order the handler has always used (recorded refusals replay through it). ``max_retries`` None
+        skips the retry limit. No side effects."""
+        if prompt_append is not None:
+            if not isinstance(prompt_append, str) or not prompt_append.strip():
+                return f"Cannot retry {shot_id}: prompt_append must be non-empty text"
+            if len(prompt_append) > 1000:
+                return f"Cannot retry {shot_id}: prompt_append over 1000 characters"
+        # Must be parked at G1 or G2, and G2 must not be approved yet (clips have started)
+        if self.state.current_gate not in ("G1_SHOT_PLAN", "G2_SCENE_STILLS"):
+            return f"Cannot retry {shot_id}: not at G1 or G2 gate (current: {self.state.current_gate})"
+        if "G2_SCENE_STILLS" in self.passed_gates:
+            return f"Cannot retry {shot_id}: G2 already approved, too late to retry stills"
+        # Immediate duplicates first, so a double click reads "already in progress", not the limit
+        if shot_id in self.state.pending_retries:
+            return f"Cannot retry {shot_id}: retry already in progress"
+        if max_retries is not None:
+            # shot_attempts counts the original too: max_retries retries = max_retries + 1 attempts
+            attempt_count = self.state.shot_attempts.get(shot_id, 0)
+            if attempt_count > max_retries:  # Already exceeded retry limit
+                return f"Max retries ({max_retries}) exceeded for shot {shot_id}"
+        if shot_id not in self.state.shot_attempts and not any(
+                fs["shot_id"] == shot_id for fs in self.state.failed_shots):
+            return f"Cannot retry {shot_id}: shot not in failed_shots"
+        return None
     
     def _end_backfill_problem(self, shot_id: str) -> str | None:
         """Why retry_end_still(shot_id) is not allowed right now (None = allowed). No side effects."""

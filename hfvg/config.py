@@ -156,8 +156,15 @@ class Config:
     # LIST PRICE BEFORE DISCOUNT, derived: see _load_rate_table().
     MODEL_USD_PER_SECOND_MICROS: dict = _load_rate_table()
 
-    # Max retry attempts per shot (server-side enforcement)
+    # Max retry attempts per shot (server-side enforcement). Checked by the retry_shot update
+    # validator on the worker: a refusal leaves no workflow history, so the value can be changed for
+    # running episodes (restart the worker). See docs/LOCAL-DEV.md "Raising the still retry limit".
     MAX_SHOT_RETRIES: int = int(os.getenv("MAX_SHOT_RETRIES", "1"))
+    # The MAX_SHOT_RETRIES of the workers that ran before the validator: their retry_shot handler
+    # applied the limit inside the workflow history, so those recorded updates replay against this
+    # value. Replay only, it never limits a new retry. Change it only if those workers ran with a
+    # MAX_SHOT_RETRIES other than 1.
+    LEGACY_MAX_SHOT_RETRIES: int = int(os.getenv("LEGACY_MAX_SHOT_RETRIES", "1"))
 
     # G-BUD-1: max PAID retries per shot per review round (G2 stills, G3 clips). The workflow uses
     # this for its fail-fast refusal; the USD ledger (hfvg.budget) enforces the same env value at
