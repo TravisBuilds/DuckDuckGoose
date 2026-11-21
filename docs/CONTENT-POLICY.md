@@ -317,7 +317,9 @@ content to get past the filter, see "No Filter Evasion"): it goes straight to hu
 
 Every paid rung is pre-checked against the USD round ledger (round and episode 80% stops,
 `MAX_PAID_RETRIES_PER_SHOT_PER_ROUND`, default 1) and the resubmit takes its own `-m{n}` job id
-and round hold. Each decision is written to `audit_log`: `moderation_block`, `moderation_reword`,
+and round hold. That hold counts toward the round's stops and toward later resubmits of the shot,
+but not toward the owner's own paid retries of the shot (a still or clip retry after the
+resubmit). Each decision is written to `audit_log`: `moderation_block`, `moderation_reword`,
 `moderation_reword_skipped`, `moderation_fallback`, `moderation_fallback_refused`,
 `moderation_budget_refused`, `moderation_escalated`.
 

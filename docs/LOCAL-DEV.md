@@ -372,6 +372,8 @@ curl -X POST http://localhost:8000/api/episodes/ep01/approve \
 hfvg retry-shot ep01 A02
 ```
 
+The limit is `MAX_SHOT_RETRIES`; it can be raised for a running episode, see [Raising the still retry limit](#raising-the-still-retry-limit).
+
 End-frame backfill has no CLI command or API route yet; it is the `retry_end_still`
 update on EpisodeWorkflowV2 (`handle.execute_update("retry_end_still", args=["A02", "Duck surprised"])`).
 
@@ -697,9 +699,20 @@ With neither variable set, everything resolves under `./data`, so run the worker
 - `EPISODE_STOP_PERCENT` - Episode/line stop percent (default: 80 -> $48.00 stop)
 - `GC01_HEADROOM_USD` - GC.01 headroom (default: "5.00")
 - `REVISION_RESERVE_USD` - Revision reserve line `L7_revision`, outside the cap (default: "10.00")
-- `MAX_SHOT_RETRIES` - Retries per shot (default: 1)
+- `MAX_SHOT_RETRIES` - Still retries per shot, read by the worker (default: 1); see [Raising the still retry limit](#raising-the-still-retry-limit)
 
 See [.env.example](../.env.example) for the complete list.
+
+### Raising the still retry limit
+
+The worker checks `MAX_SHOT_RETRIES` in the `retry_shot` update validator. A refusal there ("Max retries (1) exceeded for shot A01", a 409 from the API) is not written to the workflow history, so the limit can be raised for an episode that is already running, e.g. one parked at G2:
+
+1. Deploy this code to the API and the worker (docker-compose builds both from one image and gives both `.env`), and stop every worker still on the old code: an old worker that receives a retry applies its own limit inside the history again.
+2. Set `MAX_SHOT_RETRIES=2` for the worker and restart it (the worker reads it at start; the API does not read it).
+3. `MAX_PAID_RETRIES_PER_SHOT_PER_ROUND` (default 1) is a separate cap, checked by the round budget ledger when the retried still is submitted. A moderation resubmit of the shot does not count against it, nor does a retry that was refused or failed uncharged; raise it as well only if the shot's earlier retry in this round was charged. It also caps clip retries and the moderation ladder. Raising it is replay safe; do not lower it while episodes are open.
+4. Leave `LEGACY_MAX_SHOT_RETRIES` unset (1). It is the limit the workers before the validator applied, used only to replay the retries they recorded; set it only if those workers ran with another `MAX_SHOT_RETRIES`. A wrong value fails the replay of a history with a recorded refusal (NondeterminismError).
+
+Each retry the new code accepts records a patch marker (`retry-shot-limit-in-validator:<update id>`) and replays without reading any limit, so the limit can be lowered again later. `tests/test_shot_retry_limit_replay.py` replays a recorded history of an episode parked at G2 with a refused retry under the raised limit.
 
 ### Testing
 

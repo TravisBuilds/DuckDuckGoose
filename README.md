@@ -234,6 +234,8 @@ hfvg retry-shot ep-test-001 A02
 # MAX_SHOT_RETRIES retries per shot (default 1, i.e. 2 total attempts)
 ```
 
+To raise the limit for a running episode, see [Raising the still retry limit](docs/LOCAL-DEV.md#raising-the-still-retry-limit).
+
 ### End-Frame Generation
 
 Shots with `end_frame: true` generate:
