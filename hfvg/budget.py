@@ -50,6 +50,11 @@ ROUND_AUDIO = "AUDIO"           # ElevenLabs VO / SFX / music generation for the
 ROUND_G3_RECOMPOSE = "G3_RECOMPOSE"
 REVIEW_ROUNDS = (ROUND_G2_STILLS, ROUND_G3_CLIPS, ROUND_AUDIO, ROUND_G3_RECOMPOSE)
 
+
+def is_moderation_retry_key(retry_key: str | None) -> bool:
+    """``m{n}``: a G-REC-1 moderation resubmit (the other keys are owner retries: r, c, rc)."""
+    return bool(retry_key) and retry_key[0] == "m" and retry_key[1:].isdigit()
+
 # Importable default constants (micro-dollars)
 EPISODE_CAP_USD_MICROS = usd_to_micros(DEFAULT_EPISODE_CAP_USD)
 
@@ -981,7 +986,10 @@ class BudgetLedger:
 
         Refuses (RoundBudgetError) when
         - ``retry_key`` is given and the shot already has ``max_paid_retries_per_shot_per_round``
-          OTHER paid retries (distinct retry_key, not released) in this round;
+          OTHER paid retries (distinct retry_key, not released) in this round. An owner retry (r, c,
+          rc keys) does not count moderation resubmits (``m{n}``): each one replaces a blocked submit
+          whose hold was released, and the moderation ladder bounds them itself. A moderation
+          resubmit counts every other paid retry;
         - the round total (held + committed) plus this job would pass the round's 80% stop;
         - the episode total (budget lines, revision reserve excluded) plus this job would pass the
           episode's 80% stop.
@@ -1012,7 +1020,8 @@ class BudgetLedger:
                         SELECT COUNT(DISTINCT retry_key) FROM round_holds
                         WHERE episode_id = ? AND round_id = ? AND shot_id = ? AND status != 'released'
                           AND retry_key IS NOT NULL AND retry_key != ?
-                    """, (episode_id, round_id, shot_id, retry_key)) as cur:
+                          AND (? OR retry_key NOT GLOB 'm[0-9]*')
+                    """, (episode_id, round_id, shot_id, retry_key, is_moderation_retry_key(retry_key))) as cur:
                         other_retries = (await cur.fetchone())[0]
                     limit = settings.max_paid_retries_per_shot_per_round
                     if retry_limit is not None:
