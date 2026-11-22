@@ -30,7 +30,7 @@ Complete guide to setting up, running, and testing the Hands-Free Video Generato
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<owner>/DuckDuckGoose.git
+git clone https://github.com/your-username/DuckDuckGoose.git
 cd DuckDuckGoose
 ```
 
