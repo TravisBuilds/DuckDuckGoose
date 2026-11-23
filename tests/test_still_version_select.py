@@ -294,6 +294,22 @@ def test_selection_live_lints_that_versions_prompt(tmp_path, monkeypatch):
     assert any(p.startswith("lint:") for p in probs), probs
 
 
+def test_selection_lints_a_cast_shots_still_with_the_clauses_its_submit_injected(tmp_path):
+    """The plan holds the package prompt; the still submit added each character's locked description
+    and the no-text constraint before its lint, so keeping that still must not refuse for them."""
+    from hfvg.cast_prompt import NO_TEXT_CLAUSE
+    from tests.lint_helpers import lint_meta, lint_ok
+    _out(tmp_path, "still_v2.jpg")
+    pip = "Pip: a small round robot with one green eye; outfit: a yellow raincoat."
+    meta = lint_meta(cast=[{"character": "pip", "version": 1, "name": "Pip", "clause": pip, "locked": True}],
+                     text_policy="no_text")
+    prompt = lint_ok("Pip waits on the pier")
+    assert pip not in prompt and NO_TEXT_CLAUSE not in prompt
+    assert _problems(tmp_path, _plan(prompt=prompt, shot_meta=meta), live=True) == []
+    probs = _problems(tmp_path, _plan(prompt=lint_ok("Pip holds a sign that says 'hi'"), shot_meta=meta), live=True)
+    assert any("asks for on-image text" in p for p in probs), probs
+
+
 # ---------------------------------------------------------------- API route
 
 class _FakeHandle:
