@@ -4570,7 +4570,8 @@ async def recompose_shot(
         still_prompt, _ = inject_continuity_locks(request.prompt, shot_meta, _kit, "still")
         sent_clip_prompt, _ = inject_continuity_locks(request.clip_prompt or still_prompt, shot_meta, _kit, "clip")
     clip_prompt = sent_clip_prompt or still_prompt
-    bad = _pf.prompt_limit_violations(shot_id, still_prompt=still_prompt,
+    still_as_sent = _with_cast_clauses(still_prompt, shot_meta)
+    bad = _pf.prompt_limit_violations(shot_id, still_prompt=still_as_sent,
                                       clip_prompt=clip_prompt,
                                       clip_model_alias=clip_model)
     if bad:
@@ -4578,7 +4579,7 @@ async def recompose_shot(
                             + "; ".join(v.message for v in bad))
     # GAP-24: the same prompt + moderation lint the paid submits enforce, run here so a bad prompt is
     # refused at the route instead of failing inside the child (ep05full F06 recompose 1).
-    problems = _recompose_lint_problems(episode_id, shot_id, still_prompt, clip_prompt, shot_meta,
+    problems = _recompose_lint_problems(episode_id, shot_id, still_as_sent, clip_prompt, shot_meta,
                                         refs, clip_model)
     if problems:
         raise HTTPException(status_code=409, detail="Prompt lint refused the recompose before any spend: "
@@ -4605,6 +4606,13 @@ async def recompose_shot(
         await db.commit()
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
             "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
+
+
+def _with_cast_clauses(still_prompt: str, shot_meta: dict | None) -> str:
+    """A still prompt with the cast, props and no-text clauses the paid still submit adds from the
+    plan (hfvg.activities.studio_generation), so a route's length check and lint see what is sent."""
+    from hfvg.cast_prompt import inject_cast_prompt
+    return inject_cast_prompt(still_prompt, shot_meta)[0]
 
 
 def _recompose_lint_problems(episode_id: str, shot_id: str, still_prompt: str, clip_prompt: str,
@@ -5311,21 +5319,26 @@ def _retry_prompt_problem(episode_id: str, shot_id: str, plan: dict) -> str | No
     if not plan.get("found"):
         return None
     from hfvg import preflight as _pf
+    from hfvg.prompt_lint import PromptLintError, inject_continuity_locks, lint_violations, load_lint_kit
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError:
+        kit = None
+    still = plan["still_prompt"]
+    if plan.get("shot_meta") is not None:
+        if kit is not None:
+            still, _ = inject_continuity_locks(still, plan["shot_meta"], kit, "still")
+        still = _with_cast_clauses(still, plan["shot_meta"])
     bad = _pf.prompt_limit_violations(
-        shot_id, still_prompt=plan["still_prompt"], clip_prompt=plan["clip_prompt"],
+        shot_id, still_prompt=still, clip_prompt=plan["clip_prompt"],
         clip_model_alias=plan.get("clip_model"))
     if bad:
         return "Preflight refused the amended re-roll before any spend: " + "; ".join(v.message for v in bad)
     # The amended still prompt must also pass the episode prompt lint (the child's pre-submit gate).
     # Refusing here keeps a doomed re-roll from consuming an attempt.
     # No kit loadable here: left to the child's fail-closed gate.
-    from hfvg.prompt_lint import PromptLintError, lint_violations, load_lint_kit
-    try:
-        kit = load_lint_kit(episode_id)
-    except PromptLintError:
-        kit = None
     if kit is not None and plan.get("shot_meta") is not None:
-        lint_bad = lint_violations(plan["still_prompt"], plan["shot_meta"], kit)
+        lint_bad = lint_violations(still, plan["shot_meta"], kit)
         if lint_bad:
             return "Prompt lint refused the amended re-roll before any spend: " + "; ".join(lint_bad)
     return None
