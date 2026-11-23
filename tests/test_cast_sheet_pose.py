@@ -276,7 +276,7 @@ def test_a_dry_run_stand_in_has_the_shape_of_the_body():
 # ------------------------------------------------------------------------------------- the API
 
 
-async def test_the_cast_routes_take_and_show_the_body_and_pose(studio):
+async def test_the_cast_routes_take_and_show_the_body_and_pose(studio):  # noqa: F811
     owner = _client(studio, "owner")
     sheep = _create(owner, "Wool", body_type="four_legged", sheet_pose="standing side-on")
     assert (sheep["body_type"], sheep["sheet_pose"]) == ("four_legged", "standing side-on")
@@ -316,7 +316,7 @@ async def test_the_cast_routes_take_and_show_the_body_and_pose(studio):
     assert owner.get(url).json()["character"]["body_type"] == "other"
 
 
-async def test_the_universe_cast_routes_take_the_body_and_pose_too(studio):
+async def test_the_universe_cast_routes_take_the_body_and_pose_too(studio):  # noqa: F811
     owner = _client(studio, "owner")
     res = owner.post("/api/worlds", json={"name": "Hill Farm"})
     assert res.status_code == 200, res.text
