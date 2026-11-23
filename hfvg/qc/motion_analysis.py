@@ -3,8 +3,8 @@
 Advisory mode: flags issues for human review at gates rather than auto-rerolling.
 
 Checks:
-- Headcount per shot (extra or missing animals)
-- Floating animals (not touching ground/water/surface)
+- Headcount per shot (extra or missing figures)
+- Floating figures (not touching ground/water/surface)
 - Sliding (movement without walking animation)
 - Walking backwards
 - Objects appearing/disappearing
@@ -41,7 +41,7 @@ def analyze_motion_qc(
     Args:
         shot_id: Shot identifier
         video_path: Path to video file
-        expected_character_count: Expected number of animals in shot
+        expected_character_count: Expected number of figures in shot
         interval_seconds: Frame sampling interval
         advisory_mode: If True, never fail (just flag issues)
     
@@ -54,7 +54,7 @@ def analyze_motion_qc(
     # In a real implementation, this would use OpenCV or similar to:
     # 1. Extract frames at interval_seconds intervals
     # 2. Run object detection (YOLO, etc.) on each frame
-    # 3. Count animals and check for position consistency
+    # 3. Count the figures and check for position consistency
     # 4. Generate frame sheet montage
     
     # For now, return placeholder
@@ -80,7 +80,7 @@ def check_headcount_consistency(
     
     Args:
         headcount_frames: timestamp -> count mapping
-        expected_count: Expected number of animals
+        expected_count: Expected number of figures
         tolerance: Allowed deviation
     
     Returns:
@@ -90,9 +90,9 @@ def check_headcount_consistency(
     
     for timestamp, count in headcount_frames.items():
         if count < expected_count - tolerance:
-            issues.append(f"Missing animals at {timestamp:.1f}s: {count}/{expected_count}")
+            issues.append(f"Missing figures at {timestamp:.1f}s: {count}/{expected_count}")
         elif count > expected_count + tolerance:
-            issues.append(f"Extra animals at {timestamp:.1f}s: {count}/{expected_count}")
+            issues.append(f"Extra figures at {timestamp:.1f}s: {count}/{expected_count}")
     
     return issues
 

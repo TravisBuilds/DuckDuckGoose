@@ -1,19 +1,19 @@
 """Identity gate for any locked character (QC judge d, docs/QC-JUDGES.md).
 
 ``IdentityGate`` judges whether a character in a still or clip is the locked character of the cast
-library. Its criteria come from the character's lock (``criteria_from_lock``): the locked
-description, the sheet images (master, head sheet, turnaround) and the lock hash, after
-``cast_store.verify_lock``. Its rules are an ``IdentityProfile``: the signs the judge scores
-(0 on model, 1 minor, 2 drift), apparel that must match when present, per-shot features and a size
-floor. Every locked character uses ``GENERIC_PROFILE``; the duck host of hfvg.qc.duck_identity is
-one configured profile of the same gate.
+library, whatever it is (a person, a creature, a robot, a puppet, a prop that acts). Its criteria
+come from the character's lock (``criteria_from_lock``): the locked description, the sheet images
+(master, head sheet, turnaround) and the lock hash, after ``cast_store.verify_lock``. Its rules are
+an ``IdentityProfile``: the signs the judge scores (0 on model, 1 minor, 2 drift), apparel that must
+match when present, per-shot features and a size floor. Every locked character of the pipeline uses
+``GENERIC_PROFILE``; a profile is data, so a show can hand the gate stricter rules.
 
 Per frame: find the character (``CharacterDetector``), build a composite of real crops (the locked
 sheet next to the character cut out of the frame), judge it (``IdentityJudge``), then the rules:
-confidence below 0.6 -> ESCALATE; a sign at 2 -> FAIL; a hint sign (the duck's neck ring) at 1 with
-confidence >= 0.5 -> FAIL; apparel present but wrong -> FAIL; a required feature missing -> FAIL;
-minor scores adding up to 3 -> FAIL; else the judge's own FAIL / ESCALATE, else PASS. A clip is
-checked on its first, middle and last frame (real duration, ffprobe), worst frame wins.
+confidence below 0.6 -> ESCALATE; a sign at 2 -> FAIL; a hint sign at 1 with confidence >= 0.5 ->
+FAIL; apparel present but wrong -> FAIL; a required feature missing -> FAIL; minor scores adding up
+to 3 -> FAIL; else the judge's own FAIL / ESCALATE, else PASS. A clip is checked on its first,
+middle and last frame (real duration, ffprobe), worst frame wins.
 
 A gate without a detector and judge, or a live gate with only the always-pass fakes, escalates.
 ``identity_review`` runs the gate for every locked character a shot declares, inside the still and
@@ -23,7 +23,6 @@ clip review, when the QC judges are registered.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import io
 import math
 import shutil
@@ -60,7 +59,7 @@ SHEET_PANEL_ROLES = (
     ("turnaround_three_quarter", "the locked sheet, three-quarter view"),
     ("head_sheet", "the locked sheet, head"),
 )
-REF_PANELS = 2  # a sheet without cast roles (the duck host's reference folder): its first two images
+REF_PANELS = 2  # a sheet without cast roles (a plain folder of reference images): its first two images
 
 
 @dataclass(frozen=True)
@@ -81,11 +80,13 @@ class IdentityProfile:
 GENERIC_PROFILE = IdentityProfile(
     name="locked_character",
     signs={
-        "face": "face shape and features (eyes, nose, muzzle or beak, mouth)",
-        "hair_or_fur": "hair, fur or feathers: colour, length and style",
-        "colours": "the colours and markings of the body",
-        "outfit": "the clothes and accessories of the locked outfit",
-        "proportions": "body shape, build and proportions (head to body, limbs)",
+        "face": "the face or front as the sheet shows it: its shape and features",
+        "surface": "what the character is made of or covered in, as the sheet shows it: colour, texture, "
+                   "length and style",
+        "colours": "the colours and markings",
+        "outfit": "the clothes and accessories of the locked outfit (0 when the sheet shows none and the "
+                  "frame adds none)",
+        "proportions": "shape, build and proportions of the whole character and its parts",
     },
 )
 
@@ -193,18 +194,6 @@ class IdentityJudge(ABC):
         """{"signs": {sign: {"score": 0|1|2, "confidence", "evidence"}}, "apparel": {item: {"present",
         "correct"}}, <feature>: {"present", "correct"}, "total_minor_score", "verdict", "reason",
         "confidence"}."""
-
-
-def _takes(fn: Any, n: int) -> bool:
-    """True when ``fn`` takes ``n`` positional arguments (detectors and judges written for the duck
-    gate take one argument fewer: no criteria)."""
-    try:
-        params = inspect.signature(fn).parameters.values()
-    except (TypeError, ValueError):
-        return True
-    if any(p.kind == p.VAR_POSITIONAL for p in params):
-        return True
-    return len([p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]) >= n
 
 
 def _num(value: Any) -> float | None:
@@ -342,14 +331,10 @@ class IdentityGate:
         return shot_context.get(key) == value
 
     async def _detect(self, image_path: str | Path) -> dict[str, Any]:
-        if _takes(self.detector.detect, 2):
-            return await self.detector.detect(image_path, self.criteria)
-        return await self.detector.detect(image_path)
+        return await self.detector.detect(image_path, self.criteria)
 
     async def _judge(self, composite_path: Path, shot_context: dict[str, Any]) -> dict[str, Any]:
-        if _takes(self.judge.judge_identity, 3):
-            return await self.judge.judge_identity(composite_path, shot_context, self.criteria)
-        return await self.judge.judge_identity(composite_path, shot_context)
+        return await self.judge.judge_identity(composite_path, shot_context, self.criteria)
 
     async def extract_frames(self, video_path: str | Path, frame_times: list[float],
                              out_dir: str | Path | None = None) -> list[Path]:
@@ -480,9 +465,9 @@ class IdentityGate:
 
 # ------------------------------------------------------------------------------------------ vision judges
 
-DETECT_SYSTEM = """You locate characters in one frame of an animated episode. For every character id \
-listed, say whether that character is visible and, when it is, give its bounding box and the box of its \
-head as fractions of the image width and height (x, y is the top-left corner).
+DETECT_SYSTEM = """You locate characters in one frame of a video. For every character id listed, say \
+whether that character is visible and, when it is, give its bounding box and the box of its head (its top \
+part when it has no head) as fractions of the image width and height (x, y is the top-left corner).
 Answer with a JSON object only: {"characters": {"<id>": {"found": true | false, "confidence": number 0-1, \
 "box": {"x": n, "y": n, "w": n, "h": n} | null, "head": {"x": n, "y": n, "w": n, "h": n} | null}}}.
 confidence is how sure you are that the character is (or is not) in the frame. Answer for every id."""
@@ -553,7 +538,7 @@ def _panels(sheet_labels: list[str]) -> str:
 
 def judge_system(profile: IdentityProfile, sheet_labels: list[str], state: Any = None) -> str:
     lines = [
-        "You check that a character in a frame of an animated episode is the locked character of its "
+        "You check that a character in a frame of a video is the locked character of its "
         f"character sheet. The image is a strip of panels, left to right ({_panels(sheet_labels)}). Compare "
         "the frame panels with the sheet panels and the locked description.",
         "Score each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):",

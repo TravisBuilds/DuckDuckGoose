@@ -30,7 +30,7 @@ from hfvg.qc.judges import (
 
 FRAMES_PER_CLIP = 6
 
-SYSTEM = """You check generated video clips of an animated episode for declared failure conditions. \
+SYSTEM = """You check generated video clips for declared failure conditions. \
 The images are frames spread across the whole clip, in time order. For every numbered condition say \
 whether the clip shows it in any frame.
 Answer with a JSON object only: {"conditions": [{"n": number, "violated": true | false, \

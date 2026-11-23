@@ -42,15 +42,15 @@ from hfvg.qc.judges import (
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
 MAX_REFS = 6  # the plan's first six references (refs.json refs, then the cast sheets)
 
-SYSTEM = """You are the quality-control reviewer of a short animated episode. You judge ONE generated \
+SYSTEM = """You are the quality-control reviewer of a short video episode. You judge ONE generated \
 still image (the first image) against the prompt it was generated from and the shot's reference images \
 (the images after it: characters, props and the place, in the plan's order).
 Answer with a JSON object only: {"verdict": "pass" | "fail" | "unsure", "confidence": number 0-1, \
 "issues": [short reasons]}.
 - "fail": the still clearly contradicts the prompt (a main subject missing or extra, the wrong action, \
 setting or framing), a character, prop or place clearly differs from its reference image or description, \
-or it has a visible defect (malformed, missing or extra limbs, fused bodies, a garbled face, unwanted \
-text, letters or watermarks). Name every problem in issues.
+or it has a visible defect (a malformed figure: missing, extra or fused limbs or parts, a garbled face; \
+unwanted text, letters or watermarks). Name every problem in issues.
 - "pass": none of those is visible. issues is empty.
 - "unsure": you cannot tell (too small, hidden, ambiguous).
 confidence is how sure you are of the verdict."""
