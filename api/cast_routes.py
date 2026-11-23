@@ -451,12 +451,16 @@ class CharacterCreateRequest(BaseModel):
     description: str = Field("", max_length=cast_store.DESCRIPTION_MAX)
     outfit: str = Field("", max_length=cast_store.OUTFIT_MAX)
     slug: str | None = Field(None, max_length=32)
+    body_type: str | None = Field(None, max_length=20)
+    sheet_pose: str = Field("", max_length=cast_store.POSE_MAX)
 
 
 class CharacterUpdateRequest(BaseModel):
     name: str | None = Field(None, max_length=cast_store.NAME_MAX)
     role: str | None = Field(None, max_length=cast_store.ROLE_MAX)
     description: str | None = Field(None, max_length=cast_store.DESCRIPTION_MAX)
+    body_type: str | None = Field(None, max_length=20)
+    sheet_pose: str | None = Field(None, max_length=cast_store.POSE_MAX)
 
 
 class CharacterDeleteRequest(BaseModel):
@@ -632,9 +636,10 @@ async def create_cast_character(episode_id: str, request: CharacterCreateRequest
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
-    _check_text(request.name, request.role, request.description, request.outfit)
+    _check_text(request.name, request.role, request.description, request.outfit, request.sheet_pose)
     character = await _call(cast_store.create_character, library, request.name, request.role, request.description,
-                            request.slug or None, actor, episode_id=episode_id, outfit=request.outfit)
+                            request.slug or None, actor, episode_id=episode_id, outfit=request.outfit,
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": _character_out(character)}
 
 create_cast_character.allow_members = True
@@ -647,6 +652,8 @@ async def create_cast_character_with_picture(
     name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
     role: str = Form("", max_length=cast_store.ROLE_MAX),
     description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
+    body_type: str = Form("", max_length=20),
+    sheet_pose: str = Form("", max_length=cast_store.POSE_MAX),
     rights: str = Form(""),
     depicts_real_person: str = Form("false"),
     likeness_consent: str = Form("false"),
@@ -655,13 +662,14 @@ async def create_cast_character_with_picture(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Add a character to the episode's cast from a reference picture, in one step: the name, part
-    and description with the picture and its rights attestation. The picture gets the checks, limits
-    and private storage of a version's picture upload; nothing is kept when any of it is refused."""
+    and description (and body type and sheet pose) with the picture and its rights attestation. The
+    picture gets the checks, limits and private storage of a version's picture upload; nothing is kept
+    when any of it is refused."""
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
-    _check_text(name, role, description)
+    _check_text(name, role, description, sheet_pose)
     attestation = await _call(cast_store.validate_attestation, rights, _flag(depicts_real_person),
                               _flag(likeness_consent), note)
     limit = cast_store.max_upload_bytes()
@@ -671,7 +679,7 @@ async def create_cast_character_with_picture(
                                                     f"{limit // (1024 * 1024)} MB")
     character = await _call(cast_store.create_character_with_upload, library, name, role, description, data,
                             filename=image_file.filename, attestation=attestation, actor=actor,
-                            episode_id=episode_id)
+                            episode_id=episode_id, body_type=body_type or None, sheet_pose=sheet_pose)
     return {"character": _character_out(character)}
 
 create_cast_character_with_picture.allow_members = True
@@ -768,15 +776,17 @@ get_cast_character.allow_members = True
 async def update_cast_character(episode_id: str, character_id: str, request: CharacterUpdateRequest,
                                 authorization: str | None = Header(None),
                                 studio_admin_token: str | None = Cookie(None)):
-    """Edit the name, role or description (a locked version keeps the description it was locked with)."""
+    """Edit the name, role, description, body type or sheet pose (a locked version keeps the
+    description and sheet pictures it was locked with)."""
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     await _character_in(library, character_id)
-    _check_text(request.name, request.role, request.description)
+    _check_text(request.name, request.role, request.description, request.sheet_pose)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
-                            description=request.description, actor=actor, episode_id=episode_id)
+                            description=request.description, actor=actor, episode_id=episode_id,
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": _character_out(character)}
 
 update_cast_character.allow_members = True

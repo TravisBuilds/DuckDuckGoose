@@ -25,6 +25,9 @@
   video wizard keeps for an episode that waits on its page (for its first frames or a Universe lock),
   so its Start card works on any device. A new table only; an episode without a row has nothing kept
   (the page still reads a start an older wizard kept in the browser).
+- cast sheet pose (``CAST_SHEET_POSE_MIGRATION``, docs/CAST.md): each character's body type and the
+  pose its sheet pictures show. A new table only; a character without a row is humanoid with the
+  standing pose sheets always had.
 """
 
 import sqlite3
@@ -501,6 +504,21 @@ KEPT_STARTS_SQL = (
     """,
 )
 
+CAST_SHEET_POSE_MIGRATION = "2026-11-cast-sheet-pose-v1"
+
+# body_type is checked by hfvg.cast_store (no CHECK here, so a later body type needs no table rebuild)
+CAST_SHEET_POSE_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS cast_character_bodies (
+        character_id TEXT PRIMARY KEY REFERENCES cast_characters(character_id),
+        body_type TEXT NOT NULL DEFAULT 'humanoid',
+        sheet_pose TEXT NOT NULL DEFAULT '',
+        updated_by TEXT,
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -649,6 +667,12 @@ def apply_kept_starts_sync(conn: sqlite3.Connection) -> bool:
     return _apply_sync(conn, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
 
 
+def apply_cast_sheet_pose_sync(conn: sqlite3.Connection) -> bool:
+    """The cast sheet pose migration on an open sqlite3 connection (after the cast library's, whose
+    characters it references), as apply_cast_library_sync."""
+    return _apply_sync(conn, CAST_SHEET_POSE_MIGRATION, CAST_SHEET_POSE_SQL)
+
+
 async def migrate_cast_library(db_path: str) -> bool:
     """The cast library tables (CAST_LIBRARY_MIGRATION); True when it ran now, False when applied."""
     return await _apply(db_path, CAST_LIBRARY_MIGRATION, CAST_LIBRARY_SQL)
@@ -684,6 +708,11 @@ async def migrate_kept_starts(db_path: str) -> bool:
     return await _apply(db_path, KEPT_STARTS_MIGRATION, KEPT_STARTS_SQL)
 
 
+async def migrate_cast_sheet_pose(db_path: str) -> bool:
+    """The character body table (CAST_SHEET_POSE_MIGRATION); True when it ran now."""
+    return await _apply(db_path, CAST_SHEET_POSE_MIGRATION, CAST_SHEET_POSE_SQL)
+
+
 async def run_all_migrations(db_path: str):
     """Run all pending migrations."""
     await migrate_add_user_tracking(db_path)
@@ -694,3 +723,4 @@ async def run_all_migrations(db_path: str):
     await migrate_universe_story(db_path)
     await migrate_concept_frames(db_path)
     await migrate_kept_starts(db_path)
+    await migrate_cast_sheet_pose(db_path)

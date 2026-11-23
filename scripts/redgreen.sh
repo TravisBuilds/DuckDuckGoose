@@ -4095,7 +4095,7 @@ test_mutation 577 "cast with a picture: a series cast needs its owner" \
 test_mutation 578 "cast with a picture: content policy" \
     "api/cast_routes.py" \
     "tests/test_cast_api.py::test_character_text_with_a_picture_follows_the_content_policy" \
-    sed -i 's/^    _check_text(name, role, description)$/    pass  # MUTATED/'
+    sed -i 's/^    _check_text(name, role, description, sheet_pose)$/    pass  # MUTATED/'
 
 # 579: the picture's rights questions are answered before anything is kept
 test_mutation 579 "cast with a picture: rights attestation" \

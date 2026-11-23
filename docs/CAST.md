@@ -27,7 +27,10 @@ before it starts: see [WORLDS.md](WORLDS.md).
 - **Library.** An episode in a series uses the series library, which every episode of the series shares.
   An episode without a series has its own library. Nothing else changes for episodes without a cast.
 - **Character.** `character_id` (internal), `slug` (the id shots use, unique per library, e.g. `mara`),
-  `name`, `role`, `description` (how they look, the same in every shot; up to 600 characters).
+  `name`, `role`, `description` (how they look, the same in every shot; up to 600 characters),
+  `body_type` (`humanoid`, `four_legged` or `other`; default `humanoid`) and `sheet_pose` (optional,
+  up to 200 characters). The last two only frame the character's sheet pictures (see
+  [Character sheets](#character-sheets)); they are not part of a lock or of any shot prompt.
 - **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit` (up to 600 characters: it
   goes into still prompts beside the description and never into a clip prompt), `derived_from_version`,
   `sheet_stage` (`none` → `options_ready` → `master_picked` → `turnaround_ready`), `locked`,
@@ -152,6 +155,23 @@ A version's sheet is made in steps, in the Cast panel:
    `locked_description` it was locked with. Deleting a character with a locked sheet needs an admin
    with `force` and a reason. Before the lock, any step can be rejected and made again. Each try gets
    new job ids, so a paid job id is never reused.
+
+**Body type and pose.** Every full-body picture of a sheet (options and turnaround views) is framed for
+the character's `body_type` (`hfvg/cast_sheets.py`, `SHEET_BODIES`), and so is the head sheet:
+
+| `body_type` | Full-body framing | Full-body aspect ratios (first the model takes) |
+|---|---|---|
+| `humanoid` (default) | head to feet, standing upright, arms slightly away from the body | 2:3, 3:4, 9:16, 1:1 |
+| `four_legged` | standing on all four legs, the whole body and all four legs in view | 3:2, 4:3, 16:9, 1:1 |
+| `other` | a neutral resting pose natural to the character, the whole character in view | 1:1, 4:3, 3:4, 3:2, 2:3 |
+
+A character's `sheet_pose` (for example "sitting upright, wings folded") replaces the body type's
+pose: `Full body, the whole figure centered in frame. Pose: <sheet_pose>.` Set them when adding or
+editing a character (`POST /cast`, `/cast/with-picture` and `/cast/{character_id}` take `body_type`
+and `sheet_pose`; the pose goes through the content-policy check of the other character text). A
+change frames the sheet pictures made from then on; pictures already made, and locked versions, keep
+what they were made with. A humanoid character without its own pose gets exactly the prompts and
+aspect ratios sheets had before body types.
 
 ### Revising a locked look (admins)
 
@@ -278,6 +298,9 @@ Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PAT
   `cast_characters`, `cast_versions`, `cast_images`, `cast_sheet_jobs`, `cast_audit_log`) and records
   itself in `schema_migrations`. Existing tables and rows are not touched. It runs at API startup
   (`run_all_migrations`) and on the first cast store connection, and is safe to run again.
+- **Migration** `2026-11-cast-sheet-pose-v1` adds one table, `cast_character_bodies` (a character's
+  `body_type` and `sheet_pose`), the same way. A character without a row is `humanoid` with no pose of
+  its own, so existing characters and sheet requests made before it are unchanged.
 - **Rebuild** the `api`, `worker` and `web` images. The worker registers `CastSheetWorkflow` and the
   three sheet activities, so deploy the worker before or with the API, or a sheet request waits in
   the queue until a worker that knows it starts.

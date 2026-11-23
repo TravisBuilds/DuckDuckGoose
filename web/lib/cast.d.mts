@@ -69,6 +69,8 @@ export interface CastCharacter {
   name: string;
   role: string;
   description: string;
+  body_type?: string; // humanoid | four_legged | other (BODY_TYPES); humanoid when missing
+  sheet_pose?: string; // the character's own pose in its sheet pictures ('' = its body type's)
   library_kind: string;
   library_id: string;
   default_version: number;
@@ -227,9 +229,17 @@ export declare function addWithPhotoProblem(
   maxBytes?: number | null,
 ): string | null;
 export declare function withPictureFields(
-  fields: { name?: string; role?: string; description?: string } | null | undefined,
+  fields: { name?: string; role?: string; description?: string; body_type?: string; sheet_pose?: string }
+    | null | undefined,
   answers: RightsAnswers,
 ): [string, string][];
+export declare const BODY_TYPES: { value: string; label: string }[];
+export declare function bodyFields(
+  fields: { body_type?: string; sheet_pose?: string } | null | undefined,
+): [string, string][];
+export declare function bodyNote(
+  character: Pick<CastCharacter, 'body_type' | 'sheet_pose'> | null | undefined,
+): string | null;
 export declare function versionPictures(version: CastVersion | null | undefined): {
   uploads: CastImage[];
   options: CastImage[];

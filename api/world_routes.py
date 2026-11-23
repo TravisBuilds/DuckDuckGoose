@@ -510,9 +510,10 @@ async def create_world_character(series_id: str, request: CharacterCreateRequest
                                  studio_admin_token: str | None = Cookie(None)):
     """Add a character to the Universe."""
     who = await _editor(series_id, authorization, studio_admin_token)
-    cast_api._check_text(request.name, request.role, request.description, request.outfit)
+    cast_api._check_text(request.name, request.role, request.description, request.outfit, request.sheet_pose)
     character = await _call(cast_store.create_character, ("series", series_id), request.name, request.role,
-                            request.description, request.slug or None, who["actor"], outfit=request.outfit)
+                            request.description, request.slug or None, who["actor"], outfit=request.outfit,
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": cast_api._character_out(character)}
 
 create_world_character.allow_members = True
@@ -525,6 +526,8 @@ async def create_world_character_with_picture(
     name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
     role: str = Form("", max_length=cast_store.ROLE_MAX),
     description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
+    body_type: str = Form("", max_length=20),
+    sheet_pose: str = Form("", max_length=cast_store.POSE_MAX),
     rights: str = Form(""),
     depicts_real_person: str = Form("false"),
     likeness_consent: str = Form("false"),
@@ -534,12 +537,13 @@ async def create_world_character_with_picture(
 ):
     """Add a character from a reference picture in one step (the episode route's checks)."""
     who = await _editor(series_id, authorization, studio_admin_token)
-    cast_api._check_text(name, role, description)
+    cast_api._check_text(name, role, description, sheet_pose)
     attestation = await _call(cast_store.validate_attestation, rights, cast_api._flag(depicts_real_person),
                               cast_api._flag(likeness_consent), note)
     data = await prop_api._read_photo(image_file)
     character = await _call(cast_store.create_character_with_upload, ("series", series_id), name, role, description,
-                            data, filename=image_file.filename, attestation=attestation, actor=who["actor"])
+                            data, filename=image_file.filename, attestation=attestation, actor=who["actor"],
+                            body_type=body_type or None, sheet_pose=sheet_pose)
     return {"character": cast_api._character_out(character)}
 
 create_world_character_with_picture.allow_members = True
@@ -549,12 +553,13 @@ create_world_character_with_picture.allow_members = True
 async def update_world_character(series_id: str, character_id: str, request: CharacterUpdateRequest,
                                  authorization: str | None = Header(None),
                                  studio_admin_token: str | None = Cookie(None)):
-    """Edit a character's name, role or description."""
+    """Edit a character's name, role, description, body type or sheet pose."""
     who = await _editor(series_id, authorization, studio_admin_token)
     await _character_of(series_id, character_id)
-    cast_api._check_text(request.name, request.role, request.description)
+    cast_api._check_text(request.name, request.role, request.description, request.sheet_pose)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
-                            description=request.description, actor=who["actor"])
+                            description=request.description, actor=who["actor"],
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": cast_api._character_out(character)}
 
 update_world_character.allow_members = True

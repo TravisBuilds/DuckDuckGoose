@@ -142,8 +142,38 @@ export function withPictureFields(fields, answers) {
     ['name', String(fields?.name ?? '').trim()],
     ['role', String(fields?.role ?? '').trim()],
     ['description', String(fields?.description ?? '').trim()],
+    ...bodyFields(fields),
     ...rightsFields(answers),
   ];
+}
+
+/**
+ * The kinds of body a character can have (the API's cast_store.BODY_TYPES): the character sheet is
+ * framed for it. A character without one is humanoid.
+ */
+export const BODY_TYPES = [
+  { value: 'humanoid', label: 'Two legs, like a person' },
+  { value: 'four_legged', label: 'Four legs' },
+  { value: 'other', label: 'Another kind of body' },
+];
+
+/** A new character's body type and sheet pose as form fields; none for a humanoid without its own pose. */
+export function bodyFields(fields) {
+  const type = String(fields?.body_type ?? '').trim();
+  const pose = String(fields?.sheet_pose ?? '').trim();
+  return [
+    ...(type && type !== 'humanoid' ? [['body_type', type]] : []),
+    ...(pose ? [['sheet_pose', pose]] : []),
+  ];
+}
+
+/** What a character card says about how its sheet is posed; null for a humanoid without its own pose. */
+export function bodyNote(character) {
+  const type = character?.body_type || 'humanoid';
+  const pose = String(character?.sheet_pose ?? '').trim();
+  if (type === 'humanoid' && !pose) return null;
+  const body = `Body: ${(BODY_TYPES.find(b => b.value === type) ?? BODY_TYPES[2]).label.toLowerCase()}.`;
+  return pose ? `${body} Pose in the character sheet: ${pose}` : body;
 }
 
 /** A version's pictures: the creator's uploads (main one first), the look options, and the sheet. */

@@ -20,6 +20,11 @@ Technical details are in [CAST.md](CAST.md) and [PROPS.md](PROPS.md).
 Write the look the way you want it on screen, every time: age, build, face, hair, colours, clothing.
 That exact description goes into every shot the character is in.
 
+Choose the **Body** too: **Two legs, like a person** (the default), **Four legs**, or **Another kind of
+body**. It decides how the character stands in their character sheet (step 3). To pick the pose
+yourself, use **Edit name, description and body** and fill in **Pose in the character sheet**, for
+example "sitting upright, wings folded". A change applies to sheet pictures made after it.
+
 ## 2. Add a reference picture
 
 Under the character, choose a picture and answer **Whose picture is this?**:

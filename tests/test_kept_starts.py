@@ -89,7 +89,9 @@ async def test_the_migration_adds_only_its_table_and_changes_nothing_that_was_th
     await run_all_migrations(db)
     schema_after, data_after = snapshot()
     assert {k: v for k, v in schema_after.items() if k in schema_before} == schema_before
-    assert {n for n in set(schema_after) - set(schema_before) if not n.startswith("idx_")} == {"episode_kept_starts"}
+    # the later cast sheet pose migration adds its own table (tests/test_cast_sheet_pose.py)
+    assert {n for n in set(schema_after) - set(schema_before) if not n.startswith("idx_")} == {
+        "episode_kept_starts", "cast_character_bodies"}
     assert data_after == data_before
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = ?",

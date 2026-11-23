@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import {
+  BODY_TYPES,
   PICTURE_ACCEPT,
   PICTURE_LABELS,
   SHEET_STEP_TEXT,
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
+  bodyFields,
+  bodyNote,
   castPicks,
   defaultOptionCount,
   emptyRights,
@@ -534,6 +537,25 @@ function ReviseLock({ apiBase, character, version, busy, act, note }: {
   );
 }
 
+function cardText(character: CastCharacter) {
+  return {
+    name: character.name, role: character.role, description: character.description,
+    body_type: character.body_type || 'humanoid', sheet_pose: character.sheet_pose ?? '',
+  };
+}
+
+/** The kind of body a character has: its character sheet is framed for it. */
+function BodyChoice({ value, onChange, testId, className = '' }: {
+  value: string; onChange: (value: string) => void; testId: string; className?: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Body" data-testid={testId}
+      className={`${field} ${className}`}>
+      {BODY_TYPES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+    </select>
+  );
+}
+
 function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
   apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
   note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
@@ -542,7 +564,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   const [versionNo, setVersionNo] = useState(character.default_version);
   const version = character.versions.find((v) => v.version === versionNo) ?? character.versions[0];
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState({ name: character.name, role: character.role, description: character.description });
+  const [text, setText] = useState(cardText(character));
   const pictures = versionPictures(version);
   const base = `${apiBase}/cast/${character.character_id}`;
   const anyLocked = character.versions.some((v) => v.locked);
@@ -597,9 +619,15 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             aria-label="Part they play" placeholder="Part they play, e.g. the lead" className={field} />
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
-          {anyLocked && (
-            <p className="text-[12px] text-ink-soft">Locked looks keep the description they were locked with.</p>
-          )}
+          <BodyChoice value={text.body_type} onChange={(body_type) => setText({ ...text, body_type })}
+            testId={`cast-body-${here}`} />
+          <input value={text.sheet_pose} onChange={(e) => setText({ ...text, sheet_pose: e.target.value })}
+            maxLength={200} aria-label="Pose in the character sheet" className={field} data-testid={`cast-pose-${here}`}
+            placeholder="Pose in the character sheet (optional), e.g. sitting with wings folded" />
+          <p className="text-[12px] text-ink-soft">
+            The body and pose shape character sheets made from now on.
+            {anyLocked && ' Locked looks keep the description and pictures they were locked with.'}
+          </p>
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy || !text.name.trim()} className={darkBtn}>Save</button>
             <button type="button" onClick={() => setEditing(false)} disabled={busy} className={plainBtn}>Cancel</button>
@@ -611,6 +639,9 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             <span className="text-ink-soft">No description yet. Say how they look so every shot gets them right.</span>
           )}
         </p>
+      )}
+      {!editing && bodyNote(character) && (
+        <p className="mt-1 text-[12px] text-ink-soft" data-testid={`cast-body-note-${here}`}>{bodyNote(character)}</p>
       )}
       {version.locked && (
         <p className="mt-1 text-[12px] text-ink-soft">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
@@ -679,10 +710,10 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
       {canEdit && !editing && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" onClick={() => {
-            setText({ name: character.name, role: character.role, description: character.description });
+            setText(cardText(character));
             setEditing(true);
           }} disabled={busy} className={plainBtn}>
-            Edit name and description
+            Edit name, description and body
           </button>
           <ConfirmButton disabled={busy} className={`${plainBtn} !text-coral-ink`} confirmLabel="Remove"
             question={`Remove ${character.name} and all their pictures from ${universe ? 'this Universe' : 'the cast'}?`}
@@ -704,7 +735,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
 function AddCharacter({ apiBase, view, busy, act, note }: {
   apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
 }) {
-  const empty = { name: '', role: '', description: '' };
+  const empty = { name: '', role: '', description: '', body_type: 'humanoid' };
   const [form, setForm] = useState(empty);
   const [file, setFile] = useState<File | null>(null);
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
@@ -733,7 +764,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
   };
   const addWithoutPhoto = async () => {
     added(await act(() => postJson(`${apiBase}/cast`, {
-      name, role: form.role.trim(), description: form.description.trim(),
+      name, role: form.role.trim(), description: form.description.trim(), ...Object.fromEntries(bodyFields(form)),
     }), `${name} joined the cast.`, 'add'));
   };
   return (
@@ -766,6 +797,8 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
         maxLength={600} rows={3} aria-label="What they look like" data-testid="cast-add-description"
         placeholder="What they look like, the same in every shot: age, build, face, hair, colours, clothing"
         className={`${field} mt-2`} />
+      <BodyChoice value={form.body_type} onChange={(body_type) => setForm({ ...form, body_type })}
+        testId="cast-add-body" className="mt-2" />
       {file && (
         <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
       )}

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BODY_TYPES,
   MAX_CAST_PER_SHOT,
   SHEET_STEP_TEXT,
   SMALL_PICTURE_NOTE,
@@ -8,6 +9,8 @@ import {
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
+  bodyFields,
+  bodyNote,
   castEntries,
   castImportBody,
   castPicks,
@@ -156,6 +159,30 @@ test('a character with a photo is sent as one form: the text, then the rights an
     ['name', 'Pip'], ['role', ''], ['description', ''],
     ['rights', 'original'], ['depicts_real_person', 'false'], ['likeness_consent', 'false'],
   ]);
+});
+
+test('a character with a photo sends its body type and pose only when it has them', () => {
+  const answers = { rights: 'original', realPerson: false, likenessConsent: false };
+  assert.deepEqual(withPictureFields({ name: 'Wool', body_type: 'four_legged', sheet_pose: ' standing side-on ' }, answers), [
+    ['name', 'Wool'], ['role', ''], ['description', ''], ['body_type', 'four_legged'], ['sheet_pose', 'standing side-on'],
+    ['rights', 'original'], ['depicts_real_person', 'false'], ['likeness_consent', 'false'],
+  ]);
+  assert.deepEqual(withPictureFields({ name: 'Mara', body_type: 'humanoid', sheet_pose: '  ' }, answers),
+    withPictureFields({ name: 'Mara' }, answers), 'a humanoid without its own pose sends what it always sent');
+  assert.deepEqual(bodyFields({ body_type: 'other' }), [['body_type', 'other']]);
+  assert.deepEqual(bodyFields(null), []);
+});
+
+test('the body types are the API ones, humanoid first, and a card names a body only when it is not the default', () => {
+  assert.deepEqual(BODY_TYPES.map(b => b.value), ['humanoid', 'four_legged', 'other']);
+  assert.equal(bodyNote({ body_type: 'humanoid', sheet_pose: '' }), null);
+  assert.equal(bodyNote({}), null, 'a character from before body types is humanoid');
+  assert.equal(bodyNote({ body_type: 'four_legged' }), 'Body: four legs.');
+  assert.equal(bodyNote({ body_type: 'humanoid', sheet_pose: 'sitting on a stool' }),
+    'Body: two legs, like a person. Pose in the character sheet: sitting on a stool');
+  assert.equal(bodyNote({ body_type: 'other', sheet_pose: 'perched, wings folded' }),
+    'Body: another kind of body. Pose in the character sheet: perched, wings folded');
+  assert.equal(bodyNote({ body_type: 'unheard-of' }), 'Body: another kind of body.');
 });
 
 test('pictures are grouped: uploads with the main one first, look options, the sheet in order', () => {
