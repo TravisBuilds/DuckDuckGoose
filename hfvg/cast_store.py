@@ -50,7 +50,7 @@ THUMB_PX = 384
 NAME_MAX = 60
 ROLE_MAX = 80
 DESCRIPTION_MAX = 600
-OUTFIT_MAX = 300
+OUTFIT_MAX = 600
 LABEL_MAX = 60
 
 # Rights attestation for every upload: the creator made the image or owns the rights to use it.

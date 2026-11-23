@@ -369,6 +369,21 @@ def test_a_new_outfit_derives_only_from_a_locked_master():
     assert cast_store.get_character(cid)["default_version"] == 1
 
 
+def test_an_outfit_has_the_room_of_a_description():
+    """A full outfit fits (ep61opr's rewritten one runs to about 390 characters): it is written into still
+    prompts beside the description, never into a clip prompt, and has the same room."""
+    character = new_character()
+    cid = character["character_id"]
+    complete_sheet(character)
+    cast_store.approve_version(cid, 1, "t")
+    outfit = ("a weathered oilskin coat with brass buttons, " * 9)[:392].strip()
+    v2 = cast_store.create_version(cid, label="Coat", outfit=outfit, derive_from_version=1, actor="t")
+    assert v2["outfit"] == outfit and outfit in v2["clause"]
+    assert cast_store.OUTFIT_MAX == cast_store.DESCRIPTION_MAX
+    with pytest.raises(cast_store.CastError, match="keep it under 600"):
+        cast_store.create_version(cid, label="Coat", outfit="x" * 601, derive_from_version=1, actor="t")
+
+
 # ------------------------------------------------------------------------------------- lock
 
 

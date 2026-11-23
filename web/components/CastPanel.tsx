@@ -456,7 +456,7 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
       <div className="grid sm:grid-cols-2 gap-2">
         <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} placeholder="Name, e.g. Winter coat"
           aria-label="Outfit name" className={field} />
-        <input value={outfit} onChange={(e) => setOutfit(e.target.value)} maxLength={300}
+        <input value={outfit} onChange={(e) => setOutfit(e.target.value)} maxLength={600}
           placeholder="The outfit, e.g. a long green wool coat and red boots" aria-label="The outfit" className={field} />
       </div>
       <button type="button" onClick={create} disabled={busy || !outfit.trim()} className={`${plainBtn} mt-2`}

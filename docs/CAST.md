@@ -27,8 +27,9 @@ before it starts: see [WORLDS.md](WORLDS.md).
 - **Library.** An episode in a series uses the series library, which every episode of the series shares.
   An episode without a series has its own library. Nothing else changes for episodes without a cast.
 - **Character.** `character_id` (internal), `slug` (the id shots use, unique per library, e.g. `mara`),
-  `name`, `role`, `description` (how they look, the same in every shot).
-- **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit`, `derived_from_version`,
+  `name`, `role`, `description` (how they look, the same in every shot; up to 600 characters).
+- **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit` (up to 600 characters: it
+  goes into still prompts beside the description and never into a clip prompt), `derived_from_version`,
   `sheet_stage` (`none` → `options_ready` → `master_picked` → `turnaround_ready`), `locked`,
   `lock_hash`, `locked_description`. A shot without a version uses the character's default version:
   the first locked version (the main look; an outfit can only derive from a locked, lower version),
