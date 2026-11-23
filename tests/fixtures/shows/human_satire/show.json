@@ -1,0 +1,71 @@
+{
+  "schema": "hfvg.show/1",
+  "name": "Debate Night (fixture: satire with invented people)",
+  "body_presets": {
+    "seated_desk": {
+      "label": "Seated at a desk",
+      "frame": "Full body, seated behind a plain desk with both hands folded on the desk top, facing the camera",
+      "head": "A head sheet: head and shoulders from the front, three-quarter and side, the same face and hair",
+      "aspects": ["3:4", "2:3", "1:1"],
+      "placeholder": [832, 1024]
+    }
+  },
+  "sheet": {"lead": "Satire cast sheet of an invented person."},
+  "cast": {
+    "candidate-grey": {"role": "candidate", "tags": ["suit"], "body": "humanoid", "identity_profile": "invented_person"},
+    "candidate-blue": {"role": "candidate", "tags": ["suit"], "body": "humanoid", "identity_profile": "invented_person"},
+    "moderator": {"role": "moderator", "body": "seated_desk", "identity_profile": "invented_person"}
+  },
+  "identity_profiles": {
+    "invented_person": {
+      "label": "Person",
+      "signs": {
+        "face": "face shape and features as the sheet shows them",
+        "hair": "hair colour, length and style",
+        "suit": "suit or blazer colour and cut, shirt and tie",
+        "accessories": "glasses, pins, jewellery and other accessories"
+      },
+      "apparel": {},
+      "hint_signs": [],
+      "state_key": null,
+      "state_features": {},
+      "min_height_fraction": null,
+      "presence": null,
+      "presence_note": "declared in this shot"
+    }
+  },
+  "shot_flags": [
+    {"key": "on_camera", "meta": "on_camera", "type": "bool"}
+  ],
+  "beatmap": {
+    "character_codes": {
+      "C1": {"slug": "candidate-grey", "role": "candidate"},
+      "C2": {"slug": "candidate-blue", "role": "candidate"},
+      "M": {"slug": "moderator", "role": "moderator"}
+    },
+    "role_prefix": "{role}"
+  },
+  "lint": {
+    "count_clause": {"template": "Figures in frame: {n}.", "required": true},
+    "realtime_pattern": "real-time",
+    "locked_camera_clause": "",
+    "forbidden_phrases": ["nothing else moves"],
+    "banned_words": ["logo"],
+    "required_clauses": [
+      {"id": "ai_satire_disclosure", "text": "AI satire disclosure: invented people only",
+       "when": {"count_gt": 0}, "kinds": ["still", "clip"],
+       "message": "missing the AI satire disclosure: {text!r}"}
+    ],
+    "forbid_near": [
+      {"id": "no_lookalikes", "subjects": ["candidate", "moderator"],
+       "words": ["lookalike", "impersonation", "impersonating"], "scope": "sentence",
+       "message": "invented people only: {word!r} next to {subject!r}: {sentence!r}"}
+    ],
+    "continuity_locks": [
+      {"id": "eyeline", "text": "Whoever is on camera looks straight into the lens.",
+       "when": {"flag": "on_camera"}, "kinds": ["still"]}
+    ],
+    "forbid_bare_waves": false
+  },
+  "policy": {"real_people": "refuse"}
+}

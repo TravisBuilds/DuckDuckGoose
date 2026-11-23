@@ -1,0 +1,27 @@
+{
+  "episode_id": "ep71satire",
+  "shots": [
+    {"id": "S01", "count": 0, "characters": [], "wet": false, "exterior": false, "water": false,
+     "model": "kling", "duration": 4, "end_frame": false, "aspect_ratio": "9:16", "ref_keys": [],
+     "prompt": "Wide establishing shot of an empty debate stage: two podiums, a desk, studio lights warming up. Figures in frame: 0. Real-time pace.",
+     "clip_prompt": "The studio lights fade up slowly and the stage screens flicker on. Figures in frame: 0. Real-time pace."},
+    {"id": "S02", "count": 2, "characters": ["C1", "C2"], "cast": ["candidate-grey", "candidate-blue"], "on_camera": true,
+     "wet": false, "exterior": false, "water": false, "model": "kling", "duration": 5, "end_frame": false,
+     "aspect_ratio": "9:16", "ref_keys": [],
+     "prompt": "Medium shot: two candidates at their podiums trade a rehearsed smile. Figures in frame: 2. AI satire disclosure: invented people only. Real-time pace.",
+     "clip_prompt": "The two candidates turn to each other, smile and nod at the same moment. Figures in frame: 2. AI satire disclosure: invented people only. Real-time pace."},
+    {"id": "S03", "count": 1, "characters": ["M"], "cast": ["moderator"], "on_camera": false,
+     "wet": false, "exterior": false, "water": false, "model": "kling", "duration": 4, "end_frame": false,
+     "aspect_ratio": "9:16", "ref_keys": [],
+     "prompt": "The moderator sits alone at the desk reading a card. Figures in frame: 1. AI satire disclosure: invented people only. Real-time pace.",
+     "clip_prompt": "The moderator lowers the card and raises an eyebrow. Figures in frame: 1. AI satire disclosure: invented people only. Real-time pace."},
+    {"id": "S04", "count": 5, "characters": ["M"], "cast": ["moderator"], "wet": false, "exterior": false,
+     "water": false, "model": "kling", "duration": 5, "end_frame": false, "aspect_ratio": "9:16", "ref_keys": [],
+     "prompt": "The moderator stands in front of four audience members holding up score cards. Figures in frame: 5. AI satire disclosure: invented people only. Real-time pace.",
+     "clip_prompt": "The audience members wave their score cards while the moderator counts them. Figures in frame: 5. AI satire disclosure: invented people only. Real-time pace."},
+    {"id": "S05", "count": 0, "characters": [], "props": ["desk-bell"], "wet": false, "exterior": false,
+     "water": false, "model": "kling", "duration": 3, "end_frame": false, "aspect_ratio": "9:16", "ref_keys": [],
+     "prompt": "Close-up of a small brass desk bell on the moderator desk. Figures in frame: 0. Real-time pace.",
+     "clip_prompt": "A finger taps the desk bell once and it rings. Figures in frame: 0. Real-time pace."}
+  ]
+}

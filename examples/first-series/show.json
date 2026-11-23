@@ -1,0 +1,349 @@
+{
+  "schema": "hfvg.show/1",
+  "name": "First series (legacy adapter)",
+  "body_presets": {},
+  "sheet": {
+    "lead": "Character design reference of an original character."
+  },
+  "cast": {},
+  "identity_profiles": {
+    "duck_host": {
+      "name": "duck_host",
+      "label": "Duck",
+      "signs": {
+        "bill": "bill shape and length",
+        "head": "head shape",
+        "neck_ring": "a white neck ring (0 absent, 2 clearly present)",
+        "body": "body shape",
+        "too_small": "is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)"
+      },
+      "apparel": {
+        "tuque": "cream tuque with a pom",
+        "vest": "vest fading from cream to olive"
+      },
+      "hint_signs": [
+        "neck_ring"
+      ],
+      "state_key": "duck_state",
+      "state_features": {
+        "B": [
+          "tuft",
+          "3-lobe tuft at a quarter of the head height"
+        ]
+      },
+      "min_height_fraction": 0.12,
+      "presence": [
+        "duck_role",
+        "host"
+      ],
+      "presence_note": "host role"
+    }
+  },
+  "judges": {
+    "style_note": ""
+  },
+  "flag_figures": [
+    {
+      "flag": "duck",
+      "figure_id": "_duck_host",
+      "name": "duck",
+      "description": "the series' duck host, not one of the shot's main characters"
+    }
+  ],
+  "shot_flags": [
+    {
+      "key": "antler_character",
+      "meta": "antler",
+      "type": "bool",
+      "declared_meta": "",
+      "default": false,
+      "top_level": true
+    },
+    {
+      "key": "duck_present",
+      "meta": "duck",
+      "type": "bool",
+      "declared_meta": "duck_declared",
+      "default": false,
+      "top_level": true
+    }
+  ],
+  "beatmap": {
+    "character_codes": {
+      "D": {
+        "slug": "duck",
+        "role": "host",
+        "key": "duck_role",
+        "absent": "absent"
+      }
+    },
+    "role_prefix": "{role} duck"
+  },
+  "lint": {
+    "count_clause": {
+      "template": "Exactly {n} animals in frame",
+      "required": true
+    },
+    "realtime_pattern": "real-time.{0,40}no slow motion",
+    "locked_camera_clause": "locked-off tripod, no camera movement",
+    "forbidden_phrases": [
+      "nothing else moves",
+      "realistic wild"
+    ],
+    "banned_words": [
+      "gazebo",
+      "lantern"
+    ],
+    "banned_words_message": "banned decor word: {word!r}",
+    "content_policy_terms": false,
+    "forbid_bare_waves": true,
+    "required_clauses": [
+      {
+        "id": "antler_clause",
+        "text": "synthetic antler clause: two full antlers visible",
+        "when": {
+          "characters_any": [
+            "Stag03"
+          ]
+        },
+        "kinds": [
+          "still",
+          "clip"
+        ],
+        "message": "missing antler clause: {text!r}",
+        "missing_text_message": "lint kit has no antler_clause but an antler character is present"
+      },
+      {
+        "id": "duck_clause",
+        "text": "synthetic duck clause: one duck on the water",
+        "when": {
+          "characters_any": [
+            "Duck"
+          ]
+        },
+        "kinds": [
+          "still",
+          "clip"
+        ],
+        "message": "missing duck clause: {text!r}",
+        "missing_text_message": "lint kit has no duck_clause but the duck is present"
+      },
+      {
+        "id": "antler_flag",
+        "text": "synthetic antler clause: two full antlers visible",
+        "when": {
+          "all": [
+            {
+              "flag": "antler"
+            },
+            {
+              "not": {
+                "characters_any": [
+                  "Stag03"
+                ]
+              }
+            }
+          ]
+        },
+        "kinds": [
+          "still",
+          "clip"
+        ],
+        "message": "missing antler clause (shot_meta.antler): {text!r}",
+        "missing_text_message": "lint kit has no antler_clause but shot_meta.antler is set"
+      },
+      {
+        "id": "duck_flag",
+        "text": "synthetic duck clause: one duck on the water",
+        "when": {
+          "all": [
+            {
+              "flag": "duck"
+            },
+            {
+              "not": {
+                "characters_any": [
+                  "Duck"
+                ]
+              }
+            }
+          ]
+        },
+        "kinds": [
+          "still",
+          "clip"
+        ],
+        "message": "missing duck clause (shot_meta.duck): {text!r}",
+        "missing_text_message": "lint kit has no duck_clause but shot_meta.duck is set"
+      }
+    ],
+    "forbid_near": [
+      {
+        "id": "carry_hold",
+        "words": [
+          "carry",
+          "carries",
+          "carrying",
+          "carried",
+          "hold",
+          "holds",
+          "holding",
+          "held"
+        ],
+        "subjects": [
+          "moose"
+        ],
+        "scope": "sentence",
+        "match": "word",
+        "report": "unit",
+        "when": {
+          "always": true
+        },
+        "kinds": [
+          "still",
+          "clip"
+        ],
+        "after": "forbidden_phrases",
+        "message": "carry/hold verb used with a moose: {sentence!r}",
+        "max_quote": null
+      },
+      {
+        "id": "realism_split",
+        "words": [
+          "realistic",
+          "photoreal",
+          "photorealistic",
+          "photo-real",
+          "photo-realistic",
+          "lifelike",
+          "life-like",
+          "hyperreal",
+          "hyper-real",
+          "hyperrealistic"
+        ],
+        "subjects": [
+          "duck"
+        ],
+        "scope": "clause",
+        "match": "letters",
+        "report": "unit",
+        "when": {
+          "any": [
+            {
+              "flag": "duck"
+            },
+            {
+              "characters_any": [
+                "Duck"
+              ]
+            }
+          ]
+        },
+        "kinds": [
+          "still",
+          "clip",
+          "ref_edit"
+        ],
+        "after": "continuity_locks",
+        "message": "realism word {word!r} attached to the duck (only the duck is plush-stylised): {sentence!r}",
+        "max_quote": 120
+      }
+    ],
+    "continuity_locks": []
+  },
+  "playbook": {
+    "rules": [
+      {
+        "type": "role_exclusion",
+        "id": "duck_role",
+        "role": "host",
+        "absent_flag": "duck",
+        "absent_tags": [
+          "guest-only"
+        ],
+        "require_text": "no duck",
+        "forbid_tags": [
+          "duck-in-pack"
+        ],
+        "message": "Shot {shot_id}: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+        "forbid_message": "Shot {shot_id}: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      },
+      {
+        "type": "pose_words",
+        "id": "animal_poses",
+        "forbid_near": "guest",
+        "words": [
+          "standing upright",
+          "walking upright",
+          "bipedal",
+          "carrying",
+          "holding",
+          "hand over",
+          "handing"
+        ],
+        "require_any": [
+          "on all fours",
+          "quadrupedal"
+        ],
+        "require_when": {
+          "any": [
+            {
+              "tag": "animal"
+            },
+            {
+              "tag": "guest"
+            }
+          ]
+        },
+        "message": "Shot {shot_id}: Prompt contains '{word}' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+        "require_message": "Shot {shot_id}: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      },
+      {
+        "type": "world_refs",
+        "id": "same_resort",
+        "env": "HFVG_PLAYBOOK_WORLD_REFS",
+        "types": [
+          "room_plate"
+        ],
+        "tags": [
+          "env"
+        ],
+        "exempt_tags": [
+          "pre-resort"
+        ],
+        "message": "Shot {shot_id}: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      }
+    ],
+    "hard": []
+  },
+  "motion_suggestions": [
+    {
+      "subject": "moose",
+      "suggestions": [
+        "breath steam",
+        "ear flicks",
+        "tail swish",
+        "head turn"
+      ],
+      "tag_match": "contains"
+    },
+    {
+      "subject": "duck",
+      "suggestions": [
+        "tuque pom bobs",
+        "bill tilt",
+        "head turn"
+      ],
+      "tag_match": "equals"
+    }
+  ],
+  "plate": {
+    "scale_reference": "duck"
+  },
+  "gates": {
+    "policy_file": ""
+  },
+  "policy": {
+    "real_people": "refuse"
+  }
+}

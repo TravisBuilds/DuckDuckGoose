@@ -51,6 +51,19 @@ An episode workflow requires several input files in `data/episodes/{episode_id}/
   - Must pass dimension/format QC (min 512px, valid image)
 - **Used by:** Shot generation prompts
 
+## Optional Files
+
+### `show.json` (show profile)
+- **Purpose:** everything show-specific the engine reads as data: body presets and the sheet lead,
+  identity rules, shot flags, beatmap character codes, lint clauses and near-word rules, playbook
+  rules, the plate's scale reference, the gate policy file and the real-people stance
+  (schema `hfvg.show/1`, docs/SHOW-PROFILE.md)
+- **Validation:** strict; every problem of the file is reported together. Optional: an episode
+  without one is read through the legacy adapter (its `prompt_kit.json` and `shots.json`, exactly
+  as before), or gets the neutral default profile when it has neither.
+  `HFVG_SHOW_PROFILE_PATH` names one profile for every episode without its own.
+- **Used by:** prompt lint, playbook, shot data, cast sheets, headcount and identity judges
+
 ## Configuration Files
 
 ### `.cursor/environment.json` (for live mode)
@@ -66,6 +79,8 @@ Before spending credits at gate 1, the episode workflow validates:
 2. ✅ `shots.json` exists, shot IDs match beatmap
 3. ✅ `refs.json` exists and is valid
 4. ✅ `prompt_kit.json` exists and is valid JSON; live mode: its prompt lint kit loads
+   - `show.json` (optional) validates when present; the API preflight reports the profile's
+     source (`episode`, `env`, `legacy-adapter` or `default`) and digest
 5. ✅ All required refs (used in shots) either exist or are in `to_generate`
 6. ✅ Model configs are valid (supported model, valid params)
 7. ✅ Live mode: API key is configured
@@ -80,6 +95,7 @@ data/episodes/ep05/
 ├── shots.json           # Required: shot prompts and params
 ├── refs.json           # Required: ref specifications
 ├── prompt_kit.json     # Required: prompt engineering guide
+├── show.json           # Optional: show profile (docs/SHOW-PROFILE.md)
 ├── refs/               # Optional: pre-existing refs
 │   ├── r_duck.png
 │   └── r_scene_park.png

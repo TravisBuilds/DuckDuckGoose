@@ -5248,6 +5248,29 @@ async def get_gates(
 # Mark get_gates to allow members
 get_gates.allow_members = True
 
+
+@app.get("/api/episodes/{episode_id}/show-profile")
+async def get_show_profile(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """The show profile the episode's runs read (docs/SHOW-PROFILE.md): where it comes from (``source``
+    episode | env | legacy-adapter | default), its digest, body presets, shot flags and identity
+    profile ids; no rule text. A show.json that does not validate is reported with its problems."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    from hfvg.show_profile import ShowProfileError, declared_source, resolve_show_profile
+
+    try:
+        profile = await asyncio.to_thread(resolve_show_profile, episode_id)
+    except ShowProfileError as e:
+        return {"episode_id": episode_id, "ok": False, "source": declared_source(episode_id), "errors": e.problems}
+    return {"episode_id": episode_id, "ok": True, **profile.summary(), "errors": []}
+
+
+get_show_profile.allow_members = True
+
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
     episode_id: str,
@@ -7204,17 +7227,33 @@ async def preflight_episode(
     cast_hidden = has_cast and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     cast_errors = (await asyncio.to_thread(cast_problems, episode_id, {"shots": shots})
                    if has_cast and not cast_hidden else [])
+    show_profile = await asyncio.to_thread(_preflight_show_profile, episode_id)
+    if show_profile["errors"] and not await cast_routes.may_see_episode_cast(episode_id, authorization,
+                                                                             studio_admin_token):
+        show_profile["errors"] = ["show.json does not validate"]
     return {
         "episode_id": episode_id,
         "shots": report["shots"],
         "violations": report["violations"],
         "errors": errors,
         "warnings": warnings,
-        "has_errors": bool(errors) or bool(cast_errors),
+        "has_errors": bool(errors) or bool(cast_errors) or bool(show_profile["errors"]),
         "cast_errors": cast_errors,
         "cast_hidden": cast_hidden,
         "cost_estimate": offline_cost_estimate(shots),
+        "show_profile": show_profile,
     }
+
+
+def _preflight_show_profile(episode_id: str) -> dict:
+    """The preflight's show profile line: its source and digest, or why the show.json does not load."""
+    from hfvg.show_profile import ShowProfileError, declared_source, resolve_show_profile
+
+    try:
+        profile = resolve_show_profile(episode_id)
+    except ShowProfileError as e:
+        return {"source": declared_source(episode_id), "digest": None, "errors": e.problems}
+    return {"source": profile.source, "digest": profile.digest, "errors": []}
 
 
 # Mark preflight_episode to allow members

@@ -1,0 +1,14 @@
+{
+  "characters": [
+    {"slug": "candidate-grey", "name": "Candidate Grey", "role": "candidate", "body_type": "humanoid",
+     "description": "an invented politician in a charcoal three-piece suit, silver side-parted hair, a red tie and wire-rimmed glasses"},
+    {"slug": "candidate-blue", "name": "Candidate Blue", "role": "candidate", "body_type": "humanoid",
+     "description": "an invented politician in a navy suit, short dark curly hair, a yellow tie and a star-shaped lapel pin"},
+    {"slug": "moderator", "name": "The Moderator", "role": "moderator", "body_type": "seated_desk",
+     "description": "an invented television moderator in a teal blazer with a neat grey bob and a pearl necklace"}
+  ],
+  "props": [
+    {"slug": "desk-bell", "name": "Desk bell", "kind": "prop",
+     "description": "a small brass desk bell on a round black base"}
+  ]
+}
