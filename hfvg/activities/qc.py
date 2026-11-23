@@ -627,7 +627,8 @@ async def check_assembly_qc(
     > PASS. FAIL and NEEDS_REVIEW are ``blocking``: the episode holds G_FINAL_CUT until a clip retry
     produces a passing edit or a human accepts the QC result. DRY_RUN placeholder edits (nothing
     rendered) return verdict DRY_RUN and are not blocking. ``headcount_results`` is also returned as
-    ``animal_results``, its name before the general headcount.
+    ``animal_results`` (deprecated: its name before the general headcount, kept for recorded workflow
+    histories and older readers; read ``headcount_results``).
     """
     from hfvg.qc import continuity as cont
 
@@ -672,8 +673,9 @@ async def check_assembly_qc(
     if not assembly_path or not Path(assembly_path).is_file() or not clips:
         return result("NEEDS_REVIEW", f"mute edit missing or empty: {assembly_path}")
 
-    from hfvg.qc.headcount import check_headcount, get_cast_counter
+    from hfvg.qc.headcount import check_headcount, get_cast_counter, show_flag_figures
     from hfvg.qc.motion import check_motion_async
+    from hfvg.show_profile import ShowProfileError
 
     try:
         rows = await check_motion_async(assembly_path, manifest)
@@ -685,6 +687,10 @@ async def check_assembly_qc(
 
     activity.heartbeat({"stage": "assembly_qc_headcount", "episode": episode_id})
     counter = get_cast_counter()
+    try:
+        flag_figures = show_flag_figures(episode_id)
+    except ShowProfileError:
+        flag_figures = None  # every shot's headcount says why it cannot be checked
     metas = shot_meta_by_id or {}
     edit_windows = {m["shot_id"]: (m["t0"], m["t1"]) for m in motion}
     headcounts = []
@@ -695,7 +701,7 @@ async def check_assembly_qc(
         window = (clip.get("trim_in"), clip.get("trim_out")) if clip.get("source") else edit_windows.get(sid)
         res = await check_headcount(counter, clip.get("source") or assembly_path, meta,
                                     shot_context={"episode_id": episode_id, "shot_id": sid, "window": window},
-                                    media="clip")
+                                    media="clip", flag_figures=flag_figures)
         headcounts.append({"shot_id": sid, **res})
 
     # Size / order continuity checks: only when the episode declares continuity_hard_checks.

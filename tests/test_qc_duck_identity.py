@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from hfvg.qc.duck_identity import (
+from hfvg.compat.host_identity import (
     DuckIdentityGate,
     FakeDuckDetector,
     FakeVisionJudge,

@@ -65,7 +65,10 @@ like any other character. The plan cannot declare background figures, so they al
 
 All four go through `JudgeService.ask` (`hfvg/qc/judges.py`): one request with the images, a JSON
 answer that is checked before use (a malformed answer is NEEDS_REVIEW), and the money rules below.
-No instruction to a judge names a kind of character or a visual style.
+No instruction to a judge names a kind of character or a visual style. A show can add one sentence
+about its look (`judges.style_note` in its show profile, [SHOW-PROFILE.md](SHOW-PROFILE.md)): it
+follows the headcount and identity judges' instructions and is part of their cache key. Without one
+(the default) the instructions and cache keys are what they were.
 
 ### a. Still reviewer (`review_still`)
 
@@ -94,7 +97,9 @@ No instruction to a judge names a kind of character or a visual style.
   still wins and makes no call.
 - **Figures** (`shot_roster`): one per cast entry, by its id, expected once. When `count` is larger
   than the cast list, the other main characters are one more figure (id `_cast`, expected `count`
-  minus the cast list). A cast list longer than `count` is a plan a person confirms.
+  minus the cast list). A cast list longer than `count` is a plan a person confirms. A shot flag the
+  show profile declares as a figure outside `count` (`flag_figures`) adds one more figure, counted
+  alone; a show without such flags gets none.
 - **Sees:** the still (or three frames of the clip inside its trim window), every figure by its id
   with its cast description (the locked one for a locked version), the first sheet image of up to
   four declared characters, and the shot's props and place, named as not figures.
@@ -129,8 +134,9 @@ POST /api/episodes/{id}/shots/{shot}/headcount
 ```
 
 An id the shot does not declare (the plan changed after the count) is an unexpected figure; a
-declared id left out is not counted (NEEDS_REVIEW). The first series' form (`cast`, `duck`, `other`)
-is still accepted, never mixed with `figures` ([Compatibility](#compatibility)).
+declared id left out is not counted (NEEDS_REVIEW). The older form (`cast`, `flag_counts`, `other`;
+the first series spells `flag_counts` as `duck`, accepted with the same value) is still accepted,
+never mixed with `figures` ([Compatibility](#compatibility)).
 
 ### c. Clip "fail if" checker (`ClipConstraintChecker`)
 
@@ -169,11 +175,13 @@ is still accepted, never mixed with `figures` ([Compatibility](#compatibility)).
   re-rolled through `retry_shot` / `retry_clip`. Otherwise the judge's own verdict. The worst frame
   and the worst character win.
 - **Rules are data** (`IdentityProfile`: the signs, apparel that must match when present, a sign that
-  fails already at 1, a feature some shots must show, a size floor). Every locked character uses
-  `GENERIC_PROFILE`; the cast library cannot give a character its own rules yet.
-- The first series' duck host gate (`hfvg/qc/duck_identity.py`) is a compatibility shim: its rules
-  are one profile (`DUCK_HOST_PROFILE`) run by the same gate, for the code and tests written against
-  it. The pipeline does not call it, and never did: a duck host that is a locked cast entry is
+  fails already at 1, a feature some shots must show, a size floor). A locked character uses the
+  profile its show profile names for its cast slug (`cast.<slug>.identity_profile`, defined under
+  `identity_profiles`), else `GENERIC_PROFILE`.
+- The first series' host gate (`hfvg/compat/host_identity.py`, formerly `hfvg/qc/duck_identity.py`)
+  is a compatibility shim: its rules are one profile (`DUCK_HOST_PROFILE`, the `duck_host` identity
+  profile of `examples/first-series/show.json`) run by the same gate, for the code and tests written
+  against it. The pipeline does not call it, and never did: a duck host that is a locked cast entry is
   checked like any other character. The always-pass fakes of `create_gate()` are for dry run only:
   a live check with them escalates.
 
@@ -281,19 +289,25 @@ The first series' episodes (including the live ones) and their stored data keep 
 any edit:
 
 - A shot that declares its host with `duck_present` (`shot_meta.duck`) outside `count` gets the host
-  as one more figure (id `_duck_host`, counted alone, `hfvg/qc/animal_count.py`). When the cast list
-  is already longer than `count`, the host is one of the listed entries and nothing is added. A new
-  show with such a host declares it as an ordinary cast entry, locked so that its identity is judged.
+  as one more figure (id `_duck_host`, counted alone): the `flag_figures` entry of the legacy
+  adapter's profile (`examples/first-series/show.json`, [SHOW-PROFILE.md](SHOW-PROFILE.md)). When
+  the cast list is already longer than `count`, the host is one of the listed entries and nothing is
+  added. A new show with such a host declares it as an ordinary cast entry, locked so that its
+  identity is judged.
 - Reviewer counts stored as `cast` / `duck` / `other` in `g2_headcounts.json`, and the same form of
-  the POST body, are read in the general shape: `cast` counts the declared figures together, `duck`
-  the host figure (or the host in the cast list; anywhere else a duck is an unexpected figure),
-  `other` the unexpected figures.
+  the POST body (where `flag_counts` is the neutral spelling of `duck`), are read in the general
+  shape: `cast` counts the declared figures together, `duck` the host figure (or the host in the
+  cast list; anywhere else it is an unexpected figure), `other` the unexpected figures. Rows are
+  stored with the keys they always had.
 - `AnimalCounter.count_animals(media, expected_type, shot_context)`, `FakeAnimalCounter`,
   `DuckPresenceCheck`, `check_shot_animals`, `create_duck_check`, `set_animal_counter` /
-  `get_animal_counter` and `VisionAnimalCounter` still work as adapters: an `AnimalCounter` answers
-  the general check through `count_cast`, asking the questions the older checks asked, and its
-  `type_match: false` is NEEDS_REVIEW, like `matches: false`.
-- Assembly QC still returns `animal_results`, the same list as `headcount_results`.
+  `get_animal_counter` and `VisionAnimalCounter` still work as adapters
+  (`hfvg/compat/species_counter.py`; `hfvg.qc.animal_count` re-exports it for one release with a
+  DeprecationWarning): an `AnimalCounter` answers the general check through `count_cast`, asking the
+  questions the older checks asked, and its `type_match: false` is NEEDS_REVIEW, like
+  `matches: false`.
+- Assembly QC still returns `animal_results`, the same list as `headcount_results` (deprecated, for
+  recorded workflow histories).
 - `JUDGE_VERSION` is 2: a verdict cached under the earlier instructions is judged again once, on the
   same budget line.
 
@@ -303,11 +317,16 @@ any edit:
   line), `hfvg/qc/still_review.py`, `hfvg/qc/headcount.py` (figures and the headcount rules),
   `hfvg/qc/vision_counter.py`, `hfvg/qc/vision_constraints.py`, `hfvg/qc/identity.py`; wired in
   `hfvg/activities/qc.py`, `hfvg/workflows/shot.py`, `hfvg/qc/g2_headcount.py`, `hfvg/worker.py` and
-  `api/main.py`. Compatibility: `hfvg/qc/animal_count.py`, `hfvg/qc/duck_identity.py`.
+  `api/main.py`; the show profile they read in `hfvg/show_profile.py`. Compatibility:
+  `hfvg/compat/species_counter.py`, `hfvg/compat/host_identity.py`, `hfvg/compat/legacy_show.py`
+  (and the deprecated alias `hfvg/qc/animal_count.py`).
 - `tests/test_qc_judges*.py`, `tests/test_qc_still_review.py`, `tests/test_qc_vision_counter.py`,
   `tests/test_qc_vision_constraints.py`, `tests/test_qc_identity.py`, `tests/test_g2_headcount.py`
   and `tests/test_qc_any_show.py` use a fake judge client (or a mocked OpenAI endpoint): no test
-  makes a network call or pays. `tests/test_qc_any_show.py` runs the judges on shows without a duck
-  (two people and a robot, a person with a lamp, a prop that acts) and sizes the budget for N locked
-  characters; `tests/test_qc_duck_identity.py` keeps the compatibility shim working. Red-green
+  makes a network call or pays. `tests/test_qc_any_show.py` runs the judges on shows without the
+  first series' host (two people and a robot, a person with a lamp, a prop that acts) and sizes the
+  budget for N locked characters; `tests/test_show_profile_all_human.py` runs the headcount, the
+  identity judge, the style note and the budget for an all-human show with its own profile, and
+  checks that no request names a kind of creature; `tests/test_qc_duck_identity.py` keeps the
+  compatibility shim working. Red-green
   mutations M-730 to M-758 and M-764 to M-785 cover the fail-closed rules.

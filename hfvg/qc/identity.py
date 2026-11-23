@@ -5,8 +5,10 @@ library, whatever it is (a person, a creature, a robot, a puppet, a prop that ac
 come from the character's lock (``criteria_from_lock``): the locked description, the sheet images
 (master, head sheet, turnaround) and the lock hash, after ``cast_store.verify_lock``. Its rules are
 an ``IdentityProfile``: the signs the judge scores (0 on model, 1 minor, 2 drift), apparel that must
-match when present, per-shot features and a size floor. Every locked character of the pipeline uses
-``GENERIC_PROFILE``; a profile is data, so a show can hand the gate stricter rules.
+match when present, per-shot features and a size floor. A locked character is judged with the
+identity profile its show's cast entry names (show profile ``cast`` and ``identity_profiles``), else
+``GENERIC_PROFILE``; the show's ``judges.style_note``, when it has one, follows the judge's
+instructions and is part of its cache key.
 
 Per frame: find the character (``CharacterDetector``), build a composite of real crops (the locked
 sheet next to the character cut out of the frame), judge it (``IdentityJudge``), then the rules:
@@ -42,6 +44,7 @@ from hfvg.qc.judges import (
     confidence_of,
     file_sha256,
     prepare_image,
+    with_style_note,
 )
 
 PASS = "PASS"
@@ -103,10 +106,14 @@ class IdentityCriteria:
     episode_id: str | None = None
     profile: IdentityProfile = GENERIC_PROFILE
     roster: tuple[tuple[str, str, str], ...] = ()  # (slug, name, description) of each character looked for
+    style_note: str = ""  # the show's judges.style_note
 
     def key(self) -> dict[str, Any]:
-        return {"slug": self.slug, "version": self.version, "lock_hash": self.lock_hash,
-                "description": self.description, "profile": self.profile.name}
+        key = {"slug": self.slug, "version": self.version, "lock_hash": self.lock_hash,
+               "description": self.description, "profile": self.profile.name}
+        if self.style_note:
+            key["style_note"] = self.style_note
+        return key
 
 
 class IdentityLockError(Exception):
@@ -141,8 +148,11 @@ def locked_entries(shot_meta: dict | None) -> list[dict]:
 
 def locked_cast_criteria(episode_id: str | None, shot_meta: dict | None) -> tuple[list[IdentityCriteria], list[dict]]:
     """(criteria of every locked character the shot declares, [{character, name, reason}] that cannot be
-    judged). Blocking (sqlite, file hashes): call it in a thread from async code."""
+    judged). Each character is judged with the identity profile its show's cast entry names (else
+    GENERIC_PROFILE) and the show's style note. Blocking (sqlite, file hashes): call it in a thread
+    from async code."""
     from hfvg import cast_store
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
 
     entries = locked_entries(shot_meta)
     if not entries:
@@ -155,18 +165,28 @@ def locked_cast_criteria(episode_id: str | None, shot_meta: dict | None) -> tupl
         library, error = None, f"cast library unavailable ({type(e).__name__})"
     else:
         error = None if library else "no episode to find the cast library"
+    show, show_error = None, None
+    if library is not None:
+        try:
+            show = resolve_show_profile(episode_id)
+        except ShowProfileError as e:
+            show_error = f"the show profile does not load: {str(e)[:200]}"
     for entry in entries:
         slug = entry.get("character")
         try:
             if library is None:
                 raise IdentityLockError(error)
+            if show is None:
+                raise IdentityLockError(show_error)
             character = cast_store.find_character(library, slug)
             if character is None:
                 raise IdentityLockError(f"{entry.get('name') or slug} is not in the episode's cast library")
             version = next((v for v in character["versions"] if v["version"] == entry.get("version")), None)
             if version is None:
                 raise IdentityLockError(f"{character['name']} has no version {entry.get('version')}")
-            criteria.append(criteria_from_lock(character, version, episode_id))
+            found = criteria_from_lock(character, version, episode_id)
+            criteria.append(replace(found, profile=show.identity_profile_for(found.slug) or found.profile,
+                                    style_note=show.style_note))
         except IdentityLockError as e:
             problems.append({"character": slug, "name": entry.get("name"), "reason": str(e)})
         except Exception as e:  # noqa: BLE001 - a cast DB error is never a pass
@@ -610,7 +630,7 @@ class VisionIdentityJudge(IdentityJudge):
         return await self.service.ask(JudgeCall(
             kind="identity", episode_id=criteria.episode_id,
             subject=f"{(shot_context or {}).get('shot_id') or ''} {criteria.slug}".strip(),
-            system=judge_system(profile, labels, state), text=text,
+            system=with_style_note(judge_system(profile, labels, state), criteria.style_note), text=text,
             images=[prepare_image(composite_path, COMPOSITE_PX)],
             key_parts={"composite": file_sha256(composite_path), "criteria": criteria.key(), "state": state,
                        "panels": labels},

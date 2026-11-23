@@ -284,6 +284,7 @@ presets:
   - id: mascot-sketch
     name: "Recurring mascot sketch"
     description: "Episodic comedy starring your non-human mascot"
+    catalogue: "animal-pack"
     template: dialogue_episode
     aspect: "16:9"
     length_s: [30, 45]
@@ -321,6 +322,7 @@ presets:
   - id: animal-remake
     name: "Animal cast remake"
     description: "A story replayed by animals"
+    catalogue: "animal-pack"
     template: dialogue_episode
     aspect: "16:9"
     length_s: [45, 75]
@@ -379,6 +381,7 @@ presets:
   - id: cute-greeting
     name: "Cute holiday greeting"
     description: "Plush mascots wishing a happy occasion"
+    catalogue: "animal-pack"
     template: cozy_micro
     aspect: "9:16"
     length_s: [10, 15]
@@ -400,6 +403,7 @@ presets:
   - id: mascot-day
     name: "Mascot day-in-the-life"
     description: "Your animal mascot runs a tiny errand"
+    catalogue: "animal-pack"
     template: cozy_micro
     aspect: "9:16"
     length_s: [15, 20]
@@ -553,6 +557,7 @@ presets:
   - id: creature-legend
     name: "Fantasy creature legend"
     description: "A painterly legend of magical creatures"
+    catalogue: "animal-pack"
     template: music_montage
     aspect: "4:3"
     length_s: [60, 180]

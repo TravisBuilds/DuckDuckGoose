@@ -103,7 +103,7 @@ async def _init_db() -> None:
 async def old_worker_phase(target: str, base: Path) -> dict:
     from temporalio.client import Client
 
-    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+    from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
     from hfvg.temporal_converter import temporal_data_converter
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from tests.lint_helpers import lint_ok, write_kit
@@ -148,7 +148,7 @@ async def old_worker_phase(target: str, base: Path) -> dict:
 async def new_worker_phase(target: str, base: Path) -> dict:
     from temporalio.client import Client
 
-    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+    from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
     from hfvg.temporal_converter import temporal_data_converter
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2
     from tests.lint_helpers import lint_ok

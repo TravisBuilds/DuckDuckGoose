@@ -7,7 +7,8 @@ declared character, plus the figures nobody declared (``unexpected`` as subjects
 description, sends one sheet image per declared character of the cast library, and names the
 shot's props and place so they are not counted. A clip is counted on frames spread across its trim
 window: the largest number seen in one frame. The answer is cached by the media's content hash, the
-frame times, the roster, the props and the reference images.
+frame times, the roster, the props and the reference images. A show with a style note (show profile
+``judges.style_note``) has it after the instructions and in the cache key.
 
 Errors are raised (``JudgeUnavailable``): ``check_headcount`` turns them into NEEDS_REVIEW for that
 shot. A reviewer's recorded headcount still wins (``ReviewerHeadcountCounter`` asks this counter only
@@ -36,7 +37,9 @@ from hfvg.qc.judges import (
     is_video,
     prepare_image,
     probe_duration,
+    show_style_note,
     spread_times,
+    with_style_note,
 )
 
 FRAMES_PER_CLIP = 3
@@ -135,6 +138,7 @@ class VisionCastCounter(CastCounter):
         media = Path(media_path)
         meta = shot_context.get("shot_meta") or {}
         episode_id = shot_context.get("episode_id")
+        note = await asyncio.to_thread(show_style_note, episode_id)
         refs = await asyncio.to_thread(_cast_refs, episode_id, meta)
         listed = [[f.id, f.name, f.description, f.group] for f in roster.figures]
         props = [p for p in _not_figures(meta) if p]
@@ -150,6 +154,8 @@ class VisionCastCounter(CastCounter):
             images = [prepare_image(f, MEDIA_PX) for f in frames] + [prepare_image(p, REF_PX) for _n, p in refs]
             key_parts = {"media": file_sha256(media), "times": times, "figures": listed,
                          "props": props, "refs": [file_sha256(p) for _n, p in refs]}
+            if note:
+                key_parts["style_note"] = note
         lines = [f"Shot {shot_context.get('shot_id') or ''}: {len(frames)} frame(s) to count."]
         lines += ["Figures:", *_listing(roster)] if roster.figures else \
             ["The shot declares no figures: every figure in frame is unexpected or background."]
@@ -159,10 +165,9 @@ class VisionCastCounter(CastCounter):
             lines.append("Reference images after the frames, in order: " + ", ".join(n for n, _p in refs) + ".")
         answer = await self.service.ask(JudgeCall(
             kind="headcount", episode_id=episode_id, subject=f"{shot_context.get('shot_id') or ''} {media.name}".strip(),
-            system=SYSTEM, text="\n".join(lines), images=images, key_parts=key_parts, validate=_validator(roster)))
+            system=with_style_note(SYSTEM, note), text="\n".join(lines), images=images, key_parts=key_parts,
+            validate=_validator(roster)))
         return {"figures": answer["figures"], "unexpected": answer["unexpected"], "background": answer["background"],
                 "confidence": answer["confidence"],
                 "method": "vision_judge"}
 
-
-VisionAnimalCounter = VisionCastCounter  # the name before the general headcount

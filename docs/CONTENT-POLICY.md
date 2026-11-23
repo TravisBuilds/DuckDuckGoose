@@ -24,6 +24,10 @@ This policy defines what content is acceptable when using the Hands-Free Video G
 - Real people (celebrities, public figures, identifiable individuals)
 - Copyrighted locations (specific theme parks, branded venues)
 
+Every show profile carries `policy.real_people: "refuse"`, its only value: no show can switch real
+people on, and a satire or a parody uses invented characters
+([SHOW-PROFILE.md](SHOW-PROFILE.md#real-people)).
+
 ### 2. No Filter Evasion
 
 ✅ **Allowed:**
@@ -235,7 +239,12 @@ Develop your own characters with unique traits:
 
 ## Prompt Lint Rules
 
-`lint_prompt(prompt, shot_meta, kit)` checks (exact clause texts come from the episode's lint kit):
+The rules are show data: an episode's `show.json` sets them (`lint`, [SHOW-PROFILE.md](SHOW-PROFILE.md)):
+its count clause, required clauses with the shots they apply to, near-word rules, banned words and
+continuity locks, each with its own message. None of the clauses below applies to such a show unless
+it declares it. An episode read through the legacy adapter (the first series' `prompt_kit.json`)
+keeps that series' rules, unchanged. `lint_prompt(prompt, shot_meta, kit)` then checks (exact clause
+texts come from the episode's lint kit):
 
 1. **Count clause** matching `shot_meta.count` (kit `count_template`)
 2. **Locked-camera clause** on exterior / water shots
@@ -249,8 +258,8 @@ Develop your own characters with unique traits:
 
 ### Which rules apply
 
-The `"lint"` value of the episode's `prompt_kit.json` decides (a `PROMPT_LINT_KIT_PATH` file must
-hold lint rules, or `"lint": "default"`):
+An episode's `show.json` comes first. Without one, the `"lint"` value of the episode's
+`prompt_kit.json` decides (a `PROMPT_LINT_KIT_PATH` file must hold lint rules, or `"lint": "default"`):
 
 | `"lint"` | Rules |
 |---|---|

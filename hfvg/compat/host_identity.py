@@ -1,10 +1,12 @@
-"""Compatibility shim: the duck host identity gate of the first series (G2.03 / G3.03 / G4.02).
+"""Compatibility shim: the duck host identity gate of the first series (G2.03 / G3.03 / G4.02),
+formerly hfvg.qc.duck_identity.
 
 The pipeline judges identity only for locked cast-library characters (hfvg.qc.identity), so a duck
 host that is a locked cast character is checked like any other. This module keeps the first
 series' gate for the code and tests written against it: ``DUCK_HOST_PROFILE`` holds its rules as
-profile data (signs bill, head, neck ring, body, too small; apparel tuque and vest; the tuft in "B"
-shots; the 0.12 height floor for the host), ``DuckIdentityGate`` runs them through the generic gate
+profile data, the legacy adapter's ``identity_profiles.duck_host`` (examples/first-series/show.json:
+signs bill, head, neck ring, body, too small; apparel tuque and vest; the tuft in "B" shots; the
+0.12 height floor for the host), ``DuckIdentityGate`` runs them through the generic gate
 with a folder of reference images, and its detector and judge interfaces take no criteria.
 ``create_gate()`` defaults to the always-pass fakes, which are for dry run only: a live check with
 them escalates. Nothing in the pipeline calls this gate.
@@ -18,7 +20,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from hfvg.qc.identity import IdentityCriteria, IdentityGate, IdentityProfile
+from hfvg.compat.legacy_show import host_identity_profile
+from hfvg.qc.identity import IdentityCriteria, IdentityGate
 
 REF_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
@@ -111,24 +114,7 @@ class FakeVisionJudge(VisionJudge):
         }
 
 
-DUCK_HOST_PROFILE = IdentityProfile(
-    name="duck_host",
-    label="Duck",
-    signs={
-        "bill": "bill shape and length",
-        "head": "head shape",
-        "neck_ring": "a white neck ring (0 absent, 2 clearly present)",
-        "body": "body shape",
-        "too_small": "is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)",
-    },
-    apparel={"tuque": "cream tuque with a pom", "vest": "vest fading from cream to olive"},
-    hint_signs=("neck_ring",),
-    state_key="duck_state",
-    state_features={"B": ("tuft", "3-lobe tuft at a quarter of the head height")},
-    min_height_fraction=0.12,
-    presence=("duck_role", "host"),
-    presence_note="host role",
-)
+DUCK_HOST_PROFILE = host_identity_profile()  # identity_profiles.duck_host of examples/first-series/show.json
 
 
 def _ref_images(refs_path: Path | None) -> tuple[tuple[str, str], ...]:

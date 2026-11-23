@@ -177,7 +177,7 @@ M["bytedance/seedance-2.5/image-to-video"]={
  },
  "harness_policy":{"min_duration_s":4,"blocked_tags":["wet"],"multi_animal":"count>1 must use Kling","tier_resolution":{"draft":"480p","final":"1080p"}},
  "cost":{"unit":"second","list_usd_per_s":{"480p":0.2056,"720p":0.4622,"1080p":1.1372},"sources":["harness_seedance_rates"],"note":"The /estimate endpoint returns a pricing description, not USD, for Seedance; list price before discounts. Re-verify."},
- "moderation":[{"quirk":"Seedance 2.x does not accept reference images or videos containing REAL human faces (portrait assets need the verified asset library). Cartoon/animal content is unaffected.","sources":["bp_video_task","bp_las"]},
+ "moderation":[{"quirk":"Seedance 2.x does not accept reference images or videos containing REAL human faces (portrait assets need the verified asset library). Cartoon and other non-human content is unaffected.","sources":["bp_video_task","bp_las"]},
                {"quirk":"failed/nsfw are uncharged.","sources":["hf_billing"]}],
 }
 M["bytedance/seedance-2.5/reference-to-video"]={

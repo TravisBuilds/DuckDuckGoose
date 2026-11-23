@@ -36,7 +36,7 @@ def shot_motion_text(shot: dict[str, Any] | None) -> str:
 
 
 def infer_object_contact(text: str) -> list[str]:
-    """Keywords in the motion text that imply a hand/wing/mouth-object action (empty = none)."""
+    """Keywords in the motion text that imply a hand/limb/mouth-object action (empty = none)."""
     t = (text or "").lower().split("setting:")[0]          # the action, not the set description
     t = _PLATE_REF_RE.sub(" ", t)
     t = " " + re.sub(r"[^a-z ]+", " ", t) + " "
@@ -236,7 +236,7 @@ def motion_qc_cut(assembly_manifest: dict[str, Any], signals: np.ndarray, fps: f
     return {"shots": reps, "warnings": warns}
 
 
-# ---- GAP-78 (r13 v11): duck-crop out-and-back reversal + fast pose snap --------------------------------
+# ---- GAP-78 (r13 v11): subject-crop out-and-back reversal + fast pose snap -----------------------------
 # Learned on v10: a head turn seen as optical flow is ONE run (+ while turning away); turning back is the
 # OPPOSITE run. So a double take on a subject crop = two adjacent opposite runs whose displacements
 # cancel (the head ends where it started). GAP-75's A-B-A rule fits whole-body sway, and missed V11's
@@ -302,7 +302,7 @@ def appearance_change(frames: Iterable[np.ndarray], lag: int = 6,
 def pose_snaps(change: Sequence[float], fps: float, min_change: float = 0.3,
                max_base: float = 0.18) -> list[dict[str, Any]]:
     """GAP-78: fast pose snap = appearance change over ~0.25 s >= min_change while the shot's median
-    change stays <= max_base (the subject otherwise holds; a walk/waddle has a high median). One flag
+    change stays <= max_base (the subject otherwise holds; a walking gait has a high median). One flag
     per contiguous span above half the peak."""
     c = np.asarray(change, float)
     if len(c) < 4:

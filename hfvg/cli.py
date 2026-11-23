@@ -283,7 +283,7 @@ def wait_result(episode_id: str):
 @click.option("--model", default=None, help="Model to use (defaults to still_model_path())")
 @click.option("--resolution", default="1k", help="Image resolution")
 @click.option("--quality", default="medium", help="Image quality")
-@click.option("--prompt", default="A cozy mountain resort lobby with timber beams", help="Generation prompt")
+@click.option("--prompt", default="A sunlit studio kitchen with a long wooden table", help="Generation prompt")
 def canary(model: str | None, resolution: str, quality: str, prompt: str):
     """
     Generate ONE draft-tier still for real (with confirmation).

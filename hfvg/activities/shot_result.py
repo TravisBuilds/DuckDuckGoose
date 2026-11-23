@@ -32,7 +32,7 @@ async def record_shot_result(
         status: Shot status (pending, in_progress, complete, failed)
         still_url: URL to still image
         clip_url: URL to clip video
-        qc_results: QC verdicts dict with gates (duck_identity, motion, stillgate, etc.)
+        qc_results: QC verdicts dict with gates (identity, motion, stillgate, etc.)
         retries: Number of retries
         prompt: Generation prompt
         clear_clip: If True, explicitly clear clip_url (for when a new still is generated)

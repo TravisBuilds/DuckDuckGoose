@@ -1,0 +1,47 @@
+{
+  "about": "Show vocabulary allowed in core files (tests/test_core_has_no_show_vocabulary.py). path: a file or a glob; pattern: a regex found in the allowed line (in the path, for a file name); reason: why the words stay; remove_by: the date by which the entry is gone or renewed with a new reason.",
+  "entries": [
+    {
+      "path": "hfvg/compat/*",
+      "pattern": ".",
+      "reason": "The compatibility layer: the legacy adapter (the first series as a show profile) and the shims that keep its recorded episodes, stored headcount rows and older importers working. The only place in the engine where that series' words may stay; see docs/SHOW-PROFILE.md.",
+      "remove_by": "2027-06-30"
+    },
+    {
+      "path": "hfvg/qc/animal_count.py",
+      "pattern": "animal_count",
+      "reason": "Deprecated module name: a three-line re-export of hfvg.compat.species_counter that warns, kept one release for older importers.",
+      "remove_by": "2027-02-28"
+    },
+    {
+      "path": "hfvg/data/genre_presets.yaml",
+      "pattern": ".",
+      "reason": "Optional archetype catalogue of the create wizard: the cards tagged catalogue \"animal-pack\" are about non-human characters by design. Allowed by path, not by word.",
+      "remove_by": "2027-11-30"
+    },
+    {
+      "path": "web/lib/presets.ts",
+      "pattern": ".",
+      "reason": "The web mirror of hfvg/data/genre_presets.yaml (tests/test_preset_sync.py), same catalogue cards. Allowed by path, not by word.",
+      "remove_by": "2027-11-30"
+    },
+    {
+      "path": "hfvg/motion_qc.py",
+      "pattern": "^GAIT_RE = re\\.compile\\(",
+      "reason": "Gait verbs the motion check recognises in any shot's motion text (a waddling walk is a walk). A word list, not a show rule; changing it would change the motion QC of recorded episodes.",
+      "remove_by": "2027-06-30"
+    },
+    {
+      "path": "hfvg/motion_qc.py",
+      "pattern": "^\"paw\"\\)$",
+      "reason": "Object-contact word of the motion check (a limb that handles an object), next to hand and mouth. A word list, not a show rule; changing it would change the motion QC of recorded episodes.",
+      "remove_by": "2027-06-30"
+    },
+    {
+      "path": "hfvg/workflows/episode_v2.py",
+      "pattern": "\"duck\"|shot_meta\\.duck",
+      "reason": "Workflow code pinned by replay (parked runs): the recompose validator keeps accepting the first series' flag-figure key that running workflows and the legacy adapter use. A show's own shot flags travel under \"flags\".",
+      "remove_by": "2027-06-30"
+    }
+  ]
+}

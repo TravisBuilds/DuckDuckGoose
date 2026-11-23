@@ -87,7 +87,7 @@ import json  # noqa: E402
 
 from temporalio.testing import WorkflowEnvironment  # noqa: E402
 
-from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter  # noqa: E402
+from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter  # noqa: E402
 from tests.lint_helpers import lint_ok  # noqa: E402
 from tests.test_audio_delivery_workflow import PROMPT, _delivered, write_audio  # noqa: E402
 from tests.test_moderation_recovery import Harness, _wait, dry_env  # noqa: E402,F401

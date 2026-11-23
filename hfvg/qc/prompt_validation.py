@@ -57,12 +57,20 @@ def validate_prompt(prompt: str, shot_params: dict[str, Any] | None = None) -> s
     return prompt
 
 
-def suggest_ambient_motion(shot_context: dict[str, Any]) -> list[str]:
+def _names(subject: str, room: str, tags_lower: list[str], tag_match: str) -> bool:
+    if subject in room:
+        return True
+    return any(subject in t for t in tags_lower) if tag_match == "contains" else subject in tags_lower
+
+
+def suggest_ambient_motion(shot_context: dict[str, Any], profile: Any = None) -> list[str]:
     """
     Suggest appropriate ambient motion for a shot based on context.
     
     Args:
         shot_context: Shot parameters (tags, room, tod, etc.)
+        profile: The show profile whose characters' motion is suggested (``motion_suggestions``,
+            hfvg.show_profile; None: the legacy adapter's)
     
     Returns:
         List of suggested ambient motion elements
@@ -94,12 +102,13 @@ def suggest_ambient_motion(shot_context: dict[str, Any]) -> list[str]:
     if "night" in tod or "aurora" in tod:
         suggestions.extend(["aurora glowing softly", "dome windows glow"])
     
-    # Animal motion
-    if "moose" in room or any("moose" in t for t in tags_lower):
-        suggestions.extend(["breath steam", "ear flicks", "tail swish", "head turn"])
-    
-    if "duck" in room or "duck" in tags_lower:
-        suggestions.extend(["tuque pom bobs", "bill tilt", "head turn"])
+    # The show's characters, named in the room or the tags
+    if profile is None:
+        from hfvg.compat import legacy_show
+        profile = legacy_show.series_profile()
+    for item in profile.motion_suggestions:
+        if _names(item.subject, room, tags_lower, item.tag_match):
+            suggestions.extend(item.suggestions)
     
     # Default atmospheric
     if not suggestions:

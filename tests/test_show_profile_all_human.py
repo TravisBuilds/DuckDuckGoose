@@ -542,3 +542,200 @@ def test_a_plate_scales_the_shows_roles_against_its_scale_reference(tmp_path):
     spec["duck_height_frac"] = 0.4
     with pytest.raises(plate_composite.PlateSpecError, match="mixes"):
         plate_composite.validate_spec(spec)
+
+
+# ------------------------------------------------------------------------------------------ headcount, identity, budget
+
+NOTE = "A live television look: hard studio light, so the suits read a shade darker than on the sheets."
+
+
+def assumed_words(text: str) -> set[str]:
+    """Species words and the look words of tests/test_qc_any_show.py's ASSUMED list."""
+    from tests.test_qc_any_show import ASSUMED
+
+    return species_words(text) | (ASSUMED & set(re.findall(r"[a-z0-9]+", str(text).lower())))
+
+
+@pytest.fixture
+async def judged(satire, tmp_path, monkeypatch):
+    """The fixture show as a live episode (the judges' ledger) with its cast.json locked in the
+    episode's cast library and its prop in the prop library, so the shot plans carry the cast entries
+    and the prop the planner writes."""
+    from hfvg import cast_store
+    from tests.cast_helpers import complete_sheet, new_prop
+    from tests.qc_judge_helpers import live_episode, reset_registries
+
+    reset_registries()
+    db = await live_episode(tmp_path, monkeypatch, EP)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    data = json.loads((FIXTURE / "cast.json").read_text(encoding="utf-8"))
+    for i, row in enumerate(data["characters"]):
+        character = cast_store.create_character(("episode", EP), row["name"], row["role"], row["description"],
+                                                slug=row["slug"], actor="tester", body_type=row["body_type"])
+        complete_sheet(character, 1, seed=200 + 10 * i)
+        cast_store.approve_version(character["character_id"], 1, "tester")
+    for row in data["props"]:
+        new_prop(("episode", EP), name=row["name"], kind=row["kind"], description=row["description"],
+                 slug=row["slug"])
+    yield db
+    reset_registries()
+
+
+def _metas() -> dict:
+    from hfvg.shot_data import load_shot_plans
+
+    return {sid: plan["shot_meta"] for sid, plan in load_shot_plans(EP, require=False).items()}
+
+
+def _still(tmp_path, sid: str, seed: int = 0):
+    from tests.qc_judge_helpers import image
+
+    return image(tmp_path / "stills" / f"{sid}_v{seed + 1}.png", color=(80 + seed * 9, 120, 190), seed=seed)
+
+
+async def test_the_headcount_counts_the_shows_people_and_adds_no_figure_of_its_own(judged, tmp_path):
+    from hfvg.qc.headcount import FakeCastCounter, check_headcount, shot_roster, show_flag_figures
+
+    metas = _metas()
+    assert show_flag_figures(EP) == ()
+
+    def figures(sid):
+        return [(f.id, f.name, f.expected, f.group) for f in shot_roster(metas[sid], show_flag_figures(EP)).figures]
+
+    assert figures("S02") == [("candidate-grey", "Candidate Grey", 1, False),
+                              ("candidate-blue", "Candidate Blue", 1, False)]
+    assert figures("S03") == [("moderator", "The Moderator", 1, False)], "alone, and off camera adds nobody"
+    assert figures("S04") == [("moderator", "The Moderator", 1, False), ("_cast", "other cast", 4, True)]
+    assert figures("S01") == figures("S05") == [], "nobody in frame; the desk bell is a prop"
+
+    counter = FakeCastCounter()
+    for sid, meta in metas.items():
+        res = await check_headcount(counter, _still(tmp_path, sid), meta,
+                                    shot_context={"episode_id": EP, "shot_id": sid})
+        assert res["status"] == "PASS", (sid, res)
+        assert not assumed_words(json.dumps(res)), res
+    assert [ctx["flag_figures"] for ctx in counter.contexts] == [()] * len(metas)
+
+    for sid, counts, reason in [
+        ("S02", {"candidate-blue": 2}, "Candidate Blue: expected 1, counted 2"),
+        ("S03", {"moderator": 0}, "The Moderator: expected 1, counted 0"),
+        ("S04", {"_cast": 3}, "other cast: expected 4, counted 3"),
+        ("S01", {"unexpected": 1}, "unexpected figures: expected 0, counted 1"),
+        ("S05", {"unexpected": 1}, "unexpected figures: expected 0, counted 1"),
+    ]:
+        res = await check_headcount(FakeCastCounter(counts), _still(tmp_path, sid), metas[sid],
+                                    shot_context={"episode_id": EP, "shot_id": sid})
+        assert (res["status"], res["reason"]) == ("FAIL", reason), res
+        assert not assumed_words(res["reason"])
+
+
+async def test_the_counters_request_names_the_shows_people_in_their_own_words(judged, tmp_path):
+    from hfvg.qc import vision_counter
+    from hfvg.qc.g2_headcount import check_still_headcount
+    from hfvg.qc.judges import FakeJudgeClient, JudgeService
+
+    metas = _metas()
+    answers = [{"figures": {"candidate-grey": {"count": 1, "matches": True},
+                            "candidate-blue": {"count": 1, "matches": True}},
+                "unexpected": 0, "background": 0, "confidence": 0.9, "notes": "counted"},
+               {"figures": {}, "unexpected": 0, "background": 0, "confidence": 0.9, "notes": "counted"}]
+    fake = FakeJudgeClient(*answers)
+    counter = vision_counter.VisionCastCounter(JudgeService(fake))
+    for sid in ("S02", "S05"):
+        res = await check_still_headcount(counter, _still(tmp_path, sid), metas[sid],
+                                          shot_context={"episode_id": EP, "shot_id": sid})
+        assert res["status"] == "PASS", res
+    two, bell = fake.calls
+    for entry in metas["S02"]["cast"]:
+        assert f"- {entry['character']}: {entry['clause']}" in two["text"]
+    assert "Reference images after the frames, in order: Candidate Grey, Candidate Blue." in two["text"]
+    assert "Not figures (props and the setting): Desk bell: a small brass desk bell on a round black base." \
+        in bell["text"]
+    assert two["system"] == bell["system"] == vision_counter.SYSTEM, "no style note: the instructions as before"
+    for call in fake.calls:
+        assert not assumed_words(call["system"]) and not assumed_words(call["text"]), call["text"]
+
+
+def _register_identity(fake) -> None:
+    from hfvg.qc.identity import VisionCharacterDetector, VisionIdentityJudge, set_identity_judge
+    from hfvg.qc.judges import JudgeService
+
+    service = JudgeService(fake)
+    set_identity_judge(VisionCharacterDetector(service), VisionIdentityJudge(service))
+
+
+async def test_the_identity_judge_uses_the_shows_identity_signs(judged, tmp_path):
+    from hfvg.qc.identity import GENERIC_PROFILE, identity_review
+    from tests.qc_judge_helpers import detect_answer, identity_answer, routed_client
+
+    meta = _metas()["S02"]
+    signs = resolve_show_profile(EP).identity_profiles["invented_person"].signs
+    fake = routed_client(detect=[detect_answer("candidate-grey", "candidate-blue")],
+                         identity=[identity_answer(signs=tuple(signs))] * 2)
+    _register_identity(fake)
+    res = await identity_review(_still(tmp_path, "S02"), kind="still", episode_id=EP, shot_id="S02", shot_meta=meta)
+    assert res["status"] == "PASS" and [r["name"] for r in res["characters"]] == ["Candidate Grey", "Candidate Blue"]
+    assert fake.asked() == ["detect", "identity", "identity"]
+    (system,) = {c["system"] for c in fake.calls if c["judge"] == "identity"}
+    assert all(f"- {sign}: {what}" in system for sign, what in signs.items())
+    assert not [s for s in GENERIC_PROFILE.signs if s not in signs and f"- {s}: " in system]
+    for call in fake.calls:
+        assert not assumed_words(call["system"]) and not assumed_words(call["text"]), call["text"]
+
+    fake = routed_client(detect=[detect_answer("candidate-grey", "candidate-blue")],
+                         identity=[identity_answer(signs=tuple(signs)),
+                                   identity_answer({"suit": 2}, signs=tuple(signs))])
+    _register_identity(fake)
+    res = await identity_review(_still(tmp_path, "S02", seed=1), kind="still", episode_id=EP, shot_id="S02",
+                                shot_meta=meta)
+    assert res["status"] == "FAIL" and res["reason"].startswith("Candidate Blue: Drift detected: suit"), res
+
+
+async def test_a_style_note_follows_the_judges_instructions_and_keys_their_answers(judged, satire, tmp_path):
+    from hfvg.qc import vision_counter
+    from hfvg.qc.g2_headcount import check_still_headcount
+    from hfvg.qc.identity import identity_review
+    from hfvg.qc.judges import FakeJudgeClient, JudgeService
+    from tests.qc_judge_helpers import detect_answer, identity_answer, routed_client
+
+    meta = _metas()["S03"]
+    still = _still(tmp_path, "S03")
+    answer = {"figures": {"moderator": {"count": 1, "matches": True}}, "unexpected": 0, "background": 0,
+              "confidence": 0.9, "notes": "counted"}
+    fake = FakeJudgeClient(answer, answer)
+    counter = vision_counter.VisionCastCounter(JudgeService(fake))
+    ctx = {"episode_id": EP, "shot_id": "S03"}
+    for _ in range(2):
+        assert (await check_still_headcount(counter, still, meta, shot_context=ctx))["status"] == "PASS"
+    assert len(fake.calls) == 1, "the same question again is answered from the cache"
+
+    data = json.loads((satire / "show.json").read_text(encoding="utf-8"))
+    data["judges"] = {"style_note": NOTE}
+    (satire / "show.json").write_text(json.dumps(data), encoding="utf-8")
+    assert (await check_still_headcount(counter, still, meta, shot_context=ctx))["status"] == "PASS"
+    assert len(fake.calls) == 2, "a style note is part of the question: not the cached answer"
+    assert fake.calls[1]["system"] == f"{vision_counter.SYSTEM}\nThe show's style: {NOTE}"
+    assert fake.calls[1]["text"] == fake.calls[0]["text"]
+
+    signs = tuple(resolve_show_profile(EP).identity_profiles["invented_person"].signs)
+    fake = routed_client(detect=[detect_answer("moderator")], identity=[identity_answer(signs=signs)])
+    _register_identity(fake)
+    res = await identity_review(still, kind="still", episode_id=EP, shot_id="S03", shot_meta=meta)
+    assert res["status"] == "PASS", res
+    (judge,) = [c for c in fake.calls if c["judge"] == "identity"]
+    assert judge["system"].endswith(f"\nThe show's style: {NOTE}")
+    assert not [c for c in fake.calls if c["judge"] == "detect" and NOTE in c["system"]], "the detector only finds"
+
+
+async def test_the_judges_budget_is_sized_from_the_shows_shots(judged):
+    from hfvg.qc.judge_budget import (
+        ShotJudging,
+        episode_line_cap_usd_micros,
+        episode_shots,
+        line_cap_usd_micros,
+    )
+
+    shots = episode_shots(EP)
+    assert shots == [ShotJudging(), ShotJudging(locked=2, cast=2), ShotJudging(locked=1, cast=1),
+                     ShotJudging(locked=1, cast=1), ShotJudging()]
+    assert episode_line_cap_usd_micros(EP) == line_cap_usd_micros(shots)

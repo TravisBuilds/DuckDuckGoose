@@ -8,15 +8,16 @@ A reviewer counts per cast id, and the first series' cast / duck / other form st
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from hfvg.qc.animal_count import FakeAnimalCounter
+from hfvg.compat.species_counter import FakeAnimalCounter, expected_cast
 from hfvg.qc.g2_headcount import (
-    ReviewerHeadcountCounter, check_still_headcount, expected_cast, g2_headcount_report, load_headcounts,
+    ReviewerHeadcountCounter, check_still_headcount, g2_headcount_report, load_headcounts,
     record_headcount,
 )
 
@@ -302,3 +303,29 @@ async def test_api_takes_a_count_per_cast_id_and_refuses_a_mixed_or_incomplete_f
     with sqlite3.connect(tmp_path / "studio.db") as c:
         details = [d for (a, d) in c.execute("SELECT action, details FROM audit_log") if a == "g2_headcount"]
     assert any("V12 v2: ana=1 ben=1 pip=1 unexpected=1 background=0" in str(d) for d in details), details
+
+
+@pytest.mark.asyncio
+async def test_api_takes_flag_counts_as_the_neutral_spelling_of_the_older_form(api, tmp_path):
+    api_main, client = api
+    _still(tmp_path, "V12", 2)
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": CAPY3}}))
+    url = "/api/episodes/ep42/shots/V12/headcount"
+    rows = []
+    for body in ({"version": 2, "cast": 3, "flag_counts": 0}, {"version": 2, "cast": 3, "duck": 0},
+                 {"version": 2, "cast": 3, "duck": 0, "flag_counts": 0}):
+        r = await client.post(url, json=body)
+        assert r.status_code == 200, (body, r.text)
+        rows.append(r.json()["headcount"])
+    assert rows[0] == rows[1] == rows[2] == {"cast": 3, "duck": 0, "other": 0, "animal": 3, "by": "admin",
+                                             "note": ""}  # stored under the keys such rows always had
+    r = await client.post(url, json={"version": 2, "cast": 3, "duck": 1, "flag_counts": 0})
+    assert r.status_code == 422 and "flag_counts and duck are the same count; they differ" in r.text, r.text
+    r = await client.post(url, json={"version": 2, "cast": 3})
+    assert r.status_code == 422 and r.json()["detail"].endswith("both cast and duck"), r.text
+    (tmp_path / "eps" / "ep42").mkdir(parents=True, exist_ok=True)  # a show with its own profile
+    (tmp_path / "eps" / "ep42" / "show.json").write_text(json.dumps({"schema": "hfvg.show/1", "name": "Night"}))
+    r = await client.post(url, json={"version": 2, "cast": 3})
+    assert r.status_code == 422 and r.json()["detail"].endswith("both cast and flag_counts"), r.text
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1}, "cast": 1, "flag_counts": 0})
+    assert r.status_code == 422 and "cast / flag_counts / other counts, not both" in r.json()["detail"], r.text

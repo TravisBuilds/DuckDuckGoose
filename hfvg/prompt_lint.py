@@ -84,6 +84,14 @@ class LintKit:
         return self.rules.forbidden_phrases
 
     @property
+    def content_policy_terms(self) -> bool:
+        return self.rules.content_policy_terms
+
+    @property
+    def forbid_bare_waves(self) -> bool:
+        return self.rules.forbid_bare_waves
+
+    @property
     def continuity_locks(self) -> tuple:
         return self.rules.continuity_locks
 

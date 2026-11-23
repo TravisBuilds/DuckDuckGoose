@@ -2282,7 +2282,7 @@ test_mutation 272 "review_clip fails a still-only clip (per-clip stillgate)" \
 
 # 273: G-QC-2g: No animal checker escalates (never a silent pass)
 test_mutation 273 "No animal checker -> NEEDS_REVIEW" \
-    "hfvg/qc/animal_count.py" \
+    "hfvg/compat/species_counter.py" \
     "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_no_checker_escalates_never_passes" \
     sed -i 's/^        "status": NEEDS_REVIEW,$/        "status": PASS,  # MUTATED/'
 
@@ -5128,7 +5128,7 @@ test_mutation 747 "qc judges: an assembly counter error is needs review" \
 
 # 748: an unsure count in the assembly QC is NEEDS_REVIEW
 test_mutation 748 "qc judges: a low-confidence assembly count is needs review" \
-    "hfvg/qc/animal_count.py" \
+    "hfvg/compat/species_counter.py" \
     "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_deterministic_counter" \
     sed -i 's/^        if confidence < self\.confidence_threshold:$/        if False:  # MUTATED/'
 

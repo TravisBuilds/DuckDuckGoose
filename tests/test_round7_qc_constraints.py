@@ -13,9 +13,9 @@ import pytest
 import respx
 
 from hfvg.activities.qc import check_assembly_qc, review_clip
+from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
 from hfvg.qc import clip_constraints as cc
 from hfvg.qc import continuity as cont
-from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
 from hfvg.shot_data import ShotDataError, parse_episode_options, parse_shots
 from tests.lint_helpers import lint_meta
 from tests.test_picture_assembly_round3 import HB, MOVING, make_clip, needs_ffmpeg, no_counter  # noqa: F401

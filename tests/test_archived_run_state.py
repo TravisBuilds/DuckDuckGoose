@@ -115,7 +115,7 @@ async def test_a_run_purged_after_its_final_cut_was_approved_and_delivered_reads
     purged the run a day later, and the studio home card said "Not started" and its page "This video
     hasn't started yet". A real run to an approved final cut, saved through the snapshot saver's own
     code path; once the history is gone the API answers with the state the closed run reported."""
-    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+    from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
     from hfvg.spend_attribution import record_run_start
     from hfvg.studio_db import create_episode
 

@@ -455,6 +455,25 @@ class JudgeCall:
     max_output_tokens: int | None = None
 
 
+def with_style_note(system: str, note: str) -> str:
+    """A judge's system prompt with the show's style note (show profile ``judges.style_note``) after
+    it; without a note the prompt is unchanged."""
+    note = " ".join(str(note or "").split())
+    return f"{system}\nThe show's style: {note}" if note else system
+
+
+def show_style_note(episode_id: str | None) -> str:
+    """The style note of the episode's show ("" without an episode); JudgeUnavailable when its show
+    profile does not load."""
+    if not episode_id:
+        return ""
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
+    try:
+        return resolve_show_profile(episode_id).style_note
+    except ShowProfileError as e:
+        raise JudgeUnavailable(f"the show profile does not load: {str(e)[:200]}") from e
+
+
 _VERDICTS_TABLE = """CREATE TABLE IF NOT EXISTS qc_judge_verdicts (
     cache_key TEXT PRIMARY KEY,
     kind TEXT NOT NULL,

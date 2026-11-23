@@ -112,7 +112,7 @@ class CreditLedger:
         submitting a duplicate paid request.
         
         Args:
-            job_id: Our internal job ID (e.g., "ref-ep99-r_duck-v1")
+            job_id: Our internal job ID (e.g., "ref-ep99-r_host-v1")
             provider_job_id: Provider's request/job ID
             provider: Provider name
         """

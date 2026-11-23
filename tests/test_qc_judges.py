@@ -76,7 +76,7 @@ TOKEN_COST = 560
 
 
 def test_flag_is_off_by_default_and_registers_nothing(monkeypatch):
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.compat.species_counter import get_animal_counter
     from hfvg.qc.clip_constraints import get_constraint_checker
     from hfvg.qc.identity import get_identity_judge
     from hfvg.qc.still_review import get_still_reviewer
@@ -92,12 +92,11 @@ def test_flag_is_off_by_default_and_registers_nothing(monkeypatch):
 
 
 def test_flag_on_registers_every_judge_in_the_worker_and_the_counter_in_the_api(monkeypatch):
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.compat.species_counter import VisionAnimalCounter, get_animal_counter
     from hfvg.qc.clip_constraints import get_constraint_checker
     from hfvg.qc.identity import VisionCharacterDetector, VisionIdentityJudge, get_identity_judge
     from hfvg.qc.still_review import VisionStillReviewer, get_still_reviewer
     from hfvg.qc.vision_constraints import VisionClipConstraintChecker
-    from hfvg.qc.vision_counter import VisionAnimalCounter
 
     reset_registries()
     monkeypatch.setenv("HFVG_QC_JUDGES_ENABLED", "true")
@@ -166,8 +165,7 @@ async def test_api_startup_registers_the_counter_only_with_the_flag(tmp_path, mo
     import secrets
     import sys
 
-    from hfvg.qc.animal_count import get_animal_counter
-    from hfvg.qc.vision_counter import VisionAnimalCounter
+    from hfvg.compat.species_counter import VisionAnimalCounter, get_animal_counter
 
     monkeypatch.setenv("ADMIN_SECRET", secrets.token_urlsafe(32))
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "api.db"))

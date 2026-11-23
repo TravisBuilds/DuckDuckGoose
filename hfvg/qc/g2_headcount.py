@@ -13,8 +13,10 @@ cached call per still). With neither the shot is NEEDS_REVIEW - never a silent P
 error is NEEDS_REVIEW for that shot.
 
 A reviewer row is ``{"figures": {figure id: n}, "unexpected": n, "background": n, "by", "note"}``,
-the shape of the counter's answer; rows recorded before per-figure counts (cast / duck / other) are
-read through hfvg.qc.animal_count.legacy_row_answer.
+the shape of the counter's answer. Figure-count rows recorded before per-figure counts hold three
+totals: ``cast`` (the main characters, the show's flag figures excepted), the flag figures' count
+(``flag_counts``; stored under the key those rows always had, ``legacy_show.ROW_FLAG_KEY``, and read
+under either) and ``other``; they are read as one answer per figure (hfvg.qc.headcount.totals_answer).
 """
 
 from __future__ import annotations
@@ -27,21 +29,28 @@ from pathlib import Path
 from typing import Any
 
 from hfvg import paths
-from hfvg.qc.animal_count import expected_cast, legacy_row_answer
+from hfvg.compat.legacy_show import ROW_FLAG_KEY, ROW_TOTAL_KEY
 from hfvg.qc.headcount import (
     DEFAULT_CONFIDENCE_THRESHOLD,
     FAIL,
     NEEDS_REVIEW,
     PASS,
     CastCounter,
+    FlagFigures,
     Roster,
     check_headcount,
     get_cast_counter,
     shot_roster,
+    show_flag_figures,
+    totals_answer,
 )
+from hfvg.qc.judges import count_of
+from hfvg.show_profile import ShowProfileError
 
-__all__ = ["REPORT_CONCURRENCY", "ReviewerHeadcountCounter", "check_still_headcount", "expected_cast",
-           "g2_headcount_report", "headcounts_path", "load_headcounts", "record_headcount"]
+__all__ = ["FLAG_COUNTS", "REPORT_CONCURRENCY", "ReviewerHeadcountCounter", "check_still_headcount",
+           "g2_headcount_report", "headcounts_path", "load_headcounts", "record_headcount", "reviewer_answer"]
+
+FLAG_COUNTS = "flag_counts"  # the flag figures' count in a figure-count row (also read as ROW_FLAG_KEY)
 
 REPORT_CONCURRENCY = 4  # shots counted at once (each may be one judge call)
 _STILL_RE = re.compile(r"^still_v(\d+)(_end)?\.(?:jpe?g|png|webp)$", re.IGNORECASE)
@@ -72,11 +81,23 @@ def _count(counts: dict[str, Any], key: str, default: int | None = None) -> int:
     return v
 
 
+def flag_count_key(counts: dict[str, Any]) -> str:
+    """The key a figure-count row holds the flag figures' count under (FLAG_COUNTS or ROW_FLAG_KEY).
+    ValueError when it holds both with different values."""
+    if ROW_FLAG_KEY not in counts:
+        return FLAG_COUNTS
+    if FLAG_COUNTS in counts and counts[FLAG_COUNTS] != counts[ROW_FLAG_KEY]:
+        raise ValueError(f"{FLAG_COUNTS} and {ROW_FLAG_KEY} are the same count; they differ")
+    return ROW_FLAG_KEY
+
+
 def _row(counts: dict[str, Any]) -> dict[str, Any]:
-    """The stored counts of one still: per figure (``figures``), or cast / duck / other as before."""
+    """The stored counts of one still: per figure (``figures``), or the three totals of a figure-count
+    row, stored under the keys such rows always had."""
     if counts.get("figures") is None:
-        cast, duck, other = _count(counts, "cast"), _count(counts, "duck"), _count(counts, "other", 0)
-        return {"cast": cast, "duck": duck, "other": other, "animal": cast + duck + other}
+        cast = _count(counts, "cast")
+        flagged, other = _count(counts, flag_count_key(counts)), _count(counts, "other", 0)
+        return {"cast": cast, ROW_FLAG_KEY: flagged, "other": other, ROW_TOTAL_KEY: cast + flagged + other}
     figures = counts["figures"]
     if not isinstance(figures, dict) or len(figures) > MAX_FIGURES:
         raise ValueError(f"figures must be an object of at most {MAX_FIGURES} figure ids and counts")
@@ -101,13 +122,19 @@ def record_headcount(episode_id: str, shot_id: str, version: int, counts: dict[s
     return row
 
 
-def reviewer_answer(row: dict[str, Any], roster: Roster, shot_meta: dict[str, Any] | None) -> dict[str, Any]:
+def reviewer_answer(row: dict[str, Any], roster: Roster, shot_meta: dict[str, Any] | None,
+                    flag_figures: FlagFigures | None = None) -> dict[str, Any]:
     """A reviewer row in the counter's answer shape. A figure the shot does not declare (the plan
     changed after the count) is an unexpected figure; a declared one missing from the row is not
-    counted (NEEDS_REVIEW)."""
+    counted (NEEDS_REVIEW). ``flag_figures``: the show's, for a figure-count row (None:
+    ``show_flag_figures()``)."""
     method = f"reviewer_headcount ({row.get('by') or 'reviewer'})"
     if not isinstance(row.get("figures"), dict):
-        return {**legacy_row_answer(row, roster, shot_meta), "method": method}
+        figures = show_flag_figures() if flag_figures is None else flag_figures
+        flagged = row.get(ROW_FLAG_KEY) if ROW_FLAG_KEY in row else row.get(FLAG_COUNTS)
+        return {**totals_answer(roster, shot_meta, figures, cast=count_of(row.get("cast")), flagged=count_of(flagged),
+                                unexpected=count_of(row.get("other", 0)), matches=True, confidence=1.0, method=""),
+                "method": method}
     figures, unexpected = {}, _count(row, "unexpected", 0)
     for fid, n in row["figures"].items():
         if roster.figure(fid) is None:
@@ -136,7 +163,8 @@ class ReviewerHeadcountCounter(CastCounter):
     async def count_cast(self, media_path: str | Path, shot_context: dict[str, Any]) -> dict[str, Any]:
         row = self.lookup(media_path)
         if row is not None:
-            return reviewer_answer(row, shot_context["roster"], shot_context.get("shot_meta"))
+            return reviewer_answer(row, shot_context["roster"], shot_context.get("shot_meta"),
+                                   shot_context.get("flag_figures"))
         if self.fallback is not None:
             return await self.fallback.count_cast(media_path, shot_context)
         raise ValueError("no reviewer headcount recorded for this still and no counter")
@@ -148,15 +176,23 @@ class ReviewerHeadcountCounter(CastCounter):
 async def check_still_headcount(counter: CastCounter | None, image_path: str | Path | None,
                                 shot_meta: dict | None,
                                 confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-                                shot_context: dict[str, Any] | None = None) -> dict[str, Any]:
+                                shot_context: dict[str, Any] | None = None,
+                                flag_figures: FlagFigures | None = None) -> dict[str, Any]:
     """The headcount of one still against the shot's declared figures (hfvg.qc.headcount). Worst
-    status wins; a counter error is NEEDS_REVIEW. ``shot_context`` goes to the counter."""
-    if shot_roster(shot_meta) is not None and (
+    status wins; a counter error is NEEDS_REVIEW. ``shot_context`` goes to the counter;
+    ``flag_figures``: the show's (None: those of ``shot_context["episode_id"]``'s show)."""
+    if flag_figures is None:
+        try:
+            flag_figures = show_flag_figures((shot_context or {}).get("episode_id"))
+        except ShowProfileError:
+            flag_figures = None  # check_headcount says why the shot cannot be checked
+    if flag_figures is not None and shot_roster(shot_meta, flag_figures) is not None and (
             counter is None or (isinstance(counter, ReviewerHeadcountCounter) and image_path
                                 and not counter.has_source(image_path))):
-        res = await check_headcount(None, image_path, shot_meta, confidence_threshold)
+        res = await check_headcount(None, image_path, shot_meta, confidence_threshold, flag_figures=flag_figures)
         return {**res, "reason": "no headcount counter configured and no reviewer headcount recorded for this still"}
-    return await check_headcount(counter, image_path, shot_meta, confidence_threshold, shot_context, media="still")
+    return await check_headcount(counter, image_path, shot_meta, confidence_threshold, shot_context, media="still",
+                                 flag_figures=flag_figures)
 
 
 def _still_for(out_dir: Path, version: int | None) -> Path | None:
@@ -184,6 +220,10 @@ async def g2_headcount_report(episode_id: str, versions: dict, plans: dict[str, 
     data_root = Path(data_dir) if data_dir is not None else paths.data_dir()
     reviewer = ReviewerHeadcountCounter(load_headcounts(episode_id, episodes_dir),
                                         counter if counter is not None else get_cast_counter())
+    try:
+        flag_figures = show_flag_figures(episode_id)
+    except ShowProfileError:
+        flag_figures = None  # every shot says why it cannot be checked
     gate = asyncio.Semaphore(REPORT_CONCURRENCY)
 
     async def shot_report(shot_id: str) -> dict[str, Any]:
@@ -195,7 +235,8 @@ async def g2_headcount_report(episode_id: str, versions: dict, plans: dict[str, 
         async with gate:
             res = await check_still_headcount(
                 reviewer, path, plan.get("shot_meta"),
-                shot_context={"episode_id": episode_id, "shot_id": shot_id, "refs": plan.get("refs")})
+                shot_context={"episode_id": episode_id, "shot_id": shot_id, "refs": plan.get("refs")},
+                flag_figures=flag_figures)
         res.update({"version": v, "still": str(path) if path else None})
         if res["status"] == FAIL and shot_id in overrides:
             res["override"] = overrides[shot_id]

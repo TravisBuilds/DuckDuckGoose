@@ -45,6 +45,9 @@ SHOT_FLAGS = (
 # The host is counted by the headcount as one more figure when shot_meta.duck is set
 HOST_FIGURE = FlagFigure(flag=HOST_FLAG, figure_id="_duck_host", name="duck",
                          description="the series' duck host, not one of the shot's main characters")
+# Reviewer headcount rows recorded before per-figure counts (g2_headcounts.json, the headcount API's
+# older form): the key of the flag figures' count, and of the three counts' total
+ROW_FLAG_KEY, ROW_TOTAL_KEY = "duck", "animal"
 # BEATMAP code D: the host; every parsed shot carries duck_role ("host" or "absent")
 CHARACTER_CODES = {"D": CharacterCode(slug="duck", role="host", key="duck_role", absent="absent")}
 ROLE_PREFIX = "{role} duck"

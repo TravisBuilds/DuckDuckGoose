@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from hfvg.activities.qc import check_assembly_qc
-from hfvg.qc.animal_count import check_shot_animals
+from hfvg.compat.species_counter import check_shot_animals
 from hfvg.qc.g2_headcount import (
     ReviewerHeadcountCounter,
     check_still_headcount,

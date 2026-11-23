@@ -81,7 +81,7 @@ async def capture(out_path: Path, base: Path) -> None:
 
     from hfvg.budget import BudgetLedger
     from hfvg.credit_ledger import CreditLedger
-    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+    from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
     from hfvg.studio_db import init_studio_db
     from tests.lint_helpers import lint_ok, write_kit
     from tests.test_audio_delivery_workflow import PROMPT, write_audio

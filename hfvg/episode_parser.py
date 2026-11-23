@@ -85,7 +85,7 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
     scene_id = shot_id[0]
     
     # Parse characters
-    # Format examples: "H Y K", "D(T)", "K(tuque) D(B)", "–"
+    # Format examples: "H Y K", "D(T)", "K(hat) D(B)", "–"
     characters = []
     
     if chars_raw != '–':

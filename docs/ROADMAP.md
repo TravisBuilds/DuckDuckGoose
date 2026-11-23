@@ -15,6 +15,8 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
 - Red-green mutation testing (783 tests: 778 mutations + 5 probes, as of 2026-11-23)
 - Automated QC judges, off by default behind `HFVG_QC_JUDGES_ENABLED` ([QC-JUDGES.md](QC-JUDGES.md))
+- Show profiles: everything one show needs is its own data (`show.json`), the engine holds no
+  show's rules ([SHOW-PROFILE.md](SHOW-PROFILE.md), below)
 
 **🚧 In Progress:**
 - Improved error messages
@@ -111,8 +113,8 @@ model.
 - **Interface:** `CastCounter.count_cast(media_path, shot_context)` in `hfvg/qc/headcount.py`
   answers, per figure id, a count and whether it matches the declared character, plus unexpected
   and background figures, a confidence and a method; `FakeCastCounter` is for tests only;
-  `set_cast_counter()` registers one per process. The first series' species interface
-  (`AnimalCounter.count_animals` in `hfvg/qc/animal_count.py`) is an adapter of it.
+  `set_cast_counter()` registers one per process. The first series' counter interface
+  (`AnimalCounter.count_animals` in `hfvg/compat/species_counter.py`) is an adapter of it.
 - **Done when:**
   - a real counter implements `CastCounter` and is registered at startup in both processes that
     read it: the worker (assembly QC) and the API (G2 and recompose headcount);
@@ -157,9 +159,10 @@ model.
 ##### d. Identity gate for any locked character
 
 - **Now:** with the flag off no identity judge is registered, so no still or clip review checks a
-  character's identity. `hfvg/qc/duck_identity.py`, the first series' duck host gate, is a
-  compatibility shim over the generic gate (its rules as one profile); no production code calls
-  it, only `tests/test_qc_duck_identity.py` and `tests/test_e2e_dryrun.py` do.
+  character's identity. `hfvg/compat/host_identity.py` (formerly `hfvg/qc/duck_identity.py`), the
+  first series' host gate, is a compatibility shim over the generic gate (its rules as one profile
+  of `examples/first-series/show.json`); no production code calls it, only
+  `tests/test_qc_duck_identity.py` and `tests/test_e2e_dryrun.py` do.
 - **Interface:** `IdentityGate` with `CharacterDetector.detect(image, criteria)` and
   `IdentityJudge.judge_identity(composite, shot_context, criteria)` in `hfvg/qc/identity.py`;
   `DuckIdentityGate` and `create_gate()` in the shim.
@@ -207,11 +210,35 @@ ledger. The judges must be:
 **Files:**
 - `hfvg/activities/qc.py`, `hfvg/workflows/shot.py` (still and clip review)
 - `hfvg/qc/headcount.py`, `hfvg/qc/vision_counter.py`, `hfvg/qc/g2_headcount.py`,
-  `hfvg/qc/continuity.py` (counter; `hfvg/qc/animal_count.py` keeps the first series' adapters)
+  `hfvg/qc/continuity.py` (counter; `hfvg/compat/species_counter.py` keeps the first series'
+  adapters)
 - `hfvg/qc/clip_constraints.py` (clip conditions)
-- `hfvg/qc/identity.py` (identity gate; `hfvg/qc/duck_identity.py` is a compatibility shim)
+- `hfvg/qc/identity.py` (identity gate; `hfvg/compat/host_identity.py` is a compatibility shim)
 - `hfvg/worker.py`, `api/main.py` (registering the judges at startup)
 - `hfvg/budget.py`, `hfvg/balance_monitor.py` (spend)
+
+#### Show data out of the engine (owner directive, Nov 23 2026)
+
+**Status:** Built. The engine (`hfvg/`, `api/`, the web app) makes any kind of show and holds none
+of a show's rules: lint clauses, playbook rules, shot flags and the figures they add to a headcount,
+identity profiles, body presets, the sheet lead, the plate's scale reference, motion suggestions,
+the judges' style note and the gate policy file are the episode's show profile
+([SHOW-PROFILE.md](SHOW-PROFILE.md)). A show with no animals, or no characters, needs its own
+`show.json` and nothing else (`tests/fixtures/shows/human_satire/`). The first series reads through
+the legacy adapter (`examples/first-series/show.json`) and keeps its lint and playbook messages,
+headcount rosters, sheet prompts, judge prompts and cache keys byte for byte (goldens in
+`tests/fixtures/legacy_golden/`). `tests/test_core_has_no_show_vocabulary.py` keeps species and
+show words out of the engine, with a dated allowlist. Real people stay refused: `policy.real_people`
+has the one value `refuse`.
+
+Left:
+- remove the compatibility layer once no stored run or client needs it, by the dates in
+  `tests/show_vocabulary_allowlist.json`: `hfvg/compat/`, the `hfvg.qc.animal_count` alias, the
+  `animal_results` mirror of assembly QC, the `duck` spelling of the reviewer headcount's
+  `flag_counts`, the recompose validator's first-series key (workflow code, behind a patch);
+- the workflow's gate lookup reads the deployment's policy; a show's `gates.policy_file` is
+  validated and reported, not yet used by the gate activity;
+- per-character identity rules in the cast library (today a show maps cast slugs to its profiles).
 
 #### 2. Audio Pipeline
 

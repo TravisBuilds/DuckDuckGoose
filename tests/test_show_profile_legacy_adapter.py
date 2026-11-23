@@ -117,3 +117,38 @@ def test_the_shots_and_lint_overrides_keep_an_episode_on_the_adapter(episodes, t
     shots.write_text(json.dumps(HOST_SHOTS))
     monkeypatch.setenv("SHOTS_JSON_PATH", str(shots))
     assert show_profile.resolve_show_profile("ep99").source == "legacy-adapter"
+
+
+def test_the_old_counter_module_re_exports_the_compat_module_with_a_deprecation_warning(monkeypatch):
+    import importlib
+    import sys
+    import warnings
+
+    from hfvg.compat import species_counter
+
+    monkeypatch.delitem(sys.modules, "hfvg.qc.animal_count", raising=False)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        old = importlib.import_module("hfvg.qc.animal_count")
+    assert [str(w.message) for w in caught if w.category is DeprecationWarning] == [
+        "hfvg.qc.animal_count moved to hfvg.compat.species_counter"]
+    assert {name: getattr(old, name) for name in species_counter.__all__} == {
+        name: getattr(species_counter, name) for name in species_counter.__all__}
+    assert len(Path(old.__file__).read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_the_host_identity_gate_reads_its_rules_from_the_first_series_profile():
+    from hfvg.compat.host_identity import DUCK_HOST_PROFILE
+
+    data = json.loads(FIRST_SERIES.read_text(encoding="utf-8"))
+    assert DUCK_HOST_PROFILE == show_profile.parse_profile(data).identity_profiles["duck_host"]
+
+
+def test_a_lint_kit_still_answers_its_flat_switches():
+    from hfvg.prompt_lint import LintKit, default_lint_kit
+
+    kit = LintKit.from_dict(SYNTHETIC_LINT_KIT)
+    assert (kit.forbid_bare_waves, kit.content_policy_terms) == (True, False)  # a series kit, as before
+    assert (default_lint_kit().forbid_bare_waves, default_lint_kit().content_policy_terms) == (False, True)
+    neutral = LintKit(rules=show_profile.neutral_profile().lint, profile="show")
+    assert (neutral.forbid_bare_waves, neutral.content_policy_terms) == (False, True)

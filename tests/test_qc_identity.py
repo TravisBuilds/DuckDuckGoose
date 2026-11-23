@@ -3,7 +3,7 @@ docs/QC-JUDGES.md): criteria from the character's lock in the cast library, a co
 (the locked sheet next to the character cut out of the frame), a vision detector and judge, then the
 profile's rules. Anything the gate cannot judge (no judge, the dry-run fakes on a live run, a changed
 lock, an unsure or broken detector or judge, a budget refusal) escalates; drift is a FAIL. The first
-series' duck host gate (hfvg.qc.duck_identity, a compatibility shim: its rules are one profile of the
+series' duck host gate (hfvg.compat.host_identity, a compatibility shim: its rules are one profile of the
 same gate) has its live tests here, its dry-run tests in test_qc_duck_identity.py and
 test_e2e_dryrun.py; shows of people, robots and props are in test_qc_any_show.py. FakeJudgeClient
 only: no network, no spend."""
@@ -19,7 +19,7 @@ import respx
 
 from hfvg import cast_store
 from hfvg.activities.qc import review_clip
-from hfvg.qc.duck_identity import DuckIdentityGate, FakeDuckDetector, FakeVisionJudge
+from hfvg.compat.host_identity import DuckIdentityGate, FakeDuckDetector, FakeVisionJudge
 from hfvg.qc.identity import (
     COMPOSITE_PX,
     ESCALATE,

@@ -24,9 +24,9 @@ from temporalio.testing import WorkflowEnvironment
 from hfvg import aspect, audio_mix, genre_drafts
 from hfvg.activities import audio as audio_act
 from hfvg.activities.media import assemble_mute_edit, render_shot_preview
+from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
 from hfvg.edit_plan import EditPlanError, validate_shot_ops
 from hfvg.genre_presets import ON_SCREEN_TEXT, REGISTRY_PATH, VALID_ASPECTS, resolve_profile
-from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
 from hfvg.qc.clip_expect import expected_clip_dims
 from hfvg.qc.motion import _run_stillgate_analysis
 from tests.lint_helpers import capture

@@ -2951,7 +2951,7 @@ class EpisodeWorkflowV2:
             chars = shot_meta["characters"]
             if not isinstance(chars, list) or not all(isinstance(s, str) and s.strip() for s in chars):
                 return "shot_meta.characters must be a list of non-blank strings"
-        # Validate duck
+        # Validate the legacy flag-figure key (a boolean)
         if "duck" in shot_meta:
             d = shot_meta["duck"]
             if not isinstance(d, bool):

@@ -179,6 +179,7 @@ class GenrePreset:
     video_prompt_mode: VideoPromptMode | None = None
     story_structure: StoryStructure | None = None
     on_screen_text: list[str] = field(default_factory=list)
+    catalogue: str = ""  # optional archetype catalogue the card belongs to (its "catalogue" tag)
 
     def __post_init__(self) -> None:
         if len(self.length_s) != 2 or not all(isinstance(v, int) for v in self.length_s):
@@ -299,6 +300,7 @@ def _preset(raw: dict[str, Any], templates: dict[str, TemplateData],
         gates_add=list(dict.fromkeys(
             Gate(g) for g in [*template.gates_add, *(raw.get("gates_add") or [])])),
         ip_mode=IPMode(raw.get("ip_mode", defaults.get("ip_mode", "original_only"))),
+        catalogue=str(raw.get("catalogue") or ""),
     )
 
 

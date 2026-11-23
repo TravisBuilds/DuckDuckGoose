@@ -6,7 +6,9 @@
   creature, a robot, a puppet, a prop that acts), expected once;
 - ``shot_meta.count`` is the number of main characters in frame: those without a cast entry form
   one group, counted together;
-- figures that older shots.json keys declare outside ``count`` (hfvg.qc.animal_count.legacy_figures).
+- one figure per shot flag the show declares a figure for, outside ``count`` (show profile
+  ``flag_figures``, through ``register_flag_figures``): a figure that is not one of the shot's main
+  characters, counted alone.
 
 A ``CastCounter`` answers for one still or clip, in one shape whoever answers (the vision judge, a
 reviewer's recorded count, an older counter through its adapter): how many of each figure are in
@@ -33,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from hfvg.qc.judges import JudgeBudgetExhausted, confidence_of, count_of
+from hfvg.show_profile import ShowProfileError, flag_value
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -94,10 +97,89 @@ def cast_figures(shot_meta: dict[str, Any] | None) -> list[Figure]:
     return out
 
 
-def shot_roster(shot_meta: dict[str, Any] | None) -> Roster | None:
-    """The figures the shot declares; None when it declares neither a count nor a cast."""
-    from hfvg.qc.animal_count import legacy_figures
+# (shot flag, figure) pairs: the figure a shot adds to its roster when it sets the flag
+FlagFigures = tuple[tuple[str, Figure], ...]
 
+
+def register_flag_figures(profile: Any) -> FlagFigures:
+    """The figures a show's shot flags declare outside ``count`` (show profile ``flag_figures``), as
+    the (flag, figure) pairs ``shot_roster`` reads. A show without flag figures has none."""
+    return tuple((f.flag, Figure(f.figure_id, f.name, description=f.description)) for f in profile.flag_figures)
+
+
+def show_flag_figures(episode_id: str | None = None) -> FlagFigures:
+    """The flag figures of the episode's show profile (hfvg.show_profile.resolve_show_profile; a
+    show.json that does not load raises ShowProfileError); without an episode, the legacy adapter's."""
+    if not episode_id:
+        from hfvg.compat import legacy_show
+        return register_flag_figures(legacy_show.series_profile())
+    from hfvg.show_profile import resolve_show_profile
+    return register_flag_figures(resolve_show_profile(episode_id))
+
+
+def flag_on(shot_meta: dict[str, Any] | None, flag: str) -> bool:
+    return bool(flag_value(shot_meta, flag)[1])
+
+
+def _flagged(meta: dict[str, Any], named: int, count: int | None,
+             flag_figures: FlagFigures) -> tuple[tuple[Figure, ...], int]:
+    """(figures the shot's flags add to the roster, how many cast entries they account for): a flag
+    declares its figure outside ``count``; a cast list longer than ``count`` already lists it."""
+    extra: list[Figure] = []
+    covered = 0
+    for flag, figure in flag_figures:
+        if not flag_on(meta, flag):
+            continue
+        if count is not None and named - covered > count:
+            covered += 1
+        else:
+            extra.append(figure)
+    return tuple(extra), covered
+
+
+def flag_figures_in_cast(roster: Roster, shot_meta: dict[str, Any] | None,
+                         flag_figures: FlagFigures) -> list[Figure]:
+    """The flag figures of the shot that are one of its cast entries, not figures of their own (a cast
+    list longer than ``count`` lists them)."""
+    meta = shot_meta or {}
+    count = meta.get("count")
+    if not (isinstance(count, int) and len(cast_figures(meta)) > count):
+        return []
+    return [figure for flag, figure in flag_figures if roster.figure(figure.id) is None and flag_on(meta, flag)]
+
+
+def totals_answer(roster: Roster, shot_meta: dict[str, Any] | None, flag_figures: FlagFigures, *, cast: int,
+                  flagged: int, unexpected: int, matches: bool | None, confidence: float,
+                  method: str) -> dict[str, Any]:
+    """Three totals as an answer per figure: the main characters (the flag figures excepted), the flag
+    figures, every other figure. Reviewer rows recorded before per-figure counts (hfvg.qc.g2_headcount)
+    and counters that ask those three questions answer this way."""
+    flag_ids = {figure.id for _flag, figure in flag_figures}
+    shown = [figure for _flag, figure in flag_figures if roster.figure(figure.id) is not None]
+    cast_ids = [f.id for f in roster.figures if f.id not in flag_ids]
+    out: dict[str, Any] = {"figures": {}, "together": [], "unexpected": unexpected, "background": 0,
+                           "confidence": confidence, "method": method}
+    in_cast = [] if shown else flag_figures_in_cast(roster, shot_meta, flag_figures)
+    if len(shown) == 1:
+        out["figures"][shown[0].id] = {"count": flagged, "matches": matches}
+    elif shown:
+        out["together"].append({"ids": [f.id for f in shown], "count": flagged, "label": "flag figures",
+                                "matches": matches})
+    elif in_cast:
+        cast += min(flagged, len(in_cast))
+        out["unexpected"] += max(flagged - len(in_cast), 0)
+    else:
+        out["unexpected"] += flagged
+    if cast_ids:
+        out["together"].append({"ids": cast_ids, "count": cast, "label": "cast", "matches": matches})
+    else:
+        out["unexpected"] += cast
+    return out
+
+
+def shot_roster(shot_meta: dict[str, Any] | None, flag_figures: FlagFigures | None = None) -> Roster | None:
+    """The figures the shot declares; None when it declares neither a count nor a cast.
+    ``flag_figures``: the show's (``register_flag_figures``; None: ``show_flag_figures()``)."""
     meta = shot_meta if isinstance(shot_meta, dict) else {}
     named = cast_figures(meta)
     count = meta.get("count")
@@ -105,7 +187,9 @@ def shot_roster(shot_meta: dict[str, Any] | None) -> Roster | None:
         count = None
     if count is None and not named:
         return None
-    extra, covered = legacy_figures(meta, len(named), count)
+    if flag_figures is None:
+        flag_figures = show_flag_figures()
+    extra, covered = _flagged(meta, len(named), count, flag_figures)
     main = len(named) - covered
     figures = list(named)
     note = None
@@ -124,8 +208,8 @@ class CastCounter(ABC):
     async def count_cast(self, media_path: str | Path, shot_context: dict[str, Any]) -> dict[str, Any]:
         """Answer for the figures of ``shot_context["roster"]`` (raise when there is no answer).
 
-        ``shot_context`` also carries ``shot_meta``, ``episode_id``, ``shot_id`` and, for a clip,
-        ``window`` (its trim window). The answer::
+        ``shot_context`` also carries ``shot_meta``, ``episode_id``, ``shot_id``, ``flag_figures`` (the
+        show's, the roster was built with) and, for a clip, ``window`` (its trim window). The answer::
 
             {"figures": {figure id: {"count": int, "matches": bool}},
              "together": [{"ids": [figure id, ...], "count": int, "label": str}],  # optional
@@ -269,10 +353,18 @@ def worst(statuses: list[str]) -> str:
 
 async def check_headcount(counter: CastCounter | None, media_path: str | Path | None, shot_meta: dict[str, Any] | None,
                           confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-                          shot_context: dict[str, Any] | None = None, *, media: str = "media") -> dict[str, Any]:
+                          shot_context: dict[str, Any] | None = None, *, media: str = "media",
+                          flag_figures: FlagFigures | None = None) -> dict[str, Any]:
     """Count the shot's declared figures in one still or clip. Never raises: a counter that cannot
-    answer is NEEDS_REVIEW for this shot."""
-    roster = shot_roster(shot_meta)
+    answer, or a show profile that does not load, is NEEDS_REVIEW for this shot. ``flag_figures``:
+    the show's (None: those of ``shot_context["episode_id"]``'s show, ``show_flag_figures``)."""
+    if flag_figures is None:
+        try:
+            flag_figures = show_flag_figures((shot_context or {}).get("episode_id"))
+        except ShowProfileError as e:
+            return {"status": NEEDS_REVIEW, "checks": [], "expected": None,
+                    "reason": f"the show profile does not load: {str(e)[:200]}"}
+    roster = shot_roster(shot_meta, flag_figures)
     if roster is None:
         return {"status": NEEDS_REVIEW, "checks": [], "expected": None,
                 "reason": "shot declares no cast to verify against"}
@@ -283,7 +375,7 @@ async def check_headcount(counter: CastCounter | None, media_path: str | Path | 
     if not media_path or not Path(media_path).is_file():
         return {"status": NEEDS_REVIEW, "checks": [], "expected": expected,
                 "reason": f"{media} not found on disk: {media_path}"}
-    context = {**(shot_context or {}), "shot_meta": shot_meta, "roster": roster}
+    context = {**(shot_context or {}), "shot_meta": shot_meta, "roster": roster, "flag_figures": flag_figures}
     budget_used_up = False
     try:
         rows = compare_headcount(roster, checked_answer(await counter.count_cast(media_path, context), roster),

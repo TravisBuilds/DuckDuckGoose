@@ -45,7 +45,7 @@ from typing import Annotated, Optional
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from temporalio.client import Client as TemporalClient
 from temporalio.client import WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
@@ -4135,30 +4135,53 @@ async def get_g2_headcount(
 
 class HeadcountRequest(BaseModel):
     """A reviewer's count of one still: per declared figure (the ids of ``expected.figures`` in
-    GET /g2-headcount) with the undeclared figures, the shape of the counter's answer. The cast /
-    duck / other counts of the first series' form are still accepted."""
+    GET /g2-headcount) with the undeclared figures, the shape of the counter's answer. The older
+    figure-count form is still accepted: cast / flag_counts / other (``flag_counts`` also under the
+    key such rows always had, hfvg.compat.legacy_show.ROW_FLAG_KEY)."""
     version: int = Field(..., ge=1)
     figures: dict[str, int] | None = Field(None, description="declared figure id -> how many are in frame")
     unexpected: int = Field(0, ge=0, description="figures nobody declared that stand out as subjects of the shot")
     background: int = Field(0, ge=0, description="figures nobody declared, only in the background")
-    cast: int | None = Field(None, ge=0, description="first series' form: main characters, its host excepted")
-    duck: int | None = Field(None, ge=0, description="first series' form: its host")
-    other: int | None = Field(None, ge=0, description="first series' form: any other figure in frame")
+    cast: int | None = Field(None, ge=0, description="older form: main characters, the show's flag figures excepted")
+    flag_counts: int | None = Field(None, ge=0, description="older form: the figures the shot's flags declare")
+    other: int | None = Field(None, ge=0, description="older form: any other figure in frame")
     note: str = Field("", max_length=1000)
 
-    def counts(self) -> dict:
-        """The counts to record (ValueError when the two forms are mixed or neither is complete)."""
-        legacy = [k for k in ("cast", "duck", "other") if getattr(self, k) is not None]
+    @model_validator(mode="before")
+    @classmethod
+    def _older_flag_key(cls, data: object) -> object:
+        from hfvg.compat.legacy_show import ROW_FLAG_KEY
+        from hfvg.qc.g2_headcount import FLAG_COUNTS, flag_count_key
+        if isinstance(data, dict) and flag_count_key(data) == ROW_FLAG_KEY:
+            data = {**{k: v for k, v in data.items() if k != ROW_FLAG_KEY}, FLAG_COUNTS: data[ROW_FLAG_KEY]}
+        return data
+
+    def counts(self, flag_name: str = "flag_counts") -> dict:
+        """The counts to record (ValueError when the two forms are mixed or neither is complete).
+        ``flag_name``: what the episode's reviewers call the flag figures' count (in messages)."""
+        legacy = [k for k in ("cast", "flag_counts", "other") if getattr(self, k) is not None]
         if self.figures is not None:
             if legacy:
-                raise ValueError("send figures (with unexpected and background) or the cast / duck / other "
+                raise ValueError(f"send figures (with unexpected and background) or the cast / {flag_name} / other "
                                  "counts, not both")
             return {"figures": self.figures, "unexpected": self.unexpected, "background": self.background}
         if {"unexpected", "background"} & self.model_fields_set:
             raise ValueError("unexpected and background go with figures")
-        if self.cast is None or self.duck is None:
-            raise ValueError("send figures (figure id -> count) or both cast and duck")
-        return {"cast": self.cast, "duck": self.duck, "other": self.other or 0}
+        if self.cast is None or self.flag_counts is None:
+            raise ValueError(f"send figures (figure id -> count) or both cast and {flag_name}")
+        return {"cast": self.cast, "flag_counts": self.flag_counts, "other": self.other or 0}
+
+
+def _older_flag_name(episode_id: str) -> str:
+    """The name of the flag figures' count in the older headcount form for this episode: the key its
+    rows always had when the episode reads through the legacy adapter, else flag_counts."""
+    from hfvg.compat.legacy_show import ROW_FLAG_KEY
+    from hfvg.qc.g2_headcount import FLAG_COUNTS
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
+    try:
+        return ROW_FLAG_KEY if resolve_show_profile(episode_id).source == "legacy-adapter" else FLAG_COUNTS
+    except ShowProfileError:
+        return FLAG_COUNTS
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/headcount")
@@ -4178,7 +4201,7 @@ async def record_still_headcount(
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
     try:
-        counts = request.counts()
+        counts = request.counts(_older_flag_name(episode_id))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if still_file(outputs_dir(episode_id, shot_id, paths.data_dir()), request.version) is None:
@@ -4192,7 +4215,8 @@ async def record_still_headcount(
         counted = " ".join([f"{fid}={n}" for fid, n in row["figures"].items()]
                            + [f"unexpected={row['unexpected']}", f"background={row['background']}"])
     else:
-        counted = f"cast={row['cast']} duck={row['duck']} other={row['other']}"
+        from hfvg.compat.legacy_show import ROW_FLAG_KEY
+        counted = f"cast={row['cast']} {ROW_FLAG_KEY}={row[ROW_FLAG_KEY]} other={row['other']}"
     await _audit(episode_id, "g2_headcount", f"{shot_id} v{request.version}: {counted} {request.note.strip()}")
     return {"success": True, "shot_id": shot_id, "version": request.version, "headcount": row}
 
@@ -4391,7 +4415,7 @@ async def _retry_clip_prompt_problem(episode_id: str, shot_id: str, prompt_overr
                                      clip_route: dict | None = None) -> str | None:
     """GAP-66: the clip prompt a retry-clip will SEND (override or plan prompt, plus the prompt kit's
     continuity locks) checked for the model's length limit and the clip lint BEFORE the update is sent.
-    ep05v2 r12 V22: the plan prompt 2409 + injected duck locks = 3149 > Kling's 2500 was refused inside
+    ep05v2 r12 V22: the plan prompt 2409 + injected continuity locks = 3149 > Kling's 2500 was refused inside
     the child (no spend) after the workflow had already counted clip retry 3 of 3. None = OK. Live
     without a readable plan fails closed; dry run skips when the plan is unavailable."""
     live = os.getenv("DRY_RUN", "true").lower() != "true"
@@ -4506,7 +4530,8 @@ class RecomposeRequest(BaseModel):
     ref_keys: list[str] = Field(..., min_length=1, description="Explicit refs (refs/<key>.png); replaces the plan's")
     clip_prompt: str | None = Field(None, description="Clip prompt for the new still (default: the still prompt)")
     shot_meta: dict | None = Field(None, description="GAP-32: change the cast of the new composition "
-                                   "(only count, characters, duck); lint, headcount and clip QC follow it")
+                                   "(only count, characters and the show's shot flags); lint, headcount "
+                                   "and clip QC follow it")
     clip_route: dict | None = Field(None, description="GAP-45: owner-ordered clip route for the new composition "
                                     "(model: kling|seedance, seedance_resolution: 480p|720p|1080p)")
     plate_manifest: str | None = Field(None, description="GAP-53: a hfvg.plate_composite manifest (inside the "
@@ -6353,7 +6378,7 @@ async def set_ref_versions(
     Set or bump reference image versions in refs.json.
     
     Args:
-        versions: Map of ref keys to version numbers (e.g., {"r_duck_sheet": 2})
+        versions: Map of ref keys to version numbers (e.g., {"r_host_sheet": 2})
     
     Requires: Cookie auth
     """

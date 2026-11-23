@@ -12,6 +12,8 @@ export interface PresetData {
   music: string;
   /** Text the create wizard switches on by default: "subtitles", "title_card", "end_card". */
   onScreenText: OnScreenTextKind[];
+  /** Optional archetype catalogue the card belongs to ("animal-pack": cards about non-human characters). */
+  catalogue?: string;
 }
 
 export type OnScreenTextKind = 'subtitles' | 'title_card' | 'end_card';
@@ -135,6 +137,7 @@ export const presets: PresetData[] = [
     id: "mascot-sketch",
     name: "Recurring mascot sketch",
     description: "Episodic comedy starring your non-human mascot",
+    catalogue: "animal-pack",
     template: "dialogue_episode",
     aspect: "16:9",
     lengthRange: [30, 45],
@@ -163,6 +166,7 @@ export const presets: PresetData[] = [
     id: "animal-remake",
     name: "Animal cast remake",
     description: "A story replayed by animals",
+    catalogue: "animal-pack",
     template: "dialogue_episode",
     aspect: "16:9",
     lengthRange: [45, 75],
@@ -205,6 +209,7 @@ export const presets: PresetData[] = [
     id: "cute-greeting",
     name: "Cute holiday greeting",
     description: "Plush mascots wishing a happy occasion",
+    catalogue: "animal-pack",
     template: "cozy_micro",
     aspect: "9:16",
     lengthRange: [10, 15],
@@ -219,6 +224,7 @@ export const presets: PresetData[] = [
     id: "mascot-day",
     name: "Mascot day-in-the-life",
     description: "Your animal mascot runs a tiny errand",
+    catalogue: "animal-pack",
     template: "cozy_micro",
     aspect: "9:16",
     lengthRange: [15, 20],
@@ -331,6 +337,7 @@ export const presets: PresetData[] = [
     id: "creature-legend",
     name: "Fantasy creature legend",
     description: "A painterly legend of magical creatures",
+    catalogue: "animal-pack",
     template: "music_montage",
     aspect: "4:3",
     lengthRange: [60, 180],

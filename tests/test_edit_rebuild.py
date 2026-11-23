@@ -10,7 +10,7 @@ import asyncio
 import pytest
 from temporalio.testing import WorkflowEnvironment
 
-from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
 from tests.lint_helpers import lint_ok
 from tests.test_audio_delivery_workflow import PROMPT, _delivered, write_audio
 from tests.test_moderation_recovery import Harness, _wait, dry_env  # noqa: F401

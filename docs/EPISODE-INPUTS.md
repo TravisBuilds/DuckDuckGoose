@@ -61,8 +61,11 @@ An episode workflow requires several input files in `data/episodes/{episode_id}/
 - **Validation:** strict; every problem of the file is reported together. Optional: an episode
   without one is read through the legacy adapter (its `prompt_kit.json` and `shots.json`, exactly
   as before), or gets the neutral default profile when it has neither.
-  `HFVG_SHOW_PROFILE_PATH` names one profile for every episode without its own.
-- **Used by:** prompt lint, playbook, shot data, cast sheets, headcount and identity judges
+  `HFVG_SHOW_PROFILE_PATH` names one profile for every episode without its own. A new show ships
+  one, even a two-key file (`schema` and `name`): a show with no animals, or with no characters at
+  all, needs no other data (docs/SHOW-PROFILE.md, "A show with no animals").
+- **Used by:** prompt lint, playbook, shot data, beatmap parsing, cast sheets, start plates, motion
+  suggestions, the headcount and identity judges (and their style note), the preflight
 
 ## Configuration Files
 

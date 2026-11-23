@@ -421,7 +421,7 @@ def _png(path: Path, color: tuple[int, int, int] = (90, 140, 200), size: tuple[i
 
 
 def headcount(root: Path, mp: pytest.MonkeyPatch) -> dict:
-    from hfvg.qc.animal_count import (
+    from hfvg.compat.species_counter import (
         FakeAnimalCounter,
         check_shot_animals,
         expected_cast,
@@ -565,7 +565,7 @@ def _request(call, files: dict[str, Path], model: str = "gpt-4.1-mini") -> dict:
 
 def judge_prompts(root: Path, mp: pytest.MonkeyPatch) -> dict:
     from hfvg.qc import identity, still_review, vision_constraints, vision_counter
-    from hfvg.qc.duck_identity import DUCK_HOST_PROFILE, DuckIdentityGate
+    from hfvg.compat.host_identity import DUCK_HOST_PROFILE, DuckIdentityGate
     from hfvg.qc.headcount import shot_roster
     from hfvg.qc.identity import (
         GENERIC_PROFILE,
