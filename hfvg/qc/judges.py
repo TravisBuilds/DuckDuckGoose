@@ -82,7 +82,7 @@ DEFAULT_DEADLINE_S = 200.0
 
 QC_LINE = "qc_judges"
 DEFAULT_PROVIDER = "openai"  # the provider of a bare model id; the only one with a judge client
-JUDGE_VERSION = "1"  # bump when a judge's instructions change: cached verdicts are not reused
+JUDGE_VERSION = "2"  # bump when a judge's instructions change: cached verdicts are not reused
 
 MEDIA_PX = 768   # longest side of a judged still or frame
 REF_PX = 512     # longest side of a reference image
