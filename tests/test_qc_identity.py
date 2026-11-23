@@ -258,6 +258,7 @@ async def test_a_budget_refusal_escalates_without_a_call(db, tmp_path):
     _register(client)
     res = await _review(_frame(tmp_path), pip)
     assert res["status"] == "NEEDS_REVIEW" and "budget refused the judge call" in res["reason"], res
+    assert "judge budget used up, a person checks this: " in res["reason"], res
     assert client.calls == [] and qc_line(db, EP)["reserved"] == 0
 
 

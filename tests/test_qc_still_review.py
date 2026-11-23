@@ -143,6 +143,7 @@ async def test_a_budget_refusal_needs_review_without_a_call(db, tmp_path):
     client = FakeJudgeClient(STILL_PASS)
     out = await _judged(client, _rubric(tmp_path))
     assert out["escalate"] is True and "budget refused the judge call" in out["issues"][0]
+    assert out["issues"][0].startswith("QC judge needs review: judge budget used up, a person checks this: "), out
     assert client.calls == []
 
 
