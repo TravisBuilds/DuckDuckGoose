@@ -14,6 +14,7 @@ import {
   emptyRights,
   estimateText,
   estimateWhat,
+  lockedDescription,
   optionCounts,
   pictureHint,
   pictureProblem,
@@ -66,7 +67,7 @@ const darkBtn = `${btn} pf-btn-primary`;
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
 /**
- * Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series".
+ * Where an action's result shows: a character slug (optionally ":upload", ":sheet", ":outfit" or ":revise"), "add", "shots" or "series".
  * `refused` may take a refusal's words and show them itself (true), instead of the result line.
  */
 type Act = <T>(fn: () => Promise<T>, done?: string, where?: string, refused?: (message: string) => boolean) => Promise<T | null>;
@@ -468,6 +469,71 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
   );
 }
 
+/**
+ * An admin's rewrite of a locked look's words, also during a run (api/cast_routes.py revise-lock). The
+ * sheet pictures stay. A run uses the new words once its plans are resynced at G2, where the stills
+ * made with the old words wait for a person.
+ */
+function ReviseLock({ apiBase, character, version, busy, act, note }: {
+  apiBase: string; character: CastCharacter; version: CastVersion; busy: boolean; act: Act; note: CastNote | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [words, setWords] = useState({ description: '', outfit: '', reason: '' });
+  const revisions = version.lock_revisions ?? [];
+  const last = revisions[revisions.length - 1];
+  const start = () => {
+    setWords({ description: lockedDescription(character, version), outfit: version.outfit, reason: '' });
+    setOpen(true);
+  };
+  const revise = async () => {
+    const done = await act(
+      () => postJson(`${apiBase}/cast/${character.character_id}/versions/${version.version}/revise-lock`, {
+        description: words.description.trim(), outfit: words.outfit.trim(), reason: words.reason.trim(),
+      }),
+      'Locked words changed. A running episode uses them after you resync its plans at G2, where stills made '
+        + 'with the old words wait for you.',
+      `${character.slug}:revise`,
+    );
+    if (done !== null) setOpen(false);
+  };
+  return (
+    <div className="mt-3" data-testid={`cast-revise-lock-${character.slug}`}>
+      {last && (
+        <p className="text-[12px] text-ink-soft">
+          Locked words changed {revisions.length === 1 ? 'once' : `${revisions.length} times`}, last
+          by {last.by ?? 'an admin'} on {last.at.slice(0, 10)}: {last.reason}
+        </p>
+      )}
+      {open ? (
+        <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
+          <p className="text-sm font-semibold">Change the locked words (admins only)</p>
+          <p className="text-xs text-gray-600">
+            The sheet pictures stay the same. Every shot with this look gets the new words.
+          </p>
+          <textarea value={words.description} onChange={(e) => setWords({ ...words, description: e.target.value })}
+            maxLength={600} rows={3} aria-label="What they look like" className={field} />
+          <input value={words.outfit} onChange={(e) => setWords({ ...words, outfit: e.target.value })} maxLength={600}
+            placeholder="The outfit" aria-label="The outfit" className={field} />
+          <input value={words.reason} onChange={(e) => setWords({ ...words, reason: e.target.value })} maxLength={300}
+            placeholder="Why, e.g. approved by the director" aria-label="Why the words change" className={field} />
+          <div className="flex gap-2">
+            <button type="button" onClick={revise} disabled={busy || !words.description.trim() || !words.reason.trim()}
+              className={darkBtn}>
+              Change the locked words
+            </button>
+            <button type="button" onClick={() => setOpen(false)} disabled={busy} className={plainBtn}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={start} disabled={busy} className={`${plainBtn} mt-1`}>
+          Change the locked words
+        </button>
+      )}
+      <CastMessage note={note} />
+    </div>
+  );
+}
+
 function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
   apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
   note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
@@ -492,9 +558,11 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   if (!version) return null;
   const uploadShown = canEdit && !version.locked && pictures.uploads.length < view.limits.max_uploads_per_version;
   const outfitShown = canEdit && version.locked && !universe;
+  const reviseShown = Boolean(view.can_revise_locks) && version.locked && !universe;
   // A result shows by the part of the card it came from while that part is on screen, else at the card's foot.
   const spot = note?.where.startsWith(`${here}:`) ? note.where.slice(here.length + 1) : null;
-  const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
+  const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown)
+    || (spot === 'revise' && reviseShown);
   const noteFor = (part: string) => (inPlace && spot === part ? note : null);
   const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
   const face = pictures.uploads.find((image) => image.is_primary) ?? pictures.uploads[0] ?? pictures.sheet[0] ?? null;
@@ -601,6 +669,11 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
       {outfitShown && (
         <NewOutfit apiBase={apiBase} character={character} version={version} busy={busy} act={act}
           onCreated={setVersionNo} note={noteFor('outfit')} />
+      )}
+
+      {reviseShown && (
+        <ReviseLock key={`${character.character_id}-${version.version}-revise`} apiBase={apiBase} character={character}
+          version={version} busy={busy} act={act} note={noteFor('revise')} />
       )}
 
       {canEdit && !editing && (

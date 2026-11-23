@@ -135,6 +135,8 @@ see a cast:
   like a missing one. Taking the episode out (`series_id: null`) needs only the episode's owner.
 - Deleting a character with a locked sheet needs an admin session (or the admin Bearer token) with
   `force` and a reason. Members get `403`, even on their own episode.
+- Revising the words of a locked look (`POST .../cast/{character_id}/versions/{n}/revise-lock`) is
+  admin-only: the route does not allow members, so members get `403`, even on their own episode.
 - Reads (`GET /api/series`, `GET /api/series/{id}`, `GET /api/episodes/{id}/cast...`, cast images)
   follow who may see the cast, not the episode read rule. Admins (session or Bearer) see every cast.
   An episode's own cast is seen by whoever may change the episode: its owner, or every member while it

@@ -52,6 +52,8 @@ ROLE_MAX = 80
 DESCRIPTION_MAX = 600
 OUTFIT_MAX = 600
 LABEL_MAX = 60
+REASON_MAX = 300
+LOCK_REVISE_ACTION = "version_lock_revise"
 
 # Rights attestation for every upload: the creator made the image or owns the rights to use it.
 RIGHTS_VALUES = ("original", "owned")
@@ -503,6 +505,7 @@ def get_character(character_id: str) -> dict:
                               (character_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM cast_sheet_jobs WHERE character_id = ? ORDER BY created_at, job_id",
                             (character_id,)).fetchall()
+        revisions = _lock_revisions(conn, character_id)
     out = dict(row)
     out["versions"] = []
     for v in versions:
@@ -510,6 +513,7 @@ def get_character(character_id: str) -> dict:
         vd["locked"] = bool(vd["locked"])
         vd["images"] = [_image_view(dict(i)) for i in images if i["version"] == v["version"]]
         vd["sheet_jobs"] = [dict(j) for j in jobs if j["version"] == v["version"]]
+        vd["lock_revisions"] = [r for r in revisions if r.get("version") == v["version"]]
         vd["clause"] = version_clause(out, vd)
         out["versions"].append(vd)
     out["default_version"] = default_version_number(out["versions"])
@@ -1016,6 +1020,53 @@ def approve_version(character_id: str, version: int, actor: str | None = None, *
         audit(conn, actor, "version_lock", episode_id=episode_id, character_id=character_id,
               details={"version": version, "lock_hash": digest, "images": snapshot["images"]})
     return get_version(character_id, version)
+
+
+def revise_locked_version(character_id: str, version: int, *, description: str, outfit: str | None = None,
+                          reason: str, actor: str | None = None, episode_id: str | None = None) -> dict:
+    """Rewrite the words a locked version holds: its locked description becomes the character's name with
+    ``description`` and the outfit (``outfit``, else the version's own), and the lock hash is made again
+    over the same sheet pictures. An admin's decision (the API checks who asks), recorded with the
+    reason and both texts in the audit log. A lock that no longer verifies is refused, so a revision
+    never re-blesses a changed sheet. A run's planned shots keep the old words until its plans are
+    resynced (hfvg.plan_resync)."""
+    description = _clean(description, "Description", DESCRIPTION_MAX, required=True)
+    reason = _clean(reason, "Reason", REASON_MAX, required=True)
+    if outfit is not None:
+        outfit = _clean(outfit, "Outfit", OUTFIT_MAX)
+    problems = verify_lock(character_id, version)
+    if problems:
+        raise CastConflict("This lock cannot be revised: " + "; ".join(problems))
+    with connect() as conn, _tx(conn):
+        character = _character_row(conn, character_id)
+        row = _version_row(conn, character_id, version)
+        if not row["locked"]:
+            raise CastConflict(f"Version {version} is not locked; change it directly")
+        images = conn.execute("SELECT * FROM cast_images WHERE character_id = ? AND version = ? AND status = 'active' "
+                              "AND role IN (?, ?, ?, ?, ?, ?)", (character_id, version, *SHEET_ROLES)).fetchall()
+        if lock_hash(_lock_snapshot(character, row, images)) != row["lock_hash"]:
+            raise CastConflict(f"{character['name']} v{version}: the locked sheet no longer matches its lock hash")
+        new_outfit = row["outfit"] if outfit is None else outfit
+        clause = character_clause(character["name"], description, new_outfit)
+        if clause == row["locked_description"] and new_outfit == row["outfit"]:
+            raise CastError(f"Version {version} is already locked with these words")
+        conn.execute("UPDATE cast_versions SET outfit = ?, locked_description = ? WHERE character_id = ? AND version = ?",
+                     (new_outfit, clause, character_id, version))
+        digest = lock_hash(_lock_snapshot(character, _version_row(conn, character_id, version), images))
+        conn.execute("UPDATE cast_versions SET lock_hash = ?, updated_at = ? WHERE character_id = ? AND version = ?",
+                     (digest, _now(), character_id, version))
+        audit(conn, actor, LOCK_REVISE_ACTION, episode_id=episode_id, character_id=character_id,
+              details={"version": version, "reason": reason,
+                       "before": {"locked_description": row["locked_description"], "outfit": row["outfit"],
+                                  "lock_hash": row["lock_hash"]},
+                       "after": {"locked_description": clause, "outfit": new_outfit, "lock_hash": digest}})
+    return get_version(character_id, version)
+
+
+def _lock_revisions(conn, character_id: str) -> list[dict]:
+    rows = conn.execute("SELECT timestamp, actor, details FROM cast_audit_log WHERE character_id = ? AND action = ? "
+                        "ORDER BY id", (character_id, LOCK_REVISE_ACTION)).fetchall()
+    return [{"at": r["timestamp"], "by": r["actor"], **json.loads(r["details"])} for r in rows]
 
 
 def _role_label(role: str) -> str:

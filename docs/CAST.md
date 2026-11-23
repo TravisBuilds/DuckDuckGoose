@@ -153,6 +153,24 @@ A version's sheet is made in steps, in the Cast panel:
    with `force` and a reason. Before the lock, any step can be rejected and made again. Each try gets
    new job ids, so a paid job id is never reused.
 
+### Revising a locked look (admins)
+
+`POST /api/episodes/{id}/cast/{character_id}/versions/{version}/revise-lock` with `description`,
+`reason` and optionally `outfit` rewrites the words of a locked version. Its `locked_description`
+becomes `"<Name>: <description>; outfit: <outfit>."`, using the character's current name and, without
+`outfit`, the version's own outfit. `lock_hash` is then made again over the same sheet pictures. The
+revise form in the Cast panel shows for admins only (`can_revise_locks` in the cast view).
+
+- Only an admin may revise (**403** for members, with no `allow_members` on the route). Revising is
+  accepted while runs are open. Text is checked against the content policy like any character text.
+- A lock that no longer verifies (`verify_lock`: the rows or a sheet file changed) is refused with
+  **409**, so a revision never re-blesses a changed sheet. Repeating the current words is refused too.
+- The audit log records each revision (`version_lock_revise`, with the reason, the words, outfit and
+  lock hash before and after), and the version lists them in `lock_revisions`.
+- The pictures, the version number and the shots that use the version stay the same. New plans
+  (preflight, the Cast panel, a new run) use the new words. A run keeps the words it planned with
+  until its plans are resynced.
+
 Sheets use the server's still model (`MODEL_PATH_STILL`, default `xai/grok-imagine-image-2.0`) and only
 when `model_caps.json` lists it as routed by the REST provider. `gpt_image_2` (`mcp_only_not_on_api`)
 and other models the provider refuses cannot be chosen. A model whose reference limit is too small

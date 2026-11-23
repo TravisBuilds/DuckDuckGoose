@@ -1,6 +1,6 @@
 """Cast library routes: series, characters, versions (outfits), reference uploads, character sheets
 and who is in frame in each shot. Mounted by api/main.py under the same app-wide guard
-(``require_admin_auth``); every route here allows members.
+(``require_admin_auth``); every route here allows members except revising a locked look (admins only).
 
 Who may change what (docs/AUTHENTICATION.md): a member's POST under ``/api/episodes/{episode_id}/``
 is checked against the episode's owner before the handler runs (the app-wide guard); a change to a
@@ -487,6 +487,12 @@ class VersionUpdateRequest(BaseModel):
     outfit: str | None = Field(None, max_length=cast_store.OUTFIT_MAX)
 
 
+class LockReviseRequest(BaseModel):
+    description: str = Field(..., min_length=1, max_length=cast_store.DESCRIPTION_MAX)
+    outfit: str | None = Field(None, max_length=cast_store.OUTFIT_MAX)
+    reason: str = Field(..., min_length=1, max_length=cast_store.REASON_MAX)
+
+
 class SheetRequest(BaseModel):
     stage: str = Field(..., pattern="^(options|turnaround)$")
     count: int | None = Field(None, ge=1, le=4)
@@ -611,6 +617,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
                    "max_characters": cast_store.MAX_CHARACTERS_PER_LIBRARY, "max_cast_per_shot": MAX_CAST_PER_SHOT},
         "attestation": {"rights": list(cast_store.RIGHTS_VALUES), "likeness_gate": cast_store.LIKENESS_CONSENT},
         "can_edit": await _can_edit(episode_id, library, authorization, studio_admin_token),
+        "can_revise_locks": is_admin,
     }
 
 get_episode_cast.allow_members = True
@@ -830,6 +837,25 @@ async def update_cast_version(episode_id: str, character_id: str, version: int, 
     return {"version": updated}
 
 update_cast_version.allow_members = True
+
+
+@router.post("/api/episodes/{episode_id}/cast/{character_id}/versions/{version}/revise-lock")
+async def revise_cast_lock(episode_id: str, character_id: str, version: int, request: LockReviseRequest,
+                           authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):
+    """Admins only: rewrite the words of a locked look, also while runs are open, with a reason
+    (cast_store.revise_locked_version; the sheet pictures stay). A run uses the new words once its plans
+    are resynced at G2 (POST /api/episodes/{id}/resync-plans), which flags the stills made with the old
+    words for a person to decide."""
+    episode_id = _episode_id(episode_id)
+    actor, _, is_admin = await _actor(authorization, studio_admin_token)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only an admin can revise a locked look")
+    library = await _library(episode_id)
+    await _character_in(library, character_id)
+    _check_text(request.description, request.outfit)
+    revised = await _call(cast_store.revise_locked_version, character_id, version, description=request.description,
+                          outfit=request.outfit, reason=request.reason, actor=actor, episode_id=episode_id)
+    return {"version": revised, "character": _character_out(await _call(cast_store.get_character, character_id))}
 
 
 @router.post("/api/episodes/{episode_id}/cast/{character_id}/versions/{version}/images")

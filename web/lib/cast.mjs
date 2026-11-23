@@ -238,6 +238,21 @@ export function sheetHasPlaceholders(version) {
   return versionPictures(version).sheet.some(i => i.placeholder);
 }
 
+/**
+ * The description a locked look was locked with, read back from its words ("<Name>: <description>;
+ * outfit: <outfit>.", hfvg/cast_prompt.py character_clause); the character's description when the
+ * words hold no description under its current name.
+ */
+export function lockedDescription(character, version) {
+  const head = `${character.name}: `;
+  let text = String(version.clause ?? '');
+  if (!text.startsWith(head)) return character.description;
+  text = text.slice(head.length).replace(/\.$/, '');
+  const outfit = String(version.outfit ?? '').replace(/\.$/, '');
+  const tail = `; outfit: ${outfit}`;
+  return outfit && text.endsWith(tail) ? text.slice(0, -tail.length) : text;
+}
+
 // ---------------------------------------------------------------------------------- who is in each shot
 
 /** A shot's cast as picks [{character, version}] (version null = the character's default version). */

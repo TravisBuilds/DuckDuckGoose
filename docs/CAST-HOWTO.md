@@ -57,6 +57,9 @@ character uses those pictures.
    this look**. The sheet can't be changed after this, and the description it was locked with stays
    with it.
 
+**Admins only:** the words of a locked look (its description and outfit) can still be changed, also
+during a run, with **Change the locked words** under the look. Give the reason. The pictures stay.
+
 Paid sheets need the video in live mode (**Enable Live Mode** on the video's page). Before each
 picture, the studio checks the price, your balance and this video's budget again. If one of them
 doesn't fit, that picture isn't made and the panel says why.
@@ -147,7 +150,7 @@ admin) can change it.
 | "switch it to live mode first" | Sheet pictures are paid. Press **Enable Live Mode** on the video's page. |
 | "Some pictures were not made" | The list says why (for example, the price, your balance or the budget changed). Check the price again and make them again. |
 | "is being made right now" | Wait for the current run to end, then change the cast. |
-| "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead. |
+| "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead, or ask an admin to change its words. |
 | "Only the people working on this episode (and admins) can see its cast" | The video belongs to someone else. Ask its owner or an admin. |
 | "is a place, not a prop" (or "a prop, not a place") | Pick it under **Place** instead, or under **Props**. |
 | "needs a picture prompt" | A shot's picture prompt can't be empty. Write one, or **Undo**. |

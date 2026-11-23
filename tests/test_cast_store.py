@@ -444,6 +444,56 @@ def test_renaming_keeps_the_locked_description_and_hash():
     assert cast_store.verify_lock(cid, 1) == []
 
 
+def test_a_revision_rewrites_the_locked_words_with_a_new_hash_and_an_audit_record():
+    character = new_character()
+    cid = character["character_id"]
+    sheet = complete_sheet(character)
+    locked = cast_store.approve_version(cid, 1, "t")
+    revised = cast_store.revise_locked_version(cid, 1, description="a tall square robot with two blue eyes",
+                                               outfit="a red scarf", reason="the director's new look",
+                                               actor="admin-1", episode_id="ep41cast")
+    words = "Pip: a tall square robot with two blue eyes; outfit: a red scarf."
+    assert (revised["locked"], revised["locked_description"], revised["clause"], revised["outfit"]) == (
+        True, words, words, "a red scarf")
+    assert len(revised["lock_hash"]) == 64 and revised["lock_hash"] != locked["lock_hash"]
+    assert cast_store.verify_lock(cid, 1) == []
+    assert {i["role"]: i["image_id"] for i in revised["images"]} == {r: i["image_id"] for r, i in sheet.items()}
+    [record] = revised["lock_revisions"]
+    assert (record["by"], record["version"], record["reason"]) == ("admin-1", 1, "the director's new look")
+    assert record["before"] == {"locked_description": locked["locked_description"], "outfit": "",
+                                "lock_hash": locked["lock_hash"]}
+    assert record["after"] == {"locked_description": words, "outfit": "a red scarf", "lock_hash": revised["lock_hash"]}
+    [row] = [r for r in cast_store.list_audit(character_id=cid) if r["action"] == "version_lock_revise"]
+    assert (row["actor"], row["episode_id"]) == ("admin-1", "ep41cast")
+    # without an outfit the version keeps its own; the same words again change nothing
+    again = cast_store.revise_locked_version(cid, 1, description="a tall square robot", reason="shorter", actor="a")
+    assert again["locked_description"] == "Pip: a tall square robot; outfit: a red scarf."
+    assert len(again["lock_revisions"]) == 2
+    with pytest.raises(cast_store.CastError, match="already locked with these words"):
+        cast_store.revise_locked_version(cid, 1, description="a tall square robot", reason="again", actor="a")
+    with pytest.raises(cast_store.CastError, match="Reason is required"):
+        cast_store.revise_locked_version(cid, 1, description="a robot", reason=" ", actor="a")
+    with pytest.raises(cast_store.CastError, match="Description is required"):
+        cast_store.revise_locked_version(cid, 1, description="", reason="r", actor="a")
+    other = new_character(name="Moss")
+    with pytest.raises(cast_store.CastConflict, match="not locked"):
+        cast_store.revise_locked_version(other["character_id"], 1, description="a moth", reason="r", actor="a")
+    assert cast_store.get_version(cid, 1)["lock_hash"] == again["lock_hash"]
+
+
+def test_a_lock_that_no_longer_verifies_is_not_revised(cast_dir):
+    character = new_character()
+    cid = character["character_id"]
+    sheet = complete_sheet(character)
+    locked = cast_store.approve_version(cid, 1, "t")
+    cast_store.image_path(sheet[cast_store.HEAD_ROLE]).write_bytes(image_bytes(size=(960, 640), seed=999))
+    with pytest.raises(cast_store.CastConflict, match="cannot be revised: .*changed on disk"):
+        cast_store.revise_locked_version(cid, 1, description="a tall square robot", reason="r", actor="a")
+    after = cast_store.get_version(cid, 1)
+    assert (after["lock_hash"], after["locked_description"], after["lock_revisions"]) == (
+        locked["lock_hash"], locked["locked_description"], [])
+
+
 def test_tampering_with_a_locked_sheet_is_detected(cast_dir):
     character = new_character()
     cid = character["character_id"]

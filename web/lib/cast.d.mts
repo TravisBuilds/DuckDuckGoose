@@ -50,6 +50,17 @@ export interface CastVersion {
   clause: string;
   images: CastImage[];
   sheet_jobs: SheetJob[];
+  /** An admin's rewrites of the locked words, oldest first (api/cast_routes.py revise-lock). */
+  lock_revisions?: LockRevision[];
+}
+
+export interface LockRevision {
+  at: string;
+  by: string | null;
+  version: number;
+  reason: string;
+  before: { locked_description: string; outfit: string; lock_hash: string };
+  after: { locked_description: string; outfit: string; lock_hash: string };
 }
 
 export interface CastCharacter {
@@ -135,6 +146,8 @@ export interface CastView {
     max_cast_per_shot: number;
   };
   can_edit: boolean;
+  /** Admins may rewrite the words of a locked look, also during a run. */
+  can_revise_locks?: boolean;
 }
 
 export interface RightsAnswers {
@@ -233,6 +246,10 @@ export declare function defaultOptionCount(fromPicture: boolean): number;
 export declare function estimateText(estimate: Pick<SheetEstimate, 'count' | 'dry_run' | 'total_usd_micros'>): string;
 export declare function estimateWhat(estimate: Pick<SheetEstimate, 'count'>): string;
 export declare function sheetHasPlaceholders(version: CastVersion | null | undefined): boolean;
+export declare function lockedDescription(
+  character: Pick<CastCharacter, 'name' | 'description'>,
+  version: Pick<CastVersion, 'clause' | 'outfit'>,
+): string;
 
 export declare function castPicks(cast: (string | { character: string; version?: number | null })[] | null | undefined): CastPick[];
 export declare function castEntries(picks: CastPick[]): (string | { character: string; version: number })[];

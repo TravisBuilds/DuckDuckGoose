@@ -19,6 +19,7 @@ import {
   estimateWhat,
   kitWithCast,
   latestRequest,
+  lockedDescription,
   optionCounts,
   pictureHint,
   pictureProblem,
@@ -226,6 +227,16 @@ test('the estimate is shown before anything is made, free in preview mode', () =
 test('a sheet of stand-in pictures is flagged', () => {
   assert.equal(sheetHasPlaceholders({ images: [image('master', { placeholder: true })] }), true);
   assert.equal(sheetHasPlaceholders({ images: [image('master'), image('upload', { placeholder: true })] }), false);
+});
+
+test('the description a look was locked with is read back from its words', () => {
+  const pip = { name: 'Pip', description: 'edited since the lock' };
+  assert.equal(lockedDescription(pip, { clause: 'Pip: a small round robot; outfit: a yellow raincoat.',
+    outfit: 'a yellow raincoat' }), 'a small round robot');
+  assert.equal(lockedDescription(pip, { clause: 'Pip: a small round robot.', outfit: '' }), 'a small round robot');
+  assert.equal(lockedDescription(pip, { clause: 'Pip.', outfit: '' }), 'edited since the lock');
+  assert.equal(lockedDescription({ ...pip, name: 'Pip the Second' }, { clause: 'Pip: a small round robot.', outfit: '' }),
+    'edited since the lock');
 });
 
 test('shot cast picks round-trip to shots.json entries; the default version is the id alone', () => {
